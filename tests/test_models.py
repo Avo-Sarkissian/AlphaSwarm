@@ -103,12 +103,12 @@ async def test_sequential_load(
     model_manager: Any, mock_ollama_client: MagicMock, mock_raw_client: AsyncMock
 ) -> None:
     """Load orchestrator -> verify -> unload -> verify -> load worker -> verify."""
-    # ps() returns the loaded model after each load call
+    # ps() is only called by is_model_loaded() inside load_model(),
+    # NOT by unload_model(). So we need exactly 2 side effects.
     mock_raw_client.ps = AsyncMock(
         side_effect=[
-            _make_ps_response(["alphaswarm-orchestrator"]),  # after load orch
-            _make_ps_response([]),  # after unload orch
-            _make_ps_response(["alphaswarm-worker"]),  # after load worker
+            _make_ps_response(["alphaswarm-orchestrator"]),  # load_model("orch") -> is_model_loaded
+            _make_ps_response(["alphaswarm-worker"]),  # load_model("worker") -> is_model_loaded
         ]
     )
     await model_manager.load_model("alphaswarm-orchestrator")
