@@ -74,3 +74,34 @@ async def test_governor_stub_async() -> None:
         pass
     assert governor.current_limit == 8
     assert governor.active_count == 0
+
+
+def test_create_app_state_with_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
+    """create_app_state with with_ollama=True creates OllamaClient and OllamaModelManager."""
+    for key in list(os.environ):
+        if key.startswith("ALPHASWARM_"):
+            monkeypatch.delenv(key, raising=False)
+
+    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.ollama_models import OllamaModelManager
+
+    settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
+    personas = generate_personas(load_bracket_configs())
+    app = create_app_state(settings, personas, with_ollama=True)
+
+    assert isinstance(app.ollama_client, OllamaClient)
+    assert isinstance(app.model_manager, OllamaModelManager)
+
+
+def test_create_app_state_without_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
+    """create_app_state default (with_ollama=False) has None for ollama fields."""
+    for key in list(os.environ):
+        if key.startswith("ALPHASWARM_"):
+            monkeypatch.delenv(key, raising=False)
+
+    settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
+    personas = generate_personas(load_bracket_configs())
+    app = create_app_state(settings, personas)
+
+    assert app.ollama_client is None
+    assert app.model_manager is None

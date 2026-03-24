@@ -5,7 +5,6 @@ import sys
 from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 
-
 BANNER = """
 ============================================================
   AlphaSwarm v{version}
@@ -17,7 +16,23 @@ BANNER = """
 
 
 def main() -> None:
-    """Application entry point. Validates config and prints startup banner."""
+    """Application entry point. Validates config and prints startup banner.
+
+    Graceful shutdown pattern for Ollama-enabled runs (Phase 5+):
+
+        async def run_simulation():
+            app = create_app_state(settings, personas, with_ollama=True)
+            try:
+                # ... simulation loop ...
+                pass
+            finally:
+                if app.model_manager:
+                    await app.model_manager.ensure_clean_state()
+
+        asyncio.run(run_simulation())
+
+    Current Phase 2: with_ollama=False (default) -- no Ollama dependency at startup.
+    """
     try:
         settings = AppSettings()
     except Exception as e:
