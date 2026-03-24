@@ -85,39 +85,39 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SIM-01 | — | Pending |
-| SIM-02 | — | Pending |
-| SIM-03 | — | Pending |
-| SIM-04 | — | Pending |
-| SIM-05 | — | Pending |
-| SIM-06 | — | Pending |
-| SIM-07 | — | Pending |
-| SIM-08 | — | Pending |
-| INFRA-01 | — | Pending |
-| INFRA-02 | — | Pending |
-| INFRA-03 | — | Pending |
-| INFRA-04 | — | Pending |
-| INFRA-05 | — | Pending |
-| INFRA-06 | — | Pending |
-| INFRA-07 | — | Pending |
-| INFRA-08 | — | Pending |
-| INFRA-09 | — | Pending |
-| INFRA-10 | — | Pending |
-| INFRA-11 | — | Pending |
-| TUI-01 | — | Pending |
-| TUI-02 | — | Pending |
-| TUI-03 | — | Pending |
-| TUI-04 | — | Pending |
-| TUI-05 | — | Pending |
-| TUI-06 | — | Pending |
-| CONF-01 | — | Pending |
-| CONF-02 | — | Pending |
+| CONF-01 | Phase 1: Project Foundation | Pending |
+| CONF-02 | Phase 1: Project Foundation | Pending |
+| INFRA-11 | Phase 1: Project Foundation | Pending |
+| INFRA-03 | Phase 2: Ollama Integration | Pending |
+| INFRA-04 | Phase 2: Ollama Integration | Pending |
+| INFRA-08 | Phase 2: Ollama Integration | Pending |
+| INFRA-01 | Phase 3: Resource Governance | Pending |
+| INFRA-02 | Phase 3: Resource Governance | Pending |
+| INFRA-07 | Phase 3: Resource Governance | Pending |
+| INFRA-09 | Phase 3: Resource Governance | Pending |
+| INFRA-05 | Phase 4: Neo4j Graph State | Pending |
+| INFRA-06 | Phase 4: Neo4j Graph State | Pending |
+| SIM-01 | Phase 5: Seed Injection and Agent Personas | Pending |
+| SIM-02 | Phase 5: Seed Injection and Agent Personas | Pending |
+| SIM-03 | Phase 5: Seed Injection and Agent Personas | Pending |
+| SIM-04 | Phase 6: Round 1 Standalone | Pending |
+| SIM-05 | Phase 7: Rounds 2-3 Peer Influence and Consensus | Pending |
+| SIM-06 | Phase 7: Rounds 2-3 Peer Influence and Consensus | Pending |
+| SIM-07 | Phase 8: Dynamic Influence Topology | Pending |
+| SIM-08 | Phase 8: Dynamic Influence Topology | Pending |
+| INFRA-10 | Phase 8: Dynamic Influence Topology | Pending |
+| TUI-01 | Phase 9: TUI Core Dashboard | Pending |
+| TUI-02 | Phase 9: TUI Core Dashboard | Pending |
+| TUI-06 | Phase 9: TUI Core Dashboard | Pending |
+| TUI-03 | Phase 10: TUI Panels and Telemetry | Pending |
+| TUI-04 | Phase 10: TUI Panels and Telemetry | Pending |
+| TUI-05 | Phase 10: TUI Panels and Telemetry | Pending |
 
 **Coverage:**
 - v1 requirements: 27 total
-- Mapped to phases: 0
-- Unmapped: 27 ⚠️
+- Mapped to phases: 27
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-03-24 after initial definition*
+*Last updated: 2026-03-24 after roadmap creation*
