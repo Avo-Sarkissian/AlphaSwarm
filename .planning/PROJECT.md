@@ -12,7 +12,8 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Async batched Ollama inference with adaptive ResourceGovernor (psutil-driven semaphore) — Validated in Phase 02: ollama-integration
+- [x] Exponential backoff for Ollama retries — Validated in Phase 02: ollama-integration
 
 ### Active
 
@@ -57,7 +58,7 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Dynamic asyncio.Semaphore over hardcoded parallelism | VRAM ceiling unknown during peak context loads; psutil monitoring at 90% threshold | — Pending |
+| Dynamic asyncio.Semaphore over hardcoded parallelism | VRAM ceiling unknown during peak context loads; psutil monitoring at 90% threshold | ✓ Implemented in Phase 02 — BoundedSemaphore with psutil acquire/release |
 | Snapshot-based TUI rendering (200ms tick) | 100 async agents would freeze Textual if pushing per-agent updates; decouples agent throughput from render throughput | — Pending |
 | Cycle-scoped Neo4j edges (cycle_id on relationships) | Enables fast current-cycle reads without full history scans; composite index keeps queries under 5ms | — Pending |
 | Dynamic influence topology | Edges form from citation/agreement patterns, not static bracket hierarchies; more realistic consensus formation | — Pending |
@@ -83,4 +84,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-24 after initialization*
+*Last updated: 2026-03-24 after Phase 02 (ollama-integration) completion*
