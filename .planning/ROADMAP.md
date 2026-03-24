@@ -44,11 +44,15 @@ Plans:
 **Depends on**: Phase 1
 **Requirements**: INFRA-03, INFRA-04, INFRA-08
 **Success Criteria** (what must be TRUE):
-  1. Orchestrator model (qwen3:32b) loads, produces output, and unloads before worker model (qwen3.5:4b) loads -- no dual-model coexistence
+  1. Orchestrator model (qwen3.5:32b) loads, produces output, and unloads before worker model (qwen3.5:7b) loads -- no dual-model coexistence
   2. Ollama AsyncClient wrapper sends all requests with standardized num_ctx via Modelfiles, never per-request num_ctx
   3. Structured output parsing extracts valid Pydantic models from LLM responses, falling back through JSON mode, regex extraction, and PARSE_ERROR status
   4. A test script can run a single agent inference call and return a validated AgentDecision object
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 02-01-PLAN.md -- Domain exceptions, type additions (AgentDecision, PARSE_ERROR), config update, governor semaphore upgrade, Modelfiles, test stubs
+- [ ] 02-02-PLAN.md -- OllamaClient wrapper with backoff, OllamaModelManager for sequential load/unload, parse_agent_decision 3-tier fallback
+- [ ] 02-03-PLAN.md -- AgentWorker context manager, AppState OllamaClient integration, full-path integration tests
 
 ### Phase 3: Resource Governance
 **Goal**: The system dynamically controls concurrency based on real memory pressure, preventing OOM crashes and recovering gracefully from inference failures
@@ -149,8 +153,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Project Foundation | 0/2 | Planning complete | - |
-| 2. Ollama Integration | 0/TBD | Not started | - |
+| 1. Project Foundation | 2/2 | Complete | 2026-03-24 |
+| 2. Ollama Integration | 0/3 | Planning complete | - |
 | 3. Resource Governance | 0/TBD | Not started | - |
 | 4. Neo4j Graph State | 0/TBD | Not started | - |
 | 5. Seed Injection and Agent Personas | 0/TBD | Not started | - |
