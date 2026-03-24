@@ -106,7 +106,8 @@ class OllamaClient:
     )
     async def _chat_with_backoff(self, **kwargs: Any) -> ChatResponse:
         """Internal chat call with exponential backoff on transient errors."""
-        return await self._client.chat(**kwargs)
+        result: ChatResponse = await self._client.chat(**kwargs)
+        return result
 
     async def generate(
         self,
