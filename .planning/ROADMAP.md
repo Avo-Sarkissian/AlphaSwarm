@@ -51,7 +51,7 @@ Plans:
 **Plans**: 3 plans
 Plans:
 - [x] 02-01-PLAN.md -- Domain exceptions, type additions (AgentDecision, PARSE_ERROR), config update with model aliases, governor semaphore upgrade, WorkerPersonaConfig TypedDict, Modelfiles with registration commands
-- [ ] 02-02-PLAN.md -- OllamaClient wrapper with backoff and RequestError boundary wrapping, OllamaModelManager with Lock serialization and scoped cleanup, parse_agent_decision 3-tier fallback with code-fence stripping
+- [x] 02-02-PLAN.md -- OllamaClient wrapper with backoff and RequestError boundary wrapping, OllamaModelManager with Lock serialization and scoped cleanup, parse_agent_decision 3-tier fallback with code-fence stripping
 - [ ] 02-03-PLAN.md -- AgentWorker context manager, AppState with OllamaClient and OllamaModelManager, graceful shutdown pattern, sequential model flow integration test, full-path inference integration tests
 
 ### Phase 3: Resource Governance
