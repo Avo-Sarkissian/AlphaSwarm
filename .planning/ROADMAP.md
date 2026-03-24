@@ -34,7 +34,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. All 10 bracket archetypes are defined in config with distinct risk profiles, temperatures, system prompt templates, and agent counts totaling 100
   3. Pydantic settings model loads configuration from defaults and environment variables, with validation errors on invalid values
   4. Structured logging outputs JSON-formatted log lines with correlation ID context binding
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 01-01-PLAN.md -- Project scaffold, core types, Pydantic settings, bracket definitions, persona generation, and config/persona tests
+- [ ] 01-02-PLAN.md -- Structured logging, ResourceGovernor stub, StateStore stub, AppState container, entry point, logging/app tests
 
 ### Phase 2: Ollama Integration
 **Goal**: The system can load models sequentially and produce structured, validated LLM outputs through an async client
@@ -146,7 +149,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Project Foundation | 0/TBD | Not started | - |
+| 1. Project Foundation | 0/2 | Planning complete | - |
 | 2. Ollama Integration | 0/TBD | Not started | - |
 | 3. Resource Governance | 0/TBD | Not started | - |
 | 4. Neo4j Graph State | 0/TBD | Not started | - |
