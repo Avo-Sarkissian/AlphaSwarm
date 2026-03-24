@@ -50,9 +50,9 @@ Plans:
   4. A test script can run a single agent inference call and return a validated AgentDecision object
 **Plans**: 3 plans
 Plans:
-- [ ] 02-01-PLAN.md -- Domain exceptions, type additions (AgentDecision, PARSE_ERROR), config update, governor semaphore upgrade, Modelfiles, test stubs
-- [ ] 02-02-PLAN.md -- OllamaClient wrapper with backoff, OllamaModelManager for sequential load/unload, parse_agent_decision 3-tier fallback
-- [ ] 02-03-PLAN.md -- AgentWorker context manager, AppState OllamaClient integration, full-path integration tests
+- [ ] 02-01-PLAN.md -- Domain exceptions, type additions (AgentDecision, PARSE_ERROR), config update with model aliases, governor semaphore upgrade, WorkerPersonaConfig TypedDict, Modelfiles with registration commands
+- [ ] 02-02-PLAN.md -- OllamaClient wrapper with backoff and RequestError boundary wrapping, OllamaModelManager with Lock serialization and scoped cleanup, parse_agent_decision 3-tier fallback with code-fence stripping
+- [ ] 02-03-PLAN.md -- AgentWorker context manager, AppState with OllamaClient and OllamaModelManager, graceful shutdown pattern, sequential model flow integration test, full-path inference integration tests
 
 ### Phase 3: Resource Governance
 **Goal**: The system dynamically controls concurrency based on real memory pressure, preventing OOM crashes and recovering gracefully from inference failures
