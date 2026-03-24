@@ -25,8 +25,8 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.app_name == "AlphaSwarm"
     assert settings.debug is False
     assert settings.log_level == "INFO"
-    assert settings.ollama.orchestrator_model == "qwen3:32b"
-    assert settings.ollama.worker_model == "qwen3.5:4b"
+    assert settings.ollama.orchestrator_model == "qwen3.5:32b"
+    assert settings.ollama.worker_model == "qwen3.5:7b"
     assert settings.ollama.num_parallel == 16
     assert settings.neo4j.uri == "bolt://localhost:7687"
     assert settings.governor.baseline_parallel == 8

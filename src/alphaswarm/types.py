@@ -52,6 +52,17 @@ class SignalType(str, Enum):
     BUY = "buy"
     SELL = "sell"
     HOLD = "hold"
+    PARSE_ERROR = "parse_error"
+
+
+class AgentDecision(BaseModel, frozen=True):
+    """Structured decision output from an agent inference call."""
+
+    signal: SignalType
+    confidence: float = Field(ge=0.0, le=1.0)
+    sentiment: float = Field(ge=-1.0, le=1.0, default=0.0)
+    rationale: str = ""
+    cited_agents: list[str] = Field(default_factory=list)
 
 
 class SimulationPhase(str, Enum):

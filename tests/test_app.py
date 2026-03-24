@@ -52,8 +52,8 @@ def test_main_entry_point(
 
     assert "AlphaSwarm v0.1.0" in captured.out
     assert "Agents: 100 across 10 brackets" in captured.out
-    assert "Orchestrator: qwen3:32b" in captured.out
-    assert "Workers: qwen3.5:4b" in captured.out
+    assert "Orchestrator: qwen3.5:32b" in captured.out
+    assert "Workers: qwen3.5:7b" in captured.out
 
 
 def test_main_invalid_config(monkeypatch: pytest.MonkeyPatch) -> None:

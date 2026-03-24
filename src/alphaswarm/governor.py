@@ -1,7 +1,13 @@
-"""ResourceGovernor stub for Phase 1. Full implementation in Phase 3."""
+"""ResourceGovernor with semaphore-based concurrency control.
+
+Phase 1: No-op stub.
+Phase 2: Real BoundedSemaphore for backpressure.
+Phase 3: Dynamic slot adjustment based on memory pressure.
+"""
 
 from __future__ import annotations
 
+import asyncio
 from typing import Protocol
 
 
@@ -21,31 +27,33 @@ class ResourceGovernorProtocol(Protocol):
 
 
 class ResourceGovernor:
-    """Stub ResourceGovernor for Phase 1. No-op implementation.
+    """Semaphore-backed concurrency governor.
 
-    Implements async context manager protocol so downstream code can use:
-        async with governor:
-            await do_inference()
-
-    Full psutil-based monitoring added in Phase 3.
+    Phase 2: Fixed BoundedSemaphore(baseline_parallel).
+    Phase 3: Dynamic adjustment via psutil memory sensing.
     """
 
     def __init__(self, baseline_parallel: int = 8) -> None:
         self._baseline = baseline_parallel
         self._current_limit = baseline_parallel
         self._active_count = 0
+        self._semaphore = asyncio.BoundedSemaphore(baseline_parallel)
 
     async def acquire(self) -> None:
-        """Acquire a concurrency slot. No-op in Phase 1."""
+        """Acquire a concurrency slot. Blocks if all slots are held."""
+        await self._semaphore.acquire()
+        self._active_count += 1
 
     def release(self) -> None:
-        """Release a concurrency slot. No-op in Phase 1."""
+        """Release a concurrency slot."""
+        self._semaphore.release()
+        self._active_count = max(0, self._active_count - 1)
 
     async def start_monitoring(self) -> None:
-        """Start psutil memory monitoring loop. No-op in Phase 1."""
+        """Start psutil memory monitoring loop. No-op until Phase 3."""
 
     async def stop_monitoring(self) -> None:
-        """Stop monitoring loop. No-op in Phase 1."""
+        """Stop monitoring loop. No-op until Phase 3."""
 
     @property
     def current_limit(self) -> int:

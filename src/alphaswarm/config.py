@@ -16,11 +16,13 @@ from alphaswarm.types import AgentPersona, BracketConfig, BracketType
 class OllamaSettings(BaseModel):
     """Ollama inference server configuration."""
 
-    orchestrator_model: str = "qwen3:32b"
-    worker_model: str = "qwen3.5:4b"
+    orchestrator_model: str = "qwen3.5:32b"
+    worker_model: str = "qwen3.5:7b"
     num_parallel: int = Field(default=16, ge=1, le=32)
     max_loaded_models: int = Field(default=2, ge=1, le=4)
     base_url: str = "http://localhost:11434"
+    orchestrator_model_alias: str = "alphaswarm-orchestrator"
+    worker_model_alias: str = "alphaswarm-worker"
 
 
 class Neo4jSettings(BaseModel):
@@ -247,3 +249,22 @@ def generate_personas(brackets: list[BracketConfig]) -> list[AgentPersona]:
                 )
             )
     return personas
+
+
+def persona_to_worker_config(persona: AgentPersona) -> WorkerPersonaConfig:
+    """Convert a frozen AgentPersona to a lightweight WorkerPersonaConfig TypedDict.
+
+    This is the defined conversion boundary between the Pydantic source-of-truth
+    model and the hot-path TypedDict used by agent_worker.
+    Addresses review concern: WorkerPersonaConfig conversion boundary.
+    """
+    from alphaswarm.worker import WorkerPersonaConfig
+
+    return WorkerPersonaConfig(
+        agent_id=persona.id,
+        bracket=persona.bracket.value,
+        influence_weight=persona.influence_weight_base,
+        temperature=persona.temperature,
+        system_prompt=persona.system_prompt,
+        risk_profile=str(persona.risk_profile),
+    )
