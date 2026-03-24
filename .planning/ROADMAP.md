@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Structured logging outputs JSON-formatted log lines with correlation ID context binding
 **Plans**: 2 plans
 Plans:
-- [ ] 01-01-PLAN.md -- Project scaffold, core types, Pydantic settings, bracket definitions, persona generation, and config/persona tests
+- [x] 01-01-PLAN.md -- Project scaffold, core types, Pydantic settings, bracket definitions, persona generation, and config/persona tests
 - [ ] 01-02-PLAN.md -- Structured logging, ResourceGovernor stub, StateStore stub, AppState container, entry point, logging/app tests
 
 ### Phase 2: Ollama Integration

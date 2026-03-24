@@ -43,8 +43,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Configuration
 
-- [ ] **CONF-01**: Pydantic-based settings model for all configurable parameters (model tags, parallelism limits, memory thresholds, Neo4j connection, bracket definitions)
-- [ ] **CONF-02**: Agent persona definitions for all 10 brackets stored as structured config (name, count, risk_profile, temperature, system_prompt template, influence_weight_base)
+- [x] **CONF-01**: Pydantic-based settings model for all configurable parameters (model tags, parallelism limits, memory thresholds, Neo4j connection, bracket definitions)
+- [x] **CONF-02**: Agent persona definitions for all 10 brackets stored as structured config (name, count, risk_profile, temperature, system_prompt template, influence_weight_base)
 
 ## v2 Requirements
 
@@ -85,8 +85,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONF-01 | Phase 1: Project Foundation | Pending |
-| CONF-02 | Phase 1: Project Foundation | Pending |
+| CONF-01 | Phase 1: Project Foundation | Complete |
+| CONF-02 | Phase 1: Project Foundation | Complete |
 | INFRA-11 | Phase 1: Project Foundation | Pending |
 | INFRA-03 | Phase 2: Ollama Integration | Pending |
 | INFRA-04 | Phase 2: Ollama Integration | Pending |
