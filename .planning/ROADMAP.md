@@ -79,7 +79,7 @@ Plans:
   4. Peer decision reads for top-5 influential agents complete in under 5ms with composite index hits
 **Plans**: 2 plans
 Plans:
-- [ ] 04-01-PLAN.md -- Docker compose, neo4j dependency, error types, GraphStateManager with ensure_schema/seed_agents/create_cycle/close, unit tests
+- [x] 04-01-PLAN.md -- Docker compose, neo4j dependency, error types, GraphStateManager with ensure_schema/seed_agents/create_cycle/close, unit tests
 - [ ] 04-02-PLAN.md -- write_decisions (UNWIND batch), read_peer_decisions (top-N by influence), AppState wiring, integration tests
 
 ### Phase 5: Seed Injection and Agent Personas
