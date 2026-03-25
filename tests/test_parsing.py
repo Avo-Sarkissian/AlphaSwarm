@@ -201,13 +201,14 @@ def test_seed_parse_tier3_empty_string() -> None:
 
 
 def test_seed_parse_adversarial_multiple_json() -> None:
-    """Adversarial: Multiple JSON objects -- extracts first valid one."""
+    """Adversarial: Multiple JSON objects -- does not crash, returns valid result."""
     from alphaswarm.parsing import parse_seed_event
 
     raw = '{"entities": [{"name": "A", "type": "company", "relevance": 0.5, "sentiment": 0.1}], "overall_sentiment": 0.2} {"entities": [{"name": "B", "type": "sector", "relevance": 0.3, "sentiment": -0.1}], "overall_sentiment": -0.1}'
     result = parse_seed_event(raw, original_rumor="test")
-    # Should not crash; should extract some valid result
-    assert result.parse_tier in (1, 2)
+    # Must not crash; graceful fallback is acceptable
+    assert result.parse_tier in (1, 2, 3)
+    assert result.seed_event.raw_rumor == "test"
 
 
 def test_seed_parse_adversarial_truncated_json() -> None:

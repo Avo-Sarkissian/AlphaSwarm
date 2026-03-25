@@ -98,6 +98,26 @@ def sample_personas() -> list[WorkerPersonaConfig]:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5: Seed event fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def sample_seed_event():
+    """Sample SeedEvent for testing seed injection pipeline."""
+    from alphaswarm.types import EntityType, SeedEntity, SeedEvent
+
+    return SeedEvent(
+        raw_rumor="NVIDIA announces breakthrough in quantum computing",
+        entities=[
+            SeedEntity(name="NVIDIA", type=EntityType.COMPANY, relevance=0.95, sentiment=0.8),
+            SeedEntity(name="Semiconductors", type=EntityType.SECTOR, relevance=0.7, sentiment=0.5),
+        ],
+        overall_sentiment=0.6,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Phase 4: Neo4j graph fixtures
 # ---------------------------------------------------------------------------
 

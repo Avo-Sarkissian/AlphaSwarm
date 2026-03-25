@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -53,6 +54,49 @@ class SignalType(str, Enum):
     SELL = "sell"
     HOLD = "hold"
     PARSE_ERROR = "parse_error"
+
+
+class EntityType(str, Enum):
+    """Named entity types extracted from seed rumors."""
+
+    COMPANY = "company"
+    SECTOR = "sector"
+    PERSON = "person"
+
+
+class SeedEntity(BaseModel, frozen=True):
+    """A single named entity extracted from a seed rumor."""
+
+    name: str
+    type: EntityType
+    relevance: float = Field(ge=0.0, le=1.0)
+    sentiment: float = Field(ge=-1.0, le=1.0)
+
+
+class SeedEvent(BaseModel, frozen=True):
+    """Structured seed rumor with extracted entities and aggregate sentiment."""
+
+    raw_rumor: str
+    entities: list[SeedEntity]
+    overall_sentiment: float = Field(ge=-1.0, le=1.0)
+
+
+@dataclasses.dataclass(frozen=True)
+class ParsedSeedResult:
+    """Result of parse_seed_event() with parse-tier observability.
+
+    Addresses review concern: Tier-3 fallback returning empty SeedEvent was
+    indistinguishable from genuine "no entities found". parse_tier makes the
+    distinction observable.
+
+    parse_tier values:
+      1 = Direct JSON parse succeeded
+      2 = Code-fence strip / regex extraction succeeded
+      3 = All tiers failed, fallback SeedEvent returned
+    """
+
+    seed_event: SeedEvent
+    parse_tier: int
 
 
 class AgentDecision(BaseModel, frozen=True):
