@@ -54,3 +54,19 @@ class ParseError(Exception):
     def __init__(self, message: str, raw_content: str) -> None:
         super().__init__(message)
         self.raw_content = raw_content
+
+
+class Neo4jConnectionError(Exception):
+    """Raised when Neo4j driver cannot connect or verify connectivity."""
+
+    def __init__(self, message: str, original_error: Exception | None = None) -> None:
+        super().__init__(message)
+        self.original_error = original_error
+
+
+class Neo4jWriteError(Exception):
+    """Raised when a Neo4j write transaction fails after managed retries."""
+
+    def __init__(self, message: str, original_error: Exception | None = None) -> None:
+        super().__init__(message)
+        self.original_error = original_error
