@@ -91,7 +91,10 @@ Plans:
   2. All 100 agents across 10 brackets are instantiated with their archetype-specific risk profiles, information biases, and decision heuristics loaded from config
   3. Each agent can produce a structured decision containing signal (BUY/SELL/HOLD), confidence (0.0-1.0), sentiment (-1.0 to 1.0), rationale (text), and cited_agents (list)
   4. A CLI command runs seed injection end-to-end and writes the parsed SeedEvent to Neo4j
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 05-01-PLAN.md -- Domain types (SeedEvent, SeedEntity, EntityType), parse_seed_event() 3-tier fallback, enriched persona system prompts with personality modifiers and JSON output instructions
+- [ ] 05-02-PLAN.md -- Graph Entity persistence (write_seed_event), seed injection pipeline (seed.py), CLI module with inject subcommand, __main__.py refactor
 
 ### Phase 6: Round 1 Standalone
 **Goal**: All 100 agents independently process a seed rumor in batched inference waves, producing their initial reactions without any peer context
@@ -163,7 +166,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. Ollama Integration | 0/3 | Planning complete | - |
 | 3. Resource Governance | 0/2 | Planning complete | - |
 | 4. Neo4j Graph State | 2/2 | Complete   | 2026-03-25 |
-| 5. Seed Injection and Agent Personas | 0/TBD | Not started | - |
+| 5. Seed Injection and Agent Personas | 0/2 | Planning complete | - |
 | 6. Round 1 Standalone | 0/TBD | Not started | - |
 | 7. Rounds 2-3 Peer Influence and Consensus | 0/TBD | Not started | - |
 | 8. Dynamic Influence Topology | 0/TBD | Not started | - |
