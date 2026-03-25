@@ -133,6 +133,176 @@ def test_tier3_invalid_json_values() -> None:
     assert result.confidence == 0.0
 
 
+# --- parse_seed_event tests ---
+
+
+def test_seed_parse_tier1_valid_json() -> None:
+    """Tier 1: Valid JSON with entities returns ParsedSeedResult with parse_tier=1."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 0.95, "sentiment": 0.8}], "overall_sentiment": 0.6}'
+    result = parse_seed_event(raw, original_rumor="NVIDIA quantum breakthrough")
+    assert result.parse_tier == 1
+    assert result.seed_event.raw_rumor == "NVIDIA quantum breakthrough"
+    assert len(result.seed_event.entities) == 1
+    assert result.seed_event.entities[0].name == "NVIDIA"
+    assert result.seed_event.overall_sentiment == 0.6
+
+
+def test_seed_parse_tier1_no_raw_rumor_in_json() -> None:
+    """Tier 1: JSON without raw_rumor field still parses (raw_rumor comes from parameter)."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"entities": [], "overall_sentiment": 0.0}'
+    result = parse_seed_event(raw, original_rumor="my rumor")
+    assert result.parse_tier == 1
+    assert result.seed_event.raw_rumor == "my rumor"
+
+
+def test_seed_parse_tier2_code_fenced_json() -> None:
+    """Tier 2: Code-fenced JSON extracts correctly."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '```json\n{"entities": [{"name": "TSLA", "type": "company", "relevance": 0.8, "sentiment": -0.3}], "overall_sentiment": -0.2}\n```'
+    result = parse_seed_event(raw, original_rumor="Tesla rumor")
+    assert result.parse_tier == 2
+    assert result.seed_event.entities[0].name == "TSLA"
+
+
+def test_seed_parse_tier2_embedded_in_prose() -> None:
+    """Tier 2: JSON embedded in prose text extracts via regex."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = 'Here is my analysis:\n{"entities": [{"name": "Apple", "type": "company", "relevance": 0.7, "sentiment": 0.4}], "overall_sentiment": 0.3}\nThat is all.'
+    result = parse_seed_event(raw, original_rumor="Apple rumor")
+    assert result.parse_tier == 2
+    assert len(result.seed_event.entities) == 1
+
+
+def test_seed_parse_tier3_garbage_input() -> None:
+    """Tier 3: Complete garbage returns parse_tier=3 with empty entities."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = "I don't know what to say about this rumor at all"
+    result = parse_seed_event(raw, original_rumor="original")
+    assert result.parse_tier == 3
+    assert result.seed_event.entities == []
+    assert result.seed_event.overall_sentiment == 0.0
+    assert result.seed_event.raw_rumor == "original"
+
+
+def test_seed_parse_tier3_empty_string() -> None:
+    """Tier 3: Empty string returns parse_tier=3."""
+    from alphaswarm.parsing import parse_seed_event
+
+    result = parse_seed_event("", original_rumor="rumor")
+    assert result.parse_tier == 3
+    assert result.seed_event.entities == []
+
+
+def test_seed_parse_adversarial_multiple_json() -> None:
+    """Adversarial: Multiple JSON objects -- extracts first valid one."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"entities": [{"name": "A", "type": "company", "relevance": 0.5, "sentiment": 0.1}], "overall_sentiment": 0.2} {"entities": [{"name": "B", "type": "sector", "relevance": 0.3, "sentiment": -0.1}], "overall_sentiment": -0.1}'
+    result = parse_seed_event(raw, original_rumor="test")
+    # Should not crash; should extract some valid result
+    assert result.parse_tier in (1, 2)
+
+
+def test_seed_parse_adversarial_truncated_json() -> None:
+    """Adversarial: Truncated JSON falls to Tier 3."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"entities": [{"name": "NVIDIA"'
+    result = parse_seed_event(raw, original_rumor="test")
+    assert result.parse_tier == 3
+
+
+def test_seed_parse_adversarial_unknown_entity_type() -> None:
+    """Adversarial: Unknown entity type skips invalid entity, keeps valid ones."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8}, {"name": "Paris", "type": "location", "relevance": 0.5, "sentiment": 0.0}], "overall_sentiment": 0.5}'
+    result = parse_seed_event(raw, original_rumor="test")
+    assert result.parse_tier in (1, 2)
+    # Valid entity kept, invalid skipped
+    assert len(result.seed_event.entities) == 1
+    assert result.seed_event.entities[0].name == "NVIDIA"
+
+
+def test_seed_parse_adversarial_null_fields() -> None:
+    """Adversarial: Null entities field falls to Tier 3."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"entities": null, "overall_sentiment": 0.5}'
+    result = parse_seed_event(raw, original_rumor="test")
+    assert result.parse_tier == 3
+
+
+def test_seed_parse_adversarial_out_of_range_values() -> None:
+    """Adversarial: Out-of-range relevance/sentiment in entities -- bad entities skipped."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 1.5, "sentiment": 0.8}, {"name": "AMD", "type": "company", "relevance": 0.7, "sentiment": 0.5}], "overall_sentiment": 0.4}'
+    result = parse_seed_event(raw, original_rumor="test")
+    # NVIDIA entity has relevance=1.5 (out of range) -> skipped; AMD is valid
+    assert result.parse_tier in (1, 2)
+    assert len(result.seed_event.entities) == 1
+    assert result.seed_event.entities[0].name == "AMD"
+
+
+def test_seed_parse_adversarial_duplicate_entities() -> None:
+    """Adversarial: Duplicate entities (same name twice) do not crash."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8}, {"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8}], "overall_sentiment": 0.5}'
+    result = parse_seed_event(raw, original_rumor="test")
+    assert result.parse_tier in (1, 2)
+    assert len(result.seed_event.entities) == 2
+
+
+def test_seed_parse_adversarial_extra_prose_with_braces() -> None:
+    """Adversarial: Prose with stray braces before actual JSON."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = 'I think {the market} will... {"entities": [{"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8}], "overall_sentiment": 0.5}'
+    result = parse_seed_event(raw, original_rumor="test")
+    # Should eventually find valid JSON via regex
+    assert result.parse_tier in (1, 2, 3)
+    # If it parses, entities should be present
+    if result.parse_tier in (1, 2):
+        assert len(result.seed_event.entities) >= 1
+
+
+def test_seed_parse_adversarial_extra_fields_tolerated() -> None:
+    """Adversarial: JSON with extra fields (e.g. reasoning) is tolerated."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8, "reasoning": "leading chip maker"}], "overall_sentiment": 0.5, "summary": "bullish"}'
+    result = parse_seed_event(raw, original_rumor="test")
+    assert result.parse_tier in (1, 2)
+    assert result.seed_event.entities[0].name == "NVIDIA"
+
+
+def test_seed_parse_raw_rumor_always_from_parameter() -> None:
+    """raw_rumor from LLM output is ALWAYS overridden by the original_rumor parameter."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"raw_rumor": "LLM fabricated rumor", "entities": [], "overall_sentiment": 0.0}'
+    result = parse_seed_event(raw, original_rumor="the real rumor")
+    assert result.seed_event.raw_rumor == "the real rumor"
+
+
+def test_seed_parse_adversarial_out_of_range_overall_sentiment() -> None:
+    """Adversarial: Out-of-range overall_sentiment falls to Tier 3."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = '{"entities": [], "overall_sentiment": 5.0}'
+    result = parse_seed_event(raw, original_rumor="test")
+    assert result.parse_tier == 3
+
+
 def test_parse_logs_tier_used() -> None:
     """Successful tier 1 parse produces structlog DEBUG log containing parse_tier key."""
     import structlog
