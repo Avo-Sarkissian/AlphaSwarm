@@ -40,10 +40,12 @@ def test_main_entry_point(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Entry point prints startup banner with correct values."""
+    """Entry point prints startup banner with correct values when no subcommand given."""
     for key in list(os.environ):
         if key.startswith("ALPHASWARM_"):
             monkeypatch.delenv(key, raising=False)
+    # Set sys.argv to simulate no-args invocation (banner mode)
+    monkeypatch.setattr("sys.argv", ["alphaswarm"])
 
     from alphaswarm.__main__ import main
 
@@ -57,8 +59,10 @@ def test_main_entry_point(
 
 
 def test_main_invalid_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Invalid config causes sys.exit(1)."""
+    """Invalid config causes sys.exit(1) in banner mode."""
     monkeypatch.setenv("ALPHASWARM_LOG_LEVEL", "INVALID")
+    # Set sys.argv to simulate no-args invocation (banner mode)
+    monkeypatch.setattr("sys.argv", ["alphaswarm"])
 
     from alphaswarm.__main__ import main
 
