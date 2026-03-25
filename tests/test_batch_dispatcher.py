@@ -170,7 +170,7 @@ async def test_jitter_within_settings_range(
     from alphaswarm.batch_dispatcher import dispatch_wave
 
     client = _make_mock_client()
-    settings = GovernorSettings(baseline_parallel=16, jitter_min_seconds=0.1, jitter_max_seconds=0.2)
+    settings = GovernorSettings(baseline_parallel=16, jitter_min_seconds=0.5, jitter_max_seconds=0.8)
     sleep_values: list[float] = []
 
     async def capture_sleep(duration: float) -> None:
@@ -187,7 +187,7 @@ async def test_jitter_within_settings_range(
         )
 
     for v in sleep_values:
-        assert 0.1 <= v <= 0.2
+        assert 0.5 <= v <= 0.8
 
 
 # ---------------------------------------------------------------------------
