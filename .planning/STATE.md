@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Phase complete — ready for verification
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-03-25T17:05:46.496Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-03-25T17:19:55.423Z"
 progress:
   total_phases: 10
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -56,6 +56,7 @@ Plan: 2 of 2
 | Phase 04 P01 | 3min | 2 tasks | 6 files |
 | Phase 04 P02 | 5min | 2 tasks | 5 files |
 | Phase 05 P01 | 7min | 2 tasks | 7 files |
+| Phase 05 P02 | 8min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Per-entity validation with skip: bad entities do not reject entire SeedEvent parse
 - [Phase 05]: raw_rumor always injected from caller parameter, never from LLM output
 - [Phase 05]: Template body 120-200 words; assembled prompt 180-260 words; 350-word safety cap
+- [Phase 05]: Atomic create_cycle_with_seed_event replaces separate create_cycle+write_seed_event to prevent orphan Cycle nodes
+- [Phase 05]: CLI uses argparse subparsers for extensible subcommand routing without adding external dependencies
 
 ### Pending Todos
 
@@ -109,6 +112,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T17:05:46.493Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-03-25T17:19:55.420Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None

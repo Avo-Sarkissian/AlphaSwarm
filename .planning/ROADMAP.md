@@ -94,7 +94,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 05-01-PLAN.md -- Domain types (SeedEvent, SeedEntity, EntityType), parse_seed_event() 3-tier fallback, enriched persona system prompts with personality modifiers and JSON output instructions
-- [ ] 05-02-PLAN.md -- Graph Entity persistence (write_seed_event), seed injection pipeline (seed.py), CLI module with inject subcommand, __main__.py refactor
+- [x] 05-02-PLAN.md -- Graph Entity persistence (write_seed_event), seed injection pipeline (seed.py), CLI module with inject subcommand, __main__.py refactor
 
 ### Phase 6: Round 1 Standalone
 **Goal**: All 100 agents independently process a seed rumor in batched inference waves, producing their initial reactions without any peer context
