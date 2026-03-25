@@ -9,7 +9,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
-from alphaswarm.types import AgentDecision, AgentPersona, BracketType, SignalType
+from alphaswarm.types import (
+    AgentDecision,
+    AgentPersona,
+    BracketType,
+    EntityType,
+    SeedEntity,
+    SeedEvent,
+    SignalType,
+)
 
 
 @pytest.fixture()
@@ -400,3 +408,139 @@ async def test_read_peer_decisions_wraps_neo4j_error(
         await gsm.read_peer_decisions("quants_01", "test-cycle", 1)
 
     assert exc_info.value.original_error is original_exc
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 Plan 02: create_cycle_with_seed_event tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def sample_seed_event_for_graph() -> SeedEvent:
+    """Sample SeedEvent with 2 entities for graph persistence tests."""
+    return SeedEvent(
+        raw_rumor="NVIDIA announces breakthrough in quantum computing",
+        entities=[
+            SeedEntity(name="NVIDIA", type=EntityType.COMPANY, relevance=0.95, sentiment=0.8),
+            SeedEntity(name="Semiconductors", type=EntityType.SECTOR, relevance=0.7, sentiment=0.5),
+        ],
+        overall_sentiment=0.6,
+    )
+
+
+def test_schema_statements_includes_entity_constraint() -> None:
+    """SCHEMA_STATEMENTS contains Entity name+type uniqueness constraint."""
+    from alphaswarm.graph import SCHEMA_STATEMENTS
+
+    entity_constraints = [s for s in SCHEMA_STATEMENTS if "entity_name_type_unique" in s]
+    assert len(entity_constraints) == 1, "Expected exactly one entity uniqueness constraint"
+
+
+@pytest.mark.asyncio()
+async def test_create_cycle_with_seed_event_single_transaction(
+    mock_driver: MagicMock,
+    sample_seed_event_for_graph: SeedEvent,
+) -> None:
+    """create_cycle_with_seed_event calls session.execute_write exactly once."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph)
+
+    session.execute_write.assert_awaited_once()
+
+
+@pytest.mark.asyncio()
+async def test_create_cycle_with_seed_event_returns_uuid(
+    mock_driver: MagicMock,
+    sample_seed_event_for_graph: SeedEvent,
+) -> None:
+    """create_cycle_with_seed_event returns a valid UUID4 string."""
+    from alphaswarm.graph import GraphStateManager
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    cycle_id = await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph)
+
+    uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    assert re.match(uuid4_pattern, cycle_id), f"Not a valid UUID4: {cycle_id}"
+
+
+@pytest.mark.asyncio()
+async def test_create_cycle_with_seed_event_wraps_neo4j_error(
+    mock_driver: MagicMock,
+    sample_seed_event_for_graph: SeedEvent,
+) -> None:
+    """create_cycle_with_seed_event wraps Neo4jError as Neo4jWriteError."""
+    from neo4j.exceptions import Neo4jError
+
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    original_exc = Neo4jError("simulated failure")
+    session.execute_write = AsyncMock(side_effect=original_exc)
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    with pytest.raises(Neo4jWriteError) as exc_info:
+        await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph)
+
+    assert exc_info.value.original_error is original_exc
+
+
+@pytest.mark.asyncio()
+async def test_create_cycle_with_entities_tx_creates_cycle_with_overall_sentiment() -> None:
+    """Transaction function creates Cycle node with overall_sentiment property."""
+    from alphaswarm.graph import GraphStateManager
+
+    tx = AsyncMock()
+
+    await GraphStateManager._create_cycle_with_entities_tx(
+        tx, "test-cycle-id", "test rumor", 0.6, [],
+    )
+
+    # With empty entities, only 1 tx.run call (Cycle creation only)
+    assert tx.run.await_count == 1
+    call_args = tx.run.call_args_list[0]
+    cypher = call_args[0][0]
+    assert "overall_sentiment" in cypher
+
+
+@pytest.mark.asyncio()
+async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
+    """Transaction function skips Entity UNWIND when entities list is empty."""
+    from alphaswarm.graph import GraphStateManager
+
+    tx = AsyncMock()
+
+    await GraphStateManager._create_cycle_with_entities_tx(
+        tx, "test-cycle-id", "test rumor", 0.6, [],
+    )
+
+    # Only 1 tx.run call (Cycle creation, no Entity UNWIND)
+    assert tx.run.await_count == 1
+
+
+@pytest.mark.asyncio()
+async def test_create_cycle_with_entities_tx_creates_mentions_relationships() -> None:
+    """Transaction function creates Entity+MENTIONS when entities are present."""
+    from alphaswarm.graph import GraphStateManager
+
+    tx = AsyncMock()
+    entities = [
+        {"name": "NVIDIA", "type": "company", "relevance": 0.95, "sentiment": 0.8},
+        {"name": "Semiconductors", "type": "sector", "relevance": 0.7, "sentiment": 0.5},
+    ]
+
+    await GraphStateManager._create_cycle_with_entities_tx(
+        tx, "test-cycle-id", "test rumor", 0.6, entities,
+    )
+
+    # 2 tx.run calls: Cycle creation + Entity UNWIND with MENTIONS
+    assert tx.run.await_count == 2
+    entity_cypher = tx.run.call_args_list[1][0][0]
+    assert "MENTIONS" in entity_cypher
+    assert "relevance" in entity_cypher
+    assert "sentiment" in entity_cypher
