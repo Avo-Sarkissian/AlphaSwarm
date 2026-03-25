@@ -134,7 +134,11 @@ async def agent_worker(
     """
     effective_model = model or "alphaswarm-worker"
     await governor.acquire()
+    _success = True
     try:
         yield AgentWorker(persona, ollama_client, effective_model)
+    except Exception:
+        _success = False
+        raise
     finally:
-        governor.release()
+        governor.release(success=_success)

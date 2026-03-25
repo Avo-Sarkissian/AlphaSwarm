@@ -14,6 +14,7 @@ class StateSnapshot:
     phase: SimulationPhase = SimulationPhase.IDLE
     round_num: int = 0
     agent_count: int = 100
+    governor_metrics: GovernorMetrics | None = None
 
 
 @dataclass(frozen=True)
@@ -41,9 +42,14 @@ class StateStore:
     def __init__(self) -> None:
         self._latest_governor_metrics: GovernorMetrics | None = None
 
+    @property
+    def governor_metrics(self) -> GovernorMetrics | None:
+        """Return the latest governor metrics, or None if never emitted."""
+        return self._latest_governor_metrics
+
     def snapshot(self) -> StateSnapshot:
         """Return immutable snapshot of current state."""
-        return StateSnapshot()
+        return StateSnapshot(governor_metrics=self._latest_governor_metrics)
 
     def update_governor_metrics(self, metrics: GovernorMetrics) -> None:
         """Store latest governor metrics. Full implementation in Phase 9."""
