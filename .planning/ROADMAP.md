@@ -77,7 +77,10 @@ Plans:
   2. GraphStateManager writes 100 agent decisions in a single UNWIND batch transaction, not 100 individual transactions
   3. Session-per-coroutine pattern prevents corrupted reads when multiple agents query peer decisions concurrently
   4. Peer decision reads for top-5 influential agents complete in under 5ms with composite index hits
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 04-01-PLAN.md -- Docker compose, neo4j dependency, error types, GraphStateManager with ensure_schema/seed_agents/create_cycle/close, unit tests
+- [ ] 04-02-PLAN.md -- write_decisions (UNWIND batch), read_peer_decisions (top-N by influence), AppState wiring, integration tests
 
 ### Phase 5: Seed Injection and Agent Personas
 **Goal**: A seed rumor is parsed into structured entities and 100 distinct agent personas are ready to produce structured decisions
@@ -159,7 +162,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Project Foundation | 2/2 | Complete | 2026-03-24 |
 | 2. Ollama Integration | 0/3 | Planning complete | - |
 | 3. Resource Governance | 0/2 | Planning complete | - |
-| 4. Neo4j Graph State | 0/TBD | Not started | - |
+| 4. Neo4j Graph State | 0/2 | Planning complete | - |
 | 5. Seed Injection and Agent Personas | 0/TBD | Not started | - |
 | 6. Round 1 Standalone | 0/TBD | Not started | - |
 | 7. Rounds 2-3 Peer Influence and Consensus | 0/TBD | Not started | - |
