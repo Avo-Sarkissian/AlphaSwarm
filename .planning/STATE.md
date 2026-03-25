@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-25T05:37:36.420Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-03-25T05:46:37.035Z"
 progress:
   total_phases: 10
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 9
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -54,6 +54,7 @@ Plan: 2 of 2
 | Phase 03 P01 | 7min | 2 tasks | 10 files |
 | Phase 03 P02 | 5min | 2 tasks | 5 files |
 | Phase 04 P01 | 3min | 2 tasks | 6 files |
+| Phase 04 P02 | 5min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,9 @@ Recent decisions affecting current work:
 - [Phase 04]: MagicMock for neo4j driver (session() is sync), AsyncMock for session methods -- matches actual driver API
 - [Phase 04]: Session-per-method pattern: each GraphStateManager method opens/closes its own neo4j session
 - [Phase 04]: UNWIND+MERGE for idempotent agent seeding; static transaction functions as @staticmethod
+- [Phase 04]: Two-statement UNWIND split: Statement 1 for Decision+MADE+FOR, Statement 2 for CITED (conditional)
+- [Phase 04]: Exception wrapping at domain boundary: Neo4jWriteError on writes, Neo4jConnectionError on reads
+- [Phase 04]: verify_connectivity() in create_app_state for fast-fail when Neo4j container is down
 
 ### Pending Todos
 
@@ -100,6 +104,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T05:37:36.417Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-25T05:46:37.032Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

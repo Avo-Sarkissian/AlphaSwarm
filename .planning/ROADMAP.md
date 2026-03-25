@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Project Foundation** - Scaffold, configuration system, type definitions, and structured logging
 - [ ] **Phase 2: Ollama Integration** - Async LLM client, sequential model loading, and structured output parsing
 - [ ] **Phase 3: Resource Governance** - Dynamic concurrency control, memory monitoring, task safety, and retry logic
-- [ ] **Phase 4: Neo4j Graph State** - Graph schema with cycle-scoped indexes and batch-writing GraphStateManager
+- [x] **Phase 4: Neo4j Graph State** - Graph schema with cycle-scoped indexes and batch-writing GraphStateManager (completed 2026-03-25)
 - [ ] **Phase 5: Seed Injection and Agent Personas** - Orchestrator entity extraction and 100 agent personas with decision schema
 - [ ] **Phase 6: Round 1 Standalone** - All 100 agents process a seed rumor independently in a single inference wave
 - [ ] **Phase 7: Rounds 2-3 Peer Influence and Consensus** - Peer context injection and final consensus lock complete the 3-round cascade
@@ -80,7 +80,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 04-01-PLAN.md -- Docker compose, neo4j dependency, error types, GraphStateManager with ensure_schema/seed_agents/create_cycle/close, unit tests
-- [ ] 04-02-PLAN.md -- write_decisions (UNWIND batch), read_peer_decisions (top-N by influence), AppState wiring, integration tests
+- [x] 04-02-PLAN.md -- write_decisions (UNWIND batch), read_peer_decisions (top-N by influence), AppState wiring, integration tests
 
 ### Phase 5: Seed Injection and Agent Personas
 **Goal**: A seed rumor is parsed into structured entities and 100 distinct agent personas are ready to produce structured decisions
@@ -162,7 +162,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Project Foundation | 2/2 | Complete | 2026-03-24 |
 | 2. Ollama Integration | 0/3 | Planning complete | - |
 | 3. Resource Governance | 0/2 | Planning complete | - |
-| 4. Neo4j Graph State | 0/2 | Planning complete | - |
+| 4. Neo4j Graph State | 2/2 | Complete   | 2026-03-25 |
 | 5. Seed Injection and Agent Personas | 0/TBD | Not started | - |
 | 6. Round 1 Standalone | 0/TBD | Not started | - |
 | 7. Rounds 2-3 Peer Influence and Consensus | 0/TBD | Not started | - |
