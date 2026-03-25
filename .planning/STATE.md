@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Phase 5 context gathered
-last_updated: "2026-03-25T06:23:29.991Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-03-25T17:05:46.496Z"
 progress:
   total_phases: 10
   completed_phases: 4
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 11
+  completed_plans: 10
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology
-**Current focus:** Phase 04 — neo4j-graph-state
+**Current focus:** Phase 05 — seed-injection-and-agent-personas
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
+Phase: 05 (seed-injection-and-agent-personas) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Plan: Not started
 | Phase 03 P02 | 5min | 2 tasks | 5 files |
 | Phase 04 P01 | 3min | 2 tasks | 6 files |
 | Phase 04 P02 | 5min | 2 tasks | 5 files |
+| Phase 05 P01 | 7min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,10 @@ Recent decisions affecting current work:
 - [Phase 04]: Two-statement UNWIND split: Statement 1 for Decision+MADE+FOR, Statement 2 for CITED (conditional)
 - [Phase 04]: Exception wrapping at domain boundary: Neo4jWriteError on writes, Neo4jConnectionError on reads
 - [Phase 04]: verify_connectivity() in create_app_state for fast-fail when Neo4j container is down
+- [Phase 05]: ParsedSeedResult as frozen dataclass for lightweight parse-tier metadata wrapper
+- [Phase 05]: Per-entity validation with skip: bad entities do not reject entire SeedEvent parse
+- [Phase 05]: raw_rumor always injected from caller parameter, never from LLM output
+- [Phase 05]: Template body 120-200 words; assembled prompt 180-260 words; 350-word safety cap
 
 ### Pending Todos
 
@@ -104,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T06:23:29.987Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-seed-injection-and-agent-personas/05-CONTEXT.md
+Last session: 2026-03-25T17:05:46.493Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: None

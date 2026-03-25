@@ -93,7 +93,7 @@ Plans:
   4. A CLI command runs seed injection end-to-end and writes the parsed SeedEvent to Neo4j
 **Plans**: 2 plans
 Plans:
-- [ ] 05-01-PLAN.md -- Domain types (SeedEvent, SeedEntity, EntityType), parse_seed_event() 3-tier fallback, enriched persona system prompts with personality modifiers and JSON output instructions
+- [x] 05-01-PLAN.md -- Domain types (SeedEvent, SeedEntity, EntityType), parse_seed_event() 3-tier fallback, enriched persona system prompts with personality modifiers and JSON output instructions
 - [ ] 05-02-PLAN.md -- Graph Entity persistence (write_seed_event), seed injection pipeline (seed.py), CLI module with inject subcommand, __main__.py refactor
 
 ### Phase 6: Round 1 Standalone

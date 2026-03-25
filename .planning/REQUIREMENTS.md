@@ -9,9 +9,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Simulation Engine
 
-- [ ] **SIM-01**: Orchestrator LLM (qwen3:32b) parses a seed rumor and extracts named entities (companies, sectors, people, sentiment cues) as structured JSON
-- [ ] **SIM-02**: 100 agents across 10 bracket archetypes (Quants, Degens, Sovereigns, Macro, Suits, Insiders, Agents, Doom-Posters, Policy Wonks, Whales) each have distinct risk profiles, information biases, and decision heuristics
-- [ ] **SIM-03**: Each agent produces a structured decision per round: signal (BUY/SELL/HOLD), confidence (0.0-1.0), sentiment (-1.0 to 1.0), rationale (text), and cited_agents (list)
+- [x] **SIM-01**: Orchestrator LLM (qwen3:32b) parses a seed rumor and extracts named entities (companies, sectors, people, sentiment cues) as structured JSON
+- [x] **SIM-02**: 100 agents across 10 bracket archetypes (Quants, Degens, Sovereigns, Macro, Suits, Insiders, Agents, Doom-Posters, Policy Wonks, Whales) each have distinct risk profiles, information biases, and decision heuristics
+- [x] **SIM-03**: Each agent produces a structured decision per round: signal (BUY/SELL/HOLD), confidence (0.0-1.0), sentiment (-1.0 to 1.0), rationale (text), and cited_agents (list)
 - [ ] **SIM-04**: Round 1 (Initial Reaction) — all 100 agents process the seed rumor independently with no peer context
 - [ ] **SIM-05**: Round 2 (Peer Influence) — agents receive top-5 influential peer decisions from Round 1 and re-evaluate their position
 - [ ] **SIM-06**: Round 3 (Final Consensus Lock) — agents receive updated peer decisions from Round 2 and produce final locked positions
@@ -97,9 +97,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFRA-09 | Phase 3: Resource Governance | Complete |
 | INFRA-05 | Phase 4: Neo4j Graph State | Complete |
 | INFRA-06 | Phase 4: Neo4j Graph State | Complete |
-| SIM-01 | Phase 5: Seed Injection and Agent Personas | Pending |
-| SIM-02 | Phase 5: Seed Injection and Agent Personas | Pending |
-| SIM-03 | Phase 5: Seed Injection and Agent Personas | Pending |
+| SIM-01 | Phase 5: Seed Injection and Agent Personas | Complete |
+| SIM-02 | Phase 5: Seed Injection and Agent Personas | Complete |
+| SIM-03 | Phase 5: Seed Injection and Agent Personas | Complete |
 | SIM-04 | Phase 6: Round 1 Standalone | Pending |
 | SIM-05 | Phase 7: Rounds 2-3 Peer Influence and Consensus | Pending |
 | SIM-06 | Phase 7: Rounds 2-3 Peer Influence and Consensus | Pending |
