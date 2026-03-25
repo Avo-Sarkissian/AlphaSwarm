@@ -16,11 +16,10 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - [x] Exponential backoff for Ollama retries — Validated in Phase 02: ollama-integration
 - [x] Memory pressure monitoring with automatic concurrency throttling at 90% utilization — Validated in Phase 03: resource-governance
 - [x] Neo4j GraphRAG for cycle-scoped sentiment storage and peer decision reads — Validated in Phase 04: neo4j-graph-state
+- [x] Seed rumor injection with entity extraction via orchestrator LLM — Validated in Phase 05: seed-injection-and-agent-personas
+- [x] 100-agent swarm across 10 bracket archetypes with distinct risk profiles — Validated in Phase 05: seed-injection-and-agent-personas
 
 ### Active
-
-- [ ] Seed rumor injection with entity extraction via Llama 4 orchestrator
-- [ ] 100-agent swarm across 10 bracket archetypes with distinct risk profiles
 - [ ] 3-round iterative cascade (Initial Reaction → Peer Influence → Final Consensus Lock)
 - [ ] Dynamic influence topology — INFLUENCED_BY edges form from citation/agreement patterns
 - [ ] Async batched Ollama inference with adaptive ResourceGovernor (psutil-driven semaphore)
@@ -84,4 +83,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-25 after Phase 03 (resource-governance) completion*
+*Last updated: 2026-03-25 after Phase 05 (seed-injection-and-agent-personas) completion*
