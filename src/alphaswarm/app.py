@@ -59,10 +59,11 @@ def create_app_state(
         json_output=not settings.debug,
     )
     logger = get_logger(component="app")
-    governor = ResourceGovernor(
-        baseline_parallel=settings.governor.baseline_parallel,
-    )
     state_store = StateStore()
+    governor = ResourceGovernor(
+        settings.governor,
+        state_store=state_store,
+    )
 
     ollama_client: OllamaClient | None = None
     model_manager: OllamaModelManager | None = None

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from alphaswarm.config import GovernorSettings
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import AgentWorker, WorkerPersonaConfig, agent_worker
@@ -57,7 +58,7 @@ async def test_semaphore_lifecycle(
     mock_ollama_client: MagicMock,
 ) -> None:
     """Governor active_count is 1 inside agent_worker, 0 after exit."""
-    governor = ResourceGovernor(baseline_parallel=4)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
     assert governor.active_count == 0
 
     async with agent_worker(sample_persona, governor, mock_ollama_client) as worker:
@@ -71,7 +72,7 @@ async def test_semaphore_released_on_error(
     mock_ollama_client: MagicMock,
 ) -> None:
     """Governor active_count is 0 after exception inside agent_worker."""
-    governor = ResourceGovernor(baseline_parallel=4)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
 
     with pytest.raises(RuntimeError, match="test error"):
         async with agent_worker(sample_persona, governor, mock_ollama_client) as worker:
@@ -85,7 +86,7 @@ async def test_agent_worker_provides_typed_worker(
     mock_ollama_client: MagicMock,
 ) -> None:
     """agent_worker yields an AgentWorker with infer() method."""
-    governor = ResourceGovernor(baseline_parallel=4)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
 
     async with agent_worker(sample_persona, governor, mock_ollama_client) as worker:
         assert isinstance(worker, AgentWorker)
@@ -97,7 +98,7 @@ async def test_infer_returns_agent_decision(
     mock_ollama_client: MagicMock,
 ) -> None:
     """infer() returns AgentDecision parsed from mocked chat response."""
-    governor = ResourceGovernor(baseline_parallel=4)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
 
     async with agent_worker(sample_persona, governor, mock_ollama_client) as worker:
         result = await worker.infer(user_message="AAPL earnings miss")
@@ -111,7 +112,7 @@ async def test_infer_uses_persona_system_prompt(
     mock_ollama_client: MagicMock,
 ) -> None:
     """Messages list includes persona system_prompt as role=system."""
-    governor = ResourceGovernor(baseline_parallel=4)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
 
     async with agent_worker(sample_persona, governor, mock_ollama_client) as worker:
         await worker.infer(user_message="test")
@@ -127,7 +128,7 @@ async def test_infer_uses_json_format(
     mock_ollama_client: MagicMock,
 ) -> None:
     """OllamaClient.chat called with format='json'."""
-    governor = ResourceGovernor(baseline_parallel=4)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
 
     async with agent_worker(sample_persona, governor, mock_ollama_client) as worker:
         await worker.infer(user_message="test")
@@ -141,7 +142,7 @@ async def test_infer_uses_think_false(
     mock_ollama_client: MagicMock,
 ) -> None:
     """OllamaClient.chat called with think=False."""
-    governor = ResourceGovernor(baseline_parallel=4)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
 
     async with agent_worker(sample_persona, governor, mock_ollama_client) as worker:
         await worker.infer(user_message="test")
@@ -155,7 +156,7 @@ async def test_infer_with_peer_context(
     mock_ollama_client: MagicMock,
 ) -> None:
     """When peer_context provided, messages list has 3 items (system, peer, user)."""
-    governor = ResourceGovernor(baseline_parallel=4)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
 
     async with agent_worker(sample_persona, governor, mock_ollama_client) as worker:
         await worker.infer(user_message="test", peer_context="macro_01: SELL")

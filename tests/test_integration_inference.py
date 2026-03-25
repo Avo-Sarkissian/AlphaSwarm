@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from alphaswarm.config import GovernorSettings
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
@@ -65,7 +66,7 @@ async def test_single_agent_inference(
     mock_client_success: OllamaClient,
 ) -> None:
     """Full path: acquire governor, infer via agent_worker, parse AgentDecision, release."""
-    governor = ResourceGovernor(baseline_parallel=8)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=8))
     assert governor.active_count == 0
 
     async with agent_worker(persona, governor, mock_client_success, model="alphaswarm-worker") as worker:
@@ -97,7 +98,7 @@ async def test_inference_parse_error_fallback(
     mock_client_garbled: OllamaClient,
 ) -> None:
     """Agent inference with garbled response falls back to PARSE_ERROR."""
-    governor = ResourceGovernor(baseline_parallel=8)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=8))
 
     async with agent_worker(persona, governor, mock_client_garbled, model="alphaswarm-worker") as worker:
         decision = await worker.infer(
@@ -118,7 +119,7 @@ async def test_inference_with_peer_context(
     mock_client_success: OllamaClient,
 ) -> None:
     """Agent inference includes peer context in messages when provided."""
-    governor = ResourceGovernor(baseline_parallel=8)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=8))
 
     async with agent_worker(persona, governor, mock_client_success, model="alphaswarm-worker") as worker:
         decision = await worker.infer(
@@ -141,7 +142,7 @@ async def test_governor_backpressure(
     mock_client_success: OllamaClient,
 ) -> None:
     """Governor with 1 slot blocks second concurrent agent_worker entry."""
-    governor = ResourceGovernor(baseline_parallel=1)
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=1))
     order: list[str] = []
 
     async def first_worker() -> None:
