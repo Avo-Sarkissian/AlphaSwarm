@@ -95,3 +95,50 @@ def sample_personas() -> list[WorkerPersonaConfig]:
             risk_profile="0.95",
         ),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Neo4j graph fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def neo4j_driver():
+    """AsyncDriver connected to local Neo4j. Requires Docker running.
+
+    Skips test if Neo4j is not available or auth fails.
+    """
+    import asyncio
+
+    from neo4j import AsyncGraphDatabase
+    from neo4j.exceptions import Neo4jError, ServiceUnavailable
+
+    driver = AsyncGraphDatabase.driver(
+        "bolt://localhost:7687",
+        auth=("neo4j", "alphaswarm"),
+        max_connection_pool_size=5,
+    )
+    try:
+        asyncio.get_event_loop().run_until_complete(driver.verify_connectivity())
+    except (ServiceUnavailable, Neo4jError, OSError):
+        pytest.skip("Neo4j not available (docker compose up -d)")
+    yield driver
+    asyncio.get_event_loop().run_until_complete(driver.close())
+
+
+@pytest.fixture()
+async def graph_manager(neo4j_driver, all_personas):
+    """GraphStateManager with schema applied and agents seeded. Cleans up after test."""
+    from alphaswarm.graph import GraphStateManager
+
+    manager = GraphStateManager(
+        driver=neo4j_driver,
+        personas=all_personas,
+        database="neo4j",
+    )
+    await manager.ensure_schema()
+    yield manager
+    # Clean all Decision, Cycle nodes between tests (keep Agent nodes)
+    async with neo4j_driver.session(database="neo4j") as session:
+        await session.run("MATCH (d:Decision) DETACH DELETE d")
+        await session.run("MATCH (c:Cycle) DETACH DELETE c")
