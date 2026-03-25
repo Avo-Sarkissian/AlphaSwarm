@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
+from neo4j.exceptions import Neo4jError
 
 from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
 
@@ -156,7 +157,7 @@ class GraphStateManager:
         self._log.info("driver_closed")
 
     # ------------------------------------------------------------------
-    # Stub methods (implemented in Plan 02)
+    # Decision write/read methods (Plan 02)
     # ------------------------------------------------------------------
 
     async def write_decisions(
@@ -165,8 +166,88 @@ class GraphStateManager:
         cycle_id: str,
         round_num: int,
     ) -> None:
-        """Write agent decisions to Neo4j. Implemented in 04-02."""
-        raise NotImplementedError("Implemented in 04-02")
+        """Batch-write agent decisions via UNWIND. Per D-08, D-01, D-03."""
+        params = [
+            {
+                "decision_id": str(uuid.uuid4()),
+                "agent_id": agent_id,
+                "signal": decision.signal.value,
+                "confidence": decision.confidence,
+                "sentiment": decision.sentiment,
+                "rationale": decision.rationale,
+                "cited_agents": list(decision.cited_agents),
+            }
+            for agent_id, decision in agent_decisions
+        ]
+        try:
+            async with self._driver.session(database=self._database) as session:
+                await session.execute_write(
+                    self._batch_write_decisions_tx, params, cycle_id, round_num
+                )
+        except Neo4jError as exc:
+            raise Neo4jWriteError(
+                f"Failed to write {len(agent_decisions)} decisions for cycle {cycle_id} round {round_num}",
+                original_error=exc,
+            ) from exc
+        self._log.info(
+            "decisions_written",
+            cycle_id=cycle_id,
+            round_num=round_num,
+            count=len(agent_decisions),
+        )
+
+    @staticmethod
+    async def _batch_write_decisions_tx(
+        tx: AsyncManagedTransaction,
+        decisions: list[dict],  # type: ignore[type-arg]
+        cycle_id: str,
+        round_num: int,
+    ) -> None:
+        """Transaction function for UNWIND batch decision creation.
+
+        Two-statement split avoids empty-UNWIND pitfall (Pitfall 5 from RESEARCH.md):
+        Statement 1: Decision nodes + MADE + FOR relationships.
+        Statement 2: CITED relationships (only if any citations exist).
+        """
+        # Statement 1: Create Decision nodes with MADE and FOR relationships
+        await tx.run(
+            """
+            UNWIND $decisions AS d
+            MATCH (a:Agent {id: d.agent_id})
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            CREATE (dec:Decision {
+                decision_id: d.decision_id,
+                cycle_id: $cycle_id,
+                round: $round_num,
+                signal: d.signal,
+                confidence: d.confidence,
+                sentiment: d.sentiment,
+                rationale: d.rationale
+            })
+            CREATE (a)-[:MADE]->(dec)
+            CREATE (dec)-[:FOR]->(c)
+            """,
+            decisions=decisions,
+            cycle_id=cycle_id,
+            round_num=round_num,
+        )
+
+        # Statement 2: Create CITED relationships (only if any citations exist)
+        cited_params = [
+            {"decision_id": d["decision_id"], "cited_id": cid}
+            for d in decisions
+            for cid in d["cited_agents"]
+        ]
+        if cited_params:
+            await tx.run(
+                """
+                UNWIND $cited AS c
+                MATCH (dec:Decision {decision_id: c.decision_id})
+                MATCH (agent:Agent {id: c.cited_id})
+                CREATE (dec)-[:CITED]->(agent)
+                """,
+                cited=cited_params,
+            )
 
     async def read_peer_decisions(
         self,
@@ -175,5 +256,63 @@ class GraphStateManager:
         round_num: int,
         limit: int = 5,
     ) -> list[PeerDecision]:
-        """Read peer decisions from Neo4j. Implemented in 04-02."""
-        raise NotImplementedError("Implemented in 04-02")
+        """Read top-N peer decisions ranked by static influence_weight_base. Per D-09."""
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_peers_tx, agent_id, cycle_id, round_num, limit
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read peer decisions for agent {agent_id} cycle {cycle_id} round {round_num}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "peer_decisions_read",
+            agent_id=agent_id,
+            cycle_id=cycle_id,
+            round_num=round_num,
+            count=len(records),
+        )
+        return [
+            PeerDecision(
+                agent_id=r["agent_id"],
+                bracket=r["bracket"],
+                signal=r["signal"],
+                confidence=r["confidence"],
+                sentiment=r["sentiment"],
+                rationale=r["rationale"],
+            )
+            for r in records
+        ]
+
+    @staticmethod
+    async def _read_peers_tx(
+        tx: AsyncManagedTransaction,
+        agent_id: str,
+        cycle_id: str,
+        round_num: int,
+        limit: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for reading peer decisions by influence weight."""
+        result = await tx.run(
+            """
+            MATCH (a:Agent)-[:MADE]->(d:Decision)
+            WHERE d.cycle_id = $cycle_id
+              AND d.round = $round_num
+              AND a.id <> $agent_id
+            RETURN a.id AS agent_id,
+                   a.bracket AS bracket,
+                   d.signal AS signal,
+                   d.confidence AS confidence,
+                   d.sentiment AS sentiment,
+                   d.rationale AS rationale
+            ORDER BY a.influence_weight_base DESC
+            LIMIT $limit
+            """,
+            agent_id=agent_id,
+            cycle_id=cycle_id,
+            round_num=round_num,
+            limit=limit,
+        )
+        return [dict(record) async for record in result]
