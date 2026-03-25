@@ -12,15 +12,21 @@ from alphaswarm.types import AgentPersona, BracketType
 
 
 @pytest.fixture()
-def mock_driver() -> AsyncMock:
-    """Create a mock AsyncDriver with session context manager support."""
-    driver = AsyncMock()
+def mock_driver() -> MagicMock:
+    """Create a mock AsyncDriver with session context manager support.
+
+    neo4j's AsyncDriver.session() is a regular (non-async) method that returns
+    an AsyncSession (async context manager). We use MagicMock for the driver
+    so that session() is synchronous, and AsyncMock for the session itself
+    so it supports __aenter__/__aexit__.
+    """
+    driver = MagicMock()
+    driver.close = AsyncMock()  # close() is async
     session = AsyncMock()
-    # session() returns an async context manager
-    ctx = AsyncMock()
-    ctx.__aenter__ = AsyncMock(return_value=session)
-    ctx.__aexit__ = AsyncMock(return_value=False)
-    driver.session.return_value = ctx
+    # session() is a regular call that returns an async context manager
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    driver.session.return_value = session
     return driver
 
 
@@ -49,7 +55,7 @@ def sample_personas_for_graph() -> list[AgentPersona]:
     ]
 
 
-def test_init_stores_driver_and_database(mock_driver: AsyncMock) -> None:
+def test_init_stores_driver_and_database(mock_driver: MagicMock) -> None:
     """GraphStateManager.__init__ stores driver and database."""
     from alphaswarm.graph import GraphStateManager
 
@@ -59,11 +65,11 @@ def test_init_stores_driver_and_database(mock_driver: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_ensure_schema_runs_all_statements(mock_driver: AsyncMock) -> None:
+async def test_ensure_schema_runs_all_statements(mock_driver: MagicMock) -> None:
     """ensure_schema runs all SCHEMA_STATEMENTS then calls seed_agents."""
     from alphaswarm.graph import SCHEMA_STATEMENTS, GraphStateManager
 
-    session = await mock_driver.session.return_value.__aenter__()
+    session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     with patch.object(gsm, "seed_agents", new_callable=AsyncMock) as mock_seed:
@@ -77,13 +83,13 @@ async def test_ensure_schema_runs_all_statements(mock_driver: AsyncMock) -> None
 
 @pytest.mark.asyncio()
 async def test_seed_agents_transforms_personas_to_dicts(
-    mock_driver: AsyncMock,
+    mock_driver: MagicMock,
     sample_personas_for_graph: list[AgentPersona],
 ) -> None:
     """seed_agents transforms AgentPersona list to dicts and calls execute_write."""
     from alphaswarm.graph import GraphStateManager
 
-    session = await mock_driver.session.return_value.__aenter__()
+    session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph)
 
     await gsm.seed_agents(sample_personas_for_graph)
@@ -104,11 +110,11 @@ async def test_seed_agents_transforms_personas_to_dicts(
 
 
 @pytest.mark.asyncio()
-async def test_create_cycle_returns_uuid_string(mock_driver: AsyncMock) -> None:
+async def test_create_cycle_returns_uuid_string(mock_driver: MagicMock) -> None:
     """create_cycle returns a uuid4 string and calls execute_write."""
     from alphaswarm.graph import GraphStateManager
 
-    session = await mock_driver.session.return_value.__aenter__()
+    session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     cycle_id = await gsm.create_cycle("test rumor")
@@ -121,7 +127,7 @@ async def test_create_cycle_returns_uuid_string(mock_driver: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_close_calls_driver_close(mock_driver: AsyncMock) -> None:
+async def test_close_calls_driver_close(mock_driver: MagicMock) -> None:
     """close() calls driver.close()."""
     from alphaswarm.graph import GraphStateManager
 
