@@ -48,6 +48,15 @@ class GovernorSettings(BaseModel):
     memory_pause_percent: float = Field(default=90.0, ge=60.0, le=99.0)
     check_interval_seconds: float = Field(default=2.0, ge=0.5, le=10.0)
 
+    # Phase 3: Dynamic governor fields (D-01, D-02, D-04, D-05, D-07, D-14)
+    scale_up_threshold_percent: float = Field(default=60.0, ge=30.0, le=80.0)
+    scale_up_consecutive_checks: int = Field(default=3, ge=1, le=10)
+    crisis_timeout_seconds: float = Field(default=300.0, ge=30.0, le=600.0)
+    slot_adjustment_step: int = Field(default=2, ge=1, le=4)
+    batch_failure_threshold_percent: float = Field(default=20.0, ge=5.0, le=50.0)
+    jitter_min_seconds: float = Field(default=0.5, ge=0.0, le=2.0)
+    jitter_max_seconds: float = Field(default=1.5, ge=0.5, le=5.0)
+
 
 # ---------------------------------------------------------------------------
 # Root application settings

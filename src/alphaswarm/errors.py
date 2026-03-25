@@ -30,6 +30,18 @@ class ModelLoadError(OllamaInferenceError):
     """Raised when a model fails to load or unload."""
 
 
+class GovernorCrisisError(Exception):
+    """Raised when governor crisis timeout expires (5min sustained pressure, no success).
+
+    Attributes:
+        duration_seconds: How long the crisis lasted before timeout.
+    """
+
+    def __init__(self, message: str, duration_seconds: float) -> None:
+        super().__init__(message)
+        self.duration_seconds = duration_seconds
+
+
 class ParseError(Exception):
     """Raised when structured output parsing fails at all tiers.
 
