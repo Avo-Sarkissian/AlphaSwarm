@@ -63,7 +63,10 @@ Plans:
   2. At 80% memory utilization the governor throttles new inference dispatches; at 90% it pauses the task queue entirely
   3. All batch agent processing uses asyncio.TaskGroup -- no bare create_task calls that could be garbage collected
   4. Ollama failures trigger exponential backoff (1s, 2s, 4s) and batch failure rates above 20% shrink the governor's slot count
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 03-01-PLAN.md -- MemoryMonitor (psutil + sysctl dual-signal), TokenPool (Queue-based dynamic concurrency), ResourceGovernor rewrite with 5-state machine, GovernorSettings extensions, GovernorCrisisError
+- [ ] 03-02-PLAN.md -- BatchDispatcher (TaskGroup dispatch with jitter and failure tracking), worker.py success flag, StateStore GovernorMetrics data contract, AppState wiring
 
 ### Phase 4: Neo4j Graph State
 **Goal**: Agent decisions and influence relationships persist in Neo4j with sub-5ms read performance and safe concurrent access
@@ -155,7 +158,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 |-------|----------------|--------|-----------|
 | 1. Project Foundation | 2/2 | Complete | 2026-03-24 |
 | 2. Ollama Integration | 0/3 | Planning complete | - |
-| 3. Resource Governance | 0/TBD | Not started | - |
+| 3. Resource Governance | 0/2 | Planning complete | - |
 | 4. Neo4j Graph State | 0/TBD | Not started | - |
 | 5. Seed Injection and Agent Personas | 0/TBD | Not started | - |
 | 6. Round 1 Standalone | 0/TBD | Not started | - |
