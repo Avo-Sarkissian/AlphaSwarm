@@ -26,9 +26,9 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **INFRA-04**: Ollama AsyncClient wrapper with standardized num_ctx via Modelfiles (no per-request num_ctx to avoid silent model reloads)
 - [ ] **INFRA-05**: Neo4j graph schema with cycle-scoped composite indexes on (Agent.id, INFLUENCED_BY.cycle_id) for sub-5ms peer decision reads
 - [ ] **INFRA-06**: GraphStateManager with session-per-coroutine pattern and UNWIND batch writes (100 decisions per transaction, not 100 transactions)
-- [ ] **INFRA-07**: All agent batch processing uses asyncio.TaskGroup (no bare create_task) to prevent silent task garbage collection
+- [x] **INFRA-07**: All agent batch processing uses asyncio.TaskGroup (no bare create_task) to prevent silent task garbage collection
 - [x] **INFRA-08**: Structured output parsing via Pydantic models with multi-tier fallback (JSON mode → regex extraction → PARSE_ERROR status)
-- [ ] **INFRA-09**: Exponential backoff for Ollama failures (1s, 2s, 4s; shrink governor on >20% batch failure rate)
+- [x] **INFRA-09**: Exponential backoff for Ollama failures (1s, 2s, 4s; shrink governor on >20% batch failure rate)
 - [ ] **INFRA-10**: Miro API batcher stubbed with 2s buffer and bulk payload interface (no live API calls in v1)
 - [x] **INFRA-11**: structlog-based logging with per-agent correlation IDs via context binding
 
@@ -93,8 +93,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFRA-08 | Phase 2: Ollama Integration | Complete |
 | INFRA-01 | Phase 3: Resource Governance | Complete |
 | INFRA-02 | Phase 3: Resource Governance | Complete |
-| INFRA-07 | Phase 3: Resource Governance | Pending |
-| INFRA-09 | Phase 3: Resource Governance | Pending |
+| INFRA-07 | Phase 3: Resource Governance | Complete |
+| INFRA-09 | Phase 3: Resource Governance | Complete |
 | INFRA-05 | Phase 4: Neo4j Graph State | Pending |
 | INFRA-06 | Phase 4: Neo4j Graph State | Pending |
 | SIM-01 | Phase 5: Seed Injection and Agent Personas | Pending |

@@ -66,7 +66,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 03-01-PLAN.md -- MemoryMonitor (psutil + sysctl dual-signal), TokenPool (Queue-based dynamic concurrency), ResourceGovernor rewrite with 5-state machine, GovernorSettings extensions, GovernorCrisisError
-- [ ] 03-02-PLAN.md -- BatchDispatcher (TaskGroup dispatch with jitter and failure tracking), worker.py success flag, StateStore GovernorMetrics data contract, AppState wiring
+- [x] 03-02-PLAN.md -- BatchDispatcher (TaskGroup dispatch with jitter and failure tracking), worker.py success flag, StateStore GovernorMetrics data contract, AppState wiring
 
 ### Phase 4: Neo4j Graph State
 **Goal**: Agent decisions and influence relationships persist in Neo4j with sub-5ms read performance and safe concurrent access
