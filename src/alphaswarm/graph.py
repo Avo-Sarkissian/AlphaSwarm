@@ -14,7 +14,7 @@ from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
 if TYPE_CHECKING:
     from neo4j import AsyncDriver, AsyncManagedTransaction
 
-    from alphaswarm.types import AgentDecision, AgentPersona
+    from alphaswarm.types import AgentDecision, AgentPersona, SeedEvent
 
 log = structlog.get_logger(component="graph")
 
@@ -43,6 +43,7 @@ class PeerDecision:
 SCHEMA_STATEMENTS: list[str] = [
     "CREATE CONSTRAINT agent_id_unique IF NOT EXISTS FOR (a:Agent) REQUIRE a.id IS UNIQUE",
     "CREATE CONSTRAINT cycle_id_unique IF NOT EXISTS FOR (c:Cycle) REQUIRE c.cycle_id IS UNIQUE",
+    "CREATE CONSTRAINT entity_name_type_unique IF NOT EXISTS FOR (e:Entity) REQUIRE (e.name, e.type) IS UNIQUE",
     "CREATE INDEX decision_cycle_round IF NOT EXISTS FOR (d:Decision) ON (d.cycle_id, d.round)",
     "CREATE INDEX agent_id_idx IF NOT EXISTS FOR (a:Agent) ON (a.id)",
     "CREATE INDEX decision_id_idx IF NOT EXISTS FOR (d:Decision) ON (d.decision_id)",
@@ -150,6 +151,91 @@ class GraphStateManager:
             cycle_id=cycle_id,
             seed_rumor=seed_rumor,
         )
+
+    async def create_cycle_with_seed_event(
+        self, seed_rumor: str, seed_event: SeedEvent,
+    ) -> str:
+        """Atomically create Cycle node with seed event entities.
+
+        Per review concern: create_cycle() then write_seed_event() as separate
+        operations could leave orphan Cycle nodes. This method wraps both in a
+        single transaction. Also persists overall_sentiment on the Cycle node.
+
+        Args:
+            seed_rumor: Raw rumor text for the Cycle node.
+            seed_event: Parsed seed event with entities and overall_sentiment.
+
+        Returns:
+            cycle_id: The UUID4 string for the created Cycle.
+        """
+        cycle_id = str(uuid.uuid4())
+        entity_params = [
+            {
+                "name": e.name,
+                "type": e.type.value,
+                "relevance": e.relevance,
+                "sentiment": e.sentiment,
+            }
+            for e in seed_event.entities
+        ]
+        try:
+            async with self._driver.session(database=self._database) as session:
+                await session.execute_write(
+                    self._create_cycle_with_entities_tx,
+                    cycle_id,
+                    seed_rumor,
+                    seed_event.overall_sentiment,
+                    entity_params,
+                )
+        except Neo4jError as exc:
+            raise Neo4jWriteError(
+                f"Failed to create cycle with seed event for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.info(
+            "cycle_with_seed_event_created",
+            cycle_id=cycle_id,
+            entity_count=len(entity_params),
+            overall_sentiment=seed_event.overall_sentiment,
+        )
+        return cycle_id
+
+    @staticmethod
+    async def _create_cycle_with_entities_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        seed_rumor: str,
+        overall_sentiment: float,
+        entities: list[dict],  # type: ignore[type-arg]
+    ) -> None:
+        """Single transaction: create Cycle with overall_sentiment, then UNWIND Entity+MENTIONS."""
+        # Create Cycle node with overall_sentiment
+        await tx.run(
+            """
+            CREATE (c:Cycle {
+                cycle_id: $cycle_id,
+                seed_rumor: $seed_rumor,
+                overall_sentiment: $overall_sentiment,
+                created_at: datetime()
+            })
+            """,
+            cycle_id=cycle_id,
+            seed_rumor=seed_rumor,
+            overall_sentiment=overall_sentiment,
+        )
+        # Create Entity nodes + MENTIONS relationships (only if entities exist)
+        if entities:
+            await tx.run(
+                """
+                UNWIND $entities AS e
+                MERGE (entity:Entity {name: e.name, type: e.type})
+                WITH entity, e
+                MATCH (c:Cycle {cycle_id: $cycle_id})
+                CREATE (c)-[:MENTIONS {relevance: e.relevance, sentiment: e.sentiment}]->(entity)
+                """,
+                entities=entities,
+                cycle_id=cycle_id,
+            )
 
     async def close(self) -> None:
         """Close the Neo4j driver connection."""
