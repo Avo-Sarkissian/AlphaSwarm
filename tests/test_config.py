@@ -106,3 +106,33 @@ def test_bracket_distinct_risk_profiles(all_brackets: list[BracketConfig]) -> No
     """All 10 brackets have distinct risk profiles."""
     profiles = [b.risk_profile for b in all_brackets]
     assert len(set(profiles)) == 10
+
+
+# --- Phase 5: Enriched prompt template tests ---
+
+
+def test_bracket_template_word_counts(all_brackets: list[BracketConfig]) -> None:
+    """Each bracket system_prompt_template is between 100 and 250 words."""
+    for b in all_brackets:
+        word_count = len(b.system_prompt_template.split())
+        assert 100 <= word_count <= 250, (
+            f"{b.bracket_type.value} template has {word_count} words, expected 100-250"
+        )
+
+
+def test_bracket_templates_no_todo(all_brackets: list[BracketConfig]) -> None:
+    """No system_prompt_template contains TODO markers."""
+    for b in all_brackets:
+        assert "TODO" not in b.system_prompt_template, (
+            f"{b.bracket_type.value} template still contains TODO"
+        )
+
+
+def test_json_output_instructions_fields() -> None:
+    """JSON_OUTPUT_INSTRUCTIONS contains all 5 required field names."""
+    from alphaswarm.config import JSON_OUTPUT_INSTRUCTIONS
+
+    for field in ("signal", "confidence", "sentiment", "rationale", "cited_agents"):
+        assert field in JSON_OUTPUT_INSTRUCTIONS, (
+            f"JSON_OUTPUT_INSTRUCTIONS missing field: {field}"
+        )

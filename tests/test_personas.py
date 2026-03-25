@@ -67,3 +67,89 @@ def test_persona_inherits_bracket_values(
         assert p.risk_profile == b.risk_profile, f"{p.id} risk mismatch"
         assert p.temperature == b.temperature, f"{p.id} temperature mismatch"
         assert p.influence_weight_base == b.influence_weight_base, f"{p.id} influence mismatch"
+
+
+# --- Phase 5: Enriched persona prompt tests ---
+
+
+def test_persona_unique_system_prompts(all_personas: list[AgentPersona]) -> None:
+    """All 100 personas have unique system_prompt strings."""
+    prompts = [p.system_prompt for p in all_personas]
+    assert len(set(prompts)) == 100, (
+        f"Expected 100 unique prompts, got {len(set(prompts))}"
+    )
+
+
+def test_persona_contains_json_instructions(all_personas: list[AgentPersona]) -> None:
+    """Each persona's system_prompt contains the JSON field name 'signal'."""
+    for p in all_personas:
+        assert "signal" in p.system_prompt, (
+            f"{p.id} system_prompt missing JSON field 'signal'"
+        )
+
+
+def test_persona_same_bracket_different_modifiers(all_personas: list[AgentPersona]) -> None:
+    """Personas within same bracket have different modifiers (first 2 Quants differ)."""
+    quants = [p for p in all_personas if p.bracket == BracketType.QUANTS]
+    assert len(quants) >= 2
+    assert quants[0].system_prompt != quants[1].system_prompt, (
+        "First two Quants personas should have different system prompts"
+    )
+
+
+def test_persona_deterministic_generation() -> None:
+    """Round-robin assignment is deterministic: generating twice yields identical prompts."""
+    from alphaswarm.config import generate_personas, load_bracket_configs
+
+    brackets = load_bracket_configs()
+    run1 = generate_personas(brackets)
+    run2 = generate_personas(brackets)
+    for p1, p2 in zip(run1, run2):
+        assert p1.system_prompt == p2.system_prompt, (
+            f"{p1.id} prompt differs between generations"
+        )
+
+
+def test_persona_word_count_under_350(all_personas: list[AgentPersona]) -> None:
+    """Each persona's total system_prompt word count stays under 350 words."""
+    for p in all_personas:
+        word_count = len(p.system_prompt.split())
+        assert word_count < 350, (
+            f"{p.id} system_prompt has {word_count} words, expected <350"
+        )
+
+
+def test_bracket_modifiers_completeness() -> None:
+    """BRACKET_MODIFIERS has an entry for every BracketType (10 entries)."""
+    from alphaswarm.config import BRACKET_MODIFIERS
+
+    assert len(BRACKET_MODIFIERS) == 10
+    for bt in BracketType:
+        assert bt in BRACKET_MODIFIERS, f"BRACKET_MODIFIERS missing {bt.value}"
+
+
+def test_bracket_modifiers_count_range() -> None:
+    """Each bracket has 3-5 modifiers."""
+    from alphaswarm.config import BRACKET_MODIFIERS
+
+    for bt, mods in BRACKET_MODIFIERS.items():
+        assert 3 <= len(mods) <= 5, (
+            f"{bt.value} has {len(mods)} modifiers, expected 3-5"
+        )
+
+
+def test_persona_first_modifier_assignment() -> None:
+    """Each bracket's first persona contains the first modifier from BRACKET_MODIFIERS."""
+    from alphaswarm.config import BRACKET_MODIFIERS, generate_personas, load_bracket_configs
+
+    personas = generate_personas(load_bracket_configs())
+    # Group by bracket
+    by_bracket: dict[BracketType, list[AgentPersona]] = {}
+    for p in personas:
+        by_bracket.setdefault(p.bracket, []).append(p)
+
+    for bt, mods in BRACKET_MODIFIERS.items():
+        first_persona = by_bracket[bt][0]
+        assert mods[0] in first_persona.system_prompt, (
+            f"{bt.value} first persona missing first modifier: '{mods[0][:40]}...'"
+        )
