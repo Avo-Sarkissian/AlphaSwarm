@@ -65,7 +65,7 @@ Plans:
   4. Ollama failures trigger exponential backoff (1s, 2s, 4s) and batch failure rates above 20% shrink the governor's slot count
 **Plans**: 2 plans
 Plans:
-- [ ] 03-01-PLAN.md -- MemoryMonitor (psutil + sysctl dual-signal), TokenPool (Queue-based dynamic concurrency), ResourceGovernor rewrite with 5-state machine, GovernorSettings extensions, GovernorCrisisError
+- [x] 03-01-PLAN.md -- MemoryMonitor (psutil + sysctl dual-signal), TokenPool (Queue-based dynamic concurrency), ResourceGovernor rewrite with 5-state machine, GovernorSettings extensions, GovernorCrisisError
 - [ ] 03-02-PLAN.md -- BatchDispatcher (TaskGroup dispatch with jitter and failure tracking), worker.py success flag, StateStore GovernorMetrics data contract, AppState wiring
 
 ### Phase 4: Neo4j Graph State

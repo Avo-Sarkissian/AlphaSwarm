@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Phase 3 context gathered
-last_updated: "2026-03-25T02:47:31.902Z"
+status: Ready to execute
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-03-25T03:48:38.863Z"
 progress:
   total_phases: 10
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 7
+  completed_plans: 6
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology
-**Current focus:** Phase 02 — ollama-integration
+**Current focus:** Phase 03 — resource-governance
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
+Phase: 03 (resource-governance) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Plan: Not started
 | Phase 02 P01 | 5min | 2 tasks | 13 files |
 | Phase 02 P02 | 5min | 2 tasks | 6 files |
 | Phase 02 P03 | 4min | 2 tasks | 6 files |
+| Phase 03 P01 | 7min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,10 @@ Recent decisions affecting current work:
 - [Phase 02]: agent_worker as @asynccontextmanager per CONTEXT.md locked decision, not class with __aenter__
 - [Phase 02]: AppState with_ollama=False by default for backward compatibility; OllamaClient+ModelManager only created when explicitly requested
 - [Phase 02]: TYPE_CHECKING guard on governor and client imports in worker.py to avoid circular deps while maintaining type safety
+- [Phase 03]: TokenPool uses asyncio.Queue with debt counter instead of BoundedSemaphore for O(1) grow/shrink without deadlock
+- [Phase 03]: sysctl kernel pressure is master signal; YELLOW/RED overrides psutil regardless of percent value
+- [Phase 03]: GovernorMetrics emitted on state change only (not every 2s check) to avoid metric spam
+- [Phase 03]: ResourceGovernor constructor accepts optional settings (defaults to GovernorSettings()) for backward compatibility
 
 ### Pending Todos
 
@@ -87,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T02:47:31.900Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-resource-governance/03-CONTEXT.md
+Last session: 2026-03-25T03:48:38.860Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None

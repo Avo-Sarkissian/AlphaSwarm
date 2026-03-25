@@ -20,8 +20,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: ResourceGovernor implements dynamic concurrency control via asyncio token-pool pattern, starting at 8 parallel slots (adjustable up to 16)
-- [ ] **INFRA-02**: psutil + macOS `memory_pressure` command monitors system memory; ResourceGovernor throttles at 80% utilization and pauses task queue at 90%
+- [x] **INFRA-01**: ResourceGovernor implements dynamic concurrency control via asyncio token-pool pattern, starting at 8 parallel slots (adjustable up to 16)
+- [x] **INFRA-02**: psutil + macOS `memory_pressure` command monitors system memory; ResourceGovernor throttles at 80% utilization and pauses task queue at 90%
 - [x] **INFRA-03**: Sequential model loading — orchestrator model (qwen3:32b) loads for seed injection, unloads, then worker model (qwen3.5:4b) loads for agent inference
 - [x] **INFRA-04**: Ollama AsyncClient wrapper with standardized num_ctx via Modelfiles (no per-request num_ctx to avoid silent model reloads)
 - [ ] **INFRA-05**: Neo4j graph schema with cycle-scoped composite indexes on (Agent.id, INFLUENCED_BY.cycle_id) for sub-5ms peer decision reads
@@ -91,8 +91,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFRA-03 | Phase 2: Ollama Integration | Complete |
 | INFRA-04 | Phase 2: Ollama Integration | Complete |
 | INFRA-08 | Phase 2: Ollama Integration | Complete |
-| INFRA-01 | Phase 3: Resource Governance | Pending |
-| INFRA-02 | Phase 3: Resource Governance | Pending |
+| INFRA-01 | Phase 3: Resource Governance | Complete |
+| INFRA-02 | Phase 3: Resource Governance | Complete |
 | INFRA-07 | Phase 3: Resource Governance | Pending |
 | INFRA-09 | Phase 3: Resource Governance | Pending |
 | INFRA-05 | Phase 4: Neo4j Graph State | Pending |
