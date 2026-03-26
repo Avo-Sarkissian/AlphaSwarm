@@ -29,7 +29,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **INFRA-07**: All agent batch processing uses asyncio.TaskGroup (no bare create_task) to prevent silent task garbage collection
 - [x] **INFRA-08**: Structured output parsing via Pydantic models with multi-tier fallback (JSON mode → regex extraction → PARSE_ERROR status)
 - [x] **INFRA-09**: Exponential backoff for Ollama failures (1s, 2s, 4s; shrink governor on >20% batch failure rate)
-- [ ] **INFRA-10**: Miro API batcher stubbed with 2s buffer and bulk payload interface (no live API calls in v1)
+- [x] **INFRA-10**: Miro API batcher stubbed with 2s buffer and bulk payload interface (no live API calls in v1)
 - [x] **INFRA-11**: structlog-based logging with per-agent correlation IDs via context binding
 
 ### TUI Dashboard
@@ -105,7 +105,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SIM-06 | Phase 7: Rounds 2-3 Peer Influence and Consensus | Complete |
 | SIM-07 | Phase 8: Dynamic Influence Topology | Pending |
 | SIM-08 | Phase 8: Dynamic Influence Topology | Pending |
-| INFRA-10 | Phase 8: Dynamic Influence Topology | Pending |
+| INFRA-10 | Phase 8: Dynamic Influence Topology | Complete |
 | TUI-01 | Phase 9: TUI Core Dashboard | Pending |
 | TUI-02 | Phase 9: TUI Core Dashboard | Pending |
 | TUI-06 | Phase 9: TUI Core Dashboard | Pending |
