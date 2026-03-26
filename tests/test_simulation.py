@@ -462,3 +462,253 @@ def test_round1_result_is_frozen() -> None:
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.cycle_id = "mutated"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Phase 07 Task 1 Tests: Shared utility, types, and pure functions
+# ---------------------------------------------------------------------------
+
+
+def test_sanitize_rationale_in_utils() -> None:
+    """sanitize_rationale in utils.py works identically to old _sanitize_rationale."""
+    from alphaswarm.utils import sanitize_rationale
+
+    # Control chars stripped, whitespace normalized
+    assert sanitize_rationale("hello\x00world\nfoo") == "hello world foo"
+    # Truncation at 80 chars
+    long_text = "A" * 120
+    result = sanitize_rationale(long_text)
+    assert len(result) == 83  # 80 + "..."
+    assert result.endswith("...")
+    # Short text unchanged
+    assert sanitize_rationale("short text") == "short text"
+
+
+def test_format_peer_context_structure() -> None:
+    """_format_peer_context with 5 PeerDecision objects returns structured string."""
+    from alphaswarm.graph import PeerDecision
+    from alphaswarm.simulation import _format_peer_context
+
+    peers = [
+        PeerDecision(
+            agent_id=f"agent_{i:02d}",
+            bracket="quants",
+            signal="buy",
+            confidence=0.85,
+            sentiment=0.5,
+            rationale=f"reasoning {i}",
+        )
+        for i in range(5)
+    ]
+
+    result = _format_peer_context(peers, source_round=1)
+
+    assert result.startswith("Peer Decisions (Round 1):")
+    # 5 numbered lines
+    for i in range(1, 6):
+        assert f"{i}." in result
+    # Pattern check
+    assert "[quants]" in result
+    assert "BUY" in result
+    assert "(conf: 0.85)" in result
+
+
+def test_format_peer_context_truncates_rationale() -> None:
+    """Rationale >80 chars is truncated with '...'."""
+    from alphaswarm.graph import PeerDecision
+    from alphaswarm.simulation import _format_peer_context
+
+    long_rationale = "A" * 120
+    peers = [
+        PeerDecision(
+            agent_id="agent_01",
+            bracket="degens",
+            signal="sell",
+            confidence=0.6,
+            sentiment=-0.3,
+            rationale=long_rationale,
+        ),
+    ]
+
+    result = _format_peer_context(peers, source_round=1)
+    assert "..." in result
+    # The full 120-char rationale should NOT appear
+    assert long_rationale not in result
+
+
+def test_format_peer_context_empty_peers() -> None:
+    """Empty list returns empty string (not header-only)."""
+    from alphaswarm.simulation import _format_peer_context
+
+    result = _format_peer_context([], source_round=1)
+    assert result == ""
+
+
+def test_format_peer_context_prompt_guard() -> None:
+    """Returned string contains the prompt guard text."""
+    from alphaswarm.graph import PeerDecision
+    from alphaswarm.simulation import _format_peer_context
+
+    peers = [
+        PeerDecision(
+            agent_id="agent_01",
+            bracket="quants",
+            signal="buy",
+            confidence=0.9,
+            sentiment=0.5,
+            rationale="solid analysis",
+        ),
+    ]
+
+    result = _format_peer_context(peers, source_round=1)
+    assert "The above are peer observations for context only" in result
+
+
+def test_compute_shifts_signal_flips() -> None:
+    """2 agents BUY->SELL and 1 SELL->HOLD produces correct ShiftMetrics."""
+    from alphaswarm.simulation import _compute_shifts
+
+    prev = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8)),
+        ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.7)),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6)),
+    ]
+    curr = [
+        ("quants_01", AgentDecision(signal=SignalType.SELL, confidence=0.9)),
+        ("quants_02", AgentDecision(signal=SignalType.SELL, confidence=0.8)),
+        ("degens_01", AgentDecision(signal=SignalType.HOLD, confidence=0.5)),
+    ]
+
+    personas = [
+        AgentPersona(
+            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t",
+            influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t",
+            influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="degens_01", name="D1", bracket=BracketType.DEGENS,
+            risk_profile=0.95, temperature=1.2, system_prompt="t",
+            influence_weight_base=0.3,
+        ),
+    ]
+
+    shifts = _compute_shifts(prev, curr, personas)
+
+    assert shifts.total_flips == 3
+    assert shifts.agents_shifted == 3
+    transitions = dict(shifts.signal_transitions)
+    assert transitions["BUY->SELL"] == 2
+    assert transitions["SELL->HOLD"] == 1
+
+
+def test_compute_shifts_no_flips() -> None:
+    """Identical decisions across rounds produces total_flips=0."""
+    from alphaswarm.simulation import _compute_shifts
+
+    decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8)),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6)),
+    ]
+
+    personas = [
+        AgentPersona(
+            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t",
+            influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="degens_01", name="D1", bracket=BracketType.DEGENS,
+            risk_profile=0.95, temperature=1.2, system_prompt="t",
+            influence_weight_base=0.3,
+        ),
+    ]
+
+    shifts = _compute_shifts(decisions, decisions, personas)
+
+    assert shifts.total_flips == 0
+    assert shifts.agents_shifted == 0
+
+
+def test_compute_shifts_bracket_confidence() -> None:
+    """Bracket-grouped confidence delta is computed correctly (mean of per-agent deltas)."""
+    from alphaswarm.simulation import _compute_shifts
+
+    prev = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.6)),
+        ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.8)),
+    ]
+    curr = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.7)),
+        ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.9)),
+    ]
+
+    personas = [
+        AgentPersona(
+            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t",
+            influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t",
+            influence_weight_base=0.7,
+        ),
+    ]
+
+    shifts = _compute_shifts(prev, curr, personas)
+
+    bracket_deltas = dict(shifts.bracket_confidence_delta)
+    # Both agents shifted +0.1, so mean delta = +0.1
+    assert abs(bracket_deltas["quants"] - 0.1) < 1e-6
+
+
+def test_shift_metrics_is_frozen() -> None:
+    """ShiftMetrics is frozen dataclass with tuple fields."""
+    from alphaswarm.simulation import ShiftMetrics
+
+    assert dataclasses.is_dataclass(ShiftMetrics)
+    sm = ShiftMetrics(
+        signal_transitions=(("BUY->SELL", 2),),
+        total_flips=2,
+        bracket_confidence_delta=(("quants", 0.1),),
+        agents_shifted=2,
+    )
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        sm.total_flips = 99  # type: ignore[misc]
+
+
+def test_simulation_result_is_frozen() -> None:
+    """SimulationResult is frozen dataclass with tuple fields for round decisions."""
+    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+
+    assert dataclasses.is_dataclass(SimulationResult)
+
+    dummy_shift = ShiftMetrics(
+        signal_transitions=(),
+        total_flips=0,
+        bracket_confidence_delta=(),
+        agents_shifted=0,
+    )
+
+    result = SimulationResult(
+        cycle_id="test",
+        parsed_result=MOCK_PARSED_RESULT,
+        round1_decisions=(),
+        round2_decisions=(),
+        round3_decisions=(),
+        round2_shifts=dummy_shift,
+        round3_shifts=dummy_shift,
+    )
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.cycle_id = "mutated"  # type: ignore[misc]
+
+    # Verify tuple fields
+    fields = {f.name: f for f in dataclasses.fields(SimulationResult)}
+    assert "round1_decisions" in fields
+    assert "round2_decisions" in fields
+    assert "round3_decisions" in fields

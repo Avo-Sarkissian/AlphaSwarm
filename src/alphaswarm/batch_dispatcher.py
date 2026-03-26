@@ -85,6 +85,7 @@ async def dispatch_wave(
     settings: GovernorSettings,
     *,
     peer_context: str | None = None,
+    peer_contexts: list[str | None] | None = None,
 ) -> list[AgentDecision]:
     """Dispatch a wave of agent inferences using asyncio.TaskGroup.
 
@@ -104,16 +105,26 @@ async def dispatch_wave(
         user_message: The seed rumor or prompt.
         settings: GovernorSettings with jitter and threshold config.
         peer_context: Optional peer decision context for Rounds 2-3.
+        peer_contexts: Optional per-agent peer context list. When provided, must have
+            same length as personas. Overrides peer_context scalar. Raises ValueError
+            on length mismatch.
 
     Returns:
         List of AgentDecision, one per persona. Failed agents have
         signal=PARSE_ERROR.
 
     Raises:
+        ValueError: If peer_contexts length does not match personas length.
         GovernorCrisisError: If any agent hits a governor crisis.
         ExceptionGroup: If CancelledError or other unrecoverable errors
             propagate from TaskGroup.
     """
+    if peer_contexts is not None:
+        if len(peer_contexts) != len(personas):
+            raise ValueError(
+                f"peer_contexts length {len(peer_contexts)} != personas length {len(personas)}"
+            )
+
     tasks: list[asyncio.Task[AgentDecision]] = []
 
     async with asyncio.TaskGroup() as tg:
@@ -125,12 +136,12 @@ async def dispatch_wave(
                     client,
                     model,
                     user_message,
-                    peer_context,
+                    peer_contexts[i] if peer_contexts is not None else peer_context,
                     settings.jitter_min_seconds,
                     settings.jitter_max_seconds,
                 )
             )
-            for p in personas
+            for i, p in enumerate(personas)
         ]
 
     results = [t.result() for t in tasks]

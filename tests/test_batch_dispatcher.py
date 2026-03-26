@@ -511,3 +511,108 @@ async def test_dispatch_wave_uses_task_group(
     source = inspect.getsource(dispatch_wave)
     assert "TaskGroup" in source
     assert "tg.create_task" in source
+
+
+# ---------------------------------------------------------------------------
+# Phase 07 Task 1: Per-agent peer_contexts tests
+# ---------------------------------------------------------------------------
+
+
+async def test_dispatch_wave_per_agent_peer_contexts(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """dispatch_wave called with peer_contexts sends ctx_i to persona i."""
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    received_contexts: list[str | None] = []
+
+    async def mock_infer(user_message: str, peer_context: str | None = None) -> AgentDecision:
+        received_contexts.append(peer_context)
+        return AgentDecision(signal=SignalType.BUY, confidence=0.8)
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_worker = AsyncMock()
+        mock_worker.infer = mock_infer
+        mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        client = _make_mock_client()
+        settings = GovernorSettings(baseline_parallel=16)
+        peer_contexts = ["ctx_0", "ctx_1", "ctx_2", "ctx_3"]
+
+        with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+            results = await dispatch_wave(
+                personas=sample_personas,
+                governor=governor,
+                client=client,
+                model="test-model",
+                user_message="test",
+                settings=settings,
+                peer_contexts=peer_contexts,
+            )
+
+    assert len(results) == 4
+    # Each agent received its specific peer context
+    assert set(received_contexts) == {"ctx_0", "ctx_1", "ctx_2", "ctx_3"}
+
+
+async def test_dispatch_wave_peer_contexts_length_mismatch(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """peer_contexts list with wrong length raises ValueError (not assert)."""
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    client = _make_mock_client()
+    settings = GovernorSettings(baseline_parallel=16)
+    wrong_length_contexts = ["ctx_0", "ctx_1"]  # 2 != 4 personas
+
+    with pytest.raises(ValueError, match="peer_contexts length"):
+        await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            client=client,
+            model="test-model",
+            user_message="test",
+            settings=settings,
+            peer_contexts=wrong_length_contexts,
+        )
+
+
+async def test_dispatch_wave_peer_contexts_none_falls_back_to_scalar(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """When peer_contexts=None, uses peer_context scalar as before."""
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    received_contexts: list[str | None] = []
+
+    async def mock_infer(user_message: str, peer_context: str | None = None) -> AgentDecision:
+        received_contexts.append(peer_context)
+        return AgentDecision(signal=SignalType.BUY, confidence=0.8)
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_worker = AsyncMock()
+        mock_worker.infer = mock_infer
+        mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        client = _make_mock_client()
+        settings = GovernorSettings(baseline_parallel=16)
+
+        with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+            results = await dispatch_wave(
+                personas=sample_personas,
+                governor=governor,
+                client=client,
+                model="test-model",
+                user_message="test",
+                settings=settings,
+                peer_context="shared_context",
+                peer_contexts=None,
+            )
+
+    # All agents should have received the scalar peer_context
+    assert all(c == "shared_context" for c in received_contexts)

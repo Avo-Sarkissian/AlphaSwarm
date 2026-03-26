@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import re
 import sys
 from typing import TYPE_CHECKING
 
@@ -90,12 +89,12 @@ def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> 
 
 
 def _sanitize_rationale(text: str, max_len: int = 80) -> str:
-    """Strip control characters, normalize whitespace, truncate."""
-    cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', text)
-    cleaned = ' '.join(cleaned.split())  # normalize whitespace
-    if len(cleaned) > max_len:
-        return cleaned[:max_len] + "..."
-    return cleaned
+    """Strip control characters, normalize whitespace, truncate.
+
+    Delegates to alphaswarm.utils.sanitize_rationale (shared utility).
+    """
+    from alphaswarm.utils import sanitize_rationale
+    return sanitize_rationale(text, max_len)
 
 
 # ---------------------------------------------------------------------------
