@@ -19,9 +19,9 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - [x] Seed rumor injection with entity extraction via orchestrator LLM — Validated in Phase 05: seed-injection-and-agent-personas
 - [x] 100-agent swarm across 10 bracket archetypes with distinct risk profiles — Validated in Phase 05: seed-injection-and-agent-personas
 - [x] Round 1 standalone pipeline (seed → dispatch → persist) with CLI run command — Validated in Phase 06: round-1-standalone
+- [x] 3-round iterative cascade (Initial Reaction → Peer Influence → Final Consensus Lock) — Validated in Phase 07: rounds-2-3-peer-influence-and-consensus
 
 ### Active
-- [ ] 3-round iterative cascade (Initial Reaction → Peer Influence → Final Consensus Lock)
 - [ ] Dynamic influence topology — INFLUENCED_BY edges form from citation/agreement patterns
 - [ ] Async batched Ollama inference with adaptive ResourceGovernor (psutil-driven semaphore)
 - [ ] Textual TUI: 10x10 agent grid, rationale sidebar, hardware telemetry footer
@@ -84,4 +84,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after Phase 06 (round-1-standalone) completion*
+*Last updated: 2026-03-26 after Phase 07 (rounds-2-3-peer-influence-and-consensus) completion*
