@@ -23,7 +23,7 @@ from alphaswarm.types import SignalType, SimulationPhase
 from alphaswarm.utils import sanitize_rationale
 
 if TYPE_CHECKING:
-    from alphaswarm.config import AppSettings, GovernorSettings
+    from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
     from alphaswarm.governor import ResourceGovernor
     from alphaswarm.graph import GraphStateManager, PeerDecision
     from alphaswarm.ollama_client import OllamaClient
@@ -58,6 +58,163 @@ class ShiftMetrics:
     total_flips: int
     bracket_confidence_delta: tuple[tuple[str, float], ...]  # (("quants", +0.05), ...)
     agents_shifted: int
+
+
+@dataclasses.dataclass(frozen=True)
+class BracketSummary:
+    """Per-bracket signal distribution and confidence for a single round (D-07, D-08)."""
+
+    bracket: str          # BracketType.value
+    display_name: str
+    buy_count: int
+    sell_count: int
+    hold_count: int
+    total: int
+    avg_confidence: float
+    avg_sentiment: float
+
+
+def compute_bracket_summaries(
+    agent_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
+    personas: list[AgentPersona],
+    brackets: list[BracketConfig],
+) -> tuple[BracketSummary, ...]:
+    """Compute per-bracket summaries from a round's decisions (D-07, D-08).
+
+    Promoted from cli.py:_aggregate_brackets() pattern. Excludes PARSE_ERROR agents.
+    Returns tuple of BracketSummary for each bracket (preserves bracket config order).
+    """
+    agent_bracket: dict[str, str] = {p.id: p.bracket.value for p in personas}
+    display_lookup: dict[str, str] = {b.bracket_type.value: b.display_name for b in brackets}
+
+    # Accumulators per bracket
+    counts: dict[str, dict[str, int]] = {}
+    conf_sums: dict[str, float] = {}
+    sent_sums: dict[str, float] = {}
+    totals: dict[str, int] = {}
+    for b in brackets:
+        bv = b.bracket_type.value
+        counts[bv] = {"buy": 0, "sell": 0, "hold": 0}
+        conf_sums[bv] = 0.0
+        sent_sums[bv] = 0.0
+        totals[bv] = 0
+
+    for agent_id, decision in agent_decisions:
+        if decision.signal == SignalType.PARSE_ERROR:
+            continue
+        bv = agent_bracket.get(agent_id)
+        if bv is None or bv not in counts:
+            continue
+        signal_key = decision.signal.value  # "buy", "sell", "hold"
+        counts[bv][signal_key] = counts[bv].get(signal_key, 0) + 1
+        conf_sums[bv] += decision.confidence
+        sent_sums[bv] += decision.sentiment
+        totals[bv] += 1
+
+    result: list[BracketSummary] = []
+    for b in brackets:
+        bv = b.bracket_type.value
+        t = totals[bv]
+        result.append(
+            BracketSummary(
+                bracket=bv,
+                display_name=display_lookup.get(bv, bv),
+                buy_count=counts[bv]["buy"],
+                sell_count=counts[bv]["sell"],
+                hold_count=counts[bv]["hold"],
+                total=t,
+                avg_confidence=conf_sums[bv] / t if t > 0 else 0.0,
+                avg_sentiment=sent_sums[bv] / t if t > 0 else 0.0,
+            )
+        )
+    return tuple(result)
+
+
+def select_diverse_peers(
+    agent_id: str,
+    influence_weights: dict[str, float],
+    personas: list[AgentPersona],
+    prev_decisions: dict[str, AgentDecision] | None = None,
+    limit: int = 5,
+    min_brackets: int = 3,
+) -> list[str]:
+    """Select top-N peers with bracket diversity guarantee (D-06).
+
+    Algorithm:
+    1. Exclude self from candidates.
+    2. Exclude agents with PARSE_ERROR decisions if prev_decisions provided.
+    3. Group by bracket, sort each group by dynamic weight descending.
+    4. Sort brackets by their top agent's weight.
+    5. Phase 1: Pick top-1 from top-min_brackets brackets.
+    6. Phase 2: Fill remaining slots by pure weight (any bracket).
+
+    If fewer than min_brackets have candidates, fills from available brackets
+    (best effort, always returns up to `limit` peers).
+
+    Args:
+        agent_id: The requesting agent's ID (excluded from results).
+        influence_weights: {agent_id: weight} from compute_influence_edges().
+        personas: All agent personas for bracket lookup.
+        prev_decisions: Optional {agent_id: AgentDecision} from previous round.
+            Used to exclude PARSE_ERROR agents from peer candidates.
+        limit: Maximum peers to return (default 5).
+        min_brackets: Minimum distinct brackets to ensure (default 3, best effort).
+
+    Returns:
+        list[str]: Ordered list of up to `limit` peer agent IDs.
+    """
+    from collections import defaultdict
+
+    # Explicit self-exclusion + PARSE_ERROR exclusion
+    parse_error_ids: set[str] = set()
+    if prev_decisions is not None:
+        parse_error_ids = {
+            aid for aid, dec in prev_decisions.items()
+            if dec.signal == SignalType.PARSE_ERROR
+        }
+
+    candidates = [
+        p for p in personas
+        if p.id != agent_id and p.id not in parse_error_ids
+    ]
+
+    bracket_groups: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    for p in candidates:
+        w = influence_weights.get(p.id, 0.0)
+        bracket_groups[p.bracket.value].append((p.id, w))
+
+    for bracket in bracket_groups:
+        bracket_groups[bracket].sort(key=lambda x: x[1], reverse=True)
+
+    sorted_brackets = sorted(
+        bracket_groups.keys(),
+        key=lambda b: bracket_groups[b][0][1] if bracket_groups[b] else 0.0,
+        reverse=True,
+    )
+
+    selected: list[str] = []
+
+    # Phase 1: top-1 from top-min_brackets brackets
+    for bracket in sorted_brackets:
+        if len(selected) >= min_brackets:
+            break
+        if bracket_groups[bracket]:
+            agent, _ = bracket_groups[bracket].pop(0)
+            selected.append(agent)
+
+    # Phase 2: fill remaining by pure weight
+    remaining: list[tuple[str, float]] = []
+    for bracket in bracket_groups:
+        remaining.extend(bracket_groups[bracket])
+    remaining.sort(key=lambda x: x[1], reverse=True)
+
+    for agent, _ in remaining:
+        if len(selected) >= limit:
+            break
+        if agent not in selected:
+            selected.append(agent)
+
+    return selected
 
 
 @dataclasses.dataclass(frozen=True)

@@ -402,3 +402,139 @@ class GraphStateManager:
             limit=limit,
         )
         return [dict(record) async for record in result]
+
+    # ------------------------------------------------------------------
+    # Influence edge computation (Phase 8: dynamic influence topology)
+    # ------------------------------------------------------------------
+
+    async def compute_influence_edges(
+        self,
+        cycle_id: str,
+        up_to_round: int,
+        total_agents: int,
+    ) -> dict[str, float]:
+        """Compute and write INFLUENCED_BY edges from CITED patterns (D-01, D-02, D-03, D-04).
+
+        Args:
+            cycle_id: Current simulation cycle ID.
+            up_to_round: Include citations from rounds 1..up_to_round (cumulative per D-04).
+            total_agents: Number of agents that produced valid decisions. Used as
+                normalization denominator (weight = citations / total_agents).
+                Use active agent count, not global swarm size, to handle partial failures.
+
+        Returns:
+            dict[str, float]: Mapping of agent_id to normalized influence weight.
+                Empty dict if no citations found. Plan 02 depends on this return type
+                for downstream peer selection.
+        """
+        from collections import Counter
+
+        try:
+            async with self._driver.session(database=self._database) as session:
+                # Read citation PAIRS (source_id, target_id) for pair-aware INFLUENCED_BY edges
+                pairs = await session.execute_read(
+                    self._read_citation_pairs_tx, cycle_id, up_to_round,
+                )
+                if not pairs:
+                    self._log.info(
+                        "no_citations_found",
+                        cycle_id=cycle_id,
+                        up_to_round=up_to_round,
+                    )
+                    return {}
+
+                # Compute per-target citation frequency from deduplicated pairs
+                target_counts: Counter[str] = Counter(p["target_id"] for p in pairs)
+
+                # Compute normalized weights (D-01: weight = citations / total_agents)
+                weights: dict[str, float] = {
+                    agent_id: count / total_agents
+                    for agent_id, count in target_counts.items()
+                }
+
+                # Build edge list: each unique (source, target) pair gets the target's weight
+                edges = [
+                    {
+                        "source_id": p["source_id"],
+                        "target_id": p["target_id"],
+                        "weight": weights[p["target_id"]],
+                    }
+                    for p in pairs
+                ]
+
+                # Batch-write INFLUENCED_BY edges
+                await session.execute_write(
+                    self._write_influence_edges_tx, edges, cycle_id, up_to_round,
+                )
+
+            self._log.info(
+                "influence_edges_computed",
+                cycle_id=cycle_id,
+                up_to_round=up_to_round,
+                edge_count=len(edges),
+                agents_with_influence=len(weights),
+            )
+            return weights
+
+        except Neo4jError as exc:
+            raise Neo4jWriteError(
+                f"Failed to compute influence edges for cycle {cycle_id} round {up_to_round}",
+                original_error=exc,
+            ) from exc
+
+    @staticmethod
+    async def _read_citation_pairs_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        up_to_round: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function returning deduplicated (source_id, target_id) citation pairs.
+
+        Pair-aware query: returns DISTINCT (author, cited) pairs with self-citation filter.
+        Cumulative across rounds via d.round <= $up_to_round (D-04).
+        DISTINCT deduplicates within same (author, cited) pair per round (D-02).
+        """
+        result = await tx.run(
+            """
+            MATCH (author:Agent)-[:MADE]->(d:Decision)-[:CITED]->(cited:Agent)
+            WHERE d.cycle_id = $cycle_id AND d.round <= $up_to_round
+              AND author.id <> cited.id
+            RETURN DISTINCT author.id AS source_id, cited.id AS target_id
+            """,
+            cycle_id=cycle_id,
+            up_to_round=up_to_round,
+        )
+        return [dict(record) async for record in result]
+
+    @staticmethod
+    async def _write_influence_edges_tx(
+        tx: AsyncManagedTransaction,
+        edges: list[dict],  # type: ignore[type-arg]
+        cycle_id: str,
+        round_num: int,
+    ) -> None:
+        """Transaction function for UNWIND batch INFLUENCED_BY edge creation.
+
+        Each round writes its own INFLUENCED_BY edges with round property.
+        Multiple edges between the same pair across different rounds are expected.
+        Downstream queries MUST filter by round to avoid double-counting.
+        CREATE (not MERGE) because each round snapshot is a distinct edge.
+        """
+        if not edges:
+            return
+
+        await tx.run(
+            """
+            UNWIND $edges AS e
+            MATCH (src:Agent {id: e.source_id})
+            MATCH (tgt:Agent {id: e.target_id})
+            CREATE (src)-[:INFLUENCED_BY {
+                weight: e.weight,
+                cycle_id: $cycle_id,
+                round: $round_num
+            }]->(tgt)
+            """,
+            edges=edges,
+            cycle_id=cycle_id,
+            round_num=round_num,
+        )

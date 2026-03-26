@@ -544,3 +544,149 @@ async def test_create_cycle_with_entities_tx_creates_mentions_relationships() ->
     assert "MENTIONS" in entity_cypher
     assert "relevance" in entity_cypher
     assert "sentiment" in entity_cypher
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: Influence edge computation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_compute_influence_edges_reads_citations(mock_driver: MagicMock) -> None:
+    """compute_influence_edges reads CITED pairs, computes weights, writes INFLUENCED_BY."""
+    # Rev: [HIGH] Test uses pair-aware data (source_id, target_id) not flat counts
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    # Mock citation pairs: macro_01->quants_01, degens_01->quants_01, macro_01->degens_01
+    session.execute_read = AsyncMock(
+        return_value=[
+            {"source_id": "macro_01", "target_id": "quants_01"},
+            {"source_id": "degens_01", "target_id": "quants_01"},
+            {"source_id": "macro_01", "target_id": "degens_01"},
+        ]
+    )
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    weights = await gsm.compute_influence_edges("cycle-1", 1, 10)
+    assert isinstance(weights, dict)  # Rev: [Codex HIGH] explicit return type check
+    assert weights["quants_01"] == pytest.approx(0.2)  # 2 unique citers / 10
+    assert weights["degens_01"] == pytest.approx(0.1)  # 1 unique citer / 10
+    session.execute_write.assert_awaited_once()  # INFLUENCED_BY edges written
+
+
+@pytest.mark.asyncio()
+async def test_influence_weights_cumulative_across_rounds(mock_driver: MagicMock) -> None:
+    """compute_influence_edges with up_to_round=2 reads citations from rounds 1 and 2."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(
+        return_value=[
+            {"source_id": "macro_01", "target_id": "quants_01"},
+            {"source_id": "degens_01", "target_id": "quants_01"},
+            {"source_id": "suits_01", "target_id": "quants_01"},
+            {"source_id": "macro_01", "target_id": "degens_01"},
+            {"source_id": "suits_01", "target_id": "degens_01"},
+        ]
+    )
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    weights = await gsm.compute_influence_edges("cycle-1", 2, 10)
+    assert weights["quants_01"] == pytest.approx(0.3)  # 3 unique citers / 10 cumulative
+    assert weights["degens_01"] == pytest.approx(0.2)  # 2 unique citers / 10
+
+
+@pytest.mark.asyncio()
+async def test_compute_influence_edges_zero_citations(mock_driver: MagicMock) -> None:
+    """compute_influence_edges with zero citations returns empty dict and skips write."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value=[])
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    weights = await gsm.compute_influence_edges("cycle-1", 1, 10)
+    assert weights == {}
+    session.execute_write.assert_not_awaited()
+
+
+@pytest.mark.asyncio()
+async def test_self_citations_filtered() -> None:
+    """_read_citation_pairs_tx Cypher contains self-citation filter."""
+    from alphaswarm.graph import GraphStateManager
+
+    tx = AsyncMock()
+
+    async def _empty_aiter():
+        return
+        yield  # make this an async generator
+
+    mock_result = MagicMock()
+    mock_result.__aiter__ = lambda self: _empty_aiter()
+    tx.run = AsyncMock(return_value=mock_result)
+    await GraphStateManager._read_citation_pairs_tx(tx, "cycle-1", 1)
+    cypher = tx.run.call_args[0][0]
+    # Must exclude self-citations: author.id <> cited.id
+    assert "author" in cypher and "cited" in cypher
+    assert "<>" in cypher  # Self-citation filter present
+
+
+@pytest.mark.asyncio()
+async def test_duplicate_citations_deduplicated() -> None:
+    """_read_citation_pairs_tx uses DISTINCT to deduplicate citation pairs."""
+    # Rev: [Codex MEDIUM] Duplicate cited_agents entries must not inflate influence
+    from alphaswarm.graph import GraphStateManager
+
+    tx = AsyncMock()
+
+    async def _empty_aiter():
+        return
+        yield  # make this an async generator
+
+    mock_result = MagicMock()
+    mock_result.__aiter__ = lambda self: _empty_aiter()
+    tx.run = AsyncMock(return_value=mock_result)
+    await GraphStateManager._read_citation_pairs_tx(tx, "cycle-1", 1)
+    cypher = tx.run.call_args[0][0]
+    assert "DISTINCT" in cypher
+
+
+@pytest.mark.asyncio()
+async def test_write_influence_edges_tx_uses_unwind() -> None:
+    """_write_influence_edges_tx Cypher uses UNWIND and INFLUENCED_BY."""
+    from alphaswarm.graph import GraphStateManager
+
+    tx = AsyncMock()
+    edges = [{"source_id": "a1", "target_id": "a2", "weight": 0.5}]
+    await GraphStateManager._write_influence_edges_tx(tx, edges, "cycle-1", 1)
+    cypher = tx.run.call_args[0][0]
+    assert "UNWIND" in cypher
+    assert "INFLUENCED_BY" in cypher
+
+
+@pytest.mark.asyncio()
+async def test_write_influence_edges_tx_empty_edges() -> None:
+    """_write_influence_edges_tx with empty edges list does not call tx.run."""
+    from alphaswarm.graph import GraphStateManager
+
+    tx = AsyncMock()
+    await GraphStateManager._write_influence_edges_tx(tx, [], "cycle-1", 1)
+    tx.run.assert_not_awaited()
+
+
+@pytest.mark.asyncio()
+async def test_influence_edges_include_round_property() -> None:
+    """_write_influence_edges_tx includes round property on INFLUENCED_BY edges."""
+    # Rev: [Codex MEDIUM] round property needed to avoid double-counting across rounds
+    from alphaswarm.graph import GraphStateManager
+
+    tx = AsyncMock()
+    edges = [{"source_id": "a1", "target_id": "a2", "weight": 0.5}]
+    await GraphStateManager._write_influence_edges_tx(tx, edges, "cycle-1", 2)
+    cypher = tx.run.call_args[0][0]
+    assert "round" in cypher  # round property on edge
+    # Verify round_num is passed as parameter
+    call_kwargs = (
+        tx.run.call_args.kwargs
+        if hasattr(tx.run.call_args, "kwargs")
+        else tx.run.call_args[1]
+    )
+    assert call_kwargs.get("round_num") == 2 or "round_num" in str(tx.run.call_args)

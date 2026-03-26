@@ -1334,3 +1334,256 @@ async def test_run_simulation_no_callback(
     )
 
     assert isinstance(result, SimulationResult)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: BracketSummary tests
+# ---------------------------------------------------------------------------
+
+
+def test_bracket_summary_is_frozen() -> None:
+    """BracketSummary is a frozen dataclass."""
+    from alphaswarm.simulation import BracketSummary
+
+    bs = BracketSummary(
+        bracket="quants",
+        display_name="Quants",
+        buy_count=5,
+        sell_count=3,
+        hold_count=2,
+        total=10,
+        avg_confidence=0.75,
+        avg_sentiment=0.3,
+    )
+    assert dataclasses.is_dataclass(bs)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        bs.bracket = "changed"  # type: ignore[misc]
+
+
+def test_compute_bracket_summaries_signal_counts() -> None:
+    """compute_bracket_summaries correctly counts signals per bracket."""
+    from alphaswarm.config import BracketConfig
+    from alphaswarm.simulation import compute_bracket_summaries
+
+    # 2 BUY quants, 1 SELL degens
+    decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, sentiment=0.5)),
+        ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.6, sentiment=0.3)),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.7, sentiment=-0.4)),
+    ]
+    personas = [
+        AgentPersona(
+            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="degens_01", name="D1", bracket=BracketType.DEGENS,
+            risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3,
+        ),
+    ]
+    brackets = [
+        BracketConfig(
+            bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
+            risk_profile=0.4, temperature=0.3, system_prompt_template="t", influence_weight_base=0.7,
+        ),
+        BracketConfig(
+            bracket_type=BracketType.DEGENS, display_name="Degens", count=1,
+            risk_profile=0.9, temperature=1.2, system_prompt_template="t", influence_weight_base=0.3,
+        ),
+    ]
+    result = compute_bracket_summaries(decisions, personas, brackets)
+    quants_summary = result[0]
+    assert quants_summary.bracket == "quants"
+    assert quants_summary.buy_count == 2
+    assert quants_summary.sell_count == 0
+    assert quants_summary.hold_count == 0
+    assert quants_summary.total == 2
+
+
+def test_compute_bracket_summaries_excludes_parse_error() -> None:
+    """compute_bracket_summaries excludes PARSE_ERROR agents."""
+    from alphaswarm.config import BracketConfig
+    from alphaswarm.simulation import compute_bracket_summaries
+
+    decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8)),
+        ("quants_02", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0)),
+    ]
+    personas = [
+        AgentPersona(
+            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+    ]
+    brackets = [
+        BracketConfig(
+            bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
+            risk_profile=0.4, temperature=0.3, system_prompt_template="t", influence_weight_base=0.7,
+        ),
+    ]
+    result = compute_bracket_summaries(decisions, personas, brackets)
+    assert result[0].total == 1  # Only 1 valid decision
+    assert result[0].buy_count == 1
+
+
+def test_compute_bracket_summaries_avg_confidence() -> None:
+    """compute_bracket_summaries computes correct avg_confidence."""
+    from alphaswarm.config import BracketConfig
+    from alphaswarm.simulation import compute_bracket_summaries
+
+    decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, sentiment=0.4)),
+        ("quants_02", AgentDecision(signal=SignalType.SELL, confidence=0.6, sentiment=-0.2)),
+    ]
+    personas = [
+        AgentPersona(
+            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+    ]
+    brackets = [
+        BracketConfig(
+            bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
+            risk_profile=0.4, temperature=0.3, system_prompt_template="t", influence_weight_base=0.7,
+        ),
+    ]
+    result = compute_bracket_summaries(decisions, personas, brackets)
+    assert result[0].avg_confidence == pytest.approx(0.7)   # (0.8 + 0.6) / 2
+    assert result[0].avg_sentiment == pytest.approx(0.1)    # (0.4 + -0.2) / 2
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: Bracket-diverse peer selection tests
+# ---------------------------------------------------------------------------
+
+
+def test_bracket_diverse_peer_selection() -> None:
+    """select_diverse_peers returns 5 agents from at least 3 brackets."""
+    from alphaswarm.simulation import select_diverse_peers
+
+    personas = []
+    for bt in [BracketType.QUANTS, BracketType.DEGENS, BracketType.MACRO, BracketType.WHALES]:
+        for j in range(3):
+            personas.append(
+                AgentPersona(
+                    id=f"{bt.value}_{j:02d}",
+                    name=f"{bt.value} {j}",
+                    bracket=bt,
+                    risk_profile=0.5,
+                    temperature=0.5,
+                    system_prompt="t",
+                    influence_weight_base=0.5,
+                )
+            )
+    weights = {
+        "quants_00": 0.5, "degens_00": 0.4, "macro_00": 0.3, "whales_00": 0.2,
+        "quants_01": 0.15, "degens_01": 0.1,
+    }
+    result = select_diverse_peers("quants_02", weights, personas, limit=5, min_brackets=3)
+    assert len(result) == 5
+    brackets_in_result = {p.bracket.value for p in personas if p.id in result}
+    assert len(brackets_in_result) >= 3
+
+
+def test_select_diverse_peers_excludes_self() -> None:
+    """select_diverse_peers never includes the calling agent."""
+    from alphaswarm.simulation import select_diverse_peers
+
+    personas = [
+        AgentPersona(
+            id=f"quants_{i:02d}", name=f"Q{i}", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        )
+        for i in range(6)
+    ]
+    weights = {f"quants_{i:02d}": 0.5 - i * 0.05 for i in range(6)}
+    result = select_diverse_peers("quants_00", weights, personas, limit=5, min_brackets=3)
+    assert "quants_00" not in result
+
+
+def test_select_diverse_peers_excludes_parse_error_agents() -> None:
+    """select_diverse_peers excludes agents with PARSE_ERROR decisions from candidates."""
+    # Rev: [Codex HIGH] PARSE_ERROR agents must not appear as peers
+    from alphaswarm.simulation import select_diverse_peers
+
+    personas = [
+        AgentPersona(
+            id=f"quants_{i:02d}", name=f"Q{i}", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        )
+        for i in range(6)
+    ]
+    weights = {f"quants_{i:02d}": 0.5 - i * 0.05 for i in range(6)}
+    prev_decisions = {
+        "quants_01": AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0),
+        "quants_02": AgentDecision(signal=SignalType.BUY, confidence=0.8),
+    }
+    result = select_diverse_peers(
+        "quants_00", weights, personas,
+        prev_decisions=prev_decisions, limit=5, min_brackets=3,
+    )
+    assert "quants_01" not in result  # PARSE_ERROR agent excluded
+
+
+def test_select_diverse_peers_fills_by_weight() -> None:
+    """After bracket diversity, remaining slots go to highest weight."""
+    from alphaswarm.simulation import select_diverse_peers
+
+    personas = [
+        AgentPersona(id="quants_00", name="Q0", bracket=BracketType.QUANTS, risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7),
+        AgentPersona(id="degens_00", name="D0", bracket=BracketType.DEGENS, risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3),
+        AgentPersona(id="macro_00", name="M0", bracket=BracketType.MACRO, risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5),
+        AgentPersona(id="quants_01", name="Q1", bracket=BracketType.QUANTS, risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7),
+        AgentPersona(id="quants_02", name="Q2", bracket=BracketType.QUANTS, risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7),
+        AgentPersona(id="degens_01", name="D1", bracket=BracketType.DEGENS, risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3),
+    ]
+    # quants_01 has very high weight, should be picked in Phase 2
+    weights = {
+        "quants_00": 0.9, "degens_00": 0.7, "macro_00": 0.5,
+        "quants_01": 0.8, "quants_02": 0.1, "degens_01": 0.2,
+    }
+    result = select_diverse_peers(
+        "self_00",
+        weights,
+        personas + [
+            AgentPersona(id="self_00", name="Self", bracket=BracketType.WHALES, risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5),
+        ],
+        limit=5,
+        min_brackets=3,
+    )
+    # quants_01 (weight 0.8) should be in the result as a Phase 2 fill
+    assert "quants_01" in result
+
+
+def test_select_diverse_peers_graceful_with_few_brackets() -> None:
+    """With only 2 brackets available, still returns 5 peers."""
+    from alphaswarm.simulation import select_diverse_peers
+
+    personas = [
+        AgentPersona(
+            id=f"quants_{i:02d}", name=f"Q{i}", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        )
+        for i in range(4)
+    ] + [
+        AgentPersona(
+            id=f"degens_{i:02d}", name=f"D{i}", bracket=BracketType.DEGENS,
+            risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3,
+        )
+        for i in range(3)
+    ]
+    weights = {p.id: 0.5 for p in personas}
+    result = select_diverse_peers("quants_00", weights, personas, limit=5, min_brackets=3)
+    assert len(result) == 5  # Still returns 5 even though < 3 brackets
