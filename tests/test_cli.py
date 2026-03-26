@@ -781,3 +781,126 @@ def test_simulation_summary_final_bracket_table(
     assert "Final Consensus Distribution" in captured.out
     assert "Quants" in captured.out
     assert "Degens" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Phase 07: Progressive callback wiring tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_round_complete_handler_prints_report_and_shift(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The on_round_complete handler prints round report + shift analysis."""
+    from alphaswarm.cli import _make_round_complete_handler
+    from alphaswarm.simulation import RoundCompleteEvent, ShiftMetrics
+
+    handler = _make_round_complete_handler(_TEST_PERSONAS, _TEST_BRACKETS)
+
+    decisions = (
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.9, rationale="data")),
+        ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.85, rationale="math")),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.7, rationale="hype")),
+        ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.65, rationale="fomo")),
+    )
+
+    shift = ShiftMetrics(
+        signal_transitions=(("BUY->SELL", 1),),
+        total_flips=1,
+        bracket_confidence_delta=(("quants", 0.05),),
+        agents_shifted=1,
+    )
+
+    event = RoundCompleteEvent(
+        round_num=2,
+        cycle_id="test-cycle",
+        agent_decisions=decisions,
+        shift=shift,
+    )
+
+    await handler(event)
+
+    captured = capsys.readouterr()
+    assert "Round 2 Complete" in captured.out
+    assert "Signal Transitions (Round 1 -> Round 2)" in captured.out
+    assert "Confidence Drift by Bracket" in captured.out
+
+
+@pytest.mark.asyncio
+async def test_round_complete_handler_round1_no_shift(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Round 1 handler prints report but no shift analysis."""
+    from alphaswarm.cli import _make_round_complete_handler
+    from alphaswarm.simulation import RoundCompleteEvent
+
+    handler = _make_round_complete_handler(_TEST_PERSONAS, _TEST_BRACKETS)
+
+    decisions = (
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.9, rationale="data")),
+        ("quants_02", AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="wait")),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.7, rationale="hype")),
+        ("degens_02", AgentDecision(signal=SignalType.BUY, confidence=0.65, rationale="ape")),
+    )
+
+    event = RoundCompleteEvent(
+        round_num=1,
+        cycle_id="test-cycle",
+        agent_decisions=decisions,
+        shift=None,
+    )
+
+    await handler(event)
+
+    captured = capsys.readouterr()
+    assert "Round 1 Complete" in captured.out
+    assert "Signal Transitions" not in captured.out
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_calls_run_simulation_with_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_run_pipeline calls run_simulation with on_round_complete handler (D-17, D-14)."""
+    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+
+    # Create mock AppState
+    mock_app = MagicMock()
+    mock_app.graph_manager = AsyncMock()
+    mock_app.ollama_client = MagicMock()
+    mock_app.model_manager = AsyncMock()
+    mock_app.governor = AsyncMock()
+
+    mock_settings = MagicMock()
+
+    # Create a minimal SimulationResult for the mock return
+    empty_shifts = ShiftMetrics(
+        signal_transitions=(), total_flips=0,
+        bracket_confidence_delta=(), agents_shifted=0,
+    )
+    mock_result = MagicMock(spec=SimulationResult)
+    mock_result.round2_shifts = empty_shifts
+    mock_result.round3_shifts = empty_shifts
+    mock_result.round3_decisions = ()
+    mock_result.cycle_id = "test-cycle"
+
+    mock_sim = AsyncMock(return_value=mock_result)
+
+    with patch("alphaswarm.cli.run_simulation", mock_sim, create=True):
+        from alphaswarm.cli import _run_pipeline
+        # Need to reload to pick up the patched import
+        # Actually, _run_pipeline does `from alphaswarm.simulation import run_simulation`
+        # at function scope, so we need to patch the source module
+        pass
+
+    # Patch at the source module since _run_pipeline uses a local import
+    with patch("alphaswarm.simulation.run_simulation", mock_sim):
+        from alphaswarm.cli import _run_pipeline
+        await _run_pipeline("test rumor", mock_settings, mock_app, _TEST_PERSONAS, _TEST_BRACKETS)
+
+    # Verify run_simulation was called with on_round_complete kwarg
+    assert mock_sim.called
+    call_kwargs = mock_sim.call_args.kwargs
+    assert "on_round_complete" in call_kwargs
+    assert callable(call_kwargs["on_round_complete"])

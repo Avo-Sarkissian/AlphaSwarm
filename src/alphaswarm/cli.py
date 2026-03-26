@@ -3,7 +3,7 @@
 Usage:
     python -m alphaswarm                  # Print startup banner (legacy)
     python -m alphaswarm inject "rumor"   # Inject a seed rumor
-    python -m alphaswarm run "rumor"      # Run full Round 1 simulation
+    python -m alphaswarm run "rumor"      # Run full 3-round simulation
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 import structlog
 
@@ -20,7 +20,12 @@ from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
-    from alphaswarm.simulation import Round1Result, ShiftMetrics, SimulationResult
+    from alphaswarm.simulation import (
+        RoundCompleteEvent,
+        Round1Result,
+        ShiftMetrics,
+        SimulationResult,
+    )
     from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, ParsedSeedResult
 
 logger = structlog.get_logger(component="cli")
@@ -388,7 +393,44 @@ def _print_simulation_summary(
 
 
 # ---------------------------------------------------------------------------
-# Async pipeline (owns schema, round1, report, cleanup)
+# Progressive output callback factory (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+def _make_round_complete_handler(
+    personas: list[AgentPersona],
+    brackets: list[BracketConfig],
+) -> Callable[[RoundCompleteEvent], Awaitable[None]]:
+    """Create an on_round_complete callback for progressive CLI output.
+
+    Addresses Gemini MEDIUM / Codex HIGH review concern: reports MUST print
+    as each round finishes, not after run_simulation() returns.
+
+    The returned async function is passed to run_simulation(on_round_complete=handler).
+    It prints:
+    - Round N bracket table + notable decisions (for all rounds)
+    - Shift analysis (for Rounds 2 and 3 only, when event.shift is not None)
+    """
+    async def handler(event: RoundCompleteEvent) -> None:
+        _print_round_report(
+            event.round_num,
+            event.cycle_id,
+            event.agent_decisions,
+            personas,
+            brackets,
+        )
+        if event.shift is not None:
+            _print_shift_analysis(
+                event.shift,
+                event.round_num - 1,
+                event.round_num,
+            )
+
+    return handler
+
+
+# ---------------------------------------------------------------------------
+# Async pipeline (owns schema, full 3-round simulation, final summary, cleanup)
 # ---------------------------------------------------------------------------
 
 
@@ -399,8 +441,13 @@ async def _run_pipeline(
     personas: list[AgentPersona],
     brackets: list[BracketConfig],
 ) -> None:
-    """Async pipeline: schema -> round1 -> report -> cleanup."""
-    from alphaswarm.simulation import run_round1
+    """Async pipeline: schema -> full 3-round simulation -> final summary.
+
+    Per D-17: _run_pipeline calls run_simulation() instead of run_round1().
+    Per D-14: reports print DURING simulation via on_round_complete callback.
+    Addresses Gemini/Codex review: truly progressive output, not buffered.
+    """
+    from alphaswarm.simulation import run_simulation
 
     assert app.graph_manager is not None
     assert app.ollama_client is not None
@@ -408,7 +455,13 @@ async def _run_pipeline(
 
     try:
         await app.graph_manager.ensure_schema()
-        result = await run_round1(
+
+        print("Starting 3-round simulation...")
+
+        # Create callback for progressive per-round output
+        handler = _make_round_complete_handler(personas, brackets)
+
+        result = await run_simulation(
             rumor=rumor,
             settings=settings,
             ollama_client=app.ollama_client,
@@ -416,8 +469,12 @@ async def _run_pipeline(
             graph_manager=app.graph_manager,
             governor=app.governor,
             personas=personas,
+            on_round_complete=handler,
         )
-        _print_round1_report(result, personas, brackets)
+
+        # Final summary (only this prints AFTER run_simulation returns)
+        _print_simulation_summary(result, personas, brackets)
+
     finally:
         await app.graph_manager.close()
 
