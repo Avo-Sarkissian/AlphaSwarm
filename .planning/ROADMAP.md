@@ -119,7 +119,10 @@ Plans:
   3. A full 3-round simulation runs end-to-end from seed injection through consensus lock, with all decisions persisted per round in Neo4j
   4. Observable opinion shifts occur between rounds -- at least some agents change signal or shift confidence after receiving peer context
   5. The simulation engine state machine transitions cleanly through Seeding, Round 1, Round 2, Round 3, and Complete states
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 07-01-PLAN.md -- Core simulation engine: dispatch_wave per-agent context, ShiftMetrics, SimulationResult, _format_peer_context, _dispatch_round, run_simulation, unit tests
+- [ ] 07-02-PLAN.md -- CLI reporting: generalized round report, shift analysis, simulation summary with convergence, wire _run_pipeline to run_simulation
 
 ### Phase 8: Dynamic Influence Topology
 **Goal**: Influence edges emerge organically from agent behavior rather than static hierarchies, and bracket-level sentiment summaries are computed after each round
@@ -170,7 +173,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 4. Neo4j Graph State | 2/2 | Complete   | 2026-03-25 |
 | 5. Seed Injection and Agent Personas | 0/2 | Planning complete | - |
 | 6. Round 1 Standalone | 1/1 | Complete   | 2026-03-26 |
-| 7. Rounds 2-3 Peer Influence and Consensus | 0/TBD | Not started | - |
+| 7. Rounds 2-3 Peer Influence and Consensus | 0/2 | Planning complete | - |
 | 8. Dynamic Influence Topology | 0/TBD | Not started | - |
 | 9. TUI Core Dashboard | 0/TBD | Not started | - |
 | 10. TUI Panels and Telemetry | 0/TBD | Not started | - |
