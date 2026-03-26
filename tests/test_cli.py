@@ -1,4 +1,4 @@
-"""Unit tests for CLI module (argparse routing, inject subcommand, banner)."""
+"""Unit tests for CLI module (argparse routing, inject subcommand, run subcommand, banner, report)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphaswarm.types import EntityType, ParsedSeedResult, SeedEntity, SeedEvent
+from alphaswarm.types import (
+    AgentDecision,
+    AgentPersona,
+    BracketConfig,
+    BracketType,
+    EntityType,
+    ParsedSeedResult,
+    SeedEntity,
+    SeedEvent,
+    SignalType,
+)
 
 
 @pytest.fixture()
@@ -173,3 +183,250 @@ def test_main_inject_failure_prints_error_to_stderr(
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
     assert "Error:" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Phase 06: Run subcommand and report tests
+# ---------------------------------------------------------------------------
+
+
+# Shared test data for Round 1 report tests
+
+_MOCK_SEED_EVENT = SeedEvent(
+    raw_rumor="NVIDIA announces breakthrough",
+    entities=[
+        SeedEntity(name="NVIDIA", type=EntityType.COMPANY, relevance=0.95, sentiment=0.8),
+    ],
+    overall_sentiment=0.6,
+)
+
+_MOCK_PARSED_RESULT = ParsedSeedResult(seed_event=_MOCK_SEED_EVENT, parse_tier=1)
+
+_TEST_PERSONAS = [
+    AgentPersona(
+        id="quants_01", name="Quants 1", bracket=BracketType.QUANTS,
+        risk_profile=0.4, temperature=0.3, system_prompt="test",
+        influence_weight_base=0.7,
+    ),
+    AgentPersona(
+        id="quants_02", name="Quants 2", bracket=BracketType.QUANTS,
+        risk_profile=0.4, temperature=0.3, system_prompt="test",
+        influence_weight_base=0.7,
+    ),
+    AgentPersona(
+        id="degens_01", name="Degens 1", bracket=BracketType.DEGENS,
+        risk_profile=0.95, temperature=1.2, system_prompt="test",
+        influence_weight_base=0.3,
+    ),
+    AgentPersona(
+        id="degens_02", name="Degens 2", bracket=BracketType.DEGENS,
+        risk_profile=0.95, temperature=1.2, system_prompt="test",
+        influence_weight_base=0.3,
+    ),
+]
+
+_TEST_BRACKETS = [
+    BracketConfig(
+        bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
+        risk_profile=0.4, temperature=0.3,
+        system_prompt_template="test", influence_weight_base=0.7,
+    ),
+    BracketConfig(
+        bracket_type=BracketType.DEGENS, display_name="Degens", count=2,
+        risk_profile=0.95, temperature=1.2,
+        system_prompt_template="test", influence_weight_base=0.3,
+    ),
+]
+
+
+def test_parse_run_args() -> None:
+    """Parsing ['run', 'rumor text'] sets command='run' and args.rumor."""
+    parser = argparse.ArgumentParser(prog="alphaswarm")
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser("inject", help="Inject")
+    run_parser = subparsers.add_parser("run", help="Run Round 1")
+    run_parser.add_argument("rumor", type=str)
+
+    args = parser.parse_args(["run", "NVIDIA announces breakthrough"])
+    assert args.command == "run"
+    assert args.rumor == "NVIDIA announces breakthrough"
+
+
+def test_main_run_calls_handle_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """main() with sys.argv=["alphaswarm", "run", "test rumor"] calls _handle_run."""
+    from alphaswarm.cli import main
+
+    monkeypatch.setattr("sys.argv", ["alphaswarm", "run", "test rumor"])
+
+    with patch("alphaswarm.cli._handle_run") as mock_handle_run:
+        main()
+
+    mock_handle_run.assert_called_once_with("test rumor")
+
+
+def test_print_round1_report_bracket_table(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Report contains bracket names and signal labels."""
+    from alphaswarm.cli import _print_round1_report
+    from alphaswarm.simulation import Round1Result
+
+    agent_decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.9, rationale="data")),
+        ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.85, rationale="math")),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.7, rationale="hype")),
+        ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.65, rationale="fomo")),
+    ]
+
+    result = Round1Result(
+        cycle_id="test-cycle",
+        parsed_result=_MOCK_PARSED_RESULT,
+        agent_decisions=agent_decisions,
+    )
+
+    _print_round1_report(result, _TEST_PERSONAS, _TEST_BRACKETS)
+
+    captured = capsys.readouterr()
+    assert "Quants" in captured.out
+    assert "Degens" in captured.out
+    assert "BUY" in captured.out
+    assert "SELL" in captured.out
+
+
+def test_print_round1_report_notable_decisions(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Report shows 'Notable Decisions' with the highest-confidence agent."""
+    from alphaswarm.cli import _print_round1_report
+    from alphaswarm.simulation import Round1Result
+
+    # 4 agents with varying confidence; quants_01 has highest
+    agent_decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.99, rationale="top pick")),
+        ("quants_02", AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="neutral")),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="panic")),
+        ("degens_02", AgentDecision(signal=SignalType.BUY, confidence=0.7, rationale="ape in")),
+    ]
+
+    result = Round1Result(
+        cycle_id="test-cycle",
+        parsed_result=_MOCK_PARSED_RESULT,
+        agent_decisions=agent_decisions,
+    )
+
+    _print_round1_report(result, _TEST_PERSONAS, _TEST_BRACKETS)
+
+    captured = capsys.readouterr()
+    assert "Notable Decisions" in captured.out
+    assert "quants_01" in captured.out
+
+
+def test_print_round1_report_header_with_failures(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Header shows 'X/Y (Z PARSE_ERROR)' when some agents fail."""
+    from alphaswarm.cli import _print_round1_report
+    from alphaswarm.simulation import Round1Result
+
+    agent_decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="ok")),
+        ("quants_02", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="fail")),
+        ("degens_01", AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="ok")),
+        ("degens_02", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="fail")),
+    ]
+
+    result = Round1Result(
+        cycle_id="test-cycle",
+        parsed_result=_MOCK_PARSED_RESULT,
+        agent_decisions=agent_decisions,
+    )
+
+    _print_round1_report(result, _TEST_PERSONAS, _TEST_BRACKETS)
+
+    captured = capsys.readouterr()
+    assert "2/4" in captured.out
+    assert "PARSE_ERROR" in captured.out
+
+
+def test_print_round1_report_header_all_success(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Header shows 'N/N' and no 'PARSE_ERROR' when all succeed."""
+    from alphaswarm.cli import _print_round1_report
+    from alphaswarm.simulation import Round1Result
+
+    agent_decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="ok")),
+        ("quants_02", AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="ok")),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="ok")),
+        ("degens_02", AgentDecision(signal=SignalType.BUY, confidence=0.7, rationale="ok")),
+    ]
+
+    result = Round1Result(
+        cycle_id="test-cycle",
+        parsed_result=_MOCK_PARSED_RESULT,
+        agent_decisions=agent_decisions,
+    )
+
+    _print_round1_report(result, _TEST_PERSONAS, _TEST_BRACKETS)
+
+    captured = capsys.readouterr()
+    assert "4/4" in captured.out
+    assert "PARSE_ERROR" not in captured.out
+
+
+def test_bracket_aggregation_excludes_parse_errors() -> None:
+    """PARSE_ERROR agents are excluded from bracket signal counts."""
+    from alphaswarm.cli import _aggregate_brackets
+
+    agent_decisions: list[tuple[str, AgentDecision]] = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.9, rationale="ok")),
+        ("quants_02", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="fail")),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.7, rationale="ok")),
+        ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="ok")),
+    ]
+
+    result = _aggregate_brackets(agent_decisions, _TEST_PERSONAS, _TEST_BRACKETS)
+
+    # Quants: 1 BUY, 0 SELL, 0 HOLD (parse_error excluded) -> total 1
+    assert result["Quants"]["BUY"] == 1
+    assert result["Quants"]["total"] == 1
+
+    # Degens: 0 BUY, 2 SELL, 0 HOLD -> total 2
+    assert result["Degens"]["SELL"] == 2
+    assert result["Degens"]["total"] == 2
+
+
+def test_print_round1_report_truncates_rationale(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Rationale longer than 80 chars is truncated with '...'."""
+    from alphaswarm.cli import _print_round1_report
+    from alphaswarm.simulation import Round1Result
+
+    long_rationale = "A" * 120  # Well over 80 chars
+    agent_decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.99, rationale=long_rationale)),
+        ("quants_02", AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="short")),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="short")),
+        ("degens_02", AgentDecision(signal=SignalType.BUY, confidence=0.4, rationale="short")),
+    ]
+
+    result = Round1Result(
+        cycle_id="test-cycle",
+        parsed_result=_MOCK_PARSED_RESULT,
+        agent_decisions=agent_decisions,
+    )
+
+    _print_round1_report(result, _TEST_PERSONAS, _TEST_BRACKETS)
+
+    captured = capsys.readouterr()
+    assert "..." in captured.out
+
+
+def test_sanitize_rationale_strips_control_chars() -> None:
+    """Control characters are stripped and whitespace normalized."""
+    from alphaswarm.cli import _sanitize_rationale
+
+    result = _sanitize_rationale("hello\x00world\nfoo")
+    assert result == "hello world foo"

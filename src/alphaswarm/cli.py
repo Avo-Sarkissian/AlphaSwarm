@@ -3,21 +3,26 @@
 Usage:
     python -m alphaswarm                  # Print startup banner (legacy)
     python -m alphaswarm inject "rumor"   # Inject a seed rumor
+    python -m alphaswarm run "rumor"      # Run full Round 1 simulation
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
 from typing import TYPE_CHECKING
 
 import structlog
 
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
-    from alphaswarm.types import ParsedSeedResult
+    from alphaswarm.app import AppState
+    from alphaswarm.simulation import Round1Result
+    from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, ParsedSeedResult
 
 logger = structlog.get_logger(component="cli")
 
@@ -79,6 +84,204 @@ def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> 
     print(f"{'='*60}\n")
 
 
+# ---------------------------------------------------------------------------
+# Rationale sanitization (review concern #8)
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_rationale(text: str, max_len: int = 80) -> str:
+    """Strip control characters, normalize whitespace, truncate."""
+    cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', text)
+    cleaned = ' '.join(cleaned.split())  # normalize whitespace
+    if len(cleaned) > max_len:
+        return cleaned[:max_len] + "..."
+    return cleaned
+
+
+# ---------------------------------------------------------------------------
+# Bracket aggregation
+# ---------------------------------------------------------------------------
+
+
+def _aggregate_brackets(
+    agent_decisions: list[tuple[str, AgentDecision]],
+    personas: list[AgentPersona],
+    brackets: list[BracketConfig],
+) -> dict[str, dict[str, int | float]]:
+    """Aggregate agent decisions by bracket for the signal distribution table.
+
+    Excludes PARSE_ERROR agents from signal counts and confidence averages.
+
+    Returns:
+        Dict keyed by bracket display_name, each containing:
+        BUY, SELL, HOLD counts, total count, and avg_conf.
+    """
+    # Build lookups
+    agent_bracket: dict[str, str] = {p.id: p.bracket.value for p in personas}
+    display_lookup: dict[str, str] = {b.bracket_type.value: b.display_name for b in brackets}
+
+    # Initialize per-bracket counters (preserve bracket order)
+    result: dict[str, dict[str, int | float]] = {}
+    for b in brackets:
+        result[b.display_name] = {
+            "BUY": 0,
+            "SELL": 0,
+            "HOLD": 0,
+            "total": 0,
+            "confidence_sum": 0.0,
+            "avg_conf": 0.0,
+        }
+
+    # Aggregate
+    for agent_id, decision in agent_decisions:
+        if decision.signal == SignalType.PARSE_ERROR:
+            continue
+        bracket_value = agent_bracket.get(agent_id)
+        if bracket_value is None:
+            continue
+        display_name = display_lookup.get(bracket_value)
+        if display_name is None:
+            continue
+        entry = result[display_name]
+        signal_key = decision.signal.value.upper()
+        if signal_key in entry:
+            entry[signal_key] = int(entry[signal_key]) + 1
+        entry["total"] = int(entry["total"]) + 1
+        entry["confidence_sum"] = float(entry["confidence_sum"]) + decision.confidence
+
+    # Compute averages
+    for data in result.values():
+        total = int(data["total"])
+        if total > 0:
+            data["avg_conf"] = float(data["confidence_sum"]) / total
+        else:
+            data["avg_conf"] = 0.0
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Round 1 report
+# ---------------------------------------------------------------------------
+
+
+def _print_round1_report(
+    result: Round1Result,
+    personas: list[AgentPersona],
+    brackets: list[BracketConfig],
+) -> None:
+    """Print bracket signal distribution and notable decisions after Round 1."""
+    # Derive decisions from single canonical collection
+    all_decisions = [d for _, d in result.agent_decisions]
+    total = len(all_decisions)
+    errors = sum(1 for d in all_decisions if d.signal == SignalType.PARSE_ERROR)
+    success = total - errors
+
+    # Header
+    print(f"\n{'='*60}")
+    print("  Round 1 Complete")
+    print(f"{'='*60}")
+    print(f"  Cycle ID: {result.cycle_id}")
+    if errors > 0:
+        print(f"  Agents:   {success}/{total} ({errors} PARSE_ERROR)")
+    else:
+        print(f"  Agents:   {total}/{total}")
+
+    # Bracket summary table
+    bracket_data = _aggregate_brackets(result.agent_decisions, personas, brackets)
+    print(f"\n  {'Bracket':<15} {'BUY':>5} {'SELL':>5} {'HOLD':>5} {'Avg Conf':>10}")
+    print(f"  {'-'*15} {'-'*5} {'-'*5} {'-'*5} {'-'*10}")
+    for name, data in bracket_data.items():
+        print(
+            f"  {name:<15} {data['BUY']:>5} {data['SELL']:>5} "
+            f"{data['HOLD']:>5} {data['avg_conf']:>10.2f}"
+        )
+
+    # Notable Decisions (top 5 by confidence, excluding PARSE_ERROR)
+    valid = [
+        (aid, d) for aid, d in result.agent_decisions
+        if d.signal != SignalType.PARSE_ERROR
+    ]
+    top5 = sorted(valid, key=lambda x: x[1].confidence, reverse=True)[:5]
+    print(f"\n  Notable Decisions (Top 5 by Confidence)")
+    print(f"  {'-'*55}")
+    for agent_id, decision in top5:
+        snippet = _sanitize_rationale(decision.rationale, max_len=80)
+        print(
+            f"  {agent_id:<20} {decision.signal.value.upper():<5} "
+            f"{decision.confidence:.2f}  {snippet}"
+        )
+    print(f"{'='*60}\n")
+
+
+# ---------------------------------------------------------------------------
+# Async pipeline (owns schema, round1, report, cleanup)
+# ---------------------------------------------------------------------------
+
+
+async def _run_pipeline(
+    rumor: str,
+    settings: AppSettings,
+    app: AppState,
+    personas: list[AgentPersona],
+    brackets: list[BracketConfig],
+) -> None:
+    """Async pipeline: schema -> round1 -> report -> cleanup."""
+    from alphaswarm.simulation import run_round1
+
+    assert app.graph_manager is not None
+    assert app.ollama_client is not None
+    assert app.model_manager is not None
+
+    try:
+        await app.graph_manager.ensure_schema()
+        result = await run_round1(
+            rumor=rumor,
+            settings=settings,
+            ollama_client=app.ollama_client,
+            model_manager=app.model_manager,
+            graph_manager=app.graph_manager,
+            governor=app.governor,
+            personas=personas,
+        )
+        _print_round1_report(result, personas, brackets)
+    finally:
+        await app.graph_manager.close()
+
+
+# ---------------------------------------------------------------------------
+# Synchronous CLI handler (creates AppState BEFORE event loop)
+# ---------------------------------------------------------------------------
+
+
+def _handle_run(rumor: str) -> None:
+    """Synchronous CLI handler -- creates AppState BEFORE event loop starts.
+
+    Addresses review concern #2 (Codex HIGH): create_app_state() calls
+    run_until_complete() for Neo4j connectivity check, which is UNSAFE
+    inside a running event loop. This handler creates AppState synchronously
+    BEFORE asyncio.run() starts the loop.
+    """
+    from alphaswarm.app import create_app_state
+
+    settings = AppSettings()
+    brackets = load_bracket_configs()
+    personas = generate_personas(brackets)
+    app = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
+
+    assert app.ollama_client is not None
+    assert app.model_manager is not None
+    assert app.graph_manager is not None
+
+    # NOW start the event loop with the async pipeline
+    asyncio.run(_run_pipeline(rumor, settings, app, personas, brackets))
+
+
+# ---------------------------------------------------------------------------
+# Inject handler (existing, unchanged)
+# ---------------------------------------------------------------------------
+
+
 async def _handle_inject(rumor: str) -> None:
     """Run seed injection pipeline and print summary.
 
@@ -118,6 +321,11 @@ async def _handle_inject(rumor: str) -> None:
         await app.graph_manager.close()
 
 
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+
 def main() -> None:
     """CLI entry point with argparse subcommand routing."""
     parser = argparse.ArgumentParser(
@@ -129,6 +337,9 @@ def main() -> None:
     inject_parser = subparsers.add_parser("inject", help="Inject a seed rumor")
     inject_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
 
+    run_parser = subparsers.add_parser("run", help="Run full Round 1 simulation")
+    run_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
+
     args = parser.parse_args()
 
     if args.command == "inject":
@@ -139,6 +350,16 @@ def main() -> None:
             sys.exit(1)
         except Exception as e:
             logger.error("inject_failed", error=str(e))
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+    elif args.command == "run":
+        try:
+            _handle_run(args.rumor)
+        except KeyboardInterrupt:
+            print("\nAborted.", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            logger.error("run_failed", error=str(e))
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
     else:
