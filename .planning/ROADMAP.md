@@ -105,7 +105,9 @@ Plans:
   2. Batched inference dispatches 8-16 concurrent agent calls through the ResourceGovernor without memory exhaustion or dropped tasks
   3. All 100 Round 1 decisions are persisted to Neo4j and queryable by bracket, signal, and confidence
   4. A CLI command runs a full Round 1 and reports bracket-level signal distribution (e.g., "Quants: 7 SELL, 2 HOLD, 1 BUY")
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 06-01-PLAN.md -- Simulation pipeline (run_round1), CLI run subcommand with bracket report and notable decisions, unit tests
 
 ### Phase 7: Rounds 2-3 Peer Influence and Consensus
 **Goal**: Agents receive peer decisions from prior rounds and iteratively shift their positions, completing the full 3-round consensus cascade
@@ -167,7 +169,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. Resource Governance | 0/2 | Planning complete | - |
 | 4. Neo4j Graph State | 2/2 | Complete   | 2026-03-25 |
 | 5. Seed Injection and Agent Personas | 0/2 | Planning complete | - |
-| 6. Round 1 Standalone | 0/TBD | Not started | - |
+| 6. Round 1 Standalone | 0/1 | Planning complete | - |
 | 7. Rounds 2-3 Peer Influence and Consensus | 0/TBD | Not started | - |
 | 8. Dynamic Influence Topology | 0/TBD | Not started | - |
 | 9. TUI Core Dashboard | 0/TBD | Not started | - |
