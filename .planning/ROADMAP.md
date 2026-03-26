@@ -136,7 +136,7 @@ Plans:
   5. The influence topology is queryable in Neo4j: given an agent, return who influenced them and who they influenced
 **Plans**: 3 plans
 Plans:
-- [ ] 08-01-PLAN.md -- Influence edge computation (compute_influence_edges, citation reads, INFLUENCED_BY writes), BracketSummary dataclass, compute_bracket_summaries, select_diverse_peers, unit tests
+- [x] 08-01-PLAN.md -- Influence edge computation (compute_influence_edges, citation reads, INFLUENCED_BY writes), BracketSummary dataclass, compute_bracket_summaries, select_diverse_peers, unit tests
 - [ ] 08-02-PLAN.md -- Wire influence into run_simulation between rounds, dynamic peer selection in _dispatch_round, extend SimulationResult/RoundCompleteEvent with bracket summaries, update CLI to consume BracketSummary
 - [x] 08-03-PLAN.md -- Miro batcher stub: MiroNode, MiroConnector, MiroBatchPayload Pydantic models, MiroBatcher log-only class, standalone module tests
 
@@ -178,6 +178,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 5. Seed Injection and Agent Personas | 0/2 | Planning complete | - |
 | 6. Round 1 Standalone | 1/1 | Complete   | 2026-03-26 |
 | 7. Rounds 2-3 Peer Influence and Consensus | 0/2 | Planning complete | - |
-| 8. Dynamic Influence Topology | 1/3 | In Progress|  |
+| 8. Dynamic Influence Topology | 2/3 | In Progress|  |
 | 9. TUI Core Dashboard | 0/TBD | Not started | - |
 | 10. TUI Panels and Telemetry | 0/TBD | Not started | - |
