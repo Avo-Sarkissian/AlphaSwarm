@@ -18,6 +18,7 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - [x] Neo4j GraphRAG for cycle-scoped sentiment storage and peer decision reads — Validated in Phase 04: neo4j-graph-state
 - [x] Seed rumor injection with entity extraction via orchestrator LLM — Validated in Phase 05: seed-injection-and-agent-personas
 - [x] 100-agent swarm across 10 bracket archetypes with distinct risk profiles — Validated in Phase 05: seed-injection-and-agent-personas
+- [x] Round 1 standalone pipeline (seed → dispatch → persist) with CLI run command — Validated in Phase 06: round-1-standalone
 
 ### Active
 - [ ] 3-round iterative cascade (Initial Reaction → Peer Influence → Final Consensus Lock)
@@ -61,7 +62,7 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 | Snapshot-based TUI rendering (200ms tick) | 100 async agents would freeze Textual if pushing per-agent updates; decouples agent throughput from render throughput | — Pending |
 | Cycle-scoped Neo4j edges (cycle_id on relationships) | Enables fast current-cycle reads without full history scans; composite index keeps queries under 5ms | ✓ Implemented in Phase 04 — composite index on (cycle_id, round), UNWIND batch writes, session-per-method isolation |
 | Dynamic influence topology | Edges form from citation/agreement patterns, not static bracket hierarchies; more realistic consensus formation | — Pending |
-| 3-round iterative cascade | Round 1: Initial reaction, Round 2: Peer influence, Round 3: Final consensus lock. Balances depth with compute cost | — Pending |
+| 3-round iterative cascade | Round 1: Initial reaction, Round 2: Peer influence, Round 3: Final consensus lock. Balances depth with compute cost | ✓ Round 1 implemented in Phase 06 — Rounds 2-3 pending |
 | Miro deferred to Phase 2 | Most API-constrained component; core engine and TUI must be solid first. Batcher stubbed but not blocking | — Pending |
 | Tiered backoff strategy | Ollama failures = resource exhaustion (retry 3x, shrink governor). Miro failures = rate limits (parse Retry-After + jitter) | — Pending |
 
@@ -83,4 +84,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-25 after Phase 05 (seed-injection-and-agent-personas) completion*
+*Last updated: 2026-03-26 after Phase 06 (round-1-standalone) completion*
