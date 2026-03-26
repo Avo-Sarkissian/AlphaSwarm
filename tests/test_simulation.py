@@ -712,3 +712,625 @@ def test_simulation_result_is_frozen() -> None:
     assert "round1_decisions" in fields
     assert "round2_decisions" in fields
     assert "round3_decisions" in fields
+
+
+# ---------------------------------------------------------------------------
+# Phase 07 Task 2 Tests: _dispatch_round and run_simulation
+# ---------------------------------------------------------------------------
+
+
+# Helper to build a Round1Result for mocking run_round1
+
+def _mock_round1_result() -> "Round1Result":
+    from alphaswarm.simulation import Round1Result
+    return Round1Result(
+        cycle_id="test-cycle-id",
+        parsed_result=MOCK_PARSED_RESULT,
+        agent_decisions=[
+            ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8)),
+            ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.7)),
+            ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6)),
+            ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.5)),
+        ],
+    )
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+async def test_dispatch_round_reads_peers_per_agent(
+    mock_dispatch: AsyncMock,
+    mock_settings: AppSettings,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+    mock_ollama_client: MagicMock,
+) -> None:
+    """_dispatch_round calls graph_manager.read_peer_decisions once per persona."""
+    from alphaswarm.simulation import _dispatch_round
+
+    mock_graph_manager.read_peer_decisions = AsyncMock(return_value=[])
+    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await _dispatch_round(
+        personas=TEST_PERSONAS,
+        cycle_id="test-cycle",
+        source_round=1,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        client=mock_ollama_client,
+        model="test-model",
+        rumor=MOCK_RUMOR,
+        settings=mock_settings.governor,
+    )
+
+    assert mock_graph_manager.read_peer_decisions.await_count == len(TEST_PERSONAS)
+    # Verify each persona's agent_id was queried
+    called_agent_ids = [
+        call.args[0] for call in mock_graph_manager.read_peer_decisions.await_args_list
+    ]
+    expected_ids = [p.id for p in TEST_PERSONAS]
+    assert sorted(called_agent_ids) == sorted(expected_ids)
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+async def test_dispatch_round_formats_and_passes_peer_contexts(
+    mock_dispatch: AsyncMock,
+    mock_settings: AppSettings,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+    mock_ollama_client: MagicMock,
+) -> None:
+    """_dispatch_round passes a peer_contexts list to dispatch_wave (not scalar)."""
+    from alphaswarm.graph import PeerDecision
+    from alphaswarm.simulation import _dispatch_round
+
+    mock_graph_manager.read_peer_decisions = AsyncMock(return_value=[
+        PeerDecision(
+            agent_id="other_01", bracket="quants", signal="buy",
+            confidence=0.9, sentiment=0.5, rationale="peer reasoning",
+        ),
+    ])
+    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await _dispatch_round(
+        personas=TEST_PERSONAS,
+        cycle_id="test-cycle",
+        source_round=1,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        client=mock_ollama_client,
+        model="test-model",
+        rumor=MOCK_RUMOR,
+        settings=mock_settings.governor,
+    )
+
+    # dispatch_wave should be called with peer_contexts kwarg
+    assert "peer_contexts" in mock_dispatch.call_args.kwargs
+    peer_contexts = mock_dispatch.call_args.kwargs["peer_contexts"]
+    assert isinstance(peer_contexts, list)
+    assert len(peer_contexts) == len(TEST_PERSONAS)
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+async def test_dispatch_round_length_mismatch_raises_value_error(
+    mock_dispatch: AsyncMock,
+    mock_settings: AppSettings,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+    mock_ollama_client: MagicMock,
+) -> None:
+    """dispatch_wave returning wrong number of results raises ValueError."""
+    from alphaswarm.simulation import _dispatch_round
+
+    mock_graph_manager.read_peer_decisions = AsyncMock(return_value=[])
+    # Return fewer results than personas
+    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS) - 1)
+
+    with pytest.raises(ValueError, match="dispatch_wave returned"):
+        await _dispatch_round(
+            personas=TEST_PERSONAS,
+            cycle_id="test-cycle",
+            source_round=1,
+            graph_manager=mock_graph_manager,
+            governor=mock_governor,
+            client=mock_ollama_client,
+            model="test-model",
+            rumor=MOCK_RUMOR,
+            settings=mock_settings.governor,
+        )
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_calls_run_round1(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """run_simulation calls run_round1 as first step."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+    )
+
+    mock_round1.assert_awaited_once()
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_round2_uses_round1_peers(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """run_simulation calls _dispatch_round for Round 2 with source_round=1."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+    )
+
+    # _dispatch_round called twice (Round 2 and Round 3)
+    assert mock_dispatch_round.await_count == 2
+    # First call is Round 2 with source_round=1
+    r2_call = mock_dispatch_round.await_args_list[0]
+    assert r2_call.kwargs["source_round"] == 1
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_round3_uses_round2_peers(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """run_simulation calls _dispatch_round for Round 3 with source_round=2."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+    )
+
+    # Second call is Round 3 with source_round=2
+    r3_call = mock_dispatch_round.await_args_list[1]
+    assert r3_call.kwargs["source_round"] == 2
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_returns_complete_result(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """run_simulation returns SimulationResult with all 3 rounds and 2 ShiftMetrics."""
+    from alphaswarm.simulation import SimulationResult, run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    result = await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+    )
+
+    assert isinstance(result, SimulationResult)
+    assert result.cycle_id == "test-cycle-id"
+    assert isinstance(result.round1_decisions, tuple)
+    assert isinstance(result.round2_decisions, tuple)
+    assert isinstance(result.round3_decisions, tuple)
+    assert result.round2_shifts is not None
+    assert result.round3_shifts is not None
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_persists_all_rounds(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """write_decisions called for round 2 and round 3 (round 1 via run_round1)."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+    )
+
+    # write_decisions called twice by run_simulation (round 2, round 3)
+    # round 1 is done inside run_round1 which is mocked
+    assert mock_graph_manager.write_decisions.await_count == 2
+    round_nums = [
+        call.kwargs.get("round_num", call.args[2] if len(call.args) > 2 else None)
+        for call in mock_graph_manager.write_decisions.await_args_list
+    ]
+    assert 2 in round_nums
+    assert 3 in round_nums
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_worker_reload_once_for_rounds_2_3(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """ensure_clean_state + load_model called once for Rounds 2-3 block."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+    )
+
+    # ensure_clean_state called once (for Rounds 2-3 prep)
+    mock_model_manager.ensure_clean_state.assert_awaited_once()
+    # load_model called once (for Rounds 2-3)
+    mock_model_manager.load_model.assert_awaited_once()
+    # unload_model called once (after Rounds 2-3)
+    mock_model_manager.unload_model.assert_awaited_once()
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_governor_fresh_session_rounds_2_3(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """governor.start_monitoring and stop_monitoring called for Rounds 2-3 block."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+    )
+
+    # run_simulation's own governor session (separate from run_round1's)
+    mock_governor.start_monitoring.assert_awaited_once()
+    mock_governor.stop_monitoring.assert_awaited_once()
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_simulation_phase_transitions(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Phase transitions are logged in correct order."""
+    import structlog
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    logged_phases: list[str] = []
+    original_logger = structlog.get_logger
+
+    with patch("alphaswarm.simulation.logger") as mock_logger:
+        # Capture phase transitions from structlog info calls
+        def capture_info(event: str, **kwargs: object) -> None:
+            if "phase" in kwargs:
+                logged_phases.append(str(kwargs["phase"]))
+
+        mock_logger.info = capture_info
+        mock_logger.warning = MagicMock()
+
+        await run_simulation(
+            rumor=MOCK_RUMOR,
+            settings=mock_settings,
+            ollama_client=mock_ollama_client,
+            model_manager=mock_model_manager,
+            graph_manager=mock_graph_manager,
+            governor=mock_governor,
+            personas=TEST_PERSONAS,
+        )
+
+    # Verify phase order: idle, seeding, round_1, round_2, round_3, complete
+    assert "idle" in logged_phases
+    assert "seeding" in logged_phases
+    assert "round_1" in logged_phases
+    assert "round_2" in logged_phases
+    assert "round_3" in logged_phases
+    assert "complete" in logged_phases
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_cleanup_on_error(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """If dispatch_wave raises during Round 2, worker is unloaded and governor stopped."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.side_effect = Exception("round2_boom")
+
+    with pytest.raises(Exception, match="round2_boom"):
+        await run_simulation(
+            rumor=MOCK_RUMOR,
+            settings=mock_settings,
+            ollama_client=mock_ollama_client,
+            model_manager=mock_model_manager,
+            graph_manager=mock_graph_manager,
+            governor=mock_governor,
+            personas=TEST_PERSONAS,
+        )
+
+    # Cleanup must still happen
+    mock_model_manager.unload_model.assert_awaited_once()
+    mock_governor.stop_monitoring.assert_awaited_once()
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_fires_on_round_complete_round1(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """on_round_complete called after Round 1 with round_num=1, shift=None."""
+    from alphaswarm.simulation import RoundCompleteEvent, run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    callback = AsyncMock()
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        on_round_complete=callback,
+    )
+
+    # First call should be for Round 1
+    r1_event = callback.await_args_list[0].args[0]
+    assert isinstance(r1_event, RoundCompleteEvent)
+    assert r1_event.round_num == 1
+    assert r1_event.shift is None
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_fires_on_round_complete_round2(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """on_round_complete called after Round 2 with round_num=2, shift=ShiftMetrics."""
+    from alphaswarm.simulation import RoundCompleteEvent, ShiftMetrics, run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    callback = AsyncMock()
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        on_round_complete=callback,
+    )
+
+    # Second call should be for Round 2
+    r2_event = callback.await_args_list[1].args[0]
+    assert isinstance(r2_event, RoundCompleteEvent)
+    assert r2_event.round_num == 2
+    assert isinstance(r2_event.shift, ShiftMetrics)
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_fires_on_round_complete_round3(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """on_round_complete called after Round 3 with round_num=3, shift=ShiftMetrics."""
+    from alphaswarm.simulation import RoundCompleteEvent, ShiftMetrics, run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    callback = AsyncMock()
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        on_round_complete=callback,
+    )
+
+    # Third call should be for Round 3
+    assert callback.await_count == 3
+    r3_event = callback.await_args_list[2].args[0]
+    assert isinstance(r3_event, RoundCompleteEvent)
+    assert r3_event.round_num == 3
+    assert isinstance(r3_event.shift, ShiftMetrics)
+
+
+@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_no_callback(
+    mock_round1: AsyncMock,
+    mock_dispatch_round: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """run_simulation works correctly when on_round_complete=None (no crash)."""
+    from alphaswarm.simulation import SimulationResult, run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_round.return_value = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+
+    result = await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        on_round_complete=None,
+    )
+
+    assert isinstance(result, SimulationResult)

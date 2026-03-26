@@ -19,11 +19,11 @@ import structlog
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.config import persona_to_worker_config
 from alphaswarm.seed import inject_seed
-from alphaswarm.types import SignalType
+from alphaswarm.types import SignalType, SimulationPhase
 from alphaswarm.utils import sanitize_rationale
 
 if TYPE_CHECKING:
-    from alphaswarm.config import AppSettings
+    from alphaswarm.config import AppSettings, GovernorSettings
     from alphaswarm.governor import ResourceGovernor
     from alphaswarm.graph import GraphStateManager, PeerDecision
     from alphaswarm.ollama_client import OllamaClient
@@ -294,4 +294,235 @@ async def run_round1(
         cycle_id=cycle_id,
         parsed_result=parsed_result,
         agent_decisions=agent_decisions,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rounds 2-3 dispatch helper (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+async def _dispatch_round(
+    personas: list[AgentPersona],
+    cycle_id: str,
+    source_round: int,
+    graph_manager: GraphStateManager,
+    governor: ResourceGovernor,
+    client: OllamaClient,
+    model: str,
+    rumor: str,
+    settings: GovernorSettings,
+) -> list[tuple[str, AgentDecision]]:
+    """Dispatch a round with per-agent peer context (D-09, D-10).
+
+    1. Read top-5 peer decisions per agent sequentially (Pitfall 3: avoid pool exhaustion)
+    2. Format each into a peer context string via _format_peer_context
+    3. Call dispatch_wave with peer_contexts list
+    4. Pair agent IDs with decisions (positional alignment)
+
+    Uses ValueError for runtime contract checks (Codex review: assert disappears under -O).
+    """
+    worker_configs = [persona_to_worker_config(p) for p in personas]
+
+    # Sequential peer reads (D-10: reads happen BEFORE dispatch)
+    # Sequential avoids Neo4j connection pool exhaustion (Pitfall 3)
+    peer_contexts: list[str | None] = []
+    for persona in personas:
+        peers = await graph_manager.read_peer_decisions(
+            persona.id, cycle_id, source_round, limit=5,
+        )
+        ctx = _format_peer_context(peers, source_round)
+        # Empty string from _format_peer_context means no peers found -> pass None
+        peer_contexts.append(ctx if ctx else None)
+
+    logger.info(
+        "round_dispatch_start",
+        round_num=source_round + 1,
+        agent_count=len(personas),
+        peers_found=sum(1 for c in peer_contexts if c),
+    )
+
+    decisions = await dispatch_wave(
+        personas=worker_configs,
+        governor=governor,
+        client=client,
+        model=model,
+        user_message=rumor,
+        settings=settings,
+        peer_contexts=peer_contexts,
+    )
+
+    if len(decisions) != len(worker_configs):
+        raise ValueError(
+            f"dispatch_wave returned {len(decisions)} results "
+            f"for {len(worker_configs)} personas"
+        )
+
+    agent_decisions: list[tuple[str, AgentDecision]] = [
+        (wc["agent_id"], dec)
+        for wc, dec in zip(worker_configs, decisions)
+    ]
+
+    return agent_decisions
+
+
+# ---------------------------------------------------------------------------
+# Full 3-round simulation orchestrator (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+async def run_simulation(
+    rumor: str,
+    settings: AppSettings,
+    ollama_client: OllamaClient,
+    model_manager: OllamaModelManager,
+    graph_manager: GraphStateManager,
+    governor: ResourceGovernor,
+    personas: list[AgentPersona],
+    *,
+    on_round_complete: OnRoundComplete = None,
+) -> SimulationResult:
+    """Execute the full 3-round simulation pipeline (D-04).
+
+    Phase transitions (D-07): IDLE -> SEEDING -> ROUND_1 -> ROUND_2 -> ROUND_3 -> COMPLETE
+    Logged via structlog, not persisted to StateStore.
+
+    Progressive output (addresses Gemini/Codex review): fires on_round_complete
+    callback after each round finishes, enabling CLI to print reports in real time.
+
+    Lifecycle:
+    1. run_round1() handles SEEDING + ROUND_1 (owns its own governor session per D-06)
+    2. Fire on_round_complete for Round 1 (shift=None, no prior round to compare)
+    3. ensure_clean_state + reload worker (D-05: one cold load for modularity)
+    4. Fresh governor monitoring session for Rounds 2-3 block (D-06)
+    5. Round 2: _dispatch_round with source_round=1 -> write_decisions round_num=2 -> callback
+    6. Round 3: _dispatch_round with source_round=2 -> write_decisions round_num=3 -> callback
+    7. Return SimulationResult (D-08)
+    """
+    phase = SimulationPhase.IDLE
+    logger.info("simulation_start", phase=phase.value)
+
+    # Phase: SEEDING + ROUND_1 (delegated to run_round1)
+    phase = SimulationPhase.SEEDING
+    logger.info("simulation_phase_transition", phase=phase.value)
+    round1_result = await run_round1(
+        rumor, settings, ollama_client, model_manager,
+        graph_manager, governor, personas,
+    )
+    cycle_id = round1_result.cycle_id
+
+    phase = SimulationPhase.ROUND_1
+    logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
+
+    # Fire callback for Round 1 (progressive output)
+    round1_decisions_tuple = tuple(round1_result.agent_decisions)
+    if on_round_complete is not None:
+        await on_round_complete(RoundCompleteEvent(
+            round_num=1,
+            cycle_id=cycle_id,
+            agent_decisions=round1_decisions_tuple,
+            shift=None,
+        ))
+
+    # Reload worker for Rounds 2-3 (D-05)
+    await model_manager.ensure_clean_state()
+    worker_alias = settings.ollama.worker_model_alias
+
+    # Fresh governor monitoring for Rounds 2-3 block (D-06)
+    await governor.start_monitoring()
+    try:
+        await model_manager.load_model(worker_alias)
+        try:
+            # Round 2 (D-09: peer context from Round 1)
+            phase = SimulationPhase.ROUND_2
+            logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
+
+            round2_decisions = await _dispatch_round(
+                personas=personas,
+                cycle_id=cycle_id,
+                source_round=1,
+                graph_manager=graph_manager,
+                governor=governor,
+                client=ollama_client,
+                model=worker_alias,
+                rumor=rumor,
+                settings=settings.governor,
+            )
+            await graph_manager.write_decisions(round2_decisions, cycle_id, round_num=2)
+
+            # Compute Round 2 shifts in-memory (D-13)
+            round2_shifts = _compute_shifts(
+                round1_result.agent_decisions, round2_decisions, personas,
+            )
+
+            # Fire callback for Round 2 (progressive output)
+            round2_decisions_tuple = tuple(
+                (aid, dec) for aid, dec in round2_decisions
+            )
+            if on_round_complete is not None:
+                await on_round_complete(RoundCompleteEvent(
+                    round_num=2,
+                    cycle_id=cycle_id,
+                    agent_decisions=round2_decisions_tuple,
+                    shift=round2_shifts,
+                ))
+
+            # Round 3 (D-09: peer context from Round 2)
+            phase = SimulationPhase.ROUND_3
+            logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
+
+            round3_decisions = await _dispatch_round(
+                personas=personas,
+                cycle_id=cycle_id,
+                source_round=2,
+                graph_manager=graph_manager,
+                governor=governor,
+                client=ollama_client,
+                model=worker_alias,
+                rumor=rumor,
+                settings=settings.governor,
+            )
+            await graph_manager.write_decisions(round3_decisions, cycle_id, round_num=3)
+
+            # Compute Round 3 shifts in-memory (D-13)
+            round3_shifts = _compute_shifts(
+                round2_decisions, round3_decisions, personas,
+            )
+
+            # Fire callback for Round 3 (progressive output)
+            round3_decisions_tuple = tuple(
+                (aid, dec) for aid, dec in round3_decisions
+            )
+            if on_round_complete is not None:
+                await on_round_complete(RoundCompleteEvent(
+                    round_num=3,
+                    cycle_id=cycle_id,
+                    agent_decisions=round3_decisions_tuple,
+                    shift=round3_shifts,
+                ))
+
+        finally:
+            # Always unload worker (inner finally)
+            await model_manager.unload_model(worker_alias)
+    finally:
+        # Always stop governor monitoring (outer finally)
+        await governor.stop_monitoring()
+
+    phase = SimulationPhase.COMPLETE
+    logger.info(
+        "simulation_complete",
+        phase=phase.value,
+        cycle_id=cycle_id,
+        round2_flips=round2_shifts.total_flips,
+        round3_flips=round3_shifts.total_flips,
+    )
+
+    return SimulationResult(
+        cycle_id=cycle_id,
+        parsed_result=round1_result.parsed_result,
+        round1_decisions=round1_decisions_tuple,
+        round2_decisions=round2_decisions_tuple,
+        round3_decisions=round3_decisions_tuple,
+        round2_shifts=round2_shifts,
+        round3_shifts=round3_shifts,
     )
