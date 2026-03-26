@@ -230,6 +230,7 @@ class RoundCompleteEvent:
     cycle_id: str
     agent_decisions: tuple[tuple[str, AgentDecision], ...]
     shift: ShiftMetrics | None  # None for Round 1 (no prior round to compare)
+    bracket_summaries: tuple[BracketSummary, ...]  # NEW: per D-08
 
 
 @dataclasses.dataclass(frozen=True)
@@ -246,6 +247,9 @@ class SimulationResult:
     round3_decisions: tuple[tuple[str, AgentDecision], ...]
     round2_shifts: ShiftMetrics
     round3_shifts: ShiftMetrics
+    round1_summaries: tuple[BracketSummary, ...]  # NEW: per D-08
+    round2_summaries: tuple[BracketSummary, ...]  # NEW: per D-08
+    round3_summaries: tuple[BracketSummary, ...]  # NEW: per D-08
 
 
 OnRoundComplete = Callable[[RoundCompleteEvent], Awaitable[None]] | None
@@ -469,35 +473,95 @@ async def _dispatch_round(
     model: str,
     rumor: str,
     settings: GovernorSettings,
+    *,
+    influence_weights: dict[str, float] | None = None,
+    prev_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...] | None = None,
 ) -> list[tuple[str, AgentDecision]]:
     """Dispatch a round with per-agent peer context (D-09, D-10).
 
-    1. Read top-5 peer decisions per agent sequentially (Pitfall 3: avoid pool exhaustion)
-    2. Format each into a peer context string via _format_peer_context
-    3. Call dispatch_wave with peer_contexts list
-    4. Pair agent IDs with decisions (positional alignment)
+    When influence_weights is provided AND non-empty (and prev_decisions available):
+    - Uses select_diverse_peers for bracket-diverse dynamic peer selection (D-06).
+    - Builds PeerDecision objects from in-memory prev_decisions data.
+
+    When influence_weights is None OR empty dict (zero-citation fallback, D-05):
+    - Falls back to static influence_weight_base ordering via read_peer_decisions (Neo4j).
+    - This path is expected for Round 2 when Round 1 has no citations (cold-start per Pitfall 1).
 
     Uses ValueError for runtime contract checks (Codex review: assert disappears under -O).
     """
+    from alphaswarm.graph import PeerDecision
+
     worker_configs = [persona_to_worker_config(p) for p in personas]
 
-    # Sequential peer reads (D-10: reads happen BEFORE dispatch)
-    # Sequential avoids Neo4j connection pool exhaustion (Pitfall 3)
-    peer_contexts: list[str | None] = []
-    for persona in personas:
-        peers = await graph_manager.read_peer_decisions(
-            persona.id, cycle_id, source_round, limit=5,
-        )
-        ctx = _format_peer_context(peers, source_round)
-        # Empty string from _format_peer_context means no peers found -> pass None
-        peer_contexts.append(ctx if ctx else None)
-
-    logger.info(
-        "round_dispatch_start",
-        round_num=source_round + 1,
-        agent_count=len(personas),
-        peers_found=sum(1 for c in peer_contexts if c),
+    # Determine whether to use dynamic or static peer selection
+    use_dynamic = (
+        influence_weights is not None
+        and len(influence_weights) > 0
+        and prev_decisions is not None
     )
+
+    peer_contexts: list[str | None] = []
+
+    if use_dynamic:
+        # Dynamic path: bracket-diverse peer selection using influence weights (D-06)
+        assert influence_weights is not None  # narrowing for type checker
+        assert prev_decisions is not None     # narrowing for type checker
+        persona_lookup = {p.id: p for p in personas}
+        prev_dict: dict[str, AgentDecision] = {aid: dec for aid, dec in prev_decisions}
+
+        for persona in personas:
+            peer_ids = select_diverse_peers(
+                persona.id,
+                influence_weights,
+                personas,
+                prev_decisions=prev_dict,
+            )
+            peer_decisions_list = [
+                PeerDecision(
+                    agent_id=pid,
+                    bracket=persona_lookup[pid].bracket.value,
+                    signal=prev_dict[pid].signal.value,
+                    confidence=prev_dict[pid].confidence,
+                    sentiment=prev_dict[pid].sentiment,
+                    rationale=prev_dict[pid].rationale,
+                )
+                for pid in peer_ids
+                if pid in prev_dict and pid in persona_lookup
+            ]
+            ctx = _format_peer_context(peer_decisions_list, source_round)
+            peer_contexts.append(ctx if ctx else None)
+
+        logger.info(
+            "round_dispatch_start",
+            round_num=source_round + 1,
+            agent_count=len(personas),
+            peers_found=sum(1 for c in peer_contexts if c),
+            peer_selection="dynamic",
+        )
+    else:
+        # Static path (zero-citation fallback): sequential Neo4j reads per D-05
+        logger.info(
+            "dynamic_peer_fallback_to_static",
+            reason="empty_weights_or_no_prev_decisions",
+            round_num=source_round,
+        )
+        # Sequential peer reads (D-10: reads happen BEFORE dispatch)
+        # Sequential avoids Neo4j connection pool exhaustion (Pitfall 3)
+        for persona in personas:
+            peers = await graph_manager.read_peer_decisions(
+                persona.id, cycle_id, source_round, limit=5,
+            )
+            ctx = _format_peer_context(peers, source_round)
+            # Empty string from _format_peer_context means no peers found -> pass None
+            peer_contexts.append(ctx if ctx else None)
+
+        logger.info(
+            "round_dispatch_start",
+            round_num=source_round + 1,
+            agent_count=len(personas),
+            peers_found=sum(1 for c in peer_contexts if c),
+            peer_selection="static",
+        )
 
     decisions = await dispatch_wave(
         personas=worker_configs,
@@ -536,6 +600,7 @@ async def run_simulation(
     graph_manager: GraphStateManager,
     governor: ResourceGovernor,
     personas: list[AgentPersona],
+    brackets: list[BracketConfig],
     *,
     on_round_complete: OnRoundComplete = None,
 ) -> SimulationResult:
@@ -549,12 +614,15 @@ async def run_simulation(
 
     Lifecycle:
     1. run_round1() handles SEEDING + ROUND_1 (owns its own governor session per D-06)
-    2. Fire on_round_complete for Round 1 (shift=None, no prior round to compare)
-    3. ensure_clean_state + reload worker (D-05: one cold load for modularity)
-    4. Fresh governor monitoring session for Rounds 2-3 block (D-06)
-    5. Round 2: _dispatch_round with source_round=1 -> write_decisions round_num=2 -> callback
-    6. Round 3: _dispatch_round with source_round=2 -> write_decisions round_num=3 -> callback
-    7. Return SimulationResult (D-08)
+    2. Compute influence edges after Round 1 (D-02: shapes Round 2 peer selection)
+    3. Compute Round 1 bracket summaries (D-08)
+    4. Fire on_round_complete for Round 1 (shift=None, no prior round to compare)
+    5. ensure_clean_state + reload worker (D-05: one cold load for modularity)
+    6. Fresh governor monitoring session for Rounds 2-3 block (D-06)
+    7. Round 2: _dispatch_round with dynamic weights if available (fallback to static) -> write -> callback
+    8. Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2)
+    9. Round 3: _dispatch_round with Round 2 weights -> write -> callback
+    10. Return SimulationResult with all bracket summaries (D-08)
     """
     phase = SimulationPhase.IDLE
     logger.info("simulation_start", phase=phase.value)
@@ -571,6 +639,17 @@ async def run_simulation(
     phase = SimulationPhase.ROUND_1
     logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
 
+    # Compute influence edges after Round 1 (D-02: shapes Round 2 peer selection)
+    # Pass len(round1_result.agent_decisions) as total_agents (active agents, not global 100)
+    round1_weights = await graph_manager.compute_influence_edges(
+        cycle_id, up_to_round=1, total_agents=len(round1_result.agent_decisions),
+    )
+
+    # Compute Round 1 bracket summaries (D-08)
+    round1_summaries = compute_bracket_summaries(
+        round1_result.agent_decisions, personas, brackets,
+    )
+
     # Fire callback for Round 1 (progressive output)
     round1_decisions_tuple = tuple(round1_result.agent_decisions)
     if on_round_complete is not None:
@@ -579,6 +658,7 @@ async def run_simulation(
             cycle_id=cycle_id,
             agent_decisions=round1_decisions_tuple,
             shift=None,
+            bracket_summaries=round1_summaries,
         ))
 
     # Reload worker for Rounds 2-3 (D-05)
@@ -594,6 +674,9 @@ async def run_simulation(
             phase = SimulationPhase.ROUND_2
             logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
 
+            # Pass influence_weights to Round 2 dispatch with zero-citation fallback:
+            # When round1_weights is empty dict (no citations in Round 1, expected cold-start per D-05
+            # and Pitfall 1), falsy check evaluates to False -> influence_weights=None -> static fallback.
             round2_decisions = await _dispatch_round(
                 personas=personas,
                 cycle_id=cycle_id,
@@ -604,8 +687,18 @@ async def run_simulation(
                 model=worker_alias,
                 rumor=rumor,
                 settings=settings.governor,
+                influence_weights=round1_weights if round1_weights else None,
+                prev_decisions=round1_result.agent_decisions,
             )
             await graph_manager.write_decisions(round2_decisions, cycle_id, round_num=2)
+
+            # Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2)
+            round2_weights = await graph_manager.compute_influence_edges(
+                cycle_id, up_to_round=2, total_agents=len(round2_decisions),
+            )
+
+            # Compute Round 2 bracket summaries (D-08)
+            round2_summaries = compute_bracket_summaries(round2_decisions, personas, brackets)
 
             # Compute Round 2 shifts in-memory (D-13)
             round2_shifts = _compute_shifts(
@@ -622,6 +715,7 @@ async def run_simulation(
                     cycle_id=cycle_id,
                     agent_decisions=round2_decisions_tuple,
                     shift=round2_shifts,
+                    bracket_summaries=round2_summaries,
                 ))
 
             # Round 3 (D-09: peer context from Round 2)
@@ -638,8 +732,13 @@ async def run_simulation(
                 model=worker_alias,
                 rumor=rumor,
                 settings=settings.governor,
+                influence_weights=round2_weights if round2_weights else None,
+                prev_decisions=round2_decisions,
             )
             await graph_manager.write_decisions(round3_decisions, cycle_id, round_num=3)
+
+            # Compute Round 3 bracket summaries (D-08)
+            round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
 
             # Compute Round 3 shifts in-memory (D-13)
             round3_shifts = _compute_shifts(
@@ -656,6 +755,7 @@ async def run_simulation(
                     cycle_id=cycle_id,
                     agent_decisions=round3_decisions_tuple,
                     shift=round3_shifts,
+                    bracket_summaries=round3_summaries,
                 ))
 
         finally:
@@ -682,4 +782,7 @@ async def run_simulation(
         round3_decisions=round3_decisions_tuple,
         round2_shifts=round2_shifts,
         round3_shifts=round3_shifts,
+        round1_summaries=round1_summaries,
+        round2_summaries=round2_summaries,
+        round3_summaries=round3_summaries,
     )

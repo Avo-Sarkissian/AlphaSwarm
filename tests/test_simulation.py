@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphaswarm.config import AppSettings, GovernorSettings
+from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -75,6 +75,19 @@ TEST_PERSONAS = [
     ),
 ]
 
+TEST_BRACKETS = [
+    BracketConfig(
+        bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
+        risk_profile=0.4, temperature=0.3,
+        system_prompt_template="test", influence_weight_base=0.7,
+    ),
+    BracketConfig(
+        bracket_type=BracketType.DEGENS, display_name="Degens", count=2,
+        risk_profile=0.95, temperature=1.2,
+        system_prompt_template="test", influence_weight_base=0.3,
+    ),
+]
+
 
 @pytest.fixture()
 def mock_settings() -> AppSettings:
@@ -100,9 +113,10 @@ def mock_model_manager() -> AsyncMock:
 
 @pytest.fixture()
 def mock_graph_manager() -> AsyncMock:
-    """Mock GraphStateManager with write_decisions."""
+    """Mock GraphStateManager with write_decisions and compute_influence_edges."""
     gm = AsyncMock()
     gm.write_decisions = AsyncMock()
+    gm.compute_influence_edges = AsyncMock(return_value={})
     return gm
 
 
@@ -703,6 +717,9 @@ def test_simulation_result_is_frozen() -> None:
         round3_decisions=(),
         round2_shifts=dummy_shift,
         round3_shifts=dummy_shift,
+        round1_summaries=(),
+        round2_summaries=(),
+        round3_summaries=(),
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.cycle_id = "mutated"  # type: ignore[misc]
@@ -866,6 +883,7 @@ async def test_run_simulation_calls_run_round1(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
     )
 
     mock_round1.assert_awaited_once()
@@ -899,6 +917,7 @@ async def test_run_simulation_round2_uses_round1_peers(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
     )
 
     # _dispatch_round called twice (Round 2 and Round 3)
@@ -936,6 +955,7 @@ async def test_run_simulation_round3_uses_round2_peers(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
     )
 
     # Second call is Round 3 with source_round=2
@@ -971,6 +991,7 @@ async def test_run_simulation_returns_complete_result(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
     )
 
     assert isinstance(result, SimulationResult)
@@ -1010,6 +1031,7 @@ async def test_run_simulation_persists_all_rounds(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
     )
 
     # write_decisions called twice by run_simulation (round 2, round 3)
@@ -1051,6 +1073,7 @@ async def test_worker_reload_once_for_rounds_2_3(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
     )
 
     # ensure_clean_state called once (for Rounds 2-3 prep)
@@ -1089,6 +1112,7 @@ async def test_governor_fresh_session_rounds_2_3(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
     )
 
     # run_simulation's own governor session (separate from run_round1's)
@@ -1137,6 +1161,7 @@ async def test_simulation_phase_transitions(
             graph_manager=mock_graph_manager,
             governor=mock_governor,
             personas=TEST_PERSONAS,
+            brackets=TEST_BRACKETS,
         )
 
     # Verify phase order: idle, seeding, round_1, round_2, round_3, complete
@@ -1174,6 +1199,7 @@ async def test_run_simulation_cleanup_on_error(
             graph_manager=mock_graph_manager,
             governor=mock_governor,
             personas=TEST_PERSONAS,
+            brackets=TEST_BRACKETS,
         )
 
     # Cleanup must still happen
@@ -1211,6 +1237,7 @@ async def test_run_simulation_fires_on_round_complete_round1(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
         on_round_complete=callback,
     )
 
@@ -1251,6 +1278,7 @@ async def test_run_simulation_fires_on_round_complete_round2(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
         on_round_complete=callback,
     )
 
@@ -1291,6 +1319,7 @@ async def test_run_simulation_fires_on_round_complete_round3(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
         on_round_complete=callback,
     )
 
@@ -1330,6 +1359,7 @@ async def test_run_simulation_no_callback(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
         on_round_complete=None,
     )
 
@@ -1587,3 +1617,141 @@ def test_select_diverse_peers_graceful_with_few_brackets() -> None:
     weights = {p.id: 0.5 for p in personas}
     result = select_diverse_peers("quants_00", weights, personas, limit=5, min_brackets=3)
     assert len(result) == 5  # Still returns 5 even though < 3 brackets
+
+
+# ---------------------------------------------------------------------------
+# Phase 08 Plan 02: New integration tests for wiring
+# ---------------------------------------------------------------------------
+
+
+def test_simulation_result_has_bracket_summaries() -> None:
+    """SimulationResult contains round1_summaries, round2_summaries, round3_summaries fields."""
+    from alphaswarm.simulation import BracketSummary, ShiftMetrics, SimulationResult
+
+    dummy_shift = ShiftMetrics(
+        signal_transitions=(), total_flips=0,
+        bracket_confidence_delta=(), agents_shifted=0,
+    )
+    dummy_summary = BracketSummary(
+        bracket="quants", display_name="Quants",
+        buy_count=1, sell_count=0, hold_count=0,
+        total=1, avg_confidence=0.8, avg_sentiment=0.4,
+    )
+
+    result = SimulationResult(
+        cycle_id="test",
+        parsed_result=MOCK_PARSED_RESULT,
+        round1_decisions=(),
+        round2_decisions=(),
+        round3_decisions=(),
+        round2_shifts=dummy_shift,
+        round3_shifts=dummy_shift,
+        round1_summaries=(dummy_summary,),
+        round2_summaries=(dummy_summary,),
+        round3_summaries=(dummy_summary,),
+    )
+
+    assert isinstance(result.round1_summaries, tuple)
+    assert isinstance(result.round2_summaries, tuple)
+    assert isinstance(result.round3_summaries, tuple)
+    assert len(result.round1_summaries) == 1
+    assert isinstance(result.round1_summaries[0], BracketSummary)
+
+
+def test_round_complete_event_has_bracket_summaries() -> None:
+    """RoundCompleteEvent contains bracket_summaries field of type tuple[BracketSummary, ...]."""
+    from alphaswarm.simulation import BracketSummary, RoundCompleteEvent
+
+    dummy_summary = BracketSummary(
+        bracket="degens", display_name="Degens",
+        buy_count=0, sell_count=2, hold_count=0,
+        total=2, avg_confidence=0.65, avg_sentiment=-0.3,
+    )
+
+    event = RoundCompleteEvent(
+        round_num=2,
+        cycle_id="test-cycle",
+        agent_decisions=(),
+        shift=None,
+        bracket_summaries=(dummy_summary,),
+    )
+
+    assert isinstance(event.bracket_summaries, tuple)
+    assert len(event.bracket_summaries) == 1
+    assert isinstance(event.bracket_summaries[0], BracketSummary)
+    assert event.bracket_summaries[0].bracket == "degens"
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+async def test_dispatch_round_uses_dynamic_peers(
+    mock_dispatch: AsyncMock,
+    mock_settings: AppSettings,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+    mock_ollama_client: MagicMock,
+) -> None:
+    """_dispatch_round calls select_diverse_peers when influence_weights is non-empty."""
+    from unittest.mock import patch as mock_patch
+    from alphaswarm.simulation import _dispatch_round
+
+    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
+    prev_decisions = [
+        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+        for p in TEST_PERSONAS
+    ]
+    influence_weights = {p.id: 0.5 for p in TEST_PERSONAS}
+
+    with mock_patch("alphaswarm.simulation.select_diverse_peers") as mock_select:
+        # Return a valid list of peer IDs (excluding self)
+        mock_select.return_value = [p.id for p in TEST_PERSONAS[:3]]
+
+        await _dispatch_round(
+            personas=TEST_PERSONAS,
+            cycle_id="test-cycle",
+            source_round=1,
+            graph_manager=mock_graph_manager,
+            governor=mock_governor,
+            client=mock_ollama_client,
+            model="test-model",
+            rumor=MOCK_RUMOR,
+            settings=mock_settings.governor,
+            influence_weights=influence_weights,
+            prev_decisions=prev_decisions,
+        )
+
+    # select_diverse_peers should be called (dynamic path)
+    assert mock_select.call_count == len(TEST_PERSONAS)
+    # read_peer_decisions should NOT be called (dynamic path skips Neo4j)
+    mock_graph_manager.read_peer_decisions.assert_not_called()
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+async def test_dispatch_round_falls_back_on_empty_weights(
+    mock_dispatch: AsyncMock,
+    mock_settings: AppSettings,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+    mock_ollama_client: MagicMock,
+) -> None:
+    """_dispatch_round uses static read_peer_decisions when influence_weights is empty dict {}."""
+    from alphaswarm.simulation import _dispatch_round
+
+    mock_graph_manager.read_peer_decisions = AsyncMock(return_value=[])
+    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await _dispatch_round(
+        personas=TEST_PERSONAS,
+        cycle_id="test-cycle",
+        source_round=1,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        client=mock_ollama_client,
+        model="test-model",
+        rumor=MOCK_RUMOR,
+        settings=mock_settings.governor,
+        influence_weights={},  # Empty dict triggers zero-citation fallback
+        prev_decisions=None,
+    )
+
+    # Static path: read_peer_decisions called for each persona
+    assert mock_graph_manager.read_peer_decisions.await_count == len(TEST_PERSONAS)

@@ -629,6 +629,9 @@ def test_simulation_summary_output(
             ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.78, rationale="lock")),
             ("degens_02", AgentDecision(signal=SignalType.BUY, confidence=0.62, rationale="done")),
         ),
+        round1_summaries=(),
+        round2_summaries=(),
+        round3_summaries=(),
         round2_shifts=r2_shifts,
         round3_shifts=r3_shifts,
     )
@@ -666,6 +669,9 @@ def test_simulation_summary_convergence_yes(
         round3_decisions=(),
         round2_shifts=r2_shifts,
         round3_shifts=r3_shifts,
+        round1_summaries=(),
+        round2_summaries=(),
+        round3_summaries=(),
     )
 
     _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS)
@@ -700,6 +706,9 @@ def test_simulation_summary_convergence_no_increased(
         round3_decisions=(),
         round2_shifts=r2_shifts,
         round3_shifts=r3_shifts,
+        round1_summaries=(),
+        round2_summaries=(),
+        round3_summaries=(),
     )
 
     _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS)
@@ -734,6 +743,9 @@ def test_simulation_summary_convergence_no_unchanged(
         round3_decisions=(),
         round2_shifts=r2_shifts,
         round3_shifts=r3_shifts,
+        round1_summaries=(),
+        round2_summaries=(),
+        round3_summaries=(),
     )
 
     _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS)
@@ -773,6 +785,9 @@ def test_simulation_summary_final_bracket_table(
         ),
         round2_shifts=r2_shifts,
         round3_shifts=r3_shifts,
+        round1_summaries=(),
+        round2_summaries=(),
+        round3_summaries=(),
     )
 
     _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS)
@@ -817,6 +832,7 @@ async def test_round_complete_handler_prints_report_and_shift(
         cycle_id="test-cycle",
         agent_decisions=decisions,
         shift=shift,
+        bracket_summaries=(),
     )
 
     await handler(event)
@@ -849,6 +865,7 @@ async def test_round_complete_handler_round1_no_shift(
         cycle_id="test-cycle",
         agent_decisions=decisions,
         shift=None,
+        bracket_summaries=(),
     )
 
     await handler(event)
@@ -883,6 +900,7 @@ async def test_run_pipeline_calls_run_simulation_with_callback(
     mock_result.round2_shifts = empty_shifts
     mock_result.round3_shifts = empty_shifts
     mock_result.round3_decisions = ()
+    mock_result.round3_summaries = ()
     mock_result.cycle_id = "test-cycle"
 
     mock_sim = AsyncMock(return_value=mock_result)
