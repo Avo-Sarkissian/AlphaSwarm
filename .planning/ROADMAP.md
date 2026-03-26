@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 3: Resource Governance** - Dynamic concurrency control, memory monitoring, task safety, and retry logic
 - [x] **Phase 4: Neo4j Graph State** - Graph schema with cycle-scoped indexes and batch-writing GraphStateManager (completed 2026-03-25)
 - [ ] **Phase 5: Seed Injection and Agent Personas** - Orchestrator entity extraction and 100 agent personas with decision schema
-- [ ] **Phase 6: Round 1 Standalone** - All 100 agents process a seed rumor independently in a single inference wave
+- [x] **Phase 6: Round 1 Standalone** - All 100 agents process a seed rumor independently in a single inference wave (completed 2026-03-26)
 - [ ] **Phase 7: Rounds 2-3 Peer Influence and Consensus** - Peer context injection and final consensus lock complete the 3-round cascade
 - [ ] **Phase 8: Dynamic Influence Topology** - INFLUENCED_BY edges form from citation patterns, bracket aggregation, and Miro batcher stub
 - [ ] **Phase 9: TUI Core Dashboard** - Agent grid, snapshot-based rendering, and simulation status display
@@ -107,7 +107,7 @@ Plans:
   4. A CLI command runs a full Round 1 and reports bracket-level signal distribution (e.g., "Quants: 7 SELL, 2 HOLD, 1 BUY")
 **Plans**: 1 plan
 Plans:
-- [ ] 06-01-PLAN.md -- Simulation pipeline (run_round1), CLI run subcommand with bracket report and notable decisions, unit tests
+- [x] 06-01-PLAN.md -- Simulation pipeline (run_round1), CLI run subcommand with bracket report and notable decisions, unit tests
 
 ### Phase 7: Rounds 2-3 Peer Influence and Consensus
 **Goal**: Agents receive peer decisions from prior rounds and iteratively shift their positions, completing the full 3-round consensus cascade
@@ -169,7 +169,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. Resource Governance | 0/2 | Planning complete | - |
 | 4. Neo4j Graph State | 2/2 | Complete   | 2026-03-25 |
 | 5. Seed Injection and Agent Personas | 0/2 | Planning complete | - |
-| 6. Round 1 Standalone | 0/1 | Planning complete | - |
+| 6. Round 1 Standalone | 1/1 | Complete   | 2026-03-26 |
 | 7. Rounds 2-3 Peer Influence and Consensus | 0/TBD | Not started | - |
 | 8. Dynamic Influence Topology | 0/TBD | Not started | - |
 | 9. TUI Core Dashboard | 0/TBD | Not started | - |
