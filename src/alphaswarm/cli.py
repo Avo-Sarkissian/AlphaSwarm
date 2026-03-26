@@ -20,7 +20,7 @@ from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
-    from alphaswarm.simulation import Round1Result
+    from alphaswarm.simulation import Round1Result, ShiftMetrics, SimulationResult
     from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, ParsedSeedResult
 
 logger = structlog.get_logger(component="cli")
@@ -214,6 +214,180 @@ def _print_round1_report(
 
 
 # ---------------------------------------------------------------------------
+# Generalized round report (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+def _print_round_report(
+    round_num: int,
+    cycle_id: str,
+    agent_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
+    personas: list[AgentPersona],
+    brackets: list[BracketConfig],
+) -> None:
+    """Print bracket signal distribution and notable decisions for any round.
+
+    Matches the UI-SPEC visual contract:
+    ============================================================
+      Round {N} Complete
+    ============================================================
+      Cycle ID: {cycle_id}
+      Agents:   {success}/{total} ({errors} PARSE_ERROR)
+
+    Handles all-PARSE_ERROR edge case with warning (Codex review).
+    """
+    all_decisions = [d for _, d in agent_decisions]
+    total = len(all_decisions)
+    errors = sum(1 for d in all_decisions if d.signal == SignalType.PARSE_ERROR)
+    success = total - errors
+
+    print(f"\n{'='*60}")
+    print(f"  Round {round_num} Complete")
+    print(f"{'='*60}")
+    print(f"  Cycle ID: {cycle_id}")
+    if errors > 0:
+        print(f"  Agents:   {success}/{total} ({errors} PARSE_ERROR)")
+    else:
+        print(f"  Agents:   {total}/{total}")
+
+    # All-PARSE_ERROR edge case (Codex review / UI-SPEC empty state)
+    if success == 0:
+        print(f"  Warning: All {total} agents returned PARSE_ERROR. No valid decisions to report.")
+        print(f"{'='*60}\n")
+        return
+
+    # Bracket summary table (same format as existing)
+    decisions_list = list(agent_decisions)
+    bracket_data = _aggregate_brackets(decisions_list, personas, brackets)
+    print(f"\n  {'Bracket':<15} {'BUY':>5} {'SELL':>5} {'HOLD':>5} {'Avg Conf':>10}")
+    print(f"  {'-'*15} {'-'*5} {'-'*5} {'-'*5} {'-'*10}")
+    for name, data in bracket_data.items():
+        print(
+            f"  {name:<15} {data['BUY']:>5} {data['SELL']:>5} "
+            f"{data['HOLD']:>5} {data['avg_conf']:>10.2f}"
+        )
+
+    # Notable Decisions (top 5 by confidence, excluding PARSE_ERROR)
+    valid = [
+        (aid, d) for aid, d in agent_decisions
+        if d.signal != SignalType.PARSE_ERROR
+    ]
+    top5 = sorted(valid, key=lambda x: x[1].confidence, reverse=True)[:5]
+    print(f"\n  Notable Decisions (Top 5 by Confidence)")
+    print(f"  {'-'*55}")
+    for agent_id, decision in top5:
+        snippet = _sanitize_rationale(decision.rationale, max_len=80)
+        print(
+            f"  {agent_id:<20} {decision.signal.value.upper():<5} "
+            f"{decision.confidence:.2f}  {snippet}"
+        )
+    print(f"{'='*60}\n")
+
+
+# ---------------------------------------------------------------------------
+# Shift analysis (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+def _print_shift_analysis(
+    shift: ShiftMetrics,
+    prev_round: int,
+    curr_round: int,
+) -> None:
+    """Print signal transition counts and per-bracket confidence drift.
+
+    Per UI-SPEC: transition pairs in two columns, bracket delta with sign prefix.
+    When no agents shifted, prints a single-line message instead of empty table.
+
+    ShiftMetrics uses tuple fields for immutability. Convert to dict for lookup.
+    """
+    transitions = dict(shift.signal_transitions)
+
+    print(f"  Signal Transitions (Round {prev_round} -> Round {curr_round})")
+    print(f"  {'-'*40}")
+
+    if shift.total_flips == 0:
+        print("  No agents changed signal between rounds.")
+    else:
+        pairs = [
+            ("BUY->SELL", "SELL->BUY"),
+            ("BUY->HOLD", "SELL->HOLD"),
+            ("HOLD->BUY", "HOLD->SELL"),
+        ]
+        for left_key, right_key in pairs:
+            left_count = transitions.get(left_key, 0)
+            right_count = transitions.get(right_key, 0)
+            left_str = f"  {left_key}: {left_count:>2}"
+            right_str = f"{right_key}: {right_count:>2}"
+            print(f"{left_str}      {right_str}")
+        print(f"  Total agents shifted: {shift.agents_shifted}/100")
+
+    bracket_deltas = dict(shift.bracket_confidence_delta)
+    if bracket_deltas:
+        print(f"\n  Confidence Drift by Bracket")
+        print(f"  {'-'*40}")
+        for bracket, delta in bracket_deltas.items():
+            sign = "+" if delta >= 0 else ""
+            print(f"  {bracket:<15} {sign}{delta:.2f}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# Simulation summary (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+def _print_simulation_summary(
+    result: SimulationResult,
+    personas: list[AgentPersona],
+    brackets: list[BracketConfig],
+) -> None:
+    """Print the final simulation summary with convergence indicator.
+
+    Convergence logic (addresses Codex review equal-flips edge case):
+    - Yes: Round 2->3 flips < Round 1->2 flips ("flips decreased between rounds")
+    - No:  Round 2->3 flips > Round 1->2 flips ("flips increased between rounds")
+    - No:  Round 2->3 flips == Round 1->2 flips ("flips unchanged between rounds")
+    """
+    r2_flips = result.round2_shifts.total_flips
+    r3_flips = result.round3_shifts.total_flips
+    total_flips = r2_flips + r3_flips
+
+    if r3_flips < r2_flips:
+        convergence_label = "Yes"
+        convergence_detail = "flips decreased between rounds"
+    elif r3_flips > r2_flips:
+        convergence_label = "No"
+        convergence_detail = "flips increased between rounds"
+    else:
+        convergence_label = "No"
+        convergence_detail = "flips unchanged between rounds"
+
+    print(f"{'='*60}")
+    print("  Simulation Complete")
+    print(f"{'='*60}")
+    print(f"  Cycle ID:       {result.cycle_id}")
+    print(f"  Total Rounds:   3")
+    print(f"  Signal Flips:   {r2_flips} (R1->R2) + {r3_flips} (R2->R3) = {total_flips} total")
+    print(f"  Convergence:    {convergence_label} ({convergence_detail})")
+
+    # Final Consensus Distribution (Round 3 decisions)
+    print(f"\n  Final Consensus Distribution")
+    print(f"  {'-'*40}")
+    decisions_list = list(result.round3_decisions)
+    bracket_data = _aggregate_brackets(decisions_list, personas, brackets)
+    print(f"  {'Bracket':<15} {'BUY':>5} {'SELL':>5} {'HOLD':>5} {'Avg Conf':>10}")
+    print(f"  {'-'*15} {'-'*5} {'-'*5} {'-'*5} {'-'*10}")
+    for name, data in bracket_data.items():
+        print(
+            f"  {name:<15} {data['BUY']:>5} {data['SELL']:>5} "
+            f"{data['HOLD']:>5} {data['avg_conf']:>10.2f}"
+        )
+    print(f"{'='*60}")
+
+
+# ---------------------------------------------------------------------------
 # Async pipeline (owns schema, round1, report, cleanup)
 # ---------------------------------------------------------------------------
 
@@ -336,7 +510,7 @@ def main() -> None:
     inject_parser = subparsers.add_parser("inject", help="Inject a seed rumor")
     inject_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
 
-    run_parser = subparsers.add_parser("run", help="Run full Round 1 simulation")
+    run_parser = subparsers.add_parser("run", help="Run full 3-round simulation")
     run_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
 
     args = parser.parse_args()
