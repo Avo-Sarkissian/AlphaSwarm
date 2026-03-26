@@ -122,7 +122,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 07-01-PLAN.md -- Core simulation engine: dispatch_wave per-agent context, ShiftMetrics, SimulationResult, _format_peer_context, _dispatch_round, run_simulation, unit tests
-- [ ] 07-02-PLAN.md -- CLI reporting: generalized round report, shift analysis, simulation summary with convergence, wire _run_pipeline to run_simulation
+- [x] 07-02-PLAN.md -- CLI reporting: generalized round report, shift analysis, simulation summary with convergence, wire _run_pipeline to run_simulation
 
 ### Phase 8: Dynamic Influence Topology
 **Goal**: Influence edges emerge organically from agent behavior rather than static hierarchies, and bracket-level sentiment summaries are computed after each round
