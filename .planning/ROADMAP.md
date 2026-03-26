@@ -121,7 +121,7 @@ Plans:
   5. The simulation engine state machine transitions cleanly through Seeding, Round 1, Round 2, Round 3, and Complete states
 **Plans**: 2 plans
 Plans:
-- [ ] 07-01-PLAN.md -- Core simulation engine: dispatch_wave per-agent context, ShiftMetrics, SimulationResult, _format_peer_context, _dispatch_round, run_simulation, unit tests
+- [x] 07-01-PLAN.md -- Core simulation engine: dispatch_wave per-agent context, ShiftMetrics, SimulationResult, _format_peer_context, _dispatch_round, run_simulation, unit tests
 - [ ] 07-02-PLAN.md -- CLI reporting: generalized round report, shift analysis, simulation summary with convergence, wire _run_pipeline to run_simulation
 
 ### Phase 8: Dynamic Influence Topology
