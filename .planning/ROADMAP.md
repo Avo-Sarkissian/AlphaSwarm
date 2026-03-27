@@ -166,7 +166,7 @@ Plans:
   4. All TUI panels render without blocking -- the dashboard remains responsive even during peak inference load
 **Plans**: 2 plans
 Plans:
-- [ ] 10-01-PLAN.md -- StateStore expansion (RationaleEntry, TPS accumulation, bracket summaries), simulation/worker wiring for data push
+- [x] 10-01-PLAN.md -- StateStore expansion (RationaleEntry, TPS accumulation, bracket summaries), simulation/worker wiring for data push
 - [ ] 10-02-PLAN.md -- TUI widgets (RationaleSidebar, TelemetryFooter, BracketPanel), layout restructuring, _poll_snapshot extension, visual verification
 **UI hint**: yes
 
@@ -186,4 +186,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7. Rounds 2-3 Peer Influence and Consensus | 0/2 | Planning complete | - |
 | 8. Dynamic Influence Topology | 3/3 | Complete   | 2026-03-26 |
 | 9. TUI Core Dashboard | 0/2 | Planning complete | - |
-| 10. TUI Panels and Telemetry | 0/2 | Planning complete | - |
+| 10. TUI Panels and Telemetry | 1/2 | In Progress|  |

@@ -36,9 +36,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **TUI-01**: Textual app with 10x10 agent grid where each cell represents one agent, color-coded by current sentiment (green=bullish, red=bearish, gray=neutral/pending)
 - [x] **TUI-02**: Snapshot-based rendering — agents write to shared StateStore, TUI reads immutable snapshots on 200ms set_interval timer, only updating changed cells
-- [ ] **TUI-03**: Rationale sidebar streams the most impactful agent reasoning outputs (asyncio.Queue, drains up to 5 entries per tick)
-- [ ] **TUI-04**: Telemetry footer displays live RAM usage, tokens-per-second, API queue depth, and active ResourceGovernor slots
-- [ ] **TUI-05**: Bracket aggregation panel shows per-bracket sentiment summary updated after each round
+- [x] **TUI-03**: Rationale sidebar streams the most impactful agent reasoning outputs (asyncio.Queue, drains up to 5 entries per tick)
+- [x] **TUI-04**: Telemetry footer displays live RAM usage, tokens-per-second, API queue depth, and active ResourceGovernor slots
+- [x] **TUI-05**: Bracket aggregation panel shows per-bracket sentiment summary updated after each round
 - [x] **TUI-06**: Header displays global simulation status (Idle, Seeding, Round 1/2/3, Complete) and elapsed time
 
 ### Configuration
@@ -109,9 +109,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TUI-01 | Phase 9: TUI Core Dashboard | Complete |
 | TUI-02 | Phase 9: TUI Core Dashboard | Complete |
 | TUI-06 | Phase 9: TUI Core Dashboard | Complete |
-| TUI-03 | Phase 10: TUI Panels and Telemetry | Pending |
-| TUI-04 | Phase 10: TUI Panels and Telemetry | Pending |
-| TUI-05 | Phase 10: TUI Panels and Telemetry | Pending |
+| TUI-03 | Phase 10: TUI Panels and Telemetry | Complete |
+| TUI-04 | Phase 10: TUI Panels and Telemetry | Complete |
+| TUI-05 | Phase 10: TUI Panels and Telemetry | Complete |
 
 **Coverage:**
 - v1 requirements: 27 total
