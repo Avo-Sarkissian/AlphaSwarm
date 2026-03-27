@@ -85,6 +85,9 @@ class AgentCell(Widget):
         self.agent_id = agent_id
         self._current_color = "#333333"
 
+    def render(self) -> str:
+        return "   "
+
     def update_color(self, state: AgentState | None) -> None:
         """Update background color based on agent state. Only refreshes on change."""
         new_color = compute_cell_color(state)
@@ -320,7 +323,7 @@ class BracketPanel(Widget):
         text = Text()
         text.append("Brackets\n", style="bold #4FC3F7")
         if not self._summaries:
-            text.append("[#78909C]Awaiting data...[/]\n")
+            text.append("Awaiting data...\n", style="#78909C")
             return text
         for s in self._summaries:
             dominant, pct = self._dominant_signal(s)
