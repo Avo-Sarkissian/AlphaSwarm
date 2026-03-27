@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Completed 09-02-PLAN.md
-last_updated: "2026-03-27T04:26:48.568Z"
+status: Planning complete
+stopped_at: Phase 10 planning complete
+last_updated: "2026-03-27T18:00:00.000Z"
 progress:
   total_phases: 10
   completed_phases: 9
-  total_plans: 19
+  total_plans: 21
   completed_plans: 19
 ---
 
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology
-**Current focus:** Phase 09 — tui-core-dashboard
+**Current focus:** Phase 10 — tui-panels-and-telemetry
 
 ## Current Position
 
 Phase: 10
-Plan: Not started
+Plan: Planning complete (2 plans)
 
 ## Performance Metrics
 
@@ -128,6 +128,11 @@ Recent decisions affecting current work:
 - [Phase 09]: Optional state_store parameter (None default) for full backward compatibility across pipeline functions
 - [Phase 09]: compute_cell_color uses HSL with lightness = 20 + (confidence * 30) for BUY/SELL brightness scaling
 - [Phase 09]: Simulation runs as Textual Worker with exit_on_error=False; _handle_tui creates AppState synchronously BEFORE App.run()
+- [Phase 10]: RichLog has no prepend; custom Widget with deque.appendleft() satisfies D-04 newest-at-top requirement for rationale sidebar
+- [Phase 10]: TPS extracted in worker.py (not OllamaClient) — keeps OllamaClient boundary clean; worker has access to both ChatResponse and state_store
+- [Phase 10]: BracketSummary moved from simulation.py to state.py — avoids circular import since StateSnapshot needs BracketSummary
+- [Phase 10]: Queue drain as side effect in snapshot() — single-consumer pattern, drains up to 5 entries per 200ms tick; documented side effect
+- [Phase 10]: Layout restructuring replaces Phase 9 CSS entirely — main-row (grid + sidebar) + bottom-row (telemetry + bracket) composition
 
 ### Pending Todos
 
@@ -141,6 +146,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T04:15:12.198Z
-Stopped at: Completed 09-02-PLAN.md
-Resume file: None
+Last session: 2026-03-27T18:00:00.000Z
+Stopped at: Phase 10 planning complete
+Resume file: .planning/phases/10-tui-panels-and-telemetry/10-01-PLAN.md
