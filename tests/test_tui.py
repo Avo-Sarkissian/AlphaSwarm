@@ -11,11 +11,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from alphaswarm.state import AgentState, StateSnapshot, StateStore
+from alphaswarm.state import AgentState, BracketSummary, GovernorMetrics, RationaleEntry, StateSnapshot, StateStore
 from alphaswarm.tui import (
     AgentCell,
     AlphaSwarmApp,
+    BracketPanel,
     HeaderBar,
+    RationaleSidebar,
+    TelemetryFooter,
     _format_elapsed,
     _phase_display_label,
     compute_cell_color,
@@ -97,6 +100,208 @@ def test_phase_labels() -> None:
     assert _phase_display_label(SimulationPhase.ROUND_2) == "Round 2"
     assert _phase_display_label(SimulationPhase.ROUND_3) == "Round 3"
     assert _phase_display_label(SimulationPhase.COMPLETE) == "Complete"
+
+
+# ---------- RationaleSidebar unit tests ----------
+
+
+def test_rationale_sidebar_render() -> None:
+    """RationaleSidebar.render() returns Rich Text with newest entry first."""
+    from rich.text import Text
+
+    sidebar = RationaleSidebar()
+
+    entry1 = RationaleEntry(agent_id="A_01", signal=SignalType.BUY, rationale="momentum builds here", round_num=1)
+    entry2 = RationaleEntry(agent_id="A_02", signal=SignalType.SELL, rationale="bearish divergence seen", round_num=1)
+    entry3 = RationaleEntry(agent_id="A_03", signal=SignalType.HOLD, rationale="waiting for clarity", round_num=1)
+
+    sidebar.add_entry(entry1)
+    sidebar.add_entry(entry2)
+    sidebar.add_entry(entry3)
+
+    result = sidebar.render()
+
+    assert isinstance(result, Text)
+    plain = result.plain
+    # Title present
+    assert "Rationale" in plain
+    # All agent IDs present
+    assert "A_01" in plain
+    assert "A_02" in plain
+    assert "A_03" in plain
+    # Signal tags present (uppercase per spec)
+    assert "[BUY]" in plain
+    assert "[SELL]" in plain
+    assert "[HOLD]" in plain
+    # Rationale text present
+    assert "momentum builds here" in plain
+    # Newest entry (A_03) appears before oldest entry (A_01) in plain text
+    assert plain.index("A_03") < plain.index("A_01")
+
+
+def test_rationale_sidebar_deque_max() -> None:
+    """RationaleSidebar with max_entries=5 drops oldest when 6th entry is added."""
+    sidebar = RationaleSidebar(max_entries=5)
+
+    for i in range(6):
+        entry = RationaleEntry(
+            agent_id=f"A_{i:02d}",
+            signal=SignalType.BUY,
+            rationale=f"rationale {i}",
+            round_num=1,
+        )
+        sidebar.add_entry(entry)
+
+    # Only 5 entries in deque
+    assert len(sidebar._entries) == 5
+    # The oldest (A_00) should be dropped; A_01 through A_05 remain
+    agent_ids = [e.agent_id for e in sidebar._entries]
+    assert "A_00" not in agent_ids
+    assert "A_05" in agent_ids
+
+
+def test_rationale_sidebar_signal_colors() -> None:
+    """RationaleSidebar signal tags appear in rendered text."""
+    sidebar = RationaleSidebar()
+
+    sidebar.add_entry(RationaleEntry(agent_id="A_10", signal=SignalType.BUY, rationale="buy signal", round_num=1))
+    sidebar.add_entry(RationaleEntry(agent_id="A_11", signal=SignalType.SELL, rationale="sell signal", round_num=1))
+    sidebar.add_entry(RationaleEntry(agent_id="A_12", signal=SignalType.HOLD, rationale="hold signal", round_num=1))
+
+    result = sidebar.render()
+    plain = result.plain
+    assert "[BUY]" in plain
+    assert "[SELL]" in plain
+    assert "[HOLD]" in plain
+
+
+# ---------- TelemetryFooter unit tests ----------
+
+
+def _make_snapshot_with_governor(memory_percent: float, tps: float = 4.3) -> StateSnapshot:
+    """Helper: create StateSnapshot with GovernorMetrics."""
+    gm = GovernorMetrics(
+        current_slots=8,
+        active_count=6,
+        pressure_level="normal",
+        memory_percent=memory_percent,
+        governor_state="active",
+        timestamp=0.0,
+    )
+    return StateSnapshot(governor_metrics=gm, tps=tps)
+
+
+def _get_footer_text(footer: TelemetryFooter) -> str:
+    """Extract the rendered markup string from a Static widget."""
+    renderable = footer.renderable
+    if hasattr(renderable, "__rich_console__"):
+        # It's a Rich renderable -- convert to str via markup
+        return str(renderable)
+    return str(renderable)
+
+
+def test_telemetry_footer_with_metrics() -> None:
+    """TelemetryFooter.update_from_snapshot() produces formatted string."""
+    footer = TelemetryFooter()
+    snapshot = _make_snapshot_with_governor(memory_percent=72.0, tps=4.3)
+    footer.update_from_snapshot(snapshot)
+
+    text = str(footer.renderable)
+    assert "RAM:" in text
+    assert "TPS:" in text
+    assert "4.3" in text
+    assert "Queue:" in text
+    assert "Slots:" in text
+
+
+def test_telemetry_footer_idle() -> None:
+    """TelemetryFooter shows dashes when governor_metrics is None."""
+    footer = TelemetryFooter()
+    snapshot = StateSnapshot()  # governor_metrics=None by default
+    footer.update_from_snapshot(snapshot)
+
+    text = str(footer.renderable)
+    assert "--" in text
+
+
+def test_telemetry_footer_ram_warning_80() -> None:
+    """TelemetryFooter shows #FFA726 (warning) when memory_percent >= 80.0."""
+    footer = TelemetryFooter()
+    snapshot = _make_snapshot_with_governor(memory_percent=85.0)
+    footer.update_from_snapshot(snapshot)
+
+    text = str(footer.renderable)
+    assert "#FFA726" in text
+
+
+def test_telemetry_footer_ram_critical_90() -> None:
+    """TelemetryFooter shows #EF5350 (error) when memory_percent >= 90.0."""
+    footer = TelemetryFooter()
+    snapshot = _make_snapshot_with_governor(memory_percent=92.0)
+    footer.update_from_snapshot(snapshot)
+
+    text = str(footer.renderable)
+    assert "#EF5350" in text
+
+
+# ---------- BracketPanel unit tests ----------
+
+
+def _make_bracket_summary(
+    bracket: str = "quants",
+    display_name: str = "Quants",
+    buy: int = 7,
+    sell: int = 2,
+    hold: int = 1,
+) -> BracketSummary:
+    total = buy + sell + hold
+    return BracketSummary(
+        bracket=bracket,
+        display_name=display_name,
+        buy_count=buy,
+        sell_count=sell,
+        hold_count=hold,
+        total=total,
+        avg_confidence=0.7,
+        avg_sentiment=0.5,
+    )
+
+
+def test_bracket_panel_dominant_signal() -> None:
+    """BracketPanel._dominant_signal() returns correct (signal, pct) tuple."""
+    summary = _make_bracket_summary(buy=7, sell=2, hold=1)
+    dominant, pct = BracketPanel._dominant_signal(summary)
+    assert dominant == "buy"
+    assert pct == pytest.approx(70.0)
+
+
+def test_bracket_panel_render_10_rows() -> None:
+    """BracketPanel.render() contains all 10 bracket display names."""
+    bracket_names = [
+        "Quants", "Degens", "Sovereigns", "Macro", "Suits",
+        "Insiders", "Agents", "Doom-Posters", "Policy Wonks", "Whales",
+    ]
+    summaries = tuple(
+        _make_bracket_summary(bracket=name.lower().replace(" ", "_"), display_name=name)
+        for name in bracket_names
+    )
+    panel = BracketPanel()
+    panel.update_summaries(summaries)
+
+    result = panel.render()
+    plain = result.plain
+    for name in bracket_names:
+        assert name in plain
+
+
+def test_bracket_panel_bar_chars() -> None:
+    """BracketPanel render uses Unicode full block and light shade characters."""
+    panel = BracketPanel()
+    panel.update_summaries((_make_bracket_summary(buy=7, sell=2, hold=1),))
+    result = panel.render()
+    plain = result.plain
+    assert "\u2588" in plain   # Full block (filled)
+    assert "\u2591" in plain   # Light shade (empty)
 
 
 # ---------- Headless App Tests ----------
@@ -223,3 +428,65 @@ async def test_snapshot_diff_updates(monkeypatch: pytest.MonkeyPatch) -> None:
         # Second cell should still be pending
         second_cell = app._cells[personas[1].id]
         assert second_cell._current_color == "#333333"
+
+
+async def test_full_dashboard_renders(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dashboard renders with all 3 new panels present (TUI-03/04/05)."""
+    for key in list(os.environ):
+        if key.startswith("ALPHASWARM_"):
+            monkeypatch.delenv(key, raising=False)
+
+    app = AlphaSwarmApp(
+        rumor="test rumor",
+        app_state=_make_mock_app_state(),
+        personas=_make_personas(),
+        brackets=_make_brackets(),
+        settings=_make_settings(),
+    )
+    async with app.run_test(size=(120, 40)) as pilot:
+        # All three new panel types are present
+        app.query_one(RationaleSidebar)
+        app.query_one(TelemetryFooter)
+        app.query_one(BracketPanel)
+        # Agent grid still has 100 cells
+        cells = app.query("AgentCell")
+        assert len(cells) == 100
+
+
+async def test_poll_snapshot_updates_panels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_poll_snapshot() drives rationale sidebar and bracket panel."""
+    for key in list(os.environ):
+        if key.startswith("ALPHASWARM_"):
+            monkeypatch.delenv(key, raising=False)
+
+    mock_state = _make_mock_app_state()
+    store = mock_state.state_store
+
+    # Push a rationale entry and bracket summaries into StateStore
+    entry = RationaleEntry(agent_id="A_42", signal=SignalType.BUY, rationale="strong momentum", round_num=1)
+    await store.push_rationale(entry)
+
+    summaries = (_make_bracket_summary(buy=8, sell=1, hold=1),)
+    await store.set_bracket_summaries(summaries)
+
+    app = AlphaSwarmApp(
+        rumor="test",
+        app_state=mock_state,
+        personas=_make_personas(),
+        brackets=_make_brackets(),
+        settings=_make_settings(),
+    )
+    async with app.run_test(size=(120, 40)) as pilot:
+        # Poll snapshot to push data into TUI widgets
+        app._poll_snapshot()
+
+        sidebar = app.query_one(RationaleSidebar)
+        bracket_panel = app.query_one(BracketPanel)
+
+        # Rationale sidebar received the entry
+        assert len(sidebar._entries) == 1
+        assert sidebar._entries[0].agent_id == "A_42"
+
+        # Bracket panel received the summaries
+        assert len(bracket_panel._summaries) == 1
+        assert bracket_panel._summaries[0].bracket == "quants"
