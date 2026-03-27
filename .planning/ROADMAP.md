@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 7: Rounds 2-3 Peer Influence and Consensus** - Peer context injection and final consensus lock complete the 3-round cascade
 - [x] **Phase 8: Dynamic Influence Topology** - INFLUENCED_BY edges form from citation patterns, bracket aggregation, and Miro batcher stub (completed 2026-03-26)
 - [ ] **Phase 9: TUI Core Dashboard** - Agent grid, snapshot-based rendering, and simulation status display
-- [ ] **Phase 10: TUI Panels and Telemetry** - Rationale sidebar, hardware telemetry footer, and bracket aggregation panel
+- [x] **Phase 10: TUI Panels and Telemetry** - Rationale sidebar, hardware telemetry footer, and bracket aggregation panel (completed 2026-03-27)
 
 ## Phase Details
 
@@ -167,7 +167,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 10-01-PLAN.md -- StateStore expansion (RationaleEntry, TPS accumulation, bracket summaries), simulation/worker wiring for data push
-- [ ] 10-02-PLAN.md -- TUI widgets (RationaleSidebar, TelemetryFooter, BracketPanel), layout restructuring, _poll_snapshot extension, visual verification
+- [x] 10-02-PLAN.md -- TUI widgets (RationaleSidebar, TelemetryFooter, BracketPanel), layout restructuring, _poll_snapshot extension, visual verification
 **UI hint**: yes
 
 ## Progress
@@ -186,4 +186,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7. Rounds 2-3 Peer Influence and Consensus | 0/2 | Planning complete | - |
 | 8. Dynamic Influence Topology | 3/3 | Complete   | 2026-03-26 |
 | 9. TUI Core Dashboard | 0/2 | Planning complete | - |
-| 10. TUI Panels and Telemetry | 1/2 | In Progress|  |
+| 10. TUI Panels and Telemetry | 2/2 | Complete   | 2026-03-27 |
