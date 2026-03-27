@@ -16,9 +16,10 @@ import structlog
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container
+from textual.screen import Screen
 from textual.theme import Theme
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.widgets import Input, Static
 
 from alphaswarm.state import AgentState, BracketSummary, RationaleEntry
 from alphaswarm.types import SignalType, SimulationPhase
@@ -345,6 +346,79 @@ class BracketPanel(Widget):
 
 
 # ---------------------------------------------------------------------------
+# RumorInputScreen — shown on launch when no rumor is provided
+# ---------------------------------------------------------------------------
+
+
+class RumorInputScreen(Screen[str]):
+    """Full-screen rumor input. Dismisses with the rumor string on Enter."""
+
+    BINDINGS = [("escape", "quit", "Quit")]
+
+    DEFAULT_CSS = """
+    RumorInputScreen {
+        align: center middle;
+        background: #121212;
+    }
+
+    #input-container {
+        width: 72;
+        height: auto;
+        border: solid #4FC3F7;
+        padding: 2 3;
+        background: #1E1E1E;
+    }
+
+    #as-title {
+        width: 100%;
+        text-align: center;
+        color: #4FC3F7;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #as-subtitle {
+        width: 100%;
+        text-align: center;
+        color: #78909C;
+        margin-bottom: 2;
+    }
+
+    #rumor-input {
+        width: 100%;
+    }
+
+    #as-hint {
+        width: 100%;
+        text-align: center;
+        color: #78909C;
+        margin-top: 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Container(id="input-container"):
+            yield Static("AlphaSwarm", id="as-title")
+            yield Static("Enter a market rumor to simulate", id="as-subtitle")
+            yield Input(
+                placeholder="e.g. Apple is acquiring OpenAI for $300B...",
+                id="rumor-input",
+            )
+            yield Static("Enter to start  ·  Esc to quit", id="as-hint")
+
+    def on_mount(self) -> None:
+        self.query_one("#rumor-input", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        rumor = event.value.strip()
+        if rumor:
+            self.dismiss(rumor)
+
+    def action_quit(self) -> None:
+        self.app.exit()
+
+
+# ---------------------------------------------------------------------------
 # Theme definition (UI-SPEC)
 # ---------------------------------------------------------------------------
 
@@ -431,14 +505,23 @@ class AlphaSwarmApp(App):
         self._prev_bracket_summaries: tuple[BracketSummary, ...] = ()
 
     def on_mount(self) -> None:
-        """Register theme, start simulation Worker, start snapshot timer."""
+        """Register theme, then either show rumor input or start simulation."""
         self.register_theme(ALPHASWARM_THEME)
         self.theme = "alphaswarm"
 
-        # Start simulation as background Worker (D-01)
-        self.run_worker(self._run_simulation(), exclusive=True, exit_on_error=False)
+        if not self.rumor:
+            self.push_screen(RumorInputScreen(), self._on_rumor_received)
+        else:
+            self._start_simulation()
 
-        # Start 200ms snapshot polling timer (TUI-02)
+    def _on_rumor_received(self, rumor: str) -> None:
+        """Called when RumorInputScreen dismisses with the user's rumor."""
+        self.rumor = rumor
+        self._start_simulation()
+
+    def _start_simulation(self) -> None:
+        """Start the simulation Worker and the snapshot polling timer."""
+        self.run_worker(self._run_simulation(), exclusive=True, exit_on_error=False)
         self.set_interval(1 / 5, self._poll_snapshot)
 
     def compose(self) -> ComposeResult:

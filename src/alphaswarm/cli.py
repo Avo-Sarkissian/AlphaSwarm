@@ -645,7 +645,10 @@ def main() -> None:
     run_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
 
     tui_parser = subparsers.add_parser("tui", help="Launch TUI dashboard with live simulation")
-    tui_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
+    tui_parser.add_argument(
+        "rumor", type=str, nargs="?", default="",
+        help="Natural-language seed rumor text (optional — can be entered in the TUI)",
+    )
 
     args = parser.parse_args()
 
