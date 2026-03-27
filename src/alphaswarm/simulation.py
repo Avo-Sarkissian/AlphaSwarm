@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager, PeerDecision
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
+    from alphaswarm.state import StateStore
     from alphaswarm.types import AgentDecision, AgentPersona, ParsedSeedResult
 
 logger = structlog.get_logger(component="simulation")
@@ -361,6 +362,8 @@ async def run_round1(
     graph_manager: GraphStateManager,
     governor: ResourceGovernor,
     personas: list[AgentPersona],
+    *,
+    state_store: StateStore | None = None,
 ) -> Round1Result:
     """Execute the Round 1 simulation pipeline.
 
@@ -389,10 +392,19 @@ async def run_round1(
     """
     logger.info("round1_start", agent_count=len(personas))
 
+    # StateStore: mark SEEDING phase
+    if state_store is not None:
+        await state_store.set_phase(SimulationPhase.SEEDING)
+
     # 1. Inject seed (orchestrator model lifecycle is self-contained)
     cycle_id, parsed_result = await inject_seed(
         rumor, settings, ollama_client, model_manager, graph_manager,
     )
+
+    # StateStore: mark ROUND_1 phase after seed injection
+    if state_store is not None:
+        await state_store.set_phase(SimulationPhase.ROUND_1)
+        await state_store.set_round(1)
 
     # 2. Defensive model cleanup (review concern #4)
     await model_manager.ensure_clean_state()
@@ -428,6 +440,11 @@ async def run_round1(
                 (wc["agent_id"], dec)
                 for wc, dec in zip(worker_configs, decisions)
             ]
+
+            # Per-agent StateStore writes (D-02: immediate per-agent, not batch)
+            if state_store is not None:
+                for agent_id, dec in agent_decisions:
+                    await state_store.update_agent_state(agent_id, dec.signal, dec.confidence)
 
             # 8. Persist to Neo4j
             await graph_manager.write_decisions(
@@ -476,6 +493,7 @@ async def _dispatch_round(
     *,
     influence_weights: dict[str, float] | None = None,
     prev_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...] | None = None,
+    state_store: StateStore | None = None,
 ) -> list[tuple[str, AgentDecision]]:
     """Dispatch a round with per-agent peer context (D-09, D-10).
 
@@ -584,6 +602,11 @@ async def _dispatch_round(
         for wc, dec in zip(worker_configs, decisions)
     ]
 
+    # Per-agent StateStore writes (D-02)
+    if state_store is not None:
+        for agent_id, dec in agent_decisions:
+            await state_store.update_agent_state(agent_id, dec.signal, dec.confidence)
+
     return agent_decisions
 
 
@@ -603,6 +626,7 @@ async def run_simulation(
     brackets: list[BracketConfig],
     *,
     on_round_complete: OnRoundComplete = None,
+    state_store: StateStore | None = None,
 ) -> SimulationResult:
     """Execute the full 3-round simulation pipeline (D-04).
 
@@ -626,6 +650,8 @@ async def run_simulation(
     """
     phase = SimulationPhase.IDLE
     logger.info("simulation_start", phase=phase.value)
+    if state_store is not None:
+        await state_store.set_phase(SimulationPhase.IDLE)
 
     # Phase: SEEDING + ROUND_1 (delegated to run_round1)
     phase = SimulationPhase.SEEDING
@@ -633,6 +659,7 @@ async def run_simulation(
     round1_result = await run_round1(
         rumor, settings, ollama_client, model_manager,
         graph_manager, governor, personas,
+        state_store=state_store,
     )
     cycle_id = round1_result.cycle_id
 
@@ -673,6 +700,9 @@ async def run_simulation(
             # Round 2 (D-09: peer context from Round 1)
             phase = SimulationPhase.ROUND_2
             logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
+            if state_store is not None:
+                await state_store.set_phase(SimulationPhase.ROUND_2)
+                await state_store.set_round(2)
 
             # Pass influence_weights to Round 2 dispatch with zero-citation fallback:
             # When round1_weights is empty dict (no citations in Round 1, expected cold-start per D-05
@@ -689,6 +719,7 @@ async def run_simulation(
                 settings=settings.governor,
                 influence_weights=round1_weights if round1_weights else None,
                 prev_decisions=round1_result.agent_decisions,
+                state_store=state_store,
             )
             await graph_manager.write_decisions(round2_decisions, cycle_id, round_num=2)
 
@@ -721,6 +752,9 @@ async def run_simulation(
             # Round 3 (D-09: peer context from Round 2)
             phase = SimulationPhase.ROUND_3
             logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
+            if state_store is not None:
+                await state_store.set_phase(SimulationPhase.ROUND_3)
+                await state_store.set_round(3)
 
             round3_decisions = await _dispatch_round(
                 personas=personas,
@@ -734,6 +768,7 @@ async def run_simulation(
                 settings=settings.governor,
                 influence_weights=round2_weights if round2_weights else None,
                 prev_decisions=round2_decisions,
+                state_store=state_store,
             )
             await graph_manager.write_decisions(round3_decisions, cycle_id, round_num=3)
 
@@ -766,6 +801,8 @@ async def run_simulation(
         await governor.stop_monitoring()
 
     phase = SimulationPhase.COMPLETE
+    if state_store is not None:
+        await state_store.set_phase(SimulationPhase.COMPLETE)
     logger.info(
         "simulation_complete",
         phase=phase.value,

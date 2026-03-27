@@ -507,6 +507,7 @@ async def _run_pipeline(
             personas=personas,
             brackets=brackets,
             on_round_complete=handler,
+            state_store=app.state_store,
         )
 
         # Final summary (only this prints AFTER run_simulation returns)
