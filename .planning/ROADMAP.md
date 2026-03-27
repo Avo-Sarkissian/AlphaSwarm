@@ -164,7 +164,10 @@ Plans:
   2. A telemetry footer displays live RAM usage, tokens-per-second, API queue depth, and active ResourceGovernor slot count
   3. A bracket aggregation panel shows per-bracket sentiment summary (e.g., "Whales: 80% HOLD") updated after each round completes
   4. All TUI panels render without blocking -- the dashboard remains responsive even during peak inference load
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 10-01-PLAN.md -- StateStore expansion (RationaleEntry, TPS accumulation, bracket summaries), simulation/worker wiring for data push
+- [ ] 10-02-PLAN.md -- TUI widgets (RationaleSidebar, TelemetryFooter, BracketPanel), layout restructuring, _poll_snapshot extension, visual verification
 **UI hint**: yes
 
 ## Progress
@@ -183,4 +186,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7. Rounds 2-3 Peer Influence and Consensus | 0/2 | Planning complete | - |
 | 8. Dynamic Influence Topology | 3/3 | Complete   | 2026-03-26 |
 | 9. TUI Core Dashboard | 0/2 | Planning complete | - |
-| 10. TUI Panels and Telemetry | 0/TBD | Not started | - |
+| 10. TUI Panels and Telemetry | 0/2 | Planning complete | - |
