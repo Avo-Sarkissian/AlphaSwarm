@@ -1,10 +1,11 @@
 ---
 phase: 9
 slug: tui-core-dashboard
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-03-26
+reviewed_at: 2026-03-26T00:00:00Z
 ---
 
 # Phase 9 -- UI Design Contract
