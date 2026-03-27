@@ -149,7 +149,10 @@ Plans:
   2. The grid updates via snapshot-based rendering on a 200ms timer, reading immutable state snapshots and only redrawing changed cells
   3. A header bar displays the current simulation status (Idle, Seeding, Round 1, Round 2, Round 3, Complete) and elapsed wall-clock time
   4. The TUI launches, connects to a running simulation, and renders live updates without blocking the simulation engine's event loop
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 09-01-PLAN.md -- StateStore expansion (AgentState, per-agent writes, phase/round transitions, elapsed time), simulation.py wiring (state_store parameter), textual dependency
+- [ ] 09-02-PLAN.md -- Textual TUI module (AlphaSwarmApp, AgentCell grid, HeaderBar, snapshot-based rendering, simulation Worker), tui CLI subcommand
 **UI hint**: yes
 
 ### Phase 10: TUI Panels and Telemetry
@@ -179,5 +182,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 6. Round 1 Standalone | 1/1 | Complete   | 2026-03-26 |
 | 7. Rounds 2-3 Peer Influence and Consensus | 0/2 | Planning complete | - |
 | 8. Dynamic Influence Topology | 3/3 | Complete   | 2026-03-26 |
-| 9. TUI Core Dashboard | 0/TBD | Not started | - |
+| 9. TUI Core Dashboard | 0/2 | Planning complete | - |
 | 10. TUI Panels and Telemetry | 0/TBD | Not started | - |
