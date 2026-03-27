@@ -15,8 +15,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **SIM-04**: Round 1 (Initial Reaction) — all 100 agents process the seed rumor independently with no peer context
 - [x] **SIM-05**: Round 2 (Peer Influence) — agents receive top-5 influential peer decisions from Round 1 and re-evaluate their position
 - [x] **SIM-06**: Round 3 (Final Consensus Lock) — agents receive updated peer decisions from Round 2 and produce final locked positions
-- [ ] **SIM-07**: Dynamic influence topology — INFLUENCED_BY edges in Neo4j form and shift weight based on citation/agreement patterns within the current cycle, not predefined hierarchies
-- [ ] **SIM-08**: Bracket-level sentiment aggregation computed after each round (e.g., "Quants are 80% bearish")
+- [x] **SIM-07**: Dynamic influence topology — INFLUENCED_BY edges in Neo4j form and shift weight based on citation/agreement patterns within the current cycle, not predefined hierarchies
+- [x] **SIM-08**: Bracket-level sentiment aggregation computed after each round (e.g., "Quants are 80% bearish")
 
 ### Infrastructure
 
@@ -35,7 +35,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### TUI Dashboard
 
 - [ ] **TUI-01**: Textual app with 10x10 agent grid where each cell represents one agent, color-coded by current sentiment (green=bullish, red=bearish, gray=neutral/pending)
-- [ ] **TUI-02**: Snapshot-based rendering — agents write to shared StateStore, TUI reads immutable snapshots on 200ms set_interval timer, only updating changed cells
+- [x] **TUI-02**: Snapshot-based rendering — agents write to shared StateStore, TUI reads immutable snapshots on 200ms set_interval timer, only updating changed cells
 - [ ] **TUI-03**: Rationale sidebar streams the most impactful agent reasoning outputs (asyncio.Queue, drains up to 5 entries per tick)
 - [ ] **TUI-04**: Telemetry footer displays live RAM usage, tokens-per-second, API queue depth, and active ResourceGovernor slots
 - [ ] **TUI-05**: Bracket aggregation panel shows per-bracket sentiment summary updated after each round
@@ -103,11 +103,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SIM-04 | Phase 6: Round 1 Standalone | Complete |
 | SIM-05 | Phase 7: Rounds 2-3 Peer Influence and Consensus | Complete |
 | SIM-06 | Phase 7: Rounds 2-3 Peer Influence and Consensus | Complete |
-| SIM-07 | Phase 8: Dynamic Influence Topology | Pending |
-| SIM-08 | Phase 8: Dynamic Influence Topology | Pending |
+| SIM-07 | Phase 8: Dynamic Influence Topology | Complete |
+| SIM-08 | Phase 8: Dynamic Influence Topology | Complete |
 | INFRA-10 | Phase 8: Dynamic Influence Topology | Complete |
 | TUI-01 | Phase 9: TUI Core Dashboard | Pending |
-| TUI-02 | Phase 9: TUI Core Dashboard | Pending |
+| TUI-02 | Phase 9: TUI Core Dashboard | Complete |
 | TUI-06 | Phase 9: TUI Core Dashboard | Pending |
 | TUI-03 | Phase 10: TUI Panels and Telemetry | Pending |
 | TUI-04 | Phase 10: TUI Panels and Telemetry | Pending |

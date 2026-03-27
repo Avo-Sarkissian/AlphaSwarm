@@ -151,7 +151,7 @@ Plans:
   4. The TUI launches, connects to a running simulation, and renders live updates without blocking the simulation engine's event loop
 **Plans**: 2 plans
 Plans:
-- [ ] 09-01-PLAN.md -- StateStore expansion (AgentState, per-agent writes, phase/round transitions, elapsed time), simulation.py wiring (state_store parameter), textual dependency
+- [x] 09-01-PLAN.md -- StateStore expansion (AgentState, per-agent writes, phase/round transitions, elapsed time), simulation.py wiring (state_store parameter), textual dependency
 - [ ] 09-02-PLAN.md -- Textual TUI module (AlphaSwarmApp, AgentCell grid, HeaderBar, snapshot-based rendering, simulation Worker), tui CLI subcommand
 **UI hint**: yes
 
