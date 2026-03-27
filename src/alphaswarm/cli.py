@@ -4,6 +4,7 @@ Usage:
     python -m alphaswarm                  # Print startup banner (legacy)
     python -m alphaswarm inject "rumor"   # Inject a seed rumor
     python -m alphaswarm run "rumor"      # Run full 3-round simulation
+    python -m alphaswarm tui "rumor"      # Launch TUI dashboard with live simulation
 """
 
 from __future__ import annotations
@@ -546,6 +547,41 @@ def _handle_run(rumor: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# TUI handler (creates AppState BEFORE Textual event loop)
+# ---------------------------------------------------------------------------
+
+
+def _handle_tui(rumor: str) -> None:
+    """Synchronous handler: create AppState BEFORE Textual event loop.
+
+    Per D-01: TUI-owned event loop. AppState (including Neo4j driver
+    verification via run_until_complete) must be created synchronously
+    BEFORE App.run() starts the Textual event loop.
+
+    Mirrors _handle_run pattern for startup safety.
+    """
+    from alphaswarm.app import create_app_state
+    from alphaswarm.tui import AlphaSwarmApp
+
+    settings = AppSettings()
+    brackets = load_bracket_configs()
+    personas = generate_personas(brackets)
+
+    # MUST happen BEFORE App.run() -- create_app_state uses run_until_complete
+    # for Neo4j connectivity check, which crashes inside a running event loop
+    app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
+
+    tui_app = AlphaSwarmApp(
+        rumor=rumor,
+        app_state=app_state,
+        personas=personas,
+        brackets=brackets,
+        settings=settings,
+    )
+    tui_app.run()
+
+
+# ---------------------------------------------------------------------------
 # Inject handler (existing, unchanged)
 # ---------------------------------------------------------------------------
 
@@ -608,6 +644,9 @@ def main() -> None:
     run_parser = subparsers.add_parser("run", help="Run full 3-round simulation")
     run_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
 
+    tui_parser = subparsers.add_parser("tui", help="Launch TUI dashboard with live simulation")
+    tui_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
+
     args = parser.parse_args()
 
     if args.command == "inject":
@@ -628,6 +667,16 @@ def main() -> None:
             sys.exit(1)
         except Exception as e:
             logger.error("run_failed", error=str(e))
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+    elif args.command == "tui":
+        try:
+            _handle_tui(args.rumor)
+        except KeyboardInterrupt:
+            print("\nAborted.", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            logger.error("tui_failed", error=str(e))
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
     else:
