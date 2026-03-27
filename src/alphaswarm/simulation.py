@@ -19,6 +19,7 @@ import structlog
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.config import persona_to_worker_config
 from alphaswarm.seed import inject_seed
+from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
 from alphaswarm.utils import sanitize_rationale
 
@@ -59,20 +60,6 @@ class ShiftMetrics:
     total_flips: int
     bracket_confidence_delta: tuple[tuple[str, float], ...]  # (("quants", +0.05), ...)
     agents_shifted: int
-
-
-@dataclasses.dataclass(frozen=True)
-class BracketSummary:
-    """Per-bracket signal distribution and confidence for a single round (D-07, D-08)."""
-
-    bracket: str          # BracketType.value
-    display_name: str
-    buy_count: int
-    sell_count: int
-    hold_count: int
-    total: int
-    avg_confidence: float
-    avg_sentiment: float
 
 
 def compute_bracket_summaries(
