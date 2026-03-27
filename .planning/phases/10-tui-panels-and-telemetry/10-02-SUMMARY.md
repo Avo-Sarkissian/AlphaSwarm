@@ -2,7 +2,7 @@
 phase: 10-tui-panels-and-telemetry
 plan: 02
 subsystem: tui
-status: partial
+status: complete
 tags: [textual, tui, rationale-sidebar, telemetry-footer, bracket-panel, tdd, layout]
 
 # Dependency graph
@@ -55,14 +55,14 @@ completed: 2026-03-27
 
 ## Status
 
-**Partial** — Task 1 (implementation + tests) complete and committed. Task 2 (visual verification checkpoint) awaiting human review.
+**Complete** — Task 1 (implementation + tests) committed. Task 2 (visual verification checkpoint) resolved: human approved on 2026-03-27.
 
 ## Performance
 
 - **Duration:** ~8 min
 - **Started:** 2026-03-27T18:31:33Z
-- **Completed (Task 1):** 2026-03-27
-- **Tasks:** 1 of 2 complete (Task 2 is human checkpoint)
+- **Completed:** 2026-03-27
+- **Tasks:** 2 of 2 complete
 - **Files modified:** 2
 
 ## Accomplishments
@@ -76,6 +76,8 @@ completed: 2026-03-27
 
 1. **Task 1 RED: Failing tests for RationaleSidebar, TelemetryFooter, BracketPanel** - `f42f054` (test)
 2. **Task 1 GREEN: Implement widgets and restructure layout** - `b03eabe` (feat)
+
+3. **Task 2 checkpoint: Visual verification approved** — human confirmed (2026-03-27)
 
 _Note: Task 1 used TDD with separate RED/GREEN commits._
 
@@ -105,10 +107,18 @@ _Note: Task 1 used TDD with separate RED/GREEN commits._
 
 None — all three panels are fully wired to `StateSnapshot` fields provided by Plan 01.
 
-## Pending
+## Checkpoint Resolution
 
-**Task 2:** Visual verification checkpoint — human must launch the TUI with a live simulation and confirm layout, colors, and non-blocking behavior per the checkpoint specification.
+**Task 2 — Visual verification:** Human launched the TUI with a live simulation and confirmed correct rendering of all three panels (RationaleSidebar, TelemetryFooter, BracketPanel), layout composition, colors, and non-blocking behavior. Approved 2026-03-27.
+
+## Self-Check: PASSED
+
+- FOUND: src/alphaswarm/tui.py
+- FOUND: tests/test_tui.py
+- FOUND: .planning/phases/10-tui-panels-and-telemetry/10-02-SUMMARY.md
+- FOUND: f42f054 (RED commit)
+- FOUND: b03eabe (GREEN commit)
 
 ---
 *Phase: 10-tui-panels-and-telemetry*
-*Completed (Task 1): 2026-03-27*
+*Completed: 2026-03-27*
