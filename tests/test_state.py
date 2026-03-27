@@ -245,3 +245,58 @@ def test_bracket_summary_frozen() -> None:
     )
     with pytest.raises(AttributeError):
         bs.bracket = "quants"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Task 2 Tests: Integration data flow tests
+# ---------------------------------------------------------------------------
+
+
+async def test_tps_from_worker_path() -> None:
+    """StateStore.update_tps with realistic values produces correct tps in snapshot."""
+    store = StateStore()
+    # Simulate 500 tokens in 2 seconds (2e9 nanoseconds)
+    store.update_tps(eval_count=500, eval_duration_ns=2_000_000_000)
+    snap = store.snapshot()
+    assert snap.tps == pytest.approx(250.0)
+
+
+async def test_push_top_rationales_sorts_by_influence() -> None:
+    """_push_top_rationales selects highest-influence agents first."""
+    from alphaswarm.simulation import _push_top_rationales
+    from alphaswarm.types import AgentDecision, SignalType
+
+    store = StateStore()
+    decisions: list[tuple[str, AgentDecision]] = [
+        ("low_agent", AgentDecision(signal=SignalType.SELL, confidence=0.9, rationale="sell rationale")),
+        ("high_agent", AgentDecision(signal=SignalType.BUY, confidence=0.5, rationale="buy rationale")),
+        ("mid_agent", AgentDecision(signal=SignalType.HOLD, confidence=0.7, rationale="hold rationale")),
+    ]
+    influence_weights = {"high_agent": 0.9, "mid_agent": 0.5, "low_agent": 0.1}
+
+    await _push_top_rationales(decisions, 1, store, influence_weights=influence_weights, limit=2)
+    snap = store.snapshot()
+
+    # Should have pushed at most 2 entries (limit=2)
+    assert len(snap.rationale_entries) == 2
+    # First entry should be high_agent (highest influence)
+    assert snap.rationale_entries[0].agent_id == "high_agent"
+
+
+async def test_push_top_rationales_skips_parse_errors() -> None:
+    """_push_top_rationales skips PARSE_ERROR agents."""
+    from alphaswarm.simulation import _push_top_rationales
+    from alphaswarm.types import AgentDecision, SignalType
+
+    store = StateStore()
+    decisions: list[tuple[str, AgentDecision]] = [
+        ("error_agent", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="")),
+        ("good_agent", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="solid analysis")),
+    ]
+
+    await _push_top_rationales(decisions, 2, store)
+    snap = store.snapshot()
+
+    # Only good_agent should be in the queue
+    assert len(snap.rationale_entries) == 1
+    assert snap.rationale_entries[0].agent_id == "good_agent"

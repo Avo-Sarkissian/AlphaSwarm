@@ -244,6 +244,55 @@ OnRoundComplete = Callable[[RoundCompleteEvent], Awaitable[None]] | None
 
 
 # ---------------------------------------------------------------------------
+# TUI data helpers (Phase 10: TUI-03, TUI-04, TUI-05)
+# ---------------------------------------------------------------------------
+
+
+async def _push_top_rationales(
+    agent_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
+    round_num: int,
+    state_store: StateStore,
+    influence_weights: dict[str, float] | None = None,
+    limit: int = 10,
+) -> None:
+    """Push top-influence agent rationales to StateStore queue (D-02, TUI-03).
+
+    Selects agents by influence weight (if available) or by confidence (fallback).
+    Skips PARSE_ERROR agents. Truncates rationale to 50 characters per D-03.
+
+    Args:
+        agent_decisions: All agent decisions for this round.
+        round_num: Round number (1, 2, or 3).
+        state_store: StateStore to push RationaleEntry objects to.
+        influence_weights: Optional {agent_id: weight} from compute_influence_edges().
+            When provided and non-empty, sorts by influence weight descending.
+            Fallback: sorts by confidence descending.
+        limit: Maximum entries to push (default 10).
+    """
+    from alphaswarm.state import RationaleEntry
+
+    decisions_list = list(agent_decisions)
+    if influence_weights:
+        decisions_list.sort(
+            key=lambda x: influence_weights.get(x[0], 0.0), reverse=True,
+        )
+    else:
+        decisions_list.sort(key=lambda x: x[1].confidence, reverse=True)
+
+    for agent_id, decision in decisions_list[:limit]:
+        if decision.signal == SignalType.PARSE_ERROR:
+            continue
+        truncated = sanitize_rationale(decision.rationale, max_len=50)
+        entry = RationaleEntry(
+            agent_id=agent_id,
+            signal=decision.signal,
+            rationale=truncated,
+            round_num=round_num,
+        )
+        await state_store.push_rationale(entry)
+
+
+# ---------------------------------------------------------------------------
 # Pure functions
 # ---------------------------------------------------------------------------
 
@@ -414,6 +463,7 @@ async def run_round1(
                 user_message=rumor,
                 settings=settings.governor,
                 peer_context=None,
+                state_store=state_store,
             )
 
             # 6. Positional alignment assertion (review concern #3)
@@ -576,6 +626,7 @@ async def _dispatch_round(
         user_message=rumor,
         settings=settings,
         peer_contexts=peer_contexts,
+        state_store=state_store,
     )
 
     if len(decisions) != len(worker_configs):
@@ -664,6 +715,13 @@ async def run_simulation(
         round1_result.agent_decisions, personas, brackets,
     )
 
+    # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
+    if state_store is not None:
+        await state_store.set_bracket_summaries(round1_summaries)
+        await _push_top_rationales(
+            round1_result.agent_decisions, 1, state_store, influence_weights=round1_weights,
+        )
+
     # Fire callback for Round 1 (progressive output)
     round1_decisions_tuple = tuple(round1_result.agent_decisions)
     if on_round_complete is not None:
@@ -718,6 +776,13 @@ async def run_simulation(
             # Compute Round 2 bracket summaries (D-08)
             round2_summaries = compute_bracket_summaries(round2_decisions, personas, brackets)
 
+            # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
+            if state_store is not None:
+                await state_store.set_bracket_summaries(round2_summaries)
+                await _push_top_rationales(
+                    round2_decisions, 2, state_store, influence_weights=round2_weights,
+                )
+
             # Compute Round 2 shifts in-memory (D-13)
             round2_shifts = _compute_shifts(
                 round1_result.agent_decisions, round2_decisions, personas,
@@ -761,6 +826,11 @@ async def run_simulation(
 
             # Compute Round 3 bracket summaries (D-08)
             round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
+
+            # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
+            if state_store is not None:
+                await state_store.set_bracket_summaries(round3_summaries)
+                await _push_top_rationales(round3_decisions, 3, state_store)
 
             # Compute Round 3 shifts in-memory (D-13)
             round3_shifts = _compute_shifts(

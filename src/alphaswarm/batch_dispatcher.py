@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from alphaswarm.config import GovernorSettings
     from alphaswarm.governor import ResourceGovernor
     from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.state import StateStore
     from alphaswarm.worker import WorkerPersonaConfig
 
 log = structlog.get_logger(component="batch_dispatcher")
@@ -44,6 +45,7 @@ async def _safe_agent_inference(
     peer_context: str | None,
     jitter_min: float,
     jitter_max: float,
+    state_store: StateStore | None = None,
 ) -> AgentDecision:
     """Run a single agent inference with jitter and exception safety.
 
@@ -62,7 +64,7 @@ async def _safe_agent_inference(
     """
     try:
         await asyncio.sleep(random.uniform(jitter_min, jitter_max))
-        async with agent_worker(persona, governor, client, model) as worker:
+        async with agent_worker(persona, governor, client, model, state_store=state_store) as worker:
             return await worker.infer(user_message=user_message, peer_context=peer_context)
     except (asyncio.CancelledError, KeyboardInterrupt, GovernorCrisisError):
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
@@ -86,6 +88,7 @@ async def dispatch_wave(
     *,
     peer_context: str | None = None,
     peer_contexts: list[str | None] | None = None,
+    state_store: StateStore | None = None,
 ) -> list[AgentDecision]:
     """Dispatch a wave of agent inferences using asyncio.TaskGroup.
 
@@ -108,6 +111,8 @@ async def dispatch_wave(
         peer_contexts: Optional per-agent peer context list. When provided, must have
             same length as personas. Overrides peer_context scalar. Raises ValueError
             on length mismatch.
+        state_store: Optional StateStore for TPS metric collection (Phase 10, TUI-04).
+            Threaded through to AgentWorker.infer() via agent_worker context manager.
 
     Returns:
         List of AgentDecision, one per persona. Failed agents have
@@ -139,6 +144,7 @@ async def dispatch_wave(
                     peer_contexts[i] if peer_contexts is not None else peer_context,
                     settings.jitter_min_seconds,
                     settings.jitter_max_seconds,
+                    state_store=state_store,
                 )
             )
             for i, p in enumerate(personas)

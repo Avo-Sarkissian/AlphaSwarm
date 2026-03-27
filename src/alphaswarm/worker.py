@@ -22,6 +22,7 @@ from alphaswarm.types import AgentDecision
 if TYPE_CHECKING:
     from alphaswarm.governor import ResourceGovernor
     from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.state import StateStore
 
 logger = structlog.get_logger(component="worker")
 
@@ -58,10 +59,12 @@ class AgentWorker:
         persona: WorkerPersonaConfig,
         ollama_client: OllamaClient,
         model: str,
+        state_store: StateStore | None = None,
     ) -> None:
         self._persona = persona
         self._client = ollama_client
         self._model = model
+        self._state_store = state_store
 
     async def infer(
         self,
@@ -95,6 +98,13 @@ class AgentWorker:
             think=False,  # Disable thinking for structured output reliability
         )
 
+        # Extract TPS data from response metadata (Phase 10: TUI-04, D-05)
+        if self._state_store is not None:
+            eval_count = response.eval_count
+            eval_duration = response.eval_duration
+            if eval_count is not None and eval_duration is not None and eval_duration > 0:
+                self._state_store.update_tps(eval_count, eval_duration)
+
         raw_content = response.message.content or ""
         decision = parse_agent_decision(raw_content)
 
@@ -115,6 +125,7 @@ async def agent_worker(
     governor: ResourceGovernor,
     ollama_client: OllamaClient,
     model: str | None = None,
+    state_store: StateStore | None = None,
 ) -> AsyncGenerator[AgentWorker, None]:
     """Async context manager for agent inference with semaphore guarding.
 
@@ -128,6 +139,7 @@ async def agent_worker(
         ollama_client: OllamaClient wrapper for Ollama calls.
         model: Ollama model tag. If None, defaults to "alphaswarm-worker".
                In production, use settings.ollama.worker_model_alias.
+        state_store: Optional StateStore for TPS metric collection (Phase 10, TUI-04).
 
     Yields:
         AgentWorker -- call worker.infer() to run inference.
@@ -136,7 +148,7 @@ async def agent_worker(
     await governor.acquire()
     _success = True
     try:
-        yield AgentWorker(persona, ollama_client, effective_model)
+        yield AgentWorker(persona, ollama_client, effective_model, state_store=state_store)
     except Exception:
         _success = False
         raise
