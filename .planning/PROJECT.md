@@ -30,9 +30,13 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - [x] Textual TUI: 10x10 agent grid with HSL color-coded cells and HeaderBar — Validated in Phase 09: tui-core-dashboard
 - [x] Snapshot-based TUI rendering (200ms tick, diff-only cell updates, non-blocking Textual Worker) — Validated in Phase 09: tui-core-dashboard
 
+### Validated
+
+- [x] TUI panels: RationaleSidebar (agent reasoning stream), TelemetryFooter (RAM/TPS/Queue/Slots), BracketPanel (10-bracket signal bars) — Validated in Phase 10: tui-panels-and-telemetry
+- [x] StateStore data layer extensions: rationale queue, TPS accumulation from Ollama eval metadata, bracket summary storage — Validated in Phase 10: tui-panels-and-telemetry
+
 ### Active
 - [ ] Async batched Ollama inference with adaptive ResourceGovernor (psutil-driven semaphore)
-- [ ] TUI panels: rationale sidebar, hardware telemetry footer
 - [ ] Miro API v2 batcher (stubbed for v1, full implementation deferred)
 - [ ] Exponential backoff for Ollama retries and Miro 429 handling
 
@@ -91,4 +95,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-27
+*Last updated: 2026-03-27 — Phase 10 complete*
