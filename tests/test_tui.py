@@ -192,12 +192,11 @@ def _make_snapshot_with_governor(memory_percent: float, tps: float = 4.3) -> Sta
 
 
 def _get_footer_text(footer: TelemetryFooter) -> str:
-    """Extract the rendered markup string from a Static widget."""
-    renderable = footer.renderable
-    if hasattr(renderable, "__rich_console__"):
-        # It's a Rich renderable -- convert to str via markup
-        return str(renderable)
-    return str(renderable)
+    """Extract the markup string from a TelemetryFooter (Static) widget.
+
+    Textual Static stores markup in the name-mangled '_Static__content' attribute.
+    """
+    return str(footer._Static__content)  # type: ignore[attr-defined]
 
 
 def test_telemetry_footer_with_metrics() -> None:
@@ -206,7 +205,7 @@ def test_telemetry_footer_with_metrics() -> None:
     snapshot = _make_snapshot_with_governor(memory_percent=72.0, tps=4.3)
     footer.update_from_snapshot(snapshot)
 
-    text = str(footer.renderable)
+    text = _get_footer_text(footer)
     assert "RAM:" in text
     assert "TPS:" in text
     assert "4.3" in text
@@ -220,7 +219,7 @@ def test_telemetry_footer_idle() -> None:
     snapshot = StateSnapshot()  # governor_metrics=None by default
     footer.update_from_snapshot(snapshot)
 
-    text = str(footer.renderable)
+    text = _get_footer_text(footer)
     assert "--" in text
 
 
@@ -230,7 +229,7 @@ def test_telemetry_footer_ram_warning_80() -> None:
     snapshot = _make_snapshot_with_governor(memory_percent=85.0)
     footer.update_from_snapshot(snapshot)
 
-    text = str(footer.renderable)
+    text = _get_footer_text(footer)
     assert "#FFA726" in text
 
 
@@ -240,7 +239,7 @@ def test_telemetry_footer_ram_critical_90() -> None:
     snapshot = _make_snapshot_with_governor(memory_percent=92.0)
     footer.update_from_snapshot(snapshot)
 
-    text = str(footer.renderable)
+    text = _get_footer_text(footer)
     assert "#EF5350" in text
 
 

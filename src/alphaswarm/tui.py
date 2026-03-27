@@ -9,16 +9,18 @@ Per D-02: Grid cells update per-agent as decisions resolve via StateStore snapsh
 
 from __future__ import annotations
 
+from collections import deque
 from typing import TYPE_CHECKING
 
 import structlog
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.theme import Theme
 from textual.widget import Widget
 from textual.widgets import Static
 
-from alphaswarm.state import AgentState
+from alphaswarm.state import AgentState, BracketSummary, RationaleEntry
 from alphaswarm.types import SignalType, SimulationPhase
 
 if TYPE_CHECKING:
@@ -166,6 +168,183 @@ class HeaderBar(Static):
 
 
 # ---------------------------------------------------------------------------
+# RationaleSidebar widget (D-03, D-04, TUI-03)
+# ---------------------------------------------------------------------------
+
+
+class RationaleSidebar(Widget):
+    """Scrolling rationale log showing high-influence agent reasoning, newest first.
+
+    Entries prepend at the top via deque.appendleft(). Renders Rich Text via render().
+    Per D-04: newest entries always at the top; older entries scroll down.
+    """
+
+    DEFAULT_CSS = """
+    RationaleSidebar {
+        width: 40;
+        height: 100%;
+        background: $panel;
+        border-left: solid $secondary;
+        padding: 0 1;
+    }
+    """
+
+    # Signal tag color mapping per UI-SPEC
+    _SIGNAL_COLORS: dict[str, str] = {
+        "buy": "#66BB6A",    # $success
+        "sell": "#EF5350",   # $error
+        "hold": "#78909C",   # $secondary
+    }
+
+    def __init__(self, max_entries: int = 50) -> None:
+        super().__init__()
+        self._entries: deque[RationaleEntry] = deque(maxlen=max_entries)
+
+    def add_entry(self, entry: RationaleEntry) -> None:
+        """Add entry to front (newest first per D-04)."""
+        self._entries.appendleft(entry)
+        self.refresh()
+
+    def render(self) -> Text:
+        text = Text()
+        text.append("Rationale\n", style="bold #4FC3F7")
+        for entry in self._entries:
+            text.append("> ", style="#78909C")
+            text.append(f"{entry.agent_id} ", style="#E0E0E0")
+            color = self._SIGNAL_COLORS.get(entry.signal.value, "#78909C")
+            text.append(f"[{entry.signal.value.upper()}] ", style=f"bold {color}")
+            text.append(f"{entry.rationale}\n", style="#E0E0E0")
+        return text
+
+
+# ---------------------------------------------------------------------------
+# TelemetryFooter widget (D-06, TUI-04)
+# ---------------------------------------------------------------------------
+
+
+class TelemetryFooter(Static):
+    """Single-line telemetry footer displaying RAM, TPS, Queue depth, and Slots.
+
+    Updates from StateSnapshot on each 200ms poll tick.
+    Per D-06: 4 inline metrics with color-coded RAM threshold warnings.
+    """
+
+    DEFAULT_CSS = """
+    TelemetryFooter {
+        width: 1fr;
+        height: 1;
+        background: $panel;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__("")
+        self._render_idle()
+
+    def _render_idle(self) -> None:
+        self.update(
+            "  [#78909C]RAM:[/] [#78909C]--[/]  "
+            "[#78909C]|[/]  [#78909C]TPS:[/] [#78909C]--[/]  "
+            "[#78909C]|[/]  [#78909C]Queue:[/] [#78909C]--[/]  "
+            "[#78909C]|[/]  [#78909C]Slots:[/] [#78909C]--[/]"
+        )
+
+    def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
+        """Update telemetry display from a StateSnapshot."""
+        gm = snapshot.governor_metrics
+        if gm is None:
+            self._render_idle()
+            return
+
+        ram_pct = gm.memory_percent
+        if ram_pct >= 90.0:
+            ram_color = "#EF5350"
+        elif ram_pct >= 80.0:
+            ram_color = "#FFA726"
+        else:
+            ram_color = "#E0E0E0"
+
+        self.update(
+            f"  [#78909C]RAM:[/] [{ram_color}]{ram_pct:.0f}%[/]  "
+            f"[#78909C]|[/]  [#78909C]TPS:[/] [#E0E0E0]{snapshot.tps:.1f}[/]  "
+            f"[#78909C]|[/]  [#78909C]Queue:[/] [#E0E0E0]{gm.active_count}[/]  "
+            f"[#78909C]|[/]  [#78909C]Slots:[/] [#E0E0E0]{gm.current_slots}[/]"
+        )
+
+
+# ---------------------------------------------------------------------------
+# BracketPanel widget (D-07, D-08, TUI-05)
+# ---------------------------------------------------------------------------
+
+
+class BracketPanel(Widget):
+    """Bracket sentiment aggregation panel showing 10 progress bars.
+
+    Each row renders one bracket's dominant signal as a Unicode block bar.
+    Updates only when bracket_summaries change between snapshots (per TUI-05).
+    Per D-07/D-08: bar fill = dominant signal percentage, color = dominant signal.
+    """
+
+    DEFAULT_CSS = """
+    BracketPanel {
+        width: 40;
+        height: 100%;
+        background: $panel;
+        border-left: solid $secondary;
+        padding: 1 1 0 1;
+    }
+    """
+
+    FILL_CHAR = "\u2588"   # Full block
+    EMPTY_CHAR = "\u2591"  # Light shade
+    BAR_WIDTH = 20
+
+    _SIGNAL_COLORS: dict[str, str] = {
+        "buy": "#66BB6A",    # $success
+        "sell": "#EF5350",   # $error
+        "hold": "#78909C",   # $secondary
+    }
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._summaries: tuple[BracketSummary, ...] = ()
+
+    def update_summaries(self, summaries: tuple[BracketSummary, ...]) -> None:
+        """Store bracket summaries and trigger a re-render."""
+        self._summaries = summaries
+        self.refresh()
+
+    def render(self) -> Text:
+        text = Text()
+        text.append("Brackets\n", style="bold #4FC3F7")
+        if not self._summaries:
+            text.append("[#78909C]Awaiting data...[/]\n")
+            return text
+        for s in self._summaries:
+            dominant, pct = self._dominant_signal(s)
+            color = self._SIGNAL_COLORS.get(dominant, "#78909C")
+            filled = round(pct / 100 * self.BAR_WIDTH)
+            empty = self.BAR_WIDTH - filled
+
+            text.append(f"{s.display_name:<14}  ", style="#78909C")
+            text.append("[")
+            text.append(self.FILL_CHAR * filled, style=color)
+            text.append(self.EMPTY_CHAR * empty, style="#333333")
+            text.append(f"] {pct:.0f}%\n", style="#E0E0E0")
+        return text
+
+    @staticmethod
+    def _dominant_signal(s: BracketSummary) -> tuple[str, float]:
+        """Return (dominant_signal, percentage). Tie-break: BUY > SELL > HOLD."""
+        counts = [("buy", s.buy_count), ("sell", s.sell_count), ("hold", s.hold_count)]
+        dominant = max(counts, key=lambda x: x[1])
+        total = s.total
+        pct = (dominant[1] / total * 100) if total > 0 else 0.0
+        return dominant[0], pct
+
+
+# ---------------------------------------------------------------------------
 # Theme definition (UI-SPEC)
 # ---------------------------------------------------------------------------
 
@@ -199,10 +378,16 @@ class AlphaSwarmApp(App):
     """
 
     CSS = """
-    #grid-container {
-        align: center middle;
+    #main-row {
         width: 100%;
+        height: 1fr;
+        layout: horizontal;
+    }
+
+    #grid-container {
+        width: 1fr;
         height: 100%;
+        align: center middle;
     }
 
     #agent-grid {
@@ -211,6 +396,13 @@ class AlphaSwarmApp(App):
         grid-gutter: 0;
         width: 30;
         height: 10;
+    }
+
+    #bottom-row {
+        dock: bottom;
+        width: 100%;
+        height: 12;
+        layout: horizontal;
     }
     """
 
@@ -233,6 +425,10 @@ class AlphaSwarmApp(App):
         self._cells: dict[str, AgentCell] = {}
         self._prev_snapshot: StateSnapshot | None = None
         self._header_bar: HeaderBar | None = None
+        self._rationale_sidebar: RationaleSidebar | None = None
+        self._telemetry_footer: TelemetryFooter | None = None
+        self._bracket_panel: BracketPanel | None = None
+        self._prev_bracket_summaries: tuple[BracketSummary, ...] = ()
 
     def on_mount(self) -> None:
         """Register theme, start simulation Worker, start snapshot timer."""
@@ -246,16 +442,27 @@ class AlphaSwarmApp(App):
         self.set_interval(1 / 5, self._poll_snapshot)
 
     def compose(self) -> ComposeResult:
-        """Compose the dashboard layout: header + centered grid."""
+        """Compose the dashboard layout: header + main-row + bottom-row (D-01)."""
         self._header_bar = HeaderBar()
         yield self._header_bar
-        with Container(id="grid-container"):
-            with Container(id="agent-grid"):
-                # Sequential row-by-row mapping (D-03)
-                for i, persona in enumerate(self.personas):
-                    cell = AgentCell(agent_id=persona.id)
-                    self._cells[persona.id] = cell
-                    yield cell
+
+        self._rationale_sidebar = RationaleSidebar()
+        self._telemetry_footer = TelemetryFooter()
+        self._bracket_panel = BracketPanel()
+
+        with Container(id="main-row"):
+            with Container(id="grid-container"):
+                with Container(id="agent-grid"):
+                    # Sequential row-by-row mapping (D-03)
+                    for i, persona in enumerate(self.personas):
+                        cell = AgentCell(agent_id=persona.id)
+                        self._cells[persona.id] = cell
+                        yield cell
+            yield self._rationale_sidebar
+
+        with Container(id="bottom-row"):
+            yield self._telemetry_footer
+            yield self._bracket_panel
 
     async def _run_simulation(self) -> None:
         """Worker coroutine: runs simulation, writes to StateStore via state_store parameter."""
@@ -318,5 +525,20 @@ class AlphaSwarmApp(App):
                     or int(snapshot.elapsed_seconds) != int(self._prev_snapshot.elapsed_seconds)
                 ):
                     self._header_bar.update_from_snapshot(snapshot)
+
+        # NEW: Drain rationale entries from snapshot and add to sidebar (TUI-03)
+        if self._rationale_sidebar is not None:
+            for entry in snapshot.rationale_entries:
+                self._rationale_sidebar.add_entry(entry)
+
+        # NEW: Update telemetry footer from snapshot (TUI-04)
+        if self._telemetry_footer is not None:
+            self._telemetry_footer.update_from_snapshot(snapshot)
+
+        # NEW: Update bracket panel only when summaries change (TUI-05)
+        if self._bracket_panel is not None:
+            if snapshot.bracket_summaries != self._prev_bracket_summaries:
+                self._bracket_panel.update_summaries(snapshot.bracket_summaries)
+                self._prev_bracket_summaries = snapshot.bracket_summaries
 
         self._prev_snapshot = snapshot
