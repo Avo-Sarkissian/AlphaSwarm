@@ -25,10 +25,14 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 
 - [x] Dynamic influence topology — INFLUENCED_BY edges form from citation/agreement patterns — Validated in Phase 08: dynamic-influence-topology
 
+### Validated
+
+- [x] Textual TUI: 10x10 agent grid with HSL color-coded cells and HeaderBar — Validated in Phase 09: tui-core-dashboard
+- [x] Snapshot-based TUI rendering (200ms tick, diff-only cell updates, non-blocking Textual Worker) — Validated in Phase 09: tui-core-dashboard
+
 ### Active
 - [ ] Async batched Ollama inference with adaptive ResourceGovernor (psutil-driven semaphore)
-- [ ] Textual TUI: 10x10 agent grid, rationale sidebar, hardware telemetry footer
-- [ ] Snapshot-based TUI rendering (200ms tick, shared state, no UI thread blocking)
+- [ ] TUI panels: rationale sidebar, hardware telemetry footer
 - [ ] Miro API v2 batcher (stubbed for v1, full implementation deferred)
 - [ ] Exponential backoff for Ollama retries and Miro 429 handling
 
@@ -62,7 +66,7 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Dynamic asyncio.Semaphore over hardcoded parallelism | VRAM ceiling unknown during peak context loads; psutil monitoring at 90% threshold | ✓ Rewritten in Phase 03 — TokenPool (Queue-based) with 5-state governor machine, dual-signal monitoring (psutil + sysctl) |
-| Snapshot-based TUI rendering (200ms tick) | 100 async agents would freeze Textual if pushing per-agent updates; decouples agent throughput from render throughput | — Pending |
+| Snapshot-based TUI rendering (200ms tick) | 100 async agents would freeze Textual if pushing per-agent updates; decouples agent throughput from render throughput | ✓ Implemented in Phase 09 — StateStore.snapshot() + set_interval, diff-based AgentCell updates only |
 | Cycle-scoped Neo4j edges (cycle_id on relationships) | Enables fast current-cycle reads without full history scans; composite index keeps queries under 5ms | ✓ Implemented in Phase 04 — composite index on (cycle_id, round), UNWIND batch writes, session-per-method isolation |
 | Dynamic influence topology | Edges form from citation/agreement patterns, not static bracket hierarchies; more realistic consensus formation | — Pending |
 | 3-round iterative cascade | Round 1: Initial reaction, Round 2: Peer influence, Round 3: Final consensus lock. Balances depth with compute cost | ✓ Round 1 implemented in Phase 06 — Rounds 2-3 pending |
@@ -87,4 +91,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26
+*Last updated: 2026-03-27
