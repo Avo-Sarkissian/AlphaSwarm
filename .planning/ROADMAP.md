@@ -152,7 +152,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 09-01-PLAN.md -- StateStore expansion (AgentState, per-agent writes, phase/round transitions, elapsed time), simulation.py wiring (state_store parameter), textual dependency
-- [ ] 09-02-PLAN.md -- Textual TUI module (AlphaSwarmApp, AgentCell grid, HeaderBar, snapshot-based rendering, simulation Worker), tui CLI subcommand
+- [x] 09-02-PLAN.md -- Textual TUI module (AlphaSwarmApp, AgentCell grid, HeaderBar, snapshot-based rendering, simulation Worker), tui CLI subcommand
 **UI hint**: yes
 
 ### Phase 10: TUI Panels and Telemetry
