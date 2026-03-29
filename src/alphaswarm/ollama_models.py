@@ -123,8 +123,13 @@ class OllamaModelManager:
             True if model appears in ps() response.
         """
         ps_response = await self._client.raw_client.ps()
-        loaded_names = [m.model for m in ps_response.models]
-        return model in loaded_names
+        # Normalize comparison: Ollama ps() returns "model:latest" but callers
+        # pass bare "model". Strip ":latest" suffix for matching.
+        def _bare(name: str) -> str:
+            return name.removesuffix(":latest")
+
+        loaded_bare = [_bare(m.model) for m in ps_response.models]
+        return _bare(model) in loaded_bare
 
     async def ensure_clean_state(self) -> None:
         """Unload all AlphaSwarm-configured models currently loaded.
@@ -134,6 +139,7 @@ class OllamaModelManager:
         Addresses review concern: ensure_clean_state was too broad.
         """
         ps_response = await self._client.raw_client.ps()
+        bare_aliases = {a.removesuffix(":latest") for a in self._configured_aliases}
         for m in ps_response.models:
-            if m.model in self._configured_aliases:
+            if m.model.removesuffix(":latest") in bare_aliases:
                 await self.unload_model(m.model)

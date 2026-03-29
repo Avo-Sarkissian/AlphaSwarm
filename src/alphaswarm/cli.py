@@ -684,3 +684,16 @@ def main() -> None:
             sys.exit(1)
     else:
         _print_banner()
+
+
+def main_tui() -> None:
+    """Direct entry point for 'start' console script — launches TUI."""
+    try:
+        _handle_tui("")
+    except KeyboardInterrupt:
+        print("\nAborted.", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        logger.error("tui_failed", error=str(e))
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)

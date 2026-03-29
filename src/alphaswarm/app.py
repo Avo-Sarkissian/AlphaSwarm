@@ -89,32 +89,18 @@ def create_app_state(
 
     graph_manager: GraphStateManager | None = None
     if with_neo4j:
-        import asyncio
-
         from neo4j import AsyncGraphDatabase
-        from neo4j.exceptions import Neo4jError as _Neo4jError
 
+        # Create driver synchronously — it does not need a running event loop.
+        # Connectivity verification is deferred to the first async call
+        # (e.g. ensure_schema) inside the actual event loop, avoiding the
+        # "Future attached to a different loop" error that occurs when
+        # run_until_complete creates futures on a throwaway loop.
         driver = AsyncGraphDatabase.driver(
             settings.neo4j.uri,
             auth=(settings.neo4j.username, settings.neo4j.password),
             max_connection_pool_size=50,
         )
-        # Fast-fail: verify Neo4j is reachable before proceeding.
-        # Addresses review concern: immediate feedback if container is not running.
-        try:
-            asyncio.get_event_loop().run_until_complete(driver.verify_connectivity())
-        except _Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Cannot connect to Neo4j at {settings.neo4j.uri}. "
-                "Ensure the container is running: docker compose up -d",
-                original_error=exc,
-            ) from exc
-        except OSError as exc:
-            raise Neo4jConnectionError(
-                f"Cannot connect to Neo4j at {settings.neo4j.uri}. "
-                "Ensure the container is running: docker compose up -d",
-                original_error=exc,
-            ) from exc
 
         graph_manager = GraphStateManager(
             driver=driver,
