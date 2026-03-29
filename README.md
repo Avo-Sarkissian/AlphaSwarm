@@ -149,3 +149,29 @@ ALPHASWARM_GOVERNOR__BASELINE_PARALLEL=8     # concurrent agent slots
 ALPHASWARM_GOVERNOR__MEMORY_THROTTLE_PERCENT=80.0  # start throttling at 80%
 ALPHASWARM_GOVERNOR__MEMORY_PAUSE_PERCENT=90.0     # pause queue at 90%
 ```
+
+---
+
+## Roadmap
+
+Planned features — all local-first, no cloud dependencies.
+
+### Agent Interviews
+
+After the simulation completes, select any agent from the grid and have a live conversation. Ask a Whale why they went contrarian, or grill a Degen about their FOMO. The worker model stays loaded post-simulation to power interactive Q&A with full persona and decision context.
+
+### Live Graph Memory
+
+Currently Neo4j captures a snapshot of each round's decisions. This upgrade feeds agent actions back into the graph in real time — rationale text, signal flips, influence events — creating a living memory that evolves throughout the cascade. Enables richer peer context in later rounds and post-simulation graph exploration.
+
+### Post-Simulation Report Generation
+
+A ReACT-style agent that queries the Neo4j graph after the simulation ends and produces a structured market analysis report: consensus summary, key dissenting voices, bracket-level trends, signal flip analysis, and confidence distributions. Output as markdown, viewable in the TUI or exported.
+
+### Richer Agent Interactions
+
+Evolve beyond simple BUY/SELL/HOLD signals. Agents publish short rationale posts that other agents read and react to — creating organic social influence dynamics rather than pure vote-counting. Inspired by [OASIS](https://github.com/camel-ai/oasis) social simulation research.
+
+### Dynamic Persona Generation
+
+Instead of static archetypes, extract entities and context from the seed rumor itself to generate situation-specific personas. A rumor about oil markets would spin up energy traders, OPEC analysts, and pipeline engineers alongside the standard brackets.
