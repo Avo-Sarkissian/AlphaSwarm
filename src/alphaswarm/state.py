@@ -103,6 +103,7 @@ class StateStore:
         self._phase: SimulationPhase = SimulationPhase.IDLE
         self._round_num: int = 0
         self._start_time: float | None = None
+        self._final_elapsed: float | None = None
         self._latest_governor_metrics: GovernorMetrics | None = None
         # Phase 10: TUI-03 rationale sidebar queue (maxsize=50, drops oldest on overflow)
         self._rationale_queue: asyncio.Queue[RationaleEntry] = asyncio.Queue(maxsize=50)
@@ -136,6 +137,9 @@ class StateStore:
             # Start elapsed timer on first non-IDLE phase
             if self._start_time is None and phase != SimulationPhase.IDLE:
                 self._start_time = time.monotonic()
+            # Freeze elapsed timer on COMPLETE
+            if phase == SimulationPhase.COMPLETE and self._start_time is not None:
+                self._final_elapsed = time.monotonic() - self._start_time
 
     async def set_round(self, round_num: int) -> None:
         """Update the current round number."""
@@ -204,7 +208,11 @@ class StateStore:
             round_num=self._round_num,
             agent_count=100,
             agent_states=dict(self._agent_states),
-            elapsed_seconds=time.monotonic() - self._start_time if self._start_time else 0.0,
+            elapsed_seconds=(
+                self._final_elapsed
+                if self._final_elapsed is not None
+                else (time.monotonic() - self._start_time if self._start_time else 0.0)
+            ),
             governor_metrics=self._latest_governor_metrics,
             tps=self._compute_tps(),
             rationale_entries=tuple(entries),

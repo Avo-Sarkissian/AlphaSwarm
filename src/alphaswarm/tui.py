@@ -573,6 +573,19 @@ class AlphaSwarmApp(App):
             )
             # Ensure COMPLETE is visible
             await self.app_state.state_store.set_phase(SimulationPhase.COMPLETE)
+            # Build completion summary from final snapshot
+            snap = self.app_state.state_store.snapshot()
+            elapsed = _format_elapsed(snap.elapsed_seconds)
+            signals = {"BUY": 0, "SELL": 0, "HOLD": 0}
+            for st in snap.agent_states.values():
+                if st and st.signal:
+                    signals[st.signal] = signals.get(st.signal, 0) + 1
+            self.notify(
+                f"Simulation complete in {elapsed} — "
+                f"BUY: {signals['BUY']}  SELL: {signals['SELL']}  HOLD: {signals['HOLD']}. "
+                f"Press q to exit.",
+                timeout=0,
+            )
         except Exception as e:
             logger.error("simulation_worker_failed", error=str(e))
             self.notify(
