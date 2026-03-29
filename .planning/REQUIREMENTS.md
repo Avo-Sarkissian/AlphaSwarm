@@ -78,6 +78,15 @@ Deferred to future release. Tracked but not in current roadmap.
 - **PERSONA-01**: Extract entities and context from the seed rumor to generate situation-specific personas alongside the standard 10 brackets
 - **PERSONA-02**: A rumor about oil markets spins up energy traders, OPEC analysts, and pipeline engineers as additional domain-specific agents
 
+### Web Dashboard
+
+- **WEB-01**: Vue 3 + Vite browser-based dashboard with live 10x10 agent grid, color-coded by signal (BUY/SELL/HOLD), polling agent state every 2s
+- **WEB-02**: D3.js force-directed influence graph — agent nodes colored by sentiment, INFLUENCED_BY edges as weighted Bezier curves, zoom/pan/click-to-inspect
+- **WEB-03**: Real-time rationale feed with animated entry transitions, cursor-based incremental fetching
+- **WEB-04**: Bracket sentiment bar charts (D3 SVG) updated after each round
+- **WEB-05**: FastAPI backend serving REST endpoints for simulation status, agent states, rationale, brackets, and graph data
+- **WEB-06**: Post-simulation views — agent interview panel, report viewer, results export
+
 ### Visualization
 
 - **VIS-01**: Miro API v2 live network visualization with spatial layout algorithm mapping agent sentiment to node color

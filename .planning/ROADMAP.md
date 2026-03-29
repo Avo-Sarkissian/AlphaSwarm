@@ -199,6 +199,34 @@ Inspired by research into [MiroFish](https://github.com/666ghj/MiroFish) and [OA
 **Requirements**: PERSONA-01, PERSONA-02
 **Key work**: Entity extraction from seed rumor feeds persona generation pipeline, domain-specific agents (e.g. energy traders for oil rumors) spawn alongside standard brackets
 
+### Phase 16: Web Dashboard (Frontend UI)
+**Goal**: A browser-based dashboard that mirrors and extends the TUI, with live agent visualization, influence graph, and interactive post-simulation features
+**Requirements**: WEB-01, WEB-02, WEB-03, WEB-04, WEB-05, WEB-06
+**Inspiration**: MiroFish Vue 3 frontend — adapted for AlphaSwarm's local-first architecture
+**Key work**:
+
+**Backend API layer (FastAPI):**
+- REST endpoints for simulation status, agent states, rationale feed, bracket summaries, and graph data
+- HTTP polling (2-3s intervals) — no WebSocket complexity, proven pattern from MiroFish
+- Cursor-based incremental data fetching for rationale feed (send `from_line`, receive only new entries)
+- Runs alongside the simulation in the same async process (no IPC needed)
+
+**Frontend (Vue 3 + Vite + D3.js):**
+- **Live Agent Grid** — 10x10 CSS grid of color-coded cells (green/red/gray), polls agent state every 2s, animates signal changes. Click any agent to inspect full decision history
+- **Rationale Feed** — Vertical timeline of agent reasoning with Vue `TransitionGroup` slide-in animations. Each entry shows agent name, signal badge, and rationale excerpt
+- **Influence Graph** — D3.js force-directed graph where nodes are agents (colored by sentiment), edges are INFLUENCED_BY relationships weighted by citation/agreement. Multi-edge Bezier curves, zoom/pan, click-to-inspect. Re-fetches every 10s during simulation
+- **Bracket Sentiment Panel** — D3 horizontal bar charts showing per-bracket BUY/SELL/HOLD distribution, updates after each round
+- **Simulation Header** — Phase indicator, round counter, elapsed time, status dot (pulsing during active simulation)
+- **Post-Simulation Views** — Agent interview panel (Phase 11), report viewer (Phase 13), results export
+
+**Architecture decisions (informed by MiroFish research):**
+- No UI component library — clean minimal CSS (matches AlphaSwarm aesthetic)
+- No state management library — Pinia only if agent grid state proves unwieldy with props
+- No WebSocket — HTTP polling is simpler, proven sufficient for MiroFish's use case
+- D3 v7 for force graph only — use native SVG for charts to keep bundle lean
+- Vue dev proxy to FastAPI backend (localhost:8000)
+- TUI remains the primary interface — web dashboard is a companion, not a replacement
+
 ## Progress
 
 **Execution Order:**

@@ -175,3 +175,7 @@ Evolve beyond simple BUY/SELL/HOLD signals. Agents publish short rationale posts
 ### Dynamic Persona Generation
 
 Instead of static archetypes, extract entities and context from the seed rumor itself to generate situation-specific personas. A rumor about oil markets would spin up energy traders, OPEC analysts, and pipeline engineers alongside the standard brackets.
+
+### Web Dashboard
+
+A browser-based companion UI (Vue 3 + D3.js) that extends the TUI with richer visualization: live 10x10 agent grid, D3 force-directed influence graph showing agent relationships, real-time rationale feed, bracket sentiment charts, and post-simulation agent interviews. Backed by a FastAPI REST API with HTTP polling. Inspired by [MiroFish](https://github.com/666ghj/MiroFish) — adapted for local-first architecture.
