@@ -40,13 +40,25 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - [ ] Miro API v2 batcher (stubbed for v1, full implementation deferred)
 - [ ] Exponential backoff for Ollama retries and Miro 429 handling
 
+### Planned (v2)
+
+- [ ] Agent interviews — post-simulation live Q&A with any agent, using full persona and decision context (INT-01, INT-02, INT-03)
+- [ ] Live graph memory — real-time Neo4j updates during simulation with rationale episodes and narrative edges (GRAPH-01, GRAPH-02, GRAPH-03)
+- [ ] Post-simulation report — ReACT agent queries Neo4j and generates structured market analysis as markdown (REPORT-01, REPORT-02, REPORT-03)
+- [ ] Richer agent interactions — agents publish rationale posts that peers read and react to, creating social influence dynamics (SOCIAL-01, SOCIAL-02)
+- [ ] Dynamic persona generation — extract entities from seed rumor to generate situation-specific agent personas (PERSONA-01, PERSONA-02)
+- [ ] Miro live visualization — API v2 network visualization with spatial layout and dynamic connectors (VIS-01, VIS-02)
+- [ ] Simulation replay from stored Neo4j state (REPLAY-01)
+- [ ] Exportable simulation reports (REPLAY-02)
+- [ ] Mid-simulation shock injection (REPLAY-03)
+
 ### Out of Scope
 
-- Miro live visualization — deferred to Phase 2 enhancement, core engine and TUI first
 - Real market data feeds — simulation only, no live API integrations
 - Multi-user / network mode — single-operator local-first design
 - Historical backtesting — forward simulation only for v1
 - GPU inference — Ollama CPU/Metal only on M1 Max
+- Cloud APIs or hosted services — all inference and state local (no Zep, no OpenAI)
 
 ## Context
 

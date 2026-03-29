@@ -107,13 +107,42 @@ Structured Output Parsing (parallel dependency -- needed for all agent outputs)
 
 - Real market data feeds, trade execution, backtesting, fine-tuned models, multi-user mode, GPU/cloud inference, order book microstructure, or RL-based adaptive agents.
 
+## v2 Features (Adapted from MiroFish/OASIS Research — 2026-03-28)
+
+Deep investigation of [MiroFish](https://github.com/666ghj/MiroFish) (swarm intelligence prediction engine, 44.9k stars) and [OASIS](https://github.com/camel-ai/oasis) (social media simulation engine by CAMEL-AI) identified patterns adaptable to AlphaSwarm's local-first constraints.
+
+**What MiroFish does that we don't (yet):**
+- Automated pipeline from raw documents to entity extraction to persona generation to simulation to report
+- Social media simulation substrate (agents post, like, comment, follow — consensus emerges organically)
+- Real-time knowledge graph updates during simulation (agent actions feed back into the graph as living memory)
+- Post-simulation ReACT report agent with tool-use for graph querying
+- Post-simulation agent interviews (talk to any agent about their experience)
+- Rich D3.js browser visualization (knowledge graphs, streaming action logs, charts)
+
+**What we decided NOT to adopt:**
+- OASIS engine dependency — designed for cloud LLMs, ~4,000+ inference calls per simulation (vs our ~300). Prohibitive for local hardware
+- Zep Cloud — hosted SaaS for knowledge graph memory. Violates local-first constraint. Neo4j is the right choice
+- Flask + Vue web stack — heavier than our Textual TUI, doesn't match the terminal-native design
+- File-based IPC — in-process asyncio is cleaner than MiroFish's JSON polling between Flask and simulation process
+
+**Key insight:** OASIS has zero real-time visualization. No TUI, no dashboard, no streaming updates. All analysis is post-hoc matplotlib scripts run against SQLite dumps. AlphaSwarm's live Textual TUI is a genuine differentiator.
+
+| Adapted Feature | Source | AlphaSwarm Phase |
+|----------------|--------|-----------------|
+| Agent interviews (post-simulation Q&A) | MiroFish Step 5 | Phase 11 |
+| Live graph memory (real-time Neo4j episodes) | MiroFish zep_graph_memory_updater | Phase 12 |
+| ReACT report generation | MiroFish report_agent.py | Phase 13 |
+| Social influence via rationale posts | OASIS social platform mechanics | Phase 14 |
+| Dynamic persona generation from seed text | MiroFish ontology_generator + oasis_profile_generator | Phase 15 |
+
 ## Sources
 
 - [TradingAgents - GitHub](https://github.com/TauricResearch/TradingAgents) -- Multi-agent LLM trading framework with debate mechanism (HIGH confidence)
 - [StockSim - GitHub](https://github.com/harrypapa2002/StockSim) -- Dual-mode LLM financial market simulator (HIGH confidence)
 - [TwinMarket - arXiv](https://arxiv.org/abs/2502.01506) -- Scalable behavioral/social financial simulation, ICLR 2025 (HIGH confidence)
+- [MiroFish - GitHub](https://github.com/666ghj/MiroFish) -- Swarm intelligence prediction engine with OASIS simulation, 44.9k stars (HIGH confidence, deep-researched 2026-03-28)
 - [MiroFish-Offline - GitHub](https://github.com/nikmcfly/MiroFish-Offline) -- Offline multi-agent simulation with Neo4j + Ollama (HIGH confidence)
-- [OASIS - GitHub](https://github.com/camel-ai/oasis) -- Open Agent Social Interaction Simulations, 1M agents (MEDIUM confidence -- social media focused, not directly financial)
+- [OASIS - GitHub](https://github.com/camel-ai/oasis) -- Open Agent Social Interaction Simulations by CAMEL-AI, 1M agents, supports Ollama via ModelFactory but requires tool-calling models (HIGH confidence, deep-researched 2026-03-28)
 - [AlphaAgents - arXiv](https://arxiv.org/abs/2508.11152) -- BlackRock multi-agent LLM portfolio construction (HIGH confidence)
 - [FCLAgent - arXiv](https://arxiv.org/abs/2510.12189) -- Fundamental-Chartist-LLM agent for market simulation (HIGH confidence)
 - [ScaleSim - arXiv](https://arxiv.org/html/2601.21473) -- Memory management for large-scale multi-agent LLM serving (MEDIUM confidence)

@@ -170,6 +170,35 @@ Plans:
 - [x] 10-02-PLAN.md -- TUI widgets (RationaleSidebar, TelemetryFooter, BracketPanel), layout restructuring, _poll_snapshot extension, visual verification
 **UI hint**: yes
 
+## v2 Roadmap (Future Phases)
+
+Inspired by research into [MiroFish](https://github.com/666ghj/MiroFish) and [OASIS](https://github.com/camel-ai/oasis) — adapted for local-first constraints (no cloud APIs, no hosted services).
+
+### Phase 11: Agent Interviews
+**Goal**: After simulation completes, users can select any agent and have a live conversation about their decisions
+**Requirements**: INT-01, INT-02, INT-03
+**Key work**: Keep worker model loaded post-simulation, build interview context from Neo4j (persona + 3 rounds of decisions + peer influences), add TUI interaction mode
+
+### Phase 12: Live Graph Memory
+**Goal**: Neo4j becomes a living memory that evolves during simulation, not just a snapshot store
+**Requirements**: GRAPH-01, GRAPH-02, GRAPH-03
+**Key work**: Write rationale episodes and signal flip events to Neo4j in real time, create narrative edges (REASONED_ABOUT, FLIPPED_BECAUSE), enable post-simulation graph exploration via Neo4j browser
+
+### Phase 13: Post-Simulation Report Generation
+**Goal**: Automatically generate a structured market analysis report from simulation results
+**Requirements**: REPORT-01, REPORT-02, REPORT-03
+**Key work**: ReACT-style agent that queries Neo4j (consensus summary, key dissenters, bracket trends, flip analysis), output as markdown viewable in TUI or exported to file
+
+### Phase 14: Richer Agent Interactions
+**Goal**: Agents influence each other through published rationale, not just signal votes
+**Requirements**: SOCIAL-01, SOCIAL-02
+**Key work**: Agents publish short rationale posts between rounds, peers read and react to rationale content, influence weights shift based on engagement patterns (citation, agreement, disagreement)
+
+### Phase 15: Dynamic Persona Generation
+**Goal**: Generate situation-specific agent personas from the seed rumor itself
+**Requirements**: PERSONA-01, PERSONA-02
+**Key work**: Entity extraction from seed rumor feeds persona generation pipeline, domain-specific agents (e.g. energy traders for oil rumors) spawn alongside standard brackets
+
 ## Progress
 
 **Execution Order:**
@@ -187,3 +216,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. Dynamic Influence Topology | 3/3 | Complete   | 2026-03-26 |
 | 9. TUI Core Dashboard | 0/2 | Planning complete | - |
 | 10. TUI Panels and Telemetry | 2/2 | Complete    | 2026-03-27 |
+| 11. Agent Interviews | - | Planned (v2) | - |
+| 12. Live Graph Memory | - | Planned (v2) | - |
+| 13. Post-Simulation Report | - | Planned (v2) | - |
+| 14. Richer Agent Interactions | - | Planned (v2) | - |
+| 15. Dynamic Persona Generation | - | Planned (v2) | - |

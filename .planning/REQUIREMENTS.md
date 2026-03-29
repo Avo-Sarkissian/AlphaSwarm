@@ -50,6 +50,34 @@ Requirements for initial release. Each maps to roadmap phases.
 
 Deferred to future release. Tracked but not in current roadmap.
 
+### Agent Interviews
+
+- **INT-01**: After simulation completes, user can select any agent from the grid and initiate a live Q&A conversation
+- **INT-02**: Interview context includes the agent's full persona, all 3 rounds of decisions, peer influences received, and rationale history
+- **INT-03**: Worker model stays loaded post-simulation to power interactive inference without cold-load delay
+
+### Live Graph Memory
+
+- **GRAPH-01**: Agent actions (rationale text, signal flips, influence events) are written to Neo4j in real time during simulation, not just decision snapshots
+- **GRAPH-02**: Rationale episodes create queryable narrative edges — enabling "why did Agent X flip from SELL to BUY in Round 2?" graph traversals
+- **GRAPH-03**: Post-simulation Neo4j exploration via browser (localhost:7474) shows the full living memory graph
+
+### Post-Simulation Report Generation
+
+- **REPORT-01**: A ReACT-style agent queries the Neo4j graph after simulation ends and produces a structured market analysis report
+- **REPORT-02**: Report includes: consensus summary, key dissenting voices, bracket-level trends, signal flip analysis, and confidence distributions
+- **REPORT-03**: Report output as markdown, viewable in the TUI or exported to file
+
+### Richer Agent Interactions
+
+- **SOCIAL-01**: Agents publish short rationale posts that other agents read and react to, creating organic social influence dynamics beyond vote-counting
+- **SOCIAL-02**: Influence weights shift based on rationale engagement (citation, agreement, disagreement) rather than just signal alignment
+
+### Dynamic Persona Generation
+
+- **PERSONA-01**: Extract entities and context from the seed rumor to generate situation-specific personas alongside the standard 10 brackets
+- **PERSONA-02**: A rumor about oil markets spins up energy traders, OPEC analysts, and pipeline engineers as additional domain-specific agents
+
 ### Visualization
 
 - **VIS-01**: Miro API v2 live network visualization with spatial layout algorithm mapping agent sentiment to node color
