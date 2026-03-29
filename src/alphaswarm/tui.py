@@ -483,7 +483,7 @@ class AlphaSwarmApp(App):
     }
     """
 
-    BINDINGS = [("q", "quit", "Quit")]
+    BINDINGS = [("q", "quit", "Quit"), ("s", "save_results", "Save")]
 
     def __init__(
         self,
@@ -593,6 +593,68 @@ class AlphaSwarmApp(App):
                 severity="error",
                 timeout=0,
             )
+
+    def action_save_results(self) -> None:
+        """Save simulation results to a markdown file in results/."""
+        import datetime
+        from pathlib import Path
+
+        snap = self.app_state.state_store.snapshot()
+        if snap.phase != SimulationPhase.COMPLETE:
+            self.notify("Simulation not complete yet.", severity="warning")
+            return
+
+        results_dir = Path("results")
+        results_dir.mkdir(exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = results_dir / f"sim_{ts}.md"
+
+        elapsed = _format_elapsed(snap.elapsed_seconds)
+        signals = {"BUY": 0, "SELL": 0, "HOLD": 0}
+        for st in snap.agent_states.values():
+            if st and st.signal:
+                signals[st.signal] = signals.get(st.signal, 0) + 1
+
+        lines = [
+            f"# AlphaSwarm Simulation Results",
+            f"",
+            f"**Rumor:** {self.rumor}",
+            f"**Elapsed:** {elapsed}",
+            f"**Date:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            f"",
+            f"## Consensus",
+            f"",
+            f"| Signal | Count |",
+            f"|--------|-------|",
+            f"| BUY | {signals['BUY']} |",
+            f"| SELL | {signals['SELL']} |",
+            f"| HOLD | {signals['HOLD']} |",
+            f"",
+            f"## Brackets",
+            f"",
+            f"| Bracket | BUY | SELL | HOLD | Avg Confidence |",
+            f"|---------|-----|------|------|----------------|",
+        ]
+        for b in snap.bracket_summaries:
+            lines.append(
+                f"| {b.display_name} | {b.buy_count} | {b.sell_count} "
+                f"| {b.hold_count} | {b.avg_confidence:.0%} |"
+            )
+
+        lines.extend([
+            f"",
+            f"## Agent Decisions",
+            f"",
+            f"| Agent | Signal | Confidence |",
+            f"|-------|--------|------------|",
+        ])
+        for agent_id in sorted(snap.agent_states.keys()):
+            st = snap.agent_states[agent_id]
+            if st and st.signal:
+                lines.append(f"| {agent_id} | {st.signal} | {st.confidence:.0%} |")
+
+        filename.write_text("\n".join(lines) + "\n")
+        self.notify(f"Results saved to {filename}")
 
     def _poll_snapshot(self) -> None:
         """Timer callback: read snapshot, diff, update changed cells.
