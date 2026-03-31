@@ -158,8 +158,9 @@ async def graph_manager(neo4j_driver, all_personas):
     )
     await manager.ensure_schema()
     yield manager
-    # Clean all Decision, Cycle, Entity nodes between tests (keep Agent nodes)
+    # Clean all Decision, Cycle, Entity, and RationaleEpisode nodes between tests (keep Agent nodes)
     async with neo4j_driver.session(database="neo4j") as session:
         await session.run("MATCH (d:Decision) DETACH DELETE d")
         await session.run("MATCH (c:Cycle) DETACH DELETE c")
         await session.run("MATCH (e:Entity) DETACH DELETE e")
+        await session.run("MATCH (re:RationaleEpisode) DETACH DELETE re")
