@@ -4,6 +4,17 @@
 
 A localized, multi-agent financial simulation engine that ingests a single "Seed Rumor" and simulates cascading market reactions across 100 distinct AI personas. The system runs a 3-round iterative consensus cascade on local hardware (M1 Max 64GB), visualizing real-time agent state via a Textual TUI dashboard and persisting interaction history in Neo4j.
 
+## Current Milestone: v2.0 Engine Depth
+
+**Goal:** Deepen the simulation engine with post-simulation capabilities, richer agent behavior, and dynamic persona generation — building the full data model before the web dashboard.
+
+**Target features:**
+- Agent Interviews — post-simulation live Q&A with any agent using full persona and decision context
+- Live Graph Memory — real-time Neo4j updates during simulation with rationale episodes and narrative edges
+- Post-Simulation Report — ReACT agent queries Neo4j and generates structured market analysis
+- Richer Agent Interactions — agents publish rationale posts that peers read and react to
+- Dynamic Persona Generation — extract entities from seed rumor to generate situation-specific agent personas
+
 ## Core Value
 
 The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — the simulation engine is the product.
@@ -40,10 +51,13 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - [ ] Miro API v2 batcher (stubbed for v1, full implementation deferred)
 - [ ] Exponential backoff for Ollama retries and Miro 429 handling
 
+### Validated
+
+- [x] Live graph memory — WriteBuffer captures per-agent RationaleEpisode nodes (rationale, flip_type, peer_context) with REFERENCES edges to Entity nodes and decision_narrative on Agent nodes — Validated in Phase 11: live-graph-memory
+
 ### Planned (v2)
 
 - [ ] Agent interviews — post-simulation live Q&A with any agent, using full persona and decision context (INT-01, INT-02, INT-03)
-- [ ] Live graph memory — real-time Neo4j updates during simulation with rationale episodes and narrative edges (GRAPH-01, GRAPH-02, GRAPH-03)
 - [ ] Post-simulation report — ReACT agent queries Neo4j and generates structured market analysis as markdown (REPORT-01, REPORT-02, REPORT-03)
 - [ ] Richer agent interactions — agents publish rationale posts that peers read and react to, creating social influence dynamics (SOCIAL-01, SOCIAL-02)
 - [ ] Dynamic persona generation — extract entities from seed rumor to generate situation-specific agent personas (PERSONA-01, PERSONA-02)
@@ -107,4 +121,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-27 — Phase 10 complete*
+*Last updated: 2026-03-31 — Phase 11 complete: live-graph-memory*
