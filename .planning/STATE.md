@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Engine Depth
 status: executing
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-03-31T22:04:22.686Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-03-31T22:08:56.639Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 67
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 ## Current Position
 
 Phase: 11 (live-graph-memory) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-31
 
@@ -63,6 +63,7 @@ Progress: [####################..........] 67% (10/15 phases, v1.0 complete)
 - Trend: Stable (5min average, spikes on TUI visual work)
 
 | Phase 11 P01 | 2 | 1 tasks | 3 files |
+| Phase 11 P02 | 2min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,8 @@ Recent decisions affecting current work:
 - [Phase 11]: EpisodeRecord.flip_type stored as str (FlipType.value) for zero-cost Neo4j property assignment in Plan 02 writes
 - [Phase 11]: WriteBuffer.flush() accepts graph_manager as call-time param (not constructor injection) to keep WriteBuffer stateless and trivially testable
 - [Phase 11]: compute_flip_type returns NONE for PARSE_ERROR inputs to prevent spurious flip detection on noisy inference rounds
+- [Phase 11]: write_decisions() returns list[str] and accepts optional decision_ids to solve buffer push timing (Pitfall 1)
+- [Phase 11]: Entity names passed with original casing to UNWIND MATCH -- Python lowercases for comparison only (Pitfall 4)
 
 ### Pending Todos
 
@@ -95,6 +98,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-31T22:04:22.683Z
-Stopped at: Completed 11-01-PLAN.md
+Last session: 2026-03-31T22:08:56.636Z
+Stopped at: Completed 11-02-PLAN.md
 Resume file: None
