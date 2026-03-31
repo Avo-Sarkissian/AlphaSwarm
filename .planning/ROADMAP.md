@@ -50,7 +50,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Narrative REFERENCES edges connect Decision nodes to Entity nodes extracted during seed injection, queryable by entity name
   3. Running a Cypher query against a completed simulation returns a complete 3-round reasoning arc for any agent (decisions, rationale episodes, influence relationships, and entity references)
   4. Write performance remains stable -- batch UNWIND pattern keeps Neo4j transaction count under 10 per round (not 100 per-agent transactions)
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 11-01-PLAN.md -- FlipType enum, WriteBuffer module, and compute_flip_type with unit tests
+- [ ] 11-02-PLAN.md -- GraphStateManager extensions (4 new methods, schema, decision_id refactor)
+- [ ] 11-03-PLAN.md -- Simulation integration (WriteBuffer wiring, narrative generation, integration tests)
 
 ### Phase 12: Richer Agent Interactions
 **Goal**: Agents influence each other through published rationale content, not just signal votes, creating observable social dynamics in the simulation graph
@@ -114,7 +118,7 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 8. Dynamic Influence Topology | v1.0 | 3/3 | Complete | 2026-03-26 |
 | 9. TUI Core Dashboard | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 10. TUI Panels and Telemetry | v1.0 | 2/2 | Complete | 2026-03-27 |
-| 11. Live Graph Memory | v2.0 | 0/0 | Not started | - |
+| 11. Live Graph Memory | v2.0 | 0/3 | In progress | - |
 | 12. Richer Agent Interactions | v2.0 | 0/0 | Not started | - |
 | 13. Dynamic Persona Generation | v2.0 | 0/0 | Not started | - |
 | 14. Agent Interviews | v2.0 | 0/0 | Not started | - |
