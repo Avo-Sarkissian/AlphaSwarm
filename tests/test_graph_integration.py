@@ -298,3 +298,172 @@ async def test_concurrent_peer_reads(
     assert len(results) == 10
     for peers in results:
         assert len(peers) == 5
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 Plan 03: Complete reasoning arc integration tests (SC-3, GRAPH-03, D-10)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_complete_reasoning_arc(
+    graph_manager: GraphStateManager, all_personas: list[AgentPersona], sample_seed_event
+) -> None:
+    """After writing decisions and episodes for 3 rounds, a Cypher query returns
+    a complete reasoning arc for any agent: decisions, rationale episodes,
+    influence relationships, and entity references (SC-3)."""
+    from alphaswarm.write_buffer import EpisodeRecord, compute_flip_type
+    from alphaswarm.types import SignalType
+
+    # 1. Create cycle with seed event (Entity nodes created via MENTIONS edges)
+    cycle_id = await graph_manager.create_cycle_with_seed_event(
+        sample_seed_event.raw_rumor, sample_seed_event,
+    )
+
+    # 2. Write decisions and episodes for 3 rounds (use first 3 personas for speed)
+    test_personas = all_personas[:3]
+    prev_signal_map: dict[str, SignalType] = {}
+
+    for round_num in range(1, 4):
+        decisions = [
+            (p.id, AgentDecision(
+                signal=SignalType.BUY if round_num < 3 else SignalType.SELL,
+                confidence=0.8,
+                sentiment=0.5,
+                rationale=f"NVIDIA looks strong in round {round_num}",
+                cited_agents=[],
+            ))
+            for p in test_personas
+        ]
+        ids = await graph_manager.write_decisions(decisions, cycle_id, round_num)
+
+        # 3. Write episodes for each round
+        records = [
+            EpisodeRecord(
+                decision_id=did,
+                agent_id=aid,
+                rationale=dec.rationale,
+                peer_context_received="" if round_num == 1 else "Peer context here",
+                flip_type=compute_flip_type(
+                    prev_signal_map.get(aid),
+                    dec.signal,
+                ).value,
+                round_num=round_num,
+                cycle_id=cycle_id,
+            )
+            for did, (aid, dec) in zip(ids, decisions)
+        ]
+        await graph_manager.write_rationale_episodes(records)
+
+        # Write narrative edges (REFERENCES Decision -> Entity)
+        entity_names = await graph_manager.read_cycle_entities(cycle_id)
+        await graph_manager.write_narrative_edges(records, entity_names)
+
+        # Update prev signal map for next round
+        for aid, dec in decisions:
+            prev_signal_map[aid] = dec.signal
+
+    # 4. Query complete reasoning arc for first agent
+    agent_id = test_personas[0].id
+    async with graph_manager._driver.session(database="neo4j") as session:
+        result = await session.run(
+            """
+            MATCH (a:Agent {id: $agent_id})-[:MADE]->(d:Decision)-[:HAS_EPISODE]->(re:RationaleEpisode)
+            WHERE d.cycle_id = $cycle_id
+            OPTIONAL MATCH (d)-[:REFERENCES]->(e:Entity)
+            RETURN d.round AS round,
+                   d.signal AS signal,
+                   re.rationale AS rationale,
+                   re.peer_context_received AS peer_context,
+                   re.flip_type AS flip_type,
+                   collect(DISTINCT e.name) AS referenced_entities
+            ORDER BY d.round
+            """,
+            agent_id=agent_id,
+            cycle_id=cycle_id,
+        )
+        records_list = [dict(record) async for record in result]
+
+    # 5. Assertions
+    assert len(records_list) == 3, f"Expected 3 rounds, got {len(records_list)}"
+    # Round 1: no flip, no peer context
+    assert records_list[0]["round"] == 1
+    assert records_list[0]["flip_type"] == "none"
+    assert records_list[0]["peer_context"] == ""
+    # Round 3: BUY_TO_SELL flip
+    assert records_list[2]["round"] == 3
+    assert records_list[2]["flip_type"] == "buy_to_sell"
+    # Entity references: "NVIDIA" should be in referenced_entities (Round 1 rationale mentions NVIDIA)
+    assert "NVIDIA" in records_list[0]["referenced_entities"]
+
+
+@pytest.mark.asyncio()
+async def test_references_edges_case_insensitive(
+    graph_manager: GraphStateManager, all_personas: list[AgentPersona], sample_seed_event
+) -> None:
+    """REFERENCES edges match entity names case-insensitively (D-08).
+
+    Entity stored as 'NVIDIA', rationale mentions 'nvidia' lowercase.
+    """
+    from alphaswarm.write_buffer import EpisodeRecord
+    from alphaswarm.types import SignalType
+
+    cycle_id = await graph_manager.create_cycle_with_seed_event(
+        sample_seed_event.raw_rumor, sample_seed_event,
+    )
+    decisions = [
+        (all_personas[0].id, AgentDecision(
+            signal=SignalType.BUY,
+            confidence=0.9,
+            sentiment=0.7,
+            rationale="i think nvidia will dominate the market",  # lowercase match
+            cited_agents=[],
+        ))
+    ]
+    ids = await graph_manager.write_decisions(decisions, cycle_id, round_num=1)
+
+    records = [
+        EpisodeRecord(
+            decision_id=ids[0],
+            agent_id=all_personas[0].id,
+            rationale="i think nvidia will dominate the market",
+            peer_context_received="",
+            flip_type="none",
+            round_num=1,
+            cycle_id=cycle_id,
+        )
+    ]
+    entity_names = await graph_manager.read_cycle_entities(cycle_id)
+    await graph_manager.write_rationale_episodes(records)
+    await graph_manager.write_narrative_edges(records, entity_names)
+
+    # Verify REFERENCES edge exists with original entity casing preserved
+    async with graph_manager._driver.session(database="neo4j") as session:
+        result = await session.run(
+            """
+            MATCH (d:Decision)-[:REFERENCES]->(e:Entity)
+            WHERE d.decision_id = $did
+            RETURN e.name AS entity_name
+            """,
+            did=ids[0],
+        )
+        entities = [dict(r)["entity_name"] async for r in result]
+    assert "NVIDIA" in entities  # Original casing preserved, not "nvidia"
+
+
+@pytest.mark.asyncio()
+async def test_write_decision_narratives_integration(
+    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+) -> None:
+    """write_decision_narratives sets decision_narrative property on Agent nodes (D-10)."""
+    agent_id = all_personas[0].id
+    narratives = [{"agent_id": agent_id, "narrative": "This agent shifted from BUY to SELL over 3 rounds."}]
+    await graph_manager.write_decision_narratives(narratives)
+
+    async with graph_manager._driver.session(database="neo4j") as session:
+        result = await session.run(
+            "MATCH (a:Agent {id: $aid}) RETURN a.decision_narrative AS narrative",
+            aid=agent_id,
+        )
+        record = await result.single()
+    assert record["narrative"] == "This agent shifted from BUY to SELL over 3 rounds."
