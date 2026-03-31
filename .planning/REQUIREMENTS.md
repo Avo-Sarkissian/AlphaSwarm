@@ -52,8 +52,8 @@ Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 
 ### Live Graph Memory
 
-- [ ] **GRAPH-01**: Agent decisions are written to Neo4j individually in real time during simulation (per-agent immediate writes via write-behind buffer, not batch-per-round)
-- [ ] **GRAPH-02**: RationaleEpisode nodes link Agent -> Round -> Rationale with timestamps, peer context received, and signal flip detection
+- [x] **GRAPH-01**: Agent decisions are written to Neo4j individually in real time during simulation (per-agent immediate writes via write-behind buffer, not batch-per-round)
+- [x] **GRAPH-02**: RationaleEpisode nodes link Agent -> Round -> Rationale with timestamps, peer context received, and signal flip detection
 - [ ] **GRAPH-03**: Narrative REFERENCES edges connect Decision nodes to Entity nodes via keyword matching against extracted entities
 
 ### Post-Simulation Report
@@ -153,8 +153,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TUI-03 | Phase 10: TUI Panels and Telemetry | Complete |
 | TUI-04 | Phase 10: TUI Panels and Telemetry | Complete |
 | TUI-05 | Phase 10: TUI Panels and Telemetry | Complete |
-| GRAPH-01 | Phase 11: Live Graph Memory | Pending |
-| GRAPH-02 | Phase 11: Live Graph Memory | Pending |
+| GRAPH-01 | Phase 11: Live Graph Memory | Complete |
+| GRAPH-02 | Phase 11: Live Graph Memory | Complete |
 | GRAPH-03 | Phase 11: Live Graph Memory | Pending |
 | SOCIAL-01 | Phase 12: Richer Agent Interactions | Pending |
 | SOCIAL-02 | Phase 12: Richer Agent Interactions | Pending |

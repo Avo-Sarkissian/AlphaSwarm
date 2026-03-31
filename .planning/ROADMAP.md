@@ -52,7 +52,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Write performance remains stable -- batch UNWIND pattern keeps Neo4j transaction count under 10 per round (not 100 per-agent transactions)
 **Plans**: 3 plans
 Plans:
-- [ ] 11-01-PLAN.md -- FlipType enum, WriteBuffer module, and compute_flip_type with unit tests
+- [x] 11-01-PLAN.md -- FlipType enum, WriteBuffer module, and compute_flip_type with unit tests
 - [ ] 11-02-PLAN.md -- GraphStateManager extensions (4 new methods, schema, decision_id refactor)
 - [ ] 11-03-PLAN.md -- Simulation integration (WriteBuffer wiring, narrative generation, integration tests)
 
@@ -118,7 +118,7 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 8. Dynamic Influence Topology | v1.0 | 3/3 | Complete | 2026-03-26 |
 | 9. TUI Core Dashboard | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 10. TUI Panels and Telemetry | v1.0 | 2/2 | Complete | 2026-03-27 |
-| 11. Live Graph Memory | v2.0 | 0/3 | In progress | - |
+| 11. Live Graph Memory | v2.0 | 1/3 | In Progress|  |
 | 12. Richer Agent Interactions | v2.0 | 0/0 | Not started | - |
 | 13. Dynamic Persona Generation | v2.0 | 0/0 | Not started | - |
 | 14. Agent Interviews | v2.0 | 0/0 | Not started | - |
