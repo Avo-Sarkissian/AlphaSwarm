@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Engine Depth
-status: executing
-stopped_at: Completed 11-02-PLAN.md
-last_updated: "2026-03-31T22:08:56.639Z"
+status: verifying
+stopped_at: Completed 11-03-PLAN.md
+last_updated: "2026-03-31T22:28:51.299Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 67
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 
 Phase: 11 (live-graph-memory) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-31
 
 Progress: [####################..........] 67% (10/15 phases, v1.0 complete)
@@ -64,6 +64,7 @@ Progress: [####################..........] 67% (10/15 phases, v1.0 complete)
 
 | Phase 11 P01 | 2 | 1 tasks | 3 files |
 | Phase 11 P02 | 2min | 1 tasks | 2 files |
+| Phase 11 P03 | 6 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,9 @@ Recent decisions affecting current work:
 - [Phase 11]: compute_flip_type returns NONE for PARSE_ERROR inputs to prevent spurious flip detection on noisy inference rounds
 - [Phase 11]: write_decisions() returns list[str] and accepts optional decision_ids to solve buffer push timing (Pitfall 1)
 - [Phase 11]: Entity names passed with original casing to UNWIND MATCH -- Python lowercases for comparison only (Pitfall 4)
+- [Phase 11]: RoundDispatchResult replaces bare list return from _dispatch_round() to capture peer_contexts alongside agent_decisions for Episode push
+- [Phase 11]: Round 1 episodes pushed retroactively in run_simulation() (not inside run_round1) to preserve run_round1 standalone safety
+- [Phase 11]: generate_narratives=True default in run_simulation; existing tests use empty decision_ids mock so no episodes pushed and no breakage
 
 ### Pending Todos
 
@@ -98,6 +102,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-31T22:08:56.636Z
-Stopped at: Completed 11-02-PLAN.md
+Last session: 2026-03-31T22:28:51.296Z
+Stopped at: Completed 11-03-PLAN.md
 Resume file: None
