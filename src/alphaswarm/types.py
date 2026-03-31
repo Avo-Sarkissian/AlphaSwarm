@@ -56,6 +56,18 @@ class SignalType(str, Enum):
     PARSE_ERROR = "parse_error"
 
 
+class FlipType(str, Enum):
+    """Signal transition types between consecutive rounds (D-06)."""
+
+    NONE = "none"
+    BUY_TO_SELL = "buy_to_sell"
+    SELL_TO_BUY = "sell_to_buy"
+    BUY_TO_HOLD = "buy_to_hold"
+    HOLD_TO_BUY = "hold_to_buy"
+    SELL_TO_HOLD = "sell_to_hold"
+    HOLD_TO_SELL = "hold_to_sell"
+
+
 class EntityType(str, Enum):
     """Named entity types extracted from seed rumors."""
 
