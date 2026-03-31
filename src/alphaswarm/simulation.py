@@ -22,6 +22,7 @@ from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
 from alphaswarm.utils import sanitize_rationale
+from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_type
 
 if TYPE_CHECKING:
     from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
@@ -46,6 +47,18 @@ class Round1Result:
     cycle_id: str
     parsed_result: ParsedSeedResult
     agent_decisions: list[tuple[str, AgentDecision]]
+    decision_ids: list[str] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass(frozen=True)
+class RoundDispatchResult:
+    """Result from _dispatch_round including peer contexts for episode storage (Phase 11).
+
+    peer_contexts is aligned by persona index, empty string for no context.
+    """
+
+    agent_decisions: list[tuple[str, AgentDecision]]
+    peer_contexts: list[str]  # Aligned by persona index, "" for no context
 
 
 @dataclasses.dataclass(frozen=True)
@@ -483,8 +496,8 @@ async def run_round1(
                 for agent_id, dec in agent_decisions:
                     await state_store.update_agent_state(agent_id, dec.signal, dec.confidence)
 
-            # 8. Persist to Neo4j
-            await graph_manager.write_decisions(
+            # 8. Persist to Neo4j (Phase 11: capture returned decision_ids)
+            round1_decision_ids = await graph_manager.write_decisions(
                 agent_decisions, cycle_id, round_num=1,
             )
         finally:
@@ -509,6 +522,7 @@ async def run_round1(
         cycle_id=cycle_id,
         parsed_result=parsed_result,
         agent_decisions=agent_decisions,
+        decision_ids=round1_decision_ids,
     )
 
 
@@ -531,7 +545,7 @@ async def _dispatch_round(
     influence_weights: dict[str, float] | None = None,
     prev_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...] | None = None,
     state_store: StateStore | None = None,
-) -> list[tuple[str, AgentDecision]]:
+) -> RoundDispatchResult:
     """Dispatch a round with per-agent peer context (D-09, D-10).
 
     When influence_weights is provided AND non-empty (and prev_decisions available):
@@ -645,7 +659,14 @@ async def _dispatch_round(
         for agent_id, dec in agent_decisions:
             await state_store.update_agent_state(agent_id, dec.signal, dec.confidence)
 
-    return agent_decisions
+    # Phase 11: normalize peer_contexts (None -> "") and return with decisions
+    normalized_peer_contexts: list[str] = [
+        ctx if ctx is not None else "" for ctx in peer_contexts
+    ]
+    return RoundDispatchResult(
+        agent_decisions=agent_decisions,
+        peer_contexts=normalized_peer_contexts,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -665,6 +686,7 @@ async def run_simulation(
     *,
     on_round_complete: OnRoundComplete = None,
     state_store: StateStore | None = None,
+    generate_narratives: bool = True,
 ) -> SimulationResult:
     """Execute the full 3-round simulation pipeline (D-04).
 
@@ -703,6 +725,25 @@ async def run_simulation(
 
     phase = SimulationPhase.ROUND_1
     logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
+
+    # Phase 11: Initialize WriteBuffer and load entity names cache once (D-01, D-09)
+    write_buffer = WriteBuffer(maxsize=200)
+    entity_names = await graph_manager.read_cycle_entities(cycle_id)
+
+    # Phase 11: Push Round 1 episodes to WriteBuffer (retroactive -- run_round1 already wrote decisions)
+    for did, (agent_id, decision) in zip(round1_result.decision_ids, round1_result.agent_decisions):
+        record = EpisodeRecord(
+            decision_id=did,
+            agent_id=agent_id,
+            rationale=decision.rationale,
+            peer_context_received="",  # Round 1 has no peer context (Pitfall 3)
+            flip_type=compute_flip_type(None, decision.signal).value,
+            round_num=1,
+            cycle_id=cycle_id,
+        )
+        await write_buffer.push(record)
+    round1_flushed = await write_buffer.flush(graph_manager, entity_names)
+    logger.info("write_buffer_flushed", round_num=1, flushed=round1_flushed)
 
     # Compute influence edges after Round 1 (D-02: shapes Round 2 peer selection)
     # Pass len(round1_result.agent_decisions) as total_agents (active agents, not global 100)
@@ -752,7 +793,7 @@ async def run_simulation(
             # Pass influence_weights to Round 2 dispatch with zero-citation fallback:
             # When round1_weights is empty dict (no citations in Round 1, expected cold-start per D-05
             # and Pitfall 1), falsy check evaluates to False -> influence_weights=None -> static fallback.
-            round2_decisions = await _dispatch_round(
+            round2_result = await _dispatch_round(
                 personas=personas,
                 cycle_id=cycle_id,
                 source_round=1,
@@ -766,7 +807,33 @@ async def run_simulation(
                 prev_decisions=round1_result.agent_decisions,
                 state_store=state_store,
             )
-            await graph_manager.write_decisions(round2_decisions, cycle_id, round_num=2)
+            round2_decisions = round2_result.agent_decisions
+            round2_peer_contexts = round2_result.peer_contexts
+            round2_ids = await graph_manager.write_decisions(round2_decisions, cycle_id, round_num=2)
+
+            # Phase 11: Push Round 2 episodes to WriteBuffer
+            round1_map = {aid: dec for aid, dec in round1_result.agent_decisions}
+            for did, (agent_id, decision) in zip(round2_ids, round2_decisions):
+                prev_signal = round1_map.get(agent_id)
+                prev_sig = prev_signal.signal if prev_signal else None
+                persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
+                peer_ctx = (
+                    round2_peer_contexts[persona_idx]
+                    if persona_idx is not None and persona_idx < len(round2_peer_contexts)
+                    else ""
+                )
+                record = EpisodeRecord(
+                    decision_id=did,
+                    agent_id=agent_id,
+                    rationale=decision.rationale,
+                    peer_context_received=peer_ctx,
+                    flip_type=compute_flip_type(prev_sig, decision.signal).value,
+                    round_num=2,
+                    cycle_id=cycle_id,
+                )
+                await write_buffer.push(record)
+            round2_flushed = await write_buffer.flush(graph_manager, entity_names)
+            logger.info("write_buffer_flushed", round_num=2, flushed=round2_flushed)
 
             # Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2)
             round2_weights = await graph_manager.compute_influence_edges(
@@ -808,7 +875,7 @@ async def run_simulation(
                 await state_store.set_phase(SimulationPhase.ROUND_3)
                 await state_store.set_round(3)
 
-            round3_decisions = await _dispatch_round(
+            round3_result = await _dispatch_round(
                 personas=personas,
                 cycle_id=cycle_id,
                 source_round=2,
@@ -822,7 +889,33 @@ async def run_simulation(
                 prev_decisions=round2_decisions,
                 state_store=state_store,
             )
-            await graph_manager.write_decisions(round3_decisions, cycle_id, round_num=3)
+            round3_decisions = round3_result.agent_decisions
+            round3_peer_contexts = round3_result.peer_contexts
+            round3_ids = await graph_manager.write_decisions(round3_decisions, cycle_id, round_num=3)
+
+            # Phase 11: Push Round 3 episodes to WriteBuffer
+            round2_map = {aid: dec for aid, dec in round2_decisions}
+            for did, (agent_id, decision) in zip(round3_ids, round3_decisions):
+                prev_signal = round2_map.get(agent_id)
+                prev_sig = prev_signal.signal if prev_signal else None
+                persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
+                peer_ctx = (
+                    round3_peer_contexts[persona_idx]
+                    if persona_idx is not None and persona_idx < len(round3_peer_contexts)
+                    else ""
+                )
+                record = EpisodeRecord(
+                    decision_id=did,
+                    agent_id=agent_id,
+                    rationale=decision.rationale,
+                    peer_context_received=peer_ctx,
+                    flip_type=compute_flip_type(prev_sig, decision.signal).value,
+                    round_num=3,
+                    cycle_id=cycle_id,
+                )
+                await write_buffer.push(record)
+            round3_flushed = await write_buffer.flush(graph_manager, entity_names)
+            logger.info("write_buffer_flushed", round_num=3, flushed=round3_flushed)
 
             # Compute Round 3 bracket summaries (D-08)
             round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
@@ -849,6 +942,24 @@ async def run_simulation(
                     shift=round3_shifts,
                     bracket_summaries=round3_summaries,
                 ))
+
+            # Phase 11: Post-simulation narrative generation (D-10, D-11)
+            # Worker model is still loaded here -- generate before unload
+            if generate_narratives:
+                logger.info("narrative_generation_start", agent_count=len(personas))
+                narratives = await _generate_decision_narratives(
+                    personas=personas,
+                    all_decisions={
+                        1: round1_result.agent_decisions,
+                        2: round2_decisions,
+                        3: round3_decisions,
+                    },
+                    graph_manager=graph_manager,
+                    governor=governor,
+                    client=ollama_client,
+                    model=worker_alias,
+                )
+                logger.info("narrative_generation_complete", count=len(narratives))
 
         finally:
             # Always unload worker (inner finally)
@@ -880,3 +991,107 @@ async def run_simulation(
         round2_summaries=round2_summaries,
         round3_summaries=round3_summaries,
     )
+
+
+# ---------------------------------------------------------------------------
+# Post-simulation narrative generation helper (Phase 11, D-10, D-11)
+# ---------------------------------------------------------------------------
+
+
+async def _generate_decision_narratives(
+    personas: list[AgentPersona],
+    all_decisions: dict[int, list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]],
+    graph_manager: GraphStateManager,
+    governor: ResourceGovernor,
+    client: OllamaClient,
+    model: str,
+) -> list[dict]:
+    """Generate natural-language decision narrative for each agent (D-10, D-11).
+
+    Uses worker model (already loaded) through governor for memory safety.
+    Skip-and-log on per-agent failures (Pitfall 5 from research).
+
+    Returns list of {"agent_id": str, "narrative": str} dicts that were written.
+    """
+    import asyncio as _asyncio
+
+    # Build per-agent decision summaries
+    agent_decisions_by_id: dict[str, dict[int, AgentDecision]] = {}
+    for round_num, decisions in all_decisions.items():
+        for agent_id, decision in decisions:
+            if agent_id not in agent_decisions_by_id:
+                agent_decisions_by_id[agent_id] = {}
+            agent_decisions_by_id[agent_id][round_num] = decision
+
+    persona_map = {p.id: p for p in personas}
+    narratives: list[dict] = []
+    errors: list[str] = []
+
+    async def _generate_one(agent_id: str) -> dict | None:
+        persona = persona_map.get(agent_id)
+        if not persona:
+            return None
+        rounds = agent_decisions_by_id.get(agent_id, {})
+        if not rounds:
+            return None
+
+        # Build prompt summarizing 3-round arc
+        lines = [
+            f"Agent: {persona.name} ({persona.bracket.value})",
+            f"Risk profile: {persona.risk_profile}",
+            "",
+        ]
+        for rn in sorted(rounds.keys()):
+            dec = rounds[rn]
+            flip_label = "none"
+            if rn > 1:
+                prev = rounds.get(rn - 1)
+                if prev:
+                    flip_label = compute_flip_type(prev.signal, dec.signal).value
+            lines.append(
+                f"Round {rn}: {dec.signal.value.upper()} "
+                f"(confidence: {dec.confidence:.2f}, sentiment: {dec.sentiment:.2f}) "
+                f"flip: {flip_label}"
+            )
+            if dec.cited_agents:
+                lines.append(f"  Cited: {', '.join(dec.cited_agents)}")
+
+        prompt = (
+            "Summarize this agent's 3-round decision arc in 2-3 sentences. "
+            "Note any signal changes and key influences. Be concise.\n\n"
+            + "\n".join(lines)
+        )
+
+        try:
+            async with governor:
+                response = await client.generate(
+                    model=model,
+                    prompt=prompt,
+                    system="You are a concise financial analyst narrator. Summarize agent decision arcs in 2-3 sentences.",
+                )
+                narrative_text = response.get("response", "").strip()
+                if narrative_text:
+                    return {"agent_id": agent_id, "narrative": narrative_text}
+                return None
+        except Exception:
+            logger.warning("narrative_generation_failed", agent_id=agent_id, exc_info=True)
+            return None
+
+    # Dispatch all agents concurrently through governor (governor provides throttling)
+    tasks = [_generate_one(agent_id) for agent_id in agent_decisions_by_id]
+    results = await _asyncio.gather(*tasks, return_exceptions=True)
+
+    for result in results:
+        if isinstance(result, dict):
+            narratives.append(result)
+        elif isinstance(result, Exception):
+            errors.append(str(result))
+
+    if errors:
+        logger.warning("narrative_generation_partial_failures", error_count=len(errors))
+
+    # Batch-write all successful narratives to Agent nodes
+    if narratives:
+        await graph_manager.write_decision_narratives(narratives)
+
+    return narratives
