@@ -1,151 +1,211 @@
-# Feature Landscape
+# Feature Research: v2.0 Engine Depth
 
 **Domain:** Multi-agent LLM-powered financial market simulation engine (local-first, consensus cascade)
-**Researched:** 2026-03-24
-**Comparable Systems:** TradingAgents, StockSim, TwinMarket, MiroFish-Offline, FCLAgent, AlphaAgents, OASIS, CrewAI finance agents
+**Researched:** 2026-03-31
+**Confidence:** HIGH
+**Scope:** v2.0 milestone features ONLY. v1 features (10 phases) are validated and shipped.
+
+## Existing v1 Foundation (Already Built)
+
+These are validated and will not be re-researched. Listed here to establish dependency roots for v2 features.
+
+- 100-agent swarm across 10 bracket archetypes with distinct risk profiles
+- 3-round iterative cascade (Initial Reaction, Peer Influence, Final Consensus Lock)
+- Dynamic influence topology via INFLUENCED_BY edges from citation/agreement patterns
+- Textual TUI: 10x10 agent grid, rationale sidebar, telemetry footer, bracket panel
+- Neo4j graph state with cycle-scoped indexes and batch writing
+- Seed rumor injection with entity extraction via orchestrator LLM
+- ResourceGovernor with TokenPool and 5-state governor machine
+- StateStore bridge (simulation writes, TUI reads snapshots at 200ms tick)
 
 ---
 
-## Table Stakes
+## Feature Landscape
 
-Features users expect from any credible multi-agent financial simulation. Missing any of these and the system feels like a toy.
+### Table Stakes (Users Expect These for v2)
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| **Heterogeneous agent personas** | Every framework (TradingAgents, TwinMarket, StockSim, MiroFish) uses distinct agent archetypes with unique risk profiles and behavioral logic. Homogeneous agents produce boring, unrealistic consensus. | Medium | AlphaSwarm already plans 10 bracket archetypes (Quants, Degens, Sovereigns, etc.). This is correct. Personas must include: risk tolerance, information bias, decision heuristic, and influence weight. |
-| **Multi-round iterative reasoning** | TradingAgents uses structured debate (bullish vs bearish researchers). TwinMarket runs multi-step BDI (Belief-Desire-Intention) loops. FCLAgent iterates trading decisions across time steps. Single-shot LLM calls produce shallow, undifferentiated outputs. | Medium | AlphaSwarm's 3-round cascade (Initial Reaction, Peer Influence, Final Consensus) is well-aligned with the field. The peer influence round is the differentiating middle step most systems skip. |
-| **Seed/scenario injection** | Every simulation needs a trigger event. MiroFish ingests documents to build knowledge graphs. TwinMarket injects market news. TradingAgents starts from a stock ticker + time window. Without a clear input mechanism, the system has no purpose. | Low | AlphaSwarm's "Seed Rumor" concept is solid. Must include entity extraction (who/what is affected) to ground agent reasoning. |
-| **Agent decision logging and rationale capture** | TradingAgents logs full chain-of-thought per agent. StockSim exports research data. AlphaAgents uses structured debate transcripts. Without logging, the simulation is a black box with no analytical value. | Low | Every agent response must be persisted with: agent ID, round number, input context, raw LLM output, parsed sentiment/action, and timestamp. Neo4j is well-suited for this. |
-| **Sentiment/position output per agent** | All surveyed systems produce per-agent outputs (buy/sell/hold, bullish/bearish, sentiment score). This is the atomic unit of simulation value. Without it, there is no data to analyze. | Low | Must be structured and machine-readable, not just free text. A normalized sentiment score (-1.0 to 1.0) plus a categorical action (BULLISH/BEARISH/NEUTRAL) plus free-text rationale. |
-| **Async/concurrent agent execution** | StockSim uses RabbitMQ for async coordination. ScaleSim addresses GPU memory for concurrent LLM serving. TradingAgents runs analyst teams concurrently. Sequential 100-agent execution would take hours. | High | AlphaSwarm's asyncio + dynamic semaphore approach is mandatory. Ollama's 16-parallel limit means batching in waves of 16. The ResourceGovernor (psutil-driven) is table stakes for local hardware. |
-| **Resource/memory management** | ScaleSim specifically addresses memory management for large-scale multi-agent LLM simulations. MiroFish-Offline documents hardware requirements (16-32GB RAM). Running 100 agents on 64GB without memory governance will OOM. | High | The dynamic semaphore + psutil monitoring at 90% threshold is exactly what the field demands. Must include: concurrency throttling, model-swap awareness (cold-load penalty for 70B is ~30s), and graceful degradation. |
-| **Configurable agent count and types** | Every framework allows adjusting population size and composition. Fixed-count simulations limit experimentation. | Low | AlphaSwarm should parameterize the 100-agent / 10-bracket split. Allow running 20-agent quick simulations for testing and 200-agent deep runs when hardware allows. |
-| **Structured output parsing** | TradingAgents, StockSim, and AlphaAgents all use structured output formats for agent decisions. Raw LLM text is unreliable for downstream aggregation. | Medium | Use JSON-mode or schema-constrained output from Ollama. Define a strict response schema: `{sentiment: float, action: str, confidence: float, rationale: str, cited_agents: list[str]}`. |
+Features that a "deeper simulation engine" milestone MUST deliver. Without these, v2 feels like polish, not substance.
 
-## Differentiators
+| Feature | Why Expected | Complexity | Dependencies on Existing | Notes |
+|---------|--------------|------------|--------------------------|-------|
+| **Live graph memory (rationale episodes)** | v1 writes decisions in batch after each round completes. Every serious simulation engine (Generative Agents, MiroFish, TwinMarket) stores agent reasoning as it happens, not post-hoc. Real-time persistence enables mid-simulation queries, crash recovery, and progressive graph analysis. Without this, Neo4j is a write-once dump, not a living memory. | MEDIUM | Extends `GraphStateManager.write_decisions()` and `StateStore` writes. Requires new Episode/Rationale node types in Neo4j schema. Must not block agent inference hot path. | Graphiti (Zep AI) pioneered bi-temporal episode ingestion in Neo4j -- events track both "when it happened" and "when it was recorded." AlphaSwarm's simpler need: write Decision nodes immediately per-agent instead of batch-per-round, plus add RationaleEpisode nodes linking Agent -> Round -> Rationale with timestamps. |
+| **Post-simulation report** | Every competing framework (MiroFish ReportAgent, TradingAgents chain-of-thought logs, StockSim export) provides structured post-simulation analysis. A simulation that produces 300 decisions across 3 rounds but no summary is a data dump, not an analytical tool. Users need a synthesized narrative. | MEDIUM | Reads from Neo4j (all Decision, Agent, Cycle, Entity nodes). Uses orchestrator LLM. Leverages existing `compute_bracket_summaries()` logic. | ReACT pattern (Thought-Action-Observation loop) is the right approach: the report agent thinks about what to analyze, queries Neo4j via Cypher tools, observes results, iterates. Output is structured markdown. Does NOT require LangChain/LangGraph -- implement a minimal ReACT loop with Ollama directly. |
+| **Agent interviews (post-sim Q&A)** | Stanford Generative Agents (Park et al. 2023) established agent interviews as the standard evaluation methodology. Their 100-evaluator study proved that interviews across 5 categories (self-knowledge, memory, planning, reactions, reflection) are how you validate simulation believability. MiroFish Step 5 implements this. Without interviews, users cannot probe WHY agents made specific decisions. | MEDIUM | Requires full persona context + all 3 rounds of that agent's decisions from Neo4j. Uses worker LLM (not orchestrator) with the agent's original system prompt restored. | The key insight from Generative Agents: interviews must reconstruct the agent's full memory context -- persona, all decisions across rounds, peer context received, entities reacted to. The agent answers "in character" using its original system prompt plus retrieved decision history as injected context. |
 
-Features that would set AlphaSwarm apart. Not universally expected, but high-value when present.
+### Differentiators (Competitive Advantage)
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| **Dynamic influence topology (graph-based)** | TwinMarket uses social network dynamics but with a simulated social media platform as the mechanism. TradingAgents has a fixed role hierarchy. AlphaSwarm's approach -- where INFLUENCED_BY edges form dynamically from citation/agreement patterns -- is novel and more realistic than static hierarchies. This is the single strongest differentiator. | High | Neo4j is the right choice here. Edges should carry: weight (agreement strength), cycle_id (round scoping), and direction. The topology should be queryable mid-simulation for analysis. No other surveyed system builds influence graphs from emergent agent behavior in real-time. |
-| **Real-time TUI dashboard with agent grid** | StockSim has interactive HTML charts. MiroFish-Offline has a Vue.js frontend. TradingAgents has no visualization. Most systems are batch-oriented with post-hoc analysis. A live 10x10 grid showing agent states updating in real-time during simulation is visually compelling and operationally useful for debugging. | High | The snapshot-based 200ms tick rendering is the right approach. Show: agent color-coded by sentiment, selected agent rationale in sidebar, hardware telemetry in footer. This is a differentiator because most competing systems have zero real-time visualization. |
-| **Consensus cascade with peer influence** | TradingAgents has debate between bullish/bearish researchers but it is role-based, not population-based. TwinMarket has social influence but through a simulated social media platform. AlphaSwarm's Round 2 (Peer Influence) where agents read neighbors' Round 1 outputs and adjust is a distinct mechanism. The cascade produces measurably different final consensus than single-round systems. | Medium | The peer influence round must inject actual neighbor opinions into the agent's prompt context. Use Neo4j to query cycle-scoped neighbor sentiments. This is where the graph topology pays off. |
-| **Simulation replay and time-travel** | Audit trail frameworks (FINOS Agent Decision Audit) emphasize the ability to replay agent decisions. Most simulation frameworks run forward-only. The ability to re-examine Round 2 decisions with different neighbor inputs enables counterfactual analysis. | Medium | Neo4j's cycle-scoped edges make this feasible. Store full state snapshots per round. Replay does not need to re-run LLM inference -- just re-render stored decisions with the stored topology. |
-| **Bracket-level aggregate analytics** | No surveyed system groups agents into meaningful archetypes and then reports archetype-level consensus. TradingAgents has roles but not population brackets. Showing "Quants are 80% bearish while Degens are 90% bullish" tells a story that per-agent data cannot. | Low | Aggregate sentiment by bracket after each round. Display in TUI as bracket summary bars or heatmap. Low implementation cost, high analytical value. |
-| **Entity extraction from seed rumor** | MiroFish builds knowledge graphs from seed documents. Most other systems take structured inputs (ticker symbols, time windows). Extracting entities (companies, people, sectors, geopolitical factors) from a free-text rumor and injecting them into agent prompts is more flexible and narrative-driven. | Medium | Use llama4:70b orchestrator for NER on the seed rumor. Extract: affected entities, sector, sentiment polarity of the rumor itself, and potential second-order effects. Feed extracted entities into agent prompts so agents reason about specific things, not vague text. |
-| **Miro network visualization (Phase 2)** | No surveyed system exports to an external collaboration/visualization tool. Miro board showing agent nodes, influence edges, and sentiment coloring would be uniquely shareable and presentable. | Medium | Correctly deferred to Phase 2. The Miro API v2 batcher with 2-second buffering is the right approach. Bulk-create nodes, then bulk-create edges. Export final-round topology only to minimize API calls. |
-| **Prompt injection for scenario variants** | Beyond seed rumor injection, the ability to inject mid-simulation shocks ("Fed announces emergency rate hike during Round 2") would enable stress testing. No surveyed system supports mid-simulation event injection. | Low | Add an optional Round 2 "shock event" parameter that gets prepended to all agent prompts in that round. Simple to implement, high analytical value. |
-| **Exportable simulation reports** | MiroFish-Offline generates structured reports via a ReportAgent. StockSim exports research data. Post-simulation human-readable reports summarizing the consensus cascade, key disagreements, and bracket-level outcomes add polish and utility. | Medium | Generate a markdown or HTML report after simulation completes. Include: seed rumor, entity extraction results, per-round bracket summaries, final consensus, notable outlier agents, and the influence topology summary. |
+Features that set AlphaSwarm apart from MiroFish, TwinMarket, and OASIS. Not required for a complete v2, but valuable.
 
-## Anti-Features
+| Feature | Value Proposition | Complexity | Dependencies on Existing | Notes |
+|---------|-------------------|------------|--------------------------|-------|
+| **Richer agent interactions (social posts/reactions)** | OASIS implements 21 social actions (post, like, comment, repost, follow). TwinMarket uses forum-style post/upvote/repost with hot-score ranking. AlphaSwarm v1's peer influence is implicit (agents see peer decisions, not explicit social content). Making rationale visible as "posts" that peers explicitly react to creates emergent social dynamics -- opinion leader emergence, information cascades, behavioral polarization via homophily. | HIGH | Extends Round 2-3 peer influence pipeline. Requires new Post/Reaction node types in Neo4j. Modifies `_dispatch_round()` and `_format_peer_context()` to include social post content. Increases prompt token count per agent. | CRITICAL CONSTRAINT: OASIS achieves rich interactions at cloud scale (4,000+ inference calls). AlphaSwarm's 300-call budget on M1 Max means social interactions must be lightweight. The approach: agents produce a "public rationale post" as part of their decision output (zero extra inference calls), peers consume top-K ranked posts (ranked by influence weight) as additional context. Reactions are implicit -- agreement/citation patterns already captured by existing CITED edges. Do NOT build a full social media platform layer. |
+| **Dynamic persona generation (entity-aware)** | MiroFish chains ontology_generator + oasis_profile_generator to create situation-specific personas from seed text. Recent research (Population-Aligned Persona Generation, 2025) shows that personas grounded in the specific scenario produce more diverse, realistic responses than generic archetypes. AlphaSwarm v1 uses static bracket templates with round-robin modifiers -- effective but not adaptive to the seed rumor's content. | MEDIUM | Consumes `SeedEvent.entities` from seed injection pipeline. Extends `generate_personas()` in config.py. Uses orchestrator LLM to generate entity-aware modifier text per bracket. Must preserve the 10-bracket structure (100 agents, same counts). | The design: after entity extraction, the orchestrator generates 1-2 sentences of entity-specific context per bracket (e.g., for a "Tesla recalls vehicles" rumor, Quants get "Tesla's P/E ratio is 45x with 2.3M vehicles delivered last quarter", Degens get "TSLA options chain shows 40% IV crush potential"). These modifier sentences are injected into the existing system_prompt_template. The bracket archetype stays fixed; only the situational modifier changes. One orchestrator call generates all 10 bracket modifiers in a single JSON response. |
+| **Narrative edge formation** | MiroFish builds narrative connections between agent actions and knowledge graph entities during simulation. AlphaSwarm v1 has INFLUENCED_BY edges (citation-based) but no edges connecting decisions to the specific entities they reference. Adding REFERENCES edges from Decision nodes to Entity nodes would enable queries like "Which agents were most influenced by the Tesla entity?" and "Did Quants focus on Tesla while Macro focused on the EV sector?" | LOW | Extends `write_decisions()` to create REFERENCES edges. Requires entity mention detection in rationale text (simple keyword matching against extracted entities, not a second LLM call). | Low complexity because it piggybacks on existing entity extraction and decision writing. High analytical value for the post-simulation report agent. |
+| **Reflection synthesis** | Generative Agents triggers reflections when accumulated importance scores exceed a threshold, producing higher-level insights stored as tree-structured memories. AlphaSwarm could synthesize per-bracket "reflections" after Round 2 -- bracket-level consensus patterns like "Quants converged on SELL after seeing Sovereigns' bearish positioning" -- and inject these as additional context in Round 3. | HIGH | Would add an extra orchestrator LLM call between Round 2 and Round 3. Extends prompt context for Round 3 agents. New Reflection node type in Neo4j. | Marked HIGH complexity because it adds an orchestrator inference step mid-simulation (model swap overhead ~30s) and increases Round 3 prompt tokens. Powerful but expensive on M1 Max. Defer unless live graph memory + report + interviews ship cleanly. |
+| **Interview-driven agent profile refinement** | PersonaAgent (2025) demonstrates test-time persona alignment: after receiving feedback, the agent iteratively rewrites its persona prompt. For AlphaSwarm, interviews could surface persona weaknesses (e.g., a Quant agent giving emotional responses) and feed corrections back into the system prompt template. | LOW | Depends on Agent Interviews being built first. Modifies `BRACKET_MODIFIERS` in config.py based on interview findings. | This is a development workflow feature, not a runtime feature. After running a simulation and interviewing agents, the developer manually refines prompts. No automation needed initially. |
 
-Features to explicitly NOT build. These are traps that look valuable but add complexity without matching AlphaSwarm's core value proposition.
+### Anti-Features (Commonly Requested, Explicitly Not Building)
 
-| Anti-Feature | Why Avoid | What to Do Instead |
-|--------------|-----------|-------------------|
-| **Real market data integration** | StockSim and TradingAgents integrate live/historical market data feeds. AlphaSwarm is a *rumor simulation engine*, not a trading system. Adding real data feeds creates a massive integration burden, data licensing issues, and shifts the product away from its core value (simulating narrative-driven reactions). | Keep the system purely narrative-driven. The seed rumor IS the data. If users want to ground rumors in reality, they can write factually accurate rumors. |
-| **Actual trade execution or portfolio management** | TradingAgents and CrewAI finance agents support actual trade execution. AlphaSwarm simulates *reactions*, not *transactions*. There is no order book, no portfolio, no P&L. Adding these would triple the scope. | Output is sentiment and consensus, not trades. If a user wants to act on the simulation output, that is their decision outside the system. |
-| **Backtesting against historical data** | StockSim's dual-mode backtesting is a major feature. But AlphaSwarm simulates forward reactions to novel rumors, not historical replay. Backtesting requires historical data (which is out of scope) and a fundamentally different architecture. | The "replay" feature covers re-examining past simulations. That is sufficient. Forward simulation only. |
-| **Fine-tuned or custom-trained LLMs** | Some research systems fine-tune models for financial tasks. AlphaSwarm uses off-the-shelf Ollama models. Fine-tuning adds weeks of work, requires training data, and couples the system to specific model versions. | Use prompt engineering and structured output parsing. The bracket archetype personas are defined in prompts, not model weights. This is more flexible and maintainable. |
-| **Multi-user / collaborative mode** | OASIS scales to 1M agents with distributed infrastructure. AlphaSwarm is local-first, single-operator. Adding multi-user support would require networking, auth, state synchronization -- none of which serve the core use case. | Single operator, single machine. The TUI is for one person watching a simulation unfold. |
-| **GPU inference or cloud LLM APIs** | TradingAgents supports OpenAI, Anthropic, etc. AlphaSwarm is deliberately local-only via Ollama on M1 Max. Adding cloud APIs creates cost, latency variability, and dependency on external services. | Ollama-only. CPU/Metal inference. The ResourceGovernor is designed for local memory constraints. |
-| **Complex order book / market microstructure** | StockSim and FCLAgent implement limit order books, slippage, latency modeling. AlphaSwarm agents express sentiment, not orders. There is no matching engine. | Agents output sentiment + rationale. The consensus cascade IS the "market mechanism." No order book needed. |
-| **Reinforcement learning or adaptive agents** | Some ABM systems use RL for agent adaptation. LLM agents with prompt-based personas are sufficient for AlphaSwarm's 3-round horizon. RL adds training loops, reward function design, and convergence concerns. | Agents are stateless across simulations (but stateful within a simulation's 3 rounds via Neo4j). Persona consistency comes from prompts, not learned behavior. |
+Features that seem like natural v2 additions but create problems. These traps are more dangerous now because v1 is working and the temptation to over-scope is real.
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| **Full OASIS social media simulation layer** | OASIS has 21 actions, recommendation systems, follower graphs, trending algorithms. Looks like the "right" way to do social interactions. | OASIS requires 4,000+ LLM calls per simulation at cloud scale. The RecSys engine alone is complex. Adding follow/unfollow/mute/trending to 100 local agents on M1 Max would 10x inference costs and 5x codebase complexity with marginal simulation quality improvement. | Lightweight social posts: agents include a "public rationale" in their decision output. Peers see top-K ranked posts. Implicit reactions via existing CITED edges. Zero extra inference calls. |
+| **Zep Cloud or external memory service** | Zep/Graphiti achieves 300ms P95 retrieval with hybrid semantic+keyword+graph search. Seems like the best memory layer. | Violates local-first constraint. SaaS dependency. AlphaSwarm's 100-agent, 3-round structure is simple enough that Neo4j direct queries (already under 5ms with composite indexes) outperform any memory abstraction layer. | Direct Neo4j Cypher queries. The existing schema with cycle-scoped indexes is already performant. Add Episode nodes for live memory, not an external service. |
+| **LangChain/LangGraph dependency for ReACT report agent** | LangGraph's `create_react_agent` is the standard way to build ReACT agents. Community support, battle-tested. | Adds a heavyweight dependency graph (LangChain core + LangGraph + LangSmith tracing). AlphaSwarm's Ollama client is already built. The ReACT loop is 40 lines of code: prompt -> parse thought/action -> execute tool -> inject observation -> repeat. | Minimal hand-rolled ReACT loop using existing `OllamaClient.chat()`. Define 3-4 Cypher query tools as Python functions. No framework dependency. |
+| **Vector embeddings for agent memory retrieval** | Generative Agents uses embedding-based relevance scoring for memory retrieval. Seems necessary for "real" agent memory. | Requires an embedding model loaded alongside the worker/orchestrator models. Ollama's 2-model limit means either: (a) swap models constantly (30s cold-load penalty each time), or (b) use a separate embedding service (violates local-first simplicity). For 100 agents with 3 rounds, the total memory corpus is ~300 entries -- small enough for exact Cypher queries. | Direct Cypher traversal queries filtered by cycle_id, agent_id, and round. No embeddings needed for a 300-decision corpus. |
+| **Autonomous agent-to-agent conversations** | Generative Agents has agents talk to each other naturally. OASIS has comments and group chats. Seems like the next step for "richer interactions." | Each conversation is 2+ additional LLM calls per agent pair. With 100 agents and even 5% interaction rate, that is 250 extra calls. On M1 Max with ~2-3 tok/s per agent, this adds 30+ minutes per round. The consensus cascade already captures inter-agent influence through peer context injection. | Peer context injection (already built) IS the conversation mechanism. Agents "hear" each other through formatted peer decisions. Making this a "post" format adds narrative richness without the compute cost of actual back-and-forth dialogue. |
+| **Real-time streaming report generation** | Generating the report while the simulation runs, updating as each round completes. | The report agent needs the FULL simulation context (all 3 rounds, all entities, all influence edges) to generate a coherent analysis. Partial reports after Round 1 would be misleading. The orchestrator model also cannot be loaded during worker model inference (2-model limit). | Post-simulation batch report. Run after Round 3 completes and worker model is unloaded. Load orchestrator, run ReACT loop against Neo4j, generate markdown, unload orchestrator. |
 
 ## Feature Dependencies
 
 ```
-Seed Rumor Injection
-  --> Entity Extraction (entities ground agent prompts)
-    --> Agent Persona Prompts (entities + bracket archetype = contextualized reasoning)
-      --> Round 1: Initial Reaction (each agent responds independently)
-        --> Neo4j Persistence (store Round 1 outputs + agent metadata)
-          --> Round 2: Peer Influence (query neighbor sentiments from Neo4j)
-            --> Dynamic Influence Topology (INFLUENCED_BY edges form from citations)
-              --> Round 3: Final Consensus Lock (agents read updated topology)
-                --> Bracket-Level Aggregation (compute per-archetype consensus)
-                  --> TUI Dashboard (render grid, sidebar, telemetry)
-                  --> Simulation Report (export results)
-                  --> Miro Visualization [Phase 2] (export topology to Miro board)
+[Live Graph Memory] (GRAPH-01, GRAPH-02, GRAPH-03)
+    |
+    |-- extends --> [Neo4j write_decisions] (existing)
+    |-- enables --> [Post-Simulation Report] (report queries live graph data)
+    |-- enables --> [Agent Interviews] (interviews query decision history)
+    |
+    v
+[Post-Simulation Report] (REPORT-01, REPORT-02, REPORT-03)
+    |
+    |-- requires --> [Live Graph Memory] (must read rationale episodes)
+    |-- requires --> [Entity nodes in Neo4j] (existing from seed injection)
+    |-- uses --> [Orchestrator LLM] (ReACT loop via ollama-python)
+    |
+    v
+[Agent Interviews] (INT-01, INT-02, INT-03)
+    |
+    |-- requires --> [Live Graph Memory] (reconstruct decision history)
+    |-- requires --> [Agent Personas] (existing system prompts)
+    |-- uses --> [Worker LLM] (agent responds in character)
+    |
+    v
+[Richer Agent Interactions] (SOCIAL-01, SOCIAL-02)
+    |
+    |-- requires --> [Live Graph Memory] (posts stored as episodes)
+    |-- extends --> [_dispatch_round / _format_peer_context] (existing)
+    |-- extends --> [Neo4j schema] (Post nodes, REACTED_TO edges)
+    |
+    v
+[Dynamic Persona Generation] (PERSONA-01, PERSONA-02)
+    |
+    |-- requires --> [SeedEvent.entities] (existing from seed injection)
+    |-- extends --> [generate_personas() in config.py] (existing)
+    |-- uses --> [Orchestrator LLM] (generate entity-aware modifiers)
+    |-- independent of --> [Live Graph Memory, Report, Interviews]
 
-Resource Governor (parallel dependency -- must exist before any LLM calls)
-  --> Async Batch Inference (waves of 16 via Ollama)
-    --> All three cascade rounds depend on this
-
-Structured Output Parsing (parallel dependency -- needed for all agent outputs)
-  --> Sentiment aggregation, topology formation, TUI rendering all consume parsed output
+[Narrative Edges] (optional, enhances Report)
+    |
+    |-- requires --> [Entity nodes] (existing)
+    |-- extends --> [write_decisions] (add REFERENCES edges)
+    |-- enhances --> [Post-Simulation Report] (richer entity-level queries)
 ```
 
-## MVP Recommendation
+### Dependency Notes
 
-**Prioritize (Phase 1 -- Core Engine):**
+- **Live Graph Memory must come first:** Both the Report agent and Interview system depend on being able to query per-agent, per-round rationale episodes from Neo4j. Without live graph memory, these features would need to reconstruct context from the in-memory `SimulationResult` object, which is fragile and unavailable after the simulation process exits.
+- **Dynamic Persona Generation is independent:** It only depends on the existing seed injection pipeline and can be built in parallel with any other v2 feature. It modifies the simulation INPUT (personas), not the simulation PROCESS or OUTPUT.
+- **Richer Interactions depends on Live Graph Memory:** Social posts need to be stored as graph episodes so they can be recommended to peers and later queried by the report agent.
+- **Report before Interviews:** The report agent validates that the Neo4j query tools work correctly against the enriched graph. The same query patterns are reused for interview context reconstruction.
+- **Narrative Edges enhance Report but are optional:** The report agent can function without entity-level REFERENCES edges by doing text-match against rationale strings. REFERENCES edges make the queries faster and more precise.
 
-1. **Seed Rumor Injection + Entity Extraction** -- the simulation starts here. Without it, nothing else matters.
-2. **Heterogeneous Agent Personas** -- 10 bracket archetypes with distinct risk profiles. This is the atomic unit of simulation diversity.
-3. **3-Round Consensus Cascade** -- Initial Reaction, Peer Influence, Final Consensus Lock. This is the core product.
-4. **Async Concurrent Execution + ResourceGovernor** -- without this, 100 agents on M1 Max is not viable.
-5. **Neo4j Persistence** -- cycle-scoped sentiment storage enables Round 2 peer reads and post-simulation analysis.
-6. **Structured Output Parsing** -- reliable JSON output from agents is load-bearing for everything downstream.
-7. **Agent Decision Logging** -- every agent response persisted with full context. Non-negotiable for a simulation engine.
-8. **Dynamic Influence Topology** -- INFLUENCED_BY edges forming from citation patterns. This is the primary differentiator and should be in v1.
+## Phase Recommendation (v2 Milestone)
 
-**Prioritize (Phase 1 -- Interface):**
+### Phase 11: Live Graph Memory (GRAPH-01, GRAPH-02, GRAPH-03) -- Build First
 
-9. **TUI Dashboard** -- 10x10 agent grid, rationale sidebar, hardware telemetry footer. The visual is what makes the simulation tangible.
-10. **Bracket-Level Aggregation** -- low-cost, high-value analytics layer on top of per-agent data.
+Foundation for all other v2 features. Enriches Neo4j from a batch write-dump into a living simulation memory.
 
-**Defer to Phase 2:**
+- [ ] GRAPH-01: Per-agent real-time decision writing (move from batch to immediate writes)
+- [ ] GRAPH-02: RationaleEpisode nodes with timestamps, round context, peer context received
+- [ ] GRAPH-03: Narrative REFERENCES edges from Decision nodes to Entity nodes
 
-- **Miro Visualization** -- API-constrained, requires batcher. Core engine must be solid first. (Correctly identified in PROJECT.md)
-- **Simulation Replay** -- valuable but not blocking. Store the data in Phase 1; build the replay UI in Phase 2.
-- **Exportable Reports** -- nice-to-have polish. The TUI is the Phase 1 interface.
-- **Mid-Simulation Shock Injection** -- interesting but adds complexity to the cascade flow. Phase 2 enhancement.
-- **Configurable Agent Count** -- hardcode 100 agents / 10 brackets for Phase 1. Parameterize later.
+**Why first:** Everything else reads from the enriched graph. Without this, Report and Interviews must reconstruct context from in-memory objects.
 
-**Never Build:**
+### Phase 12: Post-Simulation Report (REPORT-01, REPORT-02, REPORT-03) -- Build Second
 
-- Real market data feeds, trade execution, backtesting, fine-tuned models, multi-user mode, GPU/cloud inference, order book microstructure, or RL-based adaptive agents.
+Validates the Neo4j query tools that Interviews will also use. Produces the first tangible v2 output.
 
-## v2 Features (Adapted from MiroFish/OASIS Research — 2026-03-28)
+- [ ] REPORT-01: Minimal ReACT loop (Thought-Action-Observation) using OllamaClient
+- [ ] REPORT-02: Cypher query tools (bracket summaries, influence topology, entity analysis, shift metrics)
+- [ ] REPORT-03: Structured markdown report output with CLI integration
 
-Deep investigation of [MiroFish](https://github.com/666ghj/MiroFish) (swarm intelligence prediction engine, 44.9k stars) and [OASIS](https://github.com/camel-ai/oasis) (social media simulation engine by CAMEL-AI) identified patterns adaptable to AlphaSwarm's local-first constraints.
+**Why second:** The ReACT loop and Cypher tools are reusable. Building them for the report agent first validates the pattern before applying it to interviews.
 
-**What MiroFish does that we don't (yet):**
-- Automated pipeline from raw documents to entity extraction to persona generation to simulation to report
-- Social media simulation substrate (agents post, like, comment, follow — consensus emerges organically)
-- Real-time knowledge graph updates during simulation (agent actions feed back into the graph as living memory)
-- Post-simulation ReACT report agent with tool-use for graph querying
-- Post-simulation agent interviews (talk to any agent about their experience)
-- Rich D3.js browser visualization (knowledge graphs, streaming action logs, charts)
+### Phase 13: Agent Interviews (INT-01, INT-02, INT-03) -- Build Third
 
-**What we decided NOT to adopt:**
-- OASIS engine dependency — designed for cloud LLMs, ~4,000+ inference calls per simulation (vs our ~300). Prohibitive for local hardware
-- Zep Cloud — hosted SaaS for knowledge graph memory. Violates local-first constraint. Neo4j is the right choice
-- Flask + Vue web stack — heavier than our Textual TUI, doesn't match the terminal-native design
-- File-based IPC — in-process asyncio is cleaner than MiroFish's JSON polling between Flask and simulation process
+Interactive post-simulation Q&A with any agent. Reuses query tools from Report phase.
 
-**Key insight:** OASIS has zero real-time visualization. No TUI, no dashboard, no streaming updates. All analysis is post-hoc matplotlib scripts run against SQLite dumps. AlphaSwarm's live Textual TUI is a genuine differentiator.
+- [ ] INT-01: Agent context reconstruction (persona + decisions + peer context from Neo4j)
+- [ ] INT-02: Conversational interview loop using worker LLM with agent's system prompt
+- [ ] INT-03: TUI integration (interview mode accessible from agent grid)
 
-| Adapted Feature | Source | AlphaSwarm Phase |
-|----------------|--------|-----------------|
-| Agent interviews (post-simulation Q&A) | MiroFish Step 5 | Phase 11 |
-| Live graph memory (real-time Neo4j episodes) | MiroFish zep_graph_memory_updater | Phase 12 |
-| ReACT report generation | MiroFish report_agent.py | Phase 13 |
-| Social influence via rationale posts | OASIS social platform mechanics | Phase 14 |
-| Dynamic persona generation from seed text | MiroFish ontology_generator + oasis_profile_generator | Phase 15 |
+**Why third:** Reuses GRAPH query patterns and worker LLM infrastructure. The interview is essentially "load this agent's full context and let the user chat with it."
+
+### Phase 14: Richer Agent Interactions (SOCIAL-01, SOCIAL-02) -- Build Fourth
+
+Adds social dynamics to the consensus cascade. Most complex v2 feature.
+
+- [ ] SOCIAL-01: "Public rationale post" field in AgentDecision output + Post nodes in Neo4j
+- [ ] SOCIAL-02: Top-K post ranking and injection into peer context for Rounds 2-3
+
+**Why fourth:** This modifies the core simulation loop. All foundational features (live graph, report, interviews) should be stable before changing the cascade pipeline.
+
+### Phase 15: Dynamic Persona Generation (PERSONA-01, PERSONA-02) -- Build Fifth (or parallel)
+
+Entity-aware persona enrichment. Independent of other v2 features.
+
+- [ ] PERSONA-01: Orchestrator generates entity-specific bracket modifiers from SeedEvent
+- [ ] PERSONA-02: Modifier injection into generate_personas() pipeline
+
+**Why fifth/parallel:** Independent dependency chain. Can be built at any time after Phase 11 starts. Placed last because it modifies simulation INPUT quality, not simulation PROCESS depth.
+
+## Feature Prioritization Matrix
+
+| Feature | User Value | Implementation Cost | Risk | Priority |
+|---------|------------|---------------------|------|----------|
+| Live Graph Memory | HIGH | MEDIUM | LOW | P1 |
+| Post-Simulation Report | HIGH | MEDIUM | MEDIUM | P1 |
+| Agent Interviews | HIGH | MEDIUM | LOW | P1 |
+| Dynamic Persona Generation | MEDIUM | LOW-MEDIUM | LOW | P2 |
+| Richer Agent Interactions | MEDIUM | HIGH | HIGH | P2 |
+| Narrative Edges | MEDIUM | LOW | LOW | P2 |
+| Reflection Synthesis | LOW | HIGH | HIGH | P3 |
+| Interview-Driven Refinement | LOW | LOW | LOW | P3 |
+
+**Priority key:**
+- P1: Must have for v2.0 milestone. These ARE the milestone.
+- P2: Should have. Add if P1 features ship cleanly without schedule pressure.
+- P3: Nice to have. Future consideration or organic development-time improvements.
+
+## Competitor Feature Analysis (v2 Context)
+
+| Feature | MiroFish | OASIS | TwinMarket | Generative Agents | AlphaSwarm v2 |
+|---------|----------|-------|------------|-------------------|---------------|
+| **Agent Interviews** | Step 5: post-sim Q&A with full memory context | Not supported | Not supported | 5-category interview evaluation with 100 human evaluators | Reconstruct agent context from Neo4j + chat with worker LLM in character |
+| **Live Graph Memory** | Zep Cloud + Neo4j real-time updates via zep_graph_memory_updater | SQLite batch dumps | In-memory state only | Memory stream with recency/importance/relevance scoring | Direct Neo4j episode writes per-agent, per-round. No external service. |
+| **Post-Sim Report** | ReACT report_agent.py with tool-use | Post-hoc matplotlib scripts | No report feature | No automated report | Minimal ReACT loop with Cypher tools, markdown output |
+| **Social Interactions** | OASIS social media substrate (posts, likes, comments) | 21 social actions, RecSys, follower graphs | Forum posts + hot-score ranking + reposts | Natural conversation between agents | Lightweight: public rationale posts + top-K ranking. Zero extra inference calls. |
+| **Dynamic Personas** | ontology_generator + oasis_profile_generator pipeline | LLM-generated user profiles | Basic trader archetypes | Two-hour interview-based agent creation | Entity-aware modifier injection into existing bracket templates. Single orchestrator call. |
+| **Influence Graph** | Static knowledge graph, no dynamic influence | Follower graph (explicit, not emergent) | Social network with homophily | No influence tracking | INFLUENCED_BY edges from citation patterns + REFERENCES to entities. Dynamic and emergent. |
+
+**Key insight:** AlphaSwarm's advantage is the combination of dynamic influence topology + live TUI + local-first constraints. No competitor has all three. MiroFish has the richest feature set but depends on cloud services (Zep, OpenAI). OASIS has the deepest social simulation but requires massive compute. AlphaSwarm's niche is deep simulation quality at local scale.
 
 ## Sources
 
-- [TradingAgents - GitHub](https://github.com/TauricResearch/TradingAgents) -- Multi-agent LLM trading framework with debate mechanism (HIGH confidence)
-- [StockSim - GitHub](https://github.com/harrypapa2002/StockSim) -- Dual-mode LLM financial market simulator (HIGH confidence)
-- [TwinMarket - arXiv](https://arxiv.org/abs/2502.01506) -- Scalable behavioral/social financial simulation, ICLR 2025 (HIGH confidence)
-- [MiroFish - GitHub](https://github.com/666ghj/MiroFish) -- Swarm intelligence prediction engine with OASIS simulation, 44.9k stars (HIGH confidence, deep-researched 2026-03-28)
-- [MiroFish-Offline - GitHub](https://github.com/nikmcfly/MiroFish-Offline) -- Offline multi-agent simulation with Neo4j + Ollama (HIGH confidence)
-- [OASIS - GitHub](https://github.com/camel-ai/oasis) -- Open Agent Social Interaction Simulations by CAMEL-AI, 1M agents, supports Ollama via ModelFactory but requires tool-calling models (HIGH confidence, deep-researched 2026-03-28)
-- [AlphaAgents - arXiv](https://arxiv.org/abs/2508.11152) -- BlackRock multi-agent LLM portfolio construction (HIGH confidence)
-- [FCLAgent - arXiv](https://arxiv.org/abs/2510.12189) -- Fundamental-Chartist-LLM agent for market simulation (HIGH confidence)
-- [ScaleSim - arXiv](https://arxiv.org/html/2601.21473) -- Memory management for large-scale multi-agent LLM serving (MEDIUM confidence)
-- [CrewAI Finance Agents](https://medium.com/@sid23/ai-powered-stock-trading-agents-using-crewai-8acc605b9dfa) -- CrewAI trading agent examples (MEDIUM confidence -- blog posts, not primary source)
-- [FINOS Agent Decision Audit](https://air-governance-framework.finos.org/mitigations/mi-21_agent-decision-audit-and-explainability.html) -- Audit and explainability standards for agent decisions (HIGH confidence)
-- [Emergent Mind - Multi-Agent LLM Financial Trading](https://www.emergentmind.com/topics/multi-agent-llm-financial-trading) -- Topic overview and paper aggregation (MEDIUM confidence)
+- [Generative Agents: Interactive Simulacra of Human Behavior (Park et al. 2023)](https://arxiv.org/abs/2304.03442) -- Interview evaluation methodology, memory stream with recency/importance/relevance retrieval, reflection synthesis. The foundational paper for agent interviews. (HIGH confidence)
+- [OASIS: Open Agent Social Interaction Simulations (CAMEL-AI)](https://github.com/camel-ai/oasis) -- 21 social actions, RecSys-driven information propagation, hot-score post ranking. Source for social interaction patterns. (HIGH confidence)
+- [TwinMarket: Scalable Behavioral and Social Simulation for Financial Markets](https://arxiv.org/html/2502.01506v2) -- Forum-style social posts, hot-score ranking, information propagation chains, opinion leader emergence. Source for lightweight social dynamics. (HIGH confidence)
+- [Graphiti: Knowledge Graph Memory for an Agentic World (Neo4j/Zep)](https://neo4j.com/blog/developer/graphiti-knowledge-graph-memory/) -- Bi-temporal episode model, incremental entity resolution, Neo4j-backed knowledge graph memory. Source for live graph memory patterns. (MEDIUM confidence -- blog post, architecture validated via GitHub repo)
+- [Neo4j Agent Memory (neo4j-labs)](https://github.com/neo4j-labs/agent-memory) -- Episodic/semantic/procedural memory patterns in Neo4j. Graph schema recommendations for agent memory. (HIGH confidence)
+- [Modeling Agent Memory in Neo4j (Alex Gilmore, Neo4j Dev Blog)](https://medium.com/neo4j/modeling-agent-memory-d3b6bc3bb9c4) -- Episodic memory as question-answer pairs, semantic memory as entity-relationship graphs, temporal memory with versioned nodes. (HIGH confidence)
+- [ReAct Agent Pattern (LangChain Tutorials)](https://langchain-tutorials.github.io/langchain-react-agent-pattern-2026/) -- Thought-Action-Observation loop implementation, tool definition patterns. (MEDIUM confidence)
+- [Population-Aligned Persona Generation (2025)](https://arxiv.org/abs/2509.10127) -- Three-stage pipeline for generating personas from real-world data. Source for dynamic persona generation patterns. (MEDIUM confidence -- preprint)
+- [PersonaAgent: LLM Agents Meet Personalization (2025)](https://arxiv.org/abs/2506.06254) -- Test-time persona alignment, episodic+semantic memory for persona context. Source for entity-aware persona enrichment. (MEDIUM confidence -- preprint)
+- [MiroFish (GitHub, 44.9k stars)](https://github.com/666ghj/MiroFish) -- ReACT report agent, post-sim agent interviews, OASIS social integration, Zep graph memory. Primary source for v2 feature inspiration. (HIGH confidence, deep-researched 2026-03-28)
+- [TradingAgents: Multi-Agent LLM Financial Trading](https://github.com/TauricResearch/TradingAgents) -- Structured debate, chain-of-thought logging, hierarchical report writing. (HIGH confidence)
+- [Generative Agent Simulations of 1,000 People (Stanford, 2024)](https://arxiv.org/pdf/2411.10109) -- Two-hour interview-based agent creation, 85% response replication accuracy. (HIGH confidence)
+
+---
+*Feature research for: AlphaSwarm v2.0 Engine Depth*
+*Researched: 2026-03-31*

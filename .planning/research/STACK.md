@@ -1,260 +1,317 @@
-# Technology Stack
+# Stack Research: v2.0 Engine Depth
 
-**Project:** AlphaSwarm
-**Researched:** 2026-03-24
+**Domain:** Multi-agent financial simulation -- post-simulation interviews, live graph memory, report generation, social interactions, dynamic personas
+**Researched:** 2026-03-31
+**Confidence:** HIGH (existing stack validated; additions are incremental)
 
-## Critical Findings Before Stack Decisions
+## Scope
 
-### Ruflo v3.5 Is NOT a Python Library
+This document covers ONLY the stack additions and changes needed for v2.0 Engine Depth features. The validated v1 stack (Python 3.11+, asyncio, ollama >=0.6.1, neo4j >=5.28, textual >=8.1.1, pydantic, structlog, psutil, httpx, backoff) is NOT re-evaluated. See the original STACK.md research from 2026-03-24 for v1 rationale.
 
-The CLAUDE.md lists "Ruflo v3.5 (Hierarchical Swarm logic)" as the orchestration layer. **This is incorrect for this project.** Ruflo (formerly Claude Flow) is a Node.js/TypeScript enterprise platform for orchestrating Claude Code agents via MCP. It is distributed as npm packages, uses WASM kernels written in Rust, and has no Python SDK or API.
+## Critical Finding: qwen3.5 Tool Calling Is Broken
 
-**Recommendation:** Replace Ruflo with a custom Python orchestration layer. The swarm mechanics in AlphaSwarm (batched inference, 3-round cascade, influence topology) are domain-specific enough that no off-the-shelf multi-agent framework fits cleanly. Build a lightweight `SwarmOrchestrator` class using native `asyncio` primitives. This is ~300 lines of code, not a framework dependency.
+**Impact:** REPORT-01 (ReACT report agent) cannot use Ollama's native tool calling with qwen3.5.
 
-**Confidence:** HIGH -- verified via GitHub repo, PyPI (no Python package exists), and Ruflo v3.5 release notes.
+The Ollama tool calling pipeline sends Qwen 3 Hermes-style JSON tool schemas, but qwen3.5 was trained on the Qwen3-Coder XML format. This mismatch causes tool calls to be printed as text instead of executed, and unclosed `<think>` tags corrupt multi-turn conversations when thinking is enabled. A partial fix was merged (PR #14603, 2026-03-04) but community reports confirm tool calling still fails in production setups.
 
-### Llama 4 70B Does Not Exist
+**Resolution:** Implement the ReACT report agent using prompt-based tool dispatching (Simon Willison pattern) instead of Ollama's native `tools=` parameter. The agent outputs structured `Action: tool_name: args` text, which Python code parses via regex and dispatches to registered Cypher query functions. This approach works with ANY model regardless of tool calling support, and is ~100 lines of code. The qwen3.5:32b orchestrator model is more than capable of following the ReACT prompt format.
 
-The spec references `llama4:70b` as the orchestrator model. **Llama 4 does not come in a 70B variant.** Llama 4 models use a Mixture-of-Experts (MoE) architecture:
+**Confidence:** HIGH -- verified via GitHub issues #14493 and #14745, confirmed broken as of 2026-03-31.
 
-- **Llama 4 Scout:** 109B total params, 17B active, 16 experts -- 67GB download (Q4_K_M)
-- **Llama 4 Maverick:** 400B total params, 17B active, 128 experts -- 245GB download
+## Recommended Stack Additions
 
-The 67GB Scout model exceeds the M1 Max 64GB unified memory. It cannot be loaded alongside any worker model.
+### New Dependencies
 
-**Recommendation:** Use `llama3.3:70b` (Q4_K_M, ~40GB) as the orchestrator model. It fits in 64GB with headroom for a worker model and OS overhead. The Llama 3.3 70B achieves comparable quality to Llama 3.1 405B for instruction-following tasks. On M1 Max 64GB, expect ~6-8 tok/s.
+| Library | Version | Purpose | Why Recommended | Feature |
+|---------|---------|---------|-----------------|---------|
+| Jinja2 | >=3.1.6 | Report template rendering | Standard Python template engine. Report sections (consensus summary, dissenter analysis, flip analysis) are templated markdown with data placeholders. Jinja2 handles conditionals, loops, and filters that f-strings cannot (e.g., iterating bracket summaries, conditional dissent sections). Mature, zero-CVE history, 3.1.6 released 2025-03-05. | REPORT-01, REPORT-02, REPORT-03 |
+| aiofiles | >=24.1.0 | Async file I/O for report export | Report markdown must be written to disk without blocking the asyncio event loop. aiofiles wraps file I/O in a thread pool executor, providing `async with aiofiles.open()` semantics. Without it, `open().write()` blocks the event loop during report export, potentially stalling the TUI or interview session running concurrently. | REPORT-03 |
 
-**Confidence:** HIGH -- verified via Ollama model library and Apple Silicon benchmark threads.
+**That's it.** Two new dependencies. Everything else is built on the existing stack.
 
-### Qwen 3.5 7B Does Not Exist
+### Why NOT More Dependencies
 
-The spec references `qwen3.5:7b` as the worker model. **Qwen 3.5 does not have a 7B variant.** Available sizes: 0.8B, 2B, 4B, 9B, 27B, 35B, 122B.
+| Avoided | Why Not |
+|---------|---------|
+| LangChain / LangGraph | Massive dependency tree (50+ transitive deps). The ReACT loop is ~100 LOC of custom Python. LangChain's agent abstractions don't match AlphaSwarm's architecture (we have our own OllamaClient, governor, graph manager). Adding LangChain to call Ollama through their wrapper when we already have a wrapper is architectural debt. |
+| LlamaIndex | Same problem as LangChain. We need 1 tool-dispatching loop, not a retrieval framework. Our "retrieval" is direct Cypher queries, not vector search. |
+| markdown (Python-Markdown) | We're generating markdown, not parsing/rendering it to HTML. Jinja2 templates produce raw `.md` files. No HTML conversion needed. |
+| python-markdown-generator | Overly abstracted for our use case. Jinja2 templates with markdown syntax are more readable and maintainable than programmatic markdown generation via method calls. |
+| neo4j-graphrag | We don't need vector search or RAG pipelines. Our graph queries are handwritten Cypher optimized for our schema. |
+| Datapane / reportlab | Web-based reporting frameworks. We're generating plain markdown files viewable in TUI or exported. No PDF/HTML dashboards needed. |
+| APOC (Neo4j plugin) | Not needed for v2 features. All graph operations (rationale episodes, narrative edges, flip events) are expressible in pure Cypher with UNWIND batches. APOC adds Docker image complexity and security surface for no benefit. |
 
-**Recommendation:** Use `qwen3.5:4b` (3.4GB) as the worker model. The 4B is the largest model that allows comfortable dual-model loading alongside the 70B orchestrator within 64GB. The 9B (6.6GB) is feasible but leaves less headroom for 16 parallel context slots.
+### Existing Dependencies -- Version Updates
 
-**Confidence:** HIGH -- verified via Ollama model library page for qwen3.5.
+| Library | Current Pin | Recommended Pin | Reason |
+|---------|-------------|-----------------|--------|
+| neo4j | >=5.28,<6.0 | >=5.28,<6.0 | **Keep as-is.** Neo4j driver 6.x (released 2026-01-12) requires Python >=3.10 and Neo4j server 2025.x+. Our docker-compose uses `neo4j:5.26-community`. Upgrading driver to 6.x would require upgrading the Neo4j server image simultaneously. This is scope creep for v2 -- the 5.x driver fully supports all v2 features (async sessions, UNWIND batches, transaction functions). Upgrade to 6.x in a future infrastructure phase. |
+| textual | >=8.1.1 | >=8.1.1 | **Keep as-is.** Latest is 8.2.1 (2026-03-29). The `>=8.1.1` pin already allows 8.2.x via uv resolution. No API changes needed for v2 features -- Textual's Screen push/pop, Input widget, RichLog, and mode system are all available in 8.1.1+. |
+| ollama | >=0.6.1 | >=0.6.1 | **Keep as-is.** Latest is still 0.6.1 (2025-11-13). The existing AsyncClient.chat() API handles everything v2 needs: multi-turn conversations (interview), streaming responses, and message history management. No native tool calling needed (see critical finding above). |
 
-### Dual-Model Memory Budget (M1 Max 64GB)
+### Docker Compose -- No Changes
 
-| Component | Memory |
-|-----------|--------|
-| macOS + system overhead | ~8GB |
-| Orchestrator: llama3.3:70b Q4_K_M | ~40GB |
-| Worker: qwen3.5:4b | ~3.4GB |
-| Neo4j (Docker) | ~2GB |
-| Python runtime + Textual | ~1GB |
-| **Remaining headroom** | **~10GB** |
+The existing `docker-compose.yml` with `neo4j:5.26-community` supports all v2 Neo4j features. No APOC plugin needed. No server version upgrade required.
 
-With OLLAMA_NUM_PARALLEL=16 on a 4B model, each parallel slot adds ~200MB (rough estimate for 4B at Q4). 16 slots = ~3.2GB additional, which fits within the 10GB headroom.
+## Feature-by-Feature Stack Mapping
 
-**Critical constraint:** The orchestrator and worker model cannot both be loaded simultaneously at the default model sizes. The ResourceGovernor must sequence model loading: load orchestrator for seed parsing, unload, then load worker for 100-agent inference. Alternatively, run with only the worker model loaded and use a smaller orchestrator like `llama3.1:8b`.
+### Phase 11: Agent Interviews (INT-01, INT-02, INT-03)
 
-**Alternative dual-load strategy:**
-| Component | Memory |
-|-----------|--------|
-| Orchestrator: llama3.1:8b (4.7GB) | ~5GB |
-| Worker: qwen3.5:4b (3.4GB) | ~4GB |
-| Both loaded simultaneously | ~9GB total model memory |
-| 16 parallel slots on worker | ~12GB total |
-| **This fits comfortably in 64GB** | **Yes** |
+**New code, no new dependencies.**
 
-**Recommendation:** Use `llama3.1:8b` as orchestrator + `qwen3.5:4b` as worker for simultaneous dual-model loading. If orchestrator quality is insufficient for seed parsing, implement a sequential loading pattern with `llama3.3:70b` where models are swapped per-phase.
+| Component | Technology | Integration Point |
+|-----------|-----------|-------------------|
+| Interview context builder | Cypher queries via existing `neo4j` driver | Extends `GraphStateManager` with `read_agent_interview_context()` -- fetches persona, all 3 rounds of decisions, peer influences, rationale history for a single agent |
+| Conversation loop | `ollama` AsyncClient.chat() | Multi-turn conversation using message list accumulation. System prompt = full persona + decision context. User messages = operator questions. Assistant messages = agent responses. Append each exchange to the list. |
+| Context window management | Custom trimming logic | Worker model context window is ~4K tokens (qwen3.5:4b default). Interview context (persona + 3 rounds + rationale) could exceed this. Implement a sliding window: keep system prompt + last N exchanges, summarize earlier exchanges. |
+| TUI interview mode | Textual `Screen` push/pop + `Input` widget + `RichLog` | Push an `InterviewScreen` on top of the main dashboard when user selects an agent. `Input` at bottom for questions, `RichLog` for scrollable conversation history. Pop screen to return to grid. |
+| Model lifecycle | Existing `OllamaModelManager` | Worker model stays loaded post-simulation (INT-03). Set `keep_alive=-1` to prevent auto-unload, or simply don't call `unload_model()` after Round 3. |
+| Streaming responses | `ollama` AsyncClient.chat(stream=True) | Stream interview responses token-by-token into the `RichLog` for real-time feel. Each chunk appends text. Final chunk triggers conversation history update. |
 
-## Recommended Stack
+**Key design decision:** The interview uses the WORKER model (qwen3.5:4b/9b), not the orchestrator. The worker is already loaded post-simulation. Loading the 32b orchestrator for interviews would require unloading the worker and a ~30s cold load. Use the smaller model with rich context injection instead.
 
-### Runtime & Packaging
+### Phase 12: Live Graph Memory (GRAPH-01, GRAPH-02, GRAPH-03)
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Python | 3.11+ | Runtime | Required by project constraints. 3.11 added TaskGroup, ExceptionGroup. 3.12+ acceptable but 3.11 is the floor. |
-| uv | latest | Package manager | 10-100x faster than pip. Lockfile support. Manages Python versions per-project. Industry standard for new Python projects in 2026. |
-| pyproject.toml | PEP 621 | Project metadata | Single source of truth for deps, scripts, tool config. uv reads it natively. |
+**New code, no new dependencies.**
 
-**Confidence:** HIGH -- uv is the dominant Python package manager as of 2025-2026 per community adoption.
+| Component | Technology | Integration Point |
+|-----------|-----------|-------------------|
+| Rationale episode nodes | Cypher via existing `neo4j` driver | New node type `:RationaleEpisode` with properties: `text`, `signal`, `confidence`, `sentiment`, `round`, `cycle_id`, `timestamp`. Connected to Agent via `[:EXPRESSED]` edge. Written during simulation, not after. |
+| Signal flip events | Cypher via existing `neo4j` driver | New node type `:FlipEvent` with properties: `from_signal`, `to_signal`, `confidence_delta`, `round`, `cycle_id`. Connected to Agent via `[:FLIPPED]` edge. Computed in `_compute_shifts()` and persisted alongside ShiftMetrics. |
+| Narrative edges | Cypher via existing `neo4j` driver | New relationship types: `[:REASONED_ABOUT]` (Agent -> Entity, with rationale text), `[:FLIPPED_BECAUSE]` (FlipEvent -> PeerDecision that triggered the flip). Built from citation analysis in existing `compute_influence_edges()`. |
+| Real-time writes | Existing batch write pattern | Extend `write_decisions()` to also write RationaleEpisode nodes in the same UNWIND transaction. Zero additional Neo4j round-trips -- add the episode creation to the existing Cypher statement. |
+| Schema extensions | `ensure_schema()` | Add indexes: `CREATE INDEX episode_cycle_round IF NOT EXISTS FOR (e:RationaleEpisode) ON (e.cycle_id, e.round)`, `CREATE INDEX flip_cycle IF NOT EXISTS FOR (f:FlipEvent) ON (f.cycle_id)`. |
+| Graph exploration | Neo4j Browser (localhost:7474) | Already available. GRAPH-03 requires no code -- users open the browser and run Cypher queries against the enriched graph. Document useful exploration queries in a guide. |
 
-### LLM Inference
+**Memory impact:** Additional Neo4j writes add ~2-5ms per round (100 episodes in one UNWIND). Negligible compared to LLM inference time (~minutes).
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Ollama | latest (server) | Local LLM runtime | Only serious option for local inference on Apple Silicon. Metal acceleration. OLLAMA_NUM_PARALLEL controls concurrency. |
-| ollama (Python) | >=0.6.1 | Python SDK | Official client with `AsyncClient` for non-blocking inference. Typed responses. Streaming support. |
-| llama3.1:8b or llama3.3:70b | latest | Orchestrator model | 8b for dual-load; 70b for sequential-load high-quality mode. See memory analysis above. |
-| qwen3.5:4b | latest | Worker agent model | 3.4GB footprint. Fits 16 parallel slots within memory budget. Good instruction-following for structured JSON output. |
+### Phase 13: Post-Simulation Report (REPORT-01, REPORT-02, REPORT-03)
 
-**Confidence:** HIGH -- ollama 0.6.1 verified on PyPI. AsyncClient verified in library source.
+**New dependencies: Jinja2, aiofiles.**
 
-### Graph Database
+| Component | Technology | Integration Point |
+|-----------|-----------|-------------------|
+| ReACT loop | Custom Python (~100 LOC) | Prompt-based tool dispatching. System prompt defines available tools and ReACT format. Agent outputs `Thought: ... Action: tool_name: args`. Python parses via regex `r'^Action: (\w+): (.*)$'`, dispatches to registered functions, feeds `Observation: result` back. Loop until `Answer:` is emitted or max_turns exceeded. |
+| Tool: consensus_summary | Cypher query function | `MATCH (d:Decision) WHERE d.cycle_id = $cid AND d.round = 3 RETURN d.signal, count(*) AS cnt, avg(d.confidence)` -- returns final signal distribution. |
+| Tool: key_dissenters | Cypher query function | Find agents whose Round 3 signal disagrees with bracket majority. Returns agent_id, bracket, signal, rationale. |
+| Tool: bracket_trends | Cypher query function | Per-bracket signal distribution across all 3 rounds. Shows convergence or divergence patterns. |
+| Tool: flip_analysis | Cypher query function | `MATCH (f:FlipEvent) WHERE f.cycle_id = $cid RETURN f.from_signal, f.to_signal, count(*)` -- requires Phase 12 FlipEvent nodes. |
+| Tool: influence_leaders | Cypher query function | Top-N agents by INFLUENCED_BY edge count. Returns agent_id, citation_count, bracket. |
+| Report template | Jinja2 | Template file `templates/report.md.j2` with sections: Executive Summary, Consensus Distribution, Bracket Analysis, Key Dissenters, Signal Flip Analysis, Influence Network, Confidence Distribution. Each section uses Jinja2 loops and conditionals. |
+| Report rendering | Jinja2 `Environment` | Load template, render with ReACT-gathered data dict. Output is a complete markdown string. |
+| Report export | aiofiles | `async with aiofiles.open(f"reports/{cycle_id}.md", "w") as f: await f.write(rendered)`. Non-blocking file write. |
+| TUI report viewer | Textual `RichLog` or `Static` | Push a `ReportScreen` that renders the markdown in the terminal using Rich's markdown renderer. |
+| LLM for ReACT | Orchestrator model (qwen3.5:32b) | The ReACT agent needs reasoning capability to decide which tools to call and synthesize findings. Use the orchestrator model, not the worker. This means a model swap post-simulation: unload worker, load orchestrator, run ReACT loop, unload orchestrator. |
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Neo4j Community Edition | 2026.02.x | Graph state storage | Free, runs locally via Docker. Cypher query language is purpose-built for traversing influence topology. INFLUENCED_BY edges, cycle-scoped sentiment, peer decision reads -- all graph-native operations. |
-| neo4j (Python driver) | >=6.1.0 | Async Python driver | Official driver with `AsyncGraphDatabase.driver()`. Connection pooling. Supports Neo4j 2025/2026 versions. Python >=3.10. |
-| Docker | latest | Neo4j hosting | Run `neo4j:2026.02-community` image. Mount /data volume for persistence. APOC plugin via NEO4J_PLUGINS env var. |
+**Critical constraint:** The ReACT agent must use the ORCHESTRATOR model for quality reasoning. This requires a model swap after simulation completes (unload worker -> load orchestrator -> run report -> unload orchestrator). Budget ~30s for the cold load. The interview feature (Phase 11) should be offered BEFORE report generation, while the worker model is still loaded.
 
-**Confidence:** HIGH -- neo4j driver 6.1.0 verified on PyPI (released 2026-01-12). Community Edition free license confirmed.
+### Phase 14: Richer Agent Interactions (SOCIAL-01, SOCIAL-02)
 
-### Terminal UI
+**New code, no new dependencies.**
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| textual | >=8.1.1 | TUI framework | The only production-grade Python TUI framework. CSS-like styling, reactive programming, 60fps rendering. Worker API for background async tasks. Built by Textualize (same team as Rich). |
-| rich | >=14.3.3 | Console rendering | Dependency of Textual. Provides table rendering, color, progress bars. Also useful for non-TUI logging output. |
+| Component | Technology | Integration Point |
+|-----------|-----------|-------------------|
+| Rationale posts | Extended `AgentDecision` model | Add `public_rationale: str` field -- a short, shareable version of the agent's reasoning (distinct from internal rationale). Generated by the LLM in the same inference call via an extended JSON schema. |
+| Post storage | Cypher via existing `neo4j` driver | New node type `:Post` with properties: `text`, `agent_id`, `round`, `cycle_id`. Connected via `[:PUBLISHED]`. Stored in the same UNWIND batch as decisions. |
+| Peer reading | Extended `read_peer_decisions()` | Include peer posts in the context injected for Rounds 2-3. Current peer context format: `[Bracket] SIGNAL (conf: X.XX) "rationale"`. Extended: add the peer's `public_rationale` as a quotable post. |
+| Reactions | New relationship types | `[:AGREED_WITH]`, `[:DISAGREED_WITH]`, `[:CITED_POST]` edges between agents. Inferred from Round 2-3 LLM output -- if an agent's rationale references a specific peer's post, create the edge. |
+| Engagement-based influence | Extended `compute_influence_edges()` | Current weight = citations / total_agents. Extended: weight += reaction_count * reaction_weight. Agents with highly-engaged posts gain more influence in subsequent rounds. |
 
-**Confidence:** HIGH -- textual 8.1.1 verified on PyPI (released 2026-03-10). Worker pattern verified in official docs.
+**Prompt engineering, not code engineering:** The main work is crafting prompts that make agents produce public rationale posts AND react to peers' posts. The JSON output schema extends from `{signal, confidence, sentiment, rationale, cited_agents}` to `{signal, confidence, sentiment, rationale, public_rationale, cited_agents, reactions: [{agent_id, reaction_type}]}`. Parsing extends the existing `parse_agent_decision()` 3-tier fallback.
 
-### Orchestration (Custom)
+### Phase 15: Dynamic Persona Generation (PERSONA-01, PERSONA-02)
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| asyncio (stdlib) | Python 3.11+ | Concurrency runtime | Built-in. TaskGroup for structured concurrency. BoundedSemaphore for concurrency limiting. No external dependency needed. |
-| Custom SwarmOrchestrator | n/a | Agent lifecycle, batching, cascade rounds | Domain-specific logic: 3-round cascade, bracket-based batching, influence topology formation. No framework matches these semantics. ~300 LOC. |
-| Custom ResourceGovernor | n/a | Memory-aware throttling | Dynamic semaphore adjustment based on psutil memory readings. Pauses task queue at 90% memory utilization. ~150 LOC. |
+**New code, no new dependencies.**
 
-**Confidence:** HIGH -- asyncio TaskGroup is stdlib. Pattern well-documented.
+| Component | Technology | Integration Point |
+|-----------|-----------|-------------------|
+| Entity-aware persona generation | Orchestrator LLM (qwen3.5:32b) | Extend `inject_seed()` to also generate dynamic personas. After entity extraction, a second orchestrator call generates 5-15 situation-specific personas based on extracted entities (e.g., oil rumor -> energy trader, OPEC analyst, pipeline engineer). |
+| Dynamic persona schema | Pydantic model | New `DynamicPersona` model extending `AgentPersona` with `origin: Literal["static", "dynamic"]` and `entity_context: str` fields. Dynamic personas supplement (not replace) the standard 100 agents. |
+| Persona count management | Configuration | Total agent count becomes configurable: 100 static + N dynamic (where N = 5-15 based on seed complexity). ResourceGovernor budget must account for the additional agents. Add `max_dynamic_agents: int = 15` to `AppSettings`. |
+| Prompt template | Existing `system_prompt_template` pattern | Dynamic personas use the same prompt structure as static personas but with entity-specific context injected: `"You are a {role} with deep expertise in {entity}. Given recent developments in {sector}..."`. |
 
-### System Monitoring
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| psutil | >=7.2.2 | Hardware telemetry | Cross-platform memory/CPU monitoring. `virtual_memory()` for RAM pressure detection. Works on macOS ARM64 (M1). Mature (since 2009), zero dependencies. |
-
-**Confidence:** HIGH -- psutil 7.2.2 verified on PyPI (released 2026-01-28). macOS arm64 support confirmed.
-
-### Data Validation & Configuration
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| pydantic | >=2.12.5 | Data models, agent config | Runtime validation, JSON schema generation, structured LLM output parsing. Industry standard for typed Python. |
-| pydantic-settings | >=2.13.1 | Environment/config loading | Load OLLAMA_NUM_PARALLEL, Neo4j credentials, memory thresholds from .env files with type validation. |
-
-**Confidence:** HIGH -- pydantic 2.12.5 verified on PyPI (released 2025-11-26). pydantic-settings 2.13.1 verified.
-
-### Logging
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| structlog | >=25.5.0 | Structured async logging | Native async log methods (ainfo, adebug, etc.). JSON output for machine parsing. Context binding for per-agent log correlation (agent_id, bracket, cycle_id). Zero performance overhead compared to stdlib logging. |
-
-**Confidence:** HIGH -- structlog 25.5.0 verified on PyPI (released 2025-10-27).
-
-### HTTP (Miro API, future integrations)
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| httpx | >=0.28.x | Async HTTP client | Dual sync/async API. HTTP/2 support. Connection pooling. Type-annotated. Required by ollama-python internally. Use directly for Miro API calls rather than adding miro-api SDK (avoids heavy dependency for a deferred feature). |
-
-**Confidence:** MEDIUM -- httpx version not confirmed via PyPI fetch (blocked), but 0.28.x is current based on search results. Used internally by ollama-python.
-
-### Visualization (Phase 2, Deferred)
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| miro-api | >=2.2.4 | Miro REST API v2 client | Official Python SDK. Bulk item creation (up to 20 items per call). Requires Python 3.9+. **Deferred to Phase 2** -- stub the batcher interface now, implement later. |
-
-**Confidence:** MEDIUM -- miro-api 2.2.4 found on PyPI. Bulk create verified in Miro API docs.
-
-### Testing
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| pytest | >=8.x | Test runner | Industry standard. Plugin ecosystem. |
-| pytest-asyncio | >=0.24.x | Async test support | Required for testing async Ollama calls, Neo4j queries, orchestrator logic. |
-| pytest-cov | >=6.x | Coverage reporting | Track test coverage. |
-
-**Confidence:** MEDIUM -- versions approximate based on training data. Verify at install time.
-
-### Development Tools
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| ruff | latest | Linter + formatter | Replaces flake8, isort, black. Single tool. 10-100x faster (Rust-based). |
-| mypy | latest | Type checker | Enforces strong typing requirement from project constraints. |
-| pre-commit | latest | Git hooks | Run ruff + mypy before commits. |
-
-**Confidence:** HIGH -- standard toolchain.
-
-## Alternatives Considered
-
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| Orchestration | Custom asyncio | LangGraph | Massive dependency tree, opinionated agent patterns that don't match the 3-round cascade model. Adds complexity without value for this domain. |
-| Orchestration | Custom asyncio | CrewAI | Same issue -- designed for role-based agent conversations, not batched financial simulation cascades. Wrong abstraction level. |
-| Orchestration | Custom asyncio | OpenAI Agents SDK | Requires OpenAI API. We're local-only with Ollama. |
-| Graph DB | Neo4j | NetworkX (in-memory) | No persistence. No Cypher query language. Falls apart at 100 agents x 3 rounds x N cycles of relationship data. |
-| Graph DB | Neo4j | ArangoDB | Less Python ecosystem support. Neo4j's Cypher is better suited for influence topology traversal patterns. |
-| TUI | Textual | curses/urwid | Ancient. No CSS styling. No reactive programming. No worker pattern. 5-10x slower rendering. |
-| TUI | Textual | Streamlit | Web-based, not terminal. Adds HTTP server overhead. Not "local-first terminal" aesthetic. |
-| LLM Client | ollama-python | litellm | Abstraction layer adds latency and complexity. We're only talking to Ollama. Direct client is simpler and faster. |
-| Package Mgr | uv | poetry | Slower. More complex. uv is the clear winner in 2026. |
-| Logging | structlog | loguru | No native async methods. Less structured output. structlog's context binding is better for per-agent correlation. |
-| HTTP | httpx | aiohttp | httpx is already a transitive dependency via ollama-python. Adding aiohttp means two async HTTP clients. Unnecessary. |
+**Memory constraint:** Each additional agent adds one more inference call per round. 15 extra agents across 3 rounds = 45 additional inferences. With the current governor, this adds ~2-3 minutes to simulation time. Acceptable.
 
 ## Installation
 
 ```bash
-# Initialize project with uv
-uv init alphaswarm
-cd alphaswarm
+# New v2 dependencies (add to existing pyproject.toml)
+uv add jinja2 aiofiles
 
-# Core dependencies
-uv add ollama textual rich neo4j pydantic pydantic-settings psutil structlog httpx
+# Dev dependencies (no changes)
+# Existing: pytest, pytest-asyncio, pytest-cov, ruff, mypy
 
-# Dev dependencies
-uv add --dev pytest pytest-asyncio pytest-cov ruff mypy pre-commit textual-dev
-
-# External services (run separately)
-# Ollama: https://ollama.com/download
-ollama pull llama3.1:8b
-ollama pull qwen3.5:4b
-# For high-quality orchestrator mode (sequential loading):
-ollama pull llama3.3:70b
-
-# Neo4j via Docker
-docker run -d \
-  --name alphaswarm-neo4j \
-  -p 7474:7474 -p 7687:7687 \
-  -v alphaswarm-neo4j-data:/data \
-  -e NEO4J_AUTH=neo4j/alphaswarm \
-  -e NEO4J_PLUGINS='["apoc"]' \
-  neo4j:2026.02-community
+# No Docker changes needed
+# No Ollama model changes needed
+# No Neo4j server upgrade needed
 ```
 
-## Model Loading Strategy
+Updated `pyproject.toml` dependencies section:
 
+```toml
+dependencies = [
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "structlog>=25.5.0",
+    "psutil>=7.2.2",
+    "ollama>=0.6.1",
+    "backoff>=2.2.1",
+    "neo4j>=5.28,<6.0",
+    "textual>=8.1.1",
+    # v2 additions
+    "jinja2>=3.1.6",
+    "aiofiles>=24.1.0",
+]
 ```
-# .env configuration
-OLLAMA_NUM_PARALLEL=16
-OLLAMA_MAX_LOADED_MODELS=2
 
-# Strategy A: Dual-Load (recommended for development, lower quality orchestrator)
-ALPHASWARM_ORCHESTRATOR_MODEL=llama3.1:8b
-ALPHASWARM_WORKER_MODEL=qwen3.5:4b
+## What NOT to Use
 
-# Strategy B: Sequential-Load (for production runs, higher quality orchestrator)
-ALPHASWARM_ORCHESTRATOR_MODEL=llama3.3:70b
-ALPHASWARM_WORKER_MODEL=qwen3.5:4b
-# ResourceGovernor will unload orchestrator before loading worker
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| Ollama native tool calling (`tools=` param) | Broken with qwen3.5 models (wrong XML/JSON format mismatch, unclosed think tags). GitHub issues #14493, #14745 confirm as of 2026-03-31. | Prompt-based ReACT with regex parsing (~100 LOC) |
+| LangChain / LangGraph | 50+ transitive deps, wrong abstraction (we have our own inference pipeline). Would require wrapping our OllamaClient in their LLM interface, adding indirection for no benefit. | Custom ReACT loop that directly uses our existing OllamaClient |
+| LlamaIndex | Vector RAG framework -- we do graph queries, not embedding search. Massive dep tree. | Direct Cypher queries via neo4j driver |
+| APOC Neo4j plugin | Not needed. All v2 graph operations are pure Cypher. APOC adds Docker complexity, version pinning headaches, and security surface. | Pure Cypher with UNWIND batches |
+| neo4j driver 6.x | Requires Neo4j server upgrade (5.26 -> 2025.x), potential breaking changes. Zero features in 6.x that v2 needs. | Keep neo4j >=5.28,<6.0 |
+| Separate Markdown rendering lib | We generate markdown (text), not render it to HTML. Jinja2 produces .md files directly. | Jinja2 templates with markdown syntax |
+| WebSocket for TUI-interview comm | Single-process app. Interview runs in the same asyncio loop as TUI. No IPC needed. | Direct async function calls within Textual Worker |
+
+## Architecture Patterns for v2
+
+### ReACT Report Agent (No Framework)
+
+```python
+# Minimal ReACT loop -- no LangChain needed
+import re
+
+ACTION_RE = re.compile(r"^Action: (\w+): (.*)$", re.MULTILINE)
+
+TOOLS = {
+    "consensus_summary": query_consensus_summary,  # Cypher function
+    "key_dissenters": query_key_dissenters,
+    "bracket_trends": query_bracket_trends,
+    "flip_analysis": query_flip_analysis,
+    "influence_leaders": query_influence_leaders,
+}
+
+async def run_react_report(client: OllamaClient, model: str, cycle_id: str, graph: GraphStateManager) -> str:
+    messages = [{"role": "system", "content": REACT_SYSTEM_PROMPT}]
+    messages.append({"role": "user", "content": f"Generate a market analysis report for cycle {cycle_id}."})
+
+    for turn in range(MAX_TURNS):
+        response = await client.chat(model=model, messages=messages, think=True)
+        content = response.message.content or ""
+        messages.append({"role": "assistant", "content": content})
+
+        match = ACTION_RE.search(content)
+        if match:
+            tool_name, tool_input = match.groups()
+            if tool_name in TOOLS:
+                observation = await TOOLS[tool_name](graph, cycle_id, tool_input)
+                messages.append({"role": "user", "content": f"Observation: {observation}"})
+            else:
+                messages.append({"role": "user", "content": f"Observation: Unknown tool '{tool_name}'."})
+        else:
+            # No action found -- agent is done
+            return content
+
+    return content  # max turns exceeded
 ```
+
+### Interview Conversation Loop
+
+```python
+# Multi-turn interview using existing OllamaClient
+async def interview_agent(client: OllamaClient, model: str, context: InterviewContext) -> AsyncGenerator[str, str]:
+    messages = [
+        {"role": "system", "content": context.build_system_prompt()},
+    ]
+    while True:
+        question = yield  # Receive question from TUI
+        messages.append({"role": "user", "content": question})
+
+        # Stream response
+        full_response = ""
+        async for chunk in await client.chat(model=model, messages=messages, stream=True):
+            token = chunk.message.content or ""
+            full_response += token
+            yield token  # Send token to TUI for real-time display
+
+        messages.append({"role": "assistant", "content": full_response})
+
+        # Trim history if approaching context limit
+        if estimate_tokens(messages) > MAX_CONTEXT * 0.8:
+            messages = trim_conversation(messages, keep_system=True, keep_recent=6)
+```
+
+### Textual Screen Modes for Post-Simulation
+
+```python
+# Textual mode switching for interview vs report vs grid
+class AlphaSwarmApp(App):
+    MODES = {
+        "simulation": SimulationScreen,   # Main 10x10 grid
+        "interview": InterviewScreen,      # Chat interface
+        "report": ReportScreen,            # Rendered markdown
+    }
+
+    # Post-simulation: push interview screen
+    def action_interview(self, agent_id: str) -> None:
+        self.push_screen(InterviewScreen(agent_id=agent_id))
+
+    # After interview: push report screen
+    def action_generate_report(self) -> None:
+        self.push_screen(ReportScreen(cycle_id=self.cycle_id))
+```
+
+## Version Compatibility Matrix
+
+| Package A | Compatible With | Notes |
+|-----------|-----------------|-------|
+| jinja2 >=3.1.6 | Python >=3.7, pydantic >=2.x | No conflicts. Jinja2 has zero overlapping deps with existing stack. |
+| aiofiles >=24.1.0 | Python >=3.8, asyncio | Thread pool executor under the hood. Compatible with Textual's event loop. |
+| neo4j >=5.28,<6.0 | Neo4j server 5.x (our docker-compose uses 5.26) | Pinned correctly. Do NOT upgrade to 6.x without server upgrade. |
+| ollama >=0.6.1 | Ollama server 0.5+ | Streaming, tool schemas, async client all stable at 0.6.1. |
+| textual >=8.1.1 | Python >=3.9, rich >=14.x | Screen modes, Input, RichLog all available. 8.2.1 (latest) is compatible. |
+
+## Model Strategy for v2 Features
+
+| Feature | Model | Why | Memory Impact |
+|---------|-------|-----|---------------|
+| Agent Interviews | Worker (qwen3.5:4b or 9b) | Already loaded post-simulation. No cold load needed. Fast responses. | None (model already loaded) |
+| Live Graph Memory | N/A (pure Cypher) | No LLM needed. Graph writes happen during simulation alongside existing decision writes. | ~5ms/round additional Neo4j I/O |
+| ReACT Report Agent | Orchestrator (qwen3.5:32b) | Needs reasoning capability to decide tool usage and synthesize findings. Worker model too small for multi-step reasoning. | Requires model swap: unload worker (~3.4GB freed), load orchestrator (~18GB). ~30s cold load. |
+| Richer Interactions | Worker (qwen3.5:4b or 9b) | Extended inference during existing rounds. Same model, slightly larger JSON output schema. | ~10% more tokens per agent (longer output with public_rationale + reactions). Negligible. |
+| Dynamic Personas | Orchestrator (qwen3.5:32b) | Persona generation is a seed injection extension. Orchestrator already loaded during seed phase. | None (runs during existing orchestrator phase). |
+
+**Post-simulation model lifecycle:**
+1. Simulation completes -- worker model still loaded
+2. Offer **Agent Interviews** (uses worker model, no swap needed)
+3. User finishes interviews, requests report
+4. Unload worker, load orchestrator (~30s)
+5. Run **ReACT Report Agent** (uses orchestrator)
+6. Unload orchestrator
+7. Export report to file
 
 ## Sources
 
-- [Ollama Python library (GitHub)](https://github.com/ollama/ollama-python)
-- [Ollama Python on PyPI (v0.6.1)](https://pypi.org/project/ollama/)
-- [Ollama model library - Llama 4](https://ollama.com/library/llama4)
-- [Ollama model library - Qwen 3.5](https://ollama.com/library/qwen3.5)
-- [Textual on PyPI (v8.1.1)](https://pypi.org/project/textual/)
-- [Textual Workers documentation](https://textual.textualize.io/guide/workers/)
-- [Neo4j Python driver on PyPI (v6.1.0)](https://pypi.org/project/neo4j/)
-- [Neo4j Docker deployment](https://neo4j.com/docs/operations-manual/current/docker/introduction/)
-- [psutil on PyPI (v7.2.2)](https://pypi.org/project/psutil/)
-- [Pydantic on PyPI (v2.12.5)](https://pypi.org/project/pydantic/)
-- [pydantic-settings on PyPI (v2.13.1)](https://pypi.org/project/pydantic-settings/)
-- [structlog on PyPI (v25.5.0)](https://pypi.org/project/structlog/)
-- [Ruflo GitHub (Node.js, NOT Python)](https://github.com/ruvnet/ruflo)
-- [Ruflo v3.5.0 release notes](https://github.com/ruvnet/ruflo/issues/1240)
-- [Miro API bulk create documentation](https://developers.miro.com/reference/create-items)
-- [miro-api on PyPI (v2.2.4)](https://pypi.org/project/miro-api/)
-- [Ollama parallel request handling](https://www.glukhov.org/post/2025/05/how-ollama-handles-parallel-requests/)
-- [Llama 3.3 70B on M3 Max benchmarks](https://deepnewz.com/ai-modeling/llama-3-3-70b-model-achieves-10-tokens-per-second-on-64gb-m3-max-12-tokens-per-980c01a7)
-- [Apple Silicon LLM performance discussion](https://github.com/ggml-org/llama.cpp/discussions/4167)
-- [uv package manager docs](https://docs.astral.sh/uv/guides/projects/)
+- [Ollama Python PyPI (v0.6.1)](https://pypi.org/project/ollama/) -- verified latest version, streaming/async API
+- [Ollama tool calling docs](https://docs.ollama.com/capabilities/tool-calling) -- native tool calling API reference
+- [Qwen 3.5 tool calling bug #14493](https://github.com/ollama/ollama/issues/14493) -- confirmed broken, partial fix insufficient
+- [Qwen 3.5 tool calling bug #14745](https://github.com/ollama/ollama/issues/14745) -- 9b variant prints tool calls as text
+- [Simon Willison ReACT pattern](https://til.simonwillison.net/llms/python-react-pattern) -- minimal Python ReACT implementation (~100 LOC)
+- [Jinja2 PyPI (v3.1.6)](https://pypi.org/project/Jinja2/) -- Python >=3.7, latest stable
+- [aiofiles PyPI](https://pypi.org/project/aiofiles/) -- async file I/O for asyncio
+- [Neo4j Python driver PyPI (v6.1.0)](https://pypi.org/project/neo4j/) -- confirmed 5.x compatibility, 6.x available but not needed
+- [Neo4j Python async driver docs](https://neo4j.com/docs/python-manual/current/concurrency/) -- concurrent transaction patterns
+- [Textual PyPI (v8.2.1)](https://pypi.org/project/textual/) -- latest version, Screen/mode system docs
+- [Textual Screens guide](https://textual.textualize.io/guide/screens/) -- push/pop, mode switching
+- [Textual RichLog widget](https://textual.textualize.io/widgets/rich_log/) -- real-time scrollable content
+- [Textual chat TUI example](https://chaoticengineer.hashnode.dev/textual-and-chatgpt) -- Input + VerticalScroll chat pattern
+- [Ollama conversation history](https://deepwiki.com/ollama/ollama-python/4.7-conversation-history) -- message list accumulation pattern
+- [Ollama context length docs](https://docs.ollama.com/context-length) -- default 2K context, configurable via Modelfile
+
+---
+*Stack research for: AlphaSwarm v2.0 Engine Depth*
+*Researched: 2026-03-31*
+*Builds on: v1 stack research from 2026-03-24*

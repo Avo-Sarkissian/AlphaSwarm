@@ -1,217 +1,191 @@
 # Project Research Summary
 
-**Project:** AlphaSwarm
-**Domain:** Local-first multi-agent LLM financial market simulation engine
-**Researched:** 2026-03-24
+**Project:** AlphaSwarm v2.0 Engine Depth
+**Domain:** Local-first multi-agent LLM financial simulation engine (feature expansion)
+**Researched:** 2026-03-31
 **Confidence:** HIGH
 
 ## Executive Summary
 
-AlphaSwarm is a local-first, multi-agent financial simulation engine that runs 100 LLM-powered agents through a 3-round consensus cascade on an M1 Max 64GB machine. Research across comparable systems (TradingAgents, TwinMarket, StockSim, MiroFish-Offline, OASIS) confirms that this is a viable and differentiated product concept. The consensus cascade with dynamic influence topology -- where agents cite peers and form emergent INFLUENCED_BY edges tracked in a graph database -- is novel among surveyed systems. Most comparable frameworks use fixed role hierarchies or single-shot inference; AlphaSwarm's iterative peer-influence mechanism is the primary differentiator.
+AlphaSwarm v2.0 expands a proven v1 simulation engine (10 phases shipped, fully operational) into a deeper analytical platform. The core challenge is not building the simulation -- it works -- but enriching it with post-simulation intelligence: living graph memory, conversational agent interviews, structured market reports, social influence dynamics, and entity-aware persona generation. All five features build on the same stack (Python 3.11+, asyncio, Ollama, Neo4j, Textual) with only two new dependencies needed (Jinja2 for report templates, aiofiles for non-blocking file writes). This is an incremental engineering problem, not a greenfield one.
 
-The recommended approach is a custom Python asyncio orchestration layer (replacing the originally specified Ruflo, which is a Node.js platform incompatible with this project), Ollama for local inference, Neo4j for graph state, and Textual for a real-time terminal dashboard. Three critical corrections to the original spec emerged from research: (1) Ruflo v3.5 is not a Python library and must be replaced with custom asyncio orchestration, (2) `llama4:70b` does not exist -- use `llama3.1:8b` for dual-load development or `llama3.3:70b` for sequential high-quality mode, and (3) `qwen3.5:7b` does not exist -- use `qwen3.5:4b` instead. These corrections are non-negotiable and must be applied before any code is written.
+The recommended approach is dependency-ordered: Live Graph Memory must ship first because every other v2 feature reads from the enriched Neo4j graph it creates. Post-simulation Report and Agent Interviews follow as the primary analytical outputs. Richer Agent Interactions and Dynamic Persona Generation then layer social dynamics and input quality onto the stable foundation. One critical finding shapes the entire implementation: Ollama native tool calling is broken for qwen3.5 models (confirmed GitHub issues #14493, #14745). The ReACT report agent must use prompt-based tool dispatching with Python-side parsing -- no framework dependency needed, approximately 100 lines of code.
 
-The dominant risk is memory exhaustion on the M1 Max 64GB. The dual-model loading strategy, 16 parallel inference slots, Neo4j, and the Python runtime push total memory consumption to 53-65 GB, exceeding the Metal GPU allocation ceiling. Prevention requires sequential model loading (orchestrator and worker models swap rather than coexist), reduced parallelism (start at 8, not 16), KV cache quantization, and a ResourceGovernor that monitors actual system pressure -- not just psutil percentages, which are unreliable on Apple Silicon unified memory. Secondary risks include Neo4j write deadlocks on high-influence "hot nodes," the echo chamber effect where agents converge to homogeneous consensus, and silent asyncio task garbage collection dropping agents from the simulation.
+The primary risk is M1 Max memory pressure and model lifecycle coordination in the post-simulation phase. Model swaps between the worker (qwen3.5:9b) and orchestrator (qwen3.5:32b) take approximately 30 seconds each and must be serialized. Interviews should use the worker model (already loaded post-simulation); reports use the orchestrator (requires model swap). Running both concurrently would cause queue starvation and must be prevented at the CLI/TUI level. All write patterns must use the existing batch UNWIND approach -- per-agent writes during simulation would increase Neo4j transactions 700x and cause connection pool exhaustion.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The stack is pure Python 3.11+ with no external orchestration framework. Core inference runs through Ollama's official Python SDK (`ollama>=0.6.1`) with `AsyncClient` for non-blocking calls. Graph state lives in Neo4j Community Edition (Docker, async driver `neo4j>=6.1.0`). The TUI uses Textual (`>=8.1.1`). Data validation and structured LLM output parsing use Pydantic (`>=2.12.5`). All concurrency is native asyncio with custom `SwarmOrchestrator` and `ResourceGovernor` classes (~450 LOC combined).
+The v1 stack requires no major changes. Two libraries are additive: Jinja2 (>=3.1.6) for report section templating and aiofiles (>=24.1.0) for non-blocking markdown file export. Every framework-level alternative (LangChain, LlamaIndex, APOC, Zep Cloud, neo4j driver 6.x) was evaluated and rejected -- they add dependency weight or architectural impedance for capabilities already present in the existing codebase. The qwen3.5 tool calling bug is the only stack-level surprise: native `tools=` parameter support does not work and requires a prompt-based ReACT workaround.
 
 **Core technologies:**
-- **Python 3.11+ / uv**: Runtime and packaging -- TaskGroup for structured concurrency, uv for fast dependency management
-- **Ollama + ollama-python (>=0.6.1)**: Local LLM inference -- AsyncClient, Metal acceleration, 16-parallel slot support
-- **llama3.1:8b (dev) / llama3.3:70b (prod)**: Orchestrator model -- seed parsing and consensus aggregation (corrected from nonexistent `llama4:70b`)
-- **qwen3.5:4b**: Worker agent model -- 3.4GB footprint, fits 16 parallel slots (corrected from nonexistent `qwen3.5:7b`)
-- **Neo4j Community Edition (Docker)**: Graph state -- cycle-scoped sentiment, influence topology, Cypher queries
-- **neo4j Python driver (>=6.1.0)**: Async graph access -- session-per-coroutine pattern, UNWIND batch writes
-- **Textual (>=8.1.1)**: Terminal dashboard -- 10x10 agent grid, snapshot-based 200ms rendering
-- **Pydantic (>=2.12.5)**: Data models -- agent config, structured LLM output schemas, settings management
-- **psutil (>=7.2.2)**: Memory telemetry -- ResourceGovernor feedback loop (with macOS-specific calibration)
-- **structlog (>=25.5.0)**: Structured logging -- per-agent correlation via context binding
-- **httpx (>=0.28.x)**: Async HTTP -- Miro API calls (Phase 2), already a transitive dependency of ollama-python
-
-**Critical version/tag corrections from original spec:**
-- `llama4:70b` --> `llama3.1:8b` or `llama3.3:70b` (Llama 4 has no 70B variant)
-- `qwen3.5:7b` --> `qwen3.5:4b` (Qwen 3.5 has no 7B variant; 4B is the largest that fits dual-load)
-- Ruflo v3.5 --> custom asyncio SwarmOrchestrator (Ruflo is Node.js, not Python)
+- **Python 3.11+ / asyncio:** 100% async runtime -- no blocking I/O on main event loop. All new components (InterviewEngine, ReportGenerator, PersonaGenerator) must respect this constraint.
+- **ollama-python >=0.6.1:** Handles multi-turn interviews (message list accumulation), streaming responses, and model lifecycle. No native tool calling -- prompt-based ReACT replaces it.
+- **neo4j >=5.28,<6.0:** Session-per-method async driver pattern already in place. v2 extends GraphStateManager with approximately 8 new methods. Do NOT upgrade to 6.x without a simultaneous Neo4j server upgrade.
+- **textual >=8.1.1:** Screen push/pop, Input widget, RichLog, and mode system support all interview and report UI patterns. 8.2.x (latest) is pin-compatible.
+- **Jinja2 >=3.1.6 (NEW):** Report template rendering. Handles conditional sections, loops, and markdown output. Zero dependency conflicts with existing stack.
+- **aiofiles >=24.1.0 (NEW):** Async file write for report export. Prevents event loop blocking during markdown persistence.
+- **Model strategy:** Worker (qwen3.5:9b) for interviews (already loaded post-simulation, fast, no cold-load). Orchestrator (qwen3.5:32b) for report ReACT and dynamic persona generation (both require complex reasoning). Offer interviews BEFORE report to avoid unneeded model swaps.
 
 ### Expected Features
 
-**Must have (table stakes):**
-- Heterogeneous agent personas -- 10 bracket archetypes with distinct risk profiles, information biases, and decision heuristics
-- 3-round consensus cascade -- Initial Reaction, Peer Influence, Final Consensus Lock
-- Seed rumor injection with entity extraction -- NER grounds agent reasoning in specific entities
-- Async concurrent execution with ResourceGovernor -- batched waves of 16 (adjustable) via Ollama
-- Neo4j persistence -- cycle-scoped sentiment, rationale, and influence edges
-- Structured output parsing -- JSON-mode with strict schema (sentiment, action, confidence, rationale, cited_agents)
-- Agent decision logging -- every response persisted with full context for post-hoc analysis
-- Per-agent sentiment/position output -- normalized score (-1.0 to 1.0) plus categorical action
+**Must have (table stakes for v2.0 milestone):**
+- **Live Graph Memory (GRAPH-01, GRAPH-02, GRAPH-03)** -- Every serious simulation framework (Generative Agents, MiroFish, TwinMarket) stores reasoning as it happens. Without it, Neo4j is a write-once dump, not a living memory. All other v2 features depend on this.
+- **Post-Simulation Report (REPORT-01, REPORT-02, REPORT-03)** -- A simulation producing 300 decisions across 3 rounds with no summary is a data dump, not an analytical tool. Competitors (MiroFish ReportAgent, TradingAgents chain-of-thought logs) all provide structured post-simulation analysis.
+- **Agent Interviews (INT-01, INT-02, INT-03)** -- Stanford Generative Agents (Park et al. 2023) established post-simulation Q&A as the standard evaluation methodology for multi-agent systems. Without interviews, users cannot probe WHY agents made specific decisions.
 
-**Should have (differentiators):**
-- Dynamic influence topology -- INFLUENCED_BY edges form from citation/agreement patterns in Neo4j (strongest differentiator; no comparable system does this)
-- Real-time TUI dashboard -- 10x10 agent grid with color-coded sentiment, rationale sidebar, hardware telemetry footer
-- Bracket-level aggregate analytics -- "Quants are 80% bearish while Degens are 90% bullish"
-- Consensus cascade with peer influence -- Round 2 injects actual neighbor opinions via Neo4j topology queries
-- Simulation replay / time-travel -- re-examine stored decisions without re-running LLM inference
+**Should have (differentiators worth building):**
+- **Dynamic Persona Generation (PERSONA-01, PERSONA-02)** -- Entity-aware modifier injection into existing bracket templates. One orchestrator call generates situational context for all 10 brackets. Independent of all other v2 features; can be built in parallel.
+- **Richer Agent Interactions (SOCIAL-01, SOCIAL-02)** -- Agents publish public rationale posts that peers read and react to. Key constraint: OASIS-style social features at AlphaSwarm's inference budget require a lightweight approach (zero extra inference calls, posts are part of existing decision output, top-K post selection for peer context injection).
+- **Narrative Edges (optional, enhances Report)** -- REFERENCES edges from Decision nodes to Entity nodes. Low complexity, high analytical value for report queries.
 
-**Defer (v2+):**
-- Miro network visualization -- API-constrained, requires credit-aware rate limiting batcher
-- Exportable simulation reports -- markdown/HTML post-simulation summaries
-- Mid-simulation shock injection -- "Fed announces emergency rate hike during Round 2"
-- Configurable agent count -- hardcode 100/10 for Phase 1, parameterize later
-
-**Never build:**
-- Real market data feeds, trade execution, backtesting, fine-tuned models, multi-user mode, GPU/cloud inference, order book microstructure, or RL-based adaptive agents
+**Defer to v2.1+:**
+- **Reflection Synthesis** -- Extra orchestrator call between rounds adds ~30s model swap mid-simulation. High complexity, high compute cost, marginal benefit when live graph memory already captures reasoning arcs.
+- **Full OASIS social media simulation layer** -- 21 social actions, RecSys engine, follower graphs. Requires 4,000+ LLM calls at cloud scale; incompatible with M1 Max budget.
+- **Vector embeddings for agent memory** -- Embedding model adds a third Ollama model violating the 2-model limit. The 300-decision corpus is small enough for exact Cypher queries.
+- **Interview-driven persona refinement** -- Development workflow feature; no runtime automation needed in v2.
 
 ### Architecture Approach
 
-The system is a **pipeline-with-feedback-loop** architecture: three sequential cascade rounds, with each round reading peer state from a shared graph (Neo4j) to create emergent influence topology. Five major subsystems communicate through async interfaces and a shared StateStore for TUI decoupling. The TUI is snapshot-based (200ms tick) and never directly coupled to agent coroutines. All Neo4j writes use UNWIND batch operations (one transaction per round, not per agent). The ResourceGovernor uses a token-pool pattern (asyncio.Queue) rather than semaphore hacking for cleaner dynamic concurrency adjustment.
+The v2 architecture extends the existing five-subsystem pipeline (CLI/TUI -> AppState DI container -> SeedInjector -> SimulationEngine -> StateStore/TUI) without restructuring it. Three new modules are added (interview.py, report.py, persona_gen.py) maintaining the flat module convention. GraphStateManager gains approximately 8 new methods covering rationale episode writes, narrative edge writes, and read paths for interviews and reports. The simulation round loop gains two async calls post-dispatch (write_rationale_episodes, write_narrative_edges). Post-simulation features (InterviewEngine, ReportGenerator) are orchestrated outside the simulation lifecycle and must be explicitly serialized to prevent model slot contention.
 
 **Major components:**
-1. **SeedInjector** -- transforms raw rumor text into structured SeedEvent via orchestrator LLM (entity extraction, sentiment hint, rumor classification)
-2. **SimulationEngine** -- state machine orchestrating 3-round cascade, round transitions, model loading sequencing
-3. **AgentPool** -- manages 100 agent personas, dispatches inference through ResourceGovernor, collects structured decisions
-4. **ResourceGovernor** -- dynamic concurrency control via token-pool pattern, psutil + macOS memory_pressure monitoring, backpressure gate
-5. **GraphStateManager** -- all Neo4j reads/writes encapsulated, session-per-coroutine, UNWIND batch operations, composite indexes for sub-5ms queries
-6. **StateStore** -- thread-safe shared state with immutable snapshot production for TUI consumption
-7. **TUI Dashboard (Textual)** -- 10x10 AgentGrid, RationaleSidebar, TelemetryFooter, 200ms polling from StateStore
-8. **MiroBatcher (stubbed)** -- Phase 2 implementation, credit-aware rate limiting, bulk API operations
+1. **PersonaGenerator (persona_gen.py)** -- Extracts seed entities, generates situation-specific bracket modifier text, replaces generic agents within fixed 100-agent grid. Runs between inject_seed() and run_simulation().
+2. **GraphStateManager (graph.py, extended)** -- All Cypher operations centralized here. New methods for RationaleEpisode nodes, NARRATIVE edges, READ_POST relationships, and read paths for interview context reconstruction and report tool handlers.
+3. **InterviewEngine (interview.py)** -- Stateful chat session per agent. Loads full decision history, rationale history, and influence data from Neo4j at session start. Uses worker LLM with agent's original system prompt restored. Conversation history managed with sliding window to prevent context overflow.
+4. **ReportGenerator (report.py)** -- ReACT loop (max 8-10 iterations, hard cap). Tool registry of Cypher query functions. Pydantic-validated JSON action parsing (not regex). Uses orchestrator LLM. Requires model swap from worker. Jinja2 templates produce structured markdown, aiofiles writes async to disk.
+5. **StateStore (state.py, extended)** -- Adds interview_active, interview_messages, and report_progress fields. TUI polls at 200ms as before.
 
 ### Critical Pitfalls
 
-1. **Memory budget does not close (CRITICAL)** -- The 70B + worker model + 16 parallel KV caches + Neo4j + system overhead exceeds 64GB. Prevention: sequential model loading (swap orchestrator/worker per phase), reduce OLLAMA_NUM_PARALLEL to 8, enable KV cache quantization (`OLLAMA_KV_CACHE_TYPE=q8_0`), apply Metal GPU override (`sysctl iogpu.wired_limit_mb=57344`), throttle at 80% memory (not 90%).
+1. **Model lifecycle collision post-simulation** -- Worker and orchestrator cannot be loaded simultaneously without explicit serialization. Offer interviews (worker model, no swap) before report (orchestrator, 30s swap). Never load orchestrator while simulation-adjacent code expects worker to be available. Add SimulationPhase.INTERVIEWING and SimulationPhase.REPORTING states to gate valid operations.
 
-2. **Ollama context size mismatch triggers silent model reloads (CRITICAL)** -- Different `num_ctx` values between requests force full model teardown and reload (30-45s for 70B). Prevention: standardize num_ctx via Ollama Modelfiles, never pass num_ctx in API requests.
+2. **Write amplification crashing Neo4j** -- Per-agent real-time writes during simulation would increase transaction count from 3 to approximately 2,100 per simulation (700x). Always batch rationale episode writes in a write-behind queue and flush via single UNWIND transaction after each round completes -- exactly as write_decisions() does today. Size connection pool at max_connection_pool_size=32, not the default 100.
 
-3. **Neo4j AsyncSession is not concurrency-safe (CRITICAL)** -- Sharing one session across 100 agent coroutines causes corrupted reads and crashes. Prevention: session-per-coroutine via `async with driver.session()`, or use `driver.execute_query()` which handles session lifecycle internally. Install `neo4j-rust-ext` for 3-10x driver speedup.
+3. **ReACT infinite tool-call loops** -- Without a hard iteration cap and duplicate-call detection, the report agent will loop indefinitely on identical queries. Enforce max 8-10 tool calls, cache (tool_name, param_hash) pairs, compress observations to 2-3 sentences before appending to context, and pre-define report sections to constrain exploration.
 
-4. **Neo4j write deadlocks on hot nodes (CRITICAL)** -- High-influence agents (Whales, Quants) become contention points during concurrent INFLUENCED_BY edge creation. Prevention: batch all edge writes for a round into a single UNWIND transaction, separate read and write phases (all agents read in parallel, then one batch write).
+4. **Social post context window overflow** -- Ten peer rationale posts at full text easily exceeds the 2048 token context limit. When Ollama silently truncates from the front, the system prompt and persona instructions are dropped first, causing all agents to produce generic, undifferentiated responses. Enforce a strict token budget (system: 400, seed: 200, peer decisions: 300, social posts: 300, response headroom: 600) and use a budget-aware context builder.
 
-5. **asyncio task garbage collection drops agents silently (CRITICAL)** -- `create_task()` without stored references allows GC to destroy running tasks. Prevention: use `asyncio.TaskGroup` for all agent batch processing, or store task references in a set with done callbacks.
+5. **Prompt injection via dynamic personas** -- Seed rumors are untrusted user input. Extracted entity names flow directly into system prompts; adversarial seeds can override bracket instructions. Sanitize entity names (strip injection patterns, limit to 50 chars), never concatenate raw entity text into system prompts, use template variables only, and validate generated prompts against structural rules.
 
-6. **Echo chamber effect (MODERATE)** -- Agents converge to homogeneous consensus by Round 3 if prompts are insufficiently differentiated. Prevention: per-archetype temperature variance (Degens at 1.2, Suits at 0.3), explicit contrarian constraints in Doom-Poster prompts, diversity metric monitoring with standard deviation threshold.
+6. **Hollow interview context** -- v1 schema does not store the peer context agents received when making decisions. Interviews will feel generic without it. Store compressed context summaries (peer IDs, cited post IDs, not full text) on Decision nodes during live graph memory writes. Add a pre-computed "decision narrative" property on Agent nodes summarizing the 3-round arc.
 
-7. **psutil reports misleading memory on Apple Silicon (MODERATE)** -- Unified memory architecture breaks traditional available/used memory semantics. Prevention: supplement psutil with macOS `memory_pressure` command, Ollama `/api/ps` endpoint, and swap usage monitoring as the true pressure signal.
+7. **ReACT format conflict between STACK.md and ARCHITECTURE.md** -- STACK.md recommends regex-based text parsing (Simon Willison pattern). ARCHITECTURE.md recommends JSON-structured output with Pydantic validation. Both are valid; the JSON approach is more robust to malformed output. Resolve during Phase 15 implementation with a spike test.
 
 ## Implications for Roadmap
 
-Based on combined research across all four dimensions, the simulation has clear dependency chains that dictate build order. The architecture research and pitfalls research strongly agree on a foundation-first, headless-engine-second, TUI-third approach.
+Based on combined research, the phase structure is clear and has a single valid ordering driven by data dependencies. All three research files (FEATURES.md, ARCHITECTURE.md, PITFALLS.md) independently arrive at the same build order for the foundational phase. The only ordering divergence is whether Richer Agent Interactions (SOCIAL) comes before or after Interviews -- architecture research recommends SOCIAL second, feature research recommends it fourth. The recommendation below follows the architecture ordering for reasons explained in Phase Ordering Rationale.
 
-### Phase 1: Foundation and Infrastructure
+### Phase 11: Live Graph Memory
 
-**Rationale:** Every other component depends on the project scaffold, configuration system, type definitions, and the two critical infrastructure components (ResourceGovernor and GraphStateManager). These must be built and tested in isolation before the simulation engine exists. The memory budget pitfall (Pitfall 1) and Neo4j session safety (Pitfall 4) are Phase 1 killers that must be addressed in the infrastructure layer.
+**Rationale:** Foundational dependency. Every other v2 feature reads from the enriched graph data this phase creates. Without RationaleEpisode nodes and NARRATIVE edges, interviews return hollow responses and reports have no rationale data to query. Three independent research files confirm this must come first.
+**Delivers:** RationaleEpisode nodes per-agent per-round, NARRATIVE edges across rounds, interview context summaries on Decision nodes, new Neo4j schema indexes. No new modules -- extends graph.py and simulation.py only.
+**Addresses:** GRAPH-01 (per-agent episode writes via UNWIND batch), GRAPH-02 (RationaleEpisode with full metadata including cited_agents and timestamps), GRAPH-03 (NARRATIVE edges linking same-agent episodes across rounds, optional REFERENCES edges to Entity nodes).
+**Avoids:** Write amplification pitfall (Pitfall 2) -- must use batch UNWIND pattern from day one, not per-agent writes. Connection pool must be explicitly sized at 32.
+**Research flag:** Standard patterns. Mirrors existing write_decisions(). No additional research needed.
+**Risk:** LOW.
 
-**Delivers:** Project scaffold with uv, Pydantic config/settings, all type definitions (AgentPersona, SeedEvent, AgentDecision, BracketType), Ollama AsyncClient wrapper with standardized num_ctx via Modelfiles, Neo4j Docker setup with schema/indexes, GraphStateManager with session-per-coroutine and UNWIND batch writes, ResourceGovernor with token-pool pattern and psutil + macOS memory_pressure monitoring, 100 agent persona definitions across 10 brackets.
+### Phase 12: Richer Agent Interactions
 
-**Addresses features:** Resource/memory management, configurable agent types (definitions only), structured output schemas, agent decision logging (persistence layer).
+**Rationale:** Architecture research places this second because RationaleEpisode nodes from Phase 11 serve double duty as the social posts that peers read. Building social dynamics into the simulation before post-simulation features means reports and interviews operate on richer, socially-enriched graph data from their first run. Feature research places this fourth but acknowledges independence from live graph memory; the architecture ordering is more efficient.
+**Delivers:** Public rationale post field in AgentDecision output, top-K post ranking and injection into peer context for Rounds 2-3, READ_POST edges, optional REACTED_TO edges tracking agreement/disagreement.
+**Addresses:** SOCIAL-01 (public_rationale field in decision JSON schema, Post nodes in Neo4j), SOCIAL-02 (top-K post selection ranked by influence weight, injection into _format_peer_context()).
+**Avoids:** Context window overflow pitfall (Pitfall 4) -- token-budget-aware context builder must be implemented as the foundation of this phase before any social posts are added to prompts.
+**Research flag:** Needs phase research. Social post ranking algorithm (by influence weight vs bracket diversity vs signal divergence) is not specified in research and requires a design decision. The interaction between richer prompts and agent output quality needs empirical validation.
+**Risk:** MEDIUM. Modifies the core dispatch path. Careful testing required to confirm richer context improves rather than degrades agent output.
 
-**Avoids pitfalls:** Memory budget arithmetic (#1), context size mismatch (#2), Ruflo incompatibility (#3), AsyncSession sharing (#4), write deadlocks (#6), psutil inaccuracy (#9), composite index partial match (#13), Python version pinning (#15).
+### Phase 13: Dynamic Persona Generation
 
-### Phase 2: Core Simulation Engine (Headless)
+**Rationale:** Independent of Phases 11-12 in data dependency -- it modifies simulation INPUT (personas), not the simulation loop or output. Placed here rather than in parallel to ensure Phase 11 and 12 graph patterns are stable before a new input source is introduced. Low risk relative to other phases.
+**Delivers:** PersonaGenerator module (persona_gen.py), entity-aware bracket modifier generation, persona replacement within fixed 100-agent grid (grid invariant preserved), PersonaGenSettings configuration, option to keep orchestrator loaded between inject_seed() and generate() to avoid a double cold-load.
+**Addresses:** PERSONA-01 (orchestrator generates entity-specific bracket modifiers from SeedEvent.entities), PERSONA-02 (modifier injection into generate_personas() pipeline, DynamicPersonaSpec dataclass).
+**Avoids:** Prompt injection pitfall (Pitfall 5) -- input sanitization must be the first thing built in this phase, before persona template code. Validate generated prompts against structural rules.
+**Research flag:** Standard patterns. Follows existing inject_seed() orchestrator-call pattern. No additional research needed.
+**Risk:** LOW.
 
-**Rationale:** The 3-round cascade is the core product. Building it headless (CLI-driven, no TUI) allows focused debugging of the inference pipeline, prompt engineering, and graph state management without UI complexity. The echo chamber pitfall (Pitfall 11) must be detected and mitigated here through prompt engineering iteration. The asyncio task GC pitfall (Pitfall 5) and semaphore permit leak (Pitfall 8) surface during batch inference.
+### Phase 14: Agent Interviews
 
-**Delivers:** SeedInjector with entity extraction, AgentPool with batched inference dispatch, SimulationEngine 3-round state machine, structured output parsing with Pydantic validation, dynamic influence topology (INFLUENCED_BY edge creation from citation patterns), bracket-level sentiment aggregation, CLI entry point that runs a full simulation and writes results to Neo4j.
+**Rationale:** Depends on Phase 11 for rationale history context. Post-simulation feature that does not affect core simulation reliability. Benefits from Phase 12 data (richer graph context for interview reconstruction). Feature and architecture research both place this in the second-to-last position.
+**Delivers:** InterviewEngine module (interview.py), stateful InterviewSession with graph-backed context, interactive TUI interview mode (push/pop Screen with Input widget and RichLog), CLI interview subcommand, multi-turn conversation with sliding window history management, SimulationPhase.INTERVIEWING state.
+**Addresses:** INT-01 (agent context reconstruction -- decisions + rationale history + influence data from Neo4j), INT-02 (conversational loop using worker LLM with agent's original system prompt + decision narrative context), INT-03 (TUI integration accessible from agent grid, clean exit to dashboard).
+**Avoids:** Model lifecycle collision (Pitfall 1) -- must use worker model for interviews; never load orchestrator while interview is available. Incomplete interview context (Pitfall 6) -- retrieval query must traverse MADE, CITED, and INFLUENCED_BY relationships, not just Decision nodes. Blocking TUI during inference (anti-pattern) -- run inference as Textual Worker.
+**Research flag:** Needs phase research. qwen3.5:9b's interview response quality with 1,250+ token context loads needs empirical validation. Textual Worker pattern for streaming interview responses needs implementation design.
+**Risk:** MEDIUM. TUI changes introduce user input handling in a previously output-only interface.
 
-**Addresses features:** Seed rumor injection, entity extraction, heterogeneous agent personas, 3-round consensus cascade, async concurrent execution, Neo4j persistence, structured output parsing, dynamic influence topology, bracket-level aggregation.
+### Phase 15: Post-Simulation Report
 
-**Avoids pitfalls:** Task GC Heisenbug (#5), semaphore permit leak (#8), echo chamber effect (#11), TaskGroup cancellation (#12), Ollama queue saturation (#14).
-
-### Phase 3: TUI Dashboard
-
-**Rationale:** The TUI depends on a working simulation engine and StateStore. Building it after the headless engine is stable avoids the trap of debugging inference logic through a UI layer. The snapshot-based architecture (200ms tick) must be the only data path from simulation to UI -- this is a hard architectural constraint from Pitfall 7.
-
-**Delivers:** StateStore with immutable snapshot production, Textual app shell with CSS layout, 10x10 AgentGrid widget with color-coded sentiment cells, RationaleSidebar with streaming rationale log, TelemetryFooter with RAM/TPS/queue depth, wiring between SimulationEngine and StateStore.
-
-**Addresses features:** Real-time TUI dashboard, bracket-level aggregate display, hardware telemetry visualization.
-
-**Avoids pitfalls:** Per-agent UI update freeze (#7), event loop starvation from direct widget updates.
-
-### Phase 4: Polish, Replay, and Miro Visualization
-
-**Rationale:** These features add analytical depth and external integration but do not affect the core simulation loop. Miro's credit-based rate limiting (Pitfall 10) requires careful batcher implementation that should not block the core product. Replay leverages data already stored in Neo4j from Phase 2.
-
-**Delivers:** Simulation replay from stored Neo4j state (re-render without re-inference), exportable markdown/HTML simulation reports, MiroBatcher with credit-aware rate limiting (parse X-RateLimit headers), Miro board export of final-round influence topology, mid-simulation shock injection (optional Round 2 event parameter).
-
-**Addresses features:** Simulation replay/time-travel, exportable reports, Miro network visualization, prompt injection for scenario variants.
-
-**Avoids pitfalls:** Miro credit-based rate limiting (#10).
+**Rationale:** Most complex new component (ReACT loop with tool dispatch). Placed last because it benefits from the richest possible graph data (all prior phases contributing RationaleEpisode, narrative edges, READ_POST edges, social reactions) and because the report query patterns validate that the graph schema is queryable in the ways the report needs. Feature and architecture research both place this last.
+**Delivers:** ReportGenerator module (report.py), ReACT loop with hard iteration cap, Pydantic-validated JSON action parsing (ReACTAction model), Cypher query tool registry (consensus, shifts, influence leaders, bracket narratives, convergence), Jinja2 report templates, aiofiles async export to results/, CLI report subcommand, TUI report progress indicator (ReportProgress in StateStore), SimulationPhase.REPORTING state.
+**Addresses:** REPORT-01 (ReACT loop using OllamaClient directly, prompt-based tool dispatching -- no LangChain), REPORT-02 (Cypher query tools via GraphStateManager public methods, not raw driver access), REPORT-03 (structured markdown report output, CLI integration, file path displayed in TUI).
+**Avoids:** ReACT infinite loops (Pitfall 3) -- hard iteration cap (max 8-10 calls), duplicate tool call detection via (tool_name, param_hash) cache, compressed observations. Model slot competition (Pitfall 7) -- serialize report before or after interview via post-simulation menu, never concurrent. qwen3.5 tool calling bug -- never use `tools=` parameter, always prompt-based.
+**Research flag:** Needs phase research. qwen3.5:32b's ability to produce reliable JSON-structured Thought/Tool/Input outputs needs empirical testing before committing to the full tool registry. Run a spike test with 2-3 tools before building all 5-6.
+**Risk:** MEDIUM-HIGH. ReACT loop depends on orchestrator output quality. Needs robust 3-tier fallback for malformed JSON actions (same pattern as existing parsing.py).
 
 ### Phase Ordering Rationale
 
-- **Foundation before engine:** ResourceGovernor and GraphStateManager are dependencies for every inference call. Building them first with mock loads allows isolated testing of the memory and concurrency subsystems that are the project's primary technical risk.
-- **Headless engine before TUI:** Debugging LLM output quality, prompt engineering, and graph state correctness is dramatically easier without a UI layer. The CLI milestone provides a fully functional simulation that can be validated with Neo4j Browser queries.
-- **TUI as separate phase:** The snapshot architecture creates a clean boundary. The TUI reads from StateStore and has zero knowledge of agents, Ollama, or Neo4j. This separation is both an architectural pattern and a development strategy.
-- **Miro and polish last:** These are additive features with external API dependencies. The core product (simulation + TUI) must be solid before introducing rate-limited external integrations.
+- **Phase 11 is non-negotiable first.** All three research files (FEATURES.md, ARCHITECTURE.md, PITFALLS.md) independently confirm this. The data it creates is a prerequisite for every other v2 feature, and Pitfall 6 (hollow interview context) specifically requires context summaries to be written to the graph DURING simulation, not added as an afterthought.
+- **Phase 12 before interviews and reports.** Building social dynamics into simulation rounds means the graph that interviews and reports query is richer from the first run. The RationaleEpisode nodes created in Phase 11 serve directly as the social posts in Phase 12, making this a natural continuation rather than a separate track.
+- **Phase 13 can shift.** Dynamic persona generation is independent of Phases 12, 14, and 15. It could be built in parallel or earlier without blocking other work. Its placement at Phase 13 (after the simulation loop is stable with enriched writes) reflects conservative risk management.
+- **Phase 14 before 15.** Interviews validate that graph read paths (decisions, rationale history, influence data) work correctly for single-agent context reconstruction. These same read patterns underlie report query tools. A working interview is evidence the graph is correctly populated.
+- **Never run report and interview concurrently.** Pitfall 7 is explicit: serialize post-simulation activities. The CLI/TUI must present a sequential menu (1. Interview Agents, 2. Generate Report) to prevent model slot competition.
 
 ### Research Flags
 
-Phases likely needing deeper research during planning:
-- **Phase 1 (ResourceGovernor):** The psutil-on-Apple-Silicon issue (Pitfall 9) requires empirical calibration. The memory_pressure command output format and Ollama /api/ps response schema need verification during implementation. Recommend `/gsd:research-phase` for this component.
-- **Phase 2 (Prompt Engineering):** The echo chamber mitigation strategy (per-archetype temperatures, contrarian biases, diversity metrics) is theoretically sound but requires empirical tuning with actual LLM outputs. Research cannot substitute for experimentation here. Recommend iterative testing with small agent counts (10-20) before scaling to 100.
-- **Phase 4 (Miro Integration):** The credit-based rate limiting tiers and bulk create API (up to 20 items per call) need API-level research during Phase 4 planning. Deferred and well-contained.
+Phases needing deeper research during planning:
+- **Phase 12 (Richer Agent Interactions):** Social post ranking algorithm is unspecified. The interaction between expanded prompts and agent output quality needs empirical design before implementation.
+- **Phase 14 (Agent Interviews):** Worker model response quality at interview context token loads needs validation. Textual Worker pattern for streaming responses needs architectural design.
+- **Phase 15 (Post-Simulation Report):** ReACT prompt engineering for qwen3.5:32b is the highest-uncertainty element. A 2-3 tool spike test should precede full implementation.
 
 Phases with standard patterns (skip research-phase):
-- **Phase 1 (Neo4j setup, Pydantic models, project scaffold):** Well-documented, verified library versions, standard patterns.
-- **Phase 3 (Textual TUI):** Textual's Worker API, reactive attributes, and CSS layout are thoroughly documented. The snapshot pattern is well-established.
+- **Phase 11 (Live Graph Memory):** Pattern mirrors existing write_decisions() exactly. UNWIND batch writes, schema indexes, and GraphStateManager extension are all validated in v1.
+- **Phase 13 (Dynamic Persona Generation):** Follows existing inject_seed() orchestrator-call pattern. Risk is low; straightforward extension.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All library versions verified on PyPI. Model tag corrections verified against Ollama model library. Ruflo incompatibility confirmed via GitHub repo. Memory budget arithmetic cross-referenced against multiple Apple Silicon benchmark sources. |
-| Features | HIGH | 8 comparable systems surveyed (TradingAgents, StockSim, TwinMarket, MiroFish-Offline, OASIS, AlphaAgents, FCLAgent, ScaleSim). Table stakes and differentiators validated against field. Anti-features list well-justified. |
-| Architecture | HIGH | Pipeline-with-feedback-loop pattern verified against OASIS and TwinMarket architectures. Neo4j async patterns verified against official driver docs. Textual snapshot pattern verified against Textualize blog posts and docs. |
-| Pitfalls | HIGH | 15 pitfalls identified, 6 critical. Memory budget arithmetic, Ollama context reload behavior, Neo4j session safety, and asyncio task GC are all documented in official sources. Apple Silicon memory monitoring (Pitfall 9) is MEDIUM confidence -- requires empirical validation. |
+| Stack | HIGH | Existing v1 stack fully validated. Two new deps (Jinja2, aiofiles) are mature and conflict-free. qwen3.5 tool calling bug confirmed via two GitHub issues with community reproduction. |
+| Features | HIGH | Feature set grounded in primary research papers (Park et al. 2023, OASIS, TwinMarket, TradingAgents) and production frameworks (MiroFish 44.9k stars). Prioritization matrix is internally consistent and grounded in competitor analysis. |
+| Architecture | HIGH | Builds on existing codebase patterns with explicit modification points identified per file. Five-phase build structure independently confirmed by both feature and architecture research. Anti-patterns are concrete and specific to existing code (dispatch_wave, session-per-method, UNWIND batch). |
+| Pitfalls | HIGH | All 7 critical pitfalls verified against existing codebase architecture. Performance traps are quantified (700x write amplification, 2048 token context limit, 30s cold-load). Recovery strategies provided for each pitfall. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Empirical memory calibration:** The memory budget analysis is theoretical. Actual M1 Max 64GB behavior under dual-model load with 8-16 parallel slots must be measured during Phase 1 development. The Metal GPU memory ceiling (75% default) and the `sysctl iogpu.wired_limit_mb` override need hands-on verification.
-- **Prompt engineering for diversity:** The echo chamber mitigation strategies (per-archetype temperatures, contrarian biases) are based on general multi-agent LLM research, not AlphaSwarm-specific testing. Phase 2 must include systematic prompt testing with diversity metrics before scaling to 100 agents.
-- **Ollama batch API:** Ollama has an open discussion about a native batch API (GitHub #10699). If released during development, it could simplify the semaphore-based batching approach. Monitor this.
-- **Sequential vs dual model loading performance:** The recommended dual-load strategy (llama3.1:8b + qwen3.5:4b) trades orchestrator quality for convenience. The sequential strategy (llama3.3:70b swapped with qwen3.5:4b) adds 30-45s cold-load penalty per phase transition. The right choice depends on empirical orchestrator quality assessment -- does the 8B model produce acceptable entity extraction?
-- **httpx version:** httpx 0.28.x version not directly confirmed via PyPI (search blocked during research). Verify at install time.
+- **ReACT output format:** STACK.md recommends regex-based text parsing (Simon Willison pattern). ARCHITECTURE.md recommends JSON-structured output with Pydantic validation. Both are viable; run a spike test during Phase 15 planning to determine which qwen3.5:32b produces more reliably in the AlphaSwarm ReACT prompt context.
+- **Interview context window budget:** The 8K token context estimate for the orchestrator model assumes default Ollama configuration. Verify qwen3.5:32b context window as configured in AlphaSwarm's Modelfile.orchestrator. If pinned to 4K, the sliding window triggers after approximately 10 exchanges instead of 22.
+- **Social post ranking algorithm:** SOCIAL-02 requires top-K post selection for peer context injection. Ranking criteria (by influence weight, bracket diversity, or signal divergence) are unspecified in all research files. Design decision required during Phase 12 planning.
+- **ARCHITECTURE.md and FEATURES.md phase ordering disagreement:** Features research recommends SOCIAL last (Phase 14, after Interviews); Architecture research recommends SOCIAL second (Phase 12, before Interviews). This summary recommends architecture order. Validate this choice during Phase 12 planning by confirming that social enrichment materially improves interview context quality.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- [Ollama Python library on PyPI (v0.6.1)](https://pypi.org/project/ollama/) -- AsyncClient API
-- [Ollama model library - Llama 4](https://ollama.com/library/llama4) -- model variants and sizes
-- [Ollama model library - Qwen 3.5](https://ollama.com/library/qwen3.5) -- model variants and sizes
-- [Neo4j Python driver on PyPI (v6.1.0)](https://pypi.org/project/neo4j/) -- async driver
-- [Neo4j concurrency documentation](https://neo4j.com/docs/python-manual/current/concurrency/) -- session safety
-- [Neo4j concurrent data access](https://neo4j.com/docs/operations-manual/current/database-internals/concurrent-data-access/) -- deadlock behavior
-- [Textual on PyPI (v8.1.1)](https://pypi.org/project/textual/) -- TUI framework
-- [Textual Workers guide](https://textual.textualize.io/guide/workers/) -- async patterns
-- [Pydantic on PyPI (v2.12.5)](https://pypi.org/project/pydantic/) -- data validation
-- [psutil on PyPI (v7.2.2)](https://pypi.org/project/psutil/) -- system monitoring
-- [structlog on PyPI (v25.5.0)](https://pypi.org/project/structlog/) -- structured logging
-- [Ruflo GitHub (Node.js)](https://github.com/ruvnet/ruflo) -- confirms incompatibility
-- [Miro API rate limiting](https://developers.miro.com/reference/rate-limiting) -- credit tiers
-- [Ollama FAQ](https://docs.ollama.com/faq) -- parallel config, memory
-- [TradingAgents (GitHub)](https://github.com/TauricResearch/TradingAgents) -- comparable system
-- [TwinMarket (arXiv)](https://arxiv.org/abs/2502.01506) -- comparable system, ICLR 2025
-- [MiroFish-Offline (GitHub)](https://github.com/nikmcfly/MiroFish-Offline) -- comparable system with Neo4j + Ollama
-- [StockSim (GitHub)](https://github.com/harrypapa2002/StockSim) -- comparable system
-- [Ollama parallel request handling](https://www.glukhov.org/post/2025/05/how-ollama-handles-parallel-requests/) -- batching internals
+- [Generative Agents: Interactive Simulacra of Human Behavior (Park et al. 2023)](https://arxiv.org/abs/2304.03442) -- Interview evaluation methodology, memory stream architecture
+- [OASIS: Open Agent Social Interaction Simulations (CAMEL-AI)](https://github.com/camel-ai/oasis) -- Social action patterns, RecSys-driven propagation
+- [TwinMarket: Scalable Behavioral and Social Simulation](https://arxiv.org/html/2502.01506v2) -- Forum-style social posts, hot-score ranking, opinion leader emergence
+- [MiroFish (GitHub, 44.9k stars)](https://github.com/666ghj/MiroFish) -- ReACT report agent, agent interviews, OASIS social integration
+- [TradingAgents: Multi-Agent LLM Financial Trading](https://github.com/TauricResearch/TradingAgents) -- Chain-of-thought logs, hierarchical report writing
+- [Ollama tool calling bug #14493](https://github.com/ollama/ollama/issues/14493) -- Confirmed broken qwen3.5 tool calling
+- [Ollama tool calling bug #14745](https://github.com/ollama/ollama/issues/14745) -- 9b variant prints tool calls as text
+- [Neo4j Python driver concurrency docs](https://neo4j.com/docs/python-manual/current/concurrency/) -- AsyncSession constraints and performance recommendations
+- [ReACT: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629) -- Original ReACT paper
+- [Jinja2 PyPI (v3.1.6)](https://pypi.org/project/Jinja2/) -- Template engine, Python >=3.7
+- [aiofiles PyPI](https://pypi.org/project/aiofiles/) -- Async file I/O for asyncio
+- [Textual PyPI (v8.2.1)](https://pypi.org/project/textual/) -- Screen modes, Input, RichLog
+- [Neo4j Text2Cypher ReACT agent example](https://github.com/neo4j-field/text2cypher-react-agent-example) -- ReACT + Neo4j integration pattern
 
 ### Secondary (MEDIUM confidence)
-- [ScaleSim (arXiv)](https://arxiv.org/html/2601.21473) -- memory management for multi-agent LLM serving
-- [OASIS (GitHub)](https://github.com/camel-ai/oasis) -- 1M agent simulation architecture (social media focused)
-- [Apple Silicon LLM benchmarks](https://github.com/ggml-org/llama.cpp/discussions/4167) -- M1/M3 performance data
-- [psutil macOS issues (GitHub #1908)](https://github.com/giampaolo/psutil/issues/1908) -- VMS reporting
-- [Multi-agent LLM failure modes (arXiv:2503.13657)](https://arxiv.org/html/2503.13657v1) -- echo chamber research
-- [AlphaAgents (arXiv)](https://arxiv.org/abs/2508.11152) -- BlackRock multi-agent portfolio construction
-- [FCLAgent (arXiv)](https://arxiv.org/abs/2510.12189) -- Fundamental-Chartist-LLM agent simulation
-
-### Tertiary (LOW confidence)
-- httpx 0.28.x version -- not directly confirmed, verify at install
-- Ollama batch API (GitHub #10699) -- feature discussion, not yet released
+- [Graphiti: Knowledge Graph Memory (Neo4j/Zep)](https://neo4j.com/blog/developer/graphiti-knowledge-graph-memory/) -- Bi-temporal episode model patterns
+- [Neo4j Agent Memory (neo4j-labs)](https://github.com/neo4j-labs/agent-memory) -- Episodic/semantic memory schema patterns
+- [Simon Willison ReACT pattern](https://til.simonwillison.net/llms/python-react-pattern) -- Minimal Python ReACT implementation
+- [Population-Aligned Persona Generation (2025)](https://arxiv.org/abs/2509.10127) -- Three-stage persona generation pipeline
+- [PersonaAgent: LLM Agents Meet Personalization (2025)](https://arxiv.org/abs/2506.06254) -- Test-time persona alignment
+- [OWASP LLM Top 10 2025: Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) -- Indirect prompt injection via untrusted data
+- [Memory in LLM-based Multi-agent Systems (TechRxiv)](https://www.techrxiv.org/doi/full/10.36227/techrxiv.176539617.79044553/v1) -- Context degradation and memory synchronization challenges
+- [Ollama Keep-Alive Memory Management](https://markaicode.com/ollama-keep-alive-memory-management/) -- Model eviction behavior and cold-load latency
 
 ---
-*Research completed: 2026-03-24*
+*Research completed: 2026-03-31*
 *Ready for roadmap: yes*
