@@ -1,18 +1,74 @@
 # AlphaSwarm
 
-> A localized, multi-agent financial simulation engine — built to run entirely on-device.
+**Multi-agent financial simulation engine that runs 100 AI personas through a 3-round consensus cascade — entirely on local hardware.**
 
-Feed it a market rumor. Watch 100 AI personas — quants, degens, whales, policy wonks, and more — debate, revise, and converge across 3 rounds of iterative consensus. All inference runs locally via Ollama. No cloud. No latency. No leaks.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Ollama](https://img.shields.io/badge/inference-Ollama-orange.svg)](https://ollama.com/)
+[![Neo4j](https://img.shields.io/badge/graph-Neo4j-brightgreen.svg)](https://neo4j.com/)
+[![Textual](https://img.shields.io/badge/TUI-Textual-purple.svg)](https://textual.textualize.io/)
+
+Feed it a market rumor. Watch 100 AI agents — quants, degens, whales, policy wonks, and more — independently analyze it, observe each other's positions, and iteratively converge toward consensus. All inference runs locally via Ollama. No cloud. No API keys. No data leaves your machine.
+
+---
+
+## Key Features
+
+- **100 autonomous agents** across 10 distinct market archetypes, each with unique risk profiles, biases, and decision heuristics
+- **3-round iterative consensus** — independent analysis, peer influence, final convergence — with measurable opinion shifts between rounds
+- **Dynamic influence topology** — agent-to-agent influence edges form organically from citation and agreement patterns (Neo4j graph), not static hierarchies
+- **Real-time terminal dashboard** — live 10x10 agent grid, streaming rationale feed, bracket sentiment bars, and hardware telemetry
+- **Memory-aware resource governance** — dynamic concurrency control via `psutil` monitoring, auto-throttles at 80% RAM, pauses at 90%
+- **100% local** — dual-model Ollama pipeline (35B orchestrator + 9B workers), Neo4j in Docker, zero cloud dependencies
 
 ---
 
 ## How It Works
 
-1. **Seed** — You enter a natural-language market rumor (e.g. *"Iran and U.S. reach a peace deal"*)
-2. **Round 1** — 100 agents independently form an initial signal: BUY, SELL, or HOLD
-3. **Round 2** — Agents see peer decisions and revise based on influence weights
-4. **Round 3** — Final convergence pass; measures signal flips and consensus strength
-5. **Visualize** — Everything streams live to a terminal dashboard as it happens
+```
+Seed Rumor ──► Orchestrator (35B) ──► Entity Extraction
+                                          │
+                    ┌─────────────────────┘
+                    ▼
+              Round 1: 100 agents form independent signals (BUY / SELL / HOLD)
+                    │
+                    ▼
+              Round 2: Agents read top-5 peer decisions, revise positions
+                    │
+                    ▼
+              Round 3: Final convergence — consensus lock, influence edges solidify
+                    │
+                    ▼
+              Results: Per-agent decisions, bracket summaries, influence graph
+```
+
+---
+
+## Dashboard
+
+The Textual TUI updates in real time as agents form decisions:
+
+```
+AlphaSwarm  |  Round 2/3  |  ● Round 2  |  00:04:12
+┌─────────────────────────────┐  ┌─────────────────────────┐
+│  ■ ■ ■ ■ ■ ■ ■ ■ ■ ■      │  │ Rationale               │
+│  ■ ■ ■ ■ ■ ■ ■ ■ ■ ■      │  │ > Q-07 [BUY] peace...   │
+│  ■ ■ ■ ■ ■ ■ ■ ■ ■ ■      │  │ > D-14 [SELL] risk...   │
+│  ... 10x10 agent grid ...  │  │ > W-02 [BUY] long-t...  │
+└─────────────────────────────┘  └─────────────────────────┘
+RAM: 72%  |  TPS: 48.3  |  Queue: 12  |  Slots: 8
+Quants      [████████░░]  80%   Brackets
+Degens      [████░░░░░░]  40%   ...
+```
+
+| Panel | Description |
+|---|---|
+| **Header** | Simulation phase, round counter, elapsed time |
+| **Agent Grid** | 10x10 cells color-coded by signal — green (BUY), red (SELL), gray (HOLD) |
+| **Rationale** | Scrolling feed of agent reasoning, prioritized by influence weight |
+| **Telemetry** | Live RAM %, tokens/sec, inference queue depth, governor slot count |
+| **Brackets** | Per-archetype sentiment distribution updated after each round |
+
+**Controls:** `q` quit | `s` save results to markdown
 
 ---
 
@@ -33,37 +89,75 @@ Feed it a market rumor. Watch 100 AI personas — quants, degens, whales, policy
 
 ---
 
-## Prerequisites
+## Architecture
 
-| Tool | Purpose |
+```
+┌──────────────────────────────────────────────────────┐
+│                    AlphaSwarm                         │
+│                                                      │
+│  ┌──────────┐   ┌──────────────┐   ┌──────────────┐ │
+│  │  Ollama   │   │  Simulation  │   │   Textual    │ │
+│  │  35B/9B   │◄─►│   Engine     │──►│   TUI        │ │
+│  │  Models   │   │  (asyncio)   │   │  Dashboard   │ │
+│  └──────────┘   └──────┬───────┘   └──────────────┘ │
+│                        │                             │
+│                        ▼                             │
+│               ┌──────────────┐                       │
+│               │    Neo4j     │                       │
+│               │  Graph DB    │                       │
+│               │  (Docker)    │                       │
+│               └──────────────┘                       │
+│                                                      │
+│  ┌──────────────────────────────────────────────┐    │
+│  │          Resource Governor                    │    │
+│  │  psutil monitoring · dynamic semaphore ·      │    │
+│  │  auto-throttle at 80% · pause at 90%          │    │
+│  └──────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────┘
+```
+
+## Tech Stack
+
+| Layer | Technology |
 |---|---|
-| Python 3.11+ | Runtime |
-| [uv](https://docs.astral.sh/uv/) | Package manager |
-| [Ollama](https://ollama.com/) | Local LLM inference |
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Runs Neo4j graph database |
-
-**Hardware target:** Apple M1 Max 64GB. Memory-aware throttling kicks in at 90% RAM — the simulation auto-slows before it crashes.
+| Language | Python 3.11+ with strict typing |
+| Concurrency | `asyncio` — 100% non-blocking, `TaskGroup`-based dispatch |
+| Inference | Ollama — `qwen3.5:35b` orchestrator, `qwen3.5:9b` workers |
+| Graph State | Neo4j Community — cycle-scoped edges, UNWIND batch writes, async driver |
+| Terminal UI | Textual — snapshot-based rendering at 200ms intervals |
+| Validation | Pydantic + pydantic-settings |
+| Logging | structlog (structured JSON with per-agent correlation IDs) |
+| Package Manager | uv |
 
 ---
 
-## Setup
+## Quick Start
 
-### 1. Install dependencies
+### Prerequisites
+
+| Tool | Purpose |
+|---|---|
+| [Python 3.11+](https://www.python.org/downloads/) | Runtime |
+| [uv](https://docs.astral.sh/uv/) | Package manager |
+| [Ollama](https://ollama.com/) | Local LLM inference |
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Runs Neo4j |
+
+**Hardware target:** Apple Silicon with 64GB unified memory. The resource governor dynamically adjusts concurrency for available RAM.
+
+### 1. Install
 
 ```bash
+git clone https://github.com/Avo-Sarkissian/AlphaSwarm.git
+cd AlphaSwarm
 uv sync
 ```
 
-### 2. Build the Ollama models
-
-AlphaSwarm uses two custom model variants — an orchestrator (35B) for parsing rumors, and a worker (9B) for agent inference.
+### 2. Build models
 
 ```bash
 ollama create alphaswarm-orchestrator -f modelfiles/Modelfile.orchestrator
 ollama create alphaswarm-worker -f modelfiles/Modelfile.worker
 ```
-
-> This pulls ~30GB total on first run. Make sure Ollama is running first.
 
 ### 3. Start Neo4j (first time only)
 
@@ -74,63 +168,11 @@ docker run -d --name neo4j --restart unless-stopped \
   neo4j:community
 ```
 
-The `--restart unless-stopped` flag means Neo4j will automatically start whenever Docker Desktop opens — no manual step needed on future reboots.
-
-### 4. Launch
+### 4. Run
 
 ```bash
 uv run start
 ```
-
-Or add a shell alias so you can just type `start` from anywhere:
-
-```bash
-echo 'alias start="cd ~/Documents/VS\ Code/AlphaSwarm && uv run start"' >> ~/.zshrc
-source ~/.zshrc
-```
-
----
-
-## Dashboard
-
-The terminal UI updates in real time as agents form decisions:
-
-```
-AlphaSwarm  |  Round 2/3  |  ● Round 2  |  00:04:12
-┌─────────────────────────────┐  ┌─────────────────────────┐
-│  ■ ■ ■ ■ ■ ■ ■ ■ ■ ■      │  │ Rationale               │
-│  ■ ■ ■ ■ ■ ■ ■ ■ ■ ■      │  │ > Q-07 [BUY] peace...   │
-│  ■ ■ ■ ■ ■ ■ ■ ■ ■ ■      │  │ > D-14 [SELL] risk...   │
-│  ... 10x10 agent grid ...  │  │ > W-02 [BUY] long-t...  │
-└─────────────────────────────┘  └─────────────────────────┘
-RAM: 72%  |  TPS: 48.3  |  Queue: 12  |  Slots: 8
-Quants      [████████░░]  80%   Brackets
-Degens      [████░░░░░░]  40%   ...
-```
-
-| Area | What it shows |
-|---|---|
-| Header | Phase, round counter, elapsed time |
-| Agent Grid | 10x10 cells — green (BUY), red (SELL), gray (HOLD) |
-| Rationale Sidebar | Scrolling feed of agent reasoning snippets |
-| Telemetry | RAM %, tokens/sec, queue depth, available inference slots |
-| Brackets | Sentiment distribution bars per archetype |
-
-Press `q` to quit.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Runtime | Python 3.11+, `asyncio` (100% non-blocking) |
-| Inference | Ollama — `qwen3.5:35b` (orchestrator), `qwen3.5:9b` (workers) |
-| Graph State | Neo4j Community via async driver |
-| Terminal UI | Textual |
-| Validation | Pydantic + pydantic-settings |
-| Logging | structlog (structured JSON) |
-| Package Manager | uv |
 
 ---
 
@@ -145,9 +187,10 @@ cp .env.example .env
 Key settings:
 
 ```env
-ALPHASWARM_GOVERNOR__BASELINE_PARALLEL=8     # concurrent agent slots
-ALPHASWARM_GOVERNOR__MEMORY_THROTTLE_PERCENT=80.0  # start throttling at 80%
-ALPHASWARM_GOVERNOR__MEMORY_PAUSE_PERCENT=90.0     # pause queue at 90%
+ALPHASWARM_GOVERNOR__BASELINE_PARALLEL=8          # starting concurrent agent slots
+ALPHASWARM_GOVERNOR__MAX_PARALLEL=16              # max slots under low memory pressure
+ALPHASWARM_GOVERNOR__MEMORY_THROTTLE_PERCENT=80.0 # begin throttling
+ALPHASWARM_GOVERNOR__MEMORY_PAUSE_PERCENT=90.0    # pause inference queue
 ```
 
 ---
@@ -156,26 +199,17 @@ ALPHASWARM_GOVERNOR__MEMORY_PAUSE_PERCENT=90.0     # pause queue at 90%
 
 Planned features — all local-first, no cloud dependencies.
 
-### Agent Interviews
+| Feature | Description |
+|---|---|
+| **Agent Interviews** | Post-simulation live Q&A with any agent — full persona and decision context |
+| **Live Graph Memory** | Real-time Neo4j updates during simulation — rationale episodes, signal flips, influence events as queryable edges |
+| **Report Generation** | ReACT agent queries Neo4j post-simulation and generates a structured market analysis report |
+| **Social Influence** | Agents publish rationale posts that peers read and react to — organic influence dynamics beyond vote-counting |
+| **Dynamic Personas** | Extract entities from the seed rumor to spawn domain-specific agents alongside standard brackets |
+| **Web Dashboard** | Vue 3 + D3.js browser UI — live agent grid, force-directed influence graph, rationale feed, bracket charts ([MiroFish](https://github.com/666ghj/MiroFish)-inspired) |
 
-After the simulation completes, select any agent from the grid and have a live conversation. Ask a Whale why they went contrarian, or grill a Degen about their FOMO. The worker model stays loaded post-simulation to power interactive Q&A with full persona and decision context.
+---
 
-### Live Graph Memory
+## License
 
-Currently Neo4j captures a snapshot of each round's decisions. This upgrade feeds agent actions back into the graph in real time — rationale text, signal flips, influence events — creating a living memory that evolves throughout the cascade. Enables richer peer context in later rounds and post-simulation graph exploration.
-
-### Post-Simulation Report Generation
-
-A ReACT-style agent that queries the Neo4j graph after the simulation ends and produces a structured market analysis report: consensus summary, key dissenting voices, bracket-level trends, signal flip analysis, and confidence distributions. Output as markdown, viewable in the TUI or exported.
-
-### Richer Agent Interactions
-
-Evolve beyond simple BUY/SELL/HOLD signals. Agents publish short rationale posts that other agents read and react to — creating organic social influence dynamics rather than pure vote-counting. Inspired by [OASIS](https://github.com/camel-ai/oasis) social simulation research.
-
-### Dynamic Persona Generation
-
-Instead of static archetypes, extract entities and context from the seed rumor itself to generate situation-specific personas. A rumor about oil markets would spin up energy traders, OPEC analysts, and pipeline engineers alongside the standard brackets.
-
-### Web Dashboard
-
-A browser-based companion UI (Vue 3 + D3.js) that extends the TUI with richer visualization: live 10x10 agent grid, D3 force-directed influence graph showing agent relationships, real-time rationale feed, bracket sentiment charts, and post-simulation agent interviews. Backed by a FastAPI REST API with HTTP polling. Inspired by [MiroFish](https://github.com/666ghj/MiroFish) — adapted for local-first architecture.
+MIT
