@@ -12,22 +12,22 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **SIM-01**: Orchestrator LLM (qwen3:32b) parses a seed rumor and extracts named entities (companies, sectors, people, sentiment cues) as structured JSON
 - [x] **SIM-02**: 100 agents across 10 bracket archetypes (Quants, Degens, Sovereigns, Macro, Suits, Insiders, Agents, Doom-Posters, Policy Wonks, Whales) each have distinct risk profiles, information biases, and decision heuristics
 - [x] **SIM-03**: Each agent produces a structured decision per round: signal (BUY/SELL/HOLD), confidence (0.0-1.0), sentiment (-1.0 to 1.0), rationale (text), and cited_agents (list)
-- [x] **SIM-04**: Round 1 (Initial Reaction) — all 100 agents process the seed rumor independently with no peer context
-- [x] **SIM-05**: Round 2 (Peer Influence) — agents receive top-5 influential peer decisions from Round 1 and re-evaluate their position
-- [x] **SIM-06**: Round 3 (Final Consensus Lock) — agents receive updated peer decisions from Round 2 and produce final locked positions
-- [x] **SIM-07**: Dynamic influence topology — INFLUENCED_BY edges in Neo4j form and shift weight based on citation/agreement patterns within the current cycle, not predefined hierarchies
+- [x] **SIM-04**: Round 1 (Initial Reaction) -- all 100 agents process the seed rumor independently with no peer context
+- [x] **SIM-05**: Round 2 (Peer Influence) -- agents receive top-5 influential peer decisions from Round 1 and re-evaluate their position
+- [x] **SIM-06**: Round 3 (Final Consensus Lock) -- agents receive updated peer decisions from Round 2 and produce final locked positions
+- [x] **SIM-07**: Dynamic influence topology -- INFLUENCED_BY edges in Neo4j form and shift weight based on citation/agreement patterns within the current cycle, not predefined hierarchies
 - [x] **SIM-08**: Bracket-level sentiment aggregation computed after each round (e.g., "Quants are 80% bearish")
 
 ### Infrastructure
 
 - [x] **INFRA-01**: ResourceGovernor implements dynamic concurrency control via asyncio token-pool pattern, starting at 8 parallel slots (adjustable up to 16)
 - [x] **INFRA-02**: psutil + macOS `memory_pressure` command monitors system memory; ResourceGovernor throttles at 80% utilization and pauses task queue at 90%
-- [x] **INFRA-03**: Sequential model loading — orchestrator model (qwen3:32b) loads for seed injection, unloads, then worker model (qwen3.5:4b) loads for agent inference
+- [x] **INFRA-03**: Sequential model loading -- orchestrator model (qwen3:32b) loads for seed injection, unloads, then worker model (qwen3.5:4b) loads for agent inference
 - [x] **INFRA-04**: Ollama AsyncClient wrapper with standardized num_ctx via Modelfiles (no per-request num_ctx to avoid silent model reloads)
 - [x] **INFRA-05**: Neo4j graph schema with cycle-scoped composite indexes on (Agent.id, INFLUENCED_BY.cycle_id) for sub-5ms peer decision reads
 - [x] **INFRA-06**: GraphStateManager with session-per-coroutine pattern and UNWIND batch writes (100 decisions per transaction, not 100 transactions)
 - [x] **INFRA-07**: All agent batch processing uses asyncio.TaskGroup (no bare create_task) to prevent silent task garbage collection
-- [x] **INFRA-08**: Structured output parsing via Pydantic models with multi-tier fallback (JSON mode → regex extraction → PARSE_ERROR status)
+- [x] **INFRA-08**: Structured output parsing via Pydantic models with multi-tier fallback (JSON mode -> regex extraction -> PARSE_ERROR status)
 - [x] **INFRA-09**: Exponential backoff for Ollama failures (1s, 2s, 4s; shrink governor on >20% batch failure rate)
 - [x] **INFRA-10**: Miro API batcher stubbed with 2s buffer and bulk payload interface (no live API calls in v1)
 - [x] **INFRA-11**: structlog-based logging with per-agent correlation IDs via context binding
@@ -35,7 +35,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### TUI Dashboard
 
 - [x] **TUI-01**: Textual app with 10x10 agent grid where each cell represents one agent, color-coded by current sentiment (green=bullish, red=bearish, gray=neutral/pending)
-- [x] **TUI-02**: Snapshot-based rendering — agents write to shared StateStore, TUI reads immutable snapshots on 200ms set_interval timer, only updating changed cells
+- [x] **TUI-02**: Snapshot-based rendering -- agents write to shared StateStore, TUI reads immutable snapshots on 200ms set_interval timer, only updating changed cells
 - [x] **TUI-03**: Rationale sidebar streams the most impactful agent reasoning outputs (asyncio.Queue, drains up to 5 entries per tick)
 - [x] **TUI-04**: Telemetry footer displays live RAM usage, tokens-per-second, API queue depth, and active ResourceGovernor slots
 - [x] **TUI-05**: Bracket aggregation panel shows per-bracket sentiment summary updated after each round
@@ -48,44 +48,48 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ## v2 Requirements
 
-Deferred to future release. Tracked but not in current roadmap.
-
-### Agent Interviews
-
-- **INT-01**: After simulation completes, user can select any agent from the grid and initiate a live Q&A conversation
-- **INT-02**: Interview context includes the agent's full persona, all 3 rounds of decisions, peer influences received, and rationale history
-- **INT-03**: Worker model stays loaded post-simulation to power interactive inference without cold-load delay
+Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 
 ### Live Graph Memory
 
-- **GRAPH-01**: Agent actions (rationale text, signal flips, influence events) are written to Neo4j in real time during simulation, not just decision snapshots
-- **GRAPH-02**: Rationale episodes create queryable narrative edges — enabling "why did Agent X flip from SELL to BUY in Round 2?" graph traversals
-- **GRAPH-03**: Post-simulation Neo4j exploration via browser (localhost:7474) shows the full living memory graph
+- [x] **GRAPH-01**: Agent decisions are written to Neo4j individually in real time during simulation (per-agent immediate writes via write-behind buffer, not batch-per-round)
+- [x] **GRAPH-02**: RationaleEpisode nodes link Agent -> Round -> Rationale with timestamps, peer context received, and signal flip detection
+- [ ] **GRAPH-03**: Narrative REFERENCES edges connect Decision nodes to Entity nodes via keyword matching against extracted entities
 
-### Post-Simulation Report Generation
+### Post-Simulation Report
 
-- **REPORT-01**: A ReACT-style agent queries the Neo4j graph after simulation ends and produces a structured market analysis report
-- **REPORT-02**: Report includes: consensus summary, key dissenting voices, bracket-level trends, signal flip analysis, and confidence distributions
-- **REPORT-03**: Report output as markdown, viewable in the TUI or exported to file
+- [ ] **REPORT-01**: ReACT-style agent (Thought-Action-Observation loop) queries Neo4j after simulation ends using prompt-based tool dispatching (no Ollama native tools)
+- [ ] **REPORT-02**: Cypher query tools for bracket summaries, influence topology analysis, entity-level trends, and signal flip metrics
+- [ ] **REPORT-03**: Structured markdown report output with CLI `report` subcommand and file export via aiofiles
+
+### Agent Interviews
+
+- [ ] **INT-01**: Agent context reconstruction from Neo4j -- full persona, all 3 rounds of decisions, peer influences received, rationale history
+- [ ] **INT-02**: Conversational interview loop using worker LLM with the agent's original system prompt restored, answering in character
+- [ ] **INT-03**: TUI interview mode -- click any agent in the grid post-simulation to open an interactive Q&A panel
 
 ### Richer Agent Interactions
 
-- **SOCIAL-01**: Agents publish short rationale posts that other agents read and react to, creating organic social influence dynamics beyond vote-counting
-- **SOCIAL-02**: Influence weights shift based on rationale engagement (citation, agreement, disagreement) rather than just signal alignment
+- [ ] **SOCIAL-01**: Agents produce a "public rationale post" as part of their decision output, stored as Post nodes in Neo4j (zero extra inference calls)
+- [ ] **SOCIAL-02**: Top-K ranked posts (by influence weight) injected into peer context for Rounds 2-3 with token budget management
 
 ### Dynamic Persona Generation
 
-- **PERSONA-01**: Extract entities and context from the seed rumor to generate situation-specific personas alongside the standard 10 brackets
-- **PERSONA-02**: A rumor about oil markets spins up energy traders, OPEC analysts, and pipeline engineers as additional domain-specific agents
+- [ ] **PERSONA-01**: Orchestrator LLM generates entity-specific bracket modifiers from SeedEvent entities in a single JSON call
+- [ ] **PERSONA-02**: Entity-aware modifiers injected into generate_personas() pipeline, preserving 10-bracket structure and 100-agent count
+
+## v3 Requirements (Future)
+
+Deferred to future milestones. Tracked but not in current roadmap.
 
 ### Web Dashboard
 
 - **WEB-01**: Vue 3 + Vite browser-based dashboard with live 10x10 agent grid, color-coded by signal (BUY/SELL/HOLD), polling agent state every 2s
-- **WEB-02**: D3.js force-directed influence graph — agent nodes colored by sentiment, INFLUENCED_BY edges as weighted Bezier curves, zoom/pan/click-to-inspect
+- **WEB-02**: D3.js force-directed influence graph -- agent nodes colored by sentiment, INFLUENCED_BY edges as weighted Bezier curves, zoom/pan/click-to-inspect
 - **WEB-03**: Real-time rationale feed with animated entry transitions, cursor-based incremental fetching
 - **WEB-04**: Bracket sentiment bar charts (D3 SVG) updated after each round
 - **WEB-05**: FastAPI backend serving REST endpoints for simulation status, agent states, rationale, brackets, and graph data
-- **WEB-06**: Post-simulation views — agent interview panel, report viewer, results export
+- **WEB-06**: Post-simulation views -- agent interview panel, report viewer, results export
 
 ### Visualization
 
@@ -149,12 +153,25 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TUI-03 | Phase 10: TUI Panels and Telemetry | Complete |
 | TUI-04 | Phase 10: TUI Panels and Telemetry | Complete |
 | TUI-05 | Phase 10: TUI Panels and Telemetry | Complete |
+| GRAPH-01 | Phase 11: Live Graph Memory | Complete |
+| GRAPH-02 | Phase 11: Live Graph Memory | Complete |
+| GRAPH-03 | Phase 11: Live Graph Memory | Pending |
+| SOCIAL-01 | Phase 12: Richer Agent Interactions | Pending |
+| SOCIAL-02 | Phase 12: Richer Agent Interactions | Pending |
+| PERSONA-01 | Phase 13: Dynamic Persona Generation | Pending |
+| PERSONA-02 | Phase 13: Dynamic Persona Generation | Pending |
+| INT-01 | Phase 14: Agent Interviews | Pending |
+| INT-02 | Phase 14: Agent Interviews | Pending |
+| INT-03 | Phase 14: Agent Interviews | Pending |
+| REPORT-01 | Phase 15: Post-Simulation Report | Pending |
+| REPORT-02 | Phase 15: Post-Simulation Report | Pending |
+| REPORT-03 | Phase 15: Post-Simulation Report | Pending |
 
 **Coverage:**
-- v1 requirements: 27 total
-- Mapped to phases: 27
+- v1 requirements: 27 total, 27 mapped (Complete)
+- v2 requirements: 13 total, 13 mapped (Pending)
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-03-24 after roadmap creation*
+*Last updated: 2026-03-31 after v2.0 roadmap creation*
