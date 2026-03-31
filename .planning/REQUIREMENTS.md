@@ -48,35 +48,39 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ## v2 Requirements
 
-Deferred to future release. Tracked but not in current roadmap.
-
-### Agent Interviews
-
-- **INT-01**: After simulation completes, user can select any agent from the grid and initiate a live Q&A conversation
-- **INT-02**: Interview context includes the agent's full persona, all 3 rounds of decisions, peer influences received, and rationale history
-- **INT-03**: Worker model stays loaded post-simulation to power interactive inference without cold-load delay
+Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 
 ### Live Graph Memory
 
-- **GRAPH-01**: Agent actions (rationale text, signal flips, influence events) are written to Neo4j in real time during simulation, not just decision snapshots
-- **GRAPH-02**: Rationale episodes create queryable narrative edges — enabling "why did Agent X flip from SELL to BUY in Round 2?" graph traversals
-- **GRAPH-03**: Post-simulation Neo4j exploration via browser (localhost:7474) shows the full living memory graph
+- [ ] **GRAPH-01**: Agent decisions are written to Neo4j individually in real time during simulation (per-agent immediate writes via write-behind buffer, not batch-per-round)
+- [ ] **GRAPH-02**: RationaleEpisode nodes link Agent → Round → Rationale with timestamps, peer context received, and signal flip detection
+- [ ] **GRAPH-03**: Narrative REFERENCES edges connect Decision nodes to Entity nodes via keyword matching against extracted entities
 
-### Post-Simulation Report Generation
+### Post-Simulation Report
 
-- **REPORT-01**: A ReACT-style agent queries the Neo4j graph after simulation ends and produces a structured market analysis report
-- **REPORT-02**: Report includes: consensus summary, key dissenting voices, bracket-level trends, signal flip analysis, and confidence distributions
-- **REPORT-03**: Report output as markdown, viewable in the TUI or exported to file
+- [ ] **REPORT-01**: ReACT-style agent (Thought-Action-Observation loop) queries Neo4j after simulation ends using prompt-based tool dispatching (no Ollama native tools)
+- [ ] **REPORT-02**: Cypher query tools for bracket summaries, influence topology analysis, entity-level trends, and signal flip metrics
+- [ ] **REPORT-03**: Structured markdown report output with CLI `report` subcommand and file export via aiofiles
+
+### Agent Interviews
+
+- [ ] **INT-01**: Agent context reconstruction from Neo4j — full persona, all 3 rounds of decisions, peer influences received, rationale history
+- [ ] **INT-02**: Conversational interview loop using worker LLM with the agent's original system prompt restored, answering in character
+- [ ] **INT-03**: TUI interview mode — click any agent in the grid post-simulation to open an interactive Q&A panel
 
 ### Richer Agent Interactions
 
-- **SOCIAL-01**: Agents publish short rationale posts that other agents read and react to, creating organic social influence dynamics beyond vote-counting
-- **SOCIAL-02**: Influence weights shift based on rationale engagement (citation, agreement, disagreement) rather than just signal alignment
+- [ ] **SOCIAL-01**: Agents produce a "public rationale post" as part of their decision output, stored as Post nodes in Neo4j (zero extra inference calls)
+- [ ] **SOCIAL-02**: Top-K ranked posts (by influence weight) injected into peer context for Rounds 2-3 with token budget management
 
 ### Dynamic Persona Generation
 
-- **PERSONA-01**: Extract entities and context from the seed rumor to generate situation-specific personas alongside the standard 10 brackets
-- **PERSONA-02**: A rumor about oil markets spins up energy traders, OPEC analysts, and pipeline engineers as additional domain-specific agents
+- [ ] **PERSONA-01**: Orchestrator LLM generates entity-specific bracket modifiers from SeedEvent entities in a single JSON call
+- [ ] **PERSONA-02**: Entity-aware modifiers injected into generate_personas() pipeline, preserving 10-bracket structure and 100-agent count
+
+## v3 Requirements (Future)
+
+Deferred to future milestones. Tracked but not in current roadmap.
 
 ### Web Dashboard
 
@@ -157,4 +161,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-03-24 after roadmap creation*
+*Last updated: 2026-03-31 after v2.0 milestone definition*
