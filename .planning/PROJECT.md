@@ -51,10 +51,13 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - [ ] Miro API v2 batcher (stubbed for v1, full implementation deferred)
 - [ ] Exponential backoff for Ollama retries and Miro 429 handling
 
+### Validated
+
+- [x] Live graph memory — WriteBuffer captures per-agent RationaleEpisode nodes (rationale, flip_type, peer_context) with REFERENCES edges to Entity nodes and decision_narrative on Agent nodes — Validated in Phase 11: live-graph-memory
+
 ### Planned (v2)
 
 - [ ] Agent interviews — post-simulation live Q&A with any agent, using full persona and decision context (INT-01, INT-02, INT-03)
-- [ ] Live graph memory — real-time Neo4j updates during simulation with rationale episodes and narrative edges (GRAPH-01, GRAPH-02, GRAPH-03)
 - [ ] Post-simulation report — ReACT agent queries Neo4j and generates structured market analysis as markdown (REPORT-01, REPORT-02, REPORT-03)
 - [ ] Richer agent interactions — agents publish rationale posts that peers read and react to, creating social influence dynamics (SOCIAL-01, SOCIAL-02)
 - [ ] Dynamic persona generation — extract entities from seed rumor to generate situation-specific agent personas (PERSONA-01, PERSONA-02)
@@ -118,4 +121,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-31 — Milestone v2.0 started*
+*Last updated: 2026-03-31 — Phase 11 complete: live-graph-memory*
