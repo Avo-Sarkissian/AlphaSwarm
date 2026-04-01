@@ -59,7 +59,7 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 
 - [ ] Agent interviews — post-simulation live Q&A with any agent, using full persona and decision context (INT-01, INT-02, INT-03)
 - [ ] Post-simulation report — ReACT agent queries Neo4j and generates structured market analysis as markdown (REPORT-01, REPORT-02, REPORT-03)
-- [ ] Richer agent interactions — agents publish rationale posts that peers read and react to, creating social influence dynamics (SOCIAL-01, SOCIAL-02)
+- [x] Richer agent interactions — agents publish rationale posts that peers read and react to, creating social influence dynamics (SOCIAL-01, SOCIAL-02) — Validated in Phase 12: richer-agent-interactions
 - [ ] Dynamic persona generation — extract entities from seed rumor to generate situation-specific agent personas (PERSONA-01, PERSONA-02)
 - [ ] Miro live visualization — API v2 network visualization with spatial layout and dynamic connectors (VIS-01, VIS-02)
 - [ ] Simulation replay from stored Neo4j state (REPLAY-01)
@@ -121,4 +121,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-31 — Phase 11 complete: live-graph-memory*
+*Last updated: 2026-04-01 — Phase 12 complete: richer-agent-interactions*
