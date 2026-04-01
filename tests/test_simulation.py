@@ -123,6 +123,10 @@ def mock_graph_manager() -> AsyncMock:
     gm.write_decision_narratives = AsyncMock()  # Phase 11
     gm.write_rationale_episodes = AsyncMock()  # Phase 11 (called via WriteBuffer.flush)
     gm.write_narrative_edges = AsyncMock()  # Phase 11 (called via WriteBuffer.flush)
+    # Phase 12: Post node methods
+    gm.write_posts = AsyncMock(return_value=["post_id_1", "post_id_2"])
+    gm.read_ranked_posts = AsyncMock(return_value=[])
+    gm.write_read_post_edges = AsyncMock(return_value=None)
     return gm
 
 
@@ -1054,11 +1058,11 @@ async def test_dispatch_round_length_mismatch_raises_value_error(
         )
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_calls_run_round1(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1069,7 +1073,7 @@ async def test_run_simulation_calls_run_round1(
     from alphaswarm.simulation import run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     await run_simulation(
         rumor=MOCK_RUMOR,
@@ -1085,22 +1089,22 @@ async def test_run_simulation_calls_run_round1(
     mock_round1.assert_awaited_once()
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_round2_uses_round1_peers(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """run_simulation calls _dispatch_round for Round 2 with source_round=1."""
+    """run_simulation builds Round 2 peer contexts from Round 1 posts via read_ranked_posts."""
     from alphaswarm.simulation import run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     await run_simulation(
         rumor=MOCK_RUMOR,
@@ -1113,29 +1117,32 @@ async def test_run_simulation_round2_uses_round1_peers(
         brackets=TEST_BRACKETS,
     )
 
-    # _dispatch_round called twice (Round 2 and Round 3)
-    assert mock_dispatch_round.await_count == 2
-    # First call is Round 2 with source_round=1
-    r2_call = mock_dispatch_round.await_args_list[0]
-    assert r2_call.kwargs["source_round"] == 1
+    # dispatch_wave called twice (Round 2 and Round 3)
+    assert mock_dispatch_wave.await_count == 2
+    # read_ranked_posts called for Round 2 with source_round=1
+    r2_calls = [
+        c for c in mock_graph_manager.read_ranked_posts.await_args_list
+        if c.kwargs.get("source_round") == 1 or (len(c.args) >= 3 and c.args[2] == 1)
+    ]
+    assert len(r2_calls) == len(TEST_PERSONAS)
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_round3_uses_round2_peers(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """run_simulation calls _dispatch_round for Round 3 with source_round=2."""
+    """run_simulation builds Round 3 peer contexts from Round 2 posts via read_ranked_posts."""
     from alphaswarm.simulation import run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     await run_simulation(
         rumor=MOCK_RUMOR,
@@ -1148,16 +1155,19 @@ async def test_run_simulation_round3_uses_round2_peers(
         brackets=TEST_BRACKETS,
     )
 
-    # Second call is Round 3 with source_round=2
-    r3_call = mock_dispatch_round.await_args_list[1]
-    assert r3_call.kwargs["source_round"] == 2
+    # read_ranked_posts called for Round 3 with source_round=2
+    r3_calls = [
+        c for c in mock_graph_manager.read_ranked_posts.await_args_list
+        if c.kwargs.get("source_round") == 2 or (len(c.args) >= 3 and c.args[2] == 2)
+    ]
+    assert len(r3_calls) == len(TEST_PERSONAS)
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_returns_complete_result(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1168,7 +1178,7 @@ async def test_run_simulation_returns_complete_result(
     from alphaswarm.simulation import SimulationResult, run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     result = await run_simulation(
         rumor=MOCK_RUMOR,
@@ -1190,11 +1200,11 @@ async def test_run_simulation_returns_complete_result(
     assert result.round3_shifts is not None
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_persists_all_rounds(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1205,7 +1215,7 @@ async def test_run_simulation_persists_all_rounds(
     from alphaswarm.simulation import run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     await run_simulation(
         rumor=MOCK_RUMOR,
@@ -1233,7 +1243,7 @@ async def test_run_simulation_persists_all_rounds(
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_worker_reload_once_for_rounds_2_3(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1244,7 +1254,7 @@ async def test_worker_reload_once_for_rounds_2_3(
     from alphaswarm.simulation import run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     await run_simulation(
         rumor=MOCK_RUMOR,
@@ -1269,7 +1279,7 @@ async def test_worker_reload_once_for_rounds_2_3(
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_governor_fresh_session_rounds_2_3(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1280,7 +1290,7 @@ async def test_governor_fresh_session_rounds_2_3(
     from alphaswarm.simulation import run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     await run_simulation(
         rumor=MOCK_RUMOR,
@@ -1302,7 +1312,7 @@ async def test_governor_fresh_session_rounds_2_3(
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_simulation_phase_transitions(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1314,7 +1324,7 @@ async def test_simulation_phase_transitions(
     from alphaswarm.simulation import run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     logged_phases: list[str] = []
     original_logger = structlog.get_logger
@@ -1348,11 +1358,11 @@ async def test_simulation_phase_transitions(
     assert "complete" in logged_phases
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_cleanup_on_error(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1363,7 +1373,7 @@ async def test_run_simulation_cleanup_on_error(
     from alphaswarm.simulation import run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.side_effect = Exception("round2_boom")
+    mock_dispatch_wave.side_effect = Exception("round2_boom")
 
     with pytest.raises(Exception, match="round2_boom"):
         await run_simulation(
@@ -1382,11 +1392,11 @@ async def test_run_simulation_cleanup_on_error(
     mock_governor.stop_monitoring.assert_awaited_once()
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_fires_on_round_complete_round1(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1397,7 +1407,7 @@ async def test_run_simulation_fires_on_round_complete_round1(
     from alphaswarm.simulation import RoundCompleteEvent, run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     callback = AsyncMock()
 
@@ -1420,11 +1430,11 @@ async def test_run_simulation_fires_on_round_complete_round1(
     assert r1_event.shift is None
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_fires_on_round_complete_round2(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1435,7 +1445,7 @@ async def test_run_simulation_fires_on_round_complete_round2(
     from alphaswarm.simulation import RoundCompleteEvent, ShiftMetrics, run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     callback = AsyncMock()
 
@@ -1458,11 +1468,11 @@ async def test_run_simulation_fires_on_round_complete_round2(
     assert isinstance(r2_event.shift, ShiftMetrics)
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_fires_on_round_complete_round3(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1473,7 +1483,7 @@ async def test_run_simulation_fires_on_round_complete_round3(
     from alphaswarm.simulation import RoundCompleteEvent, ShiftMetrics, run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     callback = AsyncMock()
 
@@ -1497,11 +1507,11 @@ async def test_run_simulation_fires_on_round_complete_round3(
     assert isinstance(r3_event.shift, ShiftMetrics)
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_no_callback(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1512,7 +1522,7 @@ async def test_run_simulation_no_callback(
     from alphaswarm.simulation import SimulationResult, run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     result = await run_simulation(
         rumor=MOCK_RUMOR,
@@ -1958,11 +1968,11 @@ async def test_run_round1_returns_decision_ids(
     assert result.decision_ids == expected_ids
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_flushes_write_buffer(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -1974,7 +1984,7 @@ async def test_run_simulation_flushes_write_buffer(
     from alphaswarm.simulation import run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     flush_call_count = 0
 
@@ -2004,11 +2014,11 @@ async def test_run_simulation_flushes_write_buffer(
     assert mock_wb_instance.flush.await_count == 3
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_pushes_episode_records(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -2030,7 +2040,7 @@ async def test_run_simulation_pushes_episode_records(
         decision_ids=[f"r1-{aid}" for aid, _ in r1_result.agent_decisions],
     )
     mock_round1.return_value = r1_with_ids
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
     # Make write_decisions return matching IDs for rounds 2 and 3
     mock_graph_manager.write_decisions = AsyncMock(
         side_effect=[
@@ -2075,11 +2085,11 @@ async def test_run_simulation_pushes_episode_records(
     assert all(r.flip_type == "none" for r in r1_records)
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 async def test_run_simulation_narrative_generation_gated(
     mock_round1: AsyncMock,
-    mock_dispatch_round: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
@@ -2091,7 +2101,7 @@ async def test_run_simulation_narrative_generation_gated(
     from alphaswarm.simulation import run_simulation
 
     mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_round.return_value = _mock_dispatch_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     # Test generate_narratives=False: write_decision_narratives NOT called
     await run_simulation(

@@ -778,6 +778,14 @@ async def run_simulation(
     round1_flushed = await write_buffer.flush(graph_manager, entity_names)
     logger.info("write_buffer_flushed", round_num=1, flushed=round1_flushed)
 
+    # Phase 12: Write Round 1 Post nodes from Decision rationale (D-13)
+    round1_post_ids = await graph_manager.write_posts(
+        round1_result.agent_decisions,
+        round1_result.decision_ids,
+        cycle_id,
+        round_num=1,
+    )
+
     # Compute influence edges after Round 1 (D-02: shapes Round 2 peer selection)
     # Pass len(round1_result.agent_decisions) as total_agents (active agents, not global 100)
     round1_weights = await graph_manager.compute_influence_edges(
@@ -823,26 +831,62 @@ async def run_simulation(
                 await state_store.set_phase(SimulationPhase.ROUND_2)
                 await state_store.set_round(2)
 
-            # Pass influence_weights to Round 2 dispatch with zero-citation fallback:
-            # When round1_weights is empty dict (no citations in Round 1, expected cold-start per D-05
-            # and Pitfall 1), falsy check evaluates to False -> influence_weights=None -> static fallback.
-            round2_result = await _dispatch_round(
-                personas=personas,
-                cycle_id=cycle_id,
-                source_round=1,
-                graph_manager=graph_manager,
+            # Phase 12: Build peer contexts from Round 1 posts (D-12 ordering)
+            round2_peer_contexts: list[str | None] = []
+            all_round1_post_ids = round1_post_ids  # For READ_POST edges
+            for persona in personas:
+                ranked_posts = await graph_manager.read_ranked_posts(
+                    persona.id, cycle_id, source_round=1, limit=10,
+                )
+                ctx = _format_peer_context(ranked_posts, source_round=1)
+                round2_peer_contexts.append(ctx if ctx else None)
+
+            # Phase 12: Write READ_POST edges for Round 2 (D-09, D-10, D-11)
+            agent_ids = [p.id for p in personas]
+            if all_round1_post_ids:
+                await graph_manager.write_read_post_edges(
+                    agent_ids, all_round1_post_ids, round_num=2, cycle_id=cycle_id,
+                )
+
+            logger.info(
+                "round_dispatch_start",
+                round_num=2,
+                agent_count=len(personas),
+                peers_found=sum(1 for c in round2_peer_contexts if c),
+                peer_selection="ranked_posts",
+            )
+
+            # Dispatch Round 2 with pre-built peer contexts (bypass _dispatch_round)
+            worker_configs = [persona_to_worker_config(p) for p in personas]
+            round2_wave_decisions = await dispatch_wave(
+                personas=worker_configs,
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
-                rumor=rumor,
+                user_message=rumor,
                 settings=settings.governor,
-                influence_weights=round1_weights if round1_weights else None,
-                prev_decisions=round1_result.agent_decisions,
+                peer_contexts=round2_peer_contexts,
                 state_store=state_store,
             )
-            round2_decisions = round2_result.agent_decisions
-            round2_peer_contexts = round2_result.peer_contexts
+            round2_decisions: list[tuple[str, AgentDecision]] = [
+                (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round2_wave_decisions)
+            ]
+            # Per-agent StateStore writes
+            if state_store is not None:
+                for agent_id, dec in round2_decisions:
+                    await state_store.update_agent_state(agent_id, dec.signal, dec.confidence)
+
+            # Normalize peer contexts for episode storage
+            round2_peer_contexts_normalized: list[str] = [
+                ctx if ctx is not None else "" for ctx in round2_peer_contexts
+            ]
+
             round2_ids = await graph_manager.write_decisions(round2_decisions, cycle_id, round_num=2)
+
+            # Phase 12: Write Round 2 Post nodes (D-12 step 2)
+            round2_post_ids = await graph_manager.write_posts(
+                round2_decisions, round2_ids, cycle_id, round_num=2,
+            )
 
             # Phase 11: Push Round 2 episodes to WriteBuffer
             round1_map = {aid: dec for aid, dec in round1_result.agent_decisions}
@@ -851,8 +895,8 @@ async def run_simulation(
                 prev_sig = prev_signal.signal if prev_signal else None
                 persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
                 peer_ctx = (
-                    round2_peer_contexts[persona_idx]
-                    if persona_idx is not None and persona_idx < len(round2_peer_contexts)
+                    round2_peer_contexts_normalized[persona_idx]
+                    if persona_idx is not None and persona_idx < len(round2_peer_contexts_normalized)
                     else ""
                 )
                 record = EpisodeRecord(
@@ -908,23 +952,57 @@ async def run_simulation(
                 await state_store.set_phase(SimulationPhase.ROUND_3)
                 await state_store.set_round(3)
 
-            round3_result = await _dispatch_round(
-                personas=personas,
-                cycle_id=cycle_id,
-                source_round=2,
-                graph_manager=graph_manager,
+            # Phase 12: Build peer contexts from Round 2 posts (D-12 ordering)
+            round3_peer_contexts: list[str | None] = []
+            for persona in personas:
+                ranked_posts = await graph_manager.read_ranked_posts(
+                    persona.id, cycle_id, source_round=2, limit=10,
+                )
+                ctx = _format_peer_context(ranked_posts, source_round=2)
+                round3_peer_contexts.append(ctx if ctx else None)
+
+            # Phase 12: Write READ_POST edges for Round 3
+            if round2_post_ids:
+                await graph_manager.write_read_post_edges(
+                    agent_ids, round2_post_ids, round_num=3, cycle_id=cycle_id,
+                )
+
+            logger.info(
+                "round_dispatch_start",
+                round_num=3,
+                agent_count=len(personas),
+                peers_found=sum(1 for c in round3_peer_contexts if c),
+                peer_selection="ranked_posts",
+            )
+
+            # Dispatch Round 3 with pre-built peer contexts
+            round3_wave_decisions = await dispatch_wave(
+                personas=worker_configs,
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
-                rumor=rumor,
+                user_message=rumor,
                 settings=settings.governor,
-                influence_weights=round2_weights if round2_weights else None,
-                prev_decisions=round2_decisions,
+                peer_contexts=round3_peer_contexts,
                 state_store=state_store,
             )
-            round3_decisions = round3_result.agent_decisions
-            round3_peer_contexts = round3_result.peer_contexts
+            round3_decisions: list[tuple[str, AgentDecision]] = [
+                (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round3_wave_decisions)
+            ]
+            if state_store is not None:
+                for agent_id, dec in round3_decisions:
+                    await state_store.update_agent_state(agent_id, dec.signal, dec.confidence)
+
+            round3_peer_contexts_normalized: list[str] = [
+                ctx if ctx is not None else "" for ctx in round3_peer_contexts
+            ]
+
             round3_ids = await graph_manager.write_decisions(round3_decisions, cycle_id, round_num=3)
+
+            # Phase 12: Write Round 3 Post nodes
+            round3_post_ids = await graph_manager.write_posts(
+                round3_decisions, round3_ids, cycle_id, round_num=3,
+            )
 
             # Phase 11: Push Round 3 episodes to WriteBuffer
             round2_map = {aid: dec for aid, dec in round2_decisions}
@@ -933,8 +1011,8 @@ async def run_simulation(
                 prev_sig = prev_signal.signal if prev_signal else None
                 persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
                 peer_ctx = (
-                    round3_peer_contexts[persona_idx]
-                    if persona_idx is not None and persona_idx < len(round3_peer_contexts)
+                    round3_peer_contexts_normalized[persona_idx]
+                    if persona_idx is not None and persona_idx < len(round3_peer_contexts_normalized)
                     else ""
                 )
                 record = EpisodeRecord(
