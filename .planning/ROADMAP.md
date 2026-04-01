@@ -65,7 +65,10 @@ Plans:
   2. In Rounds 2 and 3, each agent receives top-K ranked peer rationale posts (by influence weight) as part of their prompt context, with a strict token budget preventing context window overflow
   3. READ_POST edges in Neo4j trace which agents read which posts, enabling post-simulation analysis of information flow
   4. Agent outputs in Rounds 2-3 show observable reactions to peer rationale content (citations, agreement, disagreement) compared to Round 1 baseline
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 12-01-PLAN.md -- Post node data layer (RankedPost type, write_posts, read_ranked_posts, write_read_post_edges, schema index, tests)
+- [ ] 12-02-PLAN.md -- Simulation integration (budget-aware _format_peer_context, run_simulation wiring, test updates)
 
 ### Phase 13: Dynamic Persona Generation
 **Goal**: The simulation generates situation-specific agent personas from the seed rumor itself, so agents have domain-relevant expertise and biases tailored to the scenario
@@ -119,7 +122,7 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 9. TUI Core Dashboard | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 10. TUI Panels and Telemetry | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 11. Live Graph Memory | v2.0 | 3/3 | Complete    | 2026-03-31 |
-| 12. Richer Agent Interactions | v2.0 | 0/0 | Not started | - |
+| 12. Richer Agent Interactions | v2.0 | 0/2 | In progress | - |
 | 13. Dynamic Persona Generation | v2.0 | 0/0 | Not started | - |
 | 14. Agent Interviews | v2.0 | 0/0 | Not started | - |
 | 15. Post-Simulation Report | v2.0 | 0/0 | Not started | - |
