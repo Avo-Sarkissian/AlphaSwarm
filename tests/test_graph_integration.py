@@ -467,3 +467,159 @@ async def test_write_decision_narratives_integration(
         )
         record = await result.single()
     assert record["narrative"] == "This agent shifted from BUY to SELL over 3 rounds."
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 Plan 01: Post + READ_POST integration tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_posts_and_read_post_integration(
+    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+) -> None:
+    """Full Post lifecycle: write_posts, read_ranked_posts (self-exclusion), write_read_post_edges."""
+    from alphaswarm.graph import RankedPost
+
+    cycle_id = await graph_manager.create_cycle("Post integration test")
+
+    # Create 2 decisions for Round 1 from 2 agents
+    agent_01 = all_personas[0]  # quants_01
+    agent_02 = all_personas[1]  # quants_02
+    decisions = [
+        (
+            agent_01.id,
+            AgentDecision(
+                signal=SignalType.BUY,
+                confidence=0.8,
+                sentiment=0.5,
+                rationale="NVIDIA looking strong",
+                cited_agents=[],
+            ),
+        ),
+        (
+            agent_02.id,
+            AgentDecision(
+                signal=SignalType.SELL,
+                confidence=0.7,
+                sentiment=-0.3,
+                rationale="Bearish on tech sector",
+                cited_agents=[],
+            ),
+        ),
+    ]
+
+    # Write decisions first (creates Decision nodes)
+    decision_ids = await graph_manager.write_decisions(decisions, cycle_id, 1)
+    assert len(decision_ids) == 2
+
+    # Write posts from decisions
+    post_ids = await graph_manager.write_posts(decisions, decision_ids, cycle_id, round_num=1)
+    assert len(post_ids) == 2
+
+    # Verify Post node count
+    async with graph_manager._driver.session(database="neo4j") as session:
+        result = await session.run(
+            "MATCH (p:Post) WHERE p.cycle_id = $cid RETURN count(p) AS cnt",
+            cid=cycle_id,
+        )
+        record = await result.single()
+        assert record["cnt"] == 2
+
+    # Verify AUTHORED relationships
+    async with graph_manager._driver.session(database="neo4j") as session:
+        result = await session.run(
+            "MATCH (a:Agent)-[:AUTHORED]->(p:Post) WHERE p.cycle_id = $cid RETURN count(*) AS cnt",
+            cid=cycle_id,
+        )
+        record = await result.single()
+        assert record["cnt"] == 2
+
+    # Verify HAS_POST relationships
+    async with graph_manager._driver.session(database="neo4j") as session:
+        result = await session.run(
+            "MATCH (d:Decision)-[:HAS_POST]->(p:Post) WHERE p.cycle_id = $cid RETURN count(*) AS cnt",
+            cid=cycle_id,
+        )
+        record = await result.single()
+        assert record["cnt"] == 2
+
+    # Read ranked posts for agent_01 -- should exclude self (only agent_02's post returned)
+    ranked = await graph_manager.read_ranked_posts(agent_01.id, cycle_id, source_round=1, limit=10)
+    assert len(ranked) == 1
+    assert isinstance(ranked[0], RankedPost)
+    assert ranked[0].agent_id == agent_02.id
+    assert ranked[0].signal == "sell"
+    assert ranked[0].content == "Bearish on tech sector"
+
+    # Write READ_POST edges: both agents read all posts (round 2)
+    await graph_manager.write_read_post_edges(
+        [agent_01.id, agent_02.id], post_ids, round_num=2, cycle_id=cycle_id,
+    )
+
+    # Verify READ_POST edge count: 2 agents * 2 posts = 4
+    async with graph_manager._driver.session(database="neo4j") as session:
+        result = await session.run(
+            "MATCH ()-[r:READ_POST]->() RETURN count(r) AS cnt",
+        )
+        record = await result.single()
+        assert record["cnt"] == 4
+
+    # Verify READ_POST edge properties
+    async with graph_manager._driver.session(database="neo4j") as session:
+        result = await session.run(
+            "MATCH ()-[r:READ_POST]->() RETURN r.round_num AS rn, r.cycle_id AS cid LIMIT 1",
+        )
+        record = await result.single()
+        assert record["rn"] == 2
+        assert record["cid"] == cycle_id
+
+
+@pytest.mark.asyncio()
+async def test_write_posts_filters_parse_error_integration(
+    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+) -> None:
+    """write_posts filters out PARSE_ERROR decisions -- only valid posts are persisted."""
+    cycle_id = await graph_manager.create_cycle("Parse error filter test")
+
+    agent_01 = all_personas[0]
+    agent_02 = all_personas[1]
+
+    decisions = [
+        (
+            agent_01.id,
+            AgentDecision(
+                signal=SignalType.BUY,
+                confidence=0.8,
+                sentiment=0.5,
+                rationale="Strong buy signal from fundamentals",
+                cited_agents=[],
+            ),
+        ),
+        (
+            agent_02.id,
+            AgentDecision(
+                signal=SignalType.PARSE_ERROR,
+                confidence=0.0,
+                sentiment=0.0,
+                rationale="Failed to parse JSON: unexpected token",
+                cited_agents=[],
+            ),
+        ),
+    ]
+
+    decision_ids = await graph_manager.write_decisions(decisions, cycle_id, 1)
+    post_ids = await graph_manager.write_posts(decisions, decision_ids, cycle_id, round_num=1)
+
+    # Only 1 post should exist (PARSE_ERROR filtered)
+    assert len(post_ids) == 1
+
+    async with graph_manager._driver.session(database="neo4j") as session:
+        result = await session.run(
+            "MATCH (p:Post) WHERE p.cycle_id = $cid RETURN p.content AS content",
+            cid=cycle_id,
+        )
+        records = [dict(r) async for r in result]
+
+    assert len(records) == 1
+    assert records[0]["content"] == "Strong buy signal from fundamentals"

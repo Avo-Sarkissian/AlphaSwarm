@@ -11,6 +11,8 @@ from neo4j.exceptions import Neo4jError
 
 from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
 
+from alphaswarm.types import SignalType
+
 if TYPE_CHECKING:
     from neo4j import AsyncDriver, AsyncManagedTransaction
 
@@ -36,6 +38,20 @@ class PeerDecision:
     rationale: str
 
 
+@dataclass(frozen=True)
+class RankedPost:
+    """A peer's published rationale post ranked by influence weight."""
+
+    post_id: str
+    agent_id: str
+    bracket: str
+    signal: str
+    confidence: float
+    content: str
+    influence_weight: float
+    round_num: int
+
+
 # ---------------------------------------------------------------------------
 # Schema constants
 # ---------------------------------------------------------------------------
@@ -48,6 +64,8 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX agent_id_idx IF NOT EXISTS FOR (a:Agent) ON (a.id)",
     "CREATE INDEX decision_id_idx IF NOT EXISTS FOR (d:Decision) ON (d.decision_id)",
     "CREATE INDEX episode_cycle_round IF NOT EXISTS FOR (re:RationaleEpisode) ON (re.cycle_id, re.round)",
+    "CREATE INDEX post_cycle_round IF NOT EXISTS FOR (p:Post) ON (p.cycle_id, p.round_num)",
+    "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
 ]
 
 
@@ -358,6 +376,231 @@ class GraphStateManager:
                 """,
                 cited=cited_params,
             )
+
+    # ------------------------------------------------------------------
+    # Phase 12: Post nodes for social influence dynamics
+    # ------------------------------------------------------------------
+
+    async def write_posts(
+        self,
+        agent_decisions: list[tuple[str, AgentDecision]],
+        decision_ids: list[str],
+        cycle_id: str,
+        round_num: int,
+    ) -> list[str]:
+        """Batch-write Post nodes from Decision rationale with zero extra inference (SOCIAL-01).
+
+        Creates Post nodes linked to Agent (AUTHORED) and Decision (HAS_POST).
+        Filters out PARSE_ERROR decisions to prevent error text from becoming posts.
+
+        Args:
+            agent_decisions: List of (agent_id, AgentDecision) tuples.
+            decision_ids: Pre-generated decision IDs from write_decisions(). Must match
+                length of agent_decisions. PARSE_ERROR entries are skipped along with
+                their corresponding decision_id.
+            cycle_id: Current simulation cycle ID.
+            round_num: Current round number (1, 2, or 3).
+
+        Returns:
+            list[str]: The post_id strings for each Post written (PARSE_ERROR excluded).
+        """
+        posts: list[dict] = []  # type: ignore[type-arg]
+        post_ids: list[str] = []
+        for did, (agent_id, decision) in zip(decision_ids, agent_decisions):
+            if decision.signal == SignalType.PARSE_ERROR:
+                continue
+            pid = str(uuid.uuid4())
+            post_ids.append(pid)
+            posts.append({
+                "post_id": pid,
+                "decision_id": did,
+                "agent_id": agent_id,
+                "content": decision.rationale,
+                "signal": decision.signal.value,
+                "confidence": decision.confidence,
+                "round_num": round_num,
+                "cycle_id": cycle_id,
+            })
+        if not posts:
+            return []
+        try:
+            async with self._driver.session(database=self._database) as session:
+                await session.execute_write(
+                    self._batch_write_posts_tx, posts, cycle_id, round_num,
+                )
+        except Neo4jError as exc:
+            raise Neo4jWriteError(
+                f"Failed to write {len(posts)} posts for cycle {cycle_id} round {round_num}",
+                original_error=exc,
+            ) from exc
+        self._log.info(
+            "posts_written", cycle_id=cycle_id, round_num=round_num, count=len(posts),
+        )
+        return post_ids
+
+    @staticmethod
+    async def _batch_write_posts_tx(
+        tx: AsyncManagedTransaction,
+        posts: list[dict],  # type: ignore[type-arg]
+        cycle_id: str,
+        round_num: int,
+    ) -> None:
+        """UNWIND batch create Post nodes linked to Agent (AUTHORED) and Decision (HAS_POST)."""
+        await tx.run(
+            """
+            UNWIND $posts AS p
+            MATCH (a:Agent {id: p.agent_id})
+            MATCH (d:Decision {decision_id: p.decision_id})
+            CREATE (post:Post {
+                post_id: p.post_id,
+                content: p.content,
+                agent_id: p.agent_id,
+                signal: p.signal,
+                confidence: p.confidence,
+                round_num: $round_num,
+                cycle_id: $cycle_id,
+                created_at: datetime()
+            })
+            CREATE (a)-[:AUTHORED]->(post)
+            CREATE (d)-[:HAS_POST]->(post)
+            """,
+            posts=posts,
+            cycle_id=cycle_id,
+            round_num=round_num,
+        )
+
+    async def read_ranked_posts(
+        self,
+        agent_id: str,
+        cycle_id: str,
+        source_round: int,
+        limit: int = 10,
+    ) -> list[RankedPost]:
+        """Read top-K peer posts ranked by INFLUENCED_BY weight (SOCIAL-02).
+
+        Uses OPTIONAL MATCH on INFLUENCED_BY edges from the reading agent to
+        the post author. Falls back to author's influence_weight_base when no
+        dynamic edge exists. Excludes self-posts and PARSE_ERROR posts.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                result = await session.execute_read(
+                    self._read_ranked_posts_tx, agent_id, cycle_id, source_round, limit,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read ranked posts for agent {agent_id} cycle {cycle_id} round {source_round}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "ranked_posts_read", agent_id=agent_id, count=len(result),
+        )
+        return result
+
+    @staticmethod
+    async def _read_ranked_posts_tx(
+        tx: AsyncManagedTransaction,
+        agent_id: str,
+        cycle_id: str,
+        source_round: int,
+        limit: int,
+    ) -> list[RankedPost]:
+        """Transaction function for reading peer posts ranked by influence weight."""
+        result = await tx.run(
+            """
+            MATCH (p:Post)
+            WHERE p.cycle_id = $cycle_id AND p.round_num = $source_round
+              AND p.agent_id <> $agent_id
+              AND p.signal <> 'parse_error'
+            WITH p
+            MATCH (author:Agent {id: p.agent_id})
+            OPTIONAL MATCH (reader:Agent {id: $agent_id})-[inf:INFLUENCED_BY {cycle_id: $cycle_id, round: $source_round}]->(author)
+            RETURN p.post_id AS post_id,
+                   p.agent_id AS agent_id,
+                   author.bracket AS bracket,
+                   p.signal AS signal,
+                   p.confidence AS confidence,
+                   p.content AS content,
+                   p.round_num AS round_num,
+                   coalesce(inf.weight, author.influence_weight_base) AS influence_weight
+            ORDER BY influence_weight DESC
+            LIMIT $limit
+            """,
+            agent_id=agent_id,
+            cycle_id=cycle_id,
+            source_round=source_round,
+            limit=limit,
+        )
+        records = [r async for r in result]
+        return [
+            RankedPost(
+                post_id=r["post_id"],
+                agent_id=r["agent_id"],
+                bracket=r["bracket"],
+                signal=r["signal"],
+                confidence=r["confidence"],
+                content=r["content"],
+                influence_weight=r["influence_weight"],
+                round_num=r["round_num"],
+            )
+            for r in records
+        ]
+
+    async def write_read_post_edges(
+        self,
+        agent_ids: list[str],
+        post_ids: list[str],
+        round_num: int,
+        cycle_id: str,
+    ) -> None:
+        """Batch-write READ_POST edges: every agent -> all posts (SOCIAL-02).
+
+        Creates N_agents * N_posts edges in a single UNWIND transaction.
+        Semantics: agent had access to this post during this round.
+        """
+        if not agent_ids or not post_ids:
+            return
+        pairs = [
+            {"agent_id": aid, "post_id": pid}
+            for aid in agent_ids
+            for pid in post_ids
+        ]
+        try:
+            async with self._driver.session(database=self._database) as session:
+                await session.execute_write(
+                    self._batch_write_read_post_edges_tx, pairs, round_num, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jWriteError(
+                f"Failed to write {len(pairs)} READ_POST edges for cycle {cycle_id} round {round_num}",
+                original_error=exc,
+            ) from exc
+        self._log.info(
+            "read_post_edges_written",
+            cycle_id=cycle_id,
+            round_num=round_num,
+            count=len(pairs),
+        )
+
+    @staticmethod
+    async def _batch_write_read_post_edges_tx(
+        tx: AsyncManagedTransaction,
+        pairs: list[dict],  # type: ignore[type-arg]
+        round_num: int,
+        cycle_id: str,
+    ) -> None:
+        """UNWIND batch create READ_POST edges from Agent to Post."""
+        await tx.run(
+            """
+            UNWIND $pairs AS pair
+            MATCH (a:Agent {id: pair.agent_id})
+            MATCH (p:Post {post_id: pair.post_id})
+            CREATE (a)-[:READ_POST {round_num: $round_num, cycle_id: $cycle_id}]->(p)
+            """,
+            pairs=pairs,
+            round_num=round_num,
+            cycle_id=cycle_id,
+        )
 
     async def read_peer_decisions(
         self,

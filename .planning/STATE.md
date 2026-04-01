@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Engine Depth
 status: verifying
-stopped_at: Completed 11-03-PLAN.md
-last_updated: "2026-03-31T22:34:23.247Z"
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-04-01T18:56:37Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 5
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-31)
 
 **Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology
-**Current focus:** Phase 11 — live-graph-memory
+**Current focus:** Phase 12 — richer-agent-interactions
 
 ## Current Position
 
 Phase: 12
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-31
+Plan: 01 complete
+Status: In progress
+Last activity: 2026-04-01
 
 Progress: [####################..........] 67% (10/15 phases, v1.0 complete)
 
@@ -65,6 +65,7 @@ Progress: [####################..........] 67% (10/15 phases, v1.0 complete)
 | Phase 11 P01 | 2 | 1 tasks | 3 files |
 | Phase 11 P02 | 2min | 1 tasks | 2 files |
 | Phase 11 P03 | 6 | 2 tasks | 4 files |
+| Phase 12 P01 | 5min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,10 @@ Recent decisions affecting current work:
 - [Phase 11]: RoundDispatchResult replaces bare list return from _dispatch_round() to capture peer_contexts alongside agent_decisions for Episode push
 - [Phase 11]: Round 1 episodes pushed retroactively in run_simulation() (not inside run_round1) to preserve run_round1 standalone safety
 - [Phase 11]: generate_narratives=True default in run_simulation; existing tests use empty decision_ids mock so no episodes pushed and no breakage
+- [Phase 12]: SignalType imported at runtime (not TYPE_CHECKING) for PARSE_ERROR filter in write_posts
+- [Phase 12]: write_posts accepts decision_ids parameter to pair Post->Decision via MATCH for HAS_POST edges
+- [Phase 12]: read_ranked_posts uses OPTIONAL MATCH on INFLUENCED_BY with coalesce to influence_weight_base fallback
+- [Phase 12]: Post composite index on (cycle_id, round_num) mirrors Decision index pattern
 
 ### Pending Todos
 
@@ -102,6 +107,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-31T22:28:51.296Z
-Stopped at: Completed 11-03-PLAN.md
+Last session: 2026-04-01T18:56:37Z
+Stopped at: Completed 12-01-PLAN.md
 Resume file: None
