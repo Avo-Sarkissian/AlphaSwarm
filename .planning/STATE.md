@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Engine Depth
-status: verifying
-stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-04-01T18:56:37Z"
-last_activity: 2026-03-31
+status: executing
+stopped_at: Completed 12-02-PLAN.md
+last_updated: "2026-04-01T19:37:17.942Z"
+last_activity: 2026-04-01
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  completed_phases: 2
+  total_plans: 5
+  completed_plans: 5
   percent: 67
 ---
 
@@ -66,6 +66,7 @@ Progress: [####################..........] 67% (10/15 phases, v1.0 complete)
 | Phase 11 P02 | 2min | 1 tasks | 2 files |
 | Phase 11 P03 | 6 | 2 tasks | 4 files |
 | Phase 12 P01 | 5min | 3 tasks | 4 files |
+| Phase 12 P02 | 33min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,8 @@ Recent decisions affecting current work:
 - [Phase 12]: write_posts accepts decision_ids parameter to pair Post->Decision via MATCH for HAS_POST edges
 - [Phase 12]: read_ranked_posts uses OPTIONAL MATCH on INFLUENCED_BY with coalesce to influence_weight_base fallback
 - [Phase 12]: Post composite index on (cycle_id, round_num) mirrors Decision index pattern
+- [Phase 12]: _dispatch_round preserved for backward compatibility but bypassed in run_simulation for Rounds 2-3 via direct dispatch_wave calls with ranked-post peer contexts
+- [Phase 12]: Budget enforcement uses greedy fill with word-boundary truncation; 4000-char limit with overhead accounting for header/guard/newlines
 
 ### Pending Todos
 
@@ -107,6 +110,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T18:56:37Z
-Stopped at: Completed 12-01-PLAN.md
+Last session: 2026-04-01T19:37:17.939Z
+Stopped at: Completed 12-02-PLAN.md
 Resume file: None

@@ -70,8 +70,8 @@ Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 
 ### Richer Agent Interactions
 
-- [ ] **SOCIAL-01**: Agents produce a "public rationale post" as part of their decision output, stored as Post nodes in Neo4j (zero extra inference calls)
-- [ ] **SOCIAL-02**: Top-K ranked posts (by influence weight) injected into peer context for Rounds 2-3 with token budget management
+- [x] **SOCIAL-01**: Agents produce a "public rationale post" as part of their decision output, stored as Post nodes in Neo4j (zero extra inference calls)
+- [x] **SOCIAL-02**: Top-K ranked posts (by influence weight) injected into peer context for Rounds 2-3 with token budget management
 
 ### Dynamic Persona Generation
 
@@ -156,8 +156,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GRAPH-01 | Phase 11: Live Graph Memory | Complete |
 | GRAPH-02 | Phase 11: Live Graph Memory | Complete |
 | GRAPH-03 | Phase 11: Live Graph Memory | Complete |
-| SOCIAL-01 | Phase 12: Richer Agent Interactions | Pending |
-| SOCIAL-02 | Phase 12: Richer Agent Interactions | Pending |
+| SOCIAL-01 | Phase 12: Richer Agent Interactions | Complete |
+| SOCIAL-02 | Phase 12: Richer Agent Interactions | Complete |
 | PERSONA-01 | Phase 13: Dynamic Persona Generation | Pending |
 | PERSONA-02 | Phase 13: Dynamic Persona Generation | Pending |
 | INT-01 | Phase 14: Agent Interviews | Pending |

@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Milestone Goal:** Deepen the simulation engine with live graph memory, richer agent behavior, dynamic persona generation, post-simulation interviews, and structured report generation -- building the full analytical data model.
 
 - [x] **Phase 11: Live Graph Memory** - Real-time Neo4j rationale episodes, narrative edges, and interview context summaries written during simulation (completed 2026-03-31)
-- [ ] **Phase 12: Richer Agent Interactions** - Agents publish public rationale posts that peers read and react to via token-budget-aware context injection
+- [x] **Phase 12: Richer Agent Interactions** - Agents publish public rationale posts that peers read and react to via token-budget-aware context injection (completed 2026-04-01)
 - [ ] **Phase 13: Dynamic Persona Generation** - Entity-aware bracket modifiers generated from seed rumor for situation-specific agent personas
 - [ ] **Phase 14: Agent Interviews** - Post-simulation conversational Q&A with any agent using reconstructed decision context
 - [ ] **Phase 15: Post-Simulation Report** - ReACT agent queries Neo4j and generates structured market analysis as exportable markdown
@@ -68,7 +68,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 12-01-PLAN.md -- Post node data layer (RankedPost type, write_posts, read_ranked_posts, write_read_post_edges, schema index, tests)
-- [ ] 12-02-PLAN.md -- Simulation integration (budget-aware _format_peer_context, run_simulation wiring, test updates)
+- [x] 12-02-PLAN.md -- Simulation integration (budget-aware _format_peer_context, run_simulation wiring, test updates)
 
 ### Phase 13: Dynamic Persona Generation
 **Goal**: The simulation generates situation-specific agent personas from the seed rumor itself, so agents have domain-relevant expertise and biases tailored to the scenario
@@ -122,7 +122,7 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 9. TUI Core Dashboard | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 10. TUI Panels and Telemetry | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 11. Live Graph Memory | v2.0 | 3/3 | Complete    | 2026-03-31 |
-| 12. Richer Agent Interactions | v2.0 | 1/2 | In Progress | - |
+| 12. Richer Agent Interactions | v2.0 | 2/2 | Complete   | 2026-04-01 |
 | 13. Dynamic Persona Generation | v2.0 | 0/0 | Not started | - |
 | 14. Agent Interviews | v2.0 | 0/0 | Not started | - |
 | 15. Post-Simulation Report | v2.0 | 0/0 | Not started | - |
