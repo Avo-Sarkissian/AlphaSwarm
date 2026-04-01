@@ -2168,3 +2168,216 @@ async def test_dispatch_round_returns_round_dispatch_result(
     assert len(result.peer_contexts) == len(TEST_PERSONAS)
     # All peer_contexts are strings (no None values)
     assert all(isinstance(ctx, str) for ctx in result.peer_contexts)
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 Task 3: Post-write and ranked-post integration tests
+# ---------------------------------------------------------------------------
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_writes_posts_after_decisions(
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """write_posts called 3 times (once per round) with correct round_num."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        generate_narratives=False,
+    )
+
+    # write_posts called 3 times (once per round)
+    assert mock_graph_manager.write_posts.await_count == 3
+    round_nums = [
+        call.kwargs.get("round_num", call.args[3] if len(call.args) > 3 else None)
+        for call in mock_graph_manager.write_posts.await_args_list
+    ]
+    assert round_nums == [1, 2, 3]
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_reads_ranked_posts_for_round2(
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """read_ranked_posts called len(personas) times with source_round=1 for Round 2."""
+    from alphaswarm.graph import RankedPost
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+    mock_graph_manager.read_ranked_posts = AsyncMock(return_value=[
+        RankedPost(
+            post_id="p1", agent_id="other_agent", bracket="quants",
+            signal="buy", confidence=0.85, content="test rationale",
+            influence_weight=0.7, round_num=1,
+        )
+    ])
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        generate_narratives=False,
+    )
+
+    # read_ranked_posts called for Round 2 (source_round=1) + Round 3 (source_round=2)
+    # Each round: once per persona = len(TEST_PERSONAS)
+    r2_calls = [
+        c for c in mock_graph_manager.read_ranked_posts.await_args_list
+        if c.kwargs.get("source_round") == 1 or (len(c.args) >= 3 and c.args[2] == 1)
+    ]
+    assert len(r2_calls) == len(TEST_PERSONAS)
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_writes_read_post_edges_round2(
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """write_read_post_edges called with round_num=2 and Round 1 post_ids."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+    # write_posts returns post_ids that should be passed to write_read_post_edges
+    mock_graph_manager.write_posts = AsyncMock(return_value=["p1", "p2", "p3"])
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        generate_narratives=False,
+    )
+
+    # write_read_post_edges called at least once with round_num=2
+    r2_edge_calls = [
+        c for c in mock_graph_manager.write_read_post_edges.await_args_list
+        if c.kwargs.get("round_num") == 2
+    ]
+    assert len(r2_edge_calls) == 1
+    # Verify post_ids from Round 1 write_posts are passed
+    r2_call = r2_edge_calls[0]
+    assert r2_call.args[1] == ["p1", "p2", "p3"]  # post_ids
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_writes_read_post_edges_round3(
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """write_read_post_edges called with round_num=3 and Round 2 post_ids."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    # Track which post_ids are returned per call
+    post_id_sequences = [
+        ["r1_p1", "r1_p2"],  # Round 1 write_posts
+        ["r2_p1", "r2_p2"],  # Round 2 write_posts
+        ["r3_p1", "r3_p2"],  # Round 3 write_posts
+    ]
+    mock_graph_manager.write_posts = AsyncMock(side_effect=post_id_sequences)
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        generate_narratives=False,
+    )
+
+    # write_read_post_edges called with round_num=3 and Round 2's post_ids
+    r3_edge_calls = [
+        c for c in mock_graph_manager.write_read_post_edges.await_args_list
+        if c.kwargs.get("round_num") == 3
+    ]
+    assert len(r3_edge_calls) == 1
+    r3_call = r3_edge_calls[0]
+    assert r3_call.args[1] == ["r2_p1", "r2_p2"]  # Round 2 post_ids
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+async def test_run_simulation_skips_read_post_edges_when_no_posts(
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """write_read_post_edges NOT called when write_posts returns empty list."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+    # write_posts returns empty list for all rounds
+    mock_graph_manager.write_posts = AsyncMock(return_value=[])
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        generate_narratives=False,
+    )
+
+    # write_read_post_edges should NOT be called (empty post_ids guard)
+    mock_graph_manager.write_read_post_edges.assert_not_awaited()
