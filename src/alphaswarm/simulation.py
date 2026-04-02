@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 import structlog
 
 from alphaswarm.batch_dispatcher import dispatch_wave
-from alphaswarm.config import persona_to_worker_config
+from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
     from alphaswarm.state import StateStore
-    from alphaswarm.types import AgentDecision, AgentPersona, ParsedSeedResult
+    from alphaswarm.types import AgentDecision, AgentPersona, ParsedModifiersResult, ParsedSeedResult
 
 logger = structlog.get_logger(component="simulation")
 
@@ -48,6 +48,7 @@ class Round1Result:
     parsed_result: ParsedSeedResult
     agent_decisions: list[tuple[str, AgentDecision]]
     decision_ids: list[str] = dataclasses.field(default_factory=list)
+    modifier_result: ParsedModifiersResult | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -430,11 +431,12 @@ async def run_round1(
     personas: list[AgentPersona],
     *,
     state_store: StateStore | None = None,
+    pre_injected: tuple[str, ParsedSeedResult] | None = None,
 ) -> Round1Result:
     """Execute the Round 1 simulation pipeline.
 
     Pipeline steps:
-    1. inject_seed (orchestrator model lifecycle is self-contained)
+    1. inject_seed (orchestrator model lifecycle is self-contained), or skip if pre_injected
     2. ensure_clean_state (defensive cleanup after orchestrator)
     3. start_monitoring (governor RAM monitoring)
     4. load worker model
@@ -452,20 +454,26 @@ async def run_round1(
         graph_manager: Neo4j graph state manager.
         governor: ResourceGovernor for concurrency control.
         personas: List of AgentPersona to dispatch.
+        pre_injected: Optional (cycle_id, parsed_result) when seed injection
+            was already performed by the caller (e.g., run_simulation for Phase 13
+            modifier generation). Skips inject_seed when provided.
 
     Returns:
         Round1Result with cycle_id, parsed_result, and agent_decisions.
     """
     logger.info("round1_start", agent_count=len(personas))
 
-    # StateStore: mark SEEDING phase
-    if state_store is not None:
-        await state_store.set_phase(SimulationPhase.SEEDING)
+    if pre_injected is not None:
+        cycle_id, parsed_result = pre_injected
+    else:
+        # StateStore: mark SEEDING phase
+        if state_store is not None:
+            await state_store.set_phase(SimulationPhase.SEEDING)
 
-    # 1. Inject seed (orchestrator model lifecycle is self-contained)
-    cycle_id, parsed_result = await inject_seed(
-        rumor, settings, ollama_client, model_manager, graph_manager,
-    )
+        # 1. Inject seed (orchestrator model lifecycle is self-contained)
+        cycle_id, parsed_result, _modifier_result = await inject_seed(
+            rumor, settings, ollama_client, model_manager, graph_manager,
+        )
 
     # StateStore: mark ROUND_1 phase after seed injection
     if state_store is not None:
@@ -746,13 +754,28 @@ async def run_simulation(
     if state_store is not None:
         await state_store.set_phase(SimulationPhase.IDLE)
 
-    # Phase: SEEDING + ROUND_1 (delegated to run_round1)
+    # Phase 13: Seed injection with modifier generation (D-06: same orchestrator session)
     phase = SimulationPhase.SEEDING
     logger.info("simulation_phase_transition", phase=phase.value)
+    if state_store is not None:
+        await state_store.set_phase(SimulationPhase.SEEDING)
+
+    cycle_id, parsed_result, modifier_result = await inject_seed(
+        rumor, settings, ollama_client, model_manager, graph_manager,
+        modifier_generator=generate_modifiers,
+    )
+
+    # Phase 13: Regenerate personas with entity-aware modifiers (D-01, D-02)
+    if modifier_result is not None:
+        personas = generate_personas(brackets, modifiers=modifier_result.modifiers)
+        logger.info("personas_regenerated_with_modifiers", parse_tier=modifier_result.parse_tier)
+
+    # Round 1 dispatch (skip inject_seed since we already did it)
     round1_result = await run_round1(
         rumor, settings, ollama_client, model_manager,
         graph_manager, governor, personas,
         state_store=state_store,
+        pre_injected=(cycle_id, parsed_result),
     )
     cycle_id = round1_result.cycle_id
 

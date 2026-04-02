@@ -6,7 +6,7 @@ Called by CLI inject subcommand. Self-contained model lifecycle per D-07.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 import structlog
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
-    from alphaswarm.types import ParsedSeedResult
+    from alphaswarm.types import ParsedModifiersResult, ParsedSeedResult, SeedEvent
 
 logger = structlog.get_logger(component="seed")
 
@@ -42,11 +42,16 @@ async def inject_seed(
     ollama_client: OllamaClient,
     model_manager: OllamaModelManager,
     graph_manager: GraphStateManager,
-) -> tuple[str, ParsedSeedResult]:
-    """End-to-end seed injection pipeline. Returns (cycle_id, parsed_result).
+    *,
+    modifier_generator: Callable[[SeedEvent, OllamaClient, str], Awaitable[ParsedModifiersResult]] | None = None,
+) -> tuple[str, ParsedSeedResult, ParsedModifiersResult | None]:
+    """End-to-end seed injection pipeline. Returns (cycle_id, parsed_result, modifier_result).
 
-    Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence
-    (addresses review concern about orphan Cycle nodes from separate ops).
+    When modifier_generator is provided (Phase 13), calls it after seed parsing
+    completes but before the orchestrator model is unloaded (D-06: same session).
+    modifier_result is None when no callback is provided.
+
+    Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence.
     """
     logger.info("seed_injection_start", rumor_preview=rumor[:100])
 
@@ -88,15 +93,25 @@ async def inject_seed(
             rumor, parsed_result.seed_event,
         )
 
+        # 5. Phase 13: Generate modifiers while orchestrator is still loaded (D-06)
+        modifier_result: ParsedModifiersResult | None = None
+        if modifier_generator is not None:
+            modifier_result = await modifier_generator(
+                parsed_result.seed_event,
+                ollama_client,
+                orchestrator_alias,
+            )
+
         logger.info(
             "seed_injection_complete",
             cycle_id=cycle_id,
             entity_count=len(parsed_result.seed_event.entities),
             overall_sentiment=parsed_result.seed_event.overall_sentiment,
             parse_tier=parsed_result.parse_tier,
+            modifier_parse_tier=modifier_result.parse_tier if modifier_result else None,
         )
-        return cycle_id, parsed_result
+        return cycle_id, parsed_result, modifier_result
 
     finally:
-        # 5. Always unload orchestrator model (per D-07)
+        # 6. Always unload orchestrator model (per D-07)
         await model_manager.unload_model(orchestrator_alias)

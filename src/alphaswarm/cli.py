@@ -612,7 +612,7 @@ async def _handle_inject(rumor: str) -> None:
         # Ensure schema is applied (explicit in inject path)
         await app.graph_manager.ensure_schema()
 
-        cycle_id, parsed_result = await inject_seed(
+        cycle_id, parsed_result, _modifier_result = await inject_seed(
             rumor=rumor,
             settings=settings,
             ollama_client=app.ollama_client,

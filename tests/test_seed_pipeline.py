@@ -156,7 +156,7 @@ async def test_inject_seed_returns_cycle_id_and_parsed_result(
     """inject_seed returns a (cycle_id, ParsedSeedResult) tuple."""
     from alphaswarm.seed import inject_seed
 
-    cycle_id, parsed_result = await inject_seed(
+    cycle_id, parsed_result, _modifier_result = await inject_seed(
         rumor="NVIDIA announces breakthrough",
         settings=mock_settings,
         ollama_client=mock_ollama_client,
@@ -179,7 +179,7 @@ async def test_inject_seed_parsed_result_has_correct_entities(
     """With valid mock response, ParsedSeedResult.seed_event has correct entities."""
     from alphaswarm.seed import inject_seed
 
-    _, parsed_result = await inject_seed(
+    _, parsed_result, _modifier_result = await inject_seed(
         rumor="NVIDIA announces breakthrough",
         settings=mock_settings,
         ollama_client=mock_ollama_client,
