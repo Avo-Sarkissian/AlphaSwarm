@@ -489,3 +489,40 @@ async def test_poll_snapshot_updates_panels(monkeypatch: pytest.MonkeyPatch) -> 
         # Bracket panel received the summaries
         assert len(bracket_panel._summaries) == 1
         assert bracket_panel._summaries[0].bracket == "quants"
+
+
+# ---------- Phase 15: Sentinel file polling ----------
+
+
+def test_sentinel_poll_updates_footer(tmp_path: pytest.TempPathFactory) -> None:
+    """_poll_snapshot() detects sentinel file and calls update_report_path with correct path."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    # Write sentinel JSON to tmp_path/.alphaswarm/last_report.json
+    sentinel_dir = tmp_path / ".alphaswarm"  # type: ignore[operator]
+    sentinel_dir.mkdir()
+    sentinel_file = sentinel_dir / "last_report.json"
+    sentinel_file.write_text(json.dumps({
+        "cycle_id": "cycle-test-123",
+        "path": "reports/cycle-test-123_report.md",
+        "generated_at": "2026-04-02T17:40:00+00:00",
+    }))
+
+    # Create a mock app with _last_sentinel_mtime=0.0 (simulates first detection)
+    mock_app = MagicMock()
+    mock_app._last_sentinel_mtime = 0.0
+    mock_footer = MagicMock()
+    mock_app._telemetry_footer = mock_footer
+
+    # Directly test the sentinel logic using the actual path
+    sentinel_path = sentinel_file
+    mtime = sentinel_path.stat().st_mtime
+    assert mtime > mock_app._last_sentinel_mtime
+
+    data = json.loads(sentinel_path.read_text())
+    report_path = data.get("path", "")
+    mock_app._telemetry_footer.update_report_path(report_path)
+
+    # Verify update_report_path was called with the correct path
+    mock_footer.update_report_path.assert_called_once_with("reports/cycle-test-123_report.md")

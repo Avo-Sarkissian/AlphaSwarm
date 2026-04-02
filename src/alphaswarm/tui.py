@@ -259,15 +259,20 @@ class TelemetryFooter(Static):
 
     def __init__(self) -> None:
         super().__init__("")
+        self._report_path: str = ""
         self._render_idle()
 
     def _render_idle(self) -> None:
-        self.update(
+        base = (
             "  [#78909C]RAM:[/] [#78909C]--[/]  "
             "[#78909C]|[/]  [#78909C]TPS:[/] [#78909C]--[/]  "
             "[#78909C]|[/]  [#78909C]Queue:[/] [#78909C]--[/]  "
             "[#78909C]|[/]  [#78909C]Slots:[/] [#78909C]--[/]"
         )
+        if self._report_path:
+            self.update(base + f"  [#78909C]|[/]  [#78909C]Report:[/] [#E0E0E0]{self._report_path}[/]")
+        else:
+            self.update(base)
 
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
         """Update telemetry display from a StateSnapshot."""
@@ -284,12 +289,21 @@ class TelemetryFooter(Static):
         else:
             ram_color = "#E0E0E0"
 
-        self.update(
+        base = (
             f"  [#78909C]RAM:[/] [{ram_color}]{ram_pct:.0f}%[/]  "
             f"[#78909C]|[/]  [#78909C]TPS:[/] [#E0E0E0]{snapshot.tps:.1f}[/]  "
             f"[#78909C]|[/]  [#78909C]Queue:[/] [#E0E0E0]{gm.active_count}[/]  "
             f"[#78909C]|[/]  [#78909C]Slots:[/] [#E0E0E0]{gm.current_slots}[/]"
         )
+        if self._report_path:
+            self.update(base + f"  [#78909C]|[/]  [#78909C]Report:[/] [#E0E0E0]{self._report_path}[/]")
+        else:
+            self.update(base)
+
+    def update_report_path(self, path: str) -> None:
+        """Display the report file path in the footer (Phase 15, D-06)."""
+        self._report_path = path
+        self.update(f"Report: {path}")
 
 
 # ---------------------------------------------------------------------------
@@ -659,6 +673,7 @@ class AlphaSwarmApp(App):
         self._bracket_panel: BracketPanel | None = None
         self._prev_bracket_summaries: tuple[BracketSummary, ...] = ()
         self._cycle_id: str | None = None
+        self._last_sentinel_mtime: float = 0.0  # Phase 15: sentinel file polling (D-06, Pitfall 5)
 
     def on_mount(self) -> None:
         """Register theme, then either show rumor input or start simulation."""
@@ -878,3 +893,19 @@ class AlphaSwarmApp(App):
                 self._prev_bracket_summaries = snapshot.bracket_summaries
 
         self._prev_snapshot = snapshot
+
+        # Phase 15: Check for report sentinel file (D-06)
+        import json as _json
+        from pathlib import Path as _Path
+        sentinel_path = _Path(".alphaswarm") / "last_report.json"
+        try:
+            if sentinel_path.exists():
+                mtime = sentinel_path.stat().st_mtime
+                if mtime > self._last_sentinel_mtime:
+                    self._last_sentinel_mtime = mtime
+                    data = _json.loads(sentinel_path.read_text())
+                    report_path = data.get("path", "")
+                    if self._telemetry_footer is not None:
+                        self._telemetry_footer.update_report_path(report_path)
+        except (OSError, ValueError, KeyError):
+            pass  # Sentinel file may be mid-write or malformed; skip silently
