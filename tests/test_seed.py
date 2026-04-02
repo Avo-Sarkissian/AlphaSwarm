@@ -139,3 +139,27 @@ def test_parsed_seed_result_all_tiers() -> None:
     for tier in (1, 2, 3):
         result = ParsedSeedResult(seed_event=event, parse_tier=tier)
         assert result.parse_tier == tier
+
+
+# --- Phase 13: ParsedModifiersResult tests ---
+
+
+def test_parsed_modifiers_result_construction() -> None:
+    """ParsedModifiersResult constructs with modifiers dict and parse_tier."""
+    from alphaswarm.types import BracketType, ParsedModifiersResult
+
+    result = ParsedModifiersResult(
+        modifiers={BracketType.QUANTS: "test modifier"},
+        parse_tier=1,
+    )
+    assert result.modifiers[BracketType.QUANTS] == "test modifier"
+    assert result.parse_tier == 1
+
+
+def test_parsed_modifiers_result_frozen() -> None:
+    """ParsedModifiersResult is frozen -- attribute assignment raises."""
+    from alphaswarm.types import BracketType, ParsedModifiersResult
+
+    result = ParsedModifiersResult(modifiers={BracketType.QUANTS: "x"}, parse_tier=1)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.parse_tier = 2  # type: ignore[misc]

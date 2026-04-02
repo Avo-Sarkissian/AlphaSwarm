@@ -136,3 +136,57 @@ def test_json_output_instructions_fields() -> None:
         assert field in JSON_OUTPUT_INSTRUCTIONS, (
             f"JSON_OUTPUT_INSTRUCTIONS missing field: {field}"
         )
+
+
+# --- Phase 13: sanitize_entity_name and modifier cap tests ---
+
+
+def test_sanitize_entity_name_truncation() -> None:
+    """sanitize_entity_name truncates to 100 characters."""
+    from alphaswarm.config import sanitize_entity_name
+
+    result = sanitize_entity_name("A" * 150)
+    assert len(result) == 100
+
+
+def test_sanitize_entity_name_strips_control_chars() -> None:
+    """sanitize_entity_name strips Cc control characters."""
+    from alphaswarm.config import sanitize_entity_name
+
+    assert sanitize_entity_name("Test\x00\x1f\x7fName") == "TestName"
+
+
+def test_sanitize_entity_name_strips_cf_chars() -> None:
+    """sanitize_entity_name strips Cf format characters (e.g., zero-width space)."""
+    from alphaswarm.config import sanitize_entity_name
+
+    assert sanitize_entity_name("Test\u200bInvisible") == "TestInvisible"
+
+
+def test_sanitize_entity_name_preserves_punctuation() -> None:
+    """sanitize_entity_name preserves standard punctuation in real entity names."""
+    from alphaswarm.config import sanitize_entity_name
+
+    assert sanitize_entity_name("S&P 500") == "S&P 500"
+    assert sanitize_entity_name("Meta (Facebook)") == "Meta (Facebook)"
+    assert sanitize_entity_name("Berkshire's") == "Berkshire's"
+    assert sanitize_entity_name("Johnson & Johnson") == "Johnson & Johnson"
+
+
+def test_sanitize_entity_name_empty() -> None:
+    """sanitize_entity_name returns empty string for empty input."""
+    from alphaswarm.config import sanitize_entity_name
+
+    assert sanitize_entity_name("") == ""
+
+
+def test_modifier_length_cap() -> None:
+    """_truncate_modifier caps at 150 chars, truncated at word boundary."""
+    from alphaswarm.config import _MODIFIER_CHAR_LIMIT, _truncate_modifier
+
+    long_modifier = "word " * 50  # 250 chars
+    result = _truncate_modifier(long_modifier)
+    assert len(result) <= _MODIFIER_CHAR_LIMIT
+    assert not result.endswith(" ")  # No trailing space after word-boundary truncation
+    # Short modifiers pass through unchanged
+    assert _truncate_modifier("short modifier") == "short modifier"
