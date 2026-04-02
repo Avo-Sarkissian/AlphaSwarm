@@ -35,7 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 11: Live Graph Memory** - Real-time Neo4j rationale episodes, narrative edges, and interview context summaries written during simulation (completed 2026-03-31)
 - [x] **Phase 12: Richer Agent Interactions** - Agents publish public rationale posts that peers read and react to via token-budget-aware context injection (completed 2026-04-01)
-- [ ] **Phase 13: Dynamic Persona Generation** - Entity-aware bracket modifiers generated from seed rumor for situation-specific agent personas
+- [x] **Phase 13: Dynamic Persona Generation** - Entity-aware bracket modifiers generated from seed rumor for situation-specific agent personas (completed 2026-04-02)
 - [ ] **Phase 14: Agent Interviews** - Post-simulation conversational Q&A with any agent using reconstructed decision context
 - [ ] **Phase 15: Post-Simulation Report** - ReACT agent queries Neo4j and generates structured market analysis as exportable markdown
 
@@ -81,7 +81,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 13-01-PLAN.md -- Data layer: ParsedModifiersResult type, sanitize_entity_name, parse_modifier_response 3-tier fallback, generate_personas modifiers kwarg, tests
-- [ ] 13-02-PLAN.md -- Integration: generate_modifiers orchestrator call, inject_seed modifier callback, run_simulation wiring
+- [x] 13-02-PLAN.md -- Integration: generate_modifiers orchestrator call, inject_seed modifier callback, run_simulation wiring
 
 ### Phase 14: Agent Interviews
 **Goal**: After simulation completes, users can select any agent and have a live multi-turn conversation about their decisions, with the agent responding in character using full decision context
@@ -126,6 +126,6 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 10. TUI Panels and Telemetry | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 11. Live Graph Memory | v2.0 | 3/3 | Complete    | 2026-03-31 |
 | 12. Richer Agent Interactions | v2.0 | 2/2 | Complete    | 2026-04-01 |
-| 13. Dynamic Persona Generation | v2.0 | 1/2 | In Progress|  |
+| 13. Dynamic Persona Generation | v2.0 | 2/2 | Complete   | 2026-04-02 |
 | 14. Agent Interviews | v2.0 | 0/0 | Not started | - |
 | 15. Post-Simulation Report | v2.0 | 0/0 | Not started | - |
