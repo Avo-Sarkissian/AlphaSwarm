@@ -310,12 +310,12 @@ class TestInterviewEngineAsk:
 
         client.chat.assert_called_once()
         call_kwargs = client.chat.call_args
-        messages = call_kwargs.kwargs["messages"] if "messages" in call_kwargs.kwargs else call_kwargs[1]["messages"]
-        # System prompt is first, context block is second, then history
+        messages = call_kwargs.kwargs["messages"]
+        # System prompt is first, context block is second, then user message
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] == "system"
-        assert messages[-2]["role"] == "user"
-        assert messages[-2]["content"] == "Hello"
+        assert messages[-1]["role"] == "user"
+        assert messages[-1]["content"] == "Hello"
 
 
 class TestBuildMessages:
