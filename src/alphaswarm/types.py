@@ -111,6 +111,20 @@ class ParsedSeedResult:
     parse_tier: int
 
 
+@dataclasses.dataclass(frozen=True)
+class ParsedModifiersResult:
+    """Result of modifier generation with parse-tier observability (D-09).
+
+    parse_tier values:
+      1 = Direct JSON parse succeeded
+      2 = Code-fence strip / regex extraction succeeded
+      3 = All tiers failed, fallback to static BRACKET_MODIFIERS
+    """
+
+    modifiers: dict[BracketType, str]
+    parse_tier: int
+
+
 class AgentDecision(BaseModel, frozen=True):
     """Structured decision output from an agent inference call."""
 

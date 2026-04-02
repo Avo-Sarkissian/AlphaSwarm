@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
@@ -92,6 +93,43 @@ JSON_OUTPUT_INSTRUCTIONS = (
     '"sentiment": -1.0 to 1.0, "rationale": "brief reasoning", '
     '"cited_agents": []}'
 )
+
+
+# ---------------------------------------------------------------------------
+# Entity name sanitization (Phase 13, D-11, D-12)
+# ---------------------------------------------------------------------------
+
+
+def sanitize_entity_name(name: str) -> str:
+    """Sanitize entity name for safe prompt interpolation (D-11, D-12).
+
+    Truncates to 100 characters and strips Unicode Cc (control) and
+    Cf (format) categories. Preserves standard punctuation including
+    hyphens, periods, apostrophes, ampersands, and parentheses.
+    """
+    truncated = name[:100]
+    return "".join(
+        c for c in truncated
+        if unicodedata.category(c) not in ("Cc", "Cf")
+    )
+
+
+_MODIFIER_CHAR_LIMIT = 150
+
+
+def _truncate_modifier(modifier: str) -> str:
+    """Truncate modifier string at word boundary to _MODIFIER_CHAR_LIMIT chars.
+
+    If the modifier is already within the limit, returns it unchanged.
+    Otherwise truncates at the last space before the limit.
+    """
+    if len(modifier) <= _MODIFIER_CHAR_LIMIT:
+        return modifier
+    truncated = modifier[:_MODIFIER_CHAR_LIMIT]
+    last_space = truncated.rfind(" ")
+    if last_space > 0:
+        return truncated[:last_space]
+    return truncated  # Single very long word, hard truncate
 
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,9 @@ from pydantic import ValidationError
 
 from alphaswarm.types import (
     AgentDecision,
+    BracketType,
     EntityType,
+    ParsedModifiersResult,
     ParsedSeedResult,
     SeedEntity,
     SeedEvent,
@@ -213,3 +215,86 @@ def parse_seed_event(raw: str, original_rumor: str) -> ParsedSeedResult:
         seed_event=SeedEvent(raw_rumor=original_rumor, entities=[], overall_sentiment=0.0),
         parse_tier=3,
     )
+
+
+# ---------------------------------------------------------------------------
+# Modifier response parsing (Phase 13)
+# ---------------------------------------------------------------------------
+
+
+def parse_modifier_response(raw: str) -> ParsedModifiersResult:
+    """Parse orchestrator modifier JSON with 3-tier fallback (D-05, D-07, D-08).
+
+    Expected JSON format: {"quants": "modifier string", ..., "whales": "modifier string"}
+    Exactly 10 keys matching BracketType enum values.
+
+    Tier 1: Direct JSON parse
+    Tier 2: Code-fence strip / regex extraction
+    Tier 3: Full fallback to static BRACKET_MODIFIERS[bracket][0]
+
+    Missing or invalid keys trigger per-bracket fallback from static BRACKET_MODIFIERS (D-08).
+    All dict keys are lowercased before validation (Pitfall 5: case insensitivity).
+    """
+    # Local import to avoid circular dependency (config.py imports from types.py)
+    from alphaswarm.config import BRACKET_MODIFIERS, _truncate_modifier
+
+    def _validate_and_fill(data: dict) -> dict[BracketType, str] | None:
+        if not isinstance(data, dict):
+            return None
+        # Lowercase all keys (Pitfall 5)
+        normalized = {k.lower().strip(): v for k, v in data.items() if isinstance(k, str)}
+        result: dict[BracketType, str] = {}
+        for bt in BracketType:
+            val = normalized.get(bt.value)
+            if isinstance(val, str) and val.strip():
+                result[bt] = _truncate_modifier(val.strip())
+            else:
+                # Per-bracket fallback to static (D-08)
+                static_mods = BRACKET_MODIFIERS.get(bt, [])
+                result[bt] = static_mods[0] if static_mods else ""
+                logger.warning(
+                    "modifier_bracket_fallback",
+                    bracket=bt.value,
+                    reason="missing_or_invalid",
+                )
+        return result
+
+    # Tier 1: Direct JSON parse
+    try:
+        data = json.loads(raw)
+        modifiers = _validate_and_fill(data)
+        if modifiers is not None:
+            logger.debug("modifier_parse_succeeded", parse_tier=1)
+            return ParsedModifiersResult(modifiers=modifiers, parse_tier=1)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Tier 2: Strip code fences, then regex extraction
+    cleaned = _strip_code_fences(raw)
+    for text in (cleaned, raw) if cleaned != raw else (cleaned,):
+        try:
+            data = json.loads(text)
+            modifiers = _validate_and_fill(data)
+            if modifiers is not None:
+                logger.debug("modifier_parse_succeeded", parse_tier=2)
+                return ParsedModifiersResult(modifiers=modifiers, parse_tier=2)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        match = _JSON_BLOCK_RE.search(text)
+        if match:
+            try:
+                data = json.loads(match.group())
+                modifiers = _validate_and_fill(data)
+                if modifiers is not None:
+                    logger.debug("modifier_parse_succeeded", parse_tier=2)
+                    return ParsedModifiersResult(modifiers=modifiers, parse_tier=2)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+    # Tier 3: Full fallback to static BRACKET_MODIFIERS (D-07)
+    logger.warning("modifier_parse_failed_all_tiers", parse_tier=3, raw_preview=raw[:500])
+    fallback: dict[BracketType, str] = {}
+    for bt in BracketType:
+        static_mods = BRACKET_MODIFIERS.get(bt, [])
+        fallback[bt] = static_mods[0] if static_mods else ""
+    return ParsedModifiersResult(modifiers=fallback, parse_tier=3)
