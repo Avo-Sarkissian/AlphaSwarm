@@ -10,6 +10,7 @@ import structlog
 from neo4j.exceptions import Neo4jError
 
 from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
+from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
 
 from alphaswarm.types import SignalType
 
@@ -979,3 +980,105 @@ class GraphStateManager:
             cycle_id=cycle_id,
             round_num=round_num,
         )
+
+    # ------------------------------------------------------------------
+    # Phase 14: Interview context reads
+    # ------------------------------------------------------------------
+
+    async def read_agent_interview_context(
+        self, agent_id: str, cycle_id: str,
+    ) -> InterviewContext:
+        """Read agent context for post-simulation interview (INT-01, D-04, D-06).
+
+        Reconstructs InterviewContext from Neo4j Agent + Decision nodes and
+        the in-memory persona list for system_prompt lookup.
+
+        Args:
+            agent_id: The agent to interview.
+            cycle_id: The simulation cycle to pull decisions from.
+
+        Returns:
+            InterviewContext with persona, narrative, and per-round decisions.
+
+        Raises:
+            Neo4jConnectionError: When Neo4j query fails.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_interview_context_tx, agent_id, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read interview context for agent {agent_id} cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+
+        # Look up persona from in-memory list (D-06: avoids second Neo4j query)
+        persona = next((p for p in self._personas if p.id == agent_id), None)
+        interview_system_prompt = (
+            _strip_json_instructions(persona.system_prompt) if persona else ""
+        )
+
+        # Extract agent-level fields from first record
+        first = records[0] if records else {}
+        agent_name = first.get("name", "")
+        bracket = first.get("bracket", "")
+        decision_narrative = first.get("decision_narrative") or ""
+
+        # Build per-round decisions (skip records with no round_num, e.g. OPTIONAL MATCH miss)
+        decisions = [
+            RoundDecision(
+                round_num=r["round_num"],
+                signal=r["signal"],
+                confidence=r["confidence"],
+                sentiment=r["sentiment"],
+                rationale=r["rationale"],
+            )
+            for r in records
+            if r.get("round_num") is not None
+        ]
+
+        self._log.debug(
+            "interview_context_read",
+            agent_id=agent_id,
+            cycle_id=cycle_id,
+            decision_count=len(decisions),
+        )
+
+        return InterviewContext(
+            agent_id=agent_id,
+            agent_name=agent_name,
+            bracket=bracket,
+            interview_system_prompt=interview_system_prompt,
+            decision_narrative=decision_narrative,
+            decisions=decisions,
+        )
+
+    @staticmethod
+    async def _read_interview_context_tx(
+        tx: AsyncManagedTransaction,
+        agent_id: str,
+        cycle_id: str,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for reading agent interview context."""
+        result = await tx.run(
+            """
+            MATCH (a:Agent {id: $agent_id})
+            OPTIONAL MATCH (a)-[:MADE]->(d:Decision)
+            WHERE d.cycle_id = $cycle_id
+            RETURN a.id AS agent_id,
+                   a.name AS name,
+                   a.bracket AS bracket,
+                   a.decision_narrative AS decision_narrative,
+                   d.round AS round_num,
+                   d.signal AS signal,
+                   d.confidence AS confidence,
+                   d.sentiment AS sentiment,
+                   d.rationale AS rationale
+            ORDER BY d.round
+            """,
+            agent_id=agent_id,
+            cycle_id=cycle_id,
+        )
+        return [dict(record) async for record in result]
