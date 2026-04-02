@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Engine Depth
-status: planning
-stopped_at: Completed 15-02-PLAN.md
-last_updated: "2026-04-02T18:00:00.000Z"
+status: executing
+stopped_at: Completed 15-01-PLAN.md
+last_updated: "2026-04-02T17:39:06.279Z"
 last_activity: 2026-04-02
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 86
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 
 ## Current Position
 
-Phase: 15 (post-simulation-report) — PLANNED
-Plan: 0 of 2
-Status: Plans ready — awaiting execution
+Phase: 15 (post-simulation-report) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-04-02
 
 Progress: [################################..........] 86% (7/7 plans, v2.0)
@@ -70,6 +70,7 @@ Progress: [################################..........] 86% (7/7 plans, v2.0)
 | Phase 13 P01 | 5min | 2 tasks | 7 files |
 | Phase 13 P02 | 11min | 2 tasks | 6 files |
 | Phase 14 P01 | 6min | 2 tasks | 3 files |
+| Phase 15-post-simulation-report P01 | 4 | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,9 @@ Recent decisions affecting current work:
 - [Phase 14]: Persona system_prompt looked up from in-memory self._personas (D-06) to avoid extra Neo4j query
 - [Phase 14]: InterviewEngine uses OllamaClient.chat() directly (D-13) bypassing governor for sequential single-user interaction
 - [Phase 14]: Sliding window summary accumulates via string concatenation across multiple trims
+- [Phase 15]: ReportEngine does not manage model lifecycle (D-12) -- caller's responsibility
+- [Phase 15]: 8 Cypher tools return plain dicts (not Pydantic) for JSON-serializable ToolObservation.result
+- [Phase 15]: read_influence_leaders filters round=3 only to avoid double-counting INFLUENCED_BY edges (Pitfall 1)
 
 ### Pending Todos
 
@@ -121,6 +125,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-02T17:02:49.671Z
-Stopped at: Completed 14-01-PLAN.md
+Last session: 2026-04-02T17:39:06.276Z
+Stopped at: Completed 15-01-PLAN.md
 Resume file: None

@@ -110,7 +110,7 @@ Plans:
   5. Report generation uses the orchestrator model with proper model lifecycle serialization -- never runs concurrently with agent interviews
 **Plans**: 2 plans
 Plans:
-- [ ] 15-01-PLAN.md -- ReACT engine + Cypher query tools (ReportEngine, ToolObservation, _parse_action_input, 8 GraphStateManager read methods, unit tests)
+- [x] 15-01-PLAN.md -- ReACT engine + Cypher query tools (ReportEngine, ToolObservation, _parse_action_input, 8 GraphStateManager read methods, unit tests)
 - [ ] 15-02-PLAN.md -- Delivery layer (Jinja2 templates, ReportAssembler, CLI report subcommand, aiofiles export, sentinel file, TUI polling)
 
 ## Progress
@@ -134,4 +134,4 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 12. Richer Agent Interactions | v2.0 | 2/2 | Complete    | 2026-04-01 |
 | 13. Dynamic Persona Generation | v2.0 | 2/2 | Complete   | 2026-04-02 |
 | 14. Agent Interviews | v2.0 | 2/2 | Complete   | 2026-04-02 |
-| 15. Post-Simulation Report | v2.0 | 0/2 | In progress | - |
+| 15. Post-Simulation Report | v2.0 | 1/2 | In Progress|  |
