@@ -92,7 +92,10 @@ Plans:
   2. The agent responds conversationally in character using the worker LLM with their original system prompt restored, maintaining consistency with their simulation decisions across multiple exchanges
   3. Users can interview agents via the TUI by clicking any agent cell in the grid post-simulation, opening an interactive Q&A panel with clean exit back to the dashboard
   4. Interview sessions use a sliding window for conversation history to prevent context overflow during extended exchanges
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 14-01-PLAN.md -- Interview data layer and engine (InterviewContext/RoundDecision types, read_agent_interview_context graph method, InterviewEngine with sliding window, unit tests)
+- [ ] 14-02-PLAN.md -- TUI integration (InterviewScreen overlay, AgentCell.on_click handler, cycle_id capture, human verification)
 **UI hint**: yes
 
 ### Phase 15: Post-Simulation Report
@@ -127,5 +130,5 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 11. Live Graph Memory | v2.0 | 3/3 | Complete    | 2026-03-31 |
 | 12. Richer Agent Interactions | v2.0 | 2/2 | Complete    | 2026-04-01 |
 | 13. Dynamic Persona Generation | v2.0 | 2/2 | Complete   | 2026-04-02 |
-| 14. Agent Interviews | v2.0 | 0/0 | Not started | - |
+| 14. Agent Interviews | v2.0 | 0/2 | In Progress | - |
 | 15. Post-Simulation Report | v2.0 | 0/0 | Not started | - |
