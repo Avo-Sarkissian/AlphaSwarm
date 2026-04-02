@@ -1,0 +1,7 @@
+## Influence Leaders
+
+| Rank | Agent | Bracket | Influence Weight | Citations |
+|------|-------|---------|-----------------|-----------|
+{% for leader in data %}
+| {{ loop.index }} | {{ leader.agent_id }} | {{ leader.bracket }} | {{ "%.3f"|format(leader.total_influence_weight) }} | {{ leader.citation_count }} |
+{% endfor %}

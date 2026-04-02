@@ -1,0 +1,7 @@
+## Signal Flip Analysis
+
+| Agent | Bracket | Round | Flip Type | Final Signal |
+|-------|---------|-------|-----------|-------------|
+{% for flip in data %}
+| {{ flip.agent_id }} | {{ flip.bracket }} | {{ flip.round_num }} | {{ flip.flip_type }} | {{ flip.final_signal }} |
+{% endfor %}

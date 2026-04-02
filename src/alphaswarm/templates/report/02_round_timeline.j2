@@ -1,0 +1,7 @@
+## Round Timeline
+
+| Round | BUY | SELL | HOLD | Total |
+|-------|-----|------|------|-------|
+{% for round in data %}
+| {{ round.round_num }} | {{ round.buy_count }} | {{ round.sell_count }} | {{ round.hold_count }} | {{ round.total }} |
+{% endfor %}

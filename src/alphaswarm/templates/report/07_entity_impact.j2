@@ -1,0 +1,7 @@
+## Entity Impact
+
+| Entity | Type | Avg Sentiment | Mentions | BUY | SELL | HOLD |
+|--------|------|---------------|----------|-----|------|------|
+{% for entity in data %}
+| {{ entity.name }} | {{ entity.type }} | {{ "%.2f"|format(entity.avg_sentiment) }} | {{ entity.mention_count }} | {{ entity.buy_count }} | {{ entity.sell_count }} | {{ entity.hold_count }} |
+{% endfor %}

@@ -1,0 +1,7 @@
+## Key Dissenters
+
+| Agent | Bracket | Signal | Bracket Majority |
+|-------|---------|--------|-----------------|
+{% for d in data %}
+| {{ d.agent_id }} | {{ d.bracket }} | {{ d.signal }} | {{ d.bracket_majority }} |
+{% endfor %}

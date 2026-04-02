@@ -1,0 +1,11 @@
+## Consensus Summary
+
+**Cycle:** {{ cycle_id }}
+
+| Signal | Count | Share |
+|--------|-------|-------|
+| BUY | {{ data.buy_count }} | {{ "%.1f"|format(data.buy_count / data.total * 100 if data.total else 0) }}% |
+| SELL | {{ data.sell_count }} | {{ "%.1f"|format(data.sell_count / data.total * 100 if data.total else 0) }}% |
+| HOLD | {{ data.hold_count }} | {{ "%.1f"|format(data.hold_count / data.total * 100 if data.total else 0) }}% |
+
+**Total agents:** {{ data.total }}

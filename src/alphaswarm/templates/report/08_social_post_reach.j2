@@ -1,0 +1,7 @@
+## Social Post Reach
+
+| Rank | Author | Bracket | Signal | Round | Readers | Content |
+|------|--------|---------|--------|-------|---------|---------|
+{% for post in data %}
+| {{ loop.index }} | {{ post.author_id }} | {{ post.bracket }} | {{ post.signal }} | {{ post.round_num }} | {{ post.reader_count }} | {{ post.content[:80] if post.content else "" }} |
+{% endfor %}

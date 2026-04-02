@@ -241,10 +241,41 @@ class TestGraphQueryTools:
 
 class TestReportAssembler:
     def test_renders_section(self) -> None:
-        pass
+        """ReportAssembler.render_section returns markdown with section heading and data values."""
+        from alphaswarm.report import ReportAssembler
 
-    def test_async_file_write(self) -> None:
-        pass
+        assembler = ReportAssembler()
+        data = {"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100}
+        result = assembler.render_section("01_consensus_summary.j2", data=data, cycle_id="test-cycle")
 
-    def test_sentinel_file_schema(self) -> None:
-        pass
+        assert "Consensus Summary" in result
+        assert "50" in result
+        assert "30" in result
+
+    async def test_async_file_write(self, tmp_path: pytest.TempdirFactory) -> None:
+        """write_report creates file with correct content using aiofiles."""
+        from alphaswarm.report import write_report
+
+        report_path = tmp_path / "test_report.md"  # type: ignore[operator]
+        await write_report(report_path, "# Report Content")
+
+        assert report_path.exists()
+        assert report_path.read_text() == "# Report Content"
+
+    async def test_sentinel_file_schema(self, tmp_path: pytest.TempdirFactory) -> None:
+        """write_sentinel creates JSON with cycle_id, path, and generated_at ISO timestamp."""
+        import json
+        from datetime import datetime
+        from alphaswarm.report import write_sentinel
+
+        await write_sentinel("cycle1", "./reports/cycle1_report.md", sentinel_dir=tmp_path)  # type: ignore[arg-type]
+
+        sentinel_file = tmp_path / "last_report.json"  # type: ignore[operator]
+        assert sentinel_file.exists()
+
+        data = json.loads(sentinel_file.read_text())
+        assert set(data.keys()) == {"cycle_id", "path", "generated_at"}
+        assert data["cycle_id"] == "cycle1"
+        assert data["path"] == "./reports/cycle1_report.md"
+        # Validate ISO timestamp
+        datetime.fromisoformat(data["generated_at"])

@@ -1,0 +1,7 @@
+## Bracket Narratives
+
+| Bracket | BUY | SELL | HOLD | Avg Confidence | Avg Sentiment |
+|---------|-----|------|------|----------------|---------------|
+{% for b in data %}
+| {{ b.bracket }} | {{ b.buy_count }} | {{ b.sell_count }} | {{ b.hold_count }} | {{ "%.2f"|format(b.avg_confidence) }} | {{ "%.2f"|format(b.avg_sentiment) }} |
+{% endfor %}
