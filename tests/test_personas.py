@@ -153,3 +153,80 @@ def test_persona_first_modifier_assignment() -> None:
         assert mods[0] in first_persona.system_prompt, (
             f"{bt.value} first persona missing first modifier: '{mods[0][:40]}...'"
         )
+
+
+# --- Phase 13: generate_personas with modifiers tests ---
+
+
+def test_generate_personas_with_modifiers_count() -> None:
+    """generate_personas with modifiers kwarg still produces exactly 100 personas."""
+    from alphaswarm.config import generate_personas, load_bracket_configs
+    from alphaswarm.types import BracketType
+
+    brackets = load_bracket_configs()
+    modifiers = {bt: f"custom modifier for {bt.value}" for bt in BracketType}
+    personas = generate_personas(brackets, modifiers=modifiers)
+    assert len(personas) == 100
+
+
+def test_generate_personas_with_modifiers_content() -> None:
+    """When modifiers provided, personas use generated modifier, not static."""
+    from alphaswarm.config import BRACKET_MODIFIERS, generate_personas, load_bracket_configs
+    from alphaswarm.types import BracketType
+
+    brackets = load_bracket_configs()
+    modifiers = {bt: f"entity-aware {bt.value} specialist" for bt in BracketType}
+    personas = generate_personas(brackets, modifiers=modifiers)
+    quants = [p for p in personas if p.bracket == BracketType.QUANTS]
+    for p in quants:
+        assert "entity-aware quants specialist" in p.system_prompt
+        # Verify static modifier is NOT present
+        assert BRACKET_MODIFIERS[BracketType.QUANTS][0] not in p.system_prompt
+
+
+def test_generate_personas_with_modifiers_same_bracket_same_modifier() -> None:
+    """Per D-02: all agents in same bracket share one entity-aware modifier."""
+    from alphaswarm.config import generate_personas, load_bracket_configs
+    from alphaswarm.types import BracketType
+
+    brackets = load_bracket_configs()
+    modifiers = {bt: f"shared modifier for {bt.value}" for bt in BracketType}
+    personas = generate_personas(brackets, modifiers=modifiers)
+    quants = [p for p in personas if p.bracket == BracketType.QUANTS]
+    # All Quants should have the same modifier line
+    for p in quants:
+        assert "You are a shared modifier for quants." in p.system_prompt
+
+
+def test_generate_personas_backward_compatible() -> None:
+    """generate_personas() without modifiers kwarg matches original output exactly."""
+    from alphaswarm.config import generate_personas, load_bracket_configs
+
+    brackets = load_bracket_configs()
+    original = generate_personas(brackets)
+    with_none = generate_personas(brackets, modifiers=None)
+    assert len(original) == len(with_none)
+    for p1, p2 in zip(original, with_none):
+        assert p1.system_prompt == p2.system_prompt, f"{p1.id} prompt differs"
+
+
+def test_generate_personas_partial_modifiers() -> None:
+    """Partial modifiers dict: provided brackets get generated modifier, missing get static round-robin."""
+    from alphaswarm.config import BRACKET_MODIFIERS, generate_personas, load_bracket_configs
+    from alphaswarm.types import BracketType
+
+    brackets = load_bracket_configs()
+    # Only provide modifiers for QUANTS and DEGENS
+    partial = {
+        BracketType.QUANTS: "custom quants modifier",
+        BracketType.DEGENS: "custom degens modifier",
+    }
+    personas = generate_personas(brackets, modifiers=partial)
+    assert len(personas) == 100
+    # Quants get custom modifier
+    quants = [p for p in personas if p.bracket == BracketType.QUANTS]
+    for p in quants:
+        assert "custom quants modifier" in p.system_prompt
+    # Sovereigns get static round-robin (no custom modifier)
+    sovereigns = [p for p in personas if p.bracket == BracketType.SOVEREIGNS]
+    assert BRACKET_MODIFIERS[BracketType.SOVEREIGNS][0] in sovereigns[0].system_prompt
