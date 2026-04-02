@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 11: Live Graph Memory** - Real-time Neo4j rationale episodes, narrative edges, and interview context summaries written during simulation (completed 2026-03-31)
 - [x] **Phase 12: Richer Agent Interactions** - Agents publish public rationale posts that peers read and react to via token-budget-aware context injection (completed 2026-04-01)
 - [x] **Phase 13: Dynamic Persona Generation** - Entity-aware bracket modifiers generated from seed rumor for situation-specific agent personas (completed 2026-04-02)
-- [ ] **Phase 14: Agent Interviews** - Post-simulation conversational Q&A with any agent using reconstructed decision context
+- [x] **Phase 14: Agent Interviews** - Post-simulation conversational Q&A with any agent using reconstructed decision context (completed 2026-04-02)
 - [ ] **Phase 15: Post-Simulation Report** - ReACT agent queries Neo4j and generates structured market analysis as exportable markdown
 
 ## Phase Details
@@ -95,7 +95,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 14-01-PLAN.md -- Interview data layer and engine (InterviewContext/RoundDecision types, read_agent_interview_context graph method, InterviewEngine with sliding window, unit tests)
-- [ ] 14-02-PLAN.md -- TUI integration (InterviewScreen overlay, AgentCell.on_click handler, cycle_id capture, human verification)
+- [x] 14-02-PLAN.md -- TUI integration (InterviewScreen overlay, AgentCell.on_click handler, cycle_id capture, human verification)
 **UI hint**: yes
 
 ### Phase 15: Post-Simulation Report
@@ -130,5 +130,5 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 11. Live Graph Memory | v2.0 | 3/3 | Complete    | 2026-03-31 |
 | 12. Richer Agent Interactions | v2.0 | 2/2 | Complete    | 2026-04-01 |
 | 13. Dynamic Persona Generation | v2.0 | 2/2 | Complete   | 2026-04-02 |
-| 14. Agent Interviews | v2.0 | 1/2 | In Progress|  |
+| 14. Agent Interviews | v2.0 | 2/2 | Complete | 2026-04-02 |
 | 15. Post-Simulation Report | v2.0 | 0/0 | Not started | - |

@@ -66,7 +66,7 @@ Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 
 - [x] **INT-01**: Agent context reconstruction from Neo4j -- full persona, all 3 rounds of decisions, peer influences received, rationale history
 - [x] **INT-02**: Conversational interview loop using worker LLM with the agent's original system prompt restored, answering in character
-- [ ] **INT-03**: TUI interview mode -- click any agent in the grid post-simulation to open an interactive Q&A panel
+- [x] **INT-03**: TUI interview mode -- click any agent in the grid post-simulation to open an interactive Q&A panel
 
 ### Richer Agent Interactions
 
