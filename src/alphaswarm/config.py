@@ -476,14 +476,22 @@ def validate_bracket_counts(brackets: list[BracketConfig]) -> None:
         raise ValueError(msg)
 
 
-def generate_personas(brackets: list[BracketConfig]) -> list[AgentPersona]:
+def generate_personas(
+    brackets: list[BracketConfig],
+    *,
+    modifiers: dict[BracketType, str] | None = None,
+) -> list[AgentPersona]:
     """Generate all agent personas from bracket definitions.
 
     Each persona gets an enriched system prompt assembled from:
     - Agent header line (~8 words)
     - Bracket system_prompt_template (120-200 words)
-    - Round-robin personality modifier (~12 words)
+    - Personality modifier (~12 words, generated or static round-robin)
     - JSON output instructions (~40 words)
+
+    When modifiers is provided (Phase 13), uses the single generated modifier
+    for all agents in a bracket (per D-02). When modifiers is None, falls back
+    to static BRACKET_MODIFIERS round-robin (original behavior).
 
     Total assembled prompt targets 180-260 words, under 350-word safety cap.
 
@@ -492,12 +500,16 @@ def generate_personas(brackets: list[BracketConfig]) -> list[AgentPersona]:
     validate_bracket_counts(brackets)
     personas: list[AgentPersona] = []
     for bracket in brackets:
-        modifiers = BRACKET_MODIFIERS.get(bracket.bracket_type, [])
+        static_mods = BRACKET_MODIFIERS.get(bracket.bracket_type, [])
         for i in range(1, bracket.count + 1):
             agent_id = f"{bracket.bracket_type.value}_{i:02d}"
             agent_name = f"{bracket.display_name} {i}"
-            # Round-robin modifier assignment
-            modifier = modifiers[(i - 1) % len(modifiers)] if modifiers else ""
+            # Phase 13: use generated modifier when available (D-01, D-02)
+            if modifiers is not None and bracket.bracket_type in modifiers:
+                modifier = modifiers[bracket.bracket_type]
+            else:
+                # Static round-robin (original behavior)
+                modifier = static_mods[(i - 1) % len(static_mods)] if static_mods else ""
             modifier_line = f"\nYou are a {modifier}.\n" if modifier else ""
             system_prompt = (
                 f"[{agent_name} | {bracket.display_name} bracket]\n"
