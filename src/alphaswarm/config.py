@@ -5,13 +5,18 @@ from __future__ import annotations
 import unicodedata
 from typing import TYPE_CHECKING
 
+import structlog
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from alphaswarm.types import AgentPersona, BracketConfig, BracketType
 
 if TYPE_CHECKING:
+    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.types import ParsedModifiersResult, SeedEvent
     from alphaswarm.worker import WorkerPersonaConfig
+
+logger = structlog.get_logger(component="config")
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +135,110 @@ def _truncate_modifier(modifier: str) -> str:
     if last_space > 0:
         return truncated[:last_space]
     return truncated  # Single very long word, hard truncate
+
+
+# ---------------------------------------------------------------------------
+# Modifier generation prompt and helpers (Phase 13, D-04, D-05, D-06)
+# ---------------------------------------------------------------------------
+
+MODIFIER_GENERATION_PROMPT = """You are a financial simulation configurator. Given a seed rumor and its extracted entities, generate one short personality modifier string for each of the 10 market participant brackets.
+
+Each modifier should be 8-20 words describing a specialist persona tailored to the specific entities and themes in this rumor. The modifier completes the sentence "You are a ..." so it should read naturally after that prefix.
+
+The 10 brackets (use these exact keys):
+- quants: Quantitative analysts
+- degens: High-risk speculators
+- sovereigns: Sovereign wealth / central bank
+- macro: Global macro strategists
+- suits: Traditional institutional investors
+- insiders: Information-advantage traders
+- agents: Algorithmic trading systems
+- doom_posters: Perma-bear crisis prophets
+- policy_wonks: Regulatory / policy analysts
+- whales: Ultra-high-net-worth / family offices
+
+Examples of good modifiers:
+- "quantitative analyst modeling EV supply chain disruption and margin compression"
+- "leveraged options trader doubling down on semiconductor shortage plays"
+- "geopolitical risk analyst pricing energy transition policy shifts"
+
+Respond with a JSON object mapping each bracket key to its modifier string. All 10 keys must be present.
+Example: {"quants": "...", "degens": "...", "sovereigns": "...", "macro": "...", "suits": "...", "insiders": "...", "agents": "...", "doom_posters": "...", "policy_wonks": "...", "whales": "..."}"""
+
+
+def _build_modifier_user_message(seed_event: SeedEvent) -> str:
+    """Build the user message for modifier generation from SeedEvent (D-04).
+
+    Includes both raw_rumor text and all extracted entities with their
+    type, relevance, and sentiment metadata. Entity names are sanitized
+    before interpolation (D-10, D-12).
+    """
+    entity_lines = []
+    for e in seed_event.entities:
+        safe_name = sanitize_entity_name(e.name)
+        entity_lines.append(
+            f"- {safe_name} (type: {e.type.value}, "
+            f"relevance: {e.relevance:.2f}, sentiment: {e.sentiment:+.2f})"
+        )
+    entities_block = "\n".join(entity_lines) if entity_lines else "(no entities extracted)"
+
+    return (
+        f"SEED RUMOR:\n{seed_event.raw_rumor}\n\n"
+        f"EXTRACTED ENTITIES:\n{entities_block}"
+    )
+
+
+async def generate_modifiers(
+    seed_event: SeedEvent,
+    ollama_client: OllamaClient,
+    model_alias: str,
+) -> ParsedModifiersResult:
+    """Generate entity-aware bracket modifiers via orchestrator LLM (D-04, D-05, D-06).
+
+    Makes a single JSON-mode chat call to the orchestrator (which must already
+    be loaded) and parses the response with 3-tier fallback.
+
+    Args:
+        seed_event: Parsed seed event with entities and raw_rumor.
+        ollama_client: Active Ollama client for inference.
+        model_alias: Orchestrator model alias (must be loaded).
+
+    Returns:
+        ParsedModifiersResult with modifiers dict and parse_tier.
+    """
+    from alphaswarm.parsing import parse_modifier_response
+
+    user_message = _build_modifier_user_message(seed_event)
+
+    logger.info("modifier_generation_start", entity_count=len(seed_event.entities))
+
+    response = await ollama_client.chat(
+        model=model_alias,
+        messages=[
+            {"role": "system", "content": MODIFIER_GENERATION_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
+        format="json",
+        think=True,
+    )
+
+    raw_content = response.message.content or ""
+    result = parse_modifier_response(raw_content)
+
+    if result.parse_tier == 3:
+        logger.warning(
+            "modifier_generation_fallback",
+            parse_tier=3,
+            raw_preview=raw_content[:300],
+        )
+    else:
+        logger.info(
+            "modifier_generation_complete",
+            parse_tier=result.parse_tier,
+            modifier_count=len(result.modifiers),
+        )
+
+    return result
 
 
 # ---------------------------------------------------------------------------
