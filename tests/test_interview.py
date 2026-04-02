@@ -8,6 +8,7 @@ import pytest
 
 from alphaswarm.config import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.errors import Neo4jConnectionError
+from alphaswarm.interview import InterviewContext
 from alphaswarm.types import AgentPersona, BracketType
 
 
@@ -227,3 +228,178 @@ class TestReadAgentInterviewContext:
         gsm = GraphStateManager(mock_driver, sample_personas_for_interview)
         with pytest.raises(Neo4jConnectionError):
             await gsm.read_agent_interview_context("quants_01", "cycle-123")
+
+
+# ---------------------------------------------------------------------------
+# Task 2: InterviewEngine tests
+# ---------------------------------------------------------------------------
+
+
+def _make_context() -> InterviewContext:
+    """Helper to create a sample InterviewContext for engine tests."""
+    from alphaswarm.interview import InterviewContext, RoundDecision
+
+    return InterviewContext(
+        agent_id="quants_01",
+        agent_name="Quants 1",
+        bracket="quants",
+        interview_system_prompt="You are a quantitative analyst in the Quants bracket.",
+        decision_narrative="Agent went from BUY to HOLD to SELL across 3 rounds.",
+        decisions=[
+            RoundDecision(round_num=1, signal="buy", confidence=0.85, sentiment=0.6, rationale="Strong fundamentals"),
+            RoundDecision(round_num=2, signal="hold", confidence=0.6, sentiment=0.2, rationale="Mixed signals"),
+            RoundDecision(round_num=3, signal="sell", confidence=0.7, sentiment=-0.3, rationale="Risk off mode"),
+        ],
+    )
+
+
+def _make_mock_ollama_client(response_text: str = "I chose BUY because of strong fundamentals.") -> AsyncMock:
+    """Create a mock OllamaClient with a chat() that returns a predictable response."""
+    client = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.message.content = response_text
+    client.chat = AsyncMock(return_value=mock_response)
+    return client
+
+
+class TestInterviewEngineInit:
+    def test_init_accepts_context_client_model(self) -> None:
+        from alphaswarm.interview import InterviewEngine
+
+        ctx = _make_context()
+        client = _make_mock_ollama_client()
+        engine = InterviewEngine(context=ctx, ollama_client=client, model="alphaswarm-worker")
+
+        assert engine._context is ctx
+        assert engine._client is client
+        assert engine._model == "alphaswarm-worker"
+        assert engine._history == []
+        assert engine._summary is None
+
+    def test_window_size_constant(self) -> None:
+        from alphaswarm.interview import InterviewEngine
+
+        assert InterviewEngine.WINDOW_SIZE == 10
+
+
+class TestInterviewEngineAsk:
+    @pytest.mark.asyncio()
+    async def test_ask_appends_to_history_and_returns_response(self) -> None:
+        from alphaswarm.interview import InterviewEngine
+
+        ctx = _make_context()
+        client = _make_mock_ollama_client("I bought because data was strong.")
+        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+
+        result = await engine.ask("Why did you buy in round 1?")
+
+        assert result == "I bought because data was strong."
+        assert len(engine._history) == 2  # 1 user + 1 assistant
+        assert engine._history[0] == {"role": "user", "content": "Why did you buy in round 1?"}
+        assert engine._history[1] == {"role": "assistant", "content": "I bought because data was strong."}
+
+    @pytest.mark.asyncio()
+    async def test_ask_calls_ollama_chat_with_assembled_messages(self) -> None:
+        from alphaswarm.interview import InterviewEngine
+
+        ctx = _make_context()
+        client = _make_mock_ollama_client()
+        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+
+        await engine.ask("Hello")
+
+        client.chat.assert_called_once()
+        call_kwargs = client.chat.call_args
+        messages = call_kwargs.kwargs["messages"] if "messages" in call_kwargs.kwargs else call_kwargs[1]["messages"]
+        # System prompt is first, context block is second, then history
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "system"
+        assert messages[-2]["role"] == "user"
+        assert messages[-2]["content"] == "Hello"
+
+
+class TestBuildMessages:
+    def test_build_messages_without_summary(self) -> None:
+        from alphaswarm.interview import InterviewEngine
+
+        ctx = _make_context()
+        client = _make_mock_ollama_client()
+        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        engine._history = [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello"},
+        ]
+
+        messages = engine._build_messages()
+        assert messages[0] == {"role": "system", "content": ctx.interview_system_prompt}
+        assert messages[1]["role"] == "system"
+        assert "Simulation Context" in messages[1]["content"]
+        # No summary message
+        assert messages[2] == {"role": "user", "content": "Hi"}
+        assert messages[3] == {"role": "assistant", "content": "Hello"}
+
+    def test_build_messages_with_summary(self) -> None:
+        from alphaswarm.interview import InterviewEngine
+
+        ctx = _make_context()
+        client = _make_mock_ollama_client()
+        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        engine._summary = "User asked about round 1, agent explained buying rationale."
+        engine._history = [
+            {"role": "user", "content": "What about round 2?"},
+            {"role": "assistant", "content": "I shifted to hold."},
+        ]
+
+        messages = engine._build_messages()
+        assert messages[0]["role"] == "system"  # system prompt
+        assert messages[1]["role"] == "system"  # context block
+        assert messages[2]["role"] == "system"  # summary
+        assert "[Earlier:" in messages[2]["content"]
+        assert messages[3] == {"role": "user", "content": "What about round 2?"}
+
+    def test_context_block_contains_decisions(self) -> None:
+        from alphaswarm.interview import InterviewEngine
+
+        ctx = _make_context()
+        client = _make_mock_ollama_client()
+        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+
+        block = engine._build_context_block()
+        assert "Narrative Summary" in block or "decision_narrative" in block.lower() or ctx.decision_narrative in block
+        assert "Round 1" in block
+        assert "Round 2" in block
+        assert "Round 3" in block
+        assert "buy" in block
+        assert "Strong fundamentals" in block
+
+
+class TestSlidingWindow:
+    @pytest.mark.asyncio()
+    async def test_sliding_window_trims_at_11_pairs(self) -> None:
+        from alphaswarm.interview import InterviewEngine
+
+        ctx = _make_context()
+        client = _make_mock_ollama_client("Response")
+        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+
+        for i in range(11):
+            await engine.ask(f"Question {i}")
+
+        # After 11 asks, should have 10 pairs (20 messages) and a summary
+        assert len(engine._history) == 20
+        assert engine._summary is not None
+        assert len(engine._summary) > 0
+
+    @pytest.mark.asyncio()
+    async def test_summary_generation_calls_chat(self) -> None:
+        from alphaswarm.interview import InterviewEngine
+
+        ctx = _make_context()
+        client = _make_mock_ollama_client("Response")
+        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+
+        for i in range(11):
+            await engine.ask(f"Question {i}")
+
+        # 11 ask calls + 1 summary generation = 12 chat calls
+        assert client.chat.call_count == 12
