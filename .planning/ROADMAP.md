@@ -130,5 +130,5 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 11. Live Graph Memory | v2.0 | 3/3 | Complete    | 2026-03-31 |
 | 12. Richer Agent Interactions | v2.0 | 2/2 | Complete    | 2026-04-01 |
 | 13. Dynamic Persona Generation | v2.0 | 2/2 | Complete   | 2026-04-02 |
-| 14. Agent Interviews | v2.0 | 2/2 | Complete | 2026-04-02 |
+| 14. Agent Interviews | v2.0 | 2/2 | Complete   | 2026-04-02 |
 | 15. Post-Simulation Report | v2.0 | 0/0 | Not started | - |

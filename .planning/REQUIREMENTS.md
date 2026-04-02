@@ -162,7 +162,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERSONA-02 | Phase 13: Dynamic Persona Generation | Complete |
 | INT-01 | Phase 14: Agent Interviews | Complete |
 | INT-02 | Phase 14: Agent Interviews | Complete |
-| INT-03 | Phase 14: Agent Interviews | Pending |
+| INT-03 | Phase 14: Agent Interviews | Complete |
 | REPORT-01 | Phase 15: Post-Simulation Report | Pending |
 | REPORT-02 | Phase 15: Post-Simulation Report | Pending |
 | REPORT-03 | Phase 15: Post-Simulation Report | Pending |
