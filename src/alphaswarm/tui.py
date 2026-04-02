@@ -19,7 +19,8 @@ from textual.containers import Container
 from textual.screen import Screen
 from textual.theme import Theme
 from textual.widget import Widget
-from textual.widgets import Input, Static
+from textual import work
+from textual.widgets import Input, RichLog, Static
 
 from alphaswarm.state import AgentState, BracketSummary, RationaleEntry
 from alphaswarm.types import SignalType, SimulationPhase
@@ -27,6 +28,9 @@ from alphaswarm.types import SignalType, SimulationPhase
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
     from alphaswarm.config import AppSettings, BracketConfig
+    from alphaswarm.graph import GraphStateManager
+    from alphaswarm.interview import InterviewContext, InterviewEngine
+    from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.state import StateSnapshot
     from alphaswarm.types import AgentPersona
 
@@ -94,6 +98,17 @@ class AgentCell(Widget):
         if new_color != self._current_color:
             self._current_color = new_color
             self.styles.background = new_color
+
+    def on_click(self) -> None:
+        """Open interview for this agent if simulation is complete (per D-02)."""
+        app = self.app
+        if not isinstance(app, AlphaSwarmApp):
+            return
+        snapshot = app.app_state.state_store.snapshot()
+        if snapshot.phase != SimulationPhase.COMPLETE:
+            app.notify("Simulation in progress", severity="warning")
+            return
+        app.action_open_interview(self.agent_id)
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +437,143 @@ class RumorInputScreen(Screen[str]):
 
 
 # ---------------------------------------------------------------------------
+# InterviewScreen — post-simulation agent Q&A overlay (Phase 14)
+# ---------------------------------------------------------------------------
+
+
+class InterviewScreen(Screen[None]):
+    """Full-screen agent interview overlay (per D-01).
+
+    Pushed on top of the dashboard. Agent ID in header, scrollable Q&A
+    transcript (RichLog), input box at bottom. Escape pops back to grid.
+    """
+
+    BINDINGS = [("escape", "exit_interview", "Exit Interview")]
+
+    DEFAULT_CSS = """
+    InterviewScreen {
+        background: #121212;
+    }
+
+    #interview-header {
+        width: 100%;
+        height: 1;
+        background: #1E1E1E;
+        color: #4FC3F7;
+        text-style: bold;
+        text-align: center;
+        padding: 0 1;
+    }
+
+    #transcript {
+        width: 100%;
+        height: 1fr;
+        background: #121212;
+        color: #E0E0E0;
+        padding: 0 1;
+        margin: 0 0 0 0;
+    }
+
+    #interview-input {
+        dock: bottom;
+        width: 100%;
+        margin: 0 1;
+    }
+
+    #interview-status {
+        dock: bottom;
+        width: 100%;
+        height: 1;
+        background: #1E1E1E;
+        color: #78909C;
+        text-align: center;
+    }
+    """
+
+    def __init__(
+        self,
+        agent_id: str,
+        cycle_id: str,
+        graph_manager: GraphStateManager,
+        ollama_client: OllamaClient,
+        worker_model: str,
+    ) -> None:
+        super().__init__()
+        self._agent_id = agent_id
+        self._cycle_id = cycle_id
+        self._graph_manager = graph_manager
+        self._ollama_client = ollama_client
+        self._worker_model = worker_model
+        self._engine: InterviewEngine | None = None
+        self._context: InterviewContext | None = None
+
+    def compose(self) -> ComposeResult:
+        yield Static(f"Interview: {self._agent_id}", id="interview-header")
+        yield RichLog(id="transcript", markup=True, wrap=True, auto_scroll=True)
+        yield Static("Esc to exit  |  Enter to send", id="interview-status")
+        yield Input(placeholder="Ask a question...", id="interview-input")
+
+    def on_mount(self) -> None:
+        """Load agent context and initialize interview engine."""
+        self.query_one("#interview-input", Input).focus()
+        self.run_worker(self._initialize_engine(), exclusive=True, exit_on_error=False)
+
+    async def _initialize_engine(self) -> None:
+        """Load agent context from Neo4j and create InterviewEngine."""
+        from alphaswarm.interview import InterviewEngine
+
+        transcript = self.query_one("#transcript", RichLog)
+        try:
+            transcript.write(Text.from_markup("[#78909C]Loading agent context...[/]"))
+            self._context = await self._graph_manager.read_agent_interview_context(
+                self._agent_id, self._cycle_id
+            )
+            self._engine = InterviewEngine(
+                context=self._context,
+                ollama_client=self._ollama_client,
+                model=self._worker_model,
+            )
+            # Update header with agent name
+            header = self.query_one("#interview-header", Static)
+            header.update(f"Interview: {self._context.agent_name} [{self._context.bracket}]")
+            transcript.write(Text.from_markup(
+                f"[#66BB6A]{self._context.agent_name} is ready to discuss their simulation decisions.[/]"
+            ))
+            transcript.write(Text(""))
+        except Exception as e:
+            transcript.write(Text.from_markup(f"[#EF5350]Failed to load agent context: {e}[/]"))
+            logger.error("interview_init_failed", agent_id=self._agent_id, error=str(e))
+
+    @work(exclusive=True)
+    async def _send_message_worker(self, user_message: str) -> None:
+        """Worker: send message to LLM, write response to transcript."""
+        if self._engine is None or self._context is None:
+            return
+        transcript = self.query_one("#transcript", RichLog)
+        transcript.write(Text.from_markup(f"[#4FC3F7]You:[/] {user_message}"))
+        transcript.write(Text.from_markup("[#78909C]Thinking...[/]"))
+        try:
+            response = await self._engine.ask(user_message)
+            transcript.write(Text.from_markup(f"[#66BB6A]{self._context.agent_name}:[/] {response}"))
+            transcript.write(Text(""))  # blank line separator
+        except Exception as e:
+            transcript.write(Text.from_markup(f"[#EF5350]Error:[/] {e}"))
+        self.query_one("#interview-input", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle user message submission."""
+        message = event.value.strip()
+        if not message:
+            return
+        event.input.value = ""  # clear input
+        self._send_message_worker(message)
+
+    def action_exit_interview(self) -> None:
+        """Pop this screen and return to the dashboard (per D-01)."""
+        self.dismiss(None)
+
+
+# ---------------------------------------------------------------------------
 # Theme definition (UI-SPEC)
 # ---------------------------------------------------------------------------
 
@@ -506,6 +658,7 @@ class AlphaSwarmApp(App):
         self._telemetry_footer: TelemetryFooter | None = None
         self._bracket_panel: BracketPanel | None = None
         self._prev_bracket_summaries: tuple[BracketSummary, ...] = ()
+        self._cycle_id: str | None = None
 
     def on_mount(self) -> None:
         """Register theme, then either show rumor input or start simulation."""
@@ -560,7 +713,7 @@ class AlphaSwarmApp(App):
 
         try:
             await self.app_state.graph_manager.ensure_schema()
-            await run_simulation(
+            result = await run_simulation(
                 rumor=self.rumor,
                 settings=self.sim_settings,
                 ollama_client=self.app_state.ollama_client,
@@ -571,6 +724,7 @@ class AlphaSwarmApp(App):
                 brackets=list(self.brackets),
                 state_store=self.app_state.state_store,
             )
+            self._cycle_id = result.cycle_id
             # Ensure COMPLETE is visible
             await self.app_state.state_store.set_phase(SimulationPhase.COMPLETE)
             # Build completion summary from final snapshot
@@ -593,6 +747,27 @@ class AlphaSwarmApp(App):
                 severity="error",
                 timeout=0,
             )
+
+    def action_open_interview(self, agent_id: str) -> None:
+        """Push InterviewScreen overlay for the given agent (per D-01)."""
+        if self._cycle_id is None:
+            self.notify("No simulation completed yet", severity="warning")
+            return
+        if self.app_state.graph_manager is None:
+            self.notify("Neo4j not connected", severity="error")
+            return
+        if self.app_state.ollama_client is None:
+            self.notify("Ollama not connected", severity="error")
+            return
+        self.push_screen(
+            InterviewScreen(
+                agent_id=agent_id,
+                cycle_id=self._cycle_id,
+                graph_manager=self.app_state.graph_manager,
+                ollama_client=self.app_state.ollama_client,
+                worker_model=self.sim_settings.ollama.worker_model_alias,
+            )
+        )
 
     def action_save_results(self) -> None:
         """Save simulation results to a markdown file in results/."""
