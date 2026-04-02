@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Engine Depth
-status: executing
-stopped_at: Completed 15-01-PLAN.md
-last_updated: "2026-04-02T17:39:06.279Z"
+status: verifying
+stopped_at: Completed 15-02-PLAN.md
+last_updated: "2026-04-02T17:46:59.743Z"
 last_activity: 2026-04-02
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
   percent: 86
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 
 Phase: 15 (post-simulation-report) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-02
 
 Progress: [################################..........] 86% (7/7 plans, v2.0)
@@ -71,6 +71,7 @@ Progress: [################################..........] 86% (7/7 plans, v2.0)
 | Phase 13 P02 | 11min | 2 tasks | 6 files |
 | Phase 14 P01 | 6min | 2 tasks | 3 files |
 | Phase 15-post-simulation-report P01 | 4 | 3 tasks | 4 files |
+| Phase 15-post-simulation-report P02 | 5 | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,8 @@ Recent decisions affecting current work:
 - [Phase 15]: ReportEngine does not manage model lifecycle (D-12) -- caller's responsibility
 - [Phase 15]: 8 Cypher tools return plain dicts (not Pydantic) for JSON-serializable ToolObservation.result
 - [Phase 15]: read_influence_leaders filters round=3 only to avoid double-counting INFLUENCED_BY edges (Pitfall 1)
+- [Phase 15]: TelemetryFooter._report_path stored as instance var; appended to idle and metrics renders so it persists across ticks
+- [Phase 15]: ReportAssembler.assemble() silently skips sections absent from observations for graceful partial output
 
 ### Pending Todos
 
@@ -125,6 +128,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-02T17:39:06.276Z
-Stopped at: Completed 15-01-PLAN.md
+Last session: 2026-04-02T17:46:59.739Z
+Stopped at: Completed 15-02-PLAN.md
 Resume file: None

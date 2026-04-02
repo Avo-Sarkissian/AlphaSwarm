@@ -60,7 +60,7 @@ Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 
 - [x] **REPORT-01**: ReACT-style agent (Thought-Action-Observation loop) queries Neo4j after simulation ends using prompt-based tool dispatching (no Ollama native tools)
 - [x] **REPORT-02**: Cypher query tools for bracket summaries, influence topology analysis, entity-level trends, and signal flip metrics
-- [ ] **REPORT-03**: Structured markdown report output with CLI `report` subcommand and file export via aiofiles
+- [x] **REPORT-03**: Structured markdown report output with CLI `report` subcommand and file export via aiofiles
 
 ### Agent Interviews
 
@@ -165,7 +165,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INT-03 | Phase 14: Agent Interviews | Complete |
 | REPORT-01 | Phase 15: Post-Simulation Report | Complete |
 | REPORT-02 | Phase 15: Post-Simulation Report | Complete |
-| REPORT-03 | Phase 15: Post-Simulation Report | Pending |
+| REPORT-03 | Phase 15: Post-Simulation Report | Complete |
 
 **Coverage:**
 - v1 requirements: 27 total, 27 mapped (Complete)

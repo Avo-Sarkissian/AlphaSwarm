@@ -37,7 +37,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 12: Richer Agent Interactions** - Agents publish public rationale posts that peers read and react to via token-budget-aware context injection (completed 2026-04-01)
 - [x] **Phase 13: Dynamic Persona Generation** - Entity-aware bracket modifiers generated from seed rumor for situation-specific agent personas (completed 2026-04-02)
 - [x] **Phase 14: Agent Interviews** - Post-simulation conversational Q&A with any agent using reconstructed decision context (completed 2026-04-02)
-- [ ] **Phase 15: Post-Simulation Report** - ReACT agent queries Neo4j and generates structured market analysis as exportable markdown
+- [x] **Phase 15: Post-Simulation Report** - ReACT agent queries Neo4j and generates structured market analysis as exportable markdown (completed 2026-04-02)
 
 ## Phase Details
 
@@ -111,7 +111,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 15-01-PLAN.md -- ReACT engine + Cypher query tools (ReportEngine, ToolObservation, _parse_action_input, 8 GraphStateManager read methods, unit tests)
-- [ ] 15-02-PLAN.md -- Delivery layer (Jinja2 templates, ReportAssembler, CLI report subcommand, aiofiles export, sentinel file, TUI polling)
+- [x] 15-02-PLAN.md -- Delivery layer (Jinja2 templates, ReportAssembler, CLI report subcommand, aiofiles export, sentinel file, TUI polling)
 
 ## Progress
 
@@ -134,4 +134,4 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 12. Richer Agent Interactions | v2.0 | 2/2 | Complete    | 2026-04-01 |
 | 13. Dynamic Persona Generation | v2.0 | 2/2 | Complete   | 2026-04-02 |
 | 14. Agent Interviews | v2.0 | 2/2 | Complete   | 2026-04-02 |
-| 15. Post-Simulation Report | v2.0 | 1/2 | In Progress|  |
+| 15. Post-Simulation Report | v2.0 | 2/2 | Complete   | 2026-04-02 |
