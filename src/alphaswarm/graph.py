@@ -1082,3 +1082,395 @@ class GraphStateManager:
             cycle_id=cycle_id,
         )
         return [dict(record) async for record in result]
+
+    # ------------------------------------------------------------------
+    # Phase 15: Report query tools
+    # ------------------------------------------------------------------
+
+    async def read_consensus_summary(self, cycle_id: str) -> dict:  # type: ignore[type-arg]
+        """Count BUY/SELL/HOLD decisions in Round 3 for cycle (REPORT-02).
+
+        Returns plain dict for JSON-serializable ToolObservation.result.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                record = await session.execute_read(
+                    self._read_consensus_summary_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read consensus summary for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "report_consensus_summary", cycle_id=cycle_id,
+        )
+        return record
+
+    @staticmethod
+    async def _read_consensus_summary_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> dict:  # type: ignore[type-arg]
+        """Transaction function for consensus summary Cypher."""
+        result = await tx.run(
+            """
+            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
+            RETURN
+                sum(CASE WHEN d.signal = 'BUY' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN d.signal = 'SELL' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN d.signal = 'HOLD' THEN 1 ELSE 0 END) AS hold_count,
+                count(d) AS total
+            """,
+            cycle_id=cycle_id,
+        )
+        record = await result.single()
+        return dict(record) if record else {"buy_count": 0, "sell_count": 0, "hold_count": 0, "total": 0}
+
+    async def read_round_timeline(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
+        """Return per-round BUY/SELL/HOLD counts across all agents (REPORT-02).
+
+        Returns list ordered by round_num ascending.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_round_timeline_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read round timeline for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug("report_round_timeline", cycle_id=cycle_id, count=len(records))
+        return records
+
+    @staticmethod
+    async def _read_round_timeline_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for per-round signal breakdown."""
+        result = await tx.run(
+            """
+            MATCH (d:Decision {cycle_id: $cycle_id})
+            RETURN
+                d.round AS round_num,
+                sum(CASE WHEN d.signal = 'BUY' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN d.signal = 'SELL' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN d.signal = 'HOLD' THEN 1 ELSE 0 END) AS hold_count,
+                count(d) AS total
+            ORDER BY d.round
+            """,
+            cycle_id=cycle_id,
+        )
+        return [dict(record) async for record in result]
+
+    async def read_bracket_narratives(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
+        """Return per-bracket signal stance and confidence for Round 3 (REPORT-02).
+
+        Returns list ordered by bracket name.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_bracket_narratives_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read bracket narratives for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug("report_bracket_narratives", cycle_id=cycle_id, count=len(records))
+        return records
+
+    @staticmethod
+    async def _read_bracket_narratives_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for per-bracket stance summary."""
+        result = await tx.run(
+            """
+            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
+            RETURN
+                a.bracket AS bracket,
+                sum(CASE WHEN d.signal = 'BUY' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN d.signal = 'SELL' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN d.signal = 'HOLD' THEN 1 ELSE 0 END) AS hold_count,
+                avg(d.confidence) AS avg_confidence,
+                avg(d.sentiment) AS avg_sentiment
+            ORDER BY bracket
+            """,
+            cycle_id=cycle_id,
+        )
+        return [dict(record) async for record in result]
+
+    async def read_key_dissenters(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
+        """Find agents whose Round 3 signal differs from their bracket majority (REPORT-02).
+
+        Returns list of dissenters with agent_id, name, bracket, signal, bracket_majority.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_key_dissenters_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read key dissenters for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug("report_key_dissenters", cycle_id=cycle_id, count=len(records))
+        return records
+
+    @staticmethod
+    async def _read_key_dissenters_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for finding dissenters vs bracket majority."""
+        result = await tx.run(
+            """
+            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
+            WITH a.bracket AS bracket,
+                 collect({agent_id: a.id, name: a.name, signal: d.signal}) AS agents,
+                 sum(CASE WHEN d.signal = 'BUY' THEN 1 ELSE 0 END) AS buy_count,
+                 sum(CASE WHEN d.signal = 'SELL' THEN 1 ELSE 0 END) AS sell_count,
+                 sum(CASE WHEN d.signal = 'HOLD' THEN 1 ELSE 0 END) AS hold_count
+            WITH bracket, agents,
+                 CASE
+                   WHEN buy_count >= sell_count AND buy_count >= hold_count THEN 'BUY'
+                   WHEN sell_count >= buy_count AND sell_count >= hold_count THEN 'SELL'
+                   ELSE 'HOLD'
+                 END AS bracket_majority
+            UNWIND agents AS ag
+            WITH bracket, bracket_majority, ag
+            WHERE ag.signal <> bracket_majority
+            RETURN
+                ag.agent_id AS agent_id,
+                ag.name AS name,
+                bracket AS bracket,
+                ag.signal AS signal,
+                bracket_majority AS bracket_majority
+            ORDER BY bracket, agent_id
+            """,
+            cycle_id=cycle_id,
+        )
+        return [dict(record) async for record in result]
+
+    async def read_influence_leaders(
+        self, cycle_id: str, limit: int = 10,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Return top agents by cumulative INFLUENCED_BY weight in Round 3 (REPORT-02).
+
+        Filters to round=3 to avoid double-counting across rounds (Pitfall 1).
+
+        Args:
+            cycle_id: Simulation cycle ID.
+            limit: Maximum number of leaders to return (default 10).
+
+        Returns:
+            List of dicts with agent_id, name, bracket, total_influence_weight, citation_count.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_influence_leaders_tx, cycle_id, limit,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read influence leaders for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug("report_influence_leaders", cycle_id=cycle_id, count=len(records))
+        return records
+
+    @staticmethod
+    async def _read_influence_leaders_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        limit: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for top influence leaders by edge weight."""
+        result = await tx.run(
+            """
+            MATCH (src:Agent)-[inf:INFLUENCED_BY {cycle_id: $cycle_id, round: 3}]->(tgt:Agent)
+            RETURN
+                tgt.id AS agent_id,
+                tgt.name AS name,
+                tgt.bracket AS bracket,
+                sum(inf.weight) AS total_influence_weight,
+                count(src) AS citation_count
+            ORDER BY total_influence_weight DESC
+            LIMIT $limit
+            """,
+            cycle_id=cycle_id,
+            limit=limit,
+        )
+        return [dict(record) async for record in result]
+
+    async def read_signal_flips(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
+        """Return agents who changed position between rounds (REPORT-02).
+
+        Uses RationaleEpisode.flip_type from Phase 11.
+        Filters out NONE flip_type using string comparison (Pitfall 2).
+
+        Returns:
+            List of dicts with agent_id, name, bracket, round_num, flip_type, final_signal.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_signal_flips_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read signal flips for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug("report_signal_flips", cycle_id=cycle_id, count=len(records))
+        return records
+
+    @staticmethod
+    async def _read_signal_flips_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for signal flip episodes."""
+        result = await tx.run(
+            """
+            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            MATCH (d)-[:HAS_EPISODE]->(re:RationaleEpisode)
+            WHERE re.flip_type <> 'NONE'
+            RETURN
+                a.id AS agent_id,
+                a.name AS name,
+                a.bracket AS bracket,
+                re.round_num AS round_num,
+                re.flip_type AS flip_type,
+                d.signal AS final_signal
+            ORDER BY re.round_num, a.bracket
+            """,
+            cycle_id=cycle_id,
+        )
+        return [dict(record) async for record in result]
+
+    async def read_entity_impact(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
+        """Return per-entity sentiment aggregation via REFERENCES edges (REPORT-02).
+
+        Uses REFERENCES edges created by Phase 11 write_narrative_edges().
+
+        Returns:
+            List of dicts with entity_name, entity_type, avg_sentiment, mention_count,
+            buy_mentions, sell_mentions, hold_mentions.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_entity_impact_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read entity impact for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug("report_entity_impact", cycle_id=cycle_id, count=len(records))
+        return records
+
+    @staticmethod
+    async def _read_entity_impact_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for entity-level sentiment aggregation."""
+        result = await tx.run(
+            """
+            MATCH (d:Decision {cycle_id: $cycle_id})-[:REFERENCES]->(e:Entity)
+            RETURN
+                e.name AS entity_name,
+                e.type AS entity_type,
+                avg(d.sentiment) AS avg_sentiment,
+                count(d) AS mention_count,
+                sum(CASE WHEN d.signal = 'BUY' THEN 1 ELSE 0 END) AS buy_mentions,
+                sum(CASE WHEN d.signal = 'SELL' THEN 1 ELSE 0 END) AS sell_mentions,
+                sum(CASE WHEN d.signal = 'HOLD' THEN 1 ELSE 0 END) AS hold_mentions
+            ORDER BY mention_count DESC
+            """,
+            cycle_id=cycle_id,
+        )
+        return [dict(record) async for record in result]
+
+    async def read_social_post_reach(
+        self, cycle_id: str, limit: int = 10,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Return top posts by READ_POST edge count for the cycle (REPORT-02).
+
+        Uses READ_POST edges created by Phase 12 write_read_post_edges().
+
+        Args:
+            cycle_id: Simulation cycle ID.
+            limit: Maximum number of posts to return (default 10).
+
+        Returns:
+            List of dicts with post_id, author_name, bracket, signal, round_num,
+            content, reader_count.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_social_post_reach_tx, cycle_id, limit,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read social post reach for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug("report_social_post_reach", cycle_id=cycle_id, count=len(records))
+        return records
+
+    @staticmethod
+    async def _read_social_post_reach_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        limit: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for top posts by reader count."""
+        result = await tx.run(
+            """
+            MATCH (a:Agent)-[:READ_POST {cycle_id: $cycle_id}]->(p:Post)
+            WITH p, count(a) AS reader_count
+            MATCH (author:Agent {id: p.agent_id})
+            RETURN
+                p.post_id AS post_id,
+                author.name AS author_name,
+                author.bracket AS bracket,
+                p.signal AS signal,
+                p.round_num AS round_num,
+                p.content AS content,
+                reader_count
+            ORDER BY reader_count DESC
+            LIMIT $limit
+            """,
+            cycle_id=cycle_id,
+            limit=limit,
+        )
+        return [dict(record) async for record in result]
+
+    async def read_latest_cycle_id(self) -> str | None:
+        """Return the most recent cycle_id from Neo4j, or None if no cycles exist.
+
+        Used by CLI `--cycle` flag default: `alphaswarm report` without explicit cycle.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                result = await session.run(
+                    "MATCH (c:Cycle) RETURN c.cycle_id AS cycle_id ORDER BY c.created_at DESC LIMIT 1",
+                )
+                record = await result.single()
+                return str(record["cycle_id"]) if record else None
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                "Failed to read latest cycle_id",
+                original_error=exc,
+            ) from exc
