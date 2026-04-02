@@ -64,8 +64,8 @@ Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 
 ### Agent Interviews
 
-- [ ] **INT-01**: Agent context reconstruction from Neo4j -- full persona, all 3 rounds of decisions, peer influences received, rationale history
-- [ ] **INT-02**: Conversational interview loop using worker LLM with the agent's original system prompt restored, answering in character
+- [x] **INT-01**: Agent context reconstruction from Neo4j -- full persona, all 3 rounds of decisions, peer influences received, rationale history
+- [x] **INT-02**: Conversational interview loop using worker LLM with the agent's original system prompt restored, answering in character
 - [ ] **INT-03**: TUI interview mode -- click any agent in the grid post-simulation to open an interactive Q&A panel
 
 ### Richer Agent Interactions
@@ -160,8 +160,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SOCIAL-02 | Phase 12: Richer Agent Interactions | Complete |
 | PERSONA-01 | Phase 13: Dynamic Persona Generation | Complete |
 | PERSONA-02 | Phase 13: Dynamic Persona Generation | Complete |
-| INT-01 | Phase 14: Agent Interviews | Pending |
-| INT-02 | Phase 14: Agent Interviews | Pending |
+| INT-01 | Phase 14: Agent Interviews | Complete |
+| INT-02 | Phase 14: Agent Interviews | Complete |
 | INT-03 | Phase 14: Agent Interviews | Pending |
 | REPORT-01 | Phase 15: Post-Simulation Report | Pending |
 | REPORT-02 | Phase 15: Post-Simulation Report | Pending |
