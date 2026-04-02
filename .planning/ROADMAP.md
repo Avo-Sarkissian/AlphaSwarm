@@ -78,7 +78,10 @@ Plans:
   1. Given a seed rumor about a specific domain (e.g., oil markets, tech earnings), the orchestrator LLM generates entity-specific bracket modifiers in a single JSON call
   2. Generated modifiers are injected into the existing generate_personas() pipeline, producing 100 agents across 10 brackets with situation-aware system prompts while preserving the bracket structure and agent count invariant
   3. Input sanitization prevents prompt injection via adversarial seed rumor entity names -- entity text is validated, length-limited, and never concatenated raw into system prompts
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 13-01-PLAN.md -- Data layer: ParsedModifiersResult type, sanitize_entity_name, parse_modifier_response 3-tier fallback, generate_personas modifiers kwarg, tests
+- [ ] 13-02-PLAN.md -- Integration: generate_modifiers orchestrator call, inject_seed modifier callback, run_simulation wiring
 
 ### Phase 14: Agent Interviews
 **Goal**: After simulation completes, users can select any agent and have a live multi-turn conversation about their decisions, with the agent responding in character using full decision context
@@ -122,7 +125,7 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 9. TUI Core Dashboard | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 10. TUI Panels and Telemetry | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 11. Live Graph Memory | v2.0 | 3/3 | Complete    | 2026-03-31 |
-| 12. Richer Agent Interactions | v2.0 | 2/2 | Complete   | 2026-04-01 |
-| 13. Dynamic Persona Generation | v2.0 | 0/0 | Not started | - |
+| 12. Richer Agent Interactions | v2.0 | 2/2 | Complete    | 2026-04-01 |
+| 13. Dynamic Persona Generation | v2.0 | 0/2 | In progress | - |
 | 14. Agent Interviews | v2.0 | 0/0 | Not started | - |
 | 15. Post-Simulation Report | v2.0 | 0/0 | Not started | - |
