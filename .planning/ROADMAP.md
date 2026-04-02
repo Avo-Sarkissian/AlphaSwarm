@@ -80,7 +80,7 @@ Plans:
   3. Input sanitization prevents prompt injection via adversarial seed rumor entity names -- entity text is validated, length-limited, and never concatenated raw into system prompts
 **Plans**: 2 plans
 Plans:
-- [ ] 13-01-PLAN.md -- Data layer: ParsedModifiersResult type, sanitize_entity_name, parse_modifier_response 3-tier fallback, generate_personas modifiers kwarg, tests
+- [x] 13-01-PLAN.md -- Data layer: ParsedModifiersResult type, sanitize_entity_name, parse_modifier_response 3-tier fallback, generate_personas modifiers kwarg, tests
 - [ ] 13-02-PLAN.md -- Integration: generate_modifiers orchestrator call, inject_seed modifier callback, run_simulation wiring
 
 ### Phase 14: Agent Interviews
@@ -126,6 +126,6 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 10. TUI Panels and Telemetry | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 11. Live Graph Memory | v2.0 | 3/3 | Complete    | 2026-03-31 |
 | 12. Richer Agent Interactions | v2.0 | 2/2 | Complete    | 2026-04-01 |
-| 13. Dynamic Persona Generation | v2.0 | 0/2 | In progress | - |
+| 13. Dynamic Persona Generation | v2.0 | 1/2 | In Progress|  |
 | 14. Agent Interviews | v2.0 | 0/0 | Not started | - |
 | 15. Post-Simulation Report | v2.0 | 0/0 | Not started | - |

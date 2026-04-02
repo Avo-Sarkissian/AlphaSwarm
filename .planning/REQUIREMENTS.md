@@ -75,8 +75,8 @@ Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 
 ### Dynamic Persona Generation
 
-- [ ] **PERSONA-01**: Orchestrator LLM generates entity-specific bracket modifiers from SeedEvent entities in a single JSON call
-- [ ] **PERSONA-02**: Entity-aware modifiers injected into generate_personas() pipeline, preserving 10-bracket structure and 100-agent count
+- [x] **PERSONA-01**: Orchestrator LLM generates entity-specific bracket modifiers from SeedEvent entities in a single JSON call
+- [x] **PERSONA-02**: Entity-aware modifiers injected into generate_personas() pipeline, preserving 10-bracket structure and 100-agent count
 
 ## v3 Requirements (Future)
 
@@ -158,8 +158,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GRAPH-03 | Phase 11: Live Graph Memory | Complete |
 | SOCIAL-01 | Phase 12: Richer Agent Interactions | Complete |
 | SOCIAL-02 | Phase 12: Richer Agent Interactions | Complete |
-| PERSONA-01 | Phase 13: Dynamic Persona Generation | Pending |
-| PERSONA-02 | Phase 13: Dynamic Persona Generation | Pending |
+| PERSONA-01 | Phase 13: Dynamic Persona Generation | Complete |
+| PERSONA-02 | Phase 13: Dynamic Persona Generation | Complete |
 | INT-01 | Phase 14: Agent Interviews | Pending |
 | INT-02 | Phase 14: Agent Interviews | Pending |
 | INT-03 | Phase 14: Agent Interviews | Pending |
