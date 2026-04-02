@@ -922,3 +922,26 @@ async def test_run_pipeline_calls_run_simulation_with_callback(
     call_kwargs = mock_sim.call_args.kwargs
     assert "on_round_complete" in call_kwargs
     assert callable(call_kwargs["on_round_complete"])
+
+
+# ---------------------------------------------------------------------------
+# Phase 15 Plan 02: Report subcommand
+# ---------------------------------------------------------------------------
+
+
+def test_report_subcommand_registered() -> None:
+    """CLI report subparser registers correctly with --cycle and --output arguments."""
+    parser = argparse.ArgumentParser(prog="alphaswarm")
+    subparsers = parser.add_subparsers(dest="command")
+    report_parser = subparsers.add_parser("report", help="Generate post-simulation analysis report")
+    report_parser.add_argument("--cycle", type=str, default=None)
+    report_parser.add_argument("--output", type=str, default=None)
+
+    args = parser.parse_args(["report", "--cycle", "test-id"])
+    assert args.command == "report"
+    assert args.cycle == "test-id"
+    assert args.output is None
+
+    # Verify default behavior when --cycle is omitted
+    args_no_cycle = parser.parse_args(["report"])
+    assert args_no_cycle.cycle is None

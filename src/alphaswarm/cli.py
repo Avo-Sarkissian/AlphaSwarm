@@ -626,6 +626,106 @@ async def _handle_inject(rumor: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Report handler (Phase 15, D-04, D-10, D-12)
+# ---------------------------------------------------------------------------
+
+
+async def _handle_report(cycle_id: str | None, output: str | None) -> None:
+    """Async handler for the report subcommand.
+
+    Lifecycle (per D-12: caller manages model lifecycle):
+    1. Create AppState with Ollama + Neo4j
+    2. Resolve cycle_id (default to most recent)
+    3. Print model lifecycle warning
+    4. Load orchestrator model
+    5. Build tool registry -> run ReACT engine -> collect observations
+    6. Assemble report -> write to disk -> write sentinel
+    7. Unload orchestrator model + close graph manager (finally)
+    """
+    from pathlib import Path
+
+    from alphaswarm.app import create_app_state
+    from alphaswarm.report import (
+        ReportAssembler,
+        ReportEngine,
+        SECTION_ORDER,
+        TOOL_TO_TEMPLATE,
+        write_report,
+        write_sentinel,
+    )
+
+    settings = AppSettings()
+    brackets = load_bracket_configs()
+    personas = generate_personas(brackets)
+    app = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
+
+    assert app.ollama_client is not None
+    assert app.model_manager is not None
+    assert app.graph_manager is not None
+
+    try:
+        # Resolve cycle_id: default to most recent if not provided
+        if cycle_id is None:
+            cycle_id = await app.graph_manager.read_latest_cycle_id()
+            if cycle_id is None:
+                print("Error: No simulation cycles found in the database.", file=sys.stderr)
+                sys.exit(1)
+
+        print(
+            "WARNING: Report generation uses the orchestrator model. "
+            "Do not run concurrently with simulations or interviews."
+        )
+
+        # Load orchestrator model (per D-12, follows seed.py pattern)
+        orchestrator = settings.ollama.orchestrator_model_alias
+        await app.model_manager.load_model(orchestrator)
+
+        # Build tool registry: map 8 tool names -> bound graph_manager methods
+        gm = app.graph_manager
+        tools: dict[str, object] = {
+            "bracket_summary": lambda **kw: gm.read_consensus_summary(kw.get("cycle_id", cycle_id)),
+            "round_timeline": lambda **kw: gm.read_round_timeline(kw.get("cycle_id", cycle_id)),
+            "bracket_narratives": lambda **kw: gm.read_bracket_narratives(kw.get("cycle_id", cycle_id)),
+            "key_dissenters": lambda **kw: gm.read_key_dissenters(kw.get("cycle_id", cycle_id)),
+            "influence_leaders": lambda **kw: gm.read_influence_leaders(kw.get("cycle_id", cycle_id)),
+            "signal_flip_analysis": lambda **kw: gm.read_signal_flips(kw.get("cycle_id", cycle_id)),
+            "entity_impact": lambda **kw: gm.read_entity_impact(kw.get("cycle_id", cycle_id)),
+            "social_post_reach": lambda **kw: gm.read_social_post_reach(kw.get("cycle_id", cycle_id)),
+        }
+
+        # Run ReACT engine
+        engine = ReportEngine(
+            ollama_client=app.ollama_client,
+            model=orchestrator,
+            tools=tools,  # type: ignore[arg-type]
+        )
+        observations = await engine.run(cycle_id)
+
+        # Assemble markdown report
+        assembler = ReportAssembler()
+        content = assembler.assemble(observations, cycle_id)
+
+        # Determine output path
+        output_path = Path(output) if output is not None else Path("reports") / f"{cycle_id}_report.md"
+
+        # Write report and sentinel (per D-10, D-05)
+        await write_report(output_path, content)
+        await write_sentinel(cycle_id, str(output_path))
+
+        print(f"Report generated: {output_path}")
+
+    finally:
+        # Unload orchestrator model + close graph manager (follows seed.py pattern)
+        if app.model_manager is not None:
+            try:
+                await app.model_manager.unload_model(settings.ollama.orchestrator_model_alias)
+            except Exception:
+                pass
+        if app.graph_manager is not None:
+            await app.graph_manager.close()
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -648,6 +748,16 @@ def main() -> None:
     tui_parser.add_argument(
         "rumor", type=str, nargs="?", default="",
         help="Natural-language seed rumor text (optional — can be entered in the TUI)",
+    )
+
+    report_parser = subparsers.add_parser("report", help="Generate post-simulation analysis report")
+    report_parser.add_argument(
+        "--cycle", type=str, default=None,
+        help="Cycle ID to report on (defaults to most recent)",
+    )
+    report_parser.add_argument(
+        "--output", type=str, default=None,
+        help="Override output file path",
     )
 
     args = parser.parse_args()
@@ -680,6 +790,16 @@ def main() -> None:
             sys.exit(1)
         except Exception as e:
             logger.error("tui_failed", error=str(e))
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+    elif args.command == "report":
+        try:
+            asyncio.run(_handle_report(args.cycle, args.output))
+        except KeyboardInterrupt:
+            print("\nAborted.", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            logger.error("report_failed", error=str(e))
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
     else:
