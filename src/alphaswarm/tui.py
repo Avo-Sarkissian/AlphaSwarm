@@ -755,7 +755,9 @@ class AlphaSwarmApp(App):
                 f"Press q to exit.",
                 timeout=0,
             )
-        except Exception as e:
+        except BaseException as e:
+            # BaseException catches ExceptionGroup (Python 3.11+) which wraps
+            # GovernorCrisisError when it propagates through asyncio.TaskGroup.
             logger.error("simulation_worker_failed", error=str(e))
             self.notify(
                 f"Simulation failed: {e}. Press q to exit.",

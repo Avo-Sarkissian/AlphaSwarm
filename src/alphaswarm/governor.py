@@ -117,6 +117,15 @@ class TokenPool:
         """Number of tokens that will be consumed on release instead of returned."""
         return self._debt
 
+    def reset(self, size: int) -> None:
+        """Drain pool and reinitialize to the given size, clearing all debt."""
+        while not self._pool.empty():
+            self._pool.get_nowait()
+        self._debt = 0
+        self._current_limit = size
+        for _ in range(size):
+            self._pool.put_nowait(True)
+
 
 # ---------------------------------------------------------------------------
 # ResourceGovernorProtocol (extended for Phase 3)
@@ -182,7 +191,17 @@ class ResourceGovernor:
     # --- Public API ---
 
     async def acquire(self) -> None:
-        """Acquire a concurrency slot. Blocks when PAUSED/CRISIS or pool empty."""
+        """Acquire a concurrency slot. Blocks when PAUSED/CRISIS or pool empty.
+
+        Raises GovernorCrisisError if the monitor task has died, since no other
+        code path can set _resume_event — blocking here would deadlock forever.
+        """
+        if self._monitor_task is not None and self._monitor_task.done():
+            exc = self._monitor_task.exception()
+            if exc is not None:
+                raise GovernorCrisisError(
+                    "Monitor task died — cannot acquire slot",
+                ) from exc
         await self._resume_event.wait()
         await self._pool.acquire()
         self._active_count += 1
@@ -205,7 +224,11 @@ class ResourceGovernor:
             self._monitor_task = asyncio.create_task(self._monitor_loop())
 
     async def stop_monitoring(self) -> None:
-        """Stop the monitoring loop and clean up."""
+        """Stop the monitoring loop and fully reset governor for the next session.
+
+        Resets state machine, crisis timer, TokenPool, and resume event so that
+        a subsequent start_monitoring() begins from a clean RUNNING baseline.
+        """
         if self._monitor_task is not None and not self._monitor_task.done():
             self._monitor_task.cancel()
             try:
@@ -213,6 +236,17 @@ class ResourceGovernor:
             except asyncio.CancelledError:
                 pass
             self._monitor_task = None
+
+        # Bug 1 fix: reset state machine so stale PAUSED/CRISIS doesn't bleed
+        self._state = GovernorState.RUNNING
+        self._crisis_start = None
+        self._consecutive_green_checks = 0
+
+        # Bug 4 fix: reset pool to baseline so Round 1 shrinkage doesn't degrade Round 2
+        self._pool.reset(self._settings.baseline_parallel)
+        self._active_count = 0
+
+        self._resume_event.set()
 
     def report_wave_failures(self, success_count: int, failure_count: int) -> None:
         """Report wave batch results and shrink if failure rate exceeds threshold.
