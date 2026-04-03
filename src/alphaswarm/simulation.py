@@ -845,40 +845,42 @@ async def run_simulation(
     # Fresh governor monitoring for Rounds 2-3 block (D-06)
     await governor.start_monitoring()
     try:
-        await model_manager.load_model(worker_alias)
-        try:
-            # Round 2 (D-09: peer context from Round 1)
-            phase = SimulationPhase.ROUND_2
-            logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
-            if state_store is not None:
-                await state_store.set_phase(SimulationPhase.ROUND_2)
-                await state_store.set_round(2)
+        # Round 2 (D-09: peer context from Round 1)
+        # Build peer contexts BEFORE loading model to minimize idle keep_alive drain.
+        phase = SimulationPhase.ROUND_2
+        logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
+        if state_store is not None:
+            await state_store.set_phase(SimulationPhase.ROUND_2)
+            await state_store.set_round(2)
 
-            # Phase 12: Build peer contexts from Round 1 posts (D-12 ordering)
-            round2_peer_contexts: list[str | None] = []
-            all_round1_post_ids = round1_post_ids  # For READ_POST edges
-            for persona in personas:
-                ranked_posts = await graph_manager.read_ranked_posts(
-                    persona.id, cycle_id, source_round=1, limit=10,
-                )
-                ctx = _format_peer_context(ranked_posts, source_round=1)
-                round2_peer_contexts.append(ctx if ctx else None)
+        # Phase 12: Build peer contexts from Round 1 posts (D-12 ordering)
+        round2_peer_contexts: list[str | None] = []
+        all_round1_post_ids = round1_post_ids  # For READ_POST edges
+        for persona in personas:
+            ranked_posts = await graph_manager.read_ranked_posts(
+                persona.id, cycle_id, source_round=1, limit=10,
+            )
+            ctx = _format_peer_context(ranked_posts, source_round=1)
+            round2_peer_contexts.append(ctx if ctx else None)
 
-            # Phase 12: Write READ_POST edges for Round 2 (D-09, D-10, D-11)
-            agent_ids = [p.id for p in personas]
-            if all_round1_post_ids:
-                await graph_manager.write_read_post_edges(
-                    agent_ids, all_round1_post_ids, round_num=2, cycle_id=cycle_id,
-                )
-
-            logger.info(
-                "round_dispatch_start",
-                round_num=2,
-                agent_count=len(personas),
-                peers_found=sum(1 for c in round2_peer_contexts if c),
-                peer_selection="ranked_posts",
+        # Phase 12: Write READ_POST edges for Round 2 (D-09, D-10, D-11)
+        agent_ids = [p.id for p in personas]
+        if all_round1_post_ids:
+            await graph_manager.write_read_post_edges(
+                agent_ids, all_round1_post_ids, round_num=2, cycle_id=cycle_id,
             )
 
+        logger.info(
+            "round_dispatch_start",
+            round_num=2,
+            agent_count=len(personas),
+            peers_found=sum(1 for c in round2_peer_contexts if c),
+            peer_selection="ranked_posts",
+        )
+
+        # Load worker model immediately before dispatch — no idle gap
+        await model_manager.load_model(worker_alias)
+        try:
             # Dispatch Round 2 with pre-built peer contexts (bypass _dispatch_round)
             worker_configs = [persona_to_worker_config(p) for p in personas]
             round2_wave_decisions = await dispatch_wave(

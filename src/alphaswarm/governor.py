@@ -195,16 +195,28 @@ class ResourceGovernor:
 
         Raises GovernorCrisisError if the monitor task has died, since no other
         code path can set _resume_event — blocking here would deadlock forever.
+
+        The dead-monitor check runs AFTER _resume_event.wait() so that agents
+        already blocked when the monitor dies are unblocked by the done callback
+        (_on_monitor_done sets the event) and then fail here instead of hanging.
         """
-        if self._monitor_task is not None and self._monitor_task.done():
-            exc = self._monitor_task.exception()
-            if exc is not None:
-                raise GovernorCrisisError(
-                    "Monitor task died — cannot acquire slot",
-                ) from exc
         await self._resume_event.wait()
+        self._check_monitor_alive()
         await self._pool.acquire()
         self._active_count += 1
+
+    def _check_monitor_alive(self) -> None:
+        """Raise if the monitor task has died with an error."""
+        if self._monitor_task is None or not self._monitor_task.done():
+            return
+        try:
+            exc = self._monitor_task.exception()
+        except asyncio.CancelledError:
+            return  # Normal cancellation from stop_monitoring
+        if exc is not None:
+            raise GovernorCrisisError(
+                "Monitor task died — cannot acquire slot",
+            ) from exc
 
     def release(self, *, success: bool = True) -> None:
         """Release a concurrency slot.
@@ -222,6 +234,17 @@ class ResourceGovernor:
         """Start background memory monitoring loop."""
         if self._monitor_task is None or self._monitor_task.done():
             self._monitor_task = asyncio.create_task(self._monitor_loop())
+            self._monitor_task.add_done_callback(self._on_monitor_done)
+
+    def _on_monitor_done(self, task: asyncio.Task[None]) -> None:
+        """Done callback: unblock agents stuck in acquire() when monitor dies.
+
+        Without this, agents already waiting on _resume_event.wait() would
+        never wake up because the monitor (the only code that sets the event)
+        is dead. Setting the event wakes them so they hit _check_monitor_alive
+        and raise GovernorCrisisError instead of hanging forever.
+        """
+        self._resume_event.set()
 
     async def stop_monitoring(self) -> None:
         """Stop the monitoring loop and fully reset governor for the next session.

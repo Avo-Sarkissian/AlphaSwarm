@@ -96,6 +96,7 @@ class AgentWorker:
             messages=messages,
             format="json",
             think=False,  # Disable thinking for structured output reliability
+            keep_alive="5m",
         )
 
         # Extract TPS data from response metadata (Phase 10: TUI-04, D-05)
