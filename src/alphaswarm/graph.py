@@ -515,7 +515,7 @@ class GraphStateManager:
               AND p.signal <> 'parse_error'
             WITH p
             MATCH (author:Agent {id: p.agent_id})
-            OPTIONAL MATCH (reader:Agent {id: $agent_id})-[inf:INFLUENCED_BY {cycle_id: $cycle_id, round: $source_round}]->(author)
+            OPTIONAL MATCH (reader:Agent {id: $agent_id})-[infl:INFLUENCED_BY {cycle_id: $cycle_id, round: $source_round}]->(author)
             RETURN p.post_id AS post_id,
                    p.agent_id AS agent_id,
                    author.bracket AS bracket,
@@ -523,7 +523,7 @@ class GraphStateManager:
                    p.confidence AS confidence,
                    p.content AS content,
                    p.round_num AS round_num,
-                   coalesce(inf.weight, author.influence_weight_base) AS influence_weight
+                   coalesce(infl.weight, author.influence_weight_base) AS influence_weight
             ORDER BY influence_weight DESC
             LIMIT $limit
             """,
@@ -1295,12 +1295,12 @@ class GraphStateManager:
         """Transaction function for top influence leaders by edge weight."""
         result = await tx.run(
             """
-            MATCH (src:Agent)-[inf:INFLUENCED_BY {cycle_id: $cycle_id, round: 3}]->(tgt:Agent)
+            MATCH (src:Agent)-[infl:INFLUENCED_BY {cycle_id: $cycle_id, round: 3}]->(tgt:Agent)
             RETURN
                 tgt.id AS agent_id,
                 tgt.name AS name,
                 tgt.bracket AS bracket,
-                sum(inf.weight) AS total_influence_weight,
+                sum(infl.weight) AS total_influence_weight,
                 count(src) AS citation_count
             ORDER BY total_influence_weight DESC
             LIMIT $limit
