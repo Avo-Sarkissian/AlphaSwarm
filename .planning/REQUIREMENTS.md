@@ -216,13 +216,29 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REPORT-01 | Phase 15: Post-Simulation Report | Complete |
 | REPORT-02 | Phase 15: Post-Simulation Report | Complete |
 | REPORT-03 | Phase 15: Post-Simulation Report | Complete |
+| TICK-01 | Phase 16: Ticker Extraction | Pending |
+| TICK-02 | Phase 16: Ticker Extraction | Pending |
+| TICK-03 | Phase 16: Ticker Extraction | Pending |
+| DATA-01 | Phase 17: Market Data Pipeline | Pending |
+| DATA-02 | Phase 17: Market Data Pipeline | Pending |
+| DATA-03 | Phase 17: Market Data Pipeline | Pending |
+| DATA-04 | Phase 17: Market Data Pipeline | Pending |
+| ENRICH-01 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Pending |
+| ENRICH-02 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Pending |
+| ENRICH-03 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Pending |
+| DECIDE-01 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Pending |
+| DECIDE-02 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Pending |
+| DTUI-01 | Phase 19: Per-Stock TUI Consensus Display | Pending |
+| DTUI-02 | Phase 19: Per-Stock TUI Consensus Display | Pending |
+| DTUI-03 | Phase 19: Per-Stock TUI Consensus Display | Pending |
+| DRPT-01 | Phase 20: Report Enhancement and Integration Hardening | Pending |
 
 **Coverage:**
 - v1 requirements: 27 total, 27 mapped (Complete)
 - v2 requirements: 13 total, 13 mapped (Complete)
-- v3 requirements: 16 total, 0 mapped (Pending roadmap)
-- Unmapped: 16 ⚠️
+- v3 requirements: 16 total, 16 mapped (Pending execution)
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-04-05 after v3.0 milestone requirements definition*
+*Last updated: 2026-04-05 after v3.0 roadmap creation*
