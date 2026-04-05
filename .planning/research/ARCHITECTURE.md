@@ -1,997 +1,797 @@
-# Architecture Research: v2.0 Engine Depth
+# Architecture Research: v3.0 Stock-Specific Recommendations with Live Data & RAG
 
-**Domain:** Local-first multi-agent LLM financial simulation engine (feature expansion)
-**Researched:** 2026-03-31
-**Confidence:** HIGH
+**Domain:** Local-first multi-agent financial simulation with live market data and RAG enrichment
+**Researched:** 2026-04-05
+**Confidence:** MEDIUM-HIGH (new external dependencies reduce confidence vs v2.0 internal-only changes)
 
-This document focuses exclusively on the architectural integration of five new v2.0 features into the existing AlphaSwarm codebase. It maps new components, identifies modification points in existing code, defines data flows, and recommends a dependency-aware build order.
+This document maps how ticker extraction, live market data, RAG knowledge base, and enhanced agent decisions integrate with the existing AlphaSwarm architecture. It identifies new components, modification points in existing code, data flows, and a dependency-aware build order.
 
-## Existing Architecture Baseline
+---
 
-The v1 architecture is a pipeline-with-feedback-loop across five subsystems:
+## Existing Architecture Baseline (Post-v2.0)
+
+The v2.0 architecture is a pipeline-with-feedback-loop:
 
 ```
 CLI/TUI Entry
     |
     v
-AppState (DI container: settings, governor, state_store, ollama_client, model_manager, graph_manager)
+AppState (DI container)
+    |
+    +-- settings: AppSettings
+    +-- governor: ResourceGovernor (TokenPool, 5-state machine)
+    +-- state_store: StateStore (mutable, snapshot-based)
+    +-- ollama_client: OllamaClient (AsyncClient wrapper)
+    +-- model_manager: OllamaModelManager
+    +-- graph_manager: GraphStateManager (Neo4j async driver)
+    +-- personas: list[AgentPersona]
     |
     v
-SeedInjector (inject_seed) --> Orchestrator LLM --> Neo4j (Cycle + Entity nodes)
+SeedInjector (inject_seed)
+    | uses orchestrator LLM (qwen3.5:32b) for entity extraction
+    | calls generate_modifiers() for dynamic persona generation
+    | persists Cycle + Entity nodes to Neo4j
     |
     v
-SimulationEngine (run_simulation) --> 3x dispatch_wave() --> Neo4j (Decision + INFLUENCED_BY)
-    |                                       |
-    v                                       v
-StateStore (mutable) <--- per-agent writes  ResourceGovernor (TokenPool, 5-state machine)
+SimulationEngine (run_simulation)
+    | 3x rounds: dispatch_wave() -> 100 agent inferences per round
+    | AgentWorker.infer() -> OllamaClient.chat() with governor semaphore
+    | per-agent: StateStore updates, WriteBuffer episodes, Neo4j decisions
     |
-    v (200ms poll)
-TUI (snapshot-based rendering)
+    v
+Post-Simulation (interview, report)
 ```
 
-**Key integration constraints from existing code:**
-- `AppState` is the sole DI container. All new components MUST be wirable through it.
-- `StateStore.snapshot()` is the only TUI data path. New UI data goes through `StateStore`.
-- `GraphStateManager` uses session-per-method pattern. New queries add methods, not new managers.
-- `dispatch_wave()` is the ONLY batch inference path. New inference patterns (interviews, reports) use `OllamaClient.chat()` directly through `agent_worker` or a new dedicated path.
-- `ResourceGovernor` must gate ALL inference. Post-simulation features (interviews, reports) must respect concurrency limits.
+**Key integration constraints from existing code (MUST respect):**
 
-## System Overview: v2.0 Extended Architecture
+1. **AppState is the sole DI container.** All new components must be wirable through `AppState`.
+2. **StateStore.snapshot() is the only TUI data path.** New UI data goes through `StateStore`.
+3. **GraphStateManager uses session-per-method pattern.** New queries add methods, not new managers.
+4. **dispatch_wave() is the ONLY batch inference path.** No bare `create_task` calls.
+5. **ResourceGovernor must gate ALL inference.** Embedding calls must also respect concurrency.
+6. **Model lifecycle is explicit.** load_model -> use -> unload_model. Max 2 models loaded at once.
+7. **Worker prompt context budget is ~4000 chars.** `_format_peer_context()` enforces this cap.
+8. **yfinance is synchronous.** Must use `asyncio.to_thread()` to avoid blocking the event loop.
 
-```
-                            +---------------------+
-                            |  CLI/TUI Entry      |
-                            +----------+----------+
-                                       |
-                                       v
-                            +---------------------+
-                            |  AppState Container  |
-                            |  + interview_engine  |  NEW
-                            |  + report_generator  |  NEW
-                            |  + persona_generator |  NEW
-                            +----------+----------+
-                                       |
-             +-------------------------+-------------------------+
-             |                         |                         |
-             v                         v                         v
-  +------------------+     +---------------------+    +--------------------+
-  | PersonaGenerator |     | SeedInjector        |    | SimulationEngine   |
-  | (PERSONA-01/02)  |     | (existing)          |    | (existing)         |
-  |                  |     |                     |    |                    |
-  | extract entities |     | + enriched entities |    | + rationale_post   |
-  | generate dynamic |     |   for persona gen   |    |   write during     |
-  | personas from    |     |                     |    |   inference        |
-  | seed context     |     |                     |    | + narrative edges  |
-  +--------+---------+     +----------+----------+    | + PUBLISHED_POST   |
-           |                          |               +--------+-----------+
-           |    +---------------------+                        |
-           |    |                                              |
-           v    v                                              v
-  +------------------+                              +--------------------+
-  | GraphStateManager|                              | AgentWorker.infer()|
-  | + write_rationale|  NEW                         | + emit rationale   |
-  | + write_narrative|  NEW                         |   post to Neo4j   |
-  | + read_agent_ctx |  NEW (for interviews)        | + read peer posts |
-  | + query_for_rpt  |  NEW (for reports)           +--------------------+
-  +--------+---------+
-           |
-           v
-  +------------------+           +---------------------+
-  | Neo4j Graph      |           | InterviewEngine      |
-  | + RationalePost  |  NEW      | (INT-01/02/03)       |
-  | + PUBLISHED_POST |  NEW      |                      |  POST-SIMULATION
-  | + READ_POST      |  NEW      | async chat loop      |
-  | + NARRATIVE       |  NEW      | with persona context |
-  +------------------+           +----------+----------+
-                                            |
-                                            v
-                                 +---------------------+
-                                 | ReportGenerator     |
-                                 | (REPORT-01/02/03)   |  POST-SIMULATION
-                                 |                     |
-                                 | ReACT loop:         |
-                                 |  Think -> Query ->  |
-                                 |  Observe -> Write   |
-                                 +---------------------+
-```
+---
 
-## Component Responsibilities
+## New Components Required
 
-### New Components
+### 1. TickerExtractor (`src/alphaswarm/ticker.py`)
 
-| Component | Responsibility | Implementation | Wired Via |
-|-----------|---------------|----------------|-----------|
-| **PersonaGenerator** | Extract entities from seed rumor, generate situation-specific personas that supplement or replace static bracket personas | New module `persona_gen.py` | `AppState.persona_generator` |
-| **InterviewEngine** | Post-simulation async chat with any agent using full persona, decision history, and rationale context from Neo4j | New module `interview.py` | `AppState.interview_engine` |
-| **ReportGenerator** | ReACT agent that queries Neo4j graph and generates structured market analysis markdown | New module `report.py` | `AppState.report_generator` |
+**Purpose:** Extract stock ticker symbols from seed rumor text using the orchestrator LLM.
 
-### Modified Components
+**Approach:** Extend the existing `inject_seed()` pipeline -- the orchestrator is already loaded and parsing entities. Add ticker extraction to the same orchestrator session to avoid an extra model load/unload cycle.
 
-| Component | Current File | What Changes | Why |
-|-----------|-------------|-------------|-----|
-| **GraphStateManager** | `graph.py` | Add 5-6 new methods for rationale posts, narrative edges, interview context reads, and report queries | New node/edge types need Cypher operations |
-| **AgentWorker** | `worker.py` | `infer()` returns richer output including raw rationale for post storage; optional rationale post emission | Richer agent interactions need rationale capture at inference time |
-| **StateStore** | `state.py` | Add interview state, report progress, new phase values | TUI needs to reflect post-simulation states |
-| **SimulationEngine** | `simulation.py` | Wire rationale post writes after each agent inference; add narrative edge computation after each round | Live graph memory requires real-time writes during simulation |
-| **Types** | `types.py` | Add `SimulationPhase.INTERVIEWING`, `SimulationPhase.REPORTING`; new data types for rationale posts | New lifecycle phases |
-| **CLI** | `cli.py` | Add `interview` and `report` subcommands | Entry points for new features |
-| **TUI** | `tui.py` | Add interview panel/chat widget; add report progress indicator | Visual feedback for new features |
-| **Config** | `config.py` | Add interview settings, report settings, persona gen settings | Configuration for new components |
-
-## Feature-by-Feature Architecture
-
-### Feature 1: Dynamic Persona Generation (PERSONA-01, PERSONA-02)
-
-**What it does:** Instead of always using the static 100 personas from bracket configs, the system extracts entities from the seed rumor and generates situation-specific personas. For example, a rumor about "Apple acquiring OpenAI" would generate personas like "Apple institutional shareholder," "OpenAI employee with equity," and "NVIDIA competitor analyst."
-
-**New module:** `src/alphaswarm/persona_gen.py`
-
-**Integration point:** Between `inject_seed()` and `run_simulation()`. The persona generator receives the `ParsedSeedResult` (which already contains extracted entities) and produces supplemental personas.
-
-**Design decision: Supplement, not replace.** The 100 static bracket personas provide reliable baseline diversity. Dynamic personas should ADD 10-20 situation-specific agents (total swarm grows to 110-120) OR REPLACE a subset of the generic personas within each bracket (maintain 100 total). Recommendation: **replace within brackets** to keep the 100-agent grid invariant for the TUI. Replace the most "generic" personas in relevant brackets -- e.g., for an Apple rumor, replace 2 Quants agents with Apple-specific quants.
+**Design:**
 
 ```python
-# persona_gen.py
+# New type in types.py
+class TickerSymbol(BaseModel, frozen=True):
+    symbol: str          # e.g., "AAPL"
+    company_name: str    # e.g., "Apple Inc."
+    relevance: float     # 0.0-1.0, how central to the rumor
+    direction_hint: str  # "bullish" | "bearish" | "neutral" from rumor context
+
+# New type extending SeedEvent
+class EnrichedSeedEvent(BaseModel, frozen=True):
+    raw_rumor: str
+    entities: list[SeedEntity]
+    overall_sentiment: float
+    tickers: list[TickerSymbol]  # NEW: extracted tickers
+
+# In seed.py: augment ORCHESTRATOR_SYSTEM_PROMPT to also extract tickers
+# "For each company entity, also provide ticker symbol if identifiable"
+```
+
+**Integration point:** Modify `inject_seed()` to request ticker extraction in the same orchestrator chat call. The JSON output schema adds a `tickers` array alongside `entities`. Parse with the existing 3-tier fallback via an extended `parse_seed_event()`.
+
+**Validation:** After LLM extraction, validate tickers against yfinance (`yf.Ticker(symbol).info` returns empty dict for invalid symbols). This validation happens AFTER the orchestrator unloads, using `asyncio.to_thread()` since yfinance is synchronous.
+
+**Why not a separate NLP model:** The orchestrator LLM (qwen3.5:32b) is already loaded for entity extraction and is highly capable of mapping company names to ticker symbols. A separate NLP step would add complexity and a second model load. The LLM approach is sufficient for the ~1-5 tickers per rumor.
+
+**Confidence:** HIGH -- LLMs are excellent at company-to-ticker mapping. Validation against yfinance catches hallucinated symbols.
+
+### 2. MarketDataProvider (`src/alphaswarm/market_data.py`)
+
+**Purpose:** Async pipeline for fetching live market data for extracted tickers.
+
+**Design:**
+
+```python
 @dataclass(frozen=True)
-class DynamicPersonaSpec:
-    """Specification for a dynamically generated persona."""
-    target_bracket: BracketType
-    replaces_agent_id: str  # Which static persona this replaces
-    entity_context: str      # Which seed entity this persona relates to
-    custom_system_prompt: str
+class MarketSnapshot:
+    """Immutable container for all market data about a single ticker."""
+    symbol: str
+    current_price: float | None
+    price_change_1d: float | None
+    price_change_5d: float | None
+    price_change_30d: float | None
+    market_cap: float | None
+    pe_ratio: float | None
+    volume_avg: float | None
+    recent_earnings_surprise: float | None  # % surprise vs estimate
+    sector: str | None
+    news_headlines: tuple[str, ...]  # last 5 relevant headlines
+    fetched_at: float  # time.time() for staleness checks
 
-class PersonaGenerator:
-    def __init__(self, ollama_client: OllamaClient) -> None:
-        self._client = ollama_client
+class MarketDataProvider:
+    """Async market data aggregator. Uses asyncio.to_thread for sync APIs."""
 
-    async def generate(
-        self,
-        parsed_result: ParsedSeedResult,
-        brackets: list[BracketConfig],
-        personas: list[AgentPersona],
-        settings: AppSettings,
-    ) -> list[AgentPersona]:
-        """Generate situation-specific personas from seed entities.
-
-        Uses orchestrator model to create custom system prompts
-        for agents most relevant to the extracted entities.
-
-        Returns a NEW list of personas with some replaced.
-        """
-        ...
+    async def fetch_snapshot(self, symbol: str) -> MarketSnapshot: ...
+    async def fetch_all(self, symbols: list[str]) -> dict[str, MarketSnapshot]: ...
 ```
 
-**Data flow:**
-```
-inject_seed() -> ParsedSeedResult
-    |
-    v
-PersonaGenerator.generate(parsed_result, brackets, personas)
-    |
-    v
-Modified personas list (still 100 agents, some with entity-specific prompts)
-    |
-    v
-run_simulation(personas=modified_personas, ...)
-```
+**Data sources (priority order):**
 
-**Orchestrator model usage:** This requires the orchestrator model (large model) to generate custom system prompts. The model lifecycle is:
-1. `inject_seed()` loads orchestrator, parses seed, unloads
-2. `PersonaGenerator.generate()` loads orchestrator, generates prompts, unloads
-3. `run_simulation()` loads worker model for rounds
+| Source | Data Type | Async Strategy | Rate Limits | API Key? |
+|--------|-----------|---------------|-------------|----------|
+| yfinance | Price history, fundamentals, earnings | `asyncio.to_thread()` (yfinance is sync, NOT thread-safe for same ticker) | Yahoo unofficial API, no hard limit but ~2000 req/hour practical | No |
+| SEC EDGAR (data.sec.gov) | 10-K/10-Q filings, earnings | `httpx.AsyncClient` (RESTful JSON API) | 10 req/second | No (User-Agent required) |
+| NewsAPI | Financial news headlines | `httpx.AsyncClient` | 100 req/day (free), 1000/day (developer) | Yes |
+| Alpha Vantage | Earnings calendar, fundamentals | `httpx.AsyncClient` via `alpha_vantage.async_support` | 25 req/day (free), 75 req/min (premium) | Yes |
 
-This adds one extra orchestrator cold-load cycle (~30s). Optimization: keep the orchestrator loaded between `inject_seed()` and `PersonaGenerator.generate()` by moving the unload to after persona generation.
+**Critical design decision:** yfinance is the primary data source because it requires no API key and provides comprehensive data (price history, fundamentals, earnings, news). Alpha Vantage and NewsAPI are supplementary -- used when yfinance data is insufficient or for richer news coverage. SEC EDGAR is used for authoritative earnings data.
 
-**Changes to existing code:**
-- `seed.py`: Do NOT unload orchestrator after inject (or provide option to keep loaded)
-- `simulation.py` or `cli.py`: Call `PersonaGenerator.generate()` between inject and simulate
-- `config.py`: Add `PersonaGenSettings` with `enabled: bool`, `max_replacements: int`, `entity_relevance_threshold: float`
+**Thread safety:** yfinance's `download()` is NOT thread-safe for the same ticker. Each ticker fetch must be serialized or use separate `Ticker()` instances. Use `asyncio.to_thread()` with a single-ticker function, not a shared download call.
 
-### Feature 2: Live Graph Memory (GRAPH-01, GRAPH-02, GRAPH-03)
+**Memory concern:** yfinance returns pandas DataFrames. For 1-5 tickers with 30 days of history, memory usage is negligible (~1-5 MB). Do NOT fetch multi-year history -- cap at 90 days maximum.
 
-**What it does:** During simulation, each agent's rationale is stored as a `RationaleEpisode` node in Neo4j with rich metadata. Narrative edges (`NARRATIVE`) connect sequential rationale episodes for the same agent across rounds. Rationale posts are separate from decisions -- they capture the "story" of an agent's reasoning journey.
+**Integration:** MarketDataProvider is a new attribute on AppState. Called AFTER ticker extraction completes (during the seed injection phase, but after orchestrator unloads). Data is stored in-memory as `dict[str, MarketSnapshot]` and passed through the pipeline.
 
-**No new module needed.** This extends `GraphStateManager` and modifies the simulation write path.
+**Confidence:** MEDIUM-HIGH -- yfinance is well-established but is an unofficial API subject to breakage. Alpha Vantage free tier is very limited (25 req/day). The design should gracefully degrade when any source fails.
 
-**New Neo4j schema:**
+### 3. RAGKnowledgeBase (`src/alphaswarm/rag.py`)
 
-```cypher
-// New node type
-(:RationaleEpisode {
-    episode_id: str,     // uuid4
-    agent_id: str,
-    cycle_id: str,
-    round: int,
-    rationale_text: str, // Full rationale (not truncated)
-    signal: str,
-    confidence: float,
-    sentiment: float,
-    cited_agents: [str],
-    created_at: datetime
-})
+**Purpose:** ChromaDB vector store with Ollama embeddings for historical earnings reactions and market patterns.
 
-// New relationship types
-(Agent)-[:AUTHORED]->(RationaleEpisode)
-(RationaleEpisode)-[:FOR_CYCLE]->(Cycle)
-(RationaleEpisode)-[:NARRATIVE {sequence: int}]->(RationaleEpisode)
-    // Connects agent's R1 episode -> R2 episode -> R3 episode
-```
-
-**Integration into simulation pipeline:**
-
-The key modification is in the write path after `dispatch_wave()`. Currently, `write_decisions()` persists Decision nodes. The live graph memory adds a parallel write for `RationaleEpisode` nodes.
+**Design:**
 
 ```python
-# In simulation.py, after dispatch_wave() returns:
-agent_decisions = [...]  # existing
-
-# NEW: Write rationale episodes (batch, same pattern as write_decisions)
-await graph_manager.write_rationale_episodes(agent_decisions, cycle_id, round_num)
-
-# NEW: Write narrative edges (only for rounds 2+, linking to previous round's episodes)
-if round_num > 1:
-    await graph_manager.write_narrative_edges(cycle_id, round_num)
-```
-
-**New GraphStateManager methods:**
-
-```python
-async def write_rationale_episodes(
-    self,
-    agent_decisions: list[tuple[str, AgentDecision]],
-    cycle_id: str,
-    round_num: int,
-) -> None:
-    """Batch-write RationaleEpisode nodes via UNWIND."""
-    ...
-
-async def write_narrative_edges(
-    self,
-    cycle_id: str,
-    round_num: int,
-) -> None:
-    """Create NARRATIVE edges from round N-1 episodes to round N episodes for same agent."""
-    # Single Cypher: MATCH episodes for this agent in rounds N-1 and N, CREATE edge
-    ...
-
-async def read_agent_rationale_history(
-    self,
-    agent_id: str,
-    cycle_id: str,
-) -> list[RationaleEpisode]:
-    """Read full rationale history for an agent in a cycle. Used by InterviewEngine."""
-    ...
-```
-
-**Index additions:**
-```cypher
-CREATE INDEX episode_agent_cycle IF NOT EXISTS
-    FOR (e:RationaleEpisode) ON (e.agent_id, e.cycle_id, e.round)
-```
-
-**Memory impact:** Writing 100 additional nodes + edges per round is negligible compared to inference cost. The batch UNWIND pattern keeps it to 1-2 extra transactions per round.
-
-### Feature 3: Richer Agent Interactions (SOCIAL-01, SOCIAL-02)
-
-**What it does:** Agents publish "rationale posts" that other agents can read and react to, creating social influence dynamics beyond the current peer-decision-reading pattern. An agent's post is a structured summary of their reasoning, published to the graph. Other agents' prompts include a selection of these posts.
-
-**This builds on Feature 2 (Live Graph Memory).** The `RationaleEpisode` nodes from Feature 2 serve double duty as the "posts" that peers read. The new element is the `READ_POST` relationship tracking which agents read which posts, and the `REACTED_TO` relationship capturing agreement/disagreement.
-
-**New Neo4j relationships:**
-```cypher
-(Agent)-[:READ_POST {cycle_id, round}]->(RationaleEpisode)
-(Decision)-[:REACTED_TO {stance: "agree"|"disagree"|"neutral"}]->(RationaleEpisode)
-```
-
-**Modified agent prompt construction:**
-
-Currently, `_format_peer_context()` in `simulation.py` formats peer decisions as simple signal+confidence+rationale strings. The richer interaction pattern enhances this:
-
-```python
-def _format_peer_posts(
-    posts: list[RationaleEpisode],
-    source_round: int,
-) -> str:
-    """Format peer rationale posts for agent context injection.
-
-    Richer than _format_peer_context() -- includes full rationale narrative
-    and allows agents to cite specific posts by episode_id.
-    """
-    if not posts:
-        return ""
-
-    lines = [f"Market Discussion (Round {source_round}):"]
-    for i, post in enumerate(posts, 1):
-        lines.append(
-            f'{i}. [{post.bracket}] {post.signal.upper()} '
-            f'(conf: {post.confidence:.2f})\n'
-            f'   Post #{post.episode_id[:8]}: "{post.rationale_text[:200]}"'
-        )
-    lines.append(
-        "\nThese are peer perspectives for context. "
-        "You may cite specific posts by their ID if they influence your reasoning."
-    )
-    return "\n".join(lines)
-```
-
-**Dependency chain:** Feature 3 REQUIRES Feature 2 (RationaleEpisode nodes must exist before peers can read them). Build Feature 2 first.
-
-**Modified dispatch path:** In `_dispatch_round()`, instead of (or in addition to) `read_peer_decisions()`, call `read_peer_rationale_posts()` to get richer context.
-
-### Feature 4: Agent Interviews (INT-01, INT-02, INT-03)
-
-**What it does:** After simulation completes, the user can select any agent and have a live conversational Q&A. The interview uses the agent's full persona prompt, decision history across all 3 rounds, rationale episodes, and influence relationships as context.
-
-**New module:** `src/alphaswarm/interview.py`
-
-**Architecture pattern: Stateful chat session with graph-backed context.**
-
-```python
-# interview.py
-@dataclass
-class InterviewSession:
-    """Active interview session with a single agent."""
-    agent_id: str
-    persona: AgentPersona
-    cycle_id: str
-    conversation_history: list[dict[str, str]]  # message list for Ollama
-    context_loaded: bool = False
-
-class InterviewEngine:
-    def __init__(
-        self,
-        ollama_client: OllamaClient,
-        model_manager: OllamaModelManager,
-        graph_manager: GraphStateManager,
-        governor: ResourceGovernor,
-        personas: list[AgentPersona],
-    ) -> None:
-        self._client = ollama_client
-        self._model_manager = model_manager
-        self._graph = graph_manager
-        self._governor = governor
-        self._personas = {p.id: p for p in personas}
-        self._session: InterviewSession | None = None
-
-    async def start_session(self, agent_id: str, cycle_id: str) -> InterviewSession:
-        """Initialize interview session: load context from Neo4j, build system prompt."""
-        persona = self._personas[agent_id]
-
-        # Load agent's full history from graph
-        decisions = await self._graph.read_agent_decisions(agent_id, cycle_id)
-        rationale_history = await self._graph.read_agent_rationale_history(agent_id, cycle_id)
-        influence_data = await self._graph.read_agent_influence_data(agent_id, cycle_id)
-
-        # Build enriched system prompt
-        interview_system_prompt = self._build_interview_prompt(
-            persona, decisions, rationale_history, influence_data,
-        )
-
-        session = InterviewSession(
-            agent_id=agent_id,
-            persona=persona,
-            cycle_id=cycle_id,
-            conversation_history=[
-                {"role": "system", "content": interview_system_prompt},
-            ],
-            context_loaded=True,
-        )
-        self._session = session
-        return session
-
-    async def ask(self, question: str) -> str:
-        """Send a question to the interviewed agent, return response."""
-        assert self._session is not None
-
-        self._session.conversation_history.append(
-            {"role": "user", "content": question}
-        )
-
-        # Use governor to respect concurrency limits
-        await self._governor.acquire()
-        try:
-            response = await self._client.chat(
-                model=self._model_manager.worker_alias_or_orchestrator,
-                messages=self._session.conversation_history,
-                think=True,  # Enable reasoning for deeper answers
-            )
-        finally:
-            self._governor.release(success=True)
-
-        answer = response.message.content or ""
-        self._session.conversation_history.append(
-            {"role": "assistant", "content": answer}
-        )
-        return answer
-```
-
-**Model choice for interviews:** Interviews require deeper reasoning than simulation decisions. Two options:
-1. **Worker model (7B)** -- faster, stays loaded, but shallower responses
-2. **Orchestrator model (32B)** -- richer responses, requires model swap
-
-**Recommendation:** Use the orchestrator model for interviews. Post-simulation is not latency-sensitive, and the interview quality benefits from the larger model. The model swap adds ~30s but only happens once per interview session.
-
-**TUI integration:** Add an interview panel with Input widget + response display.
-
-```python
-# New TUI screen or mode
-class InterviewPanel(Widget):
-    """Interactive chat panel for agent interviews."""
-
-    def compose(self) -> ComposeResult:
-        yield Static("Interview", id="interview-header")
-        yield RichLog(id="interview-log")  # Conversation history
-        yield Input(placeholder="Ask a question...", id="interview-input")
-```
-
-**New SimulationPhase values:**
-```python
-class SimulationPhase(str, Enum):
-    ...
-    INTERVIEWING = "interviewing"   # NEW
-    REPORTING = "reporting"         # NEW
-```
-
-**CLI entry point:**
-```bash
-python -m alphaswarm interview --agent quants_03 --cycle <cycle_id>
-```
-
-### Feature 5: Post-Simulation Report (REPORT-01, REPORT-02, REPORT-03)
-
-**What it does:** A ReACT (Reasoning + Acting) agent queries the Neo4j graph to generate a structured market analysis report. The agent iteratively: (1) reasons about what data it needs, (2) executes a Cypher query tool, (3) observes the results, (4) decides whether to continue querying or write the report.
-
-**New module:** `src/alphaswarm/report.py`
-
-**Architecture pattern: Tool-augmented LLM loop.**
-
-The ReACT agent does NOT use LangChain or LangGraph. It is a lightweight loop implemented directly with OllamaClient, keeping the dependency footprint minimal and consistent with the existing codebase philosophy.
-
-```python
-# report.py
 @dataclass(frozen=True)
-class ReportTool:
-    """A tool the ReACT agent can invoke."""
-    name: str
-    description: str
-    handler: Callable[[str], Awaitable[str]]
+class RAGDocument:
+    """A single document in the knowledge base."""
+    doc_id: str
+    content: str
+    metadata: dict[str, str | float]  # ticker, event_type, date, sector, etc.
 
-class ReportGenerator:
-    MAX_ITERATIONS = 10  # Safety cap on ReACT loop
+@dataclass(frozen=True)
+class RAGResult:
+    """A single retrieval result."""
+    content: str
+    score: float
+    metadata: dict[str, str | float]
 
-    def __init__(
+class RAGKnowledgeBase:
+    """ChromaDB-backed knowledge base with Ollama embeddings."""
+
+    def __init__(self, persist_dir: str, ollama_base_url: str): ...
+    async def initialize(self) -> None: ...  # Create/load collection
+    async def add_documents(self, docs: list[RAGDocument]) -> None: ...
+    async def query(self, query_text: str, n_results: int = 5,
+                    where: dict | None = None) -> list[RAGResult]: ...
+    async def close(self) -> None: ...
+```
+
+**Technology choice:** ChromaDB PersistentClient (embedded mode, no server) + OllamaEmbeddingFunction with nomic-embed-text model.
+
+**Why ChromaDB PersistentClient (not AsyncHttpClient):**
+- Embedded mode means no Docker container beyond Neo4j. Local-first philosophy.
+- PersistentClient stores to disk at a path. Data survives process restarts.
+- The async concern: ChromaDB's PersistentClient is synchronous. Wrap operations in `asyncio.to_thread()` -- same pattern as yfinance.
+- For AlphaSwarm's scale (~100-1000 documents, 1-5 queries per simulation), async performance of the vector store is NOT a bottleneck. Each query takes <100ms locally.
+
+**Why NOT AsyncHttpClient:**
+- Requires running a separate ChromaDB server (Docker or standalone process).
+- Adds operational complexity for marginal performance gain at our scale.
+- Recent bugs reported with AsyncHttpClient in ChromaDB 1.x (HTTP 422 errors, auth issues).
+- PersistentClient + `asyncio.to_thread()` is simpler and more reliable.
+
+**Embedding model:** `nomic-embed-text` via Ollama.
+- 768-dimension embeddings, 8192 token context window.
+- Runs locally via Ollama -- no cloud API needed.
+- ChromaDB's `OllamaEmbeddingFunction` wraps this cleanly.
+- **Memory concern:** nomic-embed-text is ~270MB. It can be loaded alongside the worker model, but the 2-model limit means it CANNOT be loaded simultaneously with both orchestrator AND worker. Embedding calls must happen when the orchestrator is NOT loaded (i.e., after seed injection unloads the orchestrator, before worker model loads for Round 1).
+
+**Embedding lifecycle and ResourceGovernor:**
+- Embedding is a lightweight operation (~50ms per document, ~100ms per query).
+- nomic-embed-text loads into Ollama as a separate model. It counts toward the 2-model limit.
+- Strategy: Load nomic-embed-text -> embed documents -> query for context -> unload -> load worker model.
+- Alternative: Set `keep_alive=0` on embedding calls so Ollama auto-unloads immediately after use.
+
+**Knowledge base content (seeded offline, enriched at runtime):**
+
+| Content Type | Source | When Ingested | Example |
+|-------------|--------|---------------|---------|
+| Historical earnings reactions | Pre-built dataset (CSV/JSON) | App startup / first run | "AAPL Q3 2025: +8% earnings surprise, stock rose 3.2% next day" |
+| Sector pattern templates | Pre-built dataset | App startup | "Semiconductor shortages historically lead to 15-20% sector premium" |
+| Previous simulation results | Post-simulation export | After each simulation run | "Simulation 2026-04-01: 72% BUY consensus on NVDA earnings beat rumor" |
+| Live news context | NewsAPI/yfinance during runtime | During market data fetch | "Breaking: Fed signals rate pause, tech stocks rally" |
+
+**Integration:** RAGKnowledgeBase is a new attribute on AppState. Initialized at startup with `PersistentClient(path=".chromadb")`. Queried during the context enrichment phase (between seed injection and Round 1 dispatch).
+
+**Confidence:** MEDIUM -- ChromaDB PersistentClient + OllamaEmbeddingFunction is a well-documented pattern, but the model loading choreography with the 2-model limit needs careful testing. The `asyncio.to_thread()` wrapping of synchronous ChromaDB operations is standard but adds complexity.
+
+### 4. ContextEnricher (`src/alphaswarm/context.py`)
+
+**Purpose:** Assembles enriched context for agent prompts by combining live market data and RAG-retrieved precedents.
+
+**Design:**
+
+```python
+@dataclass(frozen=True)
+class EnrichedContext:
+    """Complete context package injected into agent prompts."""
+    market_data_section: str   # Formatted market data for prompt
+    rag_section: str           # Formatted RAG results for prompt
+    total_chars: int           # For budget tracking
+
+class ContextEnricher:
+    """Assembles market data + RAG into prompt-ready context sections."""
+
+    def __init__(self, market_provider: MarketDataProvider,
+                 rag_kb: RAGKnowledgeBase): ...
+
+    async def build_context(
         self,
-        ollama_client: OllamaClient,
-        model_manager: OllamaModelManager,
-        graph_manager: GraphStateManager,
-        governor: ResourceGovernor,
-    ) -> None:
-        self._client = ollama_client
-        self._model_manager = model_manager
-        self._graph = graph_manager
-        self._governor = governor
-        self._tools = self._register_tools()
-
-    def _register_tools(self) -> list[ReportTool]:
-        return [
-            ReportTool(
-                name="query_consensus",
-                description="Get final consensus distribution across all brackets",
-                handler=self._tool_query_consensus,
-            ),
-            ReportTool(
-                name="query_shifts",
-                description="Get signal transition counts between rounds",
-                handler=self._tool_query_shifts,
-            ),
-            ReportTool(
-                name="query_influence_leaders",
-                description="Get most influential agents and their positions",
-                handler=self._tool_query_influence_leaders,
-            ),
-            ReportTool(
-                name="query_bracket_narratives",
-                description="Get rationale themes per bracket",
-                handler=self._tool_query_bracket_narratives,
-            ),
-            ReportTool(
-                name="query_convergence",
-                description="Analyze convergence patterns across rounds",
-                handler=self._tool_query_convergence,
-            ),
-            ReportTool(
-                name="write_report",
-                description="Write the final structured report",
-                handler=self._tool_write_report,
-            ),
-        ]
-
-    async def generate(self, cycle_id: str) -> str:
-        """Execute ReACT loop to generate market analysis report.
-
-        Returns markdown string of the completed report.
-        """
-        system_prompt = REACT_SYSTEM_PROMPT  # Describes available tools and report format
-        messages = [{"role": "system", "content": system_prompt}]
-
-        for iteration in range(self.MAX_ITERATIONS):
-            # Think: ask the LLM what to do next
-            await self._governor.acquire()
-            try:
-                response = await self._client.chat(
-                    model=self._model_manager.orchestrator_alias,
-                    messages=messages,
-                    format="json",
-                    think=True,
-                )
-            finally:
-                self._governor.release(success=True)
-
-            action = parse_react_action(response.message.content)
-
-            if action.tool == "write_report":
-                return action.input  # The report content
-
-            # Act: execute the tool
-            tool_result = await self._execute_tool(action.tool, action.input)
-
-            # Observe: add tool result to context
-            messages.append({"role": "assistant", "content": response.message.content})
-            messages.append({"role": "user", "content": f"Tool Result:\n{tool_result}"})
-
-        # Safety: if max iterations exceeded, generate report from whatever we have
-        return await self._force_report(messages)
+        seed_event: EnrichedSeedEvent,
+        market_snapshots: dict[str, MarketSnapshot],
+        query_text: str,
+        budget: int = 2000,  # chars, to stay within worker prompt limits
+    ) -> EnrichedContext: ...
 ```
 
-**Tool implementations are Cypher queries against GraphStateManager:**
+**Prompt budget management (CRITICAL):**
+
+The existing worker prompt is already substantial:
+- System prompt template: ~200-300 words (~1500 chars)
+- Agent header + modifier: ~50 words (~300 chars)
+- JSON output instructions: ~40 words (~250 chars)
+- Peer context (Rounds 2-3): up to 4000 chars
+- **Available for enrichment: ~2000 chars**
+
+The enriched context must fit within ~2000 characters to avoid context window overflow on qwen3.5:7b (default ~4K tokens). This means:
+- Market data section: ~800 chars (price, key metrics, earnings surprise)
+- RAG section: ~800 chars (2-3 most relevant historical precedents)
+- Buffer: ~400 chars
+
+**Format for prompt injection:**
+
+```
+MARKET DATA (as of {timestamp}):
+{symbol}: ${price} ({change}% 30d), P/E: {pe}, Earnings surprise: {surprise}%
+[Repeat for each ticker, max 3 tickers]
+
+HISTORICAL PRECEDENTS:
+1. {rag_result_1_summary}
+2. {rag_result_2_summary}
+
+Use the above data to inform your analysis. Your independent judgment takes priority.
+```
+
+**Integration point:** The `ContextEnricher.build_context()` output is injected as a system message between the persona system prompt and the user message (seed rumor) in `AgentWorker.infer()`. This requires modifying the worker to accept an optional `enriched_context: str` parameter.
+
+**Confidence:** HIGH -- this is pure Python string formatting and prompt engineering. No external dependencies.
+
+### 5. Enhanced AgentDecision (`types.py` modification)
+
+**Purpose:** Extend AgentDecision with ticker-specific fields.
+
+**Design:**
 
 ```python
-async def _tool_query_consensus(self, cycle_id: str) -> str:
-    """Query final round consensus from Neo4j."""
-    async with self._graph._driver.session(database=self._graph._database) as session:
-        result = await session.run("""
-            MATCH (a:Agent)-[:MADE]->(d:Decision)
-            WHERE d.cycle_id = $cycle_id AND d.round = 3
-            RETURN a.bracket AS bracket, d.signal AS signal,
-                   avg(d.confidence) AS avg_conf, count(*) AS count
-            ORDER BY bracket, signal
-        """, cycle_id=cycle_id)
-        records = [dict(r) async for r in result]
-    return json.dumps(records, indent=2)
+class EnhancedAgentDecision(BaseModel, frozen=True):
+    """Extended decision output with ticker-specific analysis."""
+    signal: SignalType
+    confidence: float = Field(ge=0.0, le=1.0)
+    sentiment: float = Field(ge=-1.0, le=1.0, default=0.0)
+    rationale: str = ""
+    cited_agents: list[str] = Field(default_factory=list)
+    # NEW v3.0 fields:
+    ticker: str | None = None           # Primary ticker for this decision
+    expected_return: float | None = None # Expected return % (e.g., 5.0 = +5%)
+    time_horizon: str | None = None     # "1d" | "1w" | "1m" | "3m"
+
+# JSON output instructions updated:
+JSON_OUTPUT_INSTRUCTIONS_V3 = (
+    '\n\nRespond ONLY with a JSON object:\n'
+    '{"signal": "buy"|"sell"|"hold", "confidence": 0.0-1.0, '
+    '"sentiment": -1.0 to 1.0, "rationale": "brief reasoning", '
+    '"cited_agents": [], '
+    '"ticker": "SYMBOL or null", "expected_return": float or null, '
+    '"time_horizon": "1d"|"1w"|"1m"|"3m" or null}'
+)
 ```
 
-**Alternatively**, and more cleanly, expose query methods on `GraphStateManager` rather than having `ReportGenerator` use the driver directly. This maintains the session-per-method encapsulation:
+**Backward compatibility approach:** Keep the existing `AgentDecision` type and create `EnhancedAgentDecision` that extends it (or add optional fields with None defaults to the existing type). The `parse_agent_decision()` function already handles missing/extra fields gracefully via Pydantic's model_validate. Adding new fields with `None` defaults to the existing `AgentDecision` is the cleanest approach -- no separate type needed.
+
+**Integration:** Modify `parse_agent_decision()` to handle the new optional fields. If the LLM returns them, they're captured. If not (fallback), they default to None. No breakage.
+
+**Confidence:** HIGH -- adding optional fields to an existing Pydantic model with None defaults is non-breaking.
+
+---
+
+## Existing Components Requiring Modification
+
+### 1. `types.py` -- Add TickerSymbol, Extend AgentDecision and SeedEvent
+
+**Changes:**
+- Add `TickerSymbol` model
+- Add optional fields to `AgentDecision`: `ticker`, `expected_return`, `time_horizon`
+- Add optional `tickers: list[TickerSymbol] = []` to `SeedEvent` (or create `EnrichedSeedEvent` subclass)
+
+**Risk:** LOW -- all new fields have None/empty defaults.
+
+### 2. `seed.py` -- Augment Orchestrator Prompt for Ticker Extraction
+
+**Changes:**
+- Extend `ORCHESTRATOR_SYSTEM_PROMPT` to request ticker symbols in the JSON output
+- Modify the response parsing to extract `tickers` array
+- Add ticker validation step (yfinance lookup via `asyncio.to_thread()`)
+
+**Risk:** MEDIUM -- changing the orchestrator prompt could affect entity extraction quality. Must test that existing entity extraction still works correctly with the augmented prompt.
+
+### 3. `parsing.py` -- Parse Ticker and Enhanced Decision Fields
+
+**Changes:**
+- Extend `parse_seed_event()` to handle `tickers` array in JSON output
+- Extend `parse_agent_decision()` to handle new optional fields
+- Both use 3-tier fallback; new fields simply default to None on parse failure
+
+**Risk:** LOW -- additive parsing, existing fallback handles missing fields.
+
+### 4. `worker.py` -- Accept Enriched Context
+
+**Changes:**
+- `AgentWorker.infer()` gains optional `market_context: str | None = None` parameter
+- Insert market_context as a system message between persona prompt and user message
+- Budget cap enforcement: truncate market_context if it exceeds 2000 chars
 
 ```python
-# In graph.py -- add report-specific query methods
-async def report_consensus_distribution(self, cycle_id: str) -> list[dict]:
-    """Get per-bracket signal distribution for final round."""
-    ...
-
-async def report_influence_leaders(self, cycle_id: str, limit: int = 10) -> list[dict]:
-    """Get top-N most cited agents across all rounds."""
-    ...
-
-async def report_rationale_themes(self, cycle_id: str) -> list[dict]:
-    """Get representative rationale snippets grouped by bracket and signal."""
-    ...
+async def infer(
+    self,
+    user_message: str,
+    peer_context: str | None = None,
+    market_context: str | None = None,  # NEW: live data + RAG context
+) -> AgentDecision:
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": self._persona["system_prompt"]},
+    ]
+    if market_context:
+        messages.append({"role": "system", "content": market_context})
+    if peer_context:
+        messages.append({"role": "system", "content": f"Peer context:\n{peer_context}"})
+    messages.append({"role": "user", "content": user_message})
 ```
 
-**Model choice for reports:** Use the orchestrator model (32B). The ReACT loop requires complex reasoning about what data to query and how to synthesize it. The report is generated post-simulation, so latency is acceptable.
+**Risk:** LOW -- optional parameter, no change to existing call sites that don't use it.
 
-**Output format:** Markdown file saved to `results/report_{cycle_id}_{timestamp}.md`.
+### 5. `config.py` -- New Settings and Updated JSON Instructions
 
-## Recommended Project Structure Changes
+**Changes:**
+- Add `MarketDataSettings` model (API keys, cache durations, enabled sources)
+- Add `RAGSettings` model (persist_dir, embedding model, collection name)
+- Add both to `AppSettings`
+- Update `JSON_OUTPUT_INSTRUCTIONS` to include new fields when v3 mode is enabled
 
-```
-src/alphaswarm/
-    __init__.py
-    __main__.py
-    app.py             # MODIFIED: add new optional components to AppState
-    batch_dispatcher.py
-    cli.py             # MODIFIED: add interview, report subcommands
-    config.py          # MODIFIED: add new settings models
-    errors.py
-    governor.py
-    graph.py           # MODIFIED: add ~8 new methods for new node/edge types
-    interview.py       # NEW: InterviewEngine + InterviewSession
-    logging.py
-    memory_monitor.py
-    miro.py
-    ollama_client.py
-    ollama_models.py
-    parsing.py         # MODIFIED: add parse_react_action() for report ReACT loop
-    persona_gen.py     # NEW: PersonaGenerator
-    report.py          # NEW: ReportGenerator + ReACT tools
-    seed.py            # MODIFIED: option to keep orchestrator loaded
-    simulation.py      # MODIFIED: add rationale episode writes, narrative edges
-    state.py           # MODIFIED: add interview state, report progress
-    tui.py             # MODIFIED: add interview panel, report indicator
-    types.py           # MODIFIED: add new phases, data types
-    utils.py
-    worker.py          # MODIFIED: richer inference output
-```
+**Risk:** LOW -- new settings with defaults. Existing config is untouched unless v3 features are enabled.
 
-### Structure Rationale
+### 6. `simulation.py` -- Context Enrichment Phase
 
-- **No new subdirectories.** The codebase is flat (22 modules). Three new modules (`interview.py`, `persona_gen.py`, `report.py`) maintain this flat convention. At 25 modules the flat structure is still navigable.
-- **Graph methods stay in `graph.py`.** Despite adding ~8 new methods, keeping all Cypher operations in one module maintains the session-per-method pattern and makes query review straightforward. If `graph.py` exceeds ~800 lines, split into `graph_core.py` (existing) and `graph_v2.py` (new methods) with a shared base class, but this is unlikely to be needed.
-- **Interview and Report as independent modules.** They share no state and operate in different lifecycle phases (post-simulation). No shared base class needed.
-
-## Data Flow: v2.0 Extended
-
-### Simulation Phase (Modified)
-
-```
-inject_seed()
-    |
-    v
-ParsedSeedResult (existing)
-    |
-    v
-PersonaGenerator.generate() --- NEW: uses orchestrator model
-    |
-    v
-Modified personas list (100 agents, some with entity-specific prompts)
-    |
-    v
-run_simulation()
-    |
-    +-- for each round:
-    |       dispatch_wave() -> agent_decisions
-    |       write_decisions()               (existing)
-    |       write_rationale_episodes()      --- NEW: full rationale to Neo4j
-    |       write_narrative_edges()         --- NEW: R(N-1) -> R(N) links
-    |       compute_influence_edges()       (existing)
-    |       compute_bracket_summaries()     (existing)
-    |       _push_top_rationales()          (existing)
-    |
-    v
-SimulationResult (existing, unchanged)
-```
-
-### Post-Simulation Phase (New)
-
-```
-SimulationResult
-    |
-    +----> InterviewEngine (user-initiated)
-    |           |
-    |           v
-    |       start_session(agent_id, cycle_id)
-    |           |-- read_agent_decisions()      from Neo4j
-    |           |-- read_agent_rationale_history()  from Neo4j
-    |           |-- read_agent_influence_data()     from Neo4j
-    |           v
-    |       InterviewSession (stateful chat)
-    |           |
-    |           v
-    |       ask(question) -> response
-    |           |-- OllamaClient.chat() with full context
-    |           v
-    |       (repeat until user exits)
-    |
-    +----> ReportGenerator (auto or user-initiated)
-                |
-                v
-            generate(cycle_id)
-                |-- ReACT loop (max 10 iterations)
-                |   |-- Think: LLM reasons about what to query
-                |   |-- Act: execute tool (Cypher query via GraphStateManager)
-                |   |-- Observe: add results to context
-                |   v
-                |   (repeat until write_report tool called)
-                v
-            Markdown report string
-                |
-                v
-            Save to results/report_{cycle_id}_{timestamp}.md
-```
-
-### State Management (Extended)
-
-```
-StateStore (modified)
-    |
-    +-- Existing: agent_states, phase, round, governor_metrics, tps, rationale_queue, bracket_summaries
-    |
-    +-- NEW: interview_active: bool
-    +-- NEW: interview_agent_id: str | None
-    +-- NEW: interview_messages: list[tuple[str, str]]  (role, content) for TUI display
-    +-- NEW: report_progress: ReportProgress | None
-    |        ReportProgress(iteration: int, max_iterations: int, current_tool: str, status: str)
-    |
-    v (200ms poll, unchanged)
-    TUI reads snapshot including new fields
-```
-
-## Architectural Patterns
-
-### Pattern 1: Graph-Backed Conversational Context
-
-**What:** Build conversational context for interviews from Neo4j graph traversal rather than in-memory state. Load the agent's full decision history, rationale episodes, and influence relationships into the system prompt.
-
-**When:** Starting an interview session post-simulation.
-
-**Trade-offs:**
-- Pro: Context survives process restarts; interview can happen days after simulation
-- Pro: Graph queries return exactly the relationships that matter
-- Con: Adds ~50-100ms latency for initial context load (acceptable for interactive use)
-- Con: Context window may fill quickly with 3 rounds of full rationale
-
-**Prompt budget:** With the orchestrator model (32B, ~8K context typical), budget:
-- System prompt (persona): ~300 tokens
-- Decision history (3 rounds): ~150 tokens
-- Rationale episodes (3 rounds): ~600 tokens
-- Influence data: ~200 tokens
-- Conversation history: ~6,750 tokens remaining
-- At ~150 tokens per exchange, this allows ~22 back-and-forth turns before context truncation is needed
-
-### Pattern 2: Lightweight ReACT Without Framework Dependencies
-
-**What:** Implement the ReACT (Reason-Act-Observe) loop as a simple while loop with tool dispatch, using OllamaClient directly. No LangChain, LangGraph, or other agent framework dependencies.
-
-**When:** Report generation.
-
-**Trade-offs:**
-- Pro: Zero new dependencies, consistent with codebase philosophy
-- Pro: Full control over prompt engineering and tool dispatch
-- Pro: Easy to test (mock OllamaClient, mock tool handlers)
-- Con: Must implement tool parsing manually (JSON action format)
-- Con: No built-in retry/fallback for malformed tool calls (must handle in parse_react_action)
-
-**Why not LangChain/LangGraph:** The existing codebase has zero framework dependencies beyond Ollama, Textual, Neo4j, and Pydantic. Adding LangChain would introduce a large transitive dependency tree (~50+ packages) for a single feature. The ReACT pattern is simple enough to implement in ~100 lines.
-
-### Pattern 3: Persona Replacement Within Fixed Grid
-
-**What:** Dynamic personas replace specific agents within existing brackets rather than adding new agents. The 100-agent count stays fixed, preserving the TUI's 10x10 grid layout.
-
-**When:** Dynamic persona generation.
-
-**Trade-offs:**
-- Pro: TUI grid invariant preserved (no layout changes needed)
-- Pro: Bracket distribution stays balanced
-- Pro: StateStore agent count assumption (100) unchanged
-- Con: Reduces diversity within replaced bracket positions
-- Con: Requires "replaceability ranking" logic for each bracket
-
-**Replacement algorithm:**
-1. For each seed entity, identify 1-3 most relevant brackets
-2. Within each relevant bracket, select agents with the most generic modifier (last in round-robin sequence)
-3. Generate custom system prompts that incorporate entity context
-4. Create new AgentPersona objects with same IDs but custom prompts
-
-### Pattern 4: Post-Simulation Phase Extension
-
-**What:** Extend the `SimulationPhase` enum to include `INTERVIEWING` and `REPORTING` phases. The TUI HeaderBar displays the current phase, and StateStore tracks progress.
-
-**When:** After simulation completes.
-
-**Trade-offs:**
-- Pro: TUI stays informative during post-simulation activities
-- Pro: Governor can adjust behavior for interview vs report phases
-- Con: Phase transitions become more complex (not just linear progression)
-
-## Anti-Patterns
-
-### Anti-Pattern 1: Separate GraphManager for v2 Features
-
-**What people do:** Create a new `GraphStateManagerV2` class to avoid modifying the existing one.
-
-**Why it's wrong:** Two managers sharing the same Neo4j driver creates session management confusion. Schema management (`ensure_schema()`) would need to run on both. Query optimization requires holistic index strategy.
-
-**Do this instead:** Add new methods to existing `GraphStateManager`. Group them with clear section comments (`# --- Report queries (Phase 2) ---`). Add new index statements to `SCHEMA_STATEMENTS`.
-
-### Anti-Pattern 2: Loading Full Rationale History Into Every Agent Prompt
-
-**What people do:** For richer interactions, inject all 100 agents' full rationale texts into each prompt.
-
-**Why it's wrong:** 100 rationales x 200 tokens = 20,000 tokens. The 7B worker model context window (~4-8K) cannot handle this. Even if it could, inference latency scales with context length.
-
-**Do this instead:** Select top-5 peer rationale posts using the existing `select_diverse_peers()` function. Truncate each to 200 characters. Total injection: ~500 tokens per agent.
-
-### Anti-Pattern 3: Blocking TUI During Interview Chat
-
-**What people do:** Run the interview LLM call synchronously, freezing the TUI while waiting for a response.
-
-**Why it's wrong:** Textual requires all long-running operations to be async Workers or run in background threads. A blocking call on the main event loop freezes all widgets.
-
-**Do this instead:** Run interview inference as a Textual Worker. Push responses to StateStore. TUI polls and renders when ready.
-
-### Anti-Pattern 4: Implementing ReACT with Raw String Parsing
-
-**What people do:** Parse tool calls from LLM output using regex or string splitting.
-
-**Why it's wrong:** LLM outputs are unpredictable. Regex-based tool parsing is fragile and leads to cascading parse failures.
-
-**Do this instead:** Require the ReACT agent to output JSON (`format="json"` in Ollama call). Parse with Pydantic model validation, same 3-tier fallback pattern used in `parsing.py`. Define a `ReACTAction` Pydantic model.
+**Changes:**
+- `run_simulation()` gains a new phase between seed injection and Round 1:
+  1. Seed injection (existing) -> returns tickers
+  2. **NEW: Market data fetch** -> MarketDataProvider.fetch_all(tickers)
+  3. **NEW: RAG query** -> RAGKnowledgeBase.query(rumor + tickers)
+  4. **NEW: Context assembly** -> ContextEnricher.build_context()
+  5. Round 1 dispatch with enriched context (modified)
+  6. Rounds 2-3 (existing, but with enriched context passed through)
 
 ```python
-class ReACTAction(BaseModel, frozen=True):
-    """Structured ReACT agent action output."""
-    thought: str
-    tool: str
-    input: str  # Tool input / query parameter
+async def run_simulation(..., market_provider=None, rag_kb=None):
+    # 1. Seed injection (existing)
+    cycle_id, parsed_result, modifier_result = await inject_seed(...)
+
+    # 2. NEW: Fetch market data for extracted tickers
+    market_snapshots = {}
+    if market_provider and parsed_result.seed_event.tickers:
+        symbols = [t.symbol for t in parsed_result.seed_event.tickers]
+        market_snapshots = await market_provider.fetch_all(symbols)
+
+    # 3. NEW: Query RAG knowledge base
+    rag_context = ""
+    if rag_kb:
+        enricher = ContextEnricher(market_provider, rag_kb)
+        enriched = await enricher.build_context(
+            parsed_result.seed_event, market_snapshots, rumor
+        )
+        rag_context = enriched.market_data_section + enriched.rag_section
+
+    # 4. Round 1 dispatch with enriched context
+    # Pass rag_context to dispatch_wave -> worker.infer(market_context=rag_context)
 ```
 
-## Integration Points
+**Risk:** MEDIUM -- this is the most complex modification. The new phase must not block the event loop and must handle failures gracefully (if market data fetch fails, proceed without it).
 
-### External Services
+### 7. `batch_dispatcher.py` -- Thread Market Context Through
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| Neo4j (existing) | Session-per-method via AsyncDriver | Add ~8 new methods, ~4 new index statements |
-| Ollama (existing) | OllamaClient.chat() for interviews + reports | Post-sim uses orchestrator model, needs model swap |
+**Changes:**
+- `dispatch_wave()` gains optional `market_context: str | None = None` parameter
+- Threads it through to `_safe_agent_inference()` -> `AgentWorker.infer()`
 
-### Internal Boundaries
+**Risk:** LOW -- optional parameter passthrough.
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| PersonaGenerator -> SimulationEngine | Returns modified `list[AgentPersona]` passed to `run_simulation()` | One-shot, no ongoing communication |
-| SimulationEngine -> GraphStateManager | New `write_rationale_episodes()` and `write_narrative_edges()` calls in round loop | Adds 2 async calls per round to existing pipeline |
-| InterviewEngine -> GraphStateManager | `read_agent_decisions()`, `read_agent_rationale_history()`, `read_agent_influence_data()` at session start | One-time context load, then pure OllamaClient chat |
-| InterviewEngine -> StateStore | Pushes interview messages for TUI display | Uses same pattern as rationale queue |
-| ReportGenerator -> GraphStateManager | Tool handlers query graph via public methods | Each ReACT iteration may call 1-2 graph methods |
-| ReportGenerator -> StateStore | Pushes `ReportProgress` for TUI indicator | Lightweight progress updates |
+### 8. `state.py` -- Extended StateSnapshot for TUI
 
-## Suggested Build Order
+**Changes:**
+- Add to `StateSnapshot`: `market_data: dict[str, MarketSnapshot] | None = None`
+- Add to `StateSnapshot`: `extracted_tickers: tuple[str, ...] = ()`
+- Add to `BracketSummary`: optional per-ticker consensus fields
 
-Build order follows dependency chains and maximizes testability at each step.
+**Risk:** LOW -- additive fields with None/empty defaults.
 
-### Phase 1: Live Graph Memory (GRAPH-01, GRAPH-02, GRAPH-03)
+### 9. `app.py` -- Wire New Components into AppState
 
-**Why first:** All other features depend on richer graph data. Richer interactions need rationale episodes. Interviews need rationale history. Reports query rationale data.
+**Changes:**
+- Add `market_provider: MarketDataProvider | None = None` to AppState
+- Add `rag_kb: RAGKnowledgeBase | None = None` to AppState
+- Extend `create_app_state()` with `with_market_data: bool = False` and `with_rag: bool = False`
 
-**Components:**
-1. Add `RationaleEpisode` dataclass to `types.py`
-2. Add new schema statements to `graph.py` SCHEMA_STATEMENTS
-3. Implement `write_rationale_episodes()` in `GraphStateManager`
-4. Implement `write_narrative_edges()` in `GraphStateManager`
-5. Implement `read_agent_rationale_history()` in `GraphStateManager`
-6. Wire into `simulation.py` round loop (after `write_decisions()`)
-7. Tests: verify episodes and narrative edges written correctly
+**Risk:** LOW -- follows existing pattern (cf. `with_ollama`, `with_neo4j`).
 
-**Existing code changes:**
-- `graph.py`: Add 3 methods + schema statements
-- `simulation.py`: Add 2 calls in round loop
-- `types.py`: Add `RationaleEpisode` dataclass
+### 10. `tui.py` -- Display Enhanced Results
 
-**Risk:** LOW. Pattern mirrors existing `write_decisions()`. No API changes, no TUI changes.
+**Changes:**
+- Add a market data panel (or extend HeaderBar) showing extracted tickers and live prices
+- Extend BracketPanel to show per-ticker consensus when available
+- Extend RationaleSidebar to show ticker + direction in entries
 
-### Phase 2: Richer Agent Interactions (SOCIAL-01, SOCIAL-02)
+**Risk:** MEDIUM -- TUI changes require careful layout management. The existing CSS and widget structure must accommodate new panels without breaking the 10x10 grid layout.
 
-**Why second:** Depends on Phase 1 (RationaleEpisode nodes). Enhances the simulation data quality that interviews and reports will later consume.
+### 11. `graph.py` -- Store Ticker and Market Context
 
-**Components:**
-1. Implement `read_peer_rationale_posts()` in `GraphStateManager`
-2. Add `_format_peer_posts()` to `simulation.py`
-3. Modify `_dispatch_round()` to optionally use rationale posts instead of plain peer decisions
-4. Add `READ_POST` relationship write
-5. Tests: verify enriched peer context injection
+**Changes:**
+- Extend `create_cycle_with_seed_event()` to store TickerSymbol nodes linked to Cycle
+- Add new node type: `:Ticker {symbol, company_name}` with `:MENTIONS` edge from Cycle
+- Extend Decision nodes with optional ticker field
+- New query methods for per-ticker consensus aggregation (used by report engine)
 
-**Existing code changes:**
-- `graph.py`: Add 2 methods (read posts, write READ_POST edges)
-- `simulation.py`: Modify `_dispatch_round()` to use richer context
+**Risk:** LOW-MEDIUM -- new node types and relationships follow existing patterns. Must add schema constraints for Ticker.symbol uniqueness.
 
-**Risk:** MEDIUM. Modifying the dispatch path affects core simulation behavior. Needs careful testing to ensure richer context does not degrade agent output quality or blow context windows.
+---
 
-### Phase 3: Dynamic Persona Generation (PERSONA-01, PERSONA-02)
-
-**Why third:** Independent of Phases 1-2 in code, but benefits from being tested against the richer graph data they produce. Also, this feature modifies the input to the simulation, which is less risky than modifying the simulation loop itself.
-
-**Components:**
-1. Create `persona_gen.py` with `PersonaGenerator` class
-2. Add `PersonaGenSettings` to `config.py`
-3. Modify `seed.py` to optionally keep orchestrator loaded
-4. Wire into CLI and TUI launch paths (between inject and simulate)
-5. Add to `AppState` as optional component
-6. Tests: verify persona replacement logic, prompt generation
-
-**Existing code changes:**
-- `config.py`: Add settings
-- `seed.py`: Add `keep_orchestrator_loaded` parameter
-- `cli.py`: Call persona generator in run/tui paths
-- `app.py`: Add `persona_generator` field
-
-**Risk:** LOW. Additive feature that modifies input, not core loop.
-
-### Phase 4: Agent Interviews (INT-01, INT-02, INT-03)
-
-**Why fourth:** Depends on Phase 1 (rationale history in graph) for rich context. Post-simulation feature, so does not affect core simulation reliability.
-
-**Components:**
-1. Create `interview.py` with `InterviewEngine` + `InterviewSession`
-2. Add interview-specific read methods to `GraphStateManager`
-3. Add `InterviewSettings` to `config.py`
-4. Add `INTERVIEWING` to `SimulationPhase`
-5. Add interview state to `StateStore`
-6. Add `interview` CLI subcommand
-7. Add interview panel to TUI (Input + response display)
-8. Tests: verify context loading, multi-turn conversation
-
-**Existing code changes:**
-- `types.py`: Add phase enum value
-- `state.py`: Add interview state fields
-- `graph.py`: Add read methods (decisions, rationale, influence for single agent)
-- `config.py`: Add settings
-- `cli.py`: Add subcommand
-- `tui.py`: Add interview widget/mode
-- `app.py`: Add `interview_engine` field
-
-**Risk:** MEDIUM. TUI changes require careful Textual widget integration. The interview panel introduces user input handling in a previously output-only TUI.
-
-### Phase 5: Post-Simulation Report (REPORT-01, REPORT-02, REPORT-03)
-
-**Why last:** Depends on Phase 1 (rationale data in graph). The ReACT pattern is the most complex new component. It benefits from all prior phases providing richer graph data to query.
-
-**Components:**
-1. Create `report.py` with `ReportGenerator`, `ReACTAction`, tool registry
-2. Add `parse_react_action()` to `parsing.py`
-3. Add report query methods to `GraphStateManager`
-4. Add `ReportSettings` to `config.py`
-5. Add `REPORTING` to `SimulationPhase`
-6. Add report progress to `StateStore`
-7. Add `report` CLI subcommand
-8. Add report progress indicator to TUI
-9. Tests: verify ReACT loop, tool dispatch, report output format
-
-**Existing code changes:**
-- `types.py`: Add phase enum value
-- `state.py`: Add report progress fields
-- `graph.py`: Add 4-5 report query methods
-- `parsing.py`: Add ReACT action parsing
-- `config.py`: Add settings
-- `cli.py`: Add subcommand
-- `tui.py`: Add progress indicator
-- `app.py`: Add `report_generator` field
-
-**Risk:** MEDIUM-HIGH. The ReACT loop is iterative and depends on LLM output quality for tool selection. Needs robust fallback for malformed tool calls and a hard iteration cap.
-
-### Build Order Dependency Graph
+## Data Flow: Complete v3.0 Pipeline
 
 ```
-Phase 1: Live Graph Memory
-    |
-    +-------+-------+
-    |               |
-    v               v
-Phase 2:        Phase 3:
-Richer          Dynamic Persona
-Interactions    Generation
-    |
+User enters seed rumor
+        |
+        v
+[1] inject_seed() ─── Orchestrator LLM ─── Parse entities + tickers
+        |                                        |
+        | cycle_id, SeedEvent w/ tickers         | persist to Neo4j
+        v                                        v
+[2] Validate tickers ── asyncio.to_thread(yfinance) ── filter invalid symbols
+        |
+        v
+[3] Fetch market data ── asyncio.to_thread(yfinance) + httpx(EDGAR/NewsAPI)
+        |                     |
+        | MarketSnapshot(s)   | (parallel per ticker, ~2-5 seconds)
+        v                     v
+[4] Load nomic-embed-text ── Ollama embed ── Query ChromaDB
+        |                                       |
+        | RAGResult(s)                           | (top 3-5 precedents)
+        v                                       v
+[5] ContextEnricher ── assemble prompt sections ── budget cap 2000 chars
+        |
+        | EnrichedContext
+        v
+[6] Unload nomic-embed-text (or keep_alive=0) ── Load worker model
+        |
+        v
+[7] dispatch_wave() Round 1 ── 100 agents with enriched context
+        |
+        v
+[8] dispatch_wave() Round 2 ── peer context + enriched context
+        |
+        v
+[9] dispatch_wave() Round 3 ── peer context + enriched context
+        |
+        v
+[10] Post-simulation: per-ticker consensus aggregation, report, interview
+```
+
+**Timing estimates for new phases (M1 Max 64GB):**
+
+| Phase | Estimated Duration | Blocking? |
+|-------|-------------------|-----------|
+| Ticker validation (yfinance) | 1-3 seconds | No (to_thread) |
+| Market data fetch (yfinance + APIs) | 2-8 seconds | No (to_thread + httpx async) |
+| Embedding model load | 2-5 seconds | No (Ollama async) |
+| RAG query (ChromaDB) | 0.1-0.5 seconds | No (to_thread) |
+| Context assembly | <0.01 seconds | No |
+
+**Total new overhead: 5-17 seconds** before Round 1 begins. Acceptable given the 3-round simulation takes 3-10 minutes.
+
+---
+
+## Model Loading Choreography (CRITICAL)
+
+The 2-model limit (`OLLAMA_MAX_LOADED_MODELS=2`) creates a strict ordering requirement:
+
+```
+Timeline:
+  t0 ── Load orchestrator (qwen3.5:32b) ── seed injection + ticker extraction
+  t1 ── Unload orchestrator
+  t2 ── Market data fetch (no model needed, HTTP only)
+  t3 ── Load nomic-embed-text ── RAG query
+  t4 ── Unload nomic-embed-text (or set keep_alive=0)
+  t5 ── Load worker (qwen3.5:7b) ── Rounds 1-3
+  t6 ── [Worker stays loaded for interview/report]
+```
+
+**Alternative approach (simpler, slightly less optimal):**
+Skip explicit nomic-embed-text management. Use ChromaDB's `OllamaEmbeddingFunction` which makes HTTP calls to Ollama's `/api/embeddings` endpoint. Ollama will auto-load nomic-embed-text on first embedding request and auto-unload based on `keep_alive`. Set `keep_alive=0` in the embedding request to force immediate unload after the batch.
+
+This avoids adding nomic-embed-text lifecycle management to `OllamaModelManager` -- the embedding model is treated as ephemeral, not managed.
+
+**Recommendation:** Use the alternative approach (auto-load with keep_alive=0). Simpler code, same result. The embedding model is small (~270MB) and loads in 2-3 seconds. The overhead is acceptable for a one-time per-simulation operation.
+
+**Confidence:** HIGH -- Ollama's auto-loading behavior is well-documented. The keep_alive=0 pattern is standard.
+
+---
+
+## New Dependencies
+
+| Package | Version | Purpose | Async? | Memory Impact |
+|---------|---------|---------|--------|---------------|
+| yfinance | >=0.2.40 | Price history, fundamentals, earnings | Sync (use asyncio.to_thread) | ~50MB + pandas DataFrames |
+| chromadb | >=1.0.0 | Vector store for RAG knowledge base | Sync PersistentClient (use asyncio.to_thread) | ~100MB + stored embeddings |
+| httpx | (already in deps) | Async HTTP for EDGAR, NewsAPI | Native async | Negligible |
+
+**Why NOT these alternatives:**
+
+| Avoided | Why Not |
+|---------|---------|
+| LangChain | Same rationale as v2.0 -- massive dependency tree, we have our own OllamaClient. RAG pipeline is ~100 LOC without LangChain. |
+| LlamaIndex | Adds 50+ transitive deps. We need 1 ChromaDB collection and simple query/add. |
+| Pinecone / Weaviate / Qdrant | Cloud-hosted or heavy server setup. ChromaDB embedded mode fits local-first philosophy. |
+| alpha_vantage (pip package) | Old sync library. We can use httpx directly for Alpha Vantage REST API -- cleaner and consistent with our async patterns. |
+| newsapi-python | Sync only. httpx.AsyncClient + direct API calls are simpler. |
+| SEC-API (commercial) | Paid service. Official data.sec.gov REST API is free and sufficient. |
+
+**Total new dependencies: 2** (yfinance, chromadb). Everything else uses existing httpx or is hand-rolled.
+
+---
+
+## ChromaDB Schema Design
+
+**Collection:** `alphaswarm_knowledge`
+
+**Document structure:**
+
+```python
+{
+    "id": "earnings_AAPL_2025Q3",
+    "document": "Apple Q3 2025 earnings: Revenue $94.8B (+8% YoY), EPS $1.40 vs $1.35 est (+3.7% surprise). Stock rose 3.2% next trading day. Market interpreted as growth acceleration in Services segment.",
+    "metadata": {
+        "ticker": "AAPL",
+        "event_type": "earnings",      # earnings | sector_pattern | macro_event | simulation
+        "date": "2025-07-28",
+        "sector": "Technology",
+        "surprise_pct": 3.7,
+        "price_reaction_pct": 3.2,
+        "source": "historical_dataset"  # historical_dataset | live_fetch | simulation_export
+    }
+}
+```
+
+**Query strategy:**
+- Primary: Semantic similarity to seed rumor text
+- Filter: `where={"ticker": {"$in": extracted_tickers}}` for ticker-specific precedents
+- Fallback: Sector-level query if no ticker-specific results
+- Top-K: 3-5 results per query, sorted by relevance
+
+**Seeding strategy:**
+- Ship a pre-built dataset of ~500-1000 historical earnings reactions (JSON/CSV)
+- Ingest on first run via a CLI command: `alphaswarm seed-knowledge`
+- Runtime enrichment: After each simulation, optionally export results to the knowledge base
+
+---
+
+## Configuration Schema Extension
+
+```python
+class MarketDataSettings(BaseModel):
+    """Market data provider configuration."""
+    enabled: bool = True
+    yfinance_enabled: bool = True
+    newsapi_key: str | None = None       # Optional, falls back to yfinance news
+    alpha_vantage_key: str | None = None  # Optional, falls back to yfinance
+    edgar_user_agent: str = "AlphaSwarm/3.0 (research@alphaswarm.local)"
+    cache_ttl_seconds: int = 300         # 5 minutes
+    max_tickers: int = 5                 # Cap on extracted tickers
+    fetch_timeout_seconds: float = 15.0  # Total timeout for all fetches
+    history_days: int = 30               # Price history lookback
+
+class RAGSettings(BaseModel):
+    """RAG knowledge base configuration."""
+    enabled: bool = True
+    persist_dir: str = ".chromadb"
+    embedding_model: str = "nomic-embed-text"
+    collection_name: str = "alphaswarm_knowledge"
+    top_k: int = 5
+    min_relevance_score: float = 0.3     # Filter low-relevance results
+    context_budget_chars: int = 800      # Max chars for RAG section in prompt
+```
+
+---
+
+## Suggested Build Order (Dependency-Aware)
+
+The new features have strict dependencies. Build order must respect them:
+
+```
+Phase 1: Ticker Extraction
+    |  (no external deps beyond existing ollama)
     v
-Phase 4: Agent Interviews
-    |
+Phase 2: Market Data Pipeline
+    |  (depends on Phase 1 for ticker symbols)
     v
-Phase 5: Post-Simulation Report
+Phase 3: RAG Knowledge Base
+    |  (depends on Phase 2 for runtime document enrichment)
+    |  (can be started in parallel with Phase 2 for static seeding)
+    v
+Phase 4: Context Enrichment & Agent Prompt Injection
+    |  (depends on Phase 2 + Phase 3 for data)
+    v
+Phase 5: Enhanced AgentDecision & Parsing
+    |  (depends on Phase 4 for context that produces richer outputs)
+    |  (can be started in parallel with Phase 4)
+    v
+Phase 6: TUI Enhancements & Per-Ticker Consensus
+    |  (depends on Phase 5 for enhanced data to display)
+    v
+Phase 7: Integration Testing & Report Engine Updates
 ```
 
-**Phase ordering rationale:**
-- Phase 1 is foundational -- all features read from the richer graph data it produces
-- Phases 2 and 3 are independent of each other and can be built in parallel
-- Phase 4 depends on Phase 1 for context data; placed after Phase 2 because richer interactions improve interview context quality
-- Phase 5 depends on Phase 1; placed last because it is the most complex (ReACT loop) and benefits from all prior phases providing maximum graph data
+**Detailed phase breakdown:**
 
-## Scaling Considerations
+### Phase 1: Ticker Extraction (Foundation)
+- Modify `types.py`: Add `TickerSymbol`
+- Modify `seed.py`: Augment orchestrator prompt, parse tickers
+- Modify `parsing.py`: Handle `tickers` array
+- New `ticker.py`: yfinance validation via `asyncio.to_thread()`
+- Modify `config.py`: Add `MarketDataSettings` (even if not all used yet)
+- Modify `graph.py`: Store Ticker nodes in Neo4j
+- **Tests:** Orchestrator extracts tickers from known rumors, validation catches invalid symbols
+- **Depends on:** Nothing new
+- **Risk:** LOW
 
-| Concern | 100 agents (current) | Notes |
-|---------|---------------------|-------|
-| Rationale episode writes | +100 nodes + 100 edges per round (trivial) | UNWIND batch, same pattern as decisions |
-| Narrative edges | +100 edges per round for R2 and R3 | Single Cypher statement |
-| Interview context load | ~3 graph reads (decisions, rationale, influence) | <100ms total |
-| ReACT loop | 5-10 LLM calls + 5-10 graph queries | ~30-60s total, acceptable post-sim |
-| Persona generation | 1 LLM call to generate 10-20 custom prompts | ~5-10s, one-time cost |
-| Neo4j storage per sim | ~600 additional nodes (rationale episodes) | Negligible disk impact |
+### Phase 2: Market Data Pipeline
+- New `market_data.py`: `MarketDataProvider` class
+- Implement yfinance fetcher (primary) via `asyncio.to_thread()`
+- Implement EDGAR fetcher (httpx async) for earnings data
+- Implement NewsAPI fetcher (httpx async) with graceful degradation
+- Add `MarketDataProvider` to AppState
+- **Tests:** Fetch snapshots for known tickers, handle API failures gracefully
+- **Depends on:** Phase 1 (needs ticker symbols)
+- **Risk:** MEDIUM (external API reliability)
+
+### Phase 3: RAG Knowledge Base
+- Add `chromadb` dependency
+- New `rag.py`: `RAGKnowledgeBase` class with PersistentClient
+- Configure `OllamaEmbeddingFunction` with nomic-embed-text
+- Create seed dataset (JSON file with ~500 historical earnings reactions)
+- CLI command: `alphaswarm seed-knowledge` for initial ingest
+- Add `RAGKnowledgeBase` to AppState
+- **Tests:** Add documents, query by text + metadata filter, persistence across restarts
+- **Depends on:** Ollama running with nomic-embed-text pulled
+- **Risk:** MEDIUM (ChromaDB + Ollama embedding interaction, model loading)
+
+### Phase 4: Context Enrichment & Agent Prompt Injection
+- New `context.py`: `ContextEnricher` class
+- Modify `worker.py`: Accept `market_context` parameter
+- Modify `batch_dispatcher.py`: Thread `market_context` through
+- Modify `simulation.py`: Add enrichment phase between seed injection and Round 1
+- Budget management: Enforce 2000-char cap on enriched context
+- **Tests:** Context formatting, budget cap enforcement, integration with dispatch_wave
+- **Depends on:** Phase 2 + Phase 3
+- **Risk:** MEDIUM (prompt budget management, ensuring enrichment doesn't degrade agent quality)
+
+### Phase 5: Enhanced AgentDecision & Parsing
+- Modify `types.py`: Add optional fields to `AgentDecision`
+- Modify `config.py`: Update `JSON_OUTPUT_INSTRUCTIONS` for v3 mode
+- Modify `parsing.py`: Parse new optional fields (backward compatible)
+- Modify `state.py`: Extend `BracketSummary` with per-ticker fields
+- **Tests:** Parse decisions with and without new fields, backward compatibility
+- **Depends on:** Phase 4 (enriched context prompts agents to produce richer output)
+- **Risk:** LOW
+
+### Phase 6: TUI Enhancements
+- Modify `tui.py`: Market data panel, per-ticker consensus display
+- Modify `state.py`: Extended StateSnapshot with market data
+- Updated BracketPanel for per-ticker breakdown
+- Updated RationaleSidebar with ticker + direction
+- **Depends on:** Phase 5
+- **Risk:** MEDIUM (layout management)
+
+### Phase 7: Integration & Report Engine
+- End-to-end integration testing
+- Modify `report.py`: Add per-ticker analysis tools to ReACT agent
+- Modify `graph.py`: Per-ticker consensus query methods
+- Knowledge base enrichment: Export simulation results to ChromaDB
+- **Depends on:** All prior phases
+- **Risk:** LOW-MEDIUM
+
+---
+
+## Anti-Patterns to Avoid
+
+### 1. Fetching Market Data During Agent Inference
+**What:** Calling yfinance or APIs inside the dispatch_wave hot path
+**Why bad:** 100 agents x API calls = rate limiting, massive latency, event loop blocking
+**Instead:** Fetch ALL market data ONCE before Round 1. Pass as static context.
+
+### 2. Loading Embedding Model During Inference Rounds
+**What:** Loading nomic-embed-text while the worker model is processing agents
+**Why bad:** Exceeds 2-model limit, causes model eviction and ~30s cold reload
+**Instead:** All embedding operations happen before worker model loads.
+
+### 3. Unbounded Context Injection
+**What:** Dumping entire market data + RAG results into agent prompt without budget cap
+**Why bad:** Overflows qwen3.5:7b context window (~4K tokens), produces garbage output
+**Instead:** Hard cap at 2000 chars for enriched context. Truncate at content boundaries.
+
+### 4. Synchronous yfinance in Event Loop
+**What:** Calling `yf.Ticker().info` directly in async code
+**Why bad:** Blocks the entire asyncio event loop for 1-3 seconds per call
+**Instead:** Always wrap in `asyncio.to_thread()`.
+
+### 5. Tight Coupling Between Market Data Sources
+**What:** Hard-coding yfinance calls everywhere instead of abstracting through MarketDataProvider
+**Why bad:** When yfinance breaks (Yahoo API change), every call site needs fixing
+**Instead:** Single MarketDataProvider with pluggable fetchers and graceful degradation.
+
+### 6. Making RAG a Hard Dependency
+**What:** Requiring ChromaDB + nomic-embed-text for simulation to run
+**Why bad:** Breaks existing non-RAG workflows, adds setup friction
+**Instead:** RAG is opt-in. `rag_kb=None` means skip RAG enrichment. Simulation works without it.
+
+---
+
+## Scalability Considerations
+
+| Concern | Current (100 agents, 1-5 tickers) | At 500 agents | At 10 tickers |
+|---------|-----------------------------------|---------------|---------------|
+| Market data fetch | 2-8s (acceptable) | Same (fetched once) | 10-20s (still acceptable) |
+| Embedding overhead | <1s per query | Same (query count fixed) | 2-3s (more docs to embed) |
+| Prompt context budget | 2000 chars works | Same | Must prioritize top 3 tickers, drop others |
+| ChromaDB storage | <100MB | Same | ~200MB |
+| Memory pressure | +150MB (yfinance + chromadb) | Same | +200MB |
+| Total RAM overhead | ~64GB system with ~40GB available | Same | Same |
+
+---
 
 ## Sources
 
-- [Neo4j Text2Cypher ReACT agent example](https://github.com/neo4j-field/text2cypher-react-agent-example) -- Pattern reference for ReACT + Neo4j integration
-- [MAGMA: Multi-Graph Agentic Memory Architecture](https://arxiv.org/abs/2601.03236) -- Multi-graph memory patterns for agent systems
-- [DPRF: Dynamic Persona Refinement Framework](https://arxiv.org/abs/2510.14205) -- Dynamic persona generation and refinement patterns
-- [Textual framework documentation](https://textual.textualize.io/) -- Widget composition, async Workers, Input handling
-- [Neo4j async driver documentation](https://neo4j.com/docs/api/python-driver/current/async_api.html) -- Session-per-method pattern
-- [ReACT: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629) -- Original ReACT paper
+- [yfinance GitHub](https://github.com/ranaroussi/yfinance) -- thread safety issues confirmed (#2557)
+- [ChromaDB Docs - Clients](https://docs.trychroma.com/docs/run-chroma/clients) -- PersistentClient vs AsyncHttpClient
+- [ChromaDB Cookbook - Ollama Integration](https://cookbook.chromadb.dev/integrations/ollama/embeddings/) -- OllamaEmbeddingFunction
+- [Ollama Python Library](https://github.com/ollama/ollama-python) -- AsyncClient.embed() confirmed in v0.6.1
+- [Ollama Embedding Models Blog](https://ollama.com/blog/embedding-models) -- nomic-embed-text recommended
+- [SEC EDGAR APIs](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) -- free RESTful API, 10 req/s
+- [asyncnewsapi](https://github.com/pkpinto/asyncnewsapi) -- async NewsAPI wrapper exists but httpx is simpler
+- [yfinance thread safety issue](https://github.com/ranaroussi/yfinance/issues/2557) -- confirms NOT thread-safe for same ticker
+- [ChromaDB AsyncHttpClient bugs](https://github.com/chroma-core/chroma/issues/4156) -- v1.0 async client issues
 
----
-*Architecture research for: AlphaSwarm v2.0 Engine Depth*
-*Researched: 2026-03-31*
+**Confidence levels by source:**
+
+| Finding | Confidence | Source |
+|---------|------------|--------|
+| yfinance requires asyncio.to_thread() | HIGH | Official docs + GitHub issues |
+| ChromaDB PersistentClient is sync-only | HIGH | Official docs + cookbook |
+| OllamaEmbeddingFunction works with nomic-embed-text | MEDIUM-HIGH | Cookbook examples (not tested locally) |
+| Ollama AsyncClient has embed() method | HIGH | Official ollama-python README |
+| 2-model limit managed via keep_alive=0 | MEDIUM | Ollama docs (needs local verification) |
+| yfinance is NOT thread-safe for same ticker | HIGH | GitHub issue #2557 with reproduction |
+| SEC EDGAR API is free, no auth | HIGH | Official SEC.gov documentation |

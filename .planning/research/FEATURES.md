@@ -1,211 +1,192 @@
-# Feature Research: v2.0 Engine Depth
+# Feature Research: v3.0 Stock-Specific Recommendations with Live Data & RAG
 
-**Domain:** Multi-agent LLM-powered financial market simulation engine (local-first, consensus cascade)
-**Researched:** 2026-03-31
-**Confidence:** HIGH
-**Scope:** v2.0 milestone features ONLY. v1 features (10 phases) are validated and shipped.
+**Domain:** Multi-agent LLM-powered financial simulation with live market data grounding and RAG retrieval
+**Researched:** 2026-04-05
+**Confidence:** HIGH (stack components verified via official docs and multiple sources)
+**Scope:** v3.0 milestone features ONLY. v1 (Phases 1-10) and v2 (Phases 11-15) features are validated and shipped.
 
-## Existing v1 Foundation (Already Built)
+## Existing Foundation (Already Built -- Not Re-Researched)
 
-These are validated and will not be re-researched. Listed here to establish dependency roots for v2 features.
+Listed to establish dependency roots for v3 features.
 
 - 100-agent swarm across 10 bracket archetypes with distinct risk profiles
 - 3-round iterative cascade (Initial Reaction, Peer Influence, Final Consensus Lock)
 - Dynamic influence topology via INFLUENCED_BY edges from citation/agreement patterns
 - Textual TUI: 10x10 agent grid, rationale sidebar, telemetry footer, bracket panel
 - Neo4j graph state with cycle-scoped indexes and batch writing
-- Seed rumor injection with entity extraction via orchestrator LLM
+- Seed rumor injection with entity extraction via orchestrator LLM (EntityType: COMPANY, SECTOR, PERSON)
 - ResourceGovernor with TokenPool and 5-state governor machine
 - StateStore bridge (simulation writes, TUI reads snapshots at 200ms tick)
+- Live graph memory: RationaleEpisode nodes with REFERENCES edges, decision_narrative on Agent nodes
+- Social-style rationale posts consumed by peers, implicit reactions via CITED edges
+- Dynamic persona generation: entity-aware modifier injection per bracket
+- Agent interviews: post-sim multi-turn Q&A with reconstructed context
+- Post-simulation reports: ReACT agent with Cypher tools + Jinja2 templates
 
 ---
 
 ## Feature Landscape
 
-### Table Stakes (Users Expect These for v2)
+### Table Stakes (Users Expect These for v3)
 
-Features that a "deeper simulation engine" milestone MUST deliver. Without these, v2 feels like polish, not substance.
+Features that a "stock-specific with live data" milestone MUST deliver. Without these, v3 is a prompt engineering exercise, not data-grounded analysis.
 
 | Feature | Why Expected | Complexity | Dependencies on Existing | Notes |
 |---------|--------------|------------|--------------------------|-------|
-| **Live graph memory (rationale episodes)** | v1 writes decisions in batch after each round completes. Every serious simulation engine (Generative Agents, MiroFish, TwinMarket) stores agent reasoning as it happens, not post-hoc. Real-time persistence enables mid-simulation queries, crash recovery, and progressive graph analysis. Without this, Neo4j is a write-once dump, not a living memory. | MEDIUM | Extends `GraphStateManager.write_decisions()` and `StateStore` writes. Requires new Episode/Rationale node types in Neo4j schema. Must not block agent inference hot path. | Graphiti (Zep AI) pioneered bi-temporal episode ingestion in Neo4j -- events track both "when it happened" and "when it was recorded." AlphaSwarm's simpler need: write Decision nodes immediately per-agent instead of batch-per-round, plus add RationaleEpisode nodes linking Agent -> Round -> Rationale with timestamps. |
-| **Post-simulation report** | Every competing framework (MiroFish ReportAgent, TradingAgents chain-of-thought logs, StockSim export) provides structured post-simulation analysis. A simulation that produces 300 decisions across 3 rounds but no summary is a data dump, not an analytical tool. Users need a synthesized narrative. | MEDIUM | Reads from Neo4j (all Decision, Agent, Cycle, Entity nodes). Uses orchestrator LLM. Leverages existing `compute_bracket_summaries()` logic. | ReACT pattern (Thought-Action-Observation loop) is the right approach: the report agent thinks about what to analyze, queries Neo4j via Cypher tools, observes results, iterates. Output is structured markdown. Does NOT require LangChain/LangGraph -- implement a minimal ReACT loop with Ollama directly. |
-| **Agent interviews (post-sim Q&A)** | Stanford Generative Agents (Park et al. 2023) established agent interviews as the standard evaluation methodology. Their 100-evaluator study proved that interviews across 5 categories (self-knowledge, memory, planning, reactions, reflection) are how you validate simulation believability. MiroFish Step 5 implements this. Without interviews, users cannot probe WHY agents made specific decisions. | MEDIUM | Requires full persona context + all 3 rounds of that agent's decisions from Neo4j. Uses worker LLM (not orchestrator) with the agent's original system prompt restored. | The key insight from Generative Agents: interviews must reconstruct the agent's full memory context -- persona, all decisions across rounds, peer context received, entities reacted to. The agent answers "in character" using its original system prompt plus retrieved decision history as injected context. |
+| **Ticker extraction from seed rumors** | The existing entity extraction (Phase 5) produces EntityType.COMPANY/SECTOR/PERSON but no stock tickers. A rumor like "Apple is acquiring Tesla's battery division" needs to resolve to AAPL and TSLA before any market data can be fetched. Every financial analysis system (TradingAgents, P1GPT, AlphaAgents) starts with ticker identification. Without this, there is nothing to query market APIs for. | LOW | Extends `inject_seed()` in seed.py. Extends the orchestrator system prompt to also return tickers. Adds `ticker` field to `SeedEntity` model. Consumes existing 3-tier parse fallback. | Two approaches: (1) LLM-native extraction -- extend the ORCHESTRATOR_SYSTEM_PROMPT to also return `"ticker": "AAPL"` per entity. This is the right first step because the orchestrator is already loaded and entity extraction is already happening. (2) Validation lookup -- after LLM extraction, validate tickers against a static symbol table (SEC company_tickers.json, 13K entries, 2MB file). The validation step catches hallucinated tickers. Use sec-cik-mapper or a cached SEC tickers JSON for the lookup, not a runtime API call. |
+| **Live market data fetching (price + fundamentals)** | Once tickers are extracted, agents need actual market data to ground their analysis. Without real data, a rumor about Apple still produces the same "generic bullish/bearish" outputs as v2. TradingAgents, P1GPT, and every serious financial agent framework injects real market data. This is the core value proposition of v3 -- grounding simulation in reality. | HIGH | New module (e.g., `market_data.py`). Must be fully async (asyncio + httpx). Called between seed injection and Round 1 dispatch. Data stored in a `MarketContext` Pydantic model consumed by agent prompt builder. Respects existing governor memory monitoring. | yfinance is the right primary source: free, no API key, covers price history + financials + earnings + news headlines. yfinance v1.0 (Jan 2026) is stable. BUT yfinance is synchronous and uses requests internally -- must wrap in `asyncio.to_thread()` or use httpx directly against Yahoo Finance endpoints. Alpha Vantage is the right supplementary source for earnings surprise data (reported vs estimated EPS) -- free tier: 500 calls/day, 5/minute, has native async support since v2.2.0. Aggregate data from multiple sources into a single `MarketContext` per ticker. |
+| **Agent context enrichment with structured data** | Fetching market data is pointless unless agents actually receive it. The existing worker prompt pipeline (system_prompt + optional peer_context + user_message) must be extended with a structured data block. Without data injection, agents hallucinate financial metrics. TradingAgents provides each analyst role with different data slices (fundamentals for fundamental analyst, sentiment scores for sentiment analyst). | MEDIUM | Extends `AgentWorker.infer()` and `_format_peer_context()` in simulation dispatch. Adds a new `market_context` parameter to the worker inference path. Modifies prompt assembly in `worker.py`. Must stay within Ollama context window limits. | The design: inject a `[MARKET DATA]` block into the user message before the rumor text. Format as structured but readable text, not raw JSON -- agents parse natural language better than raw numbers. Different brackets should receive different data emphasis: Quants get price/vol/technicals, Macro gets sector/index correlations, Insiders get earnings surprise data. Keep total injected data under 500 tokens per agent to avoid context window pressure (qwen3.5:7b has 32K context, but 100-agent throughput matters more than max context usage). |
+| **Enhanced AgentDecision output** | v2 AgentDecision has: signal (BUY/SELL/HOLD), confidence (0-1), sentiment (-1 to 1), rationale (text), cited_agents (list). For stock-specific analysis, agents must also emit: ticker, direction (more nuanced than BUY/SELL), expected_return_pct, and time_horizon. Without these, the "stock-specific" promise is broken -- you just get generic signals with no actionable specificity. | LOW | Extends `AgentDecision` Pydantic model in types.py. Extends `JSON_OUTPUT_INSTRUCTIONS` in config.py. Extends `parse_agent_decision()` in parsing.py with new field handling. Must preserve backward compatibility (new fields optional with defaults). | Add fields: `ticker: str = ""`, `expected_return_pct: float = 0.0`, `time_horizon: str = ""` (e.g., "1w", "1m", "3m"). Keep signal as BUY/SELL/HOLD for TUI color mapping compatibility. The 3-tier parse fallback already handles missing fields gracefully via Pydantic defaults. Extend the JSON output instruction string to include the new fields. |
+| **Per-stock consensus display in TUI** | The existing TUI shows a flat 10x10 grid and per-bracket summary bars. With multi-ticker support, users need to see which stocks the swarm is bullish/bearish on. Without per-stock breakdown, the TUI shows the same aggregate view as v2 -- the live data investment is invisible to the user. | MEDIUM | Extends `StateStore` with per-ticker aggregation data. Extends `StateSnapshot` with ticker summary fields. New TUI widget (or extends `BracketPanel`) for ticker-level consensus. Uses existing 200ms snapshot polling -- no new render architecture. | Design: a new `TickerPanel` widget showing each extracted ticker with its consensus signal, confidence-weighted vote, and bracket disagreement indicator. Keep it minimal -- 1-2 lines per ticker, not a full financial dashboard. The BracketPanel already demonstrates the pattern: compute summaries after each round, store in StateStore, render in TUI via snapshot. Apply the same pattern for ticker summaries. |
 
 ### Differentiators (Competitive Advantage)
 
-Features that set AlphaSwarm apart from MiroFish, TwinMarket, and OASIS. Not required for a complete v2, but valuable.
+Features that set AlphaSwarm v3 apart from TradingAgents, P1GPT, and AlphaAgents. Not required for a complete v3, but high-value.
 
 | Feature | Value Proposition | Complexity | Dependencies on Existing | Notes |
 |---------|-------------------|------------|--------------------------|-------|
-| **Richer agent interactions (social posts/reactions)** | OASIS implements 21 social actions (post, like, comment, repost, follow). TwinMarket uses forum-style post/upvote/repost with hot-score ranking. AlphaSwarm v1's peer influence is implicit (agents see peer decisions, not explicit social content). Making rationale visible as "posts" that peers explicitly react to creates emergent social dynamics -- opinion leader emergence, information cascades, behavioral polarization via homophily. | HIGH | Extends Round 2-3 peer influence pipeline. Requires new Post/Reaction node types in Neo4j. Modifies `_dispatch_round()` and `_format_peer_context()` to include social post content. Increases prompt token count per agent. | CRITICAL CONSTRAINT: OASIS achieves rich interactions at cloud scale (4,000+ inference calls). AlphaSwarm's 300-call budget on M1 Max means social interactions must be lightweight. The approach: agents produce a "public rationale post" as part of their decision output (zero extra inference calls), peers consume top-K ranked posts (ranked by influence weight) as additional context. Reactions are implicit -- agreement/citation patterns already captured by existing CITED edges. Do NOT build a full social media platform layer. |
-| **Dynamic persona generation (entity-aware)** | MiroFish chains ontology_generator + oasis_profile_generator to create situation-specific personas from seed text. Recent research (Population-Aligned Persona Generation, 2025) shows that personas grounded in the specific scenario produce more diverse, realistic responses than generic archetypes. AlphaSwarm v1 uses static bracket templates with round-robin modifiers -- effective but not adaptive to the seed rumor's content. | MEDIUM | Consumes `SeedEvent.entities` from seed injection pipeline. Extends `generate_personas()` in config.py. Uses orchestrator LLM to generate entity-aware modifier text per bracket. Must preserve the 10-bracket structure (100 agents, same counts). | The design: after entity extraction, the orchestrator generates 1-2 sentences of entity-specific context per bracket (e.g., for a "Tesla recalls vehicles" rumor, Quants get "Tesla's P/E ratio is 45x with 2.3M vehicles delivered last quarter", Degens get "TSLA options chain shows 40% IV crush potential"). These modifier sentences are injected into the existing system_prompt_template. The bracket archetype stays fixed; only the situational modifier changes. One orchestrator call generates all 10 bracket modifiers in a single JSON response. |
-| **Narrative edge formation** | MiroFish builds narrative connections between agent actions and knowledge graph entities during simulation. AlphaSwarm v1 has INFLUENCED_BY edges (citation-based) but no edges connecting decisions to the specific entities they reference. Adding REFERENCES edges from Decision nodes to Entity nodes would enable queries like "Which agents were most influenced by the Tesla entity?" and "Did Quants focus on Tesla while Macro focused on the EV sector?" | LOW | Extends `write_decisions()` to create REFERENCES edges. Requires entity mention detection in rationale text (simple keyword matching against extracted entities, not a second LLM call). | Low complexity because it piggybacks on existing entity extraction and decision writing. High analytical value for the post-simulation report agent. |
-| **Reflection synthesis** | Generative Agents triggers reflections when accumulated importance scores exceed a threshold, producing higher-level insights stored as tree-structured memories. AlphaSwarm could synthesize per-bracket "reflections" after Round 2 -- bracket-level consensus patterns like "Quants converged on SELL after seeing Sovereigns' bearish positioning" -- and inject these as additional context in Round 3. | HIGH | Would add an extra orchestrator LLM call between Round 2 and Round 3. Extends prompt context for Round 3 agents. New Reflection node type in Neo4j. | Marked HIGH complexity because it adds an orchestrator inference step mid-simulation (model swap overhead ~30s) and increases Round 3 prompt tokens. Powerful but expensive on M1 Max. Defer unless live graph memory + report + interviews ship cleanly. |
-| **Interview-driven agent profile refinement** | PersonaAgent (2025) demonstrates test-time persona alignment: after receiving feedback, the agent iteratively rewrites its persona prompt. For AlphaSwarm, interviews could surface persona weaknesses (e.g., a Quant agent giving emotional responses) and feed corrections back into the system prompt template. | LOW | Depends on Agent Interviews being built first. Modifies `BRACKET_MODIFIERS` in config.py based on interview findings. | This is a development workflow feature, not a runtime feature. After running a simulation and interviewing agents, the developer manually refines prompts. No automation needed initially. |
+| **RAG knowledge base for historical precedents** | TradingAgents and P1GPT use simple web search for context. AlphaSwarm can offer deeper grounding: "The last time Apple's P/E was this high before an acquisition, the stock dropped 12% over 3 months." Historical pattern retrieval transforms agents from reactive (analyzing current data) to comparative (current data vs historical precedent). This is the differentiator that makes AlphaSwarm's consensus cascade unique -- agents argue with historical evidence, not just opinions. | HIGH | New module (e.g., `rag.py`). ChromaDB for vector storage, nomic-embed-text via Ollama for embeddings. Must manage Ollama model loading carefully -- embedding model is a 3rd model alongside orchestrator and worker. Pre-populated with earnings reaction data, sector correlation patterns, historical events. | ChromaDB runs as a local persistent SQLite-backed store (no server process needed). nomic-embed-text is only 274MB and generates 768-dim embeddings. CRITICAL CONSTRAINT: Ollama max_loaded_models=2. The embedding model must be loaded/unloaded strategically -- load for RAG retrieval before Round 1, unload before worker model loads. This adds ~10-15s for model swap. ChromaDB PersistentClient with HNSW index delivers sub-millisecond query times. Pre-seed the knowledge base with curated historical data (earnings reactions, sector correlations, crisis patterns) as a one-time setup step. |
+| **Bracket-specific data slicing** | TradingAgents gives all analysts the same data. AlphaSwarm's 10 brackets have distinct analytical frameworks -- Quants care about volatility and ratios, Macro cares about sector indices and rates, Doom-Posters focus on debt levels and systemic risk. Tailoring the injected data per bracket creates more realistic, diverse reactions. Without this, all 100 agents react to the same data blob and converge faster (less interesting simulation). | MEDIUM | Extends the context enrichment pipeline. Requires a bracket-to-data-slice mapping. Modifies `_build_agent_prompt()` or equivalent in simulation dispatch. Uses existing bracket metadata from BracketConfig. | The design: define a `DataSliceConfig` per BracketType that specifies which MarketContext fields to include. Quants: price history, volatility, P/E, technical indicators. Degens: recent price momentum, options IV, social mentions. Sovereigns: market cap, dividend yield, currency exposure. Macro: sector performance, index correlation, rate sensitivity. This is a configuration-driven approach -- no extra LLM calls, just different prompt templates per bracket. |
+| **News headline injection** | Beyond price and fundamentals, recent news headlines about extracted tickers add narrative context. Agents (especially Insiders and Policy Wonks) should react to news, not just numbers. TradingAgents includes a dedicated "news analyst" agent role for this. | MEDIUM | Extends `MarketContext` with a `headlines` field. yfinance provides basic news data per ticker. NewsAPI or Marketaux for richer coverage (requires API key but has free tier). Must handle async fetching with rate limits. | yfinance's `Ticker.news` property returns recent headlines -- this is the zero-config starting point. For richer data, Alpha Vantage's "Alpha Intelligence" endpoint provides sentiment-scored news. Limit to 5-10 headlines per ticker to control prompt token count. |
+| **Confidence-weighted consensus aggregation** | v2 consensus is simple majority: count BUY/SELL/HOLD across all agents. v3 should weight votes by confidence score and bracket influence weight. A Sovereign at 0.9 confidence and 0.9 influence weight should matter more than a Degen at 0.3 confidence and 0.3 influence weight. This produces more nuanced, realistic consensus outcomes. | LOW | Extends `compute_bracket_summaries()` in simulation.py. Extends StateStore and TUI rendering. Pure computation -- no new infrastructure. | Formula: `weighted_signal = sum(confidence * influence_weight * signal_value) / sum(confidence * influence_weight)` where signal_value is +1 (BUY), 0 (HOLD), -1 (SELL). Display as a continuous score (-1.0 to +1.0) alongside the discrete majority vote. |
+| **Multi-source data resilience** | If yfinance is down (common with unofficial APIs), fall back to Alpha Vantage. If both are down, proceed with whatever data was collected. Graceful degradation is what separates a toy from a tool. | LOW | Extends `market_data.py` with fallback chain. Uses existing error handling patterns (3-tier parse fallback as precedent). | Implement a priority-ordered source chain: yfinance (primary, no key needed) -> Alpha Vantage (secondary, free key) -> cached stale data (tertiary). Each source has a timeout. If all fail, the simulation proceeds without market data (agents analyze the rumor text only, like v2). Log which sources succeeded/failed. |
+| **Post-sim report with market data context** | The existing ReACT report agent queries Neo4j for simulation data. v3 should also reference the live market data that was injected, comparing agent consensus with actual market indicators. "The swarm consensus was BULLISH on AAPL at 87% confidence, while the stock's RSI was 72 (overbought territory)." | LOW | Extends the ReACT agent's tool set with a `get_market_context` tool. MarketContext must be persisted (Neo4j or local cache) for post-sim access. | Store the fetched MarketContext as a JSON property on the Cycle node in Neo4j, or as a separate MarketData node linked to the Cycle. The report agent then has both simulation consensus AND market reality to compare. |
 
 ### Anti-Features (Commonly Requested, Explicitly Not Building)
 
-Features that seem like natural v2 additions but create problems. These traps are more dangerous now because v1 is working and the temptation to over-scope is real.
+Features that seem like natural v3 additions but create problems. These traps are especially dangerous because "live market data" opens an infinite scope surface.
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| **Full OASIS social media simulation layer** | OASIS has 21 actions, recommendation systems, follower graphs, trending algorithms. Looks like the "right" way to do social interactions. | OASIS requires 4,000+ LLM calls per simulation at cloud scale. The RecSys engine alone is complex. Adding follow/unfollow/mute/trending to 100 local agents on M1 Max would 10x inference costs and 5x codebase complexity with marginal simulation quality improvement. | Lightweight social posts: agents include a "public rationale" in their decision output. Peers see top-K ranked posts. Implicit reactions via existing CITED edges. Zero extra inference calls. |
-| **Zep Cloud or external memory service** | Zep/Graphiti achieves 300ms P95 retrieval with hybrid semantic+keyword+graph search. Seems like the best memory layer. | Violates local-first constraint. SaaS dependency. AlphaSwarm's 100-agent, 3-round structure is simple enough that Neo4j direct queries (already under 5ms with composite indexes) outperform any memory abstraction layer. | Direct Neo4j Cypher queries. The existing schema with cycle-scoped indexes is already performant. Add Episode nodes for live memory, not an external service. |
-| **LangChain/LangGraph dependency for ReACT report agent** | LangGraph's `create_react_agent` is the standard way to build ReACT agents. Community support, battle-tested. | Adds a heavyweight dependency graph (LangChain core + LangGraph + LangSmith tracing). AlphaSwarm's Ollama client is already built. The ReACT loop is 40 lines of code: prompt -> parse thought/action -> execute tool -> inject observation -> repeat. | Minimal hand-rolled ReACT loop using existing `OllamaClient.chat()`. Define 3-4 Cypher query tools as Python functions. No framework dependency. |
-| **Vector embeddings for agent memory retrieval** | Generative Agents uses embedding-based relevance scoring for memory retrieval. Seems necessary for "real" agent memory. | Requires an embedding model loaded alongside the worker/orchestrator models. Ollama's 2-model limit means either: (a) swap models constantly (30s cold-load penalty each time), or (b) use a separate embedding service (violates local-first simplicity). For 100 agents with 3 rounds, the total memory corpus is ~300 entries -- small enough for exact Cypher queries. | Direct Cypher traversal queries filtered by cycle_id, agent_id, and round. No embeddings needed for a 300-decision corpus. |
-| **Autonomous agent-to-agent conversations** | Generative Agents has agents talk to each other naturally. OASIS has comments and group chats. Seems like the next step for "richer interactions." | Each conversation is 2+ additional LLM calls per agent pair. With 100 agents and even 5% interaction rate, that is 250 extra calls. On M1 Max with ~2-3 tok/s per agent, this adds 30+ minutes per round. The consensus cascade already captures inter-agent influence through peer context injection. | Peer context injection (already built) IS the conversation mechanism. Agents "hear" each other through formatted peer decisions. Making this a "post" format adds narrative richness without the compute cost of actual back-and-forth dialogue. |
-| **Real-time streaming report generation** | Generating the report while the simulation runs, updating as each round completes. | The report agent needs the FULL simulation context (all 3 rounds, all entities, all influence edges) to generate a coherent analysis. Partial reports after Round 1 would be misleading. The orchestrator model also cannot be loaded during worker model inference (2-model limit). | Post-simulation batch report. Run after Round 3 completes and worker model is unloaded. Load orchestrator, run ReACT loop against Neo4j, generate markdown, unload orchestrator. |
+| **Real-time streaming price updates during simulation** | If we are fetching market data, why not update it continuously during the 3 rounds? Show live price changes in the TUI. | A simulation run takes 10-20 minutes on M1 Max. Market data from simulation start is the correct analytical baseline -- mid-simulation price changes would create inconsistency between agents (early agents saw price X, late agents saw price Y). Also adds continuous API polling load alongside 100-agent inference. The simulation analyzes a point-in-time snapshot, not a live feed. | Fetch all market data once before Round 1. Freeze it as the simulation's analytical baseline. Display the fetch timestamp in the TUI. |
+| **Full technical analysis indicator library** | Since we have price history, calculate RSI, MACD, Bollinger Bands, moving averages, etc. Give agents a complete technical analysis toolkit. | Calculating 20+ indicators per ticker adds complexity without proportional simulation value. Agents are LLMs parsing text -- they do not run technical analysis calculations. Providing pre-calculated indicators as numbers in prompt text is marginally more useful than raw price data. The prompt token cost of injecting 20 indicators is significant. | Inject 3-5 key metrics that bracket archetypes actually reference: current price, 52-week range, P/E ratio, recent volume vs average, and basic trend direction (up/down/flat based on 50-day MA). Enough for grounding, not enough to bloat prompts. |
+| **LangChain/LlamaIndex RAG framework dependency** | LlamaIndex has VectorStoreIndex, ChromaDB integration, and query engines. LangChain has RAG chains. Using a framework would accelerate development. | Both frameworks add heavyweight dependency trees (LangChain core: 50+ transitive deps; LlamaIndex: 30+). AlphaSwarm's RAG need is simple: embed query -> retrieve top-K from ChromaDB -> format as context string. This is 20 lines of code with chromadb + ollama-python directly. The existing codebase already avoids framework dependencies (hand-rolled ReACT, direct Ollama calls). Adding a framework for simple retrieval violates the project's architectural consistency. | Direct ChromaDB Python client + Ollama embed API. `collection.query(query_embeddings=[...], n_results=5)` returns results. Format as text. Inject into prompt. No framework needed. |
+| **Autonomous portfolio construction from consensus** | TradingAgents and AlphaAgents produce actual portfolio allocations (ticker, weight, entry price). AlphaSwarm should too. | AlphaSwarm is a simulation engine that analyzes market reactions to rumors, not a trading system. Producing portfolio allocations implies actionability and creates liability concerns. The value is in the consensus cascade analysis ("how would 100 diverse market participants react?"), not in a specific trade recommendation. | Enhanced AgentDecision with ticker, direction, expected_return_pct, and time_horizon. The user interprets the consensus; the system does not prescribe trades. The post-sim report synthesizes the analysis without actionable trade instructions. |
+| **Unlimited ticker support per rumor** | A rumor might mention 10+ companies. Fetch data for all of them. Let agents analyze the full network. | Each additional ticker multiplies: API calls (3-5 per source per ticker), prompt tokens (300-500 tokens of data per ticker per agent), RAG queries (2-3 per ticker), and TUI display space. With 5 tickers and 100 agents, that is 50,000+ tokens of injected market data per round. Context windows fill, inference slows, API rate limits hit. | Cap at 3 tickers per simulation, ranked by relevance score from entity extraction. Display a warning if more tickers are detected. The user can re-run with a focused rumor for specific tickers. |
+| **Paid API integrations (Bloomberg, Refinitiv, IEX Cloud Pro)** | Free data sources have rate limits, delays, and missing fields. Professional APIs are more reliable and comprehensive. | Violates the local-first, free-to-run ethos. Adding paid dependencies creates friction for setup and narrows the user base. The simulation does not need institutional-grade data fidelity -- it needs "good enough" data to ground LLM agent reasoning. | yfinance (free, no key) + Alpha Vantage (free tier, free key) + SEC EDGAR (free, no key). Three free sources with fallback chain provides sufficient data quality for simulation grounding. |
+| **Embedding model always loaded alongside worker** | Keep nomic-embed-text loaded so RAG queries can happen during rounds, not just before. | Ollama max_loaded_models=2. Worker model + embedding model = 2, which means the orchestrator cannot be loaded for seed injection or report generation without unloading one. The model swap overhead (10-15s per swap) would occur at every phase transition, adding minutes to simulation runtime. | Load embedding model once before Round 1 for RAG retrieval. Unload before loading worker model. All RAG retrieval happens in a pre-simulation enrichment phase, not during rounds. |
 
 ## Feature Dependencies
 
 ```
-[Live Graph Memory] (GRAPH-01, GRAPH-02, GRAPH-03)
-    |
-    |-- extends --> [Neo4j write_decisions] (existing)
-    |-- enables --> [Post-Simulation Report] (report queries live graph data)
-    |-- enables --> [Agent Interviews] (interviews query decision history)
+[Ticker Extraction]
     |
     v
-[Post-Simulation Report] (REPORT-01, REPORT-02, REPORT-03)
-    |
-    |-- requires --> [Live Graph Memory] (must read rationale episodes)
-    |-- requires --> [Entity nodes in Neo4j] (existing from seed injection)
-    |-- uses --> [Orchestrator LLM] (ReACT loop via ollama-python)
-    |
-    v
-[Agent Interviews] (INT-01, INT-02, INT-03)
-    |
-    |-- requires --> [Live Graph Memory] (reconstruct decision history)
-    |-- requires --> [Agent Personas] (existing system prompts)
-    |-- uses --> [Worker LLM] (agent responds in character)
+[Live Market Data Fetching] -----> [Multi-Source Resilience]
+    |                                       |
+    |                                       v
+    |                               [News Headline Injection]
     |
     v
-[Richer Agent Interactions] (SOCIAL-01, SOCIAL-02)
-    |
-    |-- requires --> [Live Graph Memory] (posts stored as episodes)
-    |-- extends --> [_dispatch_round / _format_peer_context] (existing)
-    |-- extends --> [Neo4j schema] (Post nodes, REACTED_TO edges)
+[Agent Context Enrichment] <------- [Bracket-Specific Data Slicing]
     |
     v
-[Dynamic Persona Generation] (PERSONA-01, PERSONA-02)
+[Enhanced AgentDecision Output]
     |
-    |-- requires --> [SeedEvent.entities] (existing from seed injection)
-    |-- extends --> [generate_personas() in config.py] (existing)
-    |-- uses --> [Orchestrator LLM] (generate entity-aware modifiers)
-    |-- independent of --> [Live Graph Memory, Report, Interviews]
+    v
+[Per-Stock Consensus Display (TUI)] <-- [Confidence-Weighted Consensus]
+    |
+    v
+[Post-Sim Report with Market Context]
 
-[Narrative Edges] (optional, enhances Report)
-    |
-    |-- requires --> [Entity nodes] (existing)
-    |-- extends --> [write_decisions] (add REFERENCES edges)
-    |-- enhances --> [Post-Simulation Report] (richer entity-level queries)
+[RAG Knowledge Base] ----enhances----> [Agent Context Enrichment]
+    (independent setup,                  (retrieved precedents
+     can be built in                      injected alongside
+     parallel with                        live market data)
+     market data pipeline)
 ```
 
 ### Dependency Notes
 
-- **Live Graph Memory must come first:** Both the Report agent and Interview system depend on being able to query per-agent, per-round rationale episodes from Neo4j. Without live graph memory, these features would need to reconstruct context from the in-memory `SimulationResult` object, which is fragile and unavailable after the simulation process exits.
-- **Dynamic Persona Generation is independent:** It only depends on the existing seed injection pipeline and can be built in parallel with any other v2 feature. It modifies the simulation INPUT (personas), not the simulation PROCESS or OUTPUT.
-- **Richer Interactions depends on Live Graph Memory:** Social posts need to be stored as graph episodes so they can be recommended to peers and later queried by the report agent.
-- **Report before Interviews:** The report agent validates that the Neo4j query tools work correctly against the enriched graph. The same query patterns are reused for interview context reconstruction.
-- **Narrative Edges enhance Report but are optional:** The report agent can function without entity-level REFERENCES edges by doing text-match against rationale strings. REFERENCES edges make the queries faster and more precise.
+- **Ticker Extraction is the critical path root:** Every downstream feature depends on resolved tickers. Without tickers, there is nothing to query market APIs for, nothing to display per-stock, nothing to retrieve from RAG.
+- **Live Market Data Fetching requires Ticker Extraction:** Cannot call yfinance.Ticker("AAPL") without knowing "AAPL" was extracted.
+- **Agent Context Enrichment requires Live Market Data:** The enrichment pipeline formats and injects the fetched data. Without data, there is nothing to enrich.
+- **Enhanced AgentDecision requires Agent Context Enrichment:** Agents can only emit ticker-specific fields if they received ticker-specific data in their prompts.
+- **Per-Stock TUI Display requires Enhanced AgentDecision:** The TUI widget aggregates per-ticker signals from agent decisions. Without ticker fields in decisions, there is nothing to disaggregate.
+- **RAG Knowledge Base is independent of Live Market Data:** ChromaDB setup, embedding, and retrieval can be built and tested without any market API integration. It connects to the pipeline at the Agent Context Enrichment stage.
+- **Bracket-Specific Data Slicing enhances Agent Context Enrichment:** This is a refinement layer -- v3 can ship with uniform data injection first, then add bracket-specific slicing as a fast follow.
+- **Confidence-Weighted Consensus enhances Per-Stock TUI Display:** This is a computation refinement, not a prerequisite. Simple majority works first, weighted scoring follows.
 
-## Phase Recommendation (v2 Milestone)
+## MVP Definition
 
-### Phase 11: Live Graph Memory (GRAPH-01, GRAPH-02, GRAPH-03) -- Build First
+### Launch With (v3.0 Core)
 
-Foundation for all other v2 features. Enriches Neo4j from a batch write-dump into a living simulation memory.
+Minimum viable product for "stock-specific recommendations with live data."
 
-- [ ] GRAPH-01: Per-agent real-time decision writing (move from batch to immediate writes)
-- [ ] GRAPH-02: RationaleEpisode nodes with timestamps, round context, peer context received
-- [ ] GRAPH-03: Narrative REFERENCES edges from Decision nodes to Entity nodes
+- [ ] **Ticker extraction** -- Extend orchestrator prompt to emit tickers alongside entities. Validate against SEC tickers JSON. (Unlocks everything downstream.)
+- [ ] **yfinance market data pipeline** -- Async-wrapped yfinance fetches for price history, financials, earnings. Single-source first, Alpha Vantage fallback later. Stored in MarketContext Pydantic model.
+- [ ] **Agent context enrichment** -- Inject formatted market data block into agent prompts. Uniform data for all brackets initially (bracket-specific slicing is a differentiator, not table stakes).
+- [ ] **Enhanced AgentDecision** -- Add ticker, expected_return_pct, time_horizon fields. Extend JSON output instructions and 3-tier parser.
+- [ ] **Per-stock TUI panel** -- New TickerPanel widget with consensus signal per extracted ticker. Minimal: ticker symbol, signal color, confidence score, vote distribution.
 
-**Why first:** Everything else reads from the enriched graph. Without this, Report and Interviews must reconstruct context from in-memory objects.
+### Add After Validation (v3.x)
 
-### Phase 12: Post-Simulation Report (REPORT-01, REPORT-02, REPORT-03) -- Build Second
+Features to add once core pipeline is working and stable.
 
-Validates the Neo4j query tools that Interviews will also use. Produces the first tangible v2 output.
+- [ ] **RAG knowledge base** -- ChromaDB + nomic-embed-text for historical earnings reactions and market patterns. Requires careful Ollama model lifecycle management.
+- [ ] **Bracket-specific data slicing** -- Tailor injected data per bracket archetype for more diverse agent responses.
+- [ ] **Alpha Vantage fallback** -- Second data source for resilience and earnings surprise data.
+- [ ] **Confidence-weighted consensus** -- Weighted aggregation using confidence and influence_weight.
+- [ ] **News headline injection** -- yfinance news + optional NewsAPI for narrative context.
+- [ ] **Post-sim report with market context** -- Extend ReACT report agent with market data comparison tools.
 
-- [ ] REPORT-01: Minimal ReACT loop (Thought-Action-Observation) using OllamaClient
-- [ ] REPORT-02: Cypher query tools (bracket summaries, influence topology, entity analysis, shift metrics)
-- [ ] REPORT-03: Structured markdown report output with CLI integration
+### Future Consideration (v4+)
 
-**Why second:** The ReACT loop and Cypher tools are reusable. Building them for the report agent first validates the pattern before applying it to interviews.
+Features to defer until v3 is battle-tested.
 
-### Phase 13: Agent Interviews (INT-01, INT-02, INT-03) -- Build Third
-
-Interactive post-simulation Q&A with any agent. Reuses query tools from Report phase.
-
-- [ ] INT-01: Agent context reconstruction (persona + decisions + peer context from Neo4j)
-- [ ] INT-02: Conversational interview loop using worker LLM with agent's system prompt
-- [ ] INT-03: TUI integration (interview mode accessible from agent grid)
-
-**Why third:** Reuses GRAPH query patterns and worker LLM infrastructure. The interview is essentially "load this agent's full context and let the user chat with it."
-
-### Phase 14: Richer Agent Interactions (SOCIAL-01, SOCIAL-02) -- Build Fourth
-
-Adds social dynamics to the consensus cascade. Most complex v2 feature.
-
-- [ ] SOCIAL-01: "Public rationale post" field in AgentDecision output + Post nodes in Neo4j
-- [ ] SOCIAL-02: Top-K post ranking and injection into peer context for Rounds 2-3
-
-**Why fourth:** This modifies the core simulation loop. All foundational features (live graph, report, interviews) should be stable before changing the cascade pipeline.
-
-### Phase 15: Dynamic Persona Generation (PERSONA-01, PERSONA-02) -- Build Fifth (or parallel)
-
-Entity-aware persona enrichment. Independent of other v2 features.
-
-- [ ] PERSONA-01: Orchestrator generates entity-specific bracket modifiers from SeedEvent
-- [ ] PERSONA-02: Modifier injection into generate_personas() pipeline
-
-**Why fifth/parallel:** Independent dependency chain. Can be built at any time after Phase 11 starts. Placed last because it modifies simulation INPUT quality, not simulation PROCESS depth.
+- [ ] **Multiple concurrent tickers** -- Support 2-3 tickers per simulation with separate consensus tracks per ticker.
+- [ ] **Historical simulation comparison** -- Compare current simulation consensus with historical outcomes for the same ticker.
+- [ ] **RAG auto-population** -- Automatically ingest new earnings data and market events into the knowledge base after each simulation.
+- [ ] **Sector correlation analysis** -- Extend market data to include sector ETF performance and cross-ticker correlation matrices.
 
 ## Feature Prioritization Matrix
 
-| Feature | User Value | Implementation Cost | Risk | Priority |
-|---------|------------|---------------------|------|----------|
-| Live Graph Memory | HIGH | MEDIUM | LOW | P1 |
-| Post-Simulation Report | HIGH | MEDIUM | MEDIUM | P1 |
-| Agent Interviews | HIGH | MEDIUM | LOW | P1 |
-| Dynamic Persona Generation | MEDIUM | LOW-MEDIUM | LOW | P2 |
-| Richer Agent Interactions | MEDIUM | HIGH | HIGH | P2 |
-| Narrative Edges | MEDIUM | LOW | LOW | P2 |
-| Reflection Synthesis | LOW | HIGH | HIGH | P3 |
-| Interview-Driven Refinement | LOW | LOW | LOW | P3 |
+| Feature | User Value | Implementation Cost | Priority | Phase Suggestion |
+|---------|------------|---------------------|----------|------------------|
+| Ticker extraction | HIGH | LOW | P1 | Phase 16 |
+| Live market data pipeline | HIGH | HIGH | P1 | Phase 17 |
+| Agent context enrichment | HIGH | MEDIUM | P1 | Phase 18 |
+| Enhanced AgentDecision | HIGH | LOW | P1 | Phase 18 (bundle) |
+| Per-stock TUI panel | HIGH | MEDIUM | P1 | Phase 19 |
+| RAG knowledge base | MEDIUM | HIGH | P2 | Phase 20 |
+| Bracket-specific data slicing | MEDIUM | MEDIUM | P2 | Phase 18 (or 20) |
+| Confidence-weighted consensus | MEDIUM | LOW | P2 | Phase 19 (bundle) |
+| Multi-source resilience | MEDIUM | LOW | P2 | Phase 17 (bundle) |
+| News headline injection | LOW | MEDIUM | P2 | Phase 17 (bundle) |
+| Post-sim report with market context | LOW | LOW | P3 | Phase 21 |
 
 **Priority key:**
-- P1: Must have for v2.0 milestone. These ARE the milestone.
-- P2: Should have. Add if P1 features ship cleanly without schedule pressure.
-- P3: Nice to have. Future consideration or organic development-time improvements.
+- P1: Must have for v3.0 launch -- without these, the milestone claim is hollow
+- P2: Should have, add when core pipeline is stable -- these are what make it good
+- P3: Nice to have, rounds out the experience -- the polish layer
 
-## Competitor Feature Analysis (v2 Context)
+## Competitor Feature Analysis
 
-| Feature | MiroFish | OASIS | TwinMarket | Generative Agents | AlphaSwarm v2 |
-|---------|----------|-------|------------|-------------------|---------------|
-| **Agent Interviews** | Step 5: post-sim Q&A with full memory context | Not supported | Not supported | 5-category interview evaluation with 100 human evaluators | Reconstruct agent context from Neo4j + chat with worker LLM in character |
-| **Live Graph Memory** | Zep Cloud + Neo4j real-time updates via zep_graph_memory_updater | SQLite batch dumps | In-memory state only | Memory stream with recency/importance/relevance scoring | Direct Neo4j episode writes per-agent, per-round. No external service. |
-| **Post-Sim Report** | ReACT report_agent.py with tool-use | Post-hoc matplotlib scripts | No report feature | No automated report | Minimal ReACT loop with Cypher tools, markdown output |
-| **Social Interactions** | OASIS social media substrate (posts, likes, comments) | 21 social actions, RecSys, follower graphs | Forum posts + hot-score ranking + reposts | Natural conversation between agents | Lightweight: public rationale posts + top-K ranking. Zero extra inference calls. |
-| **Dynamic Personas** | ontology_generator + oasis_profile_generator pipeline | LLM-generated user profiles | Basic trader archetypes | Two-hour interview-based agent creation | Entity-aware modifier injection into existing bracket templates. Single orchestrator call. |
-| **Influence Graph** | Static knowledge graph, no dynamic influence | Follower graph (explicit, not emergent) | Social network with homophily | No influence tracking | INFLUENCED_BY edges from citation patterns + REFERENCES to entities. Dynamic and emergent. |
-
-**Key insight:** AlphaSwarm's advantage is the combination of dynamic influence topology + live TUI + local-first constraints. No competitor has all three. MiroFish has the richest feature set but depends on cloud services (Zep, OpenAI). OASIS has the deepest social simulation but requires massive compute. AlphaSwarm's niche is deep simulation quality at local scale.
+| Feature | TradingAgents (CMU, 2024) | P1GPT (2025) | AlphaAgents (2025) | AlphaSwarm v3 Approach |
+|---------|---------------------------|--------------|---------------------|------------------------|
+| **Ticker extraction** | Assumes ticker provided as input | Multi-modal extraction from text + images | Ticker provided by user | LLM extraction from natural language rumor + SEC ticker validation. More flexible -- user provides a rumor, not a ticker. |
+| **Market data** | Yahoo Finance for fundamentals + technicals | Cross-agent consensus from macro, sector, short-term data | Bloomberg terminal integration | yfinance primary + Alpha Vantage fallback. Free-tier only. Async-wrapped for non-blocking fetches. |
+| **RAG / historical context** | Not used. Relies on LLM training data. | Not explicitly used. | Not used. | ChromaDB + nomic-embed-text for historical earnings reactions and market patterns. Local-first, no cloud dependencies. This is a genuine differentiator. |
+| **Agent specialization** | Role-based: fundamental analyst, sentiment analyst, technical analyst, trader | Cross-agent consensus with specialized perspectives | Fundamental, sentiment, valuation agents with debate | 10 bracket archetypes with entity-aware dynamic persona generation. Most diverse agent population (100 vs 4-6 in competitors). |
+| **Consensus mechanism** | Debate between bullish/bearish roles with facilitator | Cross-agent scoring with risk-reward internalization | Multi-round debate until convergence | 3-round iterative cascade: Initial Reaction -> Peer Influence (with social-style posts) -> Final Consensus Lock. Most structured cascade. |
+| **Per-stock display** | Command-line output with trade decisions | Report-style output | Portfolio allocation output | Interactive Textual TUI with real-time grid, per-stock consensus panel, bracket disagreement visualization. Most visual. |
+| **Output** | Trade actions (buy/sell/hold with size) | Portfolio P&L report | Portfolio with weights and allocations | Per-ticker consensus with confidence scores + narrative report. Analysis-focused, not trade-focused. |
 
 ## Sources
 
-- [Generative Agents: Interactive Simulacra of Human Behavior (Park et al. 2023)](https://arxiv.org/abs/2304.03442) -- Interview evaluation methodology, memory stream with recency/importance/relevance retrieval, reflection synthesis. The foundational paper for agent interviews. (HIGH confidence)
-- [OASIS: Open Agent Social Interaction Simulations (CAMEL-AI)](https://github.com/camel-ai/oasis) -- 21 social actions, RecSys-driven information propagation, hot-score post ranking. Source for social interaction patterns. (HIGH confidence)
-- [TwinMarket: Scalable Behavioral and Social Simulation for Financial Markets](https://arxiv.org/html/2502.01506v2) -- Forum-style social posts, hot-score ranking, information propagation chains, opinion leader emergence. Source for lightweight social dynamics. (HIGH confidence)
-- [Graphiti: Knowledge Graph Memory for an Agentic World (Neo4j/Zep)](https://neo4j.com/blog/developer/graphiti-knowledge-graph-memory/) -- Bi-temporal episode model, incremental entity resolution, Neo4j-backed knowledge graph memory. Source for live graph memory patterns. (MEDIUM confidence -- blog post, architecture validated via GitHub repo)
-- [Neo4j Agent Memory (neo4j-labs)](https://github.com/neo4j-labs/agent-memory) -- Episodic/semantic/procedural memory patterns in Neo4j. Graph schema recommendations for agent memory. (HIGH confidence)
-- [Modeling Agent Memory in Neo4j (Alex Gilmore, Neo4j Dev Blog)](https://medium.com/neo4j/modeling-agent-memory-d3b6bc3bb9c4) -- Episodic memory as question-answer pairs, semantic memory as entity-relationship graphs, temporal memory with versioned nodes. (HIGH confidence)
-- [ReAct Agent Pattern (LangChain Tutorials)](https://langchain-tutorials.github.io/langchain-react-agent-pattern-2026/) -- Thought-Action-Observation loop implementation, tool definition patterns. (MEDIUM confidence)
-- [Population-Aligned Persona Generation (2025)](https://arxiv.org/abs/2509.10127) -- Three-stage pipeline for generating personas from real-world data. Source for dynamic persona generation patterns. (MEDIUM confidence -- preprint)
-- [PersonaAgent: LLM Agents Meet Personalization (2025)](https://arxiv.org/abs/2506.06254) -- Test-time persona alignment, episodic+semantic memory for persona context. Source for entity-aware persona enrichment. (MEDIUM confidence -- preprint)
-- [MiroFish (GitHub, 44.9k stars)](https://github.com/666ghj/MiroFish) -- ReACT report agent, post-sim agent interviews, OASIS social integration, Zep graph memory. Primary source for v2 feature inspiration. (HIGH confidence, deep-researched 2026-03-28)
-- [TradingAgents: Multi-Agent LLM Financial Trading](https://github.com/TauricResearch/TradingAgents) -- Structured debate, chain-of-thought logging, hierarchical report writing. (HIGH confidence)
-- [Generative Agent Simulations of 1,000 People (Stanford, 2024)](https://arxiv.org/pdf/2411.10109) -- Two-hour interview-based agent creation, 85% response replication accuracy. (HIGH confidence)
+- [TradingAgents: Multi-Agents LLM Financial Trading Framework](https://arxiv.org/abs/2412.20138) -- CMU, Dec 2024
+- [P1GPT: Multi-Agent LLM Workflow for Financial Analysis](https://arxiv.org/html/2510.23032v1) -- 2025
+- [AlphaAgents: LLM-based Multi-Agents for Equity Portfolio](https://arxiv.org/html/2508.11152v1) -- 2025
+- [yfinance v1.0 on PyPI](https://pypi.org/project/yfinance/) -- Jan 2026
+- [Alpha Vantage API Documentation](https://www.alphavantage.co/documentation/) -- async support since v2.2.0
+- [ChromaDB Official Docs](https://docs.trychroma.com/) -- PersistentClient, Ollama integration
+- [nomic-embed-text on Ollama](https://ollama.com/library/nomic-embed-text) -- 274MB, 768-dim embeddings
+- [SEC EDGAR APIs](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) -- free, no auth
+- [sec-cik-mapper on PyPI](https://pypi.org/project/sec-cik-mapper/) -- ticker/CIK/company bidirectional mapping
+- [EdgarTools on GitHub](https://github.com/dgunning/edgartools) -- free Python SEC data access
+- [stocksTUI on PyPI](https://pypi.org/project/stocksTUI/) -- Textual + yfinance terminal stock viewer (pattern reference)
+- [Textual TUI Framework](https://textual.textualize.io/) -- reactive widgets, async-powered
 
 ---
-*Feature research for: AlphaSwarm v2.0 Engine Depth*
-*Researched: 2026-03-31*
+*Feature research for: AlphaSwarm v3.0 Stock-Specific Recommendations with Live Data & RAG*
+*Researched: 2026-04-05*
