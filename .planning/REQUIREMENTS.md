@@ -78,9 +78,53 @@ Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 - [x] **PERSONA-01**: Orchestrator LLM generates entity-specific bracket modifiers from SeedEvent entities in a single JSON call
 - [x] **PERSONA-02**: Entity-aware modifiers injected into generate_personas() pipeline, preserving 10-bracket structure and 100-agent count
 
-## v3 Requirements (Future)
+## v3 Requirements
+
+Requirements for v3.0 Stock-Specific Recommendations with Live Data & RAG milestone. Each maps to roadmap phases.
+
+### Ticker Extraction
+
+- [ ] **TICK-01**: Orchestrator extracts stock tickers from seed rumor text alongside existing entity extraction
+- [ ] **TICK-02**: Extracted tickers are validated against SEC company_tickers.json symbol table before use
+- [ ] **TICK-03**: Simulation caps at 3 tickers per run, ranked by relevance score from extraction
+
+### Market Data Pipeline
+
+- [ ] **DATA-01**: User can run a simulation that fetches live price history, financials, and earnings data per ticker via async-wrapped yfinance
+- [ ] **DATA-02**: Market data pipeline falls back to Alpha Vantage when yfinance fails, with graceful degradation if both sources are unavailable
+- [ ] **DATA-03**: Recent news headlines per ticker are fetched and included in the market context (5-10 headlines)
+- [ ] **DATA-04**: API responses are cached to disk with TTL to avoid rate limit exhaustion on re-runs
+
+### Agent Context Enrichment
+
+- [ ] **ENRICH-01**: Each agent receives a formatted market data block injected into their prompt before inference, with all data fetching completed before Round 1
+- [ ] **ENRICH-02**: Injected data is tailored per bracket archetype (Quants get technicals, Macro gets sector data, Insiders get earnings surprises, etc.)
+- [ ] **ENRICH-03**: Total injected market context stays within a strict token budget that prevents context window overflow
+
+### Enhanced Decisions
+
+- [ ] **DECIDE-01**: AgentDecision output includes ticker, direction, expected_return_pct, and time_horizon fields
+- [ ] **DECIDE-02**: The 3-tier parse fallback handles new fields gracefully with backward-compatible defaults
+
+### TUI Display
+
+- [ ] **DTUI-01**: User can see per-stock consensus breakdown in the TUI (ticker symbol, signal, confidence, vote distribution)
+- [ ] **DTUI-02**: Consensus aggregation uses confidence-weighted voting (confidence x influence_weight) alongside discrete majority vote
+- [ ] **DTUI-03**: Bracket disagreement is visible per ticker (which brackets are bullish vs bearish)
+
+### Report Enhancement
+
+- [ ] **DRPT-01**: Post-simulation report includes market data context, comparing agent consensus with actual market indicators
+
+## Future Requirements
 
 Deferred to future milestones. Tracked but not in current roadmap.
+
+### RAG Knowledge Base (v3.1)
+
+- **RAG-01**: ChromaDB + nomic-embed-text via Ollama for historical earnings reactions and market patterns
+- **RAG-02**: Pre-seeded knowledge base with curated historical data (earnings reactions, sector correlations, crisis patterns)
+- **RAG-03**: RAG-retrieved precedents injected into agent prompts alongside live market data
 
 ### Web Dashboard
 
@@ -111,9 +155,15 @@ Deferred to future milestones. Tracked but not in current roadmap.
 
 | Feature | Reason |
 |---------|--------|
-| Real market data feeds | Simulation-only engine, no live API integrations |
+| RAG knowledge base | Deferred to v3.1 — ship core data pipeline first, add historical pattern retrieval after it's proven stable |
+| Real-time streaming price updates | Simulation analyzes a point-in-time snapshot; mid-sim price changes create agent inconsistency |
+| Full technical indicator library | 3-5 key metrics sufficient for LLM grounding; 20+ indicators bloat prompts without proportional value |
+| Autonomous portfolio construction | AlphaSwarm is analysis, not a trading system; no trade recommendations or allocations |
+| Unlimited ticker support | Cap at 3; each ticker multiplies API calls, tokens, and TUI space |
+| Paid API integrations | Violates local-first, free-to-run ethos; yfinance + Alpha Vantage + SEC EDGAR sufficient |
+| LangChain/LlamaIndex dependency | Simple retrieval needs 20 lines of code, not a 50+ transitive dep framework |
 | Trade execution | No real money, no broker integration |
-| Historical backtesting | Forward simulation only for v1 |
+| Historical backtesting | Forward simulation only |
 | Fine-tuned LLMs | Use base Ollama models with prompt engineering |
 | Multi-user / network mode | Single-operator local-first design |
 | GPU / cloud inference | M1 Max Metal only, no CUDA or cloud APIs |
@@ -169,9 +219,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 **Coverage:**
 - v1 requirements: 27 total, 27 mapped (Complete)
-- v2 requirements: 13 total, 13 mapped (Pending)
-- Unmapped: 0
+- v2 requirements: 13 total, 13 mapped (Complete)
+- v3 requirements: 16 total, 0 mapped (Pending roadmap)
+- Unmapped: 16 ⚠️
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-03-31 after v2.0 roadmap creation*
+*Last updated: 2026-04-05 after v3.0 milestone requirements definition*
