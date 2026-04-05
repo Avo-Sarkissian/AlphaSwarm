@@ -61,7 +61,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. User enters a seed rumor mentioning companies (e.g., "Apple is acquiring Tesla") and the orchestrator extracts ticker symbols (AAPL, TSLA) alongside existing entity extraction in a single LLM call
   2. Extracted tickers are validated against the SEC company_tickers.json symbol table, and invalid symbols are rejected with a warning before simulation proceeds
   3. When more than 3 tickers are extracted, only the top 3 by relevance score are kept, and the user can see which tickers were selected in the simulation output
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 16-01-PLAN.md — Type model + prompt expansion + parsing with ticker extraction and top-3 cap
+- [ ] 16-02-PLAN.md — SEC ticker validator module with download, lazy-load, and validation
+- [ ] 16-03-PLAN.md — Integration wiring: validator into inject_seed, Neo4j persistence, CLI display
 
 ### Phase 17: Market Data Pipeline
 **Goal**: Before Round 1 begins, the system has fetched and cached live market data (price history, financials, earnings, news) for every extracted ticker, available as structured snapshots for downstream consumption
@@ -128,7 +132,7 @@ Phases execute in numeric order: 16 -> 17 -> 18 -> 19 -> 20
 | 13. Dynamic Persona Generation | v2.0 | 2/2 | Complete | 2026-04-02 |
 | 14. Agent Interviews | v2.0 | 2/2 | Complete | 2026-04-02 |
 | 15. Post-Simulation Report | v2.0 | 2/2 | Complete | 2026-04-02 |
-| 16. Ticker Extraction | v3.0 | 0/? | Not started | - |
+| 16. Ticker Extraction | v3.0 | 0/3 | Not started | - |
 | 17. Market Data Pipeline | v3.0 | 0/? | Not started | - |
 | 18. Agent Context Enrichment and Enhanced Decisions | v3.0 | 0/? | Not started | - |
 | 19. Per-Stock TUI Consensus Display | v3.0 | 0/? | Not started | - |
