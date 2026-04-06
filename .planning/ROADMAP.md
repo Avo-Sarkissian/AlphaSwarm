@@ -61,7 +61,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. User enters a seed rumor mentioning companies (e.g., "Apple is acquiring Tesla") and the orchestrator extracts ticker symbols (AAPL, TSLA) alongside existing entity extraction in a single LLM call
   2. Extracted tickers are validated against the SEC company_tickers.json symbol table, and invalid symbols are rejected with a warning before simulation proceeds
   3. When more than 3 tickers are extracted, only the top 3 by relevance score are kept, and the user can see which tickers were selected in the simulation output
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [x] 16-01-PLAN.md -- Ticker extraction prompt and LLM call
+- [x] 16-02-PLAN.md -- SEC validation and ticker cap
+- [x] 16-03-PLAN.md -- CLI display and integration
 
 ### Phase 17: Market Data Pipeline
 **Goal**: Before Round 1 begins, the system has fetched and cached live market data (price history, financials, earnings, news) for every extracted ticker, available as structured snapshots for downstream consumption
@@ -72,7 +76,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. When yfinance is unavailable or fails for a ticker, the system falls back to Alpha Vantage and continues gracefully; when both fail, the simulation proceeds with degraded data and a visible warning
   3. Each ticker has 5-10 recent news headlines fetched and available in the market context
   4. Running the same simulation twice within the cache TTL window does not re-fetch from external APIs -- disk-cached responses are reused, and the user sees cache-hit indicators in logs
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 17-01-PLAN.md -- Install yfinance, define MarketDataSnapshot model, config, test scaffolds
+- [ ] 17-02-PLAN.md -- Core market_data.py module (yfinance fetch, cache, AV fallback, tests)
+- [ ] 17-03-PLAN.md -- Integration wiring (simulation.py, graph.py, cli.py)
 
 ### Phase 18: Agent Context Enrichment and Enhanced Decisions
 **Goal**: Every agent receives bracket-appropriate market data in its prompt before inference, and produces ticker-specific decisions with direction, expected return, and time horizon
@@ -129,7 +137,7 @@ Phases execute in numeric order: 16 -> 17 -> 18 -> 19 -> 20
 | 14. Agent Interviews | v2.0 | 2/2 | Complete | 2026-04-02 |
 | 15. Post-Simulation Report | v2.0 | 2/2 | Complete | 2026-04-02 |
 | 16. Ticker Extraction | v3.0 | 3/3 | Complete | 2026-04-06 |
-| 17. Market Data Pipeline | v3.0 | 0/? | Not started | - |
+| 17. Market Data Pipeline | v3.0 | 0/3 | Planned | - |
 | 18. Agent Context Enrichment and Enhanced Decisions | v3.0 | 0/? | Not started | - |
 | 19. Per-Stock TUI Consensus Display | v3.0 | 0/? | Not started | - |
 | 20. Report Enhancement and Integration Hardening | v3.0 | 0/? | Not started | - |
