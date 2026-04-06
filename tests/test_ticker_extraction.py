@@ -287,3 +287,153 @@ def test_graph_py_contains_phase17_todo() -> None:
     import pathlib
     src = pathlib.Path("src/alphaswarm/graph.py").read_text()
     assert "TODO(Phase 17)" in src
+
+
+# ---------------------------------------------------------------------------
+# Task 3 (Plan 16-03): CLI display tests and mixed valid/invalid integration
+# ---------------------------------------------------------------------------
+
+
+import json
+from alphaswarm.types import EntityType, SeedEntity
+
+
+def _make_parsed_result_with_tickers(
+    tickers: list,
+    dropped: tuple = (),
+    entities: list | None = None,
+) -> "ParsedSeedResult":
+    """Helper: build a ParsedSeedResult with given tickers and dropped_tickers."""
+    from alphaswarm.types import ExtractedTicker, SeedEvent, ParsedSeedResult
+
+    seed_event = SeedEvent(
+        raw_rumor="Apple is acquiring Tesla",
+        entities=entities or [],
+        tickers=tickers,
+        overall_sentiment=0.3,
+    )
+    return ParsedSeedResult(seed_event=seed_event, parse_tier=1, dropped_tickers=dropped)
+
+
+def test_print_injection_summary_ticker_count_line(capsys: pytest.CaptureFixture) -> None:
+    """_print_injection_summary outputs 'Tickers:           2' for a 2-ticker SeedEvent."""
+    from alphaswarm.cli import _print_injection_summary
+    from alphaswarm.types import ExtractedTicker
+
+    ticker_aapl = ExtractedTicker(symbol="AAPL", company_name="Apple Inc.", relevance=0.95)
+    ticker_tsla = ExtractedTicker(symbol="TSLA", company_name="Tesla Inc.", relevance=0.90)
+    parsed = _make_parsed_result_with_tickers([ticker_aapl, ticker_tsla])
+
+    _print_injection_summary("test-cycle-id", parsed)
+
+    out = capsys.readouterr().out
+    assert "Tickers:           2" in out
+
+
+def test_print_injection_summary_ticker_table_header(capsys: pytest.CaptureFixture) -> None:
+    """_print_injection_summary with tickers outputs 'Symbol' and 'Company' header."""
+    from alphaswarm.cli import _print_injection_summary
+    from alphaswarm.types import ExtractedTicker
+
+    ticker_aapl = ExtractedTicker(symbol="AAPL", company_name="Apple Inc.", relevance=0.95)
+    parsed = _make_parsed_result_with_tickers([ticker_aapl])
+
+    _print_injection_summary("test-cycle-id", parsed)
+
+    out = capsys.readouterr().out
+    assert "Symbol" in out
+    assert "Company" in out
+
+
+def test_print_injection_summary_ticker_symbols_displayed(capsys: pytest.CaptureFixture) -> None:
+    """_print_injection_summary displays ticker symbols AAPL and TSLA."""
+    from alphaswarm.cli import _print_injection_summary
+    from alphaswarm.types import ExtractedTicker
+
+    ticker_aapl = ExtractedTicker(symbol="AAPL", company_name="Apple Inc.", relevance=0.95)
+    ticker_tsla = ExtractedTicker(symbol="TSLA", company_name="Tesla Inc.", relevance=0.90)
+    parsed = _make_parsed_result_with_tickers([ticker_aapl, ticker_tsla])
+
+    _print_injection_summary("test-cycle-id", parsed)
+
+    out = capsys.readouterr().out
+    assert "AAPL" in out
+    assert "TSLA" in out
+
+
+def test_print_injection_summary_dropped_tickers_section(capsys: pytest.CaptureFixture) -> None:
+    """_print_injection_summary with dropped_tickers outputs 'Dropped Tickers:' and reason labels."""
+    from alphaswarm.cli import _print_injection_summary
+    from alphaswarm.types import ExtractedTicker
+
+    ticker_aapl = ExtractedTicker(symbol="AAPL", company_name="Apple Inc.", relevance=0.95)
+    dropped = ({"symbol": "XYZFAKE", "reason": "invalid"},)
+    parsed = _make_parsed_result_with_tickers([ticker_aapl], dropped=dropped)
+
+    _print_injection_summary("test-cycle-id", parsed)
+
+    out = capsys.readouterr().out
+    assert "Dropped Tickers" in out
+    assert "XYZFAKE" in out
+    assert "invalid" in out
+
+
+def test_print_injection_summary_no_tickers_no_symbol_header(capsys: pytest.CaptureFixture) -> None:
+    """_print_injection_summary with no tickers does NOT output 'Symbol' table header."""
+    from alphaswarm.cli import _print_injection_summary
+
+    parsed = _make_parsed_result_with_tickers([])
+
+    _print_injection_summary("test-cycle-id", parsed)
+
+    out = capsys.readouterr().out
+    assert "Symbol" not in out
+
+
+def test_print_injection_summary_no_dropped_no_dropped_section(capsys: pytest.CaptureFixture) -> None:
+    """_print_injection_summary with no dropped_tickers does NOT output 'Dropped Tickers:'."""
+    from alphaswarm.cli import _print_injection_summary
+    from alphaswarm.types import ExtractedTicker
+
+    ticker_aapl = ExtractedTicker(symbol="AAPL", company_name="Apple Inc.", relevance=0.95)
+    parsed = _make_parsed_result_with_tickers([ticker_aapl], dropped=())
+
+    _print_injection_summary("test-cycle-id", parsed)
+
+    out = capsys.readouterr().out
+    assert "Dropped Tickers" not in out
+
+
+def test_parse_seed_event_mixed_valid_invalid_tickers() -> None:
+    """Addresses review concern: mixed valid/invalid ticker test case.
+
+    When some tickers are valid (in SEC set) and some are invalid,
+    valid ones should pass through while invalid ones appear in dropped_tickers
+    with reason='invalid'.
+    """
+    def mock_validator(symbol: str) -> bool:
+        return symbol.upper() in {"AAPL", "TSLA"}
+
+    raw_json = json.dumps({
+        "entities": [],
+        "tickers": [
+            {"symbol": "AAPL", "company_name": "Apple Inc.", "relevance": 0.95},
+            {"symbol": "XYZFAKE", "company_name": "Fake Corp", "relevance": 0.80},
+            {"symbol": "TSLA", "company_name": "Tesla Inc.", "relevance": 0.75},
+            {"symbol": "NOPE", "company_name": "Nope Ltd", "relevance": 0.60},
+        ],
+        "overall_sentiment": 0.5,
+    })
+
+    result = parse_seed_event(raw_json, "test rumor", ticker_validator=mock_validator)
+
+    # Valid tickers pass through
+    assert len(result.seed_event.tickers) == 2
+    assert result.seed_event.tickers[0].symbol == "AAPL"
+    assert result.seed_event.tickers[1].symbol == "TSLA"
+
+    # Invalid tickers appear in dropped_tickers with reason="invalid"
+    assert len(result.dropped_tickers) == 2
+    dropped_symbols = {d["symbol"] for d in result.dropped_tickers}
+    assert dropped_symbols == {"XYZFAKE", "NOPE"}
+    assert all(d["reason"] == "invalid" for d in result.dropped_tickers)

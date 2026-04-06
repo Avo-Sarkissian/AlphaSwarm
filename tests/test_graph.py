@@ -498,7 +498,7 @@ async def test_create_cycle_with_entities_tx_creates_cycle_with_overall_sentimen
     tx = AsyncMock()
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, [],
+        tx, "test-cycle-id", "test rumor", 0.6, [], [],
     )
 
     # With empty entities, only 1 tx.run call (Cycle creation only)
@@ -516,7 +516,7 @@ async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
     tx = AsyncMock()
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, [],
+        tx, "test-cycle-id", "test rumor", 0.6, [], [],
     )
 
     # Only 1 tx.run call (Cycle creation, no Entity UNWIND)
@@ -535,7 +535,7 @@ async def test_create_cycle_with_entities_tx_creates_mentions_relationships() ->
     ]
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, entities,
+        tx, "test-cycle-id", "test rumor", 0.6, entities, [],
     )
 
     # 2 tx.run calls: Cycle creation + Entity UNWIND with MENTIONS
