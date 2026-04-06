@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 import structlog
 
 from alphaswarm.parsing import parse_seed_event
+from alphaswarm.ticker_validator import get_ticker_validator
 
 if TYPE_CHECKING:
     from alphaswarm.config import AppSettings
@@ -81,9 +82,13 @@ async def inject_seed(
         else:
             logger.debug("orchestrator_thinking_suppressed", note="format=json may suppress think tokens")
 
-        # 3. Parse with 3-tier fallback (per D-06), returns ParsedSeedResult
+        # 3. Load SEC ticker validator (Phase 16: TICK-02)
+        # Returns None if SEC CDN is unreachable and no local file exists
+        validator = await get_ticker_validator()
+
+        # 4. Parse with 3-tier fallback (per D-06), returns ParsedSeedResult
         raw_content = response.message.content or ""
-        parsed_result = parse_seed_event(raw_content, rumor)
+        parsed_result = parse_seed_event(raw_content, rumor, ticker_validator=validator)
 
         # Log warning on fallback (addresses review concern #1: silent parse failure)
         if parsed_result.parse_tier == 3:
@@ -111,6 +116,8 @@ async def inject_seed(
             "seed_injection_complete",
             cycle_id=cycle_id,
             entity_count=len(parsed_result.seed_event.entities),
+            ticker_count=len(parsed_result.seed_event.tickers),
+            dropped_ticker_count=len(parsed_result.dropped_tickers),
             overall_sentiment=parsed_result.seed_event.overall_sentiment,
             parse_tier=parsed_result.parse_tier,
             modifier_parse_tier=modifier_result.parse_tier if modifier_result else None,
