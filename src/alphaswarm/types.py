@@ -85,11 +85,20 @@ class SeedEntity(BaseModel, frozen=True):
     sentiment: float = Field(ge=-1.0, le=1.0)
 
 
+class ExtractedTicker(BaseModel, frozen=True):
+    """A stock ticker extracted from a seed rumor and validated against SEC data."""
+
+    symbol: str
+    company_name: str
+    relevance: float = Field(ge=0.0, le=1.0)
+
+
 class SeedEvent(BaseModel, frozen=True):
-    """Structured seed rumor with extracted entities and aggregate sentiment."""
+    """Structured seed rumor with extracted entities, tickers, and aggregate sentiment."""
 
     raw_rumor: str
     entities: list[SeedEntity]
+    tickers: list[ExtractedTicker] = Field(default_factory=list)
     overall_sentiment: float = Field(ge=-1.0, le=1.0)
 
 
@@ -105,10 +114,14 @@ class ParsedSeedResult:
       1 = Direct JSON parse succeeded
       2 = Code-fence strip / regex extraction succeeded
       3 = All tiers failed, fallback SeedEvent returned
+
+    dropped_tickers: Tickers removed during parsing (invalid SEC symbol or exceeded 3-ticker cap).
+    Each entry is {"symbol": str, "reason": "invalid"|"cap"}.
     """
 
     seed_event: SeedEvent
     parse_tier: int
+    dropped_tickers: tuple[dict[str, str], ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
