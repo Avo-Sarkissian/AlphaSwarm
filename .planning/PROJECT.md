@@ -4,18 +4,16 @@
 
 A localized, multi-agent financial simulation engine that ingests a single "Seed Rumor" and simulates cascading market reactions across 100 distinct AI personas. The system runs a 3-round iterative consensus cascade on local hardware (M1 Max 64GB), visualizing real-time agent state via a Textual TUI dashboard and persisting interaction history in Neo4j.
 
-## Current Milestone: v3.0 Stock-Specific Recommendations with Live Data & RAG
+## Current Milestone: v2.0 Engine Depth
 
-**Goal:** Evolve AlphaSwarm from pure simulation to stock-specific analysis by grounding agent decisions in live market data and historical precedents via RAG.
+**Goal:** Deepen the simulation engine with post-simulation capabilities, richer agent behavior, and dynamic persona generation — building the full data model before the web dashboard.
 
 **Target features:**
-- Ticker extraction from seed rumors (orchestrator parses specific stocks)
-- Live market data pipeline — async fetches for price history, earnings, fundamentals, news (yfinance, Alpha Vantage, NewsAPI, EDGAR)
-- RAG knowledge base — ChromaDB + nomic-embed-text via Ollama for historical earnings reactions and market patterns
-- Agent context enrichment — inject live data + RAG-retrieved precedents into agent prompts before inference
-- Enhanced AgentDecision output — ticker, direction, expected return %, time horizon, confidence
-- Improved TUI results — per-stock breakdown, bracket disagreement, confidence-weighted consensus
-- All data fetching async and local-first (RAG/embeddings via Ollama, only API calls go online)
+- Agent Interviews — post-simulation live Q&A with any agent using full persona and decision context
+- Live Graph Memory — real-time Neo4j updates during simulation with rationale episodes and narrative edges
+- Post-Simulation Report — ReACT agent queries Neo4j and generates structured market analysis
+- Richer Agent Interactions — agents publish rationale posts that peers read and react to
+- Dynamic Persona Generation — extract entities from seed rumor to generate situation-specific agent personas
 
 ## Core Value
 
@@ -48,25 +46,21 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - [x] TUI panels: RationaleSidebar (agent reasoning stream), TelemetryFooter (RAM/TPS/Queue/Slots), BracketPanel (10-bracket signal bars) — Validated in Phase 10: tui-panels-and-telemetry
 - [x] StateStore data layer extensions: rationale queue, TPS accumulation from Ollama eval metadata, bracket summary storage — Validated in Phase 10: tui-panels-and-telemetry
 
+### Active
+- [ ] Async batched Ollama inference with adaptive ResourceGovernor (psutil-driven semaphore)
+- [ ] Miro API v2 batcher (stubbed for v1, full implementation deferred)
+- [ ] Exponential backoff for Ollama retries and Miro 429 handling
+
 ### Validated
 
 - [x] Live graph memory — WriteBuffer captures per-agent RationaleEpisode nodes (rationale, flip_type, peer_context) with REFERENCES edges to Entity nodes and decision_narrative on Agent nodes — Validated in Phase 11: live-graph-memory
-- [x] Richer agent interactions — agents publish rationale posts that peers read and react to, creating social influence dynamics (SOCIAL-01, SOCIAL-02) — Validated in Phase 12: richer-agent-interactions
-- [x] Dynamic persona generation — extract entities from seed rumor to generate situation-specific agent personas (PERSONA-01, PERSONA-02) — Validated in Phase 13: dynamic-persona-generation
-- [x] Agent interviews — post-simulation live Q&A with any agent, using full persona and decision context (INT-01, INT-02, INT-03) — Validated in Phase 14: agent-interviews
+
+### Planned (v2)
+
+- [ ] Agent interviews — post-simulation live Q&A with any agent, using full persona and decision context (INT-01, INT-02, INT-03)
 - [x] Post-simulation report — ReACT agent queries Neo4j and generates structured market analysis as markdown (REPORT-01, REPORT-02, REPORT-03) — Validated in Phase 15: post-simulation-report
-
-### Active
-
-- [ ] Ticker extraction from seed rumors (orchestrator parses specific stocks)
-- [ ] Live market data pipeline — async API fetches for price history, earnings, fundamentals, news
-- [ ] RAG knowledge base — ChromaDB + nomic-embed-text via Ollama for historical precedents
-- [ ] Agent context enrichment — inject live data + RAG-retrieved precedents into prompts
-- [ ] Enhanced AgentDecision output — ticker, direction, expected return %, time horizon, confidence
-- [ ] Improved TUI results — per-stock breakdown, bracket disagreement, confidence-weighted consensus
-
-### Planned (Future)
-
+- [x] Richer agent interactions — agents publish rationale posts that peers read and react to, creating social influence dynamics (SOCIAL-01, SOCIAL-02) — Validated in Phase 12: richer-agent-interactions
+- [ ] Dynamic persona generation — extract entities from seed rumor to generate situation-specific agent personas (PERSONA-01, PERSONA-02)
 - [ ] Miro live visualization — API v2 network visualization with spatial layout and dynamic connectors (VIS-01, VIS-02)
 - [ ] Simulation replay from stored Neo4j state (REPLAY-01)
 - [ ] Exportable simulation reports (REPLAY-02)
@@ -74,10 +68,11 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 
 ### Out of Scope
 
+- Real market data feeds — simulation only, no live API integrations
 - Multi-user / network mode — single-operator local-first design
-- Historical backtesting — forward simulation only
+- Historical backtesting — forward simulation only for v1
 - GPU inference — Ollama CPU/Metal only on M1 Max
-- Cloud-hosted inference — all LLM inference local via Ollama (external data APIs are allowed for market data)
+- Cloud APIs or hosted services — all inference and state local (no Zep, no OpenAI)
 
 ## Context
 
@@ -126,4 +121,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-05 — Milestone v3.0 started: Stock-Specific Recommendations with Live Data & RAG*
+*Last updated: 2026-04-01 — Phase 12 complete: richer-agent-interactions*
