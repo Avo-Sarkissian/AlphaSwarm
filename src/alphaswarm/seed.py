@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(component="seed")
 
-ORCHESTRATOR_SYSTEM_PROMPT = """You are a financial intelligence analyst. Given a market rumor, extract all named entities and assess sentiment.
+ORCHESTRATOR_SYSTEM_PROMPT = """You are a financial intelligence analyst. Given a market rumor, extract all named entities, identify stock tickers, and assess sentiment.
 
 For each entity, determine:
 - name: The entity name (company, sector, or person)
@@ -29,11 +29,16 @@ For each entity, determine:
 - relevance: How central this entity is to the rumor (0.0-1.0)
 - sentiment: The rumor's implication for this entity (-1.0 bearish to 1.0 bullish)
 
+For each publicly traded company mentioned or implied, determine:
+- "symbol": The stock ticker symbol (e.g., "AAPL", "TSLA", "MSFT")
+- company_name: The full company name
+- relevance: How central this company is to the rumor (0.0-1.0)
+
 Also determine overall_sentiment for the entire rumor (-1.0 to 1.0).
 
-Be thorough: extract ALL entities mentioned or strongly implied. Include sectors affected even if not named directly. Assign relevance based on centrality to the rumor's core claim.
+Be thorough: extract ALL entities mentioned or strongly implied. Include sectors affected even if not named directly. For tickers, only include companies that are publicly traded on major US exchanges. Assign relevance based on centrality to the rumor's core claim.
 
-Respond with JSON: {"entities": [...], "overall_sentiment": float}"""
+Respond with JSON: {"entities": [...], "tickers": [...], "overall_sentiment": float}"""
 
 
 async def inject_seed(
