@@ -4,12 +4,17 @@ Provides format_market_block() and build_enriched_user_message() for injecting
 bracket-specific market data into agent prompt context. Each bracket group
 (Technicals, Fundamentals, Earnings/Insider) sees a different slice of data
 formatted as compact key-value strings under a per-bracket char cap.
+
+Also provides fetch_headlines() and enrich_snapshots_with_headlines() for
+populating MarketDataSnapshot.headlines via AV NEWS_SENTIMENT (Plan 02, D-09).
 """
 
 from __future__ import annotations
 
+import httpx
 import structlog
 
+from alphaswarm.market_data import AV_BASE_URL
 from alphaswarm.types import BracketType, MarketDataSnapshot
 
 logger = structlog.get_logger(component="enrichment")
@@ -207,6 +212,97 @@ def format_market_block(
         )
 
     return block
+
+
+# ---------------------------------------------------------------------------
+# AV NEWS_SENTIMENT headline fetching (Plan 02, D-09)
+# ---------------------------------------------------------------------------
+
+
+async def fetch_headlines(
+    symbol: str,
+    av_key: str,
+    client: httpx.AsyncClient,
+    limit: int = 10,
+) -> list[str]:
+    """Fetch top N news headlines for symbol from AV NEWS_SENTIMENT (D-09).
+
+    Returns list of headline title strings, truncated to 120 chars each.
+    Raises ValueError on rate limit. Caller must handle.
+
+    Args:
+        symbol: Ticker symbol (e.g., "AAPL").
+        av_key: Alpha Vantage API key.
+        client: Shared httpx.AsyncClient instance (improvement #9).
+        limit: Max headlines to fetch (default 10 per D-09).
+    """
+    resp = await client.get(
+        AV_BASE_URL,
+        params={
+            "function": "NEWS_SENTIMENT",
+            "tickers": symbol,
+            "limit": limit,
+            "apikey": av_key,
+        },
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    # Rate limit guard (mirrors Phase 17 pattern, Pitfall 4)
+    if "Note" in data and "Thank you for using Alpha Vantage" in data["Note"]:
+        raise ValueError("Alpha Vantage rate limit exceeded")
+
+    feed = data.get("feed", [])
+    headlines: list[str] = []
+    for item in feed[:limit]:
+        title = item.get("title", "")
+        if title:
+            headlines.append(title[:120])
+    return headlines
+
+
+async def enrich_snapshots_with_headlines(
+    snapshots: dict[str, MarketDataSnapshot],
+    av_key: str | None,
+) -> dict[str, MarketDataSnapshot]:
+    """Populate headlines on each snapshot. Returns new dict with updated frozen instances.
+
+    When av_key is None, returns snapshots unchanged with a warning log (D-10).
+    Failures for individual tickers are caught and logged; other tickers still enriched.
+
+    WARNING: Alpha Vantage free tier allows only 25 API calls per day. With 3 tickers,
+    each simulation run uses 3 calls for headlines. Repeated dev runs will exhaust
+    quota after ~8 runs. Consider setting ALPHA_VANTAGE_API_KEY='' to skip headline
+    fetch during rapid iteration. (Improvement #7 from cross-AI review.)
+
+    This function fetches and stores up to 10 headlines per ticker in the snapshot.
+    The separate concern of how many headlines are injected into the agent prompt is
+    handled by format_market_block() in this same module, which budget-caps headline
+    injection to fit within MAX_MARKET_BLOCK_CHARS. (Improvement #6 distinction.)
+    """
+    if not av_key:
+        logger.warning("headlines_skipped_no_api_key", component="enrichment")
+        return snapshots
+
+    if not snapshots:
+        return snapshots
+
+    enriched: dict[str, MarketDataSnapshot] = {}
+    # Shared AsyncClient across all ticker fetches (improvement #9 from review)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for symbol, snapshot in snapshots.items():
+            try:
+                headlines = await fetch_headlines(symbol, av_key, client)
+                enriched[symbol] = snapshot.model_copy(update={"headlines": headlines})
+            except Exception as exc:
+                logger.warning(
+                    "headlines_fetch_failed",
+                    component="enrichment",
+                    symbol=symbol,
+                    error=str(exc),
+                )
+                enriched[symbol] = snapshot  # keep original (headlines=[])
+    return enriched
 
 
 def build_enriched_user_message(
