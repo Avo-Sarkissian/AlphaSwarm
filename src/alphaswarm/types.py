@@ -85,21 +85,41 @@ class SeedEntity(BaseModel, frozen=True):
     sentiment: float = Field(ge=-1.0, le=1.0)
 
 
-class ExtractedTicker(BaseModel, frozen=True):
-    """A stock ticker extracted from a seed rumor and validated against SEC data."""
-
-    symbol: str
-    company_name: str
-    relevance: float = Field(ge=0.0, le=1.0)
-
-
 class SeedEvent(BaseModel, frozen=True):
-    """Structured seed rumor with extracted entities, tickers, and aggregate sentiment."""
+    """Structured seed rumor with extracted entities and aggregate sentiment."""
 
     raw_rumor: str
     entities: list[SeedEntity]
-    tickers: list[ExtractedTicker] = Field(default_factory=list)
     overall_sentiment: float = Field(ge=-1.0, le=1.0)
+
+
+class MarketDataSnapshot(BaseModel, frozen=True):
+    """Market data snapshot for a single ticker. Per Phase 17 D-03."""
+
+    symbol: str
+    company_name: str = ""
+    # Price history: 90-day daily OHLCV (D-01)
+    price_history: list[dict[str, float | int | str]] = Field(default_factory=list)
+    # Financial fundamentals (D-02)
+    pe_ratio: float | None = None
+    market_cap: float | None = None
+    fifty_two_week_high: float | None = None
+    fifty_two_week_low: float | None = None
+    eps_trailing: float | None = None
+    revenue_ttm: float | None = None
+    gross_margin_pct: float | None = None
+    debt_to_equity: float | None = None
+    earnings_surprise_pct: float | None = None
+    next_earnings_date: str | None = None
+    # Computed summary stats for quick access
+    last_close: float | None = None
+    price_change_30d_pct: float | None = None
+    price_change_90d_pct: float | None = None
+    avg_volume_30d: float | None = None
+    # Reserved for Phase 18 (D-04: news deferred, DATA-03 compliance in Phase 18)
+    headlines: list[str] = Field(default_factory=list)
+    # Degraded flag (D-15: True when both yfinance and AV fail)
+    is_degraded: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -114,14 +134,10 @@ class ParsedSeedResult:
       1 = Direct JSON parse succeeded
       2 = Code-fence strip / regex extraction succeeded
       3 = All tiers failed, fallback SeedEvent returned
-
-    dropped_tickers: Tickers removed during parsing (invalid SEC symbol or exceeded 3-ticker cap).
-    Each entry is {"symbol": str, "reason": "invalid"|"cap"}.
     """
 
     seed_event: SeedEvent
     parse_tier: int
-    dropped_tickers: tuple[dict[str, str], ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
