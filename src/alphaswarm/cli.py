@@ -77,7 +77,6 @@ def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> 
     print(f"  Overall Sentiment: {seed_event.overall_sentiment:+.2f}")
     print(f"  Parse Quality:     Tier {parsed_result.parse_tier} ({tier_label})")
     print(f"  Entities:          {len(seed_event.entities)}")
-    print(f"  Tickers:           {len(seed_event.tickers)}")
 
     if seed_event.entities:
         print(f"\n  {'Name':<25} {'Type':<10} {'Relevance':>10} {'Sentiment':>10}")
@@ -87,23 +86,6 @@ def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> 
                 f"  {entity.name:<25} {entity.type.value:<10} "
                 f"{entity.relevance:>10.2f} {entity.sentiment:>+10.2f}"
             )
-
-    # Ticker table (Phase 16: TICK-03 per D-11)
-    if seed_event.tickers:
-        print(f"\n  {'Symbol':<10} {'Company':<30} {'Relevance':>10}")
-        print(f"  {'-'*10} {'-'*30} {'-'*10}")
-        for ticker in seed_event.tickers:
-            print(
-                f"  {ticker.symbol:<10} {ticker.company_name:<30} "
-                f"{ticker.relevance:>10.2f}"
-            )
-
-    # Dropped tickers with reason labels (Phase 16: TICK-03 per D-12)
-    if parsed_result.dropped_tickers:
-        print(f"\n  Dropped Tickers:")
-        print(f"  {'-'*40}")
-        for d in parsed_result.dropped_tickers:
-            print(f"  {d['symbol']:<10} (reason: {d['reason']})")
 
     print(f"{'='*60}\n")
 

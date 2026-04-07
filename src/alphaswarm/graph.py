@@ -198,7 +198,6 @@ class GraphStateManager:
             }
             for e in seed_event.entities
         ]
-        ticker_symbols = [t.symbol for t in seed_event.tickers]
         try:
             async with self._driver.session(database=self._database) as session:
                 await session.execute_write(
@@ -207,7 +206,6 @@ class GraphStateManager:
                     seed_rumor,
                     seed_event.overall_sentiment,
                     entity_params,
-                    ticker_symbols,
                 )
         except Neo4jError as exc:
             raise Neo4jWriteError(
@@ -218,7 +216,6 @@ class GraphStateManager:
             "cycle_with_seed_event_created",
             cycle_id=cycle_id,
             entity_count=len(entity_params),
-            ticker_count=len(ticker_symbols),
             overall_sentiment=seed_event.overall_sentiment,
         )
         return cycle_id
@@ -230,24 +227,21 @@ class GraphStateManager:
         seed_rumor: str,
         overall_sentiment: float,
         entities: list[dict],  # type: ignore[type-arg]
-        tickers: list[str],
     ) -> None:
-        """Single transaction: create Cycle with tickers, then UNWIND Entity+MENTIONS."""
-        # TODO(Phase 17): add index on Cycle.tickers for symbol-keyed queries
+        """Single transaction: create Cycle with overall_sentiment, then UNWIND Entity+MENTIONS."""
+        # Create Cycle node with overall_sentiment
         await tx.run(
             """
             CREATE (c:Cycle {
                 cycle_id: $cycle_id,
                 seed_rumor: $seed_rumor,
                 overall_sentiment: $overall_sentiment,
-                tickers: $tickers,
                 created_at: datetime()
             })
             """,
             cycle_id=cycle_id,
             seed_rumor=seed_rumor,
             overall_sentiment=overall_sentiment,
-            tickers=tickers,
         )
         # Create Entity nodes + MENTIONS relationships (only if entities exist)
         if entities:

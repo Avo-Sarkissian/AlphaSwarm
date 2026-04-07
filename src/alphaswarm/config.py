@@ -87,6 +87,9 @@ class AppSettings(BaseSettings):
     neo4j: Neo4jSettings = Neo4jSettings()
     governor: GovernorSettings = GovernorSettings()
 
+    # Phase 17: Alpha Vantage fallback API key (D-17)
+    alpha_vantage_api_key: str | None = None
+
 
 # ---------------------------------------------------------------------------
 # JSON output instructions (appended to every persona system prompt)
