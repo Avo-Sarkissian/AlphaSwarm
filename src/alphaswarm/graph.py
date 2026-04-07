@@ -17,7 +17,7 @@ from alphaswarm.types import SignalType
 if TYPE_CHECKING:
     from neo4j import AsyncDriver, AsyncManagedTransaction
 
-    from alphaswarm.types import AgentDecision, AgentPersona, SeedEvent
+    from alphaswarm.types import AgentDecision, AgentPersona, MarketDataSnapshot, SeedEvent
 
 log = structlog.get_logger(component="graph")
 
@@ -256,6 +256,105 @@ class GraphStateManager:
                 entities=entities,
                 cycle_id=cycle_id,
             )
+
+    async def create_ticker_with_market_data(
+        self,
+        cycle_id: str,
+        snapshots: dict[str, MarketDataSnapshot],
+    ) -> None:
+        """Create Ticker nodes with MarketDataSnapshot data linked to Cycle (Phase 17 D-12).
+
+        Creates:
+        - (Ticker {symbol, company_name}) nodes, MERGED by symbol (idempotent)
+        - (Cycle)-[:HAS_TICKER]->(Ticker) relationships
+        - (Ticker)-[:HAS_MARKET_DATA]->(MarketDataSnapshot {...}) nodes with financial data
+
+        Nullable properties for partial/degraded data per D-13.
+        Does NOT store full price_history in Neo4j (too large for property).
+        Stores summary stats only (last_close, price_change_30d_pct, etc.).
+        """
+        if not snapshots:
+            return
+
+        snapshot_params = [
+            {
+                "symbol": s.symbol,
+                "company_name": s.company_name,
+                "pe_ratio": s.pe_ratio,
+                "market_cap": s.market_cap,
+                "fifty_two_week_high": s.fifty_two_week_high,
+                "fifty_two_week_low": s.fifty_two_week_low,
+                "eps_trailing": s.eps_trailing,
+                "revenue_ttm": s.revenue_ttm,
+                "gross_margin_pct": s.gross_margin_pct,
+                "debt_to_equity": s.debt_to_equity,
+                "earnings_surprise_pct": s.earnings_surprise_pct,
+                "next_earnings_date": s.next_earnings_date,
+                "last_close": s.last_close,
+                "price_change_30d_pct": s.price_change_30d_pct,
+                "price_change_90d_pct": s.price_change_90d_pct,
+                "avg_volume_30d": s.avg_volume_30d,
+                "is_degraded": s.is_degraded,
+            }
+            for s in snapshots.values()
+        ]
+
+        try:
+            async with self._driver.session(database=self._database) as session:
+                await session.execute_write(
+                    self._create_tickers_tx, cycle_id, snapshot_params,
+                )
+        except Neo4jError as exc:
+            raise Neo4jWriteError(
+                f"Failed to create ticker market data for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+
+        self._log.info(
+            "ticker_market_data_created",
+            cycle_id=cycle_id,
+            ticker_count=len(snapshot_params),
+            degraded_count=sum(1 for s in snapshots.values() if s.is_degraded),
+        )
+
+    @staticmethod
+    async def _create_tickers_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        snapshots: list[dict],  # type: ignore[type-arg]
+    ) -> None:
+        """UNWIND transaction: Ticker nodes + HAS_TICKER + HAS_MARKET_DATA (D-14)."""
+        await tx.run(
+            """
+            UNWIND $snapshots AS s
+            MERGE (t:Ticker {symbol: s.symbol})
+            ON CREATE SET t.company_name = s.company_name
+            ON MATCH SET t.company_name = COALESCE(s.company_name, t.company_name)
+            WITH t, s
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            CREATE (c)-[:HAS_TICKER]->(t)
+            CREATE (t)-[:HAS_MARKET_DATA]->(md:MarketDataSnapshot {
+                pe_ratio: s.pe_ratio,
+                market_cap: s.market_cap,
+                fifty_two_week_high: s.fifty_two_week_high,
+                fifty_two_week_low: s.fifty_two_week_low,
+                eps_trailing: s.eps_trailing,
+                revenue_ttm: s.revenue_ttm,
+                gross_margin_pct: s.gross_margin_pct,
+                debt_to_equity: s.debt_to_equity,
+                earnings_surprise_pct: s.earnings_surprise_pct,
+                next_earnings_date: s.next_earnings_date,
+                last_close: s.last_close,
+                price_change_30d_pct: s.price_change_30d_pct,
+                price_change_90d_pct: s.price_change_90d_pct,
+                avg_volume_30d: s.avg_volume_30d,
+                is_degraded: s.is_degraded,
+                fetched_at: datetime()
+            })
+            """,
+            cycle_id=cycle_id,
+            snapshots=snapshots,
+        )
 
     async def close(self) -> None:
         """Close the Neo4j driver connection."""

@@ -18,6 +18,7 @@ import structlog
 
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
+from alphaswarm.market_data import fetch_market_data
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
     from alphaswarm.state import StateStore
-    from alphaswarm.types import AgentDecision, AgentPersona, ParsedModifiersResult, ParsedSeedResult
+    from alphaswarm.types import AgentDecision, AgentPersona, MarketDataSnapshot, ParsedModifiersResult, ParsedSeedResult
 
 logger = structlog.get_logger(component="simulation")
 
@@ -769,6 +770,27 @@ async def run_simulation(
     if modifier_result is not None:
         personas = generate_personas(brackets, modifiers=modifier_result.modifiers)
         logger.info("personas_regenerated_with_modifiers", parse_tier=modifier_result.parse_tier)
+
+    # Phase 17: Fetch market data for extracted tickers (D-07)
+    # Must complete before Round 1 per DATA-01 / ENRICH-01
+    market_snapshots: dict[str, MarketDataSnapshot] = {}
+    if parsed_result.seed_event.tickers:
+        logger.info(
+            "market_data_fetch_start",
+            ticker_count=len(parsed_result.seed_event.tickers),
+            tickers=[t.symbol for t in parsed_result.seed_event.tickers],
+        )
+        market_snapshots = await fetch_market_data(
+            parsed_result.seed_event.tickers,
+            av_key=settings.alpha_vantage_api_key,
+        )
+        # Persist to Neo4j (D-12, D-13)
+        await graph_manager.create_ticker_with_market_data(cycle_id, market_snapshots)
+        logger.info(
+            "market_data_fetch_complete",
+            fetched=len(market_snapshots),
+            degraded=[s for s, snap in market_snapshots.items() if snap.is_degraded],
+        )
 
     # Round 1 dispatch (skip inject_seed since we already did it)
     round1_result = await run_round1(
