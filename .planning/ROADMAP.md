@@ -47,7 +47,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 16: Ticker Extraction** - Orchestrator extracts and validates stock ticker symbols from seed rumors as the critical-path root for all v3 features (completed 2026-04-06)
 - [x] **Phase 17: Market Data Pipeline** - Async market data fetching via yfinance with Alpha Vantage fallback, disk-cached responses, Neo4j Ticker nodes, and CLI degraded-data warnings (completed 2026-04-06)
-- [ ] **Phase 18: Agent Context Enrichment and Enhanced Decisions** - Inject budget-capped, bracket-tailored market data into agent prompts and extend AgentDecision with ticker-specific output fields
+- [x] **Phase 18: Agent Context Enrichment and Enhanced Decisions** - Inject budget-capped, bracket-tailored market data into agent prompts and extend AgentDecision with ticker-specific output fields (completed 2026-04-07)
 - [ ] **Phase 19: Per-Stock TUI Consensus Display** - Per-ticker consensus panel with confidence-weighted voting and bracket disagreement breakdown
 - [ ] **Phase 20: Report Enhancement and Integration Hardening** - Post-simulation report includes market data context comparing agent consensus with actual market indicators
 
@@ -93,9 +93,9 @@ Plans:
   4. The 3-tier parse fallback handles new fields gracefully -- agents that fail to produce new fields get backward-compatible None defaults without triggering PARSE_ERROR status
 **Plans**: 3 plans
 Plans:
-- [ ] 18-01-PLAN.md -- TickerDecision model, enrichment module with bracket formatting, JSON schema update
-- [ ] 18-02-PLAN.md -- AV NEWS_SENTIMENT headline fetch and snapshot enrichment
-- [ ] 18-03-PLAN.md -- Simulation sub-wave dispatch wiring and integration tests
+- [x] 18-01-PLAN.md -- TickerDecision model, enrichment module with bracket formatting, JSON schema update
+- [x] 18-02-PLAN.md -- AV NEWS_SENTIMENT headline fetch and snapshot enrichment
+- [x] 18-03-PLAN.md -- Simulation sub-wave dispatch wiring and integration tests
 
 ### Phase 19: Per-Stock TUI Consensus Display
 **Goal**: Users see the payoff of live data grounding -- per-ticker consensus breakdown in the TUI showing which stocks agents are bullish/bearish on, how confident they are, and where brackets disagree
@@ -105,8 +105,10 @@ Plans:
   1. After simulation completes, the TUI displays a per-ticker consensus panel showing each ticker symbol, aggregate signal (BUY/SELL/HOLD), aggregate confidence, and vote distribution
   2. Consensus aggregation uses confidence-weighted voting (confidence multiplied by influence_weight) alongside the discrete majority vote, and both are visible in the display
   3. For each ticker, the user can see which brackets are bullish versus bearish, making inter-bracket disagreement visually clear
-**Plans**: TBD
-**UI hint**: yes
+**Plans**: 2 plans
+Plans:
+- [ ] 19-01-PLAN.md -- TickerConsensus data model, StateStore extension, compute_ticker_consensus() with simulation wiring
+- [ ] 19-02-PLAN.md -- TickerConsensusPanel TUI widget, compose/poll wiring, visual verification
 
 ### Phase 20: Report Enhancement and Integration Hardening
 **Goal**: The post-simulation report synthesizes market data context with agent consensus, giving users a complete picture of how 100 agents interpreted real market conditions
@@ -142,6 +144,6 @@ Phases execute in numeric order: 16 -> 17 -> 18 -> 19 -> 20
 | 15. Post-Simulation Report | v2.0 | 2/2 | Complete | 2026-04-02 |
 | 16. Ticker Extraction | v3.0 | 3/3 | Complete | 2026-04-06 |
 | 17. Market Data Pipeline | v3.0 | 3/3 | Complete | 2026-04-06 |
-| 18. Agent Context Enrichment and Enhanced Decisions | v3.0 | 0/3 | In progress | - |
-| 19. Per-Stock TUI Consensus Display | v3.0 | 0/? | Not started | - |
+| 18. Agent Context Enrichment and Enhanced Decisions | v3.0 | 3/3 | Complete   | 2026-04-07 |
+| 19. Per-Stock TUI Consensus Display | v3.0 | 0/2 | Not started | - |
 | 20. Report Enhancement and Integration Hardening | v3.0 | 0/? | Not started | - |
