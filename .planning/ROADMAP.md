@@ -88,7 +88,7 @@ Plans:
 **Requirements**: ENRICH-01, ENRICH-02, ENRICH-03, DECIDE-01, DECIDE-02
 **Success Criteria** (what must be TRUE):
   1. All market data fetching completes before Round 1, and each agent's prompt includes a formatted market data block that stays within a strict token budget preventing context window overflow
-  2. Different bracket archetypes receive different data slices -- Quants see price/volume/technicals, Macro agents see sector-level data, Insiders see earnings surprises -- visible by inspecting agent prompts or rationale output
+  2. Different bracket archetypes receive different data slices -- Quants see price/volume/technicals, Macro agents see Earnings/Insider slice data (earnings surprises, EPS, headlines per D-04), Insiders see earnings surprises -- visible by inspecting agent prompts or rationale output
   3. Agent decisions include ticker, direction, expected_return_pct, and time_horizon fields in their structured output
   4. The 3-tier parse fallback handles new fields gracefully -- agents that fail to produce new fields get backward-compatible None defaults without triggering PARSE_ERROR status
 **Plans**: 3 plans
