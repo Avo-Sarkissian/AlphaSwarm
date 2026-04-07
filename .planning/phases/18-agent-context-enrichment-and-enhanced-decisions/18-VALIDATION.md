@@ -42,7 +42,9 @@ created: 2026-04-06
 | 18-01-02 | 01 | 1 | ENRICH-01 | — | N/A | unit | `uv run pytest tests/test_enrichment.py -x -q` | ❌ W0 | ⬜ pending |
 | 18-01-03 | 01 | 1 | ENRICH-02 | — | N/A | unit | `uv run pytest tests/test_enrichment.py::test_bracket_slices -x -q` | ❌ W0 | ⬜ pending |
 | 18-02-01 | 02 | 2 | ENRICH-03 | — | N/A | unit | `uv run pytest tests/test_enrichment.py::test_headlines -x -q` | ❌ W0 | ⬜ pending |
-| 18-02-02 | 02 | 2 | DECIDE-02 | — | N/A | integration | `uv run pytest tests/test_simulation_enrichment.py -x -q` | ❌ W0 | ⬜ pending |
+| 18-02-01 | 02 | 2 | ENRICH-03 | — | N/A | unit | `uv run pytest tests/test_enrichment.py::test_headlines -x -q` | ❌ W0 | ⬜ pending |
+| 18-03-01 | 03 | 2 | DECIDE-02 | — | N/A | integration | `uv run pytest tests/test_simulation_enrichment.py -x -q` | ❌ W0 | ⬜ pending |
+| 18-03-02 | 03 | 2 | ENRICH-01 | — | N/A | integration | `uv run pytest tests/test_simulation_enrichment.py::test_dispatch_with_snapshots_three_waves -x -q` | ❌ W0 | ⬜ pending |
 | 18-03-01 | 03 | 3 | DECIDE-01 | — | N/A | unit | `uv run pytest tests/test_parsing.py -x -q` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
