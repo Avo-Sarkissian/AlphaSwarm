@@ -1,7 +1,8 @@
 ---
 phase: 19
 slug: per-stock-tui-consensus-display
-status: draft
+status: approved
+reviewed_at: 2026-04-07T00:00:00Z
 shadcn_initialized: false
 preset: none
 created: 2026-04-07
