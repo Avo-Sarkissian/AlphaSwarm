@@ -161,7 +161,11 @@ async def test_run_round1_dispatches_with_no_peer_context(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """dispatch_wave is called with peer_context=None for Round 1."""
+    """dispatch_wave is called with no peer contexts for Round 1.
+
+    Phase 18: run_round1 now calls _dispatch_enriched_sub_waves which calls
+    dispatch_wave with peer_contexts=None (no peer context in Round 1).
+    """
     from alphaswarm.simulation import run_round1
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -177,7 +181,8 @@ async def test_run_round1_dispatches_with_no_peer_context(
         personas=TEST_PERSONAS,
     )
 
-    assert mock_dispatch.call_args.kwargs["peer_context"] is None
+    # Phase 18: _dispatch_enriched_sub_waves passes peer_contexts=None (not peer_context)
+    assert mock_dispatch.call_args.kwargs.get("peer_contexts") is None
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)

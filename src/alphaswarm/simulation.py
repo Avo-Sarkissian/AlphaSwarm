@@ -18,10 +18,17 @@ import structlog
 
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
+from alphaswarm.enrichment import (
+    EARNINGS_INSIDER_BRACKETS,
+    FUNDAMENTALS_BRACKETS,
+    TECHNICALS_BRACKETS,
+    build_enriched_user_message,
+    enrich_snapshots_with_headlines,
+)
 from alphaswarm.market_data import fetch_market_data
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
-from alphaswarm.types import SignalType, SimulationPhase
+from alphaswarm.types import AgentPersona, BracketType, MarketDataSnapshot, SignalType, SimulationPhase
 from alphaswarm.utils import sanitize_rationale
 from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_type
 
@@ -32,7 +39,7 @@ if TYPE_CHECKING:
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
     from alphaswarm.state import StateStore
-    from alphaswarm.types import AgentDecision, AgentPersona, MarketDataSnapshot, ParsedModifiersResult, ParsedSeedResult
+    from alphaswarm.types import AgentDecision, ParsedModifiersResult, ParsedSeedResult
 
 logger = structlog.get_logger(component="simulation")
 
@@ -418,6 +425,116 @@ def _compute_shifts(
 
 
 # ---------------------------------------------------------------------------
+# Phase 18: Sub-wave dispatch helpers (bracket-enriched market context)
+# ---------------------------------------------------------------------------
+
+
+def _group_personas_by_slice(
+    personas: list[AgentPersona],
+) -> list[tuple[list[AgentPersona], BracketType]]:
+    """Group personas into 3 bracket slice categories for sub-wave dispatch.
+
+    Returns list of (personas_in_group, representative_bracket) tuples.
+    The representative_bracket is any member of the group -- used to select
+    the correct enrichment slice in build_enriched_user_message().
+    Groups with zero personas are omitted.
+    """
+    groups: dict[str, tuple[list[AgentPersona], BracketType]] = {
+        "technicals": ([], BracketType.QUANTS),
+        "fundamentals": ([], BracketType.SUITS),
+        "earnings": ([], BracketType.INSIDERS),
+    }
+    for p in personas:
+        if p.bracket in TECHNICALS_BRACKETS:
+            groups["technicals"][0].append(p)
+        elif p.bracket in FUNDAMENTALS_BRACKETS:
+            groups["fundamentals"][0].append(p)
+        elif p.bracket in EARNINGS_INSIDER_BRACKETS:
+            groups["earnings"][0].append(p)
+        else:
+            # Fallback: unknown bracket gets earnings slice (safest default)
+            groups["earnings"][0].append(p)
+    return [(ps, rep) for ps, rep in groups.values() if ps]
+
+
+async def _dispatch_enriched_sub_waves(
+    personas: list[AgentPersona],
+    market_snapshots: dict[str, MarketDataSnapshot],
+    rumor: str,
+    governor: ResourceGovernor,
+    client: OllamaClient,
+    model: str,
+    settings: GovernorSettings,
+    *,
+    peer_contexts_by_id: dict[str, str | None] | None = None,
+    state_store: StateStore | None = None,
+) -> list[AgentDecision]:
+    """Dispatch 3 sub-waves (one per bracket slice) and merge results in original persona order.
+
+    When market_snapshots is empty, dispatches a single wave with bare rumor (existing behavior).
+    When peer_contexts_by_id is provided, extracts per-agent peer contexts for each sub-wave.
+    Returns decisions list aligned positionally with input personas.
+    """
+    if not market_snapshots:
+        # No market data -- single dispatch with bare rumor (backward compatible)
+        worker_configs = [persona_to_worker_config(p) for p in personas]
+        peer_ctxs = None
+        if peer_contexts_by_id is not None:
+            peer_ctxs = [peer_contexts_by_id.get(p.id) for p in personas]
+        return await dispatch_wave(
+            personas=worker_configs,
+            governor=governor,
+            client=client,
+            model=model,
+            user_message=rumor,
+            settings=settings,
+            peer_contexts=peer_ctxs,
+            state_store=state_store,
+        )
+
+    # Sub-wave dispatch per bracket group
+    bracket_groups = _group_personas_by_slice(personas)
+    results_by_id: dict[str, AgentDecision] = {}
+
+    for group_personas, rep_bracket in bracket_groups:
+        enriched_msg = build_enriched_user_message(rumor, market_snapshots, rep_bracket)
+        group_configs = [persona_to_worker_config(p) for p in group_personas]
+
+        # Extract per-agent peer contexts for this group if provided
+        group_peer_ctxs: list[str | None] | None = None
+        if peer_contexts_by_id is not None:
+            group_peer_ctxs = [peer_contexts_by_id.get(p.id) for p in group_personas]
+
+        group_decisions = await dispatch_wave(
+            personas=group_configs,
+            governor=governor,
+            client=client,
+            model=model,
+            user_message=enriched_msg,
+            settings=settings,
+            peer_contexts=group_peer_ctxs,
+            state_store=state_store,
+        )
+
+        # Positional invariant: dispatch_wave returns decisions aligned with group_configs
+        if len(group_decisions) != len(group_personas):
+            raise RuntimeError(
+                f"Sub-wave decision count mismatch: {len(group_decisions)} != {len(group_personas)}"
+            )
+
+        for persona, decision in zip(group_personas, group_decisions):
+            results_by_id[persona.id] = decision
+
+    # Merge in original persona order (Pitfall 5)
+    merged = [results_by_id[p.id] for p in personas]
+    if len(merged) != len(personas):
+        raise RuntimeError(
+            f"Merged decision count mismatch: {len(merged)} != {len(personas)}"
+        )
+    return merged
+
+
+# ---------------------------------------------------------------------------
 # Round 1 pipeline (Phase 6)
 # ---------------------------------------------------------------------------
 
@@ -433,6 +550,7 @@ async def run_round1(
     *,
     state_store: StateStore | None = None,
     pre_injected: tuple[str, ParsedSeedResult] | None = None,
+    market_snapshots: dict[str, MarketDataSnapshot] | None = None,  # Phase 18
 ) -> Round1Result:
     """Execute the Round 1 simulation pipeline.
 
@@ -442,6 +560,7 @@ async def run_round1(
     3. start_monitoring (governor RAM monitoring)
     4. load worker model
     5. dispatch_wave with peer_context=None (Round 1 = no peer influence)
+       Phase 18: Uses _dispatch_enriched_sub_waves for bracket-specific market context
     6. Positional assertion (dispatch results must match persona count)
     7. Pair agent IDs with decisions
     8. write_decisions with round_num=1
@@ -458,6 +577,8 @@ async def run_round1(
         pre_injected: Optional (cycle_id, parsed_result) when seed injection
             was already performed by the caller (e.g., run_simulation for Phase 13
             modifier generation). Skips inject_seed when provided.
+        market_snapshots: Optional market data snapshots for bracket-enriched prompts.
+            When provided and non-empty, agents receive bracket-specific market context.
 
     Returns:
         Round1Result with cycle_id, parsed_result, and agent_decisions.
@@ -493,15 +614,16 @@ async def run_round1(
         await model_manager.load_model(worker_alias)
         try:
             # 5. Convert personas and dispatch
+            # Phase 18: Sub-wave dispatch with bracket-enriched market context
             worker_configs = [persona_to_worker_config(p) for p in personas]
-            decisions = await dispatch_wave(
-                personas=worker_configs,
+            decisions = await _dispatch_enriched_sub_waves(
+                personas=personas,
+                market_snapshots=market_snapshots or {},
+                rumor=rumor,
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
-                user_message=rumor,
                 settings=settings.governor,
-                peer_context=None,
                 state_store=state_store,
             )
 
@@ -792,12 +914,20 @@ async def run_simulation(
             degraded=[s for s, snap in market_snapshots.items() if snap.is_degraded],
         )
 
+    # Phase 18: Enrich snapshots with news headlines (ENRICH-03, D-09)
+    # Must happen once pre-simulation, not per-round (anti-pattern from Research)
+    if market_snapshots:
+        market_snapshots = await enrich_snapshots_with_headlines(
+            market_snapshots, av_key=settings.alpha_vantage_api_key,
+        )
+
     # Round 1 dispatch (skip inject_seed since we already did it)
     round1_result = await run_round1(
         rumor, settings, ollama_client, model_manager,
         graph_manager, governor, personas,
         state_store=state_store,
         pre_injected=(cycle_id, parsed_result),
+        market_snapshots=market_snapshots,  # Phase 18
     )
     cycle_id = round1_result.cycle_id
 
@@ -903,16 +1033,23 @@ async def run_simulation(
         # Load worker model immediately before dispatch — no idle gap
         await model_manager.load_model(worker_alias)
         try:
-            # Dispatch Round 2 with pre-built peer contexts (bypass _dispatch_round)
+            # Phase 18: Build per-agent peer context lookup for sub-wave dispatch
+            round2_peer_ctx_by_id: dict[str, str | None] = {
+                p.id: ctx
+                for p, ctx in zip(personas, round2_peer_contexts)
+            }
+
+            # Dispatch Round 2 with bracket-enriched sub-waves (Phase 18)
             worker_configs = [persona_to_worker_config(p) for p in personas]
-            round2_wave_decisions = await dispatch_wave(
-                personas=worker_configs,
+            round2_wave_decisions = await _dispatch_enriched_sub_waves(
+                personas=personas,
+                market_snapshots=market_snapshots,
+                rumor=rumor,
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
-                user_message=rumor,
                 settings=settings.governor,
-                peer_contexts=round2_peer_contexts,
+                peer_contexts_by_id=round2_peer_ctx_by_id,
                 state_store=state_store,
             )
             round2_decisions: list[tuple[str, AgentDecision]] = [
@@ -1022,15 +1159,22 @@ async def run_simulation(
                 peer_selection="ranked_posts",
             )
 
-            # Dispatch Round 3 with pre-built peer contexts
-            round3_wave_decisions = await dispatch_wave(
-                personas=worker_configs,
+            # Phase 18: Build per-agent peer context lookup for sub-wave dispatch
+            round3_peer_ctx_by_id: dict[str, str | None] = {
+                p.id: ctx
+                for p, ctx in zip(personas, round3_peer_contexts)
+            }
+
+            # Dispatch Round 3 with bracket-enriched sub-waves (Phase 18)
+            round3_wave_decisions = await _dispatch_enriched_sub_waves(
+                personas=personas,
+                market_snapshots=market_snapshots,
+                rumor=rumor,
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
-                user_message=rumor,
                 settings=settings.governor,
-                peer_contexts=round3_peer_contexts,
+                peer_contexts_by_id=round3_peer_ctx_by_id,
                 state_store=state_store,
             )
             round3_decisions: list[tuple[str, AgentDecision]] = [
