@@ -47,6 +47,23 @@ class BracketSummary:
 
 
 @dataclass(frozen=True)
+class TickerConsensus:
+    """Per-ticker consensus aggregation for TUI display (Phase 19, D-05).
+
+    majority_pct is stored as a fraction 0.0-1.0 (not 0-100 percentage).
+    The display layer converts to percentage for rendering.
+    """
+
+    ticker: str
+    round_num: int
+    weighted_signal: str      # "BUY" / "SELL" / "HOLD"
+    weighted_score: float     # 0.0-1.0 (normalized weighted sum for winning direction)
+    majority_signal: str      # "BUY" / "SELL" / "HOLD"
+    majority_pct: float       # 0.0-1.0 (fraction of valid votes for majority signal)
+    bracket_breakdown: tuple[BracketSummary, ...]
+
+
+@dataclass(frozen=True)
 class RationaleEntry:
     """Single agent rationale entry for the TUI rationale sidebar (D-03, D-04, TUI-03).
 
@@ -82,6 +99,7 @@ class StateSnapshot:
     tps: float = 0.0
     rationale_entries: tuple[RationaleEntry, ...] = ()
     bracket_summaries: tuple[BracketSummary, ...] = ()
+    ticker_consensus: tuple[TickerConsensus, ...] = ()
 
 
 class StateStore:
@@ -112,6 +130,8 @@ class StateStore:
         self._cumulative_eval_ns: int = 0
         # Phase 10: TUI-05 bracket summaries storage
         self._bracket_summaries: tuple[BracketSummary, ...] = ()
+        # Phase 19: Per-ticker consensus storage
+        self._ticker_consensus: tuple[TickerConsensus, ...] = ()
 
     async def update_agent_state(
         self,
@@ -182,6 +202,11 @@ class StateStore:
         async with self._lock:
             self._bracket_summaries = summaries
 
+    async def set_ticker_consensus(self, consensus: tuple[TickerConsensus, ...]) -> None:
+        """Store ticker consensus after each round completes (Phase 19, D-07)."""
+        async with self._lock:
+            self._ticker_consensus = consensus
+
     def _compute_tps(self) -> float:
         """Compute running tokens-per-second from accumulated values."""
         if self._cumulative_eval_ns <= 0:
@@ -217,6 +242,7 @@ class StateStore:
             tps=self._compute_tps(),
             rationale_entries=tuple(entries),
             bracket_summaries=self._bracket_summaries,
+            ticker_consensus=self._ticker_consensus,
         )
 
     @property
