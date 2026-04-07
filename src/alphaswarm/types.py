@@ -91,6 +91,10 @@ class SeedEvent(BaseModel, frozen=True):
     raw_rumor: str
     entities: list[SeedEntity]
     overall_sentiment: float = Field(ge=-1.0, le=1.0)
+    # Phase 17: Extracted ticker symbols for market data fetching (D-07).
+    # Populated by seed parser when tickers are present in the rumor.
+    # Empty by default for backward compatibility.
+    tickers: list[ExtractedTicker] = Field(default_factory=list)
 
 
 class MarketDataSnapshot(BaseModel, frozen=True):
