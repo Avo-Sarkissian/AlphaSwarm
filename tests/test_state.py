@@ -11,6 +11,7 @@ from alphaswarm.state import (
     RationaleEntry,
     StateSnapshot,
     StateStore,
+    TickerConsensus,
 )
 from alphaswarm.types import SignalType, SimulationPhase
 
@@ -300,3 +301,97 @@ async def test_push_top_rationales_skips_parse_errors() -> None:
     # Only good_agent should be in the queue
     assert len(snap.rationale_entries) == 1
     assert snap.rationale_entries[0].agent_id == "good_agent"
+
+
+# ---------------------------------------------------------------------------
+# Phase 19 Task 1: TickerConsensus dataclass and StateStore extension
+# ---------------------------------------------------------------------------
+
+
+def test_ticker_consensus_frozen() -> None:
+    """TickerConsensus is a frozen dataclass; assigning to fields raises FrozenInstanceError."""
+    import dataclasses
+
+    tc = TickerConsensus(
+        ticker="AAPL",
+        round_num=1,
+        weighted_signal="BUY",
+        weighted_score=0.74,
+        majority_signal="BUY",
+        majority_pct=0.68,
+        bracket_breakdown=(),
+    )
+    assert dataclasses.is_dataclass(tc)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        tc.ticker = "X"  # type: ignore[misc]
+
+
+def test_ticker_consensus_fields() -> None:
+    """TickerConsensus fields are accessible and majority_pct is a 0.0-1.0 fraction."""
+    tc = TickerConsensus(
+        ticker="AAPL",
+        round_num=1,
+        weighted_signal="BUY",
+        weighted_score=0.74,
+        majority_signal="BUY",
+        majority_pct=0.68,
+        bracket_breakdown=(),
+    )
+    assert tc.ticker == "AAPL"
+    assert tc.round_num == 1
+    assert tc.weighted_signal == "BUY"
+    assert tc.weighted_score == 0.74
+    assert tc.majority_signal == "BUY"
+    assert tc.majority_pct == 0.68  # fraction, NOT 68.0
+    assert tc.bracket_breakdown == ()
+
+
+async def test_set_ticker_consensus() -> None:
+    """StateStore.set_ticker_consensus() stores data; snapshot() returns the stored tuple."""
+    store = StateStore()
+    tc = TickerConsensus(
+        ticker="AAPL",
+        round_num=1,
+        weighted_signal="BUY",
+        weighted_score=0.74,
+        majority_signal="BUY",
+        majority_pct=0.68,
+        bracket_breakdown=(),
+    )
+    await store.set_ticker_consensus((tc,))
+    snap = store.snapshot()
+    assert snap.ticker_consensus == (tc,)
+
+
+def test_snapshot_ticker_consensus_default() -> None:
+    """StateSnapshot().ticker_consensus defaults to empty tuple."""
+    snap = StateSnapshot()
+    assert snap.ticker_consensus == ()
+
+
+async def test_state_snapshot_includes_ticker_consensus() -> None:
+    """After set_ticker_consensus(), snapshot returns both entries in order."""
+    store = StateStore()
+    tc_aapl = TickerConsensus(
+        ticker="AAPL",
+        round_num=1,
+        weighted_signal="BUY",
+        weighted_score=0.74,
+        majority_signal="BUY",
+        majority_pct=0.68,
+        bracket_breakdown=(),
+    )
+    tc_tsla = TickerConsensus(
+        ticker="TSLA",
+        round_num=1,
+        weighted_signal="SELL",
+        weighted_score=0.61,
+        majority_signal="SELL",
+        majority_pct=0.55,
+        bracket_breakdown=(),
+    )
+    await store.set_ticker_consensus((tc_aapl, tc_tsla))
+    snap = store.snapshot()
+    assert snap.ticker_consensus == (tc_aapl, tc_tsla)
+    assert snap.ticker_consensus[0].ticker == "AAPL"
+    assert snap.ticker_consensus[1].ticker == "TSLA"
