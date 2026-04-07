@@ -166,6 +166,15 @@ class ParsedModifiersResult:
     parse_tier: int
 
 
+class TickerDecision(BaseModel, frozen=True):
+    """Per-ticker directional decision with optional return estimate (Phase 18, D-06)."""
+
+    ticker: str
+    direction: SignalType
+    expected_return_pct: float | None = None
+    time_horizon: str | None = None
+
+
 class AgentDecision(BaseModel, frozen=True):
     """Structured decision output from an agent inference call."""
 
@@ -174,6 +183,8 @@ class AgentDecision(BaseModel, frozen=True):
     sentiment: float = Field(ge=-1.0, le=1.0, default=0.0)
     rationale: str = ""
     cited_agents: list[str] = Field(default_factory=list)
+    # Phase 18: Per-ticker decisions (D-07). Empty list default = backward-compatible.
+    ticker_decisions: list[TickerDecision] = Field(default_factory=list)
 
 
 class SimulationPhase(str, Enum):

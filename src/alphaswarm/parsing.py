@@ -21,11 +21,13 @@ from alphaswarm.types import (
     AgentDecision,
     BracketType,
     EntityType,
+    ExtractedTicker,
     ParsedModifiersResult,
     ParsedSeedResult,
     SeedEntity,
     SeedEvent,
     SignalType,
+    TickerDecision,
 )
 
 logger = structlog.get_logger(component="parsing")
@@ -49,6 +51,50 @@ def _strip_code_fences(text: str) -> str:
     return text
 
 
+def _lenient_parse_ticker_decisions(raw_list: list) -> list[TickerDecision]:
+    """Parse ticker_decisions leniently: drop invalid entries, keep valid ones.
+
+    Addresses Codex review blocker #4: malformed nested values in ticker_decisions
+    should not collapse the entire AgentDecision to PARSE_ERROR. Individual invalid
+    entries are dropped with a debug log.
+    """
+    valid: list[TickerDecision] = []
+    for item in raw_list:
+        try:
+            valid.append(TickerDecision.model_validate(item))
+        except (ValidationError, TypeError, ValueError):
+            logger.debug("ticker_decision_dropped", item=str(item)[:100])
+            continue
+    return valid
+
+
+def _try_lenient_agent_parse(text: str, parse_tier: int) -> AgentDecision | None:
+    """Try lenient parsing: pop ticker_decisions, validate base, merge back.
+
+    Phase 18: Full model_validate_json may fail due to malformed ticker_decisions
+    while top-level fields are valid. This pops ticker_decisions, validates the
+    rest as AgentDecision (which works because ticker_decisions defaults to []),
+    then leniently parses the popped ticker_decisions and merges back.
+    """
+    try:
+        data = json.loads(text)
+        if not isinstance(data, dict) or "ticker_decisions" not in data:
+            return None
+        td_raw = data.pop("ticker_decisions")
+        base = AgentDecision.model_validate(data)
+        parsed_tds = _lenient_parse_ticker_decisions(td_raw if isinstance(td_raw, list) else [])
+        result = base.model_copy(update={"ticker_decisions": parsed_tds})
+        logger.debug(
+            "parse_succeeded_lenient",
+            parse_tier=parse_tier,
+            signal=result.signal.value,
+            ticker_decisions_kept=len(parsed_tds),
+        )
+        return result
+    except (json.JSONDecodeError, ValidationError, TypeError, ValueError):
+        return None
+
+
 def parse_agent_decision(raw: str) -> AgentDecision:
     """Parse raw LLM output into a validated AgentDecision.
 
@@ -56,6 +102,10 @@ def parse_agent_decision(raw: str) -> AgentDecision:
     1. Direct JSON validation via Pydantic model_validate_json()
     2. Code-fence stripping + regex extraction of JSON block, then validate
     3. PARSE_ERROR fallback with truncated raw content
+
+    Each tier also attempts lenient parsing of ticker_decisions when strict
+    validation fails (Phase 18: malformed nested fields should not collapse
+    the entire decision to PARSE_ERROR).
 
     Args:
         raw: Raw string from LLM response (message.content).
@@ -69,7 +119,10 @@ def parse_agent_decision(raw: str) -> AgentDecision:
         logger.debug("parse succeeded", parse_tier=1, signal=result.signal.value)
         return result
     except (ValidationError, ValueError):
-        pass
+        # Phase 18: Try lenient parse for malformed ticker_decisions
+        lenient = _try_lenient_agent_parse(raw, parse_tier=1)
+        if lenient is not None:
+            return lenient
 
     # Tier 2: Strip code fences, then regex extraction
     cleaned = _strip_code_fences(raw)
@@ -84,7 +137,9 @@ def parse_agent_decision(raw: str) -> AgentDecision:
         )
         return result
     except (ValidationError, ValueError):
-        pass
+        lenient = _try_lenient_agent_parse(cleaned, parse_tier=2)
+        if lenient is not None:
+            return lenient
 
     # Regex extraction on cleaned text
     match = _JSON_BLOCK_RE.search(cleaned)
@@ -98,7 +153,9 @@ def parse_agent_decision(raw: str) -> AgentDecision:
             )
             return result
         except (ValidationError, ValueError):
-            pass
+            lenient = _try_lenient_agent_parse(match.group(), parse_tier=2)
+            if lenient is not None:
+                return lenient
 
     # Also try regex on original text (in case code fence stripping lost context)
     if cleaned != raw:
@@ -113,7 +170,9 @@ def parse_agent_decision(raw: str) -> AgentDecision:
                 )
                 return result
             except (ValidationError, ValueError):
-                pass
+                lenient = _try_lenient_agent_parse(match.group(), parse_tier=2)
+                if lenient is not None:
+                    return lenient
 
     # Tier 3: PARSE_ERROR fallback
     logger.debug(
@@ -155,11 +214,24 @@ def _try_parse_seed_json(text: str, original_rumor: str) -> SeedEvent | None:
             except (ValidationError, TypeError):
                 continue
 
+        # Phase 18: Parse tickers from orchestrator response (Codex blocker #3)
+        raw_tickers = data.get("tickers", [])
+        tickers: list[ExtractedTicker] = []
+        if isinstance(raw_tickers, list):
+            for t in raw_tickers:
+                try:
+                    tickers.append(ExtractedTicker.model_validate(t))
+                except (ValidationError, TypeError):
+                    continue
+        # Cap at 3 tickers, sorted by relevance descending (Phase 16 TICK-03)
+        tickers = sorted(tickers, key=lambda t: t.relevance, reverse=True)[:3]
+
         overall_sentiment = float(data.get("overall_sentiment", 0.0))
         return SeedEvent(
             raw_rumor=original_rumor,
             entities=entities,
             overall_sentiment=overall_sentiment,
+            tickers=tickers,
         )
     except (ValidationError, TypeError, ValueError, KeyError):
         return None

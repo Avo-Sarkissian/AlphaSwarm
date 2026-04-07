@@ -31,9 +31,16 @@ For each entity, determine:
 
 Also determine overall_sentiment for the entire rumor (-1.0 to 1.0).
 
+For each company entity, also extract its stock ticker symbol. Include a "tickers" array with:
+- symbol: The stock exchange ticker (e.g., "AAPL", "TSLA", "MSFT")
+- company_name: Full company name
+- relevance: Same relevance score as the entity (0.0-1.0)
+
+Only include tickers for publicly traded companies. Maximum 3 tickers, ordered by relevance.
+
 Be thorough: extract ALL entities mentioned or strongly implied. Include sectors affected even if not named directly. Assign relevance based on centrality to the rumor's core claim.
 
-Respond with JSON: {"entities": [...], "overall_sentiment": float}"""
+Respond with JSON: {"entities": [...], "overall_sentiment": float, "tickers": [{"symbol": "AAPL", "company_name": "Apple Inc", "relevance": 0.9}]}"""
 
 
 async def inject_seed(

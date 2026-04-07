@@ -379,6 +379,174 @@ def test_parse_modifiers_case_insensitive() -> None:
         assert result.modifiers[bt] == f"upper {bt.value}"
 
 
+# --- Phase 18: ticker_decisions parse tests ---
+
+
+def test_parse_with_ticker_decisions() -> None:
+    """JSON with valid ticker_decisions parses correctly."""
+    from alphaswarm.parsing import parse_agent_decision
+
+    raw = json_mod.dumps({
+        "signal": "buy",
+        "confidence": 0.85,
+        "sentiment": 0.6,
+        "rationale": "Strong earnings",
+        "cited_agents": [],
+        "ticker_decisions": [
+            {"ticker": "AAPL", "direction": "buy", "expected_return_pct": 5.2, "time_horizon": "1w"},
+            {"ticker": "TSLA", "direction": "sell", "expected_return_pct": -3.1, "time_horizon": "1m"},
+        ],
+    })
+    result = parse_agent_decision(raw)
+    assert result.signal == SignalType.BUY
+    assert len(result.ticker_decisions) == 2
+    assert result.ticker_decisions[0].ticker == "AAPL"
+    assert result.ticker_decisions[1].direction == SignalType.SELL
+
+
+def test_parse_without_ticker_decisions_backward_compat() -> None:
+    """JSON without ticker_decisions field -> ticker_decisions=[] (backward compat)."""
+    from alphaswarm.parsing import parse_agent_decision
+
+    raw = '{"signal": "hold", "confidence": 0.5, "rationale": "neutral"}'
+    result = parse_agent_decision(raw)
+    assert result.signal == SignalType.HOLD
+    assert result.ticker_decisions == []
+
+
+def test_parse_error_fallback_has_empty_ticker_decisions() -> None:
+    """Tier 3 fallback produces ticker_decisions=[]."""
+    from alphaswarm.parsing import parse_agent_decision
+
+    raw = "completely unparseable garbage text"
+    result = parse_agent_decision(raw)
+    assert result.signal == SignalType.PARSE_ERROR
+    assert result.ticker_decisions == []
+
+
+def test_parse_malformed_ticker_decisions_wrong_direction() -> None:
+    """JSON with malformed direction in ticker_decisions -> top-level preserved, entry dropped, NOT PARSE_ERROR."""
+    from alphaswarm.parsing import parse_agent_decision
+
+    raw = json_mod.dumps({
+        "signal": "buy",
+        "confidence": 0.85,
+        "sentiment": 0.6,
+        "rationale": "Strong earnings",
+        "cited_agents": [],
+        "ticker_decisions": [
+            {"ticker": "AAPL", "direction": "YOLO"},
+        ],
+    })
+    result = parse_agent_decision(raw)
+    assert result.signal == SignalType.BUY
+    assert result.confidence == 0.85
+    assert result.ticker_decisions == []  # malformed entry dropped
+
+
+def test_parse_malformed_ticker_decisions_wrong_type() -> None:
+    """JSON with non-numeric expected_return_pct -> entry dropped, top-level preserved."""
+    from alphaswarm.parsing import parse_agent_decision
+
+    raw = json_mod.dumps({
+        "signal": "sell",
+        "confidence": 0.7,
+        "sentiment": -0.3,
+        "rationale": "Weak outlook",
+        "cited_agents": [],
+        "ticker_decisions": [
+            {"ticker": "AAPL", "direction": "buy", "expected_return_pct": "not_a_number"},
+        ],
+    })
+    result = parse_agent_decision(raw)
+    assert result.signal == SignalType.SELL
+    assert result.confidence == 0.7
+    assert result.ticker_decisions == []  # malformed entry dropped
+
+
+def test_parse_mixed_valid_invalid_ticker_decisions() -> None:
+    """JSON with 2 valid + 1 invalid ticker_decisions -> keeps 2, drops 1."""
+    from alphaswarm.parsing import parse_agent_decision
+
+    raw = json_mod.dumps({
+        "signal": "buy",
+        "confidence": 0.85,
+        "sentiment": 0.6,
+        "rationale": "Mixed tickers",
+        "cited_agents": [],
+        "ticker_decisions": [
+            {"ticker": "AAPL", "direction": "buy", "expected_return_pct": 5.2},
+            {"ticker": "BAD", "direction": "YOLO"},  # invalid direction
+            {"ticker": "TSLA", "direction": "sell", "time_horizon": "1m"},
+        ],
+    })
+    result = parse_agent_decision(raw)
+    assert result.signal == SignalType.BUY
+    assert len(result.ticker_decisions) == 2
+    assert result.ticker_decisions[0].ticker == "AAPL"
+    assert result.ticker_decisions[1].ticker == "TSLA"
+
+
+# --- Phase 18: seed ticker extraction parse tests ---
+
+
+def test_parse_seed_with_tickers() -> None:
+    """JSON with tickers array -> SeedEvent.tickers populated."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = json_mod.dumps({
+        "entities": [
+            {"name": "Apple", "type": "company", "relevance": 0.9, "sentiment": 0.5},
+        ],
+        "overall_sentiment": 0.5,
+        "tickers": [
+            {"symbol": "AAPL", "company_name": "Apple Inc", "relevance": 0.9},
+        ],
+    })
+    result = parse_seed_event(raw, original_rumor="Apple rumor")
+    assert result.parse_tier == 1
+    assert len(result.seed_event.tickers) == 1
+    assert result.seed_event.tickers[0].symbol == "AAPL"
+    assert result.seed_event.tickers[0].company_name == "Apple Inc"
+
+
+def test_parse_seed_without_tickers() -> None:
+    """JSON without tickers key -> SeedEvent.tickers=[]."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = json_mod.dumps({
+        "entities": [
+            {"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8},
+        ],
+        "overall_sentiment": 0.6,
+    })
+    result = parse_seed_event(raw, original_rumor="NVIDIA rumor")
+    assert result.parse_tier == 1
+    assert result.seed_event.tickers == []
+
+
+def test_parse_seed_tickers_capped_at_3() -> None:
+    """JSON with 5 tickers -> keeps top 3 by relevance."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = json_mod.dumps({
+        "entities": [],
+        "overall_sentiment": 0.0,
+        "tickers": [
+            {"symbol": "LOW", "company_name": "Low Co", "relevance": 0.1},
+            {"symbol": "HIGH", "company_name": "High Co", "relevance": 0.9},
+            {"symbol": "MED", "company_name": "Med Co", "relevance": 0.5},
+            {"symbol": "VHIGH", "company_name": "Very High Co", "relevance": 1.0},
+            {"symbol": "VLOW", "company_name": "Very Low Co", "relevance": 0.05},
+        ],
+    })
+    result = parse_seed_event(raw, original_rumor="multi ticker rumor")
+    assert len(result.seed_event.tickers) == 3
+    # Top 3 by relevance: VHIGH (1.0), HIGH (0.9), MED (0.5)
+    symbols = [t.symbol for t in result.seed_event.tickers]
+    assert symbols == ["VHIGH", "HIGH", "MED"]
+
+
 def test_parse_logs_tier_used() -> None:
     """Successful tier 1 parse produces structlog DEBUG log containing parse_tier key."""
     import structlog
