@@ -6,9 +6,16 @@ Tests verify:
 - Char cap truncation works
 - Headline injection is budget-capped
 - JSON_OUTPUT_INSTRUCTIONS includes ticker_decisions schema
+- fetch_headlines fetches from AV NEWS_SENTIMENT (Plan 02)
+- enrich_snapshots_with_headlines populates snapshots (Plan 02)
 """
 
 from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
+import pytest
 
 from alphaswarm.types import BracketType, MarketDataSnapshot
 
@@ -230,3 +237,163 @@ def test_format_market_block_headline_budget_cap() -> None:
     headline_count = result.count("Breaking news headline")
     assert headline_count < 30
     assert headline_count > 0  # At least some headlines injected
+
+
+# ---------------------------------------------------------------------------
+# fetch_headlines tests (Plan 02 -- AV NEWS_SENTIMENT)
+# ---------------------------------------------------------------------------
+
+
+def _mock_response(json_data: dict, status_code: int = 200) -> httpx.Response:
+    """Build a mock httpx.Response with given JSON body and status code."""
+    request = httpx.Request("GET", "https://www.alphavantage.co/query")
+    resp = httpx.Response(
+        status_code=status_code,
+        json=json_data,
+        request=request,
+    )
+    return resp
+
+
+@pytest.mark.asyncio
+async def test_fetch_headlines_success() -> None:
+    """fetch_headlines returns list of headline title strings from mocked AV response."""
+    from alphaswarm.enrichment import fetch_headlines
+
+    mock_data = {
+        "feed": [
+            {"title": "Apple beats Q2 expectations"},
+            {"title": "iPhone sales surge in Asia"},
+        ]
+    }
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get = AsyncMock(return_value=_mock_response(mock_data))
+
+    result = await fetch_headlines("AAPL", "fake_key", client)
+    assert result == ["Apple beats Q2 expectations", "iPhone sales surge in Asia"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_headlines_truncates_long_titles() -> None:
+    """fetch_headlines truncates each headline to 120 chars."""
+    from alphaswarm.enrichment import fetch_headlines
+
+    long_title = "A" * 200
+    mock_data = {"feed": [{"title": long_title}]}
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get = AsyncMock(return_value=_mock_response(mock_data))
+
+    result = await fetch_headlines("AAPL", "fake_key", client)
+    assert len(result) == 1
+    assert len(result[0]) == 120
+
+
+@pytest.mark.asyncio
+async def test_fetch_headlines_rate_limit() -> None:
+    """fetch_headlines raises ValueError on rate limit 'Note' response."""
+    from alphaswarm.enrichment import fetch_headlines
+
+    mock_data = {"Note": "Thank you for using Alpha Vantage! Our standard API rate limit is 25 requests per day."}
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get = AsyncMock(return_value=_mock_response(mock_data))
+
+    with pytest.raises(ValueError, match="rate limit"):
+        await fetch_headlines("AAPL", "fake_key", client)
+
+
+@pytest.mark.asyncio
+async def test_fetch_headlines_no_feed_key() -> None:
+    """fetch_headlines returns [] when AV response has no 'feed' key."""
+    from alphaswarm.enrichment import fetch_headlines
+
+    mock_data = {"Information": "No data available for this symbol."}
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get = AsyncMock(return_value=_mock_response(mock_data))
+
+    result = await fetch_headlines("AAPL", "fake_key", client)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_headlines_http_error() -> None:
+    """fetch_headlines with non-200 HTTP response raises httpx.HTTPStatusError."""
+    from alphaswarm.enrichment import fetch_headlines
+
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get = AsyncMock(return_value=_mock_response({"error": "server error"}, status_code=500))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await fetch_headlines("AAPL", "fake_key", client)
+
+
+@pytest.mark.asyncio
+async def test_fetch_headlines_invalid_json() -> None:
+    """fetch_headlines with invalid JSON response is handled gracefully."""
+    from alphaswarm.enrichment import fetch_headlines
+
+    request = httpx.Request("GET", "https://www.alphavantage.co/query")
+    # Build a response with non-JSON content
+    resp = httpx.Response(200, content=b"not json at all", request=request)
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get = AsyncMock(return_value=resp)
+
+    with pytest.raises(Exception):  # JSONDecodeError
+        await fetch_headlines("AAPL", "fake_key", client)
+
+
+# ---------------------------------------------------------------------------
+# enrich_snapshots_with_headlines tests (Plan 02)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enrich_snapshots_populates_headlines() -> None:
+    """enrich_snapshots_with_headlines populates headlines on each snapshot via model_copy."""
+    from alphaswarm.enrichment import enrich_snapshots_with_headlines
+
+    with patch("alphaswarm.enrichment.fetch_headlines", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = ["Headline 1"]
+        result = await enrich_snapshots_with_headlines({"AAPL": AAPL_SNAP}, "fake_key")
+
+    assert result["AAPL"].headlines == ["Headline 1"]
+    # Original snapshot NOT mutated (frozen)
+    assert AAPL_SNAP.headlines == []
+
+
+@pytest.mark.asyncio
+async def test_enrich_snapshots_no_api_key() -> None:
+    """enrich_snapshots_with_headlines with av_key=None returns snapshots unchanged and logs warning."""
+    from alphaswarm.enrichment import enrich_snapshots_with_headlines
+
+    result = await enrich_snapshots_with_headlines({"AAPL": AAPL_SNAP}, None)
+    assert result["AAPL"] is AAPL_SNAP  # Same object, not a copy
+    assert result["AAPL"].headlines == []
+
+
+@pytest.mark.asyncio
+async def test_enrich_snapshots_partial_failure() -> None:
+    """enrich_snapshots_with_headlines gracefully handles fetch failure for one ticker."""
+    from alphaswarm.enrichment import enrich_snapshots_with_headlines
+
+    async def _side_effect(symbol: str, av_key: str, client: httpx.AsyncClient, limit: int = 10) -> list[str]:
+        if symbol == "AAPL":
+            return ["Apple news"]
+        raise ValueError("Rate limit exceeded")
+
+    with patch("alphaswarm.enrichment.fetch_headlines", new_callable=AsyncMock, side_effect=_side_effect):
+        result = await enrich_snapshots_with_headlines(
+            {"AAPL": AAPL_SNAP, "TSLA": TSLA_SNAP}, "fake_key"
+        )
+
+    assert result["AAPL"].headlines == ["Apple news"]
+    # TSLA keeps its original headlines (from fixture) since fetch failed
+    assert result["TSLA"].headlines == TSLA_SNAP.headlines
+
+
+@pytest.mark.asyncio
+async def test_enrich_snapshots_empty_dict() -> None:
+    """enrich_snapshots_with_headlines with empty snapshots dict returns empty dict."""
+    from alphaswarm.enrichment import enrich_snapshots_with_headlines
+
+    result = await enrich_snapshots_with_headlines({}, "fake_key")
+    assert result == {}
