@@ -28,7 +28,7 @@ if TYPE_CHECKING:
         ShiftMetrics,
         SimulationResult,
     )
-    from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, ParsedSeedResult
+    from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, MarketDataSnapshot, ParsedSeedResult
 
 logger = structlog.get_logger(component="cli")
 
@@ -86,6 +86,55 @@ def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> 
                 f"  {entity.name:<25} {entity.type.value:<10} "
                 f"{entity.relevance:>10.2f} {entity.sentiment:>+10.2f}"
             )
+
+    print(f"{'='*60}\n")
+
+
+def _format_market_cap(cap: float | None) -> str:
+    """Format market cap as human-readable string."""
+    if cap is None:
+        return "N/A"
+    if cap >= 1_000_000_000_000:
+        return f"${cap / 1_000_000_000_000:.1f}T"
+    if cap >= 1_000_000_000:
+        return f"${cap / 1_000_000_000:.1f}B"
+    if cap >= 1_000_000:
+        return f"${cap / 1_000_000:.1f}M"
+    return f"${cap:,.0f}"
+
+
+def _print_market_data_summary(
+    market_snapshots: dict[str, MarketDataSnapshot],
+) -> None:
+    """Print market data fetch summary with degraded-data warnings (Phase 17 D-16)."""
+    if not market_snapshots:
+        return
+
+    print(f"\n{'='*60}")
+    print("  Market Data Summary")
+    print(f"{'='*60}")
+
+    degraded = [s for s, snap in market_snapshots.items() if snap.is_degraded]
+    fetched = [s for s, snap in market_snapshots.items() if not snap.is_degraded]
+
+    print(f"  Tickers fetched:   {len(market_snapshots)}")
+    print(f"  Successful:        {len(fetched)}")
+    if degraded:
+        print(f"  DEGRADED:          {len(degraded)}")
+        print(f"\n  {'!'*50}")
+        print(f"  WARNING: Market data unavailable for: {', '.join(degraded)}")
+        print(f"  Agents will proceed without market context for these tickers.")
+        print(f"  {'!'*50}")
+
+    if fetched:
+        print(f"\n  {'Symbol':<10} {'Company':<25} {'Price':>10} {'P/E':>8} {'Mkt Cap':>15}")
+        print(f"  {'-'*10} {'-'*25} {'-'*10} {'-'*8} {'-'*15}")
+        for symbol in sorted(fetched):
+            snap = market_snapshots[symbol]
+            price_str = f"${snap.last_close:,.2f}" if snap.last_close else "N/A"
+            pe_str = f"{snap.pe_ratio:.1f}" if snap.pe_ratio else "N/A"
+            cap_str = _format_market_cap(snap.market_cap) if snap.market_cap else "N/A"
+            print(f"  {snap.symbol:<10} {snap.company_name[:25]:<25} {price_str:>10} {pe_str:>8} {cap_str:>15}")
 
     print(f"{'='*60}\n")
 
