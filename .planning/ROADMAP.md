@@ -91,7 +91,11 @@ Plans:
   2. Different bracket archetypes receive different data slices -- Quants see price/volume/technicals, Macro agents see sector-level data, Insiders see earnings surprises -- visible by inspecting agent prompts or rationale output
   3. Agent decisions include ticker, direction, expected_return_pct, and time_horizon fields in their structured output
   4. The 3-tier parse fallback handles new fields gracefully -- agents that fail to produce new fields get backward-compatible None defaults without triggering PARSE_ERROR status
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 18-01-PLAN.md -- TickerDecision model, enrichment module with bracket formatting, JSON schema update
+- [ ] 18-02-PLAN.md -- AV NEWS_SENTIMENT headline fetch and snapshot enrichment
+- [ ] 18-03-PLAN.md -- Simulation sub-wave dispatch wiring and integration tests
 
 ### Phase 19: Per-Stock TUI Consensus Display
 **Goal**: Users see the payoff of live data grounding -- per-ticker consensus breakdown in the TUI showing which stocks agents are bullish/bearish on, how confident they are, and where brackets disagree
@@ -138,6 +142,6 @@ Phases execute in numeric order: 16 -> 17 -> 18 -> 19 -> 20
 | 15. Post-Simulation Report | v2.0 | 2/2 | Complete | 2026-04-02 |
 | 16. Ticker Extraction | v3.0 | 3/3 | Complete | 2026-04-06 |
 | 17. Market Data Pipeline | v3.0 | 3/3 | Complete | 2026-04-06 |
-| 18. Agent Context Enrichment and Enhanced Decisions | v3.0 | 0/? | Not started | - |
+| 18. Agent Context Enrichment and Enhanced Decisions | v3.0 | 0/3 | In progress | - |
 | 19. Per-Stock TUI Consensus Display | v3.0 | 0/? | Not started | - |
 | 20. Report Enhancement and Integration Hardening | v3.0 | 0/? | Not started | - |
