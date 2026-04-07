@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Stock-Specific Recommendations with Live Data
-status: verifying
-stopped_at: Phase 18 context gathered
-last_updated: "2026-04-07T01:52:39.285Z"
-last_activity: 2026-04-06
+status: executing
+stopped_at: Phase 18 complete
+last_updated: "2026-04-07T14:00:00.000Z"
+last_activity: 2026-04-07 -- Phase 18 complete (3/3 plans, 578 tests passing)
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 3
-  percent: 100
+  completed_phases: 3
+  total_plans: 9
+  completed_plans: 9
+  percent: 60
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-05)
 
 **Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology
-**Current focus:** Phase 17 — market-data-pipeline (complete)
+**Current focus:** Phase 19 — next phase
 
 ## Current Position
 
-Phase: 17 (market-data-pipeline) — COMPLETE
-Plan: 3/3
-Status: Phase complete — 533 tests passing, verifier confirmed
-Last activity: 2026-04-06
+Phase: 18 (agent-context-enrichment-and-enhanced-decisions) — COMPLETE ✓
+Plan: 3 of 3
+Status: Phase 18 verified and complete
+Last activity: 2026-04-07 -- Phase 18 complete (3/3 plans, 578 tests passing)
 
-Progress: [████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 40% (2/5 phases, v3.0)
+Progress: [████████████████████████░░░░░░░░░░░░░░░░] 60% (3/5 phases, v3.0)
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Progress: [████████████░░░░░░░░░░░
 |-------|-------|----------|-------|
 | Phase 16 (ticker-extraction) | 3/3 | ~15min | 6 files |
 | Phase 17 (market-data-pipeline) | 3/3 | ~12min | 7 files |
+| Phase 18 (context-enrichment) | 3/3 | ~15min | 9 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,13 @@ Recent decisions affecting current work:
 - [Phase 17]: Neo4j Ticker nodes merged by symbol (MERGE idempotent); HAS_MARKET_DATA edges link to snapshot nodes
 - [Phase 17]: Full price_history NOT stored in Neo4j -- only summary stats (last_close, price_change_30d/90d_pct, avg_volume_30d)
 - [Phase 17]: headlines field reserved empty per DATA-03 deferral to Phase 18
+- [Phase 18]: TickerDecision model added to types.py; AgentDecision.ticker_decisions defaults to [] (backward-compatible)
+- [Phase 18]: enrichment.py created with format_market_block (3 bracket slices) and build_enriched_user_message
+- [Phase 18]: Macro bracket placed in Earnings/Insider slice per locked D-04 decision
+- [Phase 18]: fetch_headlines/enrich_snapshots_with_headlines added; AV NEWS_SENTIMENT completes DATA-03
+- [Phase 18]: simulation.py wired -- all 3 dispatch sites use _dispatch_enriched_sub_waves with bracket splits
+- [Phase 18]: SeedEvent.tickers now populated from orchestrator JSON (Codex blocker #3 resolved)
+- [Phase 18]: Lenient _lenient_parse_ticker_decisions drops malformed entries without PARSE_ERROR
 
 ### Pending Todos
 
@@ -77,12 +85,11 @@ None.
 
 ### Blockers/Concerns
 
-- [Research]: Token budget char estimates vs actual tokenizer counts -- must validate in Phase 18 with real qwen3.5 tokenizer
+- [Research]: Token budget char estimates vs actual tokenizer counts -- validate with real qwen3.5 tokenizer in Phase 19
 - [Research]: num_ctx=4096 KV cache memory impact needs profiling before committing to Modelfile change
-- [Phase 17 NOTE]: SeedEvent.tickers is always empty until Phase 18 wires the ticker extraction output into seed parsing -- market data pipeline is dormant but correctly guarded
 
 ## Session Continuity
 
-Last session: 2026-04-07T01:52:39.281Z
-Stopped at: Phase 18 context gathered
-Resume file: .planning/phases/18-agent-context-enrichment-and-enhanced-decisions/18-CONTEXT.md
+Last session: 2026-04-07T14:00:00.000Z
+Stopped at: Phase 18 complete
+Resume file: .planning/phases/18-agent-context-enrichment-and-enhanced-decisions/18-VERIFICATION.md
