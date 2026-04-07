@@ -122,6 +122,14 @@ class MarketDataSnapshot(BaseModel, frozen=True):
     is_degraded: bool = False
 
 
+class ExtractedTicker(BaseModel, frozen=True):
+    """A ticker symbol extracted from a seed rumor for market data fetching (Phase 17)."""
+
+    symbol: str
+    company_name: str
+    relevance: float = Field(ge=0.0, le=1.0)
+
+
 @dataclasses.dataclass(frozen=True)
 class ParsedSeedResult:
     """Result of parse_seed_event() with parse-tier observability.
