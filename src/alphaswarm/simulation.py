@@ -27,7 +27,7 @@ from alphaswarm.enrichment import (
 )
 from alphaswarm.market_data import fetch_market_data
 from alphaswarm.seed import inject_seed
-from alphaswarm.state import BracketSummary
+from alphaswarm.state import BracketSummary, TickerConsensus
 from alphaswarm.types import AgentPersona, BracketType, MarketDataSnapshot, SignalType, SimulationPhase
 from alphaswarm.utils import sanitize_rationale
 from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_type
@@ -137,6 +137,145 @@ def compute_bracket_summaries(
                 avg_sentiment=sent_sums[bv] / t if t > 0 else 0.0,
             )
         )
+    return tuple(result)
+
+
+# Deterministic tie-break priority: BUY wins ties over HOLD, HOLD over SELL.
+# This ensures reproducible results regardless of dict insertion order.
+# (Addresses review concern #5: max() on dict follows insertion order, not stable priority.)
+_TIE_BREAK_ORDER: dict[str, int] = {"BUY": 0, "HOLD": 1, "SELL": 2}
+
+
+def compute_ticker_consensus(
+    agent_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
+    personas: list[AgentPersona],
+    brackets: list[BracketConfig],
+    influence_weights: dict[str, float],
+    round_num: int,
+) -> tuple[TickerConsensus, ...]:
+    """Compute per-ticker consensus from a round's decisions (Phase 19, D-08).
+
+    IMPORTANT: Bracket breakdown uses TickerDecision.direction (per-ticker),
+    NOT AgentDecision.signal (global). This is a CUSTOM aggregation, not a
+    reuse of compute_bracket_summaries(). See review concern #1.
+
+    majority_pct is stored as 0.0-1.0 fraction (review concern #7).
+    Ticker strings are normalized to uppercase (review concern #8).
+    Tie-breaks use BUY > HOLD > SELL priority (review concern #5).
+    """
+    persona_base: dict[str, float] = {p.id: p.influence_weight_base for p in personas}
+    agent_bracket: dict[str, str] = {p.id: p.bracket.value for p in personas}
+    display_lookup: dict[str, str] = {b.bracket_type.value: b.display_name for b in brackets}
+
+    # Collect all tickers present across decisions, normalized to uppercase (review concern #8)
+    all_tickers: set[str] = set()
+    for _, dec in agent_decisions:
+        if dec.signal == SignalType.PARSE_ERROR:
+            continue
+        if not dec.ticker_decisions:
+            continue
+        for td in dec.ticker_decisions:
+            all_tickers.add(td.ticker.upper())
+
+    result: list[TickerConsensus] = []
+    for ticker in sorted(all_tickers):
+        majority_counts: dict[str, int] = {"BUY": 0, "SELL": 0, "HOLD": 0}
+        weighted_sums: dict[str, float] = {"BUY": 0.0, "SELL": 0.0, "HOLD": 0.0}
+
+        # --- Per-ticker bracket aggregation (review concern #1) ---
+        # CRITICAL: We count TickerDecision.direction, NOT AgentDecision.signal.
+        # compute_bracket_summaries() counts decision.signal which is the GLOBAL
+        # signal, not the per-ticker direction. Reusing it would produce global
+        # sentiment bars instead of ticker-scoped bars. Hence this custom aggregator.
+        bracket_counts: dict[str, dict[str, int]] = {}
+        bracket_conf_sums: dict[str, float] = {}
+        bracket_sent_sums: dict[str, float] = {}
+        bracket_totals: dict[str, int] = {}
+        for b in brackets:
+            bv = b.bracket_type.value
+            bracket_counts[bv] = {"buy": 0, "sell": 0, "hold": 0}
+            bracket_conf_sums[bv] = 0.0
+            bracket_sent_sums[bv] = 0.0
+            bracket_totals[bv] = 0
+
+        for agent_id, dec in agent_decisions:
+            if dec.signal == SignalType.PARSE_ERROR:
+                continue
+            if not dec.ticker_decisions:
+                continue
+            # Find this agent's TickerDecision for the current ticker (case-insensitive)
+            td = next((t for t in dec.ticker_decisions if t.ticker.upper() == ticker), None)
+            if td is None:
+                continue
+            # Skip PARSE_ERROR directions (defensive)
+            if td.direction == SignalType.PARSE_ERROR:
+                continue
+
+            direction_upper = td.direction.value.upper()  # "buy" -> "BUY"
+            w = influence_weights.get(agent_id, persona_base.get(agent_id, 1.0))
+
+            # Majority vote accumulation
+            majority_counts[direction_upper] += 1
+            # Confidence-weighted accumulation
+            weighted_sums[direction_upper] += dec.confidence * w
+
+            # Per-ticker bracket accumulation using td.direction (NOT dec.signal)
+            bv = agent_bracket.get(agent_id)
+            if bv is not None and bv in bracket_counts:
+                signal_key = td.direction.value  # lowercase: "buy"/"sell"/"hold"
+                bracket_counts[bv][signal_key] = bracket_counts[bv].get(signal_key, 0) + 1
+                bracket_conf_sums[bv] += dec.confidence
+                bracket_sent_sums[bv] += dec.sentiment
+                bracket_totals[bv] += 1
+
+        total_votes = sum(majority_counts.values())
+        total_weighted = sum(weighted_sums.values())
+
+        # Skip tickers with zero valid votes (all agents were PARSE_ERROR or had no td for this ticker)
+        if total_votes == 0:
+            continue
+
+        # Deterministic tie-break: BUY > HOLD > SELL (review concern #5)
+        majority_signal = max(
+            majority_counts,
+            key=lambda k: (majority_counts[k], -_TIE_BREAK_ORDER.get(k, 99)),
+        )
+        weighted_signal = max(
+            weighted_sums,
+            key=lambda k: (weighted_sums[k], -_TIE_BREAK_ORDER.get(k, 99)),
+        )
+
+        # majority_pct as 0.0-1.0 FRACTION (review concern #7)
+        majority_pct = majority_counts[majority_signal] / total_votes if total_votes > 0 else 0.0
+        weighted_score = weighted_sums[weighted_signal] / total_weighted if total_weighted > 0.0 else 0.0
+
+        # Build ticker-scoped BracketSummary tuple
+        bracket_breakdown_list: list[BracketSummary] = []
+        for b in brackets:
+            bv = b.bracket_type.value
+            t = bracket_totals[bv]
+            bracket_breakdown_list.append(
+                BracketSummary(
+                    bracket=bv,
+                    display_name=display_lookup.get(bv, bv),
+                    buy_count=bracket_counts[bv]["buy"],
+                    sell_count=bracket_counts[bv]["sell"],
+                    hold_count=bracket_counts[bv]["hold"],
+                    total=t,
+                    avg_confidence=bracket_conf_sums[bv] / t if t > 0 else 0.0,
+                    avg_sentiment=bracket_sent_sums[bv] / t if t > 0 else 0.0,
+                )
+            )
+
+        result.append(TickerConsensus(
+            ticker=ticker,
+            round_num=round_num,
+            weighted_signal=weighted_signal,
+            weighted_score=weighted_score,
+            majority_signal=majority_signal,
+            majority_pct=majority_pct,
+            bracket_breakdown=tuple(bracket_breakdown_list),
+        ))
     return tuple(result)
 
 
@@ -975,6 +1114,11 @@ async def run_simulation(
     # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
     if state_store is not None:
         await state_store.set_bracket_summaries(round1_summaries)
+        await state_store.set_ticker_consensus(
+            compute_ticker_consensus(
+                round1_result.agent_decisions, personas, brackets, round1_weights, round_num=1,
+            )
+        )
         await _push_top_rationales(
             round1_result.agent_decisions, 1, state_store, influence_weights=round1_weights,
         )
@@ -1107,6 +1251,11 @@ async def run_simulation(
             # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
             if state_store is not None:
                 await state_store.set_bracket_summaries(round2_summaries)
+                await state_store.set_ticker_consensus(
+                    compute_ticker_consensus(
+                        round2_decisions, personas, brackets, round2_weights, round_num=2,
+                    )
+                )
                 await _push_top_rationales(
                     round2_decisions, 2, state_store, influence_weights=round2_weights,
                 )
@@ -1225,6 +1374,17 @@ async def run_simulation(
             # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
             if state_store is not None:
                 await state_store.set_bracket_summaries(round3_summaries)
+                # Round 3 reuses round2_weights because no round3_weights are computed after
+                # Round 3 completes. This is consistent with the existing pattern:
+                # compute_bracket_summaries() is also called at this point without new weights.
+                # No new compute_influence_edges() call is made after Round 3 (the simulation
+                # ends). This is a deliberate design choice, not an oversight.
+                # (Review concern #4: documenting round2_weights reuse explicitly.)
+                await state_store.set_ticker_consensus(
+                    compute_ticker_consensus(
+                        round3_decisions, personas, brackets, round2_weights, round_num=3,
+                    )
+                )
                 await _push_top_rationales(round3_decisions, 3, state_store)
 
             # Compute Round 3 shifts in-memory (D-13)
