@@ -50,7 +50,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 18: Agent Context Enrichment and Enhanced Decisions** - Inject budget-capped, bracket-tailored market data into agent prompts and extend AgentDecision with ticker-specific output fields (completed 2026-04-07)
 - [x] **Phase 19: Per-Stock TUI Consensus Display** - Per-ticker consensus panel with confidence-weighted voting and bracket disagreement breakdown (completed 2026-04-07)
 - [x] **Phase 20: Report Enhancement and Integration Hardening** - Post-simulation report includes market data context comparing agent consensus with actual market indicators (completed 2026-04-08)
-- [ ] **Phase 21: Restore Ticker Validation and Tracking** - Restore SEC ticker validation and dropped-ticker tracking deleted in 7ba7efa; fix pyproject.toml yfinance dependency
+- [x] **Phase 21: Restore Ticker Validation and Tracking** - Restore SEC ticker validation and dropped-ticker tracking deleted in 7ba7efa; fix pyproject.toml yfinance dependency (completed 2026-04-08)
 - [ ] **Phase 22: Fix Report Tool Name Mismatch** - Align REACT_SYSTEM_PROMPT tool names with runtime registry so all report sections generate correctly
 - [ ] **Phase 23: Validation Tracking and Requirements Traceability** - Update VALIDATION.md tracking files and add v3 requirements to REQUIREMENTS.md traceability table
 
@@ -137,7 +137,7 @@ Plans:
   3. pyproject.toml declares yfinance>=1.2.0 in [project.dependencies]
 **Plans**: 1 plan
 Plans:
-- [ ] 21-01-PLAN.md — Restore ticker_validator.py, ParsedSeedResult.dropped_tickers, parse_seed_event() callback, seed.py wiring, and CLI display
+- [x] 21-01-PLAN.md — Restore ticker_validator.py, ParsedSeedResult.dropped_tickers, parse_seed_event() callback, seed.py wiring, and CLI display
 
 ### Phase 22: Fix Report Tool Name Mismatch
 **Goal**: REACT_SYSTEM_PROMPT tool names match the runtime registry so all report sections are generated without Unknown tool errors
@@ -187,6 +187,6 @@ Phases execute in numeric order: 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22 -> 23
 | 18. Agent Context Enrichment and Enhanced Decisions | v3.0 | 3/3 | Complete   | 2026-04-07 |
 | 19. Per-Stock TUI Consensus Display | v3.0 | 2/2 | Complete   | 2026-04-07 |
 | 20. Report Enhancement and Integration Hardening | v3.0 | 2/2 | Complete   | 2026-04-08 |
-| 21. Restore Ticker Validation and Tracking | v3.0 | 0/1 | Not started | - |
+| 21. Restore Ticker Validation and Tracking | v3.0 | 1/1 | Complete   | 2026-04-08 |
 | 22. Fix Report Tool Name Mismatch | v3.0 | 0/1 | Not started | - |
 | 23. Validation Tracking and Requirements Traceability | v3.0 | 0/1 | Not started | - |
