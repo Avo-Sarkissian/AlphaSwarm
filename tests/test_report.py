@@ -31,11 +31,11 @@ class TestParseActionInput:
         """Standard ACTION/INPUT block returns correct tuple."""
         content = (
             "THOUGHT: I need consensus data.\n"
-            'ACTION: consensus_summary\n'
+            'ACTION: bracket_summary\n'
             'INPUT: {"cycle_id": "abc123"}'
         )
         action, input_json = _parse_action_input(content)
-        assert action == "consensus_summary"
+        assert action == "bracket_summary"
         assert input_json == '{"cycle_id": "abc123"}'
 
     def test_no_action_returns_none(self) -> None:
