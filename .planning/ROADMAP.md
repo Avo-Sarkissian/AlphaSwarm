@@ -51,7 +51,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 19: Per-Stock TUI Consensus Display** - Per-ticker consensus panel with confidence-weighted voting and bracket disagreement breakdown (completed 2026-04-07)
 - [x] **Phase 20: Report Enhancement and Integration Hardening** - Post-simulation report includes market data context comparing agent consensus with actual market indicators (completed 2026-04-08)
 - [x] **Phase 21: Restore Ticker Validation and Tracking** - Restore SEC ticker validation and dropped-ticker tracking deleted in 7ba7efa; fix pyproject.toml yfinance dependency (completed 2026-04-08)
-- [ ] **Phase 22: Fix Report Tool Name Mismatch** - Align REACT_SYSTEM_PROMPT tool names with runtime registry so all report sections generate correctly
+- [x] **Phase 22: Fix Report Tool Name Mismatch** - Align REACT_SYSTEM_PROMPT tool names with runtime registry so all report sections generate correctly (completed 2026-04-08)
 - [ ] **Phase 23: Validation Tracking and Requirements Traceability** - Update VALIDATION.md tracking files and add v3 requirements to REQUIREMENTS.md traceability table
 
 ## Phase Details
@@ -149,7 +149,7 @@ Plans:
   2. Running alphaswarm report produces a report that includes the bracket summary and signal flip analysis sections
 **Plans**: 1 plan
 Plans:
-- [ ] 22-01-PLAN.md — Fix REACT_SYSTEM_PROMPT tool names and update parser test
+- [x] 22-01-PLAN.md — Fix REACT_SYSTEM_PROMPT tool names and update parser test
 
 ### Phase 23: Validation Tracking and Requirements Traceability
 **Goal**: VALIDATION.md tracking files reflect actual test names, Phase 16 gets a VALIDATION.md, and v3 requirements are in REQUIREMENTS.md traceability
@@ -190,5 +190,5 @@ Phases execute in numeric order: 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22 -> 23
 | 19. Per-Stock TUI Consensus Display | v3.0 | 2/2 | Complete   | 2026-04-07 |
 | 20. Report Enhancement and Integration Hardening | v3.0 | 2/2 | Complete   | 2026-04-08 |
 | 21. Restore Ticker Validation and Tracking | v3.0 | 1/1 | Complete   | 2026-04-08 |
-| 22. Fix Report Tool Name Mismatch | v3.0 | 0/1 | Not started | - |
+| 22. Fix Report Tool Name Mismatch | v3.0 | 1/1 | Complete   | 2026-04-08 |
 | 23. Validation Tracking and Requirements Traceability | v3.0 | 0/1 | Not started | - |
