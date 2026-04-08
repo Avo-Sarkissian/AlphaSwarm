@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from alphaswarm.report import MAX_ITERATIONS, _parse_action_input
+from alphaswarm.report import MAX_ITERATIONS, ReportAssembler, ToolObservation, _parse_action_input
 
 
 # ---------------------------------------------------------------------------
@@ -279,3 +279,99 @@ class TestReportAssembler:
         assert data["path"] == "./reports/cycle1_report.md"
         # Validate ISO timestamp
         datetime.fromisoformat(data["generated_at"])
+
+
+# ---------------------------------------------------------------------------
+# Task 20-02-01: TestReportAssemblerMarketContext
+# ---------------------------------------------------------------------------
+
+_FULL_MARKET_ROW = {
+    "ticker": "TSLA",
+    "company_name": "Tesla Inc",
+    "last_close": 185.40,
+    "price_change_30d_pct": -12.3,
+    "price_change_90d_pct": -8.5,
+    "pe_ratio": 62.1,
+    "market_cap": 588000000000,
+    "fifty_two_week_high": 299.29,
+    "fifty_two_week_low": 138.80,
+    "eps_trailing": 2.99,
+    "avg_volume_30d": 95000000,
+    "is_degraded": False,
+    "consensus_signal": "SELL",
+    "consensus_score": 0.68,
+    "majority_signal": "SELL",
+    "majority_pct": 0.72,
+}
+
+
+class TestReportAssemblerMarketContext:
+    def test_includes_market_context_when_data_present(self) -> None:
+        """assemble() with market_context_data produces output containing market context heading and ticker."""
+        assembler = ReportAssembler()
+        content = assembler.assemble([], "test-cycle", market_context_data=[_FULL_MARKET_ROW])
+        assert "## Market Context" in content
+        assert "TSLA" in content
+
+    def test_skips_market_context_when_absent(self) -> None:
+        """assemble() without market_context_data produces output without market context heading."""
+        assembler = ReportAssembler()
+        content = assembler.assemble([], "test-cycle")
+        assert "## Market Context" not in content
+
+    def test_skips_market_context_when_empty_list(self) -> None:
+        """assemble() with market_context_data=[] produces output without market context heading."""
+        assembler = ReportAssembler()
+        content = assembler.assemble([], "test-cycle", market_context_data=[])
+        assert "## Market Context" not in content
+
+    def test_market_context_appears_before_other_sections(self) -> None:
+        """assemble() with both market_context_data and observations puts market context first."""
+        obs = ToolObservation(
+            tool_name="bracket_summary",
+            tool_input={"cycle_id": "test-cycle"},
+            result={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
+        )
+        assembler = ReportAssembler()
+        content = assembler.assemble([obs], "test-cycle", market_context_data=[_FULL_MARKET_ROW])
+        assert content.index("## Market Context") < content.index("## Consensus Summary")
+
+
+# ---------------------------------------------------------------------------
+# Task 20-02-01: TestMarketContextTemplate
+# ---------------------------------------------------------------------------
+
+
+class TestMarketContextTemplate:
+    def test_renders_full_data_row(self) -> None:
+        """Template renders TSLA row with all fields populated."""
+        assembler = ReportAssembler()
+        rendered = assembler.render_section("09_market_context.j2", data=[_FULL_MARKET_ROW], cycle_id="t1")
+        assert "TSLA" in rendered
+        assert "SELL" in rendered
+        assert "185.40" in rendered
+        assert "62.1" in rendered
+        assert "0.68" in rendered
+
+    def test_renders_none_fields_as_na(self) -> None:
+        """Template renders N/A for None pe_ratio and None price_change_30d_pct."""
+        row = dict(_FULL_MARKET_ROW)
+        row["pe_ratio"] = None
+        row["price_change_30d_pct"] = None
+        assembler = ReportAssembler()
+        rendered = assembler.render_section("09_market_context.j2", data=[row], cycle_id="t1")
+        assert "N/A" in rendered
+
+    def test_degraded_marker(self) -> None:
+        """Template renders [degraded data] when is_degraded is True."""
+        row = dict(_FULL_MARKET_ROW)
+        row["is_degraded"] = True
+        assembler = ReportAssembler()
+        rendered = assembler.render_section("09_market_context.j2", data=[row], cycle_id="t1")
+        assert "[degraded data]" in rendered
+
+    def test_no_degraded_marker_when_false(self) -> None:
+        """Template does not show degraded marker when is_degraded is False."""
+        assembler = ReportAssembler()
+        rendered = assembler.render_section("09_market_context.j2", data=[_FULL_MARKET_ROW], cycle_id="t1")
+        assert "[degraded data]" not in rendered
