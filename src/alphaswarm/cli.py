@@ -731,6 +731,10 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
         # Build tool registry: map 8 tool names -> bound graph_manager methods
         gm = app.graph_manager
+
+        # Fetch market context for report (Phase 20 D-01)
+        market_context_data = await gm.read_market_context(cycle_id)
+
         tools: dict[str, object] = {
             "bracket_summary": lambda **kw: gm.read_consensus_summary(kw.get("cycle_id", cycle_id)),
             "round_timeline": lambda **kw: gm.read_round_timeline(kw.get("cycle_id", cycle_id)),
@@ -752,7 +756,9 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
         # Assemble markdown report
         assembler = ReportAssembler()
-        content = assembler.assemble(observations, cycle_id)
+        content = assembler.assemble(
+            observations, cycle_id, market_context_data=market_context_data,
+        )
 
         # Determine output path
         output_path = Path(output) if output is not None else Path("reports") / f"{cycle_id}_report.md"
