@@ -4,7 +4,7 @@
 
 - [x] **v1.0 Core Engine** - Phases 1-10 (shipped 2026-03-27)
 - [x] **v2.0 Engine Depth** - Phases 11-15 (shipped 2026-04-02)
-- [ ] **v3.0 Stock-Specific Recommendations with Live Data** - Phases 16-20 (in progress)
+- [ ] **v3.0 Stock-Specific Recommendations with Live Data** - Phases 16-23 (in progress)
 
 ## Phases
 
@@ -49,7 +49,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 17: Market Data Pipeline** - Async market data fetching via yfinance with Alpha Vantage fallback, disk-cached responses, Neo4j Ticker nodes, and CLI degraded-data warnings (completed 2026-04-06)
 - [x] **Phase 18: Agent Context Enrichment and Enhanced Decisions** - Inject budget-capped, bracket-tailored market data into agent prompts and extend AgentDecision with ticker-specific output fields (completed 2026-04-07)
 - [x] **Phase 19: Per-Stock TUI Consensus Display** - Per-ticker consensus panel with confidence-weighted voting and bracket disagreement breakdown (completed 2026-04-07)
-- [ ] **Phase 20: Report Enhancement and Integration Hardening** - Post-simulation report includes market data context comparing agent consensus with actual market indicators
+- [x] **Phase 20: Report Enhancement and Integration Hardening** - Post-simulation report includes market data context comparing agent consensus with actual market indicators (completed 2026-04-08)
+- [ ] **Phase 21: Restore Ticker Validation and Tracking** - Restore SEC ticker validation and dropped-ticker tracking deleted in 7ba7efa; fix pyproject.toml yfinance dependency
+- [ ] **Phase 22: Fix Report Tool Name Mismatch** - Align REACT_SYSTEM_PROMPT tool names with runtime registry so all report sections generate correctly
+- [ ] **Phase 23: Validation Tracking and Requirements Traceability** - Update VALIDATION.md tracking files and add v3 requirements to REQUIREMENTS.md traceability table
 
 ## Phase Details
 
@@ -120,13 +123,45 @@ Plans:
   3. Running a full v3 simulation end-to-end (seed with tickers, market data fetch, enriched 3-round cascade, TUI display, report generation) completes without errors under normal conditions
 **Plans**: 2 plans
 Plans:
-- [ ] 20-01-PLAN.md -- Neo4j ticker consensus persistence (write + read methods) and simulation wiring
-- [ ] 20-02-PLAN.md -- Market context report template, assembler extension, and CLI wiring
+- [x] 20-01-PLAN.md -- Neo4j ticker consensus persistence (write + read methods) and simulation wiring
+- [x] 20-02-PLAN.md -- Market context report template, assembler extension, and CLI wiring
+
+### Phase 21: Restore Ticker Validation and Tracking
+**Goal**: SEC ticker validation and dropped-ticker tracking are restored to the runtime path, closing the gaps left by commit 7ba7efa deleting ticker_validator.py
+**Depends on**: Phase 20
+**Requirements**: TICK-02, TICK-03
+**Gap Closure**: Closes gaps from v3.0 audit
+**Success Criteria** (what must be TRUE):
+  1. ticker_validator.py is restored and parse_seed_event() validates extracted tickers against SEC company_tickers.json — invalid symbols are rejected with a warning
+  2. ParsedSeedResult.dropped_tickers is restored and the CLI injection summary displays dropped tickers when the top-3 cap removes symbols
+  3. pyproject.toml declares yfinance>=1.2.0 in [project.dependencies]
+**Plans**: 1 plan
+
+### Phase 22: Fix Report Tool Name Mismatch
+**Goal**: REACT_SYSTEM_PROMPT tool names match the runtime registry so all report sections are generated without Unknown tool errors
+**Depends on**: Phase 20
+**Requirements**: DRPT-01
+**Gap Closure**: Closes gaps from v3.0 audit
+**Success Criteria** (what must be TRUE):
+  1. REACT_SYSTEM_PROMPT references bracket_summary (not consensus_summary) and signal_flip_analysis (not signal_flips)
+  2. Running alphaswarm report produces a report that includes the bracket summary and signal flip analysis sections
+**Plans**: 1 plan
+
+### Phase 23: Validation Tracking and Requirements Traceability
+**Goal**: VALIDATION.md tracking files reflect actual test names, Phase 16 gets a VALIDATION.md, and v3 requirements are in REQUIREMENTS.md traceability
+**Depends on**: Phase 21
+**Requirements**: TICK-01, TICK-02, TICK-03, DATA-01, DATA-02, DATA-03, DATA-04, ENRICH-01, ENRICH-02, ENRICH-03, DECIDE-01, DECIDE-02, DTUI-01, DTUI-02, DTUI-03, DRPT-01
+**Gap Closure**: Closes documentation gaps from v3.0 audit
+**Success Criteria** (what must be TRUE):
+  1. REQUIREMENTS.md traceability table includes all v3 requirement IDs mapped to their phases
+  2. VALIDATION.md files for phases 17, 19, and 20 reference actual test method names that exist in the test suite
+  3. Phase 16 has a VALIDATION.md with Nyquist test entries
+**Plans**: 1 plan
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 16 -> 17 -> 18 -> 19 -> 20
+Phases execute in numeric order: 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22 -> 23
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -149,4 +184,7 @@ Phases execute in numeric order: 16 -> 17 -> 18 -> 19 -> 20
 | 17. Market Data Pipeline | v3.0 | 3/3 | Complete | 2026-04-06 |
 | 18. Agent Context Enrichment and Enhanced Decisions | v3.0 | 3/3 | Complete   | 2026-04-07 |
 | 19. Per-Stock TUI Consensus Display | v3.0 | 2/2 | Complete   | 2026-04-07 |
-| 20. Report Enhancement and Integration Hardening | v3.0 | 0/2 | Not started | - |
+| 20. Report Enhancement and Integration Hardening | v3.0 | 2/2 | Complete   | 2026-04-08 |
+| 21. Restore Ticker Validation and Tracking | v3.0 | 0/1 | Not started | - |
+| 22. Fix Report Tool Name Mismatch | v3.0 | 0/1 | Not started | - |
+| 23. Validation Tracking and Requirements Traceability | v3.0 | 0/1 | Not started | - |
