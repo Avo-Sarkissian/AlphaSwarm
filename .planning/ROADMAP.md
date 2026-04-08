@@ -161,6 +161,8 @@ Plans:
   2. VALIDATION.md files for phases 17, 19, and 20 reference actual test method names that exist in the test suite
   3. Phase 16 has a VALIDATION.md with Nyquist test entries
 **Plans**: 1 plan
+Plans:
+- [ ] 23-01-PLAN.md -- Reconcile VALIDATION.md files and add v3 requirements traceability
 
 ## Progress
 
