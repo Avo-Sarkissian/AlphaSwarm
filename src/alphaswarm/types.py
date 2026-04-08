@@ -150,6 +150,7 @@ class ParsedSeedResult:
 
     seed_event: SeedEvent
     parse_tier: int
+    dropped_tickers: tuple[dict[str, str], ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)

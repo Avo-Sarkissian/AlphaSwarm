@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Callable
 
 import structlog
 from pydantic import ValidationError
@@ -192,21 +193,25 @@ def parse_agent_decision(raw: str) -> AgentDecision:
 # ---------------------------------------------------------------------------
 
 
-def _try_parse_seed_json(text: str, original_rumor: str) -> SeedEvent | None:
-    """Attempt to parse text as JSON into SeedEvent. Returns None on any failure."""
+def _try_parse_seed_json(
+    text: str,
+    original_rumor: str,
+    ticker_validator: Callable[[str], bool] | None = None,
+) -> tuple[SeedEvent | None, list[dict[str, str]]]:
+    """Attempt to parse text as JSON into SeedEvent. Returns (None, []) on any failure."""
     try:
         data = json.loads(text)
     except (json.JSONDecodeError, ValueError):
-        return None
+        return None, []
 
     if not isinstance(data, dict):
-        return None
+        return None, []
 
     try:
         # Parse entities individually, skip invalid ones
         raw_entities = data.get("entities", [])
         if not isinstance(raw_entities, list):
-            return None
+            return None, []
         entities: list[SeedEntity] = []
         for e in raw_entities:
             try:
@@ -215,29 +220,43 @@ def _try_parse_seed_json(text: str, original_rumor: str) -> SeedEvent | None:
                 continue
 
         # Phase 18: Parse tickers from orchestrator response (Codex blocker #3)
+        # Phase 21: Restore ticker validation and dropped-ticker tracking
+        dropped: list[dict[str, str]] = []
         raw_tickers = data.get("tickers", [])
-        tickers: list[ExtractedTicker] = []
+        all_tickers: list[ExtractedTicker] = []
         if isinstance(raw_tickers, list):
             for t in raw_tickers:
                 try:
-                    tickers.append(ExtractedTicker.model_validate(t))
+                    ticker = ExtractedTicker.model_validate(t)
+                    if ticker_validator and not ticker_validator(ticker.symbol):
+                        dropped.append({"symbol": ticker.symbol, "reason": "invalid"})
+                        logger.warning("ticker_invalid", symbol=ticker.symbol)
+                        continue
+                    all_tickers.append(ticker)
                 except (ValidationError, TypeError):
                     continue
-        # Cap at 3 tickers, sorted by relevance descending (Phase 16 TICK-03)
-        tickers = sorted(tickers, key=lambda t: t.relevance, reverse=True)[:3]
+        all_tickers.sort(key=lambda t: t.relevance, reverse=True)
+        if len(all_tickers) > 3:
+            for t in all_tickers[3:]:
+                dropped.append({"symbol": t.symbol, "reason": "cap"})
+            all_tickers = all_tickers[:3]
 
         overall_sentiment = float(data.get("overall_sentiment", 0.0))
         return SeedEvent(
             raw_rumor=original_rumor,
             entities=entities,
             overall_sentiment=overall_sentiment,
-            tickers=tickers,
-        )
+            tickers=all_tickers,
+        ), dropped
     except (ValidationError, TypeError, ValueError, KeyError):
-        return None
+        return None, []
 
 
-def parse_seed_event(raw: str, original_rumor: str) -> ParsedSeedResult:
+def parse_seed_event(
+    raw: str,
+    original_rumor: str,
+    ticker_validator: Callable[[str], bool] | None = None,
+) -> ParsedSeedResult:
     """Parse orchestrator output into SeedEvent with 3-tier fallback.
 
     Returns ParsedSeedResult with parse_tier metadata so callers can
@@ -246,40 +265,41 @@ def parse_seed_event(raw: str, original_rumor: str) -> ParsedSeedResult:
     Args:
         raw: Raw string from orchestrator LLM response (message.content).
         original_rumor: The original rumor text, injected as raw_rumor.
+        ticker_validator: Optional callable to validate ticker symbols against SEC data.
 
     Returns:
         ParsedSeedResult -- always returns, never raises.
     """
     # Tier 1: Direct JSON parse
-    result = _try_parse_seed_json(raw, original_rumor)
+    result, dropped = _try_parse_seed_json(raw, original_rumor, ticker_validator)
     if result is not None:
         logger.debug("seed_parse_succeeded", parse_tier=1, entity_count=len(result.entities))
-        return ParsedSeedResult(seed_event=result, parse_tier=1)
+        return ParsedSeedResult(seed_event=result, parse_tier=1, dropped_tickers=tuple(dropped))
 
     # Tier 2: Strip code fences, then regex extraction
     cleaned = _strip_code_fences(raw)
     # Try cleaned text directly
-    result = _try_parse_seed_json(cleaned, original_rumor)
+    result, dropped = _try_parse_seed_json(cleaned, original_rumor, ticker_validator)
     if result is not None:
         logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
-        return ParsedSeedResult(seed_event=result, parse_tier=2)
+        return ParsedSeedResult(seed_event=result, parse_tier=2, dropped_tickers=tuple(dropped))
 
     # Regex extraction on cleaned text
     match = _JSON_BLOCK_RE.search(cleaned)
     if match:
-        result = _try_parse_seed_json(match.group(), original_rumor)
+        result, dropped = _try_parse_seed_json(match.group(), original_rumor, ticker_validator)
         if result is not None:
             logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
-            return ParsedSeedResult(seed_event=result, parse_tier=2)
+            return ParsedSeedResult(seed_event=result, parse_tier=2, dropped_tickers=tuple(dropped))
 
     # Regex on original text if different
     if cleaned != raw:
         match = _JSON_BLOCK_RE.search(raw)
         if match:
-            result = _try_parse_seed_json(match.group(), original_rumor)
+            result, dropped = _try_parse_seed_json(match.group(), original_rumor, ticker_validator)
             if result is not None:
                 logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
-                return ParsedSeedResult(seed_event=result, parse_tier=2)
+                return ParsedSeedResult(seed_event=result, parse_tier=2, dropped_tickers=tuple(dropped))
 
     # Tier 3: Fallback
     logger.debug("seed_parse_failed_all_tiers", parse_tier=3, raw_preview=raw[:500])
