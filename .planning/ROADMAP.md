@@ -48,7 +48,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 16: Ticker Extraction** - Orchestrator extracts and validates stock ticker symbols from seed rumors as the critical-path root for all v3 features (completed 2026-04-06)
 - [x] **Phase 17: Market Data Pipeline** - Async market data fetching via yfinance with Alpha Vantage fallback, disk-cached responses, Neo4j Ticker nodes, and CLI degraded-data warnings (completed 2026-04-06)
 - [x] **Phase 18: Agent Context Enrichment and Enhanced Decisions** - Inject budget-capped, bracket-tailored market data into agent prompts and extend AgentDecision with ticker-specific output fields (completed 2026-04-07)
-- [ ] **Phase 19: Per-Stock TUI Consensus Display** - Per-ticker consensus panel with confidence-weighted voting and bracket disagreement breakdown
+- [x] **Phase 19: Per-Stock TUI Consensus Display** - Per-ticker consensus panel with confidence-weighted voting and bracket disagreement breakdown (completed 2026-04-07)
 - [ ] **Phase 20: Report Enhancement and Integration Hardening** - Post-simulation report includes market data context comparing agent consensus with actual market indicators
 
 ## Phase Details
@@ -107,8 +107,8 @@ Plans:
   3. For each ticker, the user can see which brackets are bullish versus bearish, making inter-bracket disagreement visually clear
 **Plans**: 2 plans
 Plans:
-- [ ] 19-01-PLAN.md -- TickerConsensus data model, StateStore extension, compute_ticker_consensus() with simulation wiring
-- [ ] 19-02-PLAN.md -- TickerConsensusPanel TUI widget, compose/poll wiring, visual verification
+- [x] 19-01-PLAN.md -- TickerConsensus data model, StateStore extension, compute_ticker_consensus() with simulation wiring
+- [x] 19-02-PLAN.md -- TickerConsensusPanel TUI widget, compose/poll wiring, visual verification
 
 ### Phase 20: Report Enhancement and Integration Hardening
 **Goal**: The post-simulation report synthesizes market data context with agent consensus, giving users a complete picture of how 100 agents interpreted real market conditions
@@ -118,7 +118,10 @@ Plans:
   1. The post-simulation markdown report includes a market data context section showing the live data that was available to agents (price trends, key financials, recent news)
   2. The report compares agent consensus with actual market indicators -- e.g., "Agents reached 72% bearish consensus on TSLA while the stock is trading at 52-week highs with declining volume"
   3. Running a full v3 simulation end-to-end (seed with tickers, market data fetch, enriched 3-round cascade, TUI display, report generation) completes without errors under normal conditions
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 20-01-PLAN.md -- Neo4j ticker consensus persistence (write + read methods) and simulation wiring
+- [ ] 20-02-PLAN.md -- Market context report template, assembler extension, and CLI wiring
 
 ## Progress
 
@@ -145,5 +148,5 @@ Phases execute in numeric order: 16 -> 17 -> 18 -> 19 -> 20
 | 16. Ticker Extraction | v3.0 | 3/3 | Complete | 2026-04-06 |
 | 17. Market Data Pipeline | v3.0 | 3/3 | Complete | 2026-04-06 |
 | 18. Agent Context Enrichment and Enhanced Decisions | v3.0 | 3/3 | Complete   | 2026-04-07 |
-| 19. Per-Stock TUI Consensus Display | v3.0 | 0/2 | Not started | - |
-| 20. Report Enhancement and Integration Hardening | v3.0 | 0/? | Not started | - |
+| 19. Per-Stock TUI Consensus Display | v3.0 | 2/2 | Complete   | 2026-04-07 |
+| 20. Report Enhancement and Integration Hardening | v3.0 | 0/2 | Not started | - |
