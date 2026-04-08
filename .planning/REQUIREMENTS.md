@@ -78,7 +78,45 @@ Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 - [x] **PERSONA-01**: Orchestrator LLM generates entity-specific bracket modifiers from SeedEvent entities in a single JSON call
 - [x] **PERSONA-02**: Entity-aware modifiers injected into generate_personas() pipeline, preserving 10-bracket structure and 100-agent count
 
-## v3 Requirements (Future)
+## v3 Requirements
+
+Requirements for v3.0 Stock-Specific Recommendations with Live Data milestone. Each maps to roadmap phases.
+
+### Ticker Extraction
+
+- [x] **TICK-01**: Orchestrator LLM extracts stock ticker symbols from natural-language seed rumors alongside entity extraction in a single LLM call
+- [x] **TICK-02**: Extracted tickers are validated against the SEC company_tickers.json symbol table; invalid symbols are rejected with a warning before simulation proceeds
+- [x] **TICK-03**: When more than 3 tickers are extracted, only the top 3 by relevance score are kept; dropped tickers are displayed to the user in the CLI injection summary
+
+### Market Data Pipeline
+
+- [x] **DATA-01**: Before Round 1 begins, the system fetches and caches live market data (price history, financial metrics, earnings) for each extracted ticker via yfinance wrapped in asyncio.to_thread with per-ticker locks
+- [x] **DATA-02**: When yfinance fails for a ticker, the system falls back to Alpha Vantage (GLOBAL_QUOTE + OVERVIEW endpoints); when both fail, simulation proceeds with a degraded-data snapshot and a visible CLI warning
+- [x] **DATA-03**: Each MarketDataSnapshot includes a headlines field populated by Alpha Vantage NEWS_SENTIMENT during context enrichment (Phase 18)
+- [x] **DATA-04**: Disk cache with atomic temp-file-rename pattern and 1-hour TTL prevents redundant API calls; cache hits are logged at INFO level
+
+### Context Enrichment
+
+- [x] **ENRICH-01**: All market data fetching completes before Round 1 begins (pre-simulation enrichment pattern) and each agent prompt includes a formatted market data block within a strict token budget
+- [x] **ENRICH-02**: Different bracket archetypes receive different data slices -- Quants see price/volume/technicals, Macro agents see Earnings/Insider data (earnings surprises, EPS, headlines), providing bracket-tailored context
+- [x] **ENRICH-03**: The 3-tier parse fallback handles enrichment fields gracefully; agents that fail to produce new fields get backward-compatible None defaults without triggering PARSE_ERROR status
+
+### Enhanced Decisions
+
+- [x] **DECIDE-01**: Agent decisions include per-ticker fields: ticker symbol, direction (BUY/SELL/HOLD), expected_return_pct, and time_horizon in structured output via the TickerDecision model
+- [x] **DECIDE-02**: TickerDecision uses lenient parsing (_lenient_parse_ticker_decisions) that drops malformed entries without triggering PARSE_ERROR, maintaining backward compatibility
+
+### Data-Grounded TUI
+
+- [x] **DTUI-01**: After simulation completes, the TUI displays a per-ticker consensus panel (TickerConsensusPanel) showing each ticker symbol, aggregate signal, aggregate confidence, and vote distribution
+- [x] **DTUI-02**: Consensus aggregation uses confidence-weighted voting (confidence multiplied by influence_weight) alongside the discrete majority vote, with both visible in the panel display
+- [x] **DTUI-03**: For each ticker, bracket-level bullish/bearish breakdown is displayed as colored bars, making inter-bracket disagreement visually clear
+
+### Data-Grounded Report
+
+- [x] **DRPT-01**: Post-simulation markdown report includes a market data context section comparing agent consensus with actual market indicators (price trends, financials, news) for each ticker
+
+## Future Requirements
 
 Deferred to future milestones. Tracked but not in current roadmap.
 
@@ -166,12 +204,29 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REPORT-01 | Phase 15: Post-Simulation Report | Complete |
 | REPORT-02 | Phase 15: Post-Simulation Report | Complete |
 | REPORT-03 | Phase 15: Post-Simulation Report | Complete |
+| TICK-01 | Phase 16: Ticker Extraction | Complete |
+| TICK-02 | Phase 16: Ticker Extraction, Phase 21: Restore Ticker Validation | Complete |
+| TICK-03 | Phase 16: Ticker Extraction, Phase 21: Restore Ticker Validation | Complete |
+| DATA-01 | Phase 17: Market Data Pipeline | Complete |
+| DATA-02 | Phase 17: Market Data Pipeline | Complete |
+| DATA-03 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Complete |
+| DATA-04 | Phase 17: Market Data Pipeline | Complete |
+| ENRICH-01 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Complete |
+| ENRICH-02 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Complete |
+| ENRICH-03 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Complete |
+| DECIDE-01 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Complete |
+| DECIDE-02 | Phase 18: Agent Context Enrichment and Enhanced Decisions | Complete |
+| DTUI-01 | Phase 19: Per-Stock TUI Consensus Display | Complete |
+| DTUI-02 | Phase 19: Per-Stock TUI Consensus Display | Complete |
+| DTUI-03 | Phase 19: Per-Stock TUI Consensus Display | Complete |
+| DRPT-01 | Phase 20: Report Enhancement, Phase 22: Fix Report Tool Names | Complete |
 
 **Coverage:**
 - v1 requirements: 27 total, 27 mapped (Complete)
-- v2 requirements: 13 total, 13 mapped (Pending)
+- v2 requirements: 13 total, 13 mapped (Complete)
+- v3 requirements: 16 total, 16 mapped (Complete)
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-03-31 after v2.0 roadmap creation*
+*Last updated: 2026-04-08 after v3.0 documentation phase*
