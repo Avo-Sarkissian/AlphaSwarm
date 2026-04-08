@@ -148,6 +148,8 @@ Plans:
   1. REACT_SYSTEM_PROMPT references bracket_summary (not consensus_summary) and signal_flip_analysis (not signal_flips)
   2. Running alphaswarm report produces a report that includes the bracket summary and signal flip analysis sections
 **Plans**: 1 plan
+Plans:
+- [ ] 22-01-PLAN.md — Fix REACT_SYSTEM_PROMPT tool names and update parser test
 
 ### Phase 23: Validation Tracking and Requirements Traceability
 **Goal**: VALIDATION.md tracking files reflect actual test names, Phase 16 gets a VALIDATION.md, and v3 requirements are in REQUIREMENTS.md traceability
