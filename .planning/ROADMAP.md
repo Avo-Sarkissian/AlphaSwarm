@@ -136,6 +136,8 @@ Plans:
   2. ParsedSeedResult.dropped_tickers is restored and the CLI injection summary displays dropped tickers when the top-3 cap removes symbols
   3. pyproject.toml declares yfinance>=1.2.0 in [project.dependencies]
 **Plans**: 1 plan
+Plans:
+- [ ] 21-01-PLAN.md — Restore ticker_validator.py, ParsedSeedResult.dropped_tickers, parse_seed_event() callback, seed.py wiring, and CLI display
 
 ### Phase 22: Fix Report Tool Name Mismatch
 **Goal**: REACT_SYSTEM_PROMPT tool names match the runtime registry so all report sections are generated without Unknown tool errors
