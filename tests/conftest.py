@@ -158,8 +158,8 @@ async def graph_manager(neo4j_driver, all_personas):
     )
     await manager.ensure_schema()
     yield manager
-    # Clean all Decision, Cycle, Entity, RationaleEpisode, Post, Ticker, and MarketDataSnapshot
-    # nodes between tests (keep Agent nodes)
+    # Clean all Decision, Cycle, Entity, RationaleEpisode, Post, Ticker, MarketDataSnapshot,
+    # and TickerConsensusSummary nodes between tests (keep Agent nodes)
     async with neo4j_driver.session(database="neo4j") as session:
         await session.run("MATCH (d:Decision) DETACH DELETE d")
         await session.run("MATCH (c:Cycle) DETACH DELETE c")
@@ -168,3 +168,4 @@ async def graph_manager(neo4j_driver, all_personas):
         await session.run("MATCH (p:Post) DETACH DELETE p")
         await session.run("MATCH (t:Ticker) DETACH DELETE t")
         await session.run("MATCH (md:MarketDataSnapshot) DETACH DELETE md")
+        await session.run("MATCH (n:TickerConsensusSummary) DETACH DELETE n")

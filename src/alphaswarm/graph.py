@@ -17,6 +17,7 @@ from alphaswarm.types import SignalType
 if TYPE_CHECKING:
     from neo4j import AsyncDriver, AsyncManagedTransaction
 
+    from alphaswarm.state import TickerConsensus
     from alphaswarm.types import AgentDecision, AgentPersona, MarketDataSnapshot, SeedEvent
 
 log = structlog.get_logger(component="graph")
@@ -67,6 +68,7 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX episode_cycle_round IF NOT EXISTS FOR (re:RationaleEpisode) ON (re.cycle_id, re.round)",
     "CREATE INDEX post_cycle_round IF NOT EXISTS FOR (p:Post) ON (p.cycle_id, p.round_num)",
     "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
+    "CREATE INDEX tcs_round IF NOT EXISTS FOR (tcs:TickerConsensusSummary) ON (tcs.round_num)",
 ]
 
 
@@ -354,6 +356,72 @@ class GraphStateManager:
             """,
             cycle_id=cycle_id,
             snapshots=snapshots,
+        )
+
+    async def write_ticker_consensus_summary(
+        self,
+        cycle_id: str,
+        round_num: int,
+        consensus_list: list[TickerConsensus],
+    ) -> None:
+        """Persist per-ticker consensus to Neo4j for report queries (Phase 20 D-04, D-05)."""
+        if not consensus_list:
+            return
+        params = [
+            {
+                "ticker": tc.ticker,
+                "round_num": tc.round_num,
+                "weighted_signal": tc.weighted_signal,
+                "weighted_score": tc.weighted_score,
+                "majority_signal": tc.majority_signal,
+                "majority_pct": tc.majority_pct,
+            }
+            for tc in consensus_list
+        ]
+        try:
+            async with self._driver.session(database=self._database) as session:
+                await session.execute_write(
+                    self._write_ticker_consensus_tx, cycle_id, round_num, params,
+                )
+        except Neo4jError as exc:
+            raise Neo4jWriteError(
+                f"Failed to write ticker consensus for cycle {cycle_id} round {round_num}",
+                original_error=exc,
+            ) from exc
+        self._log.info(
+            "ticker_consensus_written",
+            cycle_id=cycle_id,
+            round_num=round_num,
+            count=len(params),
+        )
+
+    @staticmethod
+    async def _write_ticker_consensus_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        round_num: int,
+        consensus_params: list[dict],  # type: ignore[type-arg]
+    ) -> None:
+        """UNWIND transaction: TickerConsensusSummary nodes linked to Ticker + Cycle."""
+        await tx.run(
+            """
+            UNWIND $params AS c
+            MATCH (t:Ticker {symbol: c.ticker})
+            MATCH (cy:Cycle {cycle_id: $cycle_id})
+            CREATE (tcs:TickerConsensusSummary {
+                round_num: c.round_num,
+                weighted_signal: c.weighted_signal,
+                weighted_score: c.weighted_score,
+                majority_signal: c.majority_signal,
+                majority_pct: c.majority_pct,
+                created_at: datetime()
+            })
+            CREATE (t)-[:HAS_CONSENSUS]->(tcs)
+            CREATE (cy)-[:HAS_CONSENSUS]->(tcs)
+            """,
+            cycle_id=cycle_id,
+            round_num=round_num,
+            params=consensus_params,
         )
 
     async def close(self) -> None:
@@ -1573,3 +1641,68 @@ class GraphStateManager:
                 "Failed to read latest cycle_id",
                 original_error=exc,
             ) from exc
+
+    async def read_market_context(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
+        """Fetch combined market data + latest-round consensus per ticker (Phase 20 D-06).
+
+        Returns list of dicts with keys: ticker, company_name, last_close,
+        price_change_30d_pct, price_change_90d_pct, pe_ratio, market_cap,
+        fifty_two_week_high, fifty_two_week_low, eps_trailing, avg_volume_30d,
+        is_degraded, consensus_signal, consensus_score, majority_signal, majority_pct.
+
+        Uses OPTIONAL MATCH for TickerConsensusSummary to handle cycles without
+        consensus data (e.g., pre-Phase 20 cycles).
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_market_context_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read market context for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "report_market_context",
+            cycle_id=cycle_id,
+            ticker_count=len(records),
+        )
+        return records
+
+    @staticmethod
+    async def _read_market_context_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for market context + consensus Cypher (D-06)."""
+        result = await tx.run(
+            """
+            MATCH (cy:Cycle {cycle_id: $cycle_id})-[:HAS_TICKER]->(t:Ticker)-[:HAS_MARKET_DATA]->(md:MarketDataSnapshot)
+            OPTIONAL MATCH (t)-[:HAS_CONSENSUS]->(tcs:TickerConsensusSummary)
+            WHERE (cy)-[:HAS_CONSENSUS]->(tcs)
+            WITH t, md, tcs
+            ORDER BY tcs.round_num DESC
+            WITH t, md, collect(tcs)[0] AS latest_consensus
+            RETURN
+                t.symbol AS ticker,
+                t.company_name AS company_name,
+                md.last_close AS last_close,
+                md.price_change_30d_pct AS price_change_30d_pct,
+                md.price_change_90d_pct AS price_change_90d_pct,
+                md.pe_ratio AS pe_ratio,
+                md.market_cap AS market_cap,
+                md.fifty_two_week_high AS fifty_two_week_high,
+                md.fifty_two_week_low AS fifty_two_week_low,
+                md.eps_trailing AS eps_trailing,
+                md.avg_volume_30d AS avg_volume_30d,
+                md.is_degraded AS is_degraded,
+                latest_consensus.weighted_signal AS consensus_signal,
+                latest_consensus.weighted_score AS consensus_score,
+                latest_consensus.majority_signal AS majority_signal,
+                latest_consensus.majority_pct AS majority_pct
+            ORDER BY t.symbol
+            """,
+            cycle_id=cycle_id,
+        )
+        return [dict(record) async for record in result]

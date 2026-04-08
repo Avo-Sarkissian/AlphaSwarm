@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
+from alphaswarm.state import BracketSummary, TickerConsensus
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -1423,3 +1424,172 @@ async def test_write_read_post_edges_wraps_neo4j_error(mock_driver: MagicMock) -
         )
 
     assert exc_info.value.original_error is original_exc
+
+
+# ---------------------------------------------------------------------------
+# Phase 20 Plan 01: TickerConsensusSummary persistence tests
+# ---------------------------------------------------------------------------
+
+
+def _make_ticker_consensus(
+    ticker: str = "AAPL",
+    round_num: int = 1,
+    weighted_signal: str = "BUY",
+    weighted_score: float = 0.72,
+    majority_signal: str = "BUY",
+    majority_pct: float = 0.65,
+) -> TickerConsensus:
+    """Build a TickerConsensus with an empty bracket_breakdown tuple for test brevity."""
+    return TickerConsensus(
+        ticker=ticker,
+        round_num=round_num,
+        weighted_signal=weighted_signal,
+        weighted_score=weighted_score,
+        majority_signal=majority_signal,
+        majority_pct=majority_pct,
+        bracket_breakdown=(),
+    )
+
+
+class TestWriteTickerConsensus:
+    """Unit tests for GraphStateManager.write_ticker_consensus_summary()."""
+
+    @pytest.mark.asyncio()
+    async def test_calls_execute_write_with_correct_params(
+        self, mock_driver: MagicMock
+    ) -> None:
+        """write_ticker_consensus_summary calls session.execute_write once with correct args."""
+        from alphaswarm.graph import GraphStateManager
+
+        session = mock_driver.session.return_value
+        gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+        tc = _make_ticker_consensus(ticker="AAPL", round_num=1)
+        await gsm.write_ticker_consensus_summary(
+            cycle_id="c1", round_num=1, consensus_list=[tc]
+        )
+
+        session.execute_write.assert_awaited_once()
+        call_args = session.execute_write.call_args
+        # First positional arg is the tx function
+        assert call_args[0][0] is gsm._write_ticker_consensus_tx
+        # Second positional arg is cycle_id
+        assert call_args[0][1] == "c1"
+        # Third positional arg is round_num
+        assert call_args[0][2] == 1
+        # Fourth positional arg is the list of dicts
+        params = call_args[0][3]
+        assert isinstance(params, list)
+        assert len(params) == 1
+        assert params[0]["ticker"] == "AAPL"
+        assert params[0]["round_num"] == 1
+        assert params[0]["weighted_signal"] == "BUY"
+        assert params[0]["weighted_score"] == pytest.approx(0.72)
+        assert params[0]["majority_signal"] == "BUY"
+        assert params[0]["majority_pct"] == pytest.approx(0.65)
+        # bracket_breakdown must NOT be present
+        assert "bracket_breakdown" not in params[0]
+
+    @pytest.mark.asyncio()
+    async def test_empty_consensus_list_skips_write(
+        self, mock_driver: MagicMock
+    ) -> None:
+        """write_ticker_consensus_summary with empty list is a no-op."""
+        from alphaswarm.graph import GraphStateManager
+
+        session = mock_driver.session.return_value
+        gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+        await gsm.write_ticker_consensus_summary(
+            cycle_id="c1", round_num=1, consensus_list=[]
+        )
+
+        session.execute_write.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_neo4j_error_raises_write_error(
+        self, mock_driver: MagicMock
+    ) -> None:
+        """write_ticker_consensus_summary wraps Neo4jError as Neo4jWriteError."""
+        from neo4j.exceptions import Neo4jError
+
+        from alphaswarm.graph import GraphStateManager
+
+        session = mock_driver.session.return_value
+        original_exc = Neo4jError("simulated write failure")
+        session.execute_write = AsyncMock(side_effect=original_exc)
+        gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+        tc = _make_ticker_consensus()
+        with pytest.raises(Neo4jWriteError) as exc_info:
+            await gsm.write_ticker_consensus_summary(
+                cycle_id="c1", round_num=1, consensus_list=[tc]
+            )
+
+        assert exc_info.value.original_error is original_exc
+
+
+class TestReadMarketContext:
+    """Unit tests for GraphStateManager.read_market_context()."""
+
+    @pytest.mark.asyncio()
+    async def test_returns_combined_market_and_consensus(
+        self, mock_driver: MagicMock
+    ) -> None:
+        """read_market_context returns list[dict] with all 16 expected keys."""
+        from alphaswarm.graph import GraphStateManager
+
+        expected_record = {
+            "ticker": "AAPL",
+            "company_name": "Apple Inc.",
+            "last_close": 195.5,
+            "price_change_30d_pct": 4.2,
+            "price_change_90d_pct": -1.1,
+            "pe_ratio": 28.4,
+            "market_cap": 3_000_000_000_000,
+            "fifty_two_week_high": 220.0,
+            "fifty_two_week_low": 164.0,
+            "eps_trailing": 6.43,
+            "avg_volume_30d": 55_000_000,
+            "is_degraded": False,
+            "consensus_signal": "BUY",
+            "consensus_score": 0.72,
+            "majority_signal": "BUY",
+            "majority_pct": 0.65,
+        }
+
+        session = mock_driver.session.return_value
+        session.execute_read = AsyncMock(return_value=[expected_record])
+        gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+        result = await gsm.read_market_context(cycle_id="c1")
+
+        session.execute_read.assert_awaited_once()
+        assert result == [expected_record]
+        # Verify all 16 expected keys are present
+        expected_keys = {
+            "ticker", "company_name", "last_close", "price_change_30d_pct",
+            "price_change_90d_pct", "pe_ratio", "market_cap", "fifty_two_week_high",
+            "fifty_two_week_low", "eps_trailing", "avg_volume_30d", "is_degraded",
+            "consensus_signal", "consensus_score", "majority_signal", "majority_pct",
+        }
+        assert set(result[0].keys()) == expected_keys
+
+    @pytest.mark.asyncio()
+    async def test_neo4j_error_raises_connection_error(
+        self, mock_driver: MagicMock
+    ) -> None:
+        """read_market_context wraps Neo4jError as Neo4jConnectionError."""
+        from neo4j.exceptions import Neo4jError
+
+        from alphaswarm.graph import GraphStateManager
+
+        session = mock_driver.session.return_value
+        original_exc = Neo4jError("simulated read failure")
+        session.execute_read = AsyncMock(side_effect=original_exc)
+        gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+        with pytest.raises(Neo4jConnectionError) as exc_info:
+            await gsm.read_market_context(cycle_id="c1")
+
+        assert exc_info.value.original_error is original_exc
