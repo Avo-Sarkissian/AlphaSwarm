@@ -1,0 +1,9 @@
+## Market Context
+
+Market data available to agents during simulation. Consensus signals reflect final-round (Round 3) confidence-weighted aggregation.
+
+| Ticker | Consensus | Last Close | 30d Change | P/E | 52w Range | Status |
+|--------|-----------|------------|------------|-----|-----------|--------|
+{% for row in data %}
+| {{ row.ticker }} | {{ row.majority_signal | default('N/A') }} ({{ "%.0f"|format(row.majority_pct * 100) if row.majority_pct is not none else 'N/A' }}%) [{{ "%.2f"|format(row.consensus_score) if row.consensus_score is not none else 'N/A' }}] | ${{ "%.2f"|format(row.last_close) if row.last_close is not none else 'N/A' }} | {{ "%.1f"|format(row.price_change_30d_pct) if row.price_change_30d_pct is not none else 'N/A' }}% | {{ "%.1f"|format(row.pe_ratio) if row.pe_ratio is not none else 'N/A' }} | ${{ "%.2f"|format(row.fifty_two_week_low) if row.fifty_two_week_low is not none else '?' }}-${{ "%.2f"|format(row.fifty_two_week_high) if row.fifty_two_week_high is not none else '?' }} | {{ '[degraded data]' if row.is_degraded else '' }} |
+{% endfor %}

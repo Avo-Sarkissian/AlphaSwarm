@@ -271,15 +271,26 @@ class ReportAssembler:
         template = self._env.get_template(template_name)
         return template.render(data=data, cycle_id=cycle_id)
 
-    def assemble(self, observations: list[ToolObservation], cycle_id: str) -> str:
+    def assemble(
+        self,
+        observations: list[ToolObservation],
+        cycle_id: str,
+        *,
+        market_context_data: list[dict] | None = None,
+    ) -> str:
         """Assemble all observations into a complete markdown report document.
 
         Observations are ordered by SECTION_ORDER (may arrive out of order from ReACT).
         Sections not present in observations are silently skipped.
+        When market_context_data is provided and non-empty, the Market Context section
+        is prepended before the ReACT-derived sections (Phase 20 D-03).
 
         Args:
             observations: List of tool observations from ReportEngine.run().
             cycle_id: The simulation cycle ID.
+            market_context_data: Optional list of per-ticker market + consensus dicts
+                from GraphStateManager.read_market_context(). Silently omitted when
+                None or empty.
 
         Returns:
             Complete markdown report string with header and all sections.
@@ -296,6 +307,16 @@ class ReportAssembler:
         )
 
         sections: list[str] = []
+
+        # Prepend market context section when data is available (Phase 20 D-03)
+        if market_context_data:
+            market_section = self.render_section(
+                "09_market_context.j2",
+                data=market_context_data,
+                cycle_id=cycle_id,
+            )
+            sections.append(market_section)
+
         for tool_name in SECTION_ORDER:
             obs = obs_by_tool.get(tool_name)
             if obs is None:
