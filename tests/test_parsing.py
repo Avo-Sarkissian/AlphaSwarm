@@ -579,3 +579,58 @@ def test_parse_logs_tier_used() -> None:
     finally:
         # Reset structlog to default
         structlog.reset_defaults()
+
+
+# --- Phase 21: dropped_tickers parsing tests ---
+
+
+def test_parse_seed_event_drops_invalid_ticker() -> None:
+    """parse_seed_event with ticker_validator rejects invalid symbols and records in dropped_tickers."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = json_mod.dumps({
+        "entities": [],
+        "overall_sentiment": 0.0,
+        "tickers": [
+            {"symbol": "AAPL", "company_name": "Apple Inc", "relevance": 0.9},
+            {"symbol": "XYZFAKE", "company_name": "Fake Co", "relevance": 0.5},
+        ],
+    })
+    # Validator rejects XYZFAKE
+    validator = lambda s: s.upper() != "XYZFAKE"
+    result = parse_seed_event(raw, original_rumor="test", ticker_validator=validator)
+    assert result.parse_tier == 1
+    # XYZFAKE should not be in tickers
+    symbols = [t.symbol for t in result.seed_event.tickers]
+    assert "XYZFAKE" not in symbols
+    assert "AAPL" in symbols
+    # dropped_tickers should contain the invalid entry
+    dropped = result.dropped_tickers
+    assert len(dropped) == 1
+    assert dropped[0]["symbol"] == "XYZFAKE"
+    assert dropped[0]["reason"] == "invalid"
+
+
+def test_parse_seed_event_dropped_tickers_cap_reason() -> None:
+    """parse_seed_event caps at 3 tickers and records excess in dropped_tickers with reason='cap'."""
+    from alphaswarm.parsing import parse_seed_event
+
+    raw = json_mod.dumps({
+        "entities": [],
+        "overall_sentiment": 0.0,
+        "tickers": [
+            {"symbol": "A", "company_name": "A Co", "relevance": 0.9},
+            {"symbol": "B", "company_name": "B Co", "relevance": 0.8},
+            {"symbol": "C", "company_name": "C Co", "relevance": 0.7},
+            {"symbol": "D", "company_name": "D Co", "relevance": 0.6},
+            {"symbol": "E", "company_name": "E Co", "relevance": 0.5},
+        ],
+    })
+    result = parse_seed_event(raw, original_rumor="test")
+    assert len(result.seed_event.tickers) == 3
+    # 2 tickers dropped due to cap
+    dropped = result.dropped_tickers
+    assert len(dropped) == 2
+    assert all(d["reason"] == "cap" for d in dropped)
+    dropped_symbols = {d["symbol"] for d in dropped}
+    assert dropped_symbols == {"D", "E"}

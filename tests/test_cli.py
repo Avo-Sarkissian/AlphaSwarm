@@ -945,3 +945,34 @@ def test_report_subcommand_registered() -> None:
     # Verify default behavior when --cycle is omitted
     args_no_cycle = parser.parse_args(["report"])
     assert args_no_cycle.cycle is None
+
+
+# --- Phase 21: dropped-ticker CLI display tests ---
+
+
+def test_print_injection_summary_shows_dropped_tickers(capsys: pytest.CaptureFixture[str]) -> None:
+    """_print_injection_summary displays Dropped Tickers section when dropped_tickers is non-empty."""
+    from alphaswarm.cli import _print_injection_summary
+    from alphaswarm.types import ExtractedTicker
+
+    parsed = ParsedSeedResult(
+        seed_event=SeedEvent(
+            raw_rumor="Test rumor",
+            entities=[
+                SeedEntity(name="TestCo", type=EntityType.COMPANY, relevance=0.9, sentiment=0.5),
+            ],
+            overall_sentiment=0.5,
+            tickers=[
+                ExtractedTicker(symbol="AAPL", company_name="Apple Inc", relevance=0.9),
+            ],
+        ),
+        parse_tier=1,
+        dropped_tickers=({"symbol": "XYZFAKE", "reason": "invalid"},),
+    )
+    _print_injection_summary("test-cycle-001", parsed)
+    captured = capsys.readouterr()
+    assert "Dropped Tickers:" in captured.out
+    assert "XYZFAKE" in captured.out
+    assert "invalid" in captured.out
+    # Also verify ticker count line
+    assert "Tickers:" in captured.out
