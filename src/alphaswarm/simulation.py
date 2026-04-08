@@ -1111,16 +1111,23 @@ async def run_simulation(
         round1_result.agent_decisions, personas, brackets,
     )
 
+    # Compute Round 1 ticker consensus (outside state_store guard so graph write always runs)
+    ticker_consensus_r1 = compute_ticker_consensus(
+        round1_result.agent_decisions, personas, brackets, round1_weights, round_num=1,
+    )
+
     # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
     if state_store is not None:
         await state_store.set_bracket_summaries(round1_summaries)
-        await state_store.set_ticker_consensus(
-            compute_ticker_consensus(
-                round1_result.agent_decisions, personas, brackets, round1_weights, round_num=1,
-            )
-        )
+        await state_store.set_ticker_consensus(ticker_consensus_r1)
         await _push_top_rationales(
             round1_result.agent_decisions, 1, state_store, influence_weights=round1_weights,
+        )
+
+    # Persist Round 1 ticker consensus to Neo4j (Phase 20 D-04)
+    if ticker_consensus_r1:
+        await graph_manager.write_ticker_consensus_summary(
+            cycle_id, 1, list(ticker_consensus_r1),
         )
 
     # Fire callback for Round 1 (progressive output)
@@ -1248,16 +1255,23 @@ async def run_simulation(
             # Compute Round 2 bracket summaries (D-08)
             round2_summaries = compute_bracket_summaries(round2_decisions, personas, brackets)
 
+            # Compute Round 2 ticker consensus (outside state_store guard so graph write always runs)
+            ticker_consensus_r2 = compute_ticker_consensus(
+                round2_decisions, personas, brackets, round2_weights, round_num=2,
+            )
+
             # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
             if state_store is not None:
                 await state_store.set_bracket_summaries(round2_summaries)
-                await state_store.set_ticker_consensus(
-                    compute_ticker_consensus(
-                        round2_decisions, personas, brackets, round2_weights, round_num=2,
-                    )
-                )
+                await state_store.set_ticker_consensus(ticker_consensus_r2)
                 await _push_top_rationales(
                     round2_decisions, 2, state_store, influence_weights=round2_weights,
+                )
+
+            # Persist Round 2 ticker consensus to Neo4j (Phase 20 D-04)
+            if ticker_consensus_r2:
+                await graph_manager.write_ticker_consensus_summary(
+                    cycle_id, 2, list(ticker_consensus_r2),
                 )
 
             # Compute Round 2 shifts in-memory (D-13)
@@ -1371,21 +1385,28 @@ async def run_simulation(
             # Compute Round 3 bracket summaries (D-08)
             round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
 
+            # Compute Round 3 ticker consensus (outside state_store guard so graph write always runs)
+            # Round 3 reuses round2_weights because no round3_weights are computed after
+            # Round 3 completes. This is consistent with the existing pattern:
+            # compute_bracket_summaries() is also called at this point without new weights.
+            # No new compute_influence_edges() call is made after Round 3 (the simulation
+            # ends). This is a deliberate design choice, not an oversight.
+            # (Review concern #4: documenting round2_weights reuse explicitly.)
+            ticker_consensus_r3 = compute_ticker_consensus(
+                round3_decisions, personas, brackets, round2_weights, round_num=3,
+            )
+
             # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
             if state_store is not None:
                 await state_store.set_bracket_summaries(round3_summaries)
-                # Round 3 reuses round2_weights because no round3_weights are computed after
-                # Round 3 completes. This is consistent with the existing pattern:
-                # compute_bracket_summaries() is also called at this point without new weights.
-                # No new compute_influence_edges() call is made after Round 3 (the simulation
-                # ends). This is a deliberate design choice, not an oversight.
-                # (Review concern #4: documenting round2_weights reuse explicitly.)
-                await state_store.set_ticker_consensus(
-                    compute_ticker_consensus(
-                        round3_decisions, personas, brackets, round2_weights, round_num=3,
-                    )
-                )
+                await state_store.set_ticker_consensus(ticker_consensus_r3)
                 await _push_top_rationales(round3_decisions, 3, state_store)
+
+            # Persist Round 3 ticker consensus to Neo4j (Phase 20 D-04)
+            if ticker_consensus_r3:
+                await graph_manager.write_ticker_consensus_summary(
+                    cycle_id, 3, list(ticker_consensus_r3),
+                )
 
             # Compute Round 3 shifts in-memory (D-13)
             round3_shifts = _compute_shifts(
