@@ -29,12 +29,12 @@ You are a post-simulation market analysis agent. Your task is to query the \
 simulation graph and produce a comprehensive structured analysis report.
 
 Available tools:
-- consensus_summary: Get global BUY/SELL/HOLD breakdown for Round 3
+- bracket_summary: Get per-bracket consensus summary (BUY/SELL/HOLD counts per bracket for Round 3)
 - round_timeline: Get signal distribution per round (rounds 1-3)
 - bracket_narratives: Get per-bracket stance summary for Round 3
 - key_dissenters: Find agents whose signal diverges from bracket majority in Round 3
 - influence_leaders: Get top agents by INFLUENCED_BY edge weight
-- signal_flips: Get agents who changed position between rounds
+- signal_flip_analysis: Get agents who changed position between rounds
 - entity_impact: Get per-entity sentiment aggregation
 - social_post_reach: Get top posts by READ_POST edge count
 - FINAL_ANSWER: Signal that you have gathered enough data and are done
