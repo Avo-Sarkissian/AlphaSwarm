@@ -1,22 +1,17 @@
-# Stack Research: v2.0 Engine Depth
+# Stack Research: v4.0 Interactive Simulation & Analysis
 
-**Domain:** Multi-agent financial simulation -- post-simulation interviews, live graph memory, report generation, social interactions, dynamic personas
-**Researched:** 2026-03-31
-**Confidence:** HIGH (existing stack validated; additions are incremental)
+**Domain:** Mid-simulation shock injection, simulation replay, HTML report export with charts, portfolio impact analysis
+**Researched:** 2026-04-09
+**Confidence:** HIGH
+**Builds on:** v1-v3 stack research (validated, not re-evaluated here)
 
 ## Scope
 
-This document covers ONLY the stack additions and changes needed for v2.0 Engine Depth features. The validated v1 stack (Python 3.11+, asyncio, ollama >=0.6.1, neo4j >=5.28, textual >=8.1.1, pydantic, structlog, psutil, httpx, backoff) is NOT re-evaluated. See the original STACK.md research from 2026-03-24 for v1 rationale.
+This document covers ONLY the stack additions needed for v4.0 features. The validated stack (Python 3.11+, asyncio, uv, ollama >=0.6.1, neo4j >=5.28, textual >=8.1.1, pydantic, structlog, psutil, httpx, backoff, yfinance, Jinja2, aiofiles) is NOT re-evaluated.
 
-## Critical Finding: qwen3.5 Tool Calling Is Broken
+## Critical Finding: One New Dependency
 
-**Impact:** REPORT-01 (ReACT report agent) cannot use Ollama's native tool calling with qwen3.5.
-
-The Ollama tool calling pipeline sends Qwen 3 Hermes-style JSON tool schemas, but qwen3.5 was trained on the Qwen3-Coder XML format. This mismatch causes tool calls to be printed as text instead of executed, and unclosed `<think>` tags corrupt multi-turn conversations when thinking is enabled. A partial fix was merged (PR #14603, 2026-03-04) but community reports confirm tool calling still fails in production setups.
-
-**Resolution:** Implement the ReACT report agent using prompt-based tool dispatching (Simon Willison pattern) instead of Ollama's native `tools=` parameter. The agent outputs structured `Action: tool_name: args` text, which Python code parses via regex and dispatches to registered Cypher query functions. This approach works with ANY model regardless of tool calling support, and is ~100 lines of code. The qwen3.5:32b orchestrator model is more than capable of following the ReACT prompt format.
-
-**Confidence:** HIGH -- verified via GitHub issues #14493 and #14745, confirmed broken as of 2026-03-31.
+v4.0 requires exactly **one** new package: `pygal` for SVG chart generation in HTML reports. The other three features (shock injection, simulation replay, portfolio CSV parsing) are built entirely on existing dependencies and stdlib.
 
 ## Recommended Stack Additions
 
@@ -24,126 +19,188 @@ The Ollama tool calling pipeline sends Qwen 3 Hermes-style JSON tool schemas, bu
 
 | Library | Version | Purpose | Why Recommended | Feature |
 |---------|---------|---------|-----------------|---------|
-| Jinja2 | >=3.1.6 | Report template rendering | Standard Python template engine. Report sections (consensus summary, dissenter analysis, flip analysis) are templated markdown with data placeholders. Jinja2 handles conditionals, loops, and filters that f-strings cannot (e.g., iterating bracket summaries, conditional dissent sections). Mature, zero-CVE history, 3.1.6 released 2025-03-05. | REPORT-01, REPORT-02, REPORT-03 |
-| aiofiles | >=24.1.0 | Async file I/O for report export | Report markdown must be written to disk without blocking the asyncio event loop. aiofiles wraps file I/O in a thread pool executor, providing `async with aiofiles.open()` semantics. Without it, `open().write()` blocks the event loop during report export, potentially stalling the TUI or interview session running concurrently. | REPORT-03 |
+| pygal | >=3.1.0 | SVG chart generation for HTML consensus visualizations | Zero runtime dependencies. Generates inline SVG strings that embed directly in Jinja2 HTML templates via `render()` or `render_data_uri()`. Lightweight (~100KB installed) vs Plotly's 9.9MB wheel. SVG output is vector-based (crisp at any DPI, any zoom). Supports bar, stacked bar, horizontal bar, pie, gauge, SolidGauge, and radar charts -- all chart types needed for consensus/bracket/ticker/influence visualization. Self-contained output with no external JavaScript or CSS required. Released 2025-12-09, supports Python >=3.8. LGPLv3+ license. | EXPORT-* |
 
-**That's it.** Two new dependencies. Everything else is built on the existing stack.
+### Stdlib Modules Used (No Install Needed)
 
-### Why NOT More Dependencies
+| Module | Purpose | Feature |
+|--------|---------|---------|
+| `csv` | Parse Schwab CSV position exports | PORTFOLIO-* |
+| `io.StringIO` | Handle CSV header preamble stripping | PORTFOLIO-* |
+| `asyncio.Event` | Signal shock readiness between simulation rounds | SHOCK-* |
 
-| Avoided | Why Not |
-|---------|---------|
-| LangChain / LangGraph | Massive dependency tree (50+ transitive deps). The ReACT loop is ~100 LOC of custom Python. LangChain's agent abstractions don't match AlphaSwarm's architecture (we have our own OllamaClient, governor, graph manager). Adding LangChain to call Ollama through their wrapper when we already have a wrapper is architectural debt. |
-| LlamaIndex | Same problem as LangChain. We need 1 tool-dispatching loop, not a retrieval framework. Our "retrieval" is direct Cypher queries, not vector search. |
-| markdown (Python-Markdown) | We're generating markdown, not parsing/rendering it to HTML. Jinja2 templates produce raw `.md` files. No HTML conversion needed. |
-| python-markdown-generator | Overly abstracted for our use case. Jinja2 templates with markdown syntax are more readable and maintainable than programmatic markdown generation via method calls. |
-| neo4j-graphrag | We don't need vector search or RAG pipelines. Our graph queries are handwritten Cypher optimized for our schema. |
-| Datapane / reportlab | Web-based reporting frameworks. We're generating plain markdown files viewable in TUI or exported. No PDF/HTML dashboards needed. |
-| APOC (Neo4j plugin) | Not needed for v2 features. All graph operations (rationale episodes, narrative edges, flip events) are expressible in pure Cypher with UNWIND batches. APOC adds Docker image complexity and security surface for no benefit. |
+### Existing Dependencies -- No Version Changes
 
-### Existing Dependencies -- Version Updates
-
-| Library | Current Pin | Recommended Pin | Reason |
-|---------|-------------|-----------------|--------|
-| neo4j | >=5.28,<6.0 | >=5.28,<6.0 | **Keep as-is.** Neo4j driver 6.x (released 2026-01-12) requires Python >=3.10 and Neo4j server 2025.x+. Our docker-compose uses `neo4j:5.26-community`. Upgrading driver to 6.x would require upgrading the Neo4j server image simultaneously. This is scope creep for v2 -- the 5.x driver fully supports all v2 features (async sessions, UNWIND batches, transaction functions). Upgrade to 6.x in a future infrastructure phase. |
-| textual | >=8.1.1 | >=8.1.1 | **Keep as-is.** Latest is 8.2.1 (2026-03-29). The `>=8.1.1` pin already allows 8.2.x via uv resolution. No API changes needed for v2 features -- Textual's Screen push/pop, Input widget, RichLog, and mode system are all available in 8.1.1+. |
-| ollama | >=0.6.1 | >=0.6.1 | **Keep as-is.** Latest is still 0.6.1 (2025-11-13). The existing AsyncClient.chat() API handles everything v2 needs: multi-turn conversations (interview), streaming responses, and message history management. No native tool calling needed (see critical finding above). |
-
-### Docker Compose -- No Changes
-
-The existing `docker-compose.yml` with `neo4j:5.26-community` supports all v2 Neo4j features. No APOC plugin needed. No server version upgrade required.
+| Library | Current Pin | Status | Notes |
+|---------|-------------|--------|-------|
+| Jinja2 | >=3.1.6 | **Keep as-is.** | HTML report templates use the same `Environment`/`FileSystemLoader` pattern as existing markdown templates. Add `autoescape=True` for HTML template set. |
+| aiofiles | >=25.1.0 | **Keep as-is.** | Async HTML file write, same as existing markdown report export. |
+| neo4j | >=5.28,<6.0 | **Keep as-is.** | Replay queries use existing async driver. All cycle/round data already persisted. New queries are read-only Cypher filtered by cycle_id. |
+| textual | >=8.1.1 | **Keep as-is.** | Shock injection uses existing `Input` widget pattern. Replay uses existing grid/panel rendering with different data source. |
+| pydantic | >=2.12.5 | **Keep as-is.** | New models (`ShockEvent`, `PortfolioHolding`, `PortfolioSnapshot`) follow existing frozen BaseModel pattern. |
+| ollama | >=0.6.1 | **Keep as-is.** | Shock re-processing and portfolio analysis use existing `OllamaClient.chat()` with orchestrator model. |
 
 ## Feature-by-Feature Stack Mapping
 
-### Phase 11: Agent Interviews (INT-01, INT-02, INT-03)
+### SHOCK-*: Mid-Simulation Shock Injection
 
-**New code, no new dependencies.**
-
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| Interview context builder | Cypher queries via existing `neo4j` driver | Extends `GraphStateManager` with `read_agent_interview_context()` -- fetches persona, all 3 rounds of decisions, peer influences, rationale history for a single agent |
-| Conversation loop | `ollama` AsyncClient.chat() | Multi-turn conversation using message list accumulation. System prompt = full persona + decision context. User messages = operator questions. Assistant messages = agent responses. Append each exchange to the list. |
-| Context window management | Custom trimming logic | Worker model context window is ~4K tokens (qwen3.5:4b default). Interview context (persona + 3 rounds + rationale) could exceed this. Implement a sliding window: keep system prompt + last N exchanges, summarize earlier exchanges. |
-| TUI interview mode | Textual `Screen` push/pop + `Input` widget + `RichLog` | Push an `InterviewScreen` on top of the main dashboard when user selects an agent. `Input` at bottom for questions, `RichLog` for scrollable conversation history. Pop screen to return to grid. |
-| Model lifecycle | Existing `OllamaModelManager` | Worker model stays loaded post-simulation (INT-03). Set `keep_alive=-1` to prevent auto-unload, or simply don't call `unload_model()` after Round 3. |
-| Streaming responses | `ollama` AsyncClient.chat(stream=True) | Stream interview responses token-by-token into the `RichLog` for real-time feel. Each chunk appends text. Final chunk triggers conversation history update. |
-
-**Key design decision:** The interview uses the WORKER model (qwen3.5:4b/9b), not the orchestrator. The worker is already loaded post-simulation. Loading the 32b orchestrator for interviews would require unloading the worker and a ~30s cold load. Use the smaller model with rich context injection instead.
-
-### Phase 12: Live Graph Memory (GRAPH-01, GRAPH-02, GRAPH-03)
-
-**New code, no new dependencies.**
+**New code, zero new dependencies.** Shock injection is an orchestration pattern.
 
 | Component | Technology | Integration Point |
 |-----------|-----------|-------------------|
-| Rationale episode nodes | Cypher via existing `neo4j` driver | New node type `:RationaleEpisode` with properties: `text`, `signal`, `confidence`, `sentiment`, `round`, `cycle_id`, `timestamp`. Connected to Agent via `[:EXPRESSED]` edge. Written during simulation, not after. |
-| Signal flip events | Cypher via existing `neo4j` driver | New node type `:FlipEvent` with properties: `from_signal`, `to_signal`, `confidence_delta`, `round`, `cycle_id`. Connected to Agent via `[:FLIPPED]` edge. Computed in `_compute_shifts()` and persisted alongside ShiftMetrics. |
-| Narrative edges | Cypher via existing `neo4j` driver | New relationship types: `[:REASONED_ABOUT]` (Agent -> Entity, with rationale text), `[:FLIPPED_BECAUSE]` (FlipEvent -> PeerDecision that triggered the flip). Built from citation analysis in existing `compute_influence_edges()`. |
-| Real-time writes | Existing batch write pattern | Extend `write_decisions()` to also write RationaleEpisode nodes in the same UNWIND transaction. Zero additional Neo4j round-trips -- add the episode creation to the existing Cypher statement. |
-| Schema extensions | `ensure_schema()` | Add indexes: `CREATE INDEX episode_cycle_round IF NOT EXISTS FOR (e:RationaleEpisode) ON (e.cycle_id, e.round)`, `CREATE INDEX flip_cycle IF NOT EXISTS FOR (f:FlipEvent) ON (f.cycle_id)`. |
-| Graph exploration | Neo4j Browser (localhost:7474) | Already available. GRAPH-03 requires no code -- users open the browser and run Cypher queries against the enriched graph. Document useful exploration queries in a guide. |
+| Shock event model | pydantic (existing) | New `ShockEvent(BaseModel, frozen=True)` mirroring `SeedEvent`: raw text, entities, sentiment. Reuses `SeedEntity` and `EntityType` from `types.py`. |
+| Between-round signal | asyncio (existing) | `asyncio.Event` set by TUI when user submits shock text, awaited by simulation loop between rounds. Or: callback pattern matching existing `on_round_complete`. |
+| TUI shock input | textual (existing) | Same `Input` widget pattern used for agent interviews. Show input field between rounds when simulation pauses. |
+| Entity extraction | ollama (existing) | Orchestrator LLM processes shock text identically to seed rumor -- same `inject_seed()` extraction pipeline, producing entities and tickers. |
+| Modifier regeneration | ollama (existing) | If shock changes market context, regenerate bracket modifiers via existing `generate_modifiers()` flow. |
+| Graph persistence | neo4j (existing) | New `ShockEvent` node type linked to cycle via `[:SHOCKED_BY]` edge with round_injected property. Read by replay feature for faithful reconstruction. |
+| Agent re-prompting | ollama (existing) | Next round's agent prompts include shock context prepended to peer decisions, same as market data enrichment pattern. |
 
-**Memory impact:** Additional Neo4j writes add ~2-5ms per round (100 episodes in one UNWIND). Negligible compared to LLM inference time (~minutes).
+**Key design decision:** The simulation loop in `simulation.py` already has hook points via the `on_round_complete` callback. Shock injection inserts between the callback return and the next `dispatch_wave()` call. The TUI sets an `asyncio.Event` and the simulation loop awaits it with a timeout (allowing auto-continue if no shock is injected within N seconds).
 
-### Phase 13: Post-Simulation Report (REPORT-01, REPORT-02, REPORT-03)
+### REPLAY-*: Simulation Replay from Neo4j
 
-**New dependencies: Jinja2, aiofiles.**
-
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| ReACT loop | Custom Python (~100 LOC) | Prompt-based tool dispatching. System prompt defines available tools and ReACT format. Agent outputs `Thought: ... Action: tool_name: args`. Python parses via regex `r'^Action: (\w+): (.*)$'`, dispatches to registered functions, feeds `Observation: result` back. Loop until `Answer:` is emitted or max_turns exceeded. |
-| Tool: consensus_summary | Cypher query function | `MATCH (d:Decision) WHERE d.cycle_id = $cid AND d.round = 3 RETURN d.signal, count(*) AS cnt, avg(d.confidence)` -- returns final signal distribution. |
-| Tool: key_dissenters | Cypher query function | Find agents whose Round 3 signal disagrees with bracket majority. Returns agent_id, bracket, signal, rationale. |
-| Tool: bracket_trends | Cypher query function | Per-bracket signal distribution across all 3 rounds. Shows convergence or divergence patterns. |
-| Tool: flip_analysis | Cypher query function | `MATCH (f:FlipEvent) WHERE f.cycle_id = $cid RETURN f.from_signal, f.to_signal, count(*)` -- requires Phase 12 FlipEvent nodes. |
-| Tool: influence_leaders | Cypher query function | Top-N agents by INFLUENCED_BY edge count. Returns agent_id, citation_count, bracket. |
-| Report template | Jinja2 | Template file `templates/report.md.j2` with sections: Executive Summary, Consensus Distribution, Bracket Analysis, Key Dissenters, Signal Flip Analysis, Influence Network, Confidence Distribution. Each section uses Jinja2 loops and conditionals. |
-| Report rendering | Jinja2 `Environment` | Load template, render with ReACT-gathered data dict. Output is a complete markdown string. |
-| Report export | aiofiles | `async with aiofiles.open(f"reports/{cycle_id}.md", "w") as f: await f.write(rendered)`. Non-blocking file write. |
-| TUI report viewer | Textual `RichLog` or `Static` | Push a `ReportScreen` that renders the markdown in the terminal using Rich's markdown renderer. |
-| LLM for ReACT | Orchestrator model (qwen3.5:32b) | The ReACT agent needs reasoning capability to decide which tools to call and synthesize findings. Use the orchestrator model, not the worker. This means a model swap post-simulation: unload worker, load orchestrator, run ReACT loop, unload orchestrator. |
-
-**Critical constraint:** The ReACT agent must use the ORCHESTRATOR model for quality reasoning. This requires a model swap after simulation completes (unload worker -> load orchestrator -> run report -> unload orchestrator). Budget ~30s for the cold load. The interview feature (Phase 11) should be offered BEFORE report generation, while the worker model is still loaded.
-
-### Phase 14: Richer Agent Interactions (SOCIAL-01, SOCIAL-02)
-
-**New code, no new dependencies.**
+**New code, zero new dependencies.** All data already lives in Neo4j.
 
 | Component | Technology | Integration Point |
 |-----------|-----------|-------------------|
-| Rationale posts | Extended `AgentDecision` model | Add `public_rationale: str` field -- a short, shareable version of the agent's reasoning (distinct from internal rationale). Generated by the LLM in the same inference call via an extended JSON schema. |
-| Post storage | Cypher via existing `neo4j` driver | New node type `:Post` with properties: `text`, `agent_id`, `round`, `cycle_id`. Connected via `[:PUBLISHED]`. Stored in the same UNWIND batch as decisions. |
-| Peer reading | Extended `read_peer_decisions()` | Include peer posts in the context injected for Rounds 2-3. Current peer context format: `[Bracket] SIGNAL (conf: X.XX) "rationale"`. Extended: add the peer's `public_rationale` as a quotable post. |
-| Reactions | New relationship types | `[:AGREED_WITH]`, `[:DISAGREED_WITH]`, `[:CITED_POST]` edges between agents. Inferred from Round 2-3 LLM output -- if an agent's rationale references a specific peer's post, create the edge. |
-| Engagement-based influence | Extended `compute_influence_edges()` | Current weight = citations / total_agents. Extended: weight += reaction_count * reaction_weight. Agents with highly-engaged posts gain more influence in subsequent rounds. |
+| Cycle listing | neo4j (existing) | New Cypher query in `GraphStateManager`: `MATCH (c:Cycle) RETURN c.cycle_id, c.seed_rumor, c.created_at ORDER BY c.created_at DESC`. Returns available cycles for replay selection. |
+| Decision retrieval | neo4j (existing) | Existing `read_peer_decisions()` pattern extended: `MATCH (d:Decision) WHERE d.cycle_id = $cid RETURN d ORDER BY d.round, d.agent_id`. All 300 decisions (100 agents x 3 rounds) fetched in one query. |
+| Shock event retrieval | neo4j (existing) | `MATCH (s:ShockEvent)-[:SHOCKED_BY]->(c:Cycle {cycle_id: $cid}) RETURN s ORDER BY s.round_injected`. Needed for faithful replay of shocked simulations. |
+| State reconstruction | StateStore (existing) | `StateStore.update_agent()` accepts agent_id + AgentDecision. Feed historical decisions sequentially, grouped by round. StateStore produces snapshots the TUI renders. |
+| TUI rendering | textual (existing) | Same 10x10 grid, same panels, same color computation. The TUI does not know or care whether data comes from live simulation or replay. Swap the simulation Worker for a replay Worker. |
+| Playback pacing | asyncio (existing) | `asyncio.sleep(0.3)` between agent updates for visual effect, `asyncio.sleep(2.0)` between rounds. Configurable via replay speed setting. |
+| Run comparison | Neo4j queries + pydantic | Query two cycle_ids, compute delta metrics (signal distribution diff, confidence drift, bracket shifts). Render as a comparison view or additional report section. |
 
-**Prompt engineering, not code engineering:** The main work is crafting prompts that make agents produce public rationale posts AND react to peers' posts. The JSON output schema extends from `{signal, confidence, sentiment, rationale, cited_agents}` to `{signal, confidence, sentiment, rationale, public_rationale, cited_agents, reactions: [{agent_id, reaction_type}]}`. Parsing extends the existing `parse_agent_decision()` 3-tier fallback.
+**Key design decision:** Replay is read-only. It never writes to Neo4j or triggers LLM calls. The StateStore/TUI pipeline is already decoupled from the simulation engine -- it just consumes `AgentDecision` objects. The replay module produces the same objects from stored data instead of live inference.
 
-### Phase 15: Dynamic Persona Generation (PERSONA-01, PERSONA-02)
+### EXPORT-*: HTML Report Export
 
-**New code, no new dependencies.**
+**New dependency: pygal. Uses existing Jinja2 and aiofiles.**
 
 | Component | Technology | Integration Point |
 |-----------|-----------|-------------------|
-| Entity-aware persona generation | Orchestrator LLM (qwen3.5:32b) | Extend `inject_seed()` to also generate dynamic personas. After entity extraction, a second orchestrator call generates 5-15 situation-specific personas based on extracted entities (e.g., oil rumor -> energy trader, OPEC analyst, pipeline engineer). |
-| Dynamic persona schema | Pydantic model | New `DynamicPersona` model extending `AgentPersona` with `origin: Literal["static", "dynamic"]` and `entity_context: str` fields. Dynamic personas supplement (not replace) the standard 100 agents. |
-| Persona count management | Configuration | Total agent count becomes configurable: 100 static + N dynamic (where N = 5-15 based on seed complexity). ResourceGovernor budget must account for the additional agents. Add `max_dynamic_agents: int = 15` to `AppSettings`. |
-| Prompt template | Existing `system_prompt_template` pattern | Dynamic personas use the same prompt structure as static personas but with entity-specific context injected: `"You are a {role} with deep expertise in {entity}. Given recent developments in {sector}..."`. |
+| Chart generation | pygal (NEW) | Generate SVG chart strings in Python. Each chart type maps to a report section. Charts created during report assembly, before template rendering. |
+| HTML templates | Jinja2 (existing) | New template directory `templates/report_html/` parallel to existing `templates/report/` (markdown). HTML templates use `autoescape=True` with `{{ chart_svg\|safe }}` for trusted pygal output. |
+| Template rendering | Jinja2 `Environment` (existing) | Existing `ReportAssembler` pattern: `Environment(loader=FileSystemLoader(template_dir))`. Add an `html=True` flag to switch template directory and autoescape setting. |
+| File export | aiofiles (existing) | `async with aiofiles.open(path, "w") as f: await f.write(html)`. Same as existing `write_report()` function. |
+| Inline CSS | Jinja2 template (existing) | All CSS embedded in `<style>` block within the HTML template head. No external stylesheet files needed. Single self-contained .html file output. |
+| Section assembly | Existing `ReportAssembler.assemble()` | Extend to accept `output_format: Literal["markdown", "html"]`. When "html", load from `report_html/` templates, inject chart SVGs into template context alongside data. |
 
-**Memory constraint:** Each additional agent adds one more inference call per round. 15 extra agents across 3 rounds = 45 additional inferences. With the current governor, this adds ~2-3 minutes to simulation time. Acceptable.
+**Chart type mapping:**
+
+| Report Section | Chart Type | Pygal Class |
+|----------------|-----------|-------------|
+| Consensus Summary | Pie chart (BUY/SELL/HOLD split) | `pygal.Pie` |
+| Round Timeline | Grouped bar (signals per round) | `pygal.Bar` |
+| Bracket Narratives | Stacked bar (bracket signal distribution) | `pygal.StackedBar` |
+| Influence Leaders | Horizontal bar (top agents by citation count) | `pygal.HorizontalBar` |
+| Signal Flip Analysis | Sankey-style or stacked bar (flip transitions) | `pygal.StackedBar` |
+| Ticker Consensus | Gauge (weighted confidence score 0-1) | `pygal.SolidGauge` |
+| Market Context | Bar (consensus vs market indicator comparison) | `pygal.Bar` |
+| Portfolio Impact | Horizontal bar (holding exposure by signal) | `pygal.HorizontalBar` |
+
+**Pygal SVG embedding pattern:**
+
+```python
+import pygal
+
+# Generate chart
+chart = pygal.Pie(inner_radius=0.4, style=custom_style)
+chart.title = "Consensus Distribution"
+chart.add("BUY", buy_count)
+chart.add("SELL", sell_count)
+chart.add("HOLD", hold_count)
+
+# Get inline SVG string for Jinja2
+svg_string = chart.render(is_unicode=True)
+
+# In Jinja2 HTML template: {{ consensus_chart|safe }}
+```
+
+**Pygal style customization:**
+
+```python
+from pygal.style import Style
+
+alphaswarm_style = Style(
+    background="transparent",
+    plot_background="transparent",
+    foreground="#e0e0e0",
+    foreground_strong="#ffffff",
+    foreground_subtle="#808080",
+    colors=("#4CAF50", "#f44336", "#FFC107"),  # BUY=green, SELL=red, HOLD=amber
+    font_family="system-ui, -apple-system, sans-serif",
+)
+```
+
+### PORTFOLIO-*: Portfolio Impact Analysis
+
+**New code, zero new dependencies.** Stdlib `csv` handles Schwab CSV format.
+
+| Component | Technology | Integration Point |
+|-----------|-----------|-------------------|
+| CSV parsing | csv (stdlib) | `csv.DictReader` with header preamble skip. Schwab exports have 2-line preamble (account info line, blank line) before the actual CSV header row. Strip `$`, `,`, `%`, whitespace from numeric fields. |
+| Data model | pydantic (existing) | New `PortfolioHolding(BaseModel, frozen=True)` with fields: symbol, description, quantity, price, market_value, cost_basis, gain_loss_pct, asset_type. New `PortfolioSnapshot` as container. |
+| Holdings cache | aiofiles + json (existing) | Cache parsed holdings to `data/portfolio_cache/` (already in .gitignore). Avoid re-parsing on every simulation run. Same atomic temp-file-rename pattern as market data cache. |
+| Overlap detection | Python set ops (stdlib) | Intersect portfolio symbols with simulation ticker_decisions. Flag holdings that have consensus signals. Compute exposure-weighted impact. |
+| Impact analysis | ollama (existing) | Orchestrator LLM receives a combined prompt: portfolio holdings summary + consensus signals per overlapping ticker + market data context. Produces natural-language portfolio impact assessment. |
+| Report section | Jinja2 (existing) | New template `10_portfolio_impact.j2` (markdown) and corresponding HTML template. Renders holdings table, overlap analysis, and LLM-generated impact narrative. |
+| Config | pydantic-settings (existing) | `portfolio_csv_path: Path \| None = None` in `AppSettings`. When None, portfolio analysis is silently skipped. When set, parsed at simulation startup alongside market data. |
+
+**Schwab CSV parsing specifics (verified against actual exports):**
+
+```python
+import csv
+from io import StringIO
+
+def parse_schwab_positions(raw_text: str) -> list[dict]:
+    """Parse Schwab position export CSV, handling 2-line preamble."""
+    lines = raw_text.strip().split("\n")
+
+    # Skip preamble: line 1 = "Positions for account...", line 2 = blank
+    # Line 3 = actual CSV header (Symbol, Description, Qty, ...)
+    csv_start = 2
+    for i, line in enumerate(lines):
+        if line.startswith("Symbol,") or line.startswith('"Symbol"'):
+            csv_start = i
+            break
+
+    reader = csv.DictReader(lines[csv_start:])
+    holdings = []
+    for row in reader:
+        symbol = row.get("Symbol", "").strip()
+        if not symbol or symbol == "Account Total":
+            continue
+        holdings.append({
+            "symbol": symbol,
+            "quantity": _parse_numeric(row.get("Qty (Quantity)", row.get("Qty", "0"))),
+            "market_value": _parse_currency(row.get("Mkt Val (Market Value)", "0")),
+            "cost_basis": _parse_currency(row.get("Cost Basis", "0")),
+            "gain_loss_pct": _parse_pct(row.get("Gain % (Gain/Loss %)", "0")),
+        })
+    return holdings
+
+def _parse_currency(val: str) -> float:
+    """Strip $, commas, quotes, whitespace from Schwab currency fields."""
+    return float(val.replace("$", "").replace(",", "").replace('"', "").strip() or "0")
+
+def _parse_pct(val: str) -> float:
+    """Strip % from Schwab percentage fields."""
+    return float(val.replace("%", "").replace(",", "").strip() or "0")
+
+def _parse_numeric(val: str) -> float:
+    """Parse numeric field, stripping commas and quotes."""
+    return float(val.replace(",", "").replace('"', "").strip() or "0")
+```
+
+**Also supports consolidated `holdings.csv` format:** simpler 4-column CSV (account, symbol, shares, cost_basis_per_share) with no preamble. Auto-detect format by checking first line.
 
 ## Installation
 
 ```bash
-# New v2 dependencies (add to existing pyproject.toml)
-uv add jinja2 aiofiles
-
-# Dev dependencies (no changes)
-# Existing: pytest, pytest-asyncio, pytest-cov, ruff, mypy
-
-# No Docker changes needed
-# No Ollama model changes needed
-# No Neo4j server upgrade needed
+# Single new dependency
+uv add "pygal>=3.1.0"
 ```
 
 Updated `pyproject.toml` dependencies section:
@@ -158,160 +215,91 @@ dependencies = [
     "backoff>=2.2.1",
     "neo4j>=5.28,<6.0",
     "textual>=8.1.1",
-    # v2 additions
     "jinja2>=3.1.6",
-    "aiofiles>=24.1.0",
+    "aiofiles>=25.1.0",
+    "yfinance>=1.2.0",
+    # v4 addition
+    "pygal>=3.1.0",
 ]
 ```
 
-## What NOT to Use
+## Alternatives Considered
+
+| Recommended | Alternative | Why Not Alternative |
+|-------------|-------------|---------------------|
+| **pygal >=3.1.0** | Plotly 6.7.0 | Plotly's wheel is 9.9MB. Self-contained HTML exports bundle ~3MB of plotly.js per file. On a memory-constrained M1 Max running 2 LLMs, dependency weight matters. Plotly's interactive features (zoom, pan, hover) are unnecessary for a static shareable report. Pygal SVG is tiny, vector, self-contained, and includes built-in tooltips without JavaScript. |
+| **pygal >=3.1.0** | matplotlib + base64 | matplotlib generates raster PNGs requiring base64 encoding into `<img>` tags. Blurry on high-DPI/Retina screens, larger encoded file sizes, zero interactivity. matplotlib itself is ~30MB installed with C extensions. Pygal SVG is vector, crisp at any zoom on any screen, and includes hover tooltips natively. |
+| **pygal >=3.1.0** | Altair / Vega-Lite | Altair generates Vega-Lite JSON specs requiring the Vega runtime (~1MB JavaScript). More complex embedding than pygal's direct SVG render. Better suited for exploratory notebook analysis than self-contained static reports. |
+| **csv (stdlib)** | pandas | pandas is 80MB+ installed with numpy. Schwab CSV has <100 rows with simple structure. `csv.DictReader` handles it in ~30 lines. pandas would add import latency (~500ms cold), memory overhead, and massive install bloat for zero functional benefit. |
+| **csv (stdlib)** | polars | Same argument as pandas. Polars excels at large datasets. A 50-row portfolio CSV does not qualify. |
+| **asyncio.Event** (shock signaling) | Redis pub/sub | AlphaSwarm is single-process. Inter-component communication happens within one asyncio event loop. Redis would add a network dependency, Docker service, and connection management for what is a single boolean signal. |
+
+## What NOT to Add
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| Ollama native tool calling (`tools=` param) | Broken with qwen3.5 models (wrong XML/JSON format mismatch, unclosed think tags). GitHub issues #14493, #14745 confirm as of 2026-03-31. | Prompt-based ReACT with regex parsing (~100 LOC) |
-| LangChain / LangGraph | 50+ transitive deps, wrong abstraction (we have our own inference pipeline). Would require wrapping our OllamaClient in their LLM interface, adding indirection for no benefit. | Custom ReACT loop that directly uses our existing OllamaClient |
-| LlamaIndex | Vector RAG framework -- we do graph queries, not embedding search. Massive dep tree. | Direct Cypher queries via neo4j driver |
-| APOC Neo4j plugin | Not needed. All v2 graph operations are pure Cypher. APOC adds Docker complexity, version pinning headaches, and security surface. | Pure Cypher with UNWIND batches |
-| neo4j driver 6.x | Requires Neo4j server upgrade (5.26 -> 2025.x), potential breaking changes. Zero features in 6.x that v2 needs. | Keep neo4j >=5.28,<6.0 |
-| Separate Markdown rendering lib | We generate markdown (text), not render it to HTML. Jinja2 produces .md files directly. | Jinja2 templates with markdown syntax |
-| WebSocket for TUI-interview comm | Single-process app. Interview runs in the same asyncio loop as TUI. No IPC needed. | Direct async function calls within Textual Worker |
+| pandas / polars | Massive deps for trivial CSV (<100 rows) | `csv.DictReader` (stdlib) |
+| plotly | 9.9MB package, 3MB JS per HTML file | pygal (100KB, zero deps, SVG) |
+| matplotlib | Raster output, 30MB installed, base64 encoding | pygal (vector SVG, inline) |
+| weasyprint | PDF export not in v4.0 scope; requires Cairo/Pango C deps | Defer to v5.0 if PDF needed |
+| dash / streamlit | Web framework overhead for file export | Jinja2 + pygal static HTML |
+| schwab-api / schwab-py | Trade execution is out of scope | `csv.DictReader` for position CSV only |
+| any embedding model / RAG lib | 2-model Ollama limit; RAG deferred | Neo4j Cypher queries |
+| websockets | Single-process; all communication is in-loop | asyncio.Event, callbacks |
+| SQLite / DuckDB | Replay state is already in Neo4j | Neo4j Cypher queries |
+| Redis | No distributed components | asyncio primitives |
 
-## Architecture Patterns for v2
+## Dependency Impact Summary
 
-### ReACT Report Agent (No Framework)
+| Metric | Before v4.0 | After v4.0 | Delta |
+|--------|-------------|------------|-------|
+| Runtime dependencies (pyproject.toml) | 11 packages | 12 packages | +1 (pygal) |
+| Approximate installed size | ~150MB | ~150.1MB | +~100KB |
+| New C extensions | 0 | 0 | 0 |
+| New system-level deps | 0 | 0 | 0 |
+| New Docker services | 0 | 0 | 0 |
 
-```python
-# Minimal ReACT loop -- no LangChain needed
-import re
+## Version Compatibility
 
-ACTION_RE = re.compile(r"^Action: (\w+): (.*)$", re.MULTILINE)
+| Package | Compatible With | Notes |
+|---------|-----------------|-------|
+| pygal >=3.1.0 | Python >=3.8 | Pure Python, no C extensions. Latest release 2025-12-09. Tested with 3.11+. |
+| pygal >=3.1.0 | Jinja2 >=3.1.6 | Independent: pygal renders SVG strings, Jinja2 embeds them. No API coupling. |
+| pygal >=3.1.0 | textual >=8.1.1 | Independent: pygal runs during report export only, never during TUI rendering. |
+| csv (stdlib) | Python >=3.11 | Always available. DictReader stable for 15+ years. |
 
-TOOLS = {
-    "consensus_summary": query_consensus_summary,  # Cypher function
-    "key_dissenters": query_key_dissenters,
-    "bracket_trends": query_bracket_trends,
-    "flip_analysis": query_flip_analysis,
-    "influence_leaders": query_influence_leaders,
-}
-
-async def run_react_report(client: OllamaClient, model: str, cycle_id: str, graph: GraphStateManager) -> str:
-    messages = [{"role": "system", "content": REACT_SYSTEM_PROMPT}]
-    messages.append({"role": "user", "content": f"Generate a market analysis report for cycle {cycle_id}."})
-
-    for turn in range(MAX_TURNS):
-        response = await client.chat(model=model, messages=messages, think=True)
-        content = response.message.content or ""
-        messages.append({"role": "assistant", "content": content})
-
-        match = ACTION_RE.search(content)
-        if match:
-            tool_name, tool_input = match.groups()
-            if tool_name in TOOLS:
-                observation = await TOOLS[tool_name](graph, cycle_id, tool_input)
-                messages.append({"role": "user", "content": f"Observation: {observation}"})
-            else:
-                messages.append({"role": "user", "content": f"Observation: Unknown tool '{tool_name}'."})
-        else:
-            # No action found -- agent is done
-            return content
-
-    return content  # max turns exceeded
-```
-
-### Interview Conversation Loop
-
-```python
-# Multi-turn interview using existing OllamaClient
-async def interview_agent(client: OllamaClient, model: str, context: InterviewContext) -> AsyncGenerator[str, str]:
-    messages = [
-        {"role": "system", "content": context.build_system_prompt()},
-    ]
-    while True:
-        question = yield  # Receive question from TUI
-        messages.append({"role": "user", "content": question})
-
-        # Stream response
-        full_response = ""
-        async for chunk in await client.chat(model=model, messages=messages, stream=True):
-            token = chunk.message.content or ""
-            full_response += token
-            yield token  # Send token to TUI for real-time display
-
-        messages.append({"role": "assistant", "content": full_response})
-
-        # Trim history if approaching context limit
-        if estimate_tokens(messages) > MAX_CONTEXT * 0.8:
-            messages = trim_conversation(messages, keep_system=True, keep_recent=6)
-```
-
-### Textual Screen Modes for Post-Simulation
-
-```python
-# Textual mode switching for interview vs report vs grid
-class AlphaSwarmApp(App):
-    MODES = {
-        "simulation": SimulationScreen,   # Main 10x10 grid
-        "interview": InterviewScreen,      # Chat interface
-        "report": ReportScreen,            # Rendered markdown
-    }
-
-    # Post-simulation: push interview screen
-    def action_interview(self, agent_id: str) -> None:
-        self.push_screen(InterviewScreen(agent_id=agent_id))
-
-    # After interview: push report screen
-    def action_generate_report(self) -> None:
-        self.push_screen(ReportScreen(cycle_id=self.cycle_id))
-```
-
-## Version Compatibility Matrix
-
-| Package A | Compatible With | Notes |
-|-----------|-----------------|-------|
-| jinja2 >=3.1.6 | Python >=3.7, pydantic >=2.x | No conflicts. Jinja2 has zero overlapping deps with existing stack. |
-| aiofiles >=24.1.0 | Python >=3.8, asyncio | Thread pool executor under the hood. Compatible with Textual's event loop. |
-| neo4j >=5.28,<6.0 | Neo4j server 5.x (our docker-compose uses 5.26) | Pinned correctly. Do NOT upgrade to 6.x without server upgrade. |
-| ollama >=0.6.1 | Ollama server 0.5+ | Streaming, tool schemas, async client all stable at 0.6.1. |
-| textual >=8.1.1 | Python >=3.9, rich >=14.x | Screen modes, Input, RichLog all available. 8.2.1 (latest) is compatible. |
-
-## Model Strategy for v2 Features
+## Model Strategy for v4 Features
 
 | Feature | Model | Why | Memory Impact |
 |---------|-------|-----|---------------|
-| Agent Interviews | Worker (qwen3.5:4b or 9b) | Already loaded post-simulation. No cold load needed. Fast responses. | None (model already loaded) |
-| Live Graph Memory | N/A (pure Cypher) | No LLM needed. Graph writes happen during simulation alongside existing decision writes. | ~5ms/round additional Neo4j I/O |
-| ReACT Report Agent | Orchestrator (qwen3.5:32b) | Needs reasoning capability to decide tool usage and synthesize findings. Worker model too small for multi-step reasoning. | Requires model swap: unload worker (~3.4GB freed), load orchestrator (~18GB). ~30s cold load. |
-| Richer Interactions | Worker (qwen3.5:4b or 9b) | Extended inference during existing rounds. Same model, slightly larger JSON output schema. | ~10% more tokens per agent (longer output with public_rationale + reactions). Negligible. |
-| Dynamic Personas | Orchestrator (qwen3.5:32b) | Persona generation is a seed injection extension. Orchestrator already loaded during seed phase. | None (runs during existing orchestrator phase). |
+| Shock entity extraction | Orchestrator (qwen3.5:35b) | Reuses seed injection pipeline. Orchestrator already loaded if shock happens between rounds. | None -- orchestrator loaded during simulation. But if unloaded between rounds, requires ~30s cold load. Design decision: keep orchestrator loaded for shock-enabled sims. |
+| Shock modifier regeneration | Orchestrator (qwen3.5:35b) | Same as seed modifiers. | None. |
+| Portfolio impact analysis | Orchestrator (qwen3.5:35b) | Needs reasoning to synthesize consensus + holdings + market data into actionable narrative. | Runs post-simulation when orchestrator is loaded for report generation. No additional model swap. |
+| Simulation replay | N/A | No LLM calls. Pure data retrieval and state reconstruction. | Zero. Replay is read-only. |
+| HTML report charts | N/A (pygal) | Pure computation. No LLM needed for chart generation. | Negligible CPU. |
 
-**Post-simulation model lifecycle:**
-1. Simulation completes -- worker model still loaded
-2. Offer **Agent Interviews** (uses worker model, no swap needed)
-3. User finishes interviews, requests report
-4. Unload worker, load orchestrator (~30s)
-5. Run **ReACT Report Agent** (uses orchestrator)
-6. Unload orchestrator
-7. Export report to file
+**Shock-enabled simulation model lifecycle:**
+1. Load orchestrator for seed injection
+2. Unload orchestrator, load worker for agent rounds
+3. **NEW: Between rounds, if shock submitted:** unload worker, load orchestrator for shock extraction, unload orchestrator, reload worker for next round (~60s total swap overhead)
+4. **Alternative (recommended):** Keep orchestrator loaded alongside worker for shock-enabled sims. This uses both model slots but eliminates swap latency. Only viable if combined model VRAM fits in 64GB. qwen3.5:35b (~20GB) + qwen3.5:9b (~6GB) = ~26GB, leaving ~38GB for system + Neo4j. Feasible.
+5. Post-simulation: worker stays loaded for interviews, orchestrator loaded for report + portfolio analysis.
 
 ## Sources
 
-- [Ollama Python PyPI (v0.6.1)](https://pypi.org/project/ollama/) -- verified latest version, streaming/async API
-- [Ollama tool calling docs](https://docs.ollama.com/capabilities/tool-calling) -- native tool calling API reference
-- [Qwen 3.5 tool calling bug #14493](https://github.com/ollama/ollama/issues/14493) -- confirmed broken, partial fix insufficient
-- [Qwen 3.5 tool calling bug #14745](https://github.com/ollama/ollama/issues/14745) -- 9b variant prints tool calls as text
-- [Simon Willison ReACT pattern](https://til.simonwillison.net/llms/python-react-pattern) -- minimal Python ReACT implementation (~100 LOC)
-- [Jinja2 PyPI (v3.1.6)](https://pypi.org/project/Jinja2/) -- Python >=3.7, latest stable
-- [aiofiles PyPI](https://pypi.org/project/aiofiles/) -- async file I/O for asyncio
-- [Neo4j Python driver PyPI (v6.1.0)](https://pypi.org/project/neo4j/) -- confirmed 5.x compatibility, 6.x available but not needed
-- [Neo4j Python async driver docs](https://neo4j.com/docs/python-manual/current/concurrency/) -- concurrent transaction patterns
-- [Textual PyPI (v8.2.1)](https://pypi.org/project/textual/) -- latest version, Screen/mode system docs
-- [Textual Screens guide](https://textual.textualize.io/guide/screens/) -- push/pop, mode switching
-- [Textual RichLog widget](https://textual.textualize.io/widgets/rich_log/) -- real-time scrollable content
-- [Textual chat TUI example](https://chaoticengineer.hashnode.dev/textual-and-chatgpt) -- Input + VerticalScroll chat pattern
-- [Ollama conversation history](https://deepwiki.com/ollama/ollama-python/4.7-conversation-history) -- message list accumulation pattern
-- [Ollama context length docs](https://docs.ollama.com/context-length) -- default 2K context, configurable via Modelfile
+- [pygal PyPI](https://pypi.org/project/pygal/) -- v3.1.0, released 2025-12-09, Python >=3.8, zero runtime deps (HIGH confidence)
+- [pygal output documentation](https://www.pygal.org/en/stable/documentation/output.html) -- render(), render_data_uri(), render_tree() methods (HIGH confidence)
+- [pygal chart types](https://www.pygal.org/en/stable/documentation/types/index.html) -- bar, stacked bar, pie, gauge, SolidGauge, horizontal bar, radar (HIGH confidence)
+- [pygal web embedding](https://pygal.org/en/stable/documentation/web.html) -- inline SVG + Jinja2 integration patterns (HIGH confidence)
+- [Plotly PyPI](https://pypi.org/project/plotly/) -- v6.7.0, 9.9MB wheel, released 2026-04-09 (HIGH confidence)
+- [Plotly HTML export docs](https://plotly.com/python/interactive-html-export/) -- write_html/to_html with include_plotlyjs options (HIGH confidence)
+- [Plotly HTML file size discussion](https://github.com/plotly/plotly.py/issues/1226) -- ~3MB plotly.js per self-contained file (HIGH confidence)
+- [Python csv vs pandas comparison](https://pytutorial.com/pandas-vs-csv-module-best-practices-for-csv-data-in-python/) -- csv module for lightweight use cases (MEDIUM confidence)
+- [Schwab CSV format](https://help.wingmantracker.com/article/3178-charles-schwab-positions-csv-instructions) -- export structure verified against actual files in schwab/ directory (HIGH confidence)
+- [Jinja2 HTML report generation patterns](https://www.justintodata.com/generate-reports-with-python/) -- Jinja2 + chart embedding workflows (MEDIUM confidence)
+- [Neo4j async driver docs](https://neo4j.com/docs/api/python-driver/current/async_api.html) -- AsyncDriver for replay queries (HIGH confidence)
 
 ---
-*Stack research for: AlphaSwarm v2.0 Engine Depth*
-*Researched: 2026-03-31*
-*Builds on: v1 stack research from 2026-03-24*
+*Stack research for: AlphaSwarm v4.0 Interactive Simulation & Analysis*
+*Researched: 2026-04-09*
+*Builds on: v1/v2/v3 stack research (2026-03-24 through 2026-04-06)*
