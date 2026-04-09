@@ -52,13 +52,27 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - ✓ Bracket disagreement breakdown per ticker in TUI — v3.0
 - ✓ Market context report section comparing agent consensus with live market indicators — v3.0
 
+## Current Milestone: v4.0 Interactive Simulation & Analysis
+
+**Goal:** Make the simulation interactive, replayable, shareable, and personally relevant.
+
+**Target features:**
+- Mid-simulation shock injection — inject breaking events between rounds, watch agents pivot
+- Simulation replay from Neo4j — reconstruct past simulations in TUI, compare runs
+- HTML report export — styled shareable reports with consensus visualizations
+- Portfolio impact analysis — orchestrator maps swarm consensus against Schwab holdings post-sim
+
 ### Active
 
-- [ ] Miro API v2 live network visualization — spatial layout, dynamic connectors (VIS-01, VIS-02)
-- [ ] Simulation replay from stored Neo4j state (REPLAY-01)
-- [ ] Exportable simulation reports — HTML export (REPLAY-02)
-- [ ] Mid-simulation shock injection (REPLAY-03)
-- [ ] RAG vector retrieval layer for agent context (deferred from v3.0; v3.1 candidate)
+- [ ] Mid-simulation shock injection — inject breaking events between rounds (SHOCK-*)
+- [ ] Simulation replay from stored Neo4j state (REPLAY-*)
+- [ ] Exportable simulation reports — HTML export (EXPORT-*)
+- [ ] Portfolio impact analysis — orchestrator reads consensus + Schwab holdings, produces personal analysis section (PORTFOLIO-*)
+
+### Deferred
+
+- Miro API v2 live network visualization — spatial layout, dynamic connectors (deferred: TUI is better for real-time; scope as post-sim export if revisited)
+- RAG vector retrieval layer — 2-model limit blocks embedding model; Neo4j Cypher sufficient for current corpus size
 
 ### Out of Scope
 
@@ -125,4 +139,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-08 after v3.0 milestone — Stock-Specific Recommendations with Live Data*
+*Last updated: 2026-04-09 after v4.0 milestone started — Interactive Simulation & Analysis*
