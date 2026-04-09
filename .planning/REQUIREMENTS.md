@@ -75,28 +75,28 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SHOCK-01 | — | Pending |
-| SHOCK-02 | — | Pending |
-| SHOCK-03 | — | Pending |
-| SHOCK-04 | — | Pending |
-| SHOCK-05 | — | Pending |
-| REPLAY-01 | — | Pending |
-| REPLAY-02 | — | Pending |
-| REPLAY-03 | — | Pending |
-| REPLAY-04 | — | Pending |
-| EXPORT-01 | — | Pending |
-| EXPORT-02 | — | Pending |
-| EXPORT-03 | — | Pending |
-| PORTFOLIO-01 | — | Pending |
-| PORTFOLIO-02 | — | Pending |
-| PORTFOLIO-03 | — | Pending |
-| PORTFOLIO-04 | — | Pending |
+| EXPORT-01 | Phase 24 | Pending |
+| EXPORT-02 | Phase 24 | Pending |
+| EXPORT-03 | Phase 24 | Pending |
+| PORTFOLIO-01 | Phase 25 | Pending |
+| PORTFOLIO-02 | Phase 25 | Pending |
+| PORTFOLIO-03 | Phase 25 | Pending |
+| PORTFOLIO-04 | Phase 25 | Pending |
+| SHOCK-01 | Phase 26 | Pending |
+| SHOCK-02 | Phase 26 | Pending |
+| SHOCK-03 | Phase 26 | Pending |
+| SHOCK-04 | Phase 27 | Pending |
+| SHOCK-05 | Phase 27 | Pending |
+| REPLAY-01 | Phase 28 | Pending |
+| REPLAY-02 | Phase 28 | Pending |
+| REPLAY-03 | Phase 29 | Pending |
+| REPLAY-04 | Phase 29 | Pending |
 
 **Coverage:**
 - v4 requirements: 16 total
-- Mapped to phases: 0
-- Unmapped: 16 ⚠️
+- Mapped to phases: 16
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-09*
-*Last updated: 2026-04-09 after initial definition*
+*Last updated: 2026-04-09 after roadmap creation — all 16 requirements mapped to Phases 24-29*

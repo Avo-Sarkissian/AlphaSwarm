@@ -5,6 +5,7 @@
 - ✅ **v1.0 Core Engine** — Phases 1-10 (shipped 2026-03-27)
 - ✅ **v2.0 Engine Depth** — Phases 11-15 (shipped 2026-04-02)
 - ✅ **v3.0 Stock-Specific Recommendations with Live Data** — Phases 16-23 (shipped 2026-04-08)
+- :construction: **v4.0 Interactive Simulation & Analysis** — Phases 24-29 (in progress)
 
 ## Phases
 
@@ -55,10 +56,88 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 </details>
 
+### :construction: v4.0 Interactive Simulation & Analysis (In Progress)
+
+**Milestone Goal:** Make the simulation interactive, replayable, shareable, and personally relevant.
+
+- [ ] **Phase 24: HTML Report Export** - Self-contained HTML reports with inline SVG charts and dark theme
+- [ ] **Phase 25: Portfolio Impact Analysis** - Map swarm consensus against Schwab holdings with LLM narrative
+- [ ] **Phase 26: Shock Injection Core** - Governor suspend/resume, inter-round shock queue, agent prompt propagation, Neo4j persistence
+- [ ] **Phase 27: Shock Analysis and Reporting** - Before/after consensus comparison and shock impact report section
+- [ ] **Phase 28: Replay Data Layer** - Cycle listing, full-cycle Neo4j reads, ReplayStore with random-access snapshots
+- [ ] **Phase 29: Replay TUI Playback** - Round-by-round TUI replay with speed control and navigation
+
+## Phase Details
+
+### Phase 24: HTML Report Export
+**Goal**: Users can export simulation results as self-contained, shareable HTML files with professional visualizations
+**Depends on**: Nothing (first v4.0 phase — builds on existing report pipeline)
+**Requirements**: EXPORT-01, EXPORT-02, EXPORT-03
+**Success Criteria** (what must be TRUE):
+  1. User can run a CLI command with `--format html` and receive a single `.html` file that opens in any browser without network access
+  2. HTML report contains inline SVG charts showing consensus bars, signal timelines, and bracket distributions — not static text
+  3. HTML report uses a dark color scheme that visually matches the TUI's minimalist aesthetic
+  4. Generated HTML file is under 1MB total size (validates SVG-first strategy over Plotly)
+**Plans**: TBD
+
+### Phase 25: Portfolio Impact Analysis
+**Goal**: Users can see how swarm consensus maps to their personal Schwab holdings with coverage gaps and a natural-language narrative
+**Depends on**: Phase 24 (uses HTML template infrastructure for portfolio section)
+**Requirements**: PORTFOLIO-01, PORTFOLIO-02, PORTFOLIO-03, PORTFOLIO-04
+**Success Criteria** (what must be TRUE):
+  1. User can point the CLI at a Schwab CSV file and the system parses holdings without persisting any portfolio data to Neo4j or disk
+  2. Post-simulation output shows which held tickers the swarm has consensus signals for, and maps those signals to the user's positions
+  3. Held tickers not covered by the simulation are explicitly listed as coverage gaps
+  4. An LLM-generated narrative compares swarm consensus against user positions in natural language, appearing in both markdown and HTML reports
+**Plans**: TBD
+
+### Phase 26: Shock Injection Core
+**Goal**: Users can inject breaking events between simulation rounds and see all agents react to the new information
+**Depends on**: Nothing (independent of Phases 24-25, but ordered after them to defer simulation.py modification)
+**Requirements**: SHOCK-01, SHOCK-02, SHOCK-03
+**Success Criteria** (what must be TRUE):
+  1. User can type a breaking event into a TUI input widget between rounds and submit it
+  2. All 100 agents in the next round's batch receive the shock text in their prompt context
+  3. ShockEvent is persisted to Neo4j with the cycle ID and `injected_before_round` metadata, queryable after simulation ends
+  4. Governor does not enter false THROTTLED/PAUSED states during the inter-round shock pause (suspend/resume validated)
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 27: Shock Analysis and Reporting
+**Goal**: Users can quantify how the swarm shifted due to an injected shock and review the impact in the post-simulation report
+**Depends on**: Phase 26 (requires ShockEvent data and shock-aware simulation runs)
+**Requirements**: SHOCK-04, SHOCK-05
+**Success Criteria** (what must be TRUE):
+  1. User can see a before/after consensus comparison in the TUI or report showing how signals, confidence, and bracket distributions shifted after the shock
+  2. Post-simulation report includes a dedicated shock impact section showing which agents pivoted, which held firm, and bracket-level shift aggregations
+**Plans**: TBD
+
+### Phase 28: Replay Data Layer
+**Goal**: Users can browse past simulations and the system can reconstruct full per-round agent state from Neo4j
+**Depends on**: Phase 26 (ReplayStore must handle ShockEvent schema from shock-affected simulations)
+**Requirements**: REPLAY-01, REPLAY-02
+**Success Criteria** (what must be TRUE):
+  1. User can run a CLI subcommand and see a list of past simulations showing seed rumor, date, and round count
+  2. User can select a past simulation and the system reconstructs all per-round agent decisions from Neo4j into a ReplayStore (not the live StateStore)
+  3. Full-cycle reconstruction completes in under 2 seconds for a 100-agent, 3-round simulation (validates COLLECT aggregation query, avoids N+1)
+**Plans**: TBD
+
+### Phase 29: Replay TUI Playback
+**Goal**: Users can watch past simulations play back in the TUI with round-by-round navigation and speed control
+**Depends on**: Phase 28 (requires ReplayStore with reconstructed simulation data)
+**Requirements**: REPLAY-03, REPLAY-04
+**Success Criteria** (what must be TRUE):
+  1. User can select a past simulation and watch it play back in the TUI round-by-round, with the agent grid, rationale sidebar, and bracket panel updating as if live
+  2. User can control replay speed (step-through, 0.5x, 1x, 2x) during playback
+  3. TUI displays a "REPLAY" badge in the header bar to distinguish replay mode from live simulation
+  4. Replay mode requires zero LLM calls — all data comes from Neo4j
+**Plans**: TBD
+**UI hint**: yes
+
 ## Progress
 
 **Execution Order:**
-All phases complete through v3.0.
+Phases 24-29 execute in numeric order. Phases 24-25 (post-sim paths) ship first, then 26-27 (shock), then 28-29 (replay).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -85,3 +164,9 @@ All phases complete through v3.0.
 | 21. Restore Ticker Validation and Tracking | v3.0 | 1/1 | Complete | 2026-04-08 |
 | 22. Fix Report Tool Name Mismatch | v3.0 | 1/1 | Complete | 2026-04-08 |
 | 23. Validation Tracking and Requirements Traceability | v3.0 | 1/1 | Complete | 2026-04-08 |
+| 24. HTML Report Export | v4.0 | 0/0 | Not started | - |
+| 25. Portfolio Impact Analysis | v4.0 | 0/0 | Not started | - |
+| 26. Shock Injection Core | v4.0 | 0/0 | Not started | - |
+| 27. Shock Analysis and Reporting | v4.0 | 0/0 | Not started | - |
+| 28. Replay Data Layer | v4.0 | 0/0 | Not started | - |
+| 29. Replay TUI Playback | v4.0 | 0/0 | Not started | - |
