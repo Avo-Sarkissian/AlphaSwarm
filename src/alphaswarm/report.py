@@ -228,6 +228,7 @@ TOOL_TO_TEMPLATE: dict[str, str] = {
     "signal_flip_analysis": "06_signal_flip_analysis.j2",
     "entity_impact": "07_entity_impact.j2",
     "social_post_reach": "08_social_post_reach.j2",
+    "portfolio_impact": "10_portfolio_impact.j2",
 }
 
 # Canonical section order for assembling the report (D-07)
@@ -240,6 +241,7 @@ SECTION_ORDER: list[str] = [
     "signal_flip_analysis",
     "entity_impact",
     "social_post_reach",
+    "portfolio_impact",
 ]
 
 

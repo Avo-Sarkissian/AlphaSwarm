@@ -1,0 +1,47 @@
+## Portfolio Impact
+
+*Coverage: {{ data.coverage_summary.covered }}/{{ data.coverage_summary.total_equity_holdings }} equity holdings matched to swarm consensus ({{ "%.1f"|format(data.coverage_summary.coverage_pct) }}%)*
+
+### Matched Positions
+
+{% if data.matched_tickers %}
+| Ticker | Shares | Market Value | Swarm Signal | Agreement | Entity | Avg Sentiment |
+|--------|--------|--------------|--------------|-----------|--------|---------------|
+{% for t in data.matched_tickers -%}
+| {{ t.ticker }} | {{ "%.4f"|format(t.shares) }} | {{ t.market_value_display }} | {{ t.signal }} | {{ (t.confidence * 100)|round|int }}% | {{ t.entity_name }} | {{ "%.2f"|format(t.avg_sentiment) }} |
+{% endfor %}
+{% else %}
+*No held tickers match entities the swarm analyzed this cycle.*
+{% endif %}
+
+{% set no_coverage_gaps = data.gap_tickers | selectattr("reason", "equalto", "no_simulation_coverage") | list %}
+{% set non_equity_gaps = data.gap_tickers | selectattr("reason", "equalto", "non_equity") | list %}
+{% if not no_coverage_gaps and not non_equity_gaps %}
+### Coverage Gaps
+
+*All equity holdings have swarm coverage in this simulation.*
+{% endif %}
+
+{% if no_coverage_gaps %}
+### Coverage Gaps — No Simulation Coverage
+
+The following equity holdings had no corresponding entity in this simulation run:
+
+| Ticker | Shares | Market Value |
+|--------|--------|--------------|
+{% for g in no_coverage_gaps -%}
+| {{ g.ticker }} | {{ "%.4f"|format(g.shares) }} | {{ g.market_value_display }} |
+{% endfor %}
+{% endif %}
+
+{% if non_equity_gaps %}
+### Coverage Gaps — Non-Equity Holdings
+
+ETFs, funds, and cash positions are excluded from equity analysis:
+
+| Ticker | Shares | Market Value | Asset Type |
+|--------|--------|--------------|------------|
+{% for g in non_equity_gaps -%}
+| {{ g.ticker }} | {{ "%.4f"|format(g.shares) }} | {{ g.market_value_display }} | {{ g.asset_type }} |
+{% endfor %}
+{% endif %}
