@@ -225,3 +225,384 @@ class TestReportEnginePreSeededObservations:
         parsed = _json.loads(payload)
         assert parsed["coverage_summary"]["covered"] == 1
         assert parsed["matched_tickers"][0]["ticker"] == "AAPL"
+
+
+# -----------------------------------------------------------------------------
+# CLI integration (Task 2)
+# -----------------------------------------------------------------------------
+
+import argparse
+from pathlib import Path
+
+
+class TestReportSubparserPortfolioFlag:
+    def test_subparser_accepts_portfolio_flag(self) -> None:
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        rp = subparsers.add_parser("report")
+        rp.add_argument("--cycle", type=str, default=None)
+        rp.add_argument("--output", type=str, default=None)
+        rp.add_argument(
+            "--format",
+            type=str,
+            choices=["md", "html"],
+            default="md",
+            dest="report_format",
+        )
+        rp.add_argument("--portfolio", type=str, default=None)
+        args = parser.parse_args(["report", "--portfolio", "/tmp/x.csv"])
+        assert args.portfolio == "/tmp/x.csv"
+
+    def test_cli_source_contains_portfolio_help_text(self) -> None:
+        from alphaswarm import cli
+
+        source = Path(cli.__file__).read_text(encoding="utf-8")
+        assert "--portfolio" in source
+        assert "Schwab Individual-Positions CSV" in source
+        assert "loaded in-memory only" in source
+
+
+def _make_fake_app() -> MagicMock:
+    """Build a fake AppState with async stubs for the graph + model layers.
+
+    Mirrors the minimal surface of AppState that _handle_report touches:
+    ollama_client, graph_manager (with read_latest_cycle_id, read_entity_impact,
+    close), model_manager (with load_model / unload_model).
+    """
+    fake_app = MagicMock()
+    fake_app.ollama_client = MagicMock()
+    fake_app.graph_manager = AsyncMock()
+    fake_app.graph_manager.read_latest_cycle_id = AsyncMock(return_value="cycle-xyz")
+    fake_app.graph_manager.read_entity_impact = AsyncMock(
+        return_value=[
+            {
+                "entity_name": "Apple Inc",
+                "mention_count": 10,
+                "avg_sentiment": 0.5,
+                "dominant_signal": "BUY",
+                "signal_confidence": 0.8,
+            },
+        ]
+    )
+    fake_app.graph_manager.close = AsyncMock()
+    fake_app.model_manager = AsyncMock()
+    fake_app.model_manager.load_model = AsyncMock()
+    fake_app.model_manager.unload_model = AsyncMock()
+    return fake_app
+
+
+def _patch_app_factory(monkeypatch: pytest.MonkeyPatch, fake_app: MagicMock) -> None:
+    """Patch the factory + config helpers used by _handle_report.
+
+    _handle_report imports create_app_state from alphaswarm.app inside the
+    function body, so we must patch it where it is DEFINED (alphaswarm.app),
+    not where it is referenced (alphaswarm.cli). The config helpers are
+    imported at module level in cli.py, so those are patched on cli directly.
+    """
+    from alphaswarm import app as app_module
+    from alphaswarm import cli as cli_module
+
+    monkeypatch.setattr(app_module, "create_app_state", lambda *a, **k: fake_app)
+    monkeypatch.setattr(cli_module, "load_bracket_configs", lambda: {})
+    monkeypatch.setattr(cli_module, "generate_personas", lambda b: [])
+
+
+@pytest.mark.asyncio
+async def test_handle_report_missing_portfolio_path_raises_system_exit(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REVIEWS HIGH (Codex): explicit --portfolio with bad path must fail-fast."""
+    from alphaswarm import cli as cli_module
+
+    _patch_app_factory(monkeypatch, _make_fake_app())
+
+    with pytest.raises(SystemExit) as excinfo:
+        await cli_module._handle_report(
+            cycle_id=None,
+            output=str(tmp_path / "out.md"),
+            fmt="md",
+            portfolio_path="/definitely/does/not/exist.csv",
+        )
+    assert excinfo.value.code == 2
+    captured = capsys.readouterr()
+    assert "--portfolio file not found" in captured.err
+
+
+@pytest.mark.asyncio
+async def test_handle_report_portfolio_path_is_directory_raises(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REVIEWS HIGH (Codex): path that exists but is not a regular file fails fast."""
+    from alphaswarm import cli as cli_module
+
+    _patch_app_factory(monkeypatch, _make_fake_app())
+
+    with pytest.raises(SystemExit) as excinfo:
+        await cli_module._handle_report(
+            cycle_id=None,
+            output=str(tmp_path / "out.md"),
+            fmt="md",
+            portfolio_path=str(tmp_path),  # directory, not a file
+        )
+    assert excinfo.value.code == 2
+    captured = capsys.readouterr()
+    assert "not a regular file" in captured.err
+
+
+@pytest.mark.asyncio
+async def test_handle_report_empty_equity_holdings_raises(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REVIEWS HIGH (Codex): zero parseable equity holdings fails fast, does not skip silently."""
+    from alphaswarm import cli as cli_module
+
+    # CSV with only non-equity rows.
+    csv_path = tmp_path / "nonequity.csv"
+    csv_path.write_text(
+        '"Positions for account Individual",,,,,,,,,,,,,,,,,\n'
+        "\n"
+        '"Symbol","Description","Qty (Quantity)","Price","Price Chng %","Price Chng $","Mkt Val (Market Value)","Day Chng %","Day Chng $","Cost Basis","Gain $","Gain %","Ratings","Reinvest Dividends?","Capital Gains?","% Of Account","Security Type","Asset Type"\n'
+        '"VMFXX","MONEY MARKET","1000","1.00","--","--","$1,000.00","--","--","$1000","$0","0%","--","Yes","Yes","10%","Money Market","Cash and Money Market"\n',
+        encoding="utf-8",
+    )
+
+    _patch_app_factory(monkeypatch, _make_fake_app())
+
+    with pytest.raises(SystemExit) as excinfo:
+        await cli_module._handle_report(
+            cycle_id=None,
+            output=str(tmp_path / "out.md"),
+            fmt="md",
+            portfolio_path=str(csv_path),
+        )
+    assert excinfo.value.code == 2
+    captured = capsys.readouterr()
+    assert "zero parseable equity holdings" in captured.err
+
+
+@pytest.mark.asyncio
+async def test_handle_report_malformed_csv_raises(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REVIEWS HIGH (Codex): malformed CSV fails fast with clear error."""
+    from alphaswarm import cli as cli_module
+
+    # CSV missing required Symbol/Asset Type header row.
+    csv_path = tmp_path / "bad.csv"
+    csv_path.write_text("garbage\nno,header,here\n", encoding="utf-8")
+
+    _patch_app_factory(monkeypatch, _make_fake_app())
+
+    with pytest.raises(SystemExit) as excinfo:
+        await cli_module._handle_report(
+            cycle_id=None,
+            output=str(tmp_path / "out.md"),
+            fmt="md",
+            portfolio_path=str(csv_path),
+        )
+    assert excinfo.value.code == 2
+    captured = capsys.readouterr()
+    assert "malformed" in captured.err or "failed to read" in captured.err
+
+
+@pytest.mark.asyncio
+async def test_handle_report_without_portfolio_flag_is_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-16: no --portfolio => identical behavior to pre-Phase-25.
+    Portfolio tool not in registry, system prompt clean, no pre-seeded observations."""
+    from alphaswarm import cli as cli_module
+    from alphaswarm import report as report_module
+
+    captured: dict = {}
+    original_init = report_module.ReportEngine.__init__
+
+    def capture_init(self, *args, **kwargs):
+        captured["tools"] = kwargs.get("tools", {})
+        captured["system_prompt"] = kwargs.get("system_prompt", "")
+        captured["pre_seeded_observations"] = kwargs.get("pre_seeded_observations")
+        original_init(self, *args, **kwargs)
+
+    async def fake_run(self, cycle_id: str):
+        return list(self._pre_seeded)
+
+    _patch_app_factory(monkeypatch, _make_fake_app())
+    monkeypatch.setattr(report_module.ReportEngine, "__init__", capture_init)
+    monkeypatch.setattr(report_module.ReportEngine, "run", fake_run)
+
+    await cli_module._handle_report(
+        cycle_id=None,
+        output=str(tmp_path / "out.md"),
+        fmt="md",
+        portfolio_path=None,
+    )
+
+    assert "portfolio_impact" not in captured["tools"]
+    system_prompt = captured["system_prompt"] or ""
+    assert "portfolio_impact" not in system_prompt
+    assert "PORTFOLIO REPORTING CONTRACT" not in system_prompt
+    assert captured["pre_seeded_observations"] is None
+
+
+@pytest.mark.asyncio
+async def test_handle_report_with_portfolio_pre_seeds_observation_and_registers_tool(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REVIEWS HIGH consensus: deterministic pre-call must inject a ToolObservation
+    into pre_seeded_observations AND register the tool AND include the mandate."""
+    from alphaswarm import cli as cli_module
+    from alphaswarm import report as report_module
+
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text(
+        '"Positions for account Individual",,,,,,,,,,,,,,,,,\n'
+        "\n"
+        '"Symbol","Description","Qty (Quantity)","Price","Price Chng %","Price Chng $","Mkt Val (Market Value)","Day Chng %","Day Chng $","Cost Basis","Gain $","Gain %","Ratings","Reinvest Dividends?","Capital Gains?","% Of Account","Security Type","Asset Type"\n'
+        '"AAPL","APPLE INC","10","260.00","--","--","$2,600.00","--","--","$2000","$600","30%","--","Yes","Yes","50%","Stock","Equity"\n',
+        encoding="utf-8",
+    )
+
+    captured: dict = {}
+    original_init = report_module.ReportEngine.__init__
+
+    def capture_init(self, *args, **kwargs):
+        captured["tools"] = kwargs.get("tools", {})
+        captured["system_prompt"] = kwargs.get("system_prompt", "")
+        captured["pre_seeded_observations"] = kwargs.get("pre_seeded_observations")
+        original_init(self, *args, **kwargs)
+
+    async def fake_run(self, cycle_id: str):
+        return list(self._pre_seeded)
+
+    _patch_app_factory(monkeypatch, _make_fake_app())
+    monkeypatch.setattr(report_module.ReportEngine, "__init__", capture_init)
+    monkeypatch.setattr(report_module.ReportEngine, "run", fake_run)
+
+    await cli_module._handle_report(
+        cycle_id=None,
+        output=str(tmp_path / "out.md"),
+        fmt="md",
+        portfolio_path=str(csv_path),
+    )
+
+    # Tool registered
+    assert "portfolio_impact" in captured["tools"]
+    # Prompt contains both line and mandate
+    assert "portfolio_impact" in captured["system_prompt"]
+    assert "PORTFOLIO REPORTING CONTRACT" in captured["system_prompt"]
+    assert "MUST include a paragraph" in captured["system_prompt"]
+    # Deterministic pre-seed: exactly one portfolio_impact observation
+    pre_seeded = captured["pre_seeded_observations"]
+    assert pre_seeded is not None
+    assert len(pre_seeded) == 1
+    assert pre_seeded[0].tool_name == "portfolio_impact"
+    result = pre_seeded[0].result
+    assert "matched_tickers" in result
+    assert "gap_tickers" in result
+    assert "coverage_summary" in result
+
+
+@pytest.mark.asyncio
+async def test_idempotent_tool_closure_returns_same_observation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The registered tool closure must return the pre-computed result regardless of input."""
+    from alphaswarm import cli as cli_module
+    from alphaswarm import report as report_module
+
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text(
+        '"Positions for account Individual",,,,,,,,,,,,,,,,,\n'
+        "\n"
+        '"Symbol","Description","Qty (Quantity)","Price","Price Chng %","Price Chng $","Mkt Val (Market Value)","Day Chng %","Day Chng $","Cost Basis","Gain $","Gain %","Ratings","Reinvest Dividends?","Capital Gains?","% Of Account","Security Type","Asset Type"\n'
+        '"AAPL","APPLE INC","10","260.00","--","--","$2,600.00","--","--","$2000","$600","30%","--","Yes","Yes","50%","Stock","Equity"\n',
+        encoding="utf-8",
+    )
+
+    captured: dict = {}
+    original_init = report_module.ReportEngine.__init__
+
+    def capture_init(self, *args, **kwargs):
+        captured["tools"] = kwargs.get("tools", {})
+        captured["pre_seeded_observations"] = kwargs.get("pre_seeded_observations")
+        original_init(self, *args, **kwargs)
+
+    async def fake_run(self, cycle_id: str):
+        return list(self._pre_seeded)
+
+    _patch_app_factory(monkeypatch, _make_fake_app())
+    monkeypatch.setattr(report_module.ReportEngine, "__init__", capture_init)
+    monkeypatch.setattr(report_module.ReportEngine, "run", fake_run)
+
+    await cli_module._handle_report(
+        cycle_id=None,
+        output=str(tmp_path / "out.md"),
+        fmt="md",
+        portfolio_path=str(csv_path),
+    )
+
+    tool_fn = captured["tools"]["portfolio_impact"]
+    result_1 = await tool_fn(cycle_id="c1")
+    result_2 = await tool_fn(cycle_id="different-cycle")
+    result_3 = await tool_fn()  # no kwargs
+    pre_seeded_result = captured["pre_seeded_observations"][0].result
+    assert result_1 is pre_seeded_result
+    assert result_2 is pre_seeded_result
+    assert result_3 is pre_seeded_result
+
+
+@pytest.mark.asyncio
+async def test_logging_never_contains_holdings_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """REVIEWS MEDIUM (Codex): privacy-safe logging — no ticker symbols or values in logs."""
+    import logging
+
+    from alphaswarm import cli as cli_module
+    from alphaswarm import report as report_module
+
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text(
+        '"Positions for account Individual",,,,,,,,,,,,,,,,,\n'
+        "\n"
+        '"Symbol","Description","Qty (Quantity)","Price","Price Chng %","Price Chng $","Mkt Val (Market Value)","Day Chng %","Day Chng $","Cost Basis","Gain $","Gain %","Ratings","Reinvest Dividends?","Capital Gains?","% Of Account","Security Type","Asset Type"\n'
+        '"AAPL","APPLE INC","10","260.00","--","--","$2,600.00","--","--","$2000","$600","30%","--","Yes","Yes","50%","Stock","Equity"\n'
+        '"NVDA","NVIDIA CORP","5","500.00","--","--","$2,500.00","--","--","$2000","$500","25%","--","Yes","Yes","50%","Stock","Equity"\n',
+        encoding="utf-8",
+    )
+
+    async def fake_run(self, cycle_id: str):
+        return list(self._pre_seeded)
+
+    _patch_app_factory(monkeypatch, _make_fake_app())
+    monkeypatch.setattr(report_module.ReportEngine, "run", fake_run)
+
+    with caplog.at_level(logging.DEBUG):
+        await cli_module._handle_report(
+            cycle_id=None,
+            output=str(tmp_path / "out.md"),
+            fmt="md",
+            portfolio_path=str(csv_path),
+        )
+
+    log_text = caplog.text
+    # Privacy assertions: ticker symbols and currency values must never appear in logs.
+    assert "AAPL" not in log_text
+    assert "NVDA" not in log_text
+    assert "APPLE" not in log_text
+    assert "NVIDIA" not in log_text
+    assert "$2,600" not in log_text
+    assert "$2,500" not in log_text
