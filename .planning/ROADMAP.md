@@ -78,7 +78,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. HTML report contains inline SVG charts showing consensus bars, signal timelines, and bracket distributions — not static text
   3. HTML report uses a dark color scheme that visually matches the TUI's minimalist aesthetic
   4. Generated HTML file is under 1MB total size (validates SVG-first strategy over Plotly)
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 24-01-PLAN.md — pygal dependency, chart style, chart builder functions (EXPORT-02, EXPORT-03)
+- [ ] 24-02-PLAN.md — HTML template, assemble_html(), CLI --format flag, integration tests (EXPORT-01, EXPORT-02, EXPORT-03)
 
 ### Phase 25: Portfolio Impact Analysis
 **Goal**: Users can see how swarm consensus maps to their personal Schwab holdings with coverage gaps and a natural-language narrative
@@ -164,7 +167,7 @@ Phases 24-29 execute in numeric order. Phases 24-25 (post-sim paths) ship first,
 | 21. Restore Ticker Validation and Tracking | v3.0 | 1/1 | Complete | 2026-04-08 |
 | 22. Fix Report Tool Name Mismatch | v3.0 | 1/1 | Complete | 2026-04-08 |
 | 23. Validation Tracking and Requirements Traceability | v3.0 | 1/1 | Complete | 2026-04-08 |
-| 24. HTML Report Export | v4.0 | 0/0 | Not started | - |
+| 24. HTML Report Export | v4.0 | 0/2 | Planning | - |
 | 25. Portfolio Impact Analysis | v4.0 | 0/0 | Not started | - |
 | 26. Shock Injection Core | v4.0 | 0/0 | Not started | - |
 | 27. Shock Analysis and Reporting | v4.0 | 0/0 | Not started | - |
