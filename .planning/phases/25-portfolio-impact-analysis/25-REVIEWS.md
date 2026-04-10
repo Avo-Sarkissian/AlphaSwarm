@@ -1,154 +1,166 @@
 ---
 phase: 25
 reviewers: [gemini, codex]
-reviewed_at: 2026-04-09T00:00:00Z
-plans_reviewed:
-  - 25-01-PLAN.md
-  - 25-02-PLAN.md
+reviewed_at: 2026-04-10T00:00:00Z
+plans_reviewed: [25-01-PLAN.md, 25-02-PLAN.md]
 ---
 
 # Cross-AI Plan Review — Phase 25
 
 ## Gemini Review
 
-# Phase 25: Portfolio Impact Analysis - Plan Review
+This review evaluates **Plan 01 (Portfolio Data Layer)** and **Plan 02 (CLI Wiring and HTML Integration)** for Phase 25 of the AlphaSwarm project.
 
-## 1. Summary
-The implementation plans for Phase 25 are high-quality, architecturally sound, and strictly adhere to the technical constraints of the AlphaSwarm project. The strategy of decoupling the data parsing (Plan 25-01) from the ReACT orchestration (Plan 25-02) is excellent. By injecting the portfolio analysis as a dynamic "Tool" within the ReACT engine, the system leverages the LLM's reasoning capabilities to generate the narrative (PORTFOLIO-04) without adding redundant specialized LLM calls. The use of `asyncio.to_thread` for CSV processing and the strict "in-memory only" approach for sensitive financial data demonstrate a strong understanding of both performance and privacy requirements.
+### Summary
+The proposed plans are exceptionally well-architected, specifically in how they balance the flexibility of a ReACT-based LLM orchestrator with the need for deterministic report generation. By choosing to "pre-seed" the portfolio impact as a `ToolObservation`, the system guarantees that critical financial data appears in the final report even if the LLM's reasoning path fluctuates. The attention to detail regarding Schwab's specific CSV quirks (BOM, metadata rows, currency formatting) and the privacy-conscious logging demonstrates a high level of engineering maturity.
 
-## 2. Strengths
-- **Decoupled Architecture:** Separating the Schwab-specific parsing logic into a standalone `portfolio.py` ensures the core simulation engine remains agnostic to specific brokerage formats.
-- **ReACT Tool Injection:** Using a tool closure for `portfolio_impact` is a sophisticated way to provide the LLM with context-on-demand, preventing context window bloat by only providing the data if the LLM decides to perform the analysis.
-- **Async Compliance:** Wrapping synchronous file I/O in `to_thread` prevents the main event loop from blocking during CSV parsing, which is critical for maintaining TUI responsiveness.
-- **Privacy-First Design:** Adherence to D-05 (no persistence to Neo4j or disk) is a key safety feature for a local-first financial tool.
-- **Dynamic Prompting:** The refactoring of `REACT_SYSTEM_PROMPT` into a factory function is a necessary and well-spotted requirement for expanding the agent's toolset.
+### Strengths
+- **Deterministic Reliability:** The "pre-seeded observation" strategy elegantly solves the non-determinism inherent in ReACT agents. It ensures `PORTFOLIO-04` is met without risking "hallucinated" omissions where the LLM simply forgets to call the tool.
+- **Robust Data Ingestion:** Dynamic header detection and UTF-8-sig support are critical for real-world CSV handling, especially for exports from financial institutions like Schwab which often include metadata headers.
+- **Privacy-First Design:** Explicitly excluding position values from logs while maintaining counts for debugging (`D-05`, `Plan 01`) aligns with financial software best practices.
+- **False-Positive Mitigation:** Using word-boundary regex for the Ticker-to-Entity bridge (e.g., preventing `ARM` from matching `ALARM`) is a sophisticated touch that prevents misleading consensus mapping.
+- **Fail-Fast CLI:** Validating the CSV path before the simulation begins (Plan 02) prevents wasting expensive inference cycles on a report that would ultimately fail to render the portfolio section.
 
-## 3. Concerns
+### Concerns
+- **TypedDict Key Inconsistency (MEDIUM):** As noted in the review instructions, `ExcludedHolding` in Plan 01 lacks `market_value_display`, whereas Plan 02 or the template logic likely expects it for "Coverage Gaps." Since `PortfolioGap` is the union of unmatched equities and excluded holdings, the internal `PortfolioParseResult` must ensure all fields required for the final `PortfolioGap` are either present or computed during the bridge phase.
+- **Async CSV Parsing (LOW):** Plan 01 specifies a `parse_schwab_csv_async` function. Python's standard `csv` module is blocking/synchronous. While CSVs are small, for strict adherence to "100% async," this should be wrapped in `asyncio.to_thread` or `run_in_executor` to avoid blocking the event loop during file I/O and CPU-bound parsing.
+- **Static Mapping Fragility (LOW):** `TICKER_ENTITY_MAP` is hardcoded to 25 equities. While sufficient for the "Seed Rumor" scope, if a user provides a portfolio with "NVDA" but the Neo4j entity is stored as "Nvidia Corp" (and not in the map), it becomes a coverage gap despite being simulated. The plan relies heavily on the manual completeness of this 25-ticker map.
 
-- **Ticker Substring Collision (MEDIUM):** D-07 specifies "case-insensitive substring match." Short tickers (e.g., "ARM", "VRT") might accidentally match unrelated entities in the swarm (e.g., "ARM" matching "AL**ARM**" or "VRT" matching "AD**VRT**ISEMENT"). Risk: Incorrect consensus signals mapped to user positions.
-- **CSV Header Fragility (LOW):** Schwab's export format can vary slightly by region or account type. Relying on "Row 3" as a hardcoded header start (D-02) is a common point of failure for CSV parsers. Risk: Parser failure if Schwab updates their export template.
-- **LLM "Lazy Tooling" (MEDIUM):** In Plan 25-02 Task 2, the tool is added to the engine. However, if the `FINAL ANSWER` is generated without the LLM explicitly calling the `portfolio_impact` tool, the narrative will be missing. Risk: Inconsistent report generation where the portfolio section is empty because the LLM chose a different reasoning path.
-- **Encoding Issues (LOW):** Financial CSVs sometimes use `utf-8-sig` (BOM) or `latin-1`. Risk: `UnicodeDecodeError` when reading the user's file.
+### Suggestions
+- **Unified Display Helper:** Create a single utility function for currency/float-to-string conversion to ensure `market_value_display` is consistent across `MatchedPortfolioTicker` and `PortfolioGap`.
+- **Schema Validation:** In Plan 01, add a check that ensures the "Asset Type" column actually exists after the dynamic header detection. If Schwab changes their export format, a clear "Missing 'Asset Type' column" error is better than a generic `KeyError`.
+- **LLM Context Awareness:** Ensure the `build_react_system_prompt` explicitly tells the LLM: *"You have been provided with an initial observation containing portfolio impact data. Use this to synthesize your narrative."* This prevents the LLM from trying to "find" the data if it doesn't realize it's already in the history.
+- **Aggregation Logic:** Explicitly define the "Majority Signal" logic for cases of a tie (e.g., 50 BUY mentions, 50 HOLD mentions). A stable fallback (e.g., preferring "HOLD" or "NEUTRAL") should be documented.
 
-## 4. Suggestions
-
-- **Refine Ticker Matching:** Use word boundaries or strict equality for the ticker mapping. Instead of a simple `in` check, use a regex like `fr"\b{ticker}\b"` or ensure the `TICKER_ENTITY_MAP` values are sufficiently unique to prevent partial-word collisions.
-- **Header Detection:** Instead of strictly skipping 2 rows, implement a simple "header finder" that searches the first 5 rows for the string "Symbol" or "Asset Type" to identify the correct header row dynamically.
-- **Prompt Coercion:** In `build_react_system_prompt()`, when `include_portfolio=True` is passed, add a specific instruction to the LLM: *"If portfolio data is available via the portfolio_impact tool, you MUST include a summary of swarm consensus vs. user positions in your FINAL ANSWER."* This ensures PORTFOLIO-04 is consistently met.
-- **Currency Parsing Robustness:** Ensure the stripping logic (D-04) handles parentheses for negative values (e.g., `($1,000.00)`), which is common in financial exports.
-- **Explicit Encoding:** Default to `encoding='utf-8-sig'` in `aiofiles.open` or `open` to handle potential Byte Order Marks (BOM) from Excel-generated CSVs.
-
-## 5. Risk Assessment: LOW
-
-The plans are very low risk. They do not modify the core simulation logic, do not impact the Neo4j schema, and do not introduce new external dependencies. The primary risks are "soft" failures (mis-mapping a ticker or the LLM failing to write a good narrative), which do not crash the system or corrupt data. The implementation uses established patterns (Jinja2, ReACT tools) already present in the codebase.
+### Risk Assessment: LOW
+The risk is low because the implementation path is highly decoupled. The data layer (Plan 01) can be fully verified with unit tests before being wired into the CLI. The deterministic seeding approach removes the primary failure mode of agentic workflows (task omission). The most significant "risk" is simply the manual effort required to maintain the `TICKER_ENTITY_MAP`, which is mitigated by the clear success criteria of 25 specific equities.
 
 ---
 
 ## Codex Review
 
-## Overall Summary
+### Plan 01: Portfolio Data Layer
 
-The two-plan split is sensible: Plan 25-01 isolates parsing and portfolio-impact construction, while Plan 25-02 handles runtime wiring, prompt behavior, CLI integration, and HTML output. The main risks are not scope size but ambiguity: what counts as "not persisted," whether non-equity holdings should truly be excluded or reported as gaps, and whether relying on the ReACT loop to voluntarily call `portfolio_impact` is deterministic enough to satisfy the reporting requirements. With a few clarifications and stronger tests around malformed CSVs, privacy, and tool invocation, the phase looks achievable.
+**Summary**
+Plan 01 is a solid foundation for the portfolio feature and mostly aligns with PORTFOLIO-01 through PORTFOLIO-03. The parser and bridge are intentionally testable, privacy-aware, and scoped around in-memory data. The main risk is that the plan slightly expands beyond the stated user decisions by preserving and reporting non-equity holdings, while D-03 says ETFs and money market positions are excluded. The word-boundary matching is a good quality improvement over raw substring matching, but it should be reconciled with D-07 and carefully tested against real entity names.
 
-## Plan 25-01: Data Layer
+**Strengths**
+- Clean separation of concerns: parser, ticker mapping, impact builder, and template are isolated from CLI/runtime wiring.
+- In-memory-only portfolio handling directly supports PORTFOLIO-01 and the privacy requirement.
+- Duplicate ticker aggregation is important and practical for Schwab exports.
+- Currency parsing edge cases are well identified, including negatives, blanks, and placeholder values.
+- Dynamic header detection plus UTF-8 BOM handling should make the parser resilient to real Schwab CSVs.
+- Explicit `TypedDict` contracts improve implementation clarity between data layer, reports, and tests.
+- Privacy logging rule is appropriate: counts and paths only, no shares or market values.
+- Majority signal and confidence computation are deterministic and easy to test.
+- Template-render tests are a good guardrail because this feature spans data and presentation.
 
-### Summary
+**Concerns**
+- **HIGH:** Non-equity handling may conflict with D-03. The decision says "Filter to Asset Type == Equity rows only — ETFs and money market excluded." Plan 01 preserves non-equities and emits them as `gap_tickers` with `reason="non_equity"`. That may surprise users because excluded holdings become visible in the portfolio impact report.
+- **HIGH:** The plan modifies `src/alphaswarm/report.py` only for registry/template order, but `portfolio_impact` is supposed to be available to the ReACT tool system only when `--portfolio` is provided. Tool registration and template registration need to be clearly separated.
+- **MEDIUM:** Word-boundary regex improves false-positive safety, but it diverges from D-07, which explicitly says case-insensitive substring matching. This is probably a good deviation, but it should be documented as an intentional refinement.
+- **MEDIUM:** Multi-word and punctuation-heavy entity names can make regex matching fragile. Examples: `Hims & Hers`, `Taiwan Semiconductor Manufacturing`, `Charles Schwab`, ADR names, or entity strings with suffixes like `Inc.`, `Corp`, `Co.`.
+- **MEDIUM:** `build_portfolio_impact()` depends on Neo4j-backed `read_entity_impact()` results. The plan should specify the exact async dependency shape, for example whether it receives `GraphMemory`, `cycle_id`, or pre-fetched entity impacts.
+- **MEDIUM:** Async file parsing must avoid blocking the event loop. CSV parsing and file reads should be done with `asyncio.to_thread()` or an async file strategy.
+- **MEDIUM:** `PortfolioGap.asset_type` is required, but unmatched equities may not naturally have a distinct asset type if `Holding` omits it. Either include `asset_type` in `Holding` or ensure it is always set to `"Equity"` for equity gaps.
+- **LOW:** "25+ unit tests required" may be excessive for a data-layer slice unless the tests are well grouped. The quality bar matters more than the count.
+- **LOW:** The map says 25 equities, but the list contains exactly 25 only if counted carefully. Tests should assert the expected ticker set so drift is obvious.
+- **LOW:** `market_value_display` appears in matched/gap output but not in `Holding` or `ExcludedHolding`; that is fine if display formatting is output-only, but Plan 02 must not expect it earlier.
 
-Plan 25-01 has a good boundary: parse Schwab holdings, map them to existing entity-impact output, and register a report section without pulling in CLI or LLM orchestration concerns. The design is mostly appropriate for Wave 1, but it needs sharper data contracts, explicit privacy semantics, and better handling of excluded/non-equity holdings before implementation.
+**Suggestions**
+- Decide whether non-equities should appear in reports. If they should not, keep `excluded_holdings` for diagnostics/tests only and omit them from `gap_tickers`. If they should appear, update the requirement language because this changes user-facing behavior.
+- Add `asset_type: str` to `Holding`, or define that equity gaps always emit `asset_type="Equity"`.
+- Make the match strategy explicit: `TICKER_ENTITY_MAP[ticker]` values are regex-escaped canonical substrings matched case-insensitively with boundary-like guards.
+- Prefer a safer regex than plain `\b` for entity phrases, such as negative lookaround: `(?<![A-Za-z0-9])...(?![A-Za-z0-9])`.
+- Add tests for problematic matching cases: `ARM` vs `ALARM`, `HIMS` vs `Hims & Hers`, `SCHW` vs `Charles Schwab`, `TSM` vs `Taiwan Semiconductor`, and company suffix variants.
+- Ensure the async parser performs file I/O and CSV parsing off the main loop.
+- Add malformed CSV behavior: missing headers, missing required columns, invalid numeric values, duplicate rows with one malformed row, and empty equity set.
+- Keep template rendering tolerant of missing optional fields to reduce report fragility.
 
-### Strengths
+**Risk Assessment: MEDIUM**
+The core data-layer design is sound, but the non-equity reporting decision and matching semantics need clarification before implementation. The feature touches privacy-sensitive local portfolio data, report rendering, and Neo4j-derived simulation output, so small schema mismatches could propagate into Plan 02.
 
-- Clean separation between pure data handling and runtime integration.
-- `parse_schwab_csv_async()` using `asyncio.to_thread()` is acceptable for avoiding blocking file I/O on the main event loop.
-- Static `TICKER_ENTITY_MAP` is simple and matches the user decision.
-- `build_portfolio_impact()` depending on `read_entity_impact()` keeps the bridge aligned with existing simulation output.
-- Adding tests at this layer is the right move because CSV parsing and ticker matching are easy to regress.
-- No Neo4j writes and no additional persistence are consistent with the local-first/privacy intent.
+---
 
-### Concerns
+### Plan 02: CLI Wiring and HTML Integration
 
-- **HIGH:** There is a contradiction around non-equity rows. D-03 says filter to `Asset Type == "Equity"` only, but also says ETFs and money market positions "appear as coverage gaps." If the parser drops them entirely, they cannot appear as gaps.
-- **HIGH:** "Holdings never written to Neo4j or disk" conflicts with adding markdown/HTML report templates that may write holdings-derived data to report files. The plan needs to define whether generated reports are an allowed exception.
-- **MEDIUM:** `dict[str, dict]` is weak for a strict-typing Python project. Portfolio rows and impact results should use `TypedDict`, dataclasses, or Pydantic models.
-- **MEDIUM:** Currency parsing needs more edge cases than `$26,416.56`: blanks, `N/A`, negative values, accounting negatives like `($1,234.56)`, zeroes, and quoted fields.
-- **MEDIUM:** Duplicate tickers are unspecified. If a Schwab export contains multiple rows for the same ticker, the parser needs to aggregate, reject, or deterministically choose one.
-- **MEDIUM:** Case-insensitive substring matching can create false positives if entity names are broad. The map should probably support aliases and deterministic tie-breaking.
-- **MEDIUM:** `build_portfolio_impact()` needs behavior for empty entity impact results, malformed graph-memory results, and graph-memory read failures.
-- **LOW:** Markdown table output needs escaping for pipes, newlines, and unusual ticker/description values.
-- **LOW:** The coverage summary shape should be specified precisely, including counts and possibly percentages.
+**Summary**
+Plan 02 correctly identifies the biggest architectural risk: relying on the ReACT loop to call `portfolio_impact` would make PORTFOLIO-04 nondeterministic. Precomputing the portfolio impact and injecting it as a pre-seeded observation is the right direction for deterministic markdown/HTML output. However, the plan needs tighter contract handling between the pre-seeded observation, ReACT tool availability, report assembly, and HTML template expectations.
 
-### Suggestions
+**Strengths**
+- Deterministic pre-seeding directly addresses PORTFOLIO-04: the portfolio narrative/report data exists even if the LLM never calls the tool.
+- Idempotent tool closure is a good compromise: the LLM can still reason over `portfolio_impact`, but the report does not depend on the call happening.
+- `--portfolio` preserving current behavior when absent is the correct compatibility goal.
+- Prompt/tool consistency tests are important because stale prompt/tool mismatches are common in ReACT systems.
+- Fail-fast behavior for bad paths is user-friendly and avoids wasting a simulation run.
+- HTML escaping test is a good security check, especially because CSV values and Neo4j-derived names may be user-controlled or model-influenced.
+- De-duplication with pre-seeded observations winning is the right default if the LLM calls the tool again.
+- Explicit test for deterministic section rendering is essential.
 
-- Define explicit data models: `Holding`, `MatchedPortfolioTicker`, `PortfolioGap`, `PortfolioImpact`.
-- Use `Decimal` for money fields rather than `float`.
-- Clarify non-equity handling: equity_holdings (eligible for matching), excluded_holdings (ETFs, money market, options), gap_tickers (unmatched equities + optionally excluded holdings with a `reason`).
-- Clarify privacy persistence: either generated reports are an intentional user-requested output target, or portfolio report sections should redact position values.
-- Add parser tests for BOM/header quirks, missing required columns, empty files, malformed currency, quoted commas, duplicate tickers, non-equity rows.
-- Consider changing `TICKER_ENTITY_MAP` values from a single substring to aliases: `dict[str, tuple[str, ...]]`.
+**Concerns**
+- **HIGH:** Pre-seeding structured `portfolio_impact` guarantees deterministic data rendering, but it does not by itself guarantee an LLM-authored narrative unless the report engine deterministically asks the model to synthesize one using that observation. PORTFOLIO-04 requires an LLM-generated narrative in both markdown and HTML.
+- **HIGH:** There is a possible ordering issue in `_handle_report()`: `build_portfolio_impact(parse_result, gm, cycle_id)` requires simulation consensus data from Neo4j. If `cycle_id` or entity impact data is only available after `engine.run()`, the portfolio impact cannot be computed before the engine run unless this report command is strictly post-simulation.
+- **HIGH:** If the pre-seeded observation is inserted into `observations` but the ReACT prompt never processes it, the model may not incorporate it into the final narrative. The plan needs a defined mechanism for pre-seeded observations to enter the LLM context.
+- **MEDIUM:** "No --portfolio = byte-identical to pre-phase-25 behavior" may be brittle. Even harmless prompt-builder refactoring or ordering differences can break byte identity. A behavioral equivalence test may be more maintainable unless exact output stability is a project requirement.
+- **MEDIUM:** `build_react_system_prompt(include_portfolio: bool)` replacing a constant can create subtle prompt regressions. Tests should snapshot or assert the important tool instructions.
+- **MEDIUM:** HTML template gets two section cards, but markdown template from Plan 01 creates one `10_portfolio_impact.j2`. The relationship between markdown sections, HTML sections, and observation names needs to be explicit.
+- **MEDIUM:** TypedDict mismatch risk: Plan 02 appears to need display-ready values for HTML, but Plan 01's `ExcludedHolding` does not include `market_value_display`. Either HTML should consume `PortfolioGap`, not `ExcludedHolding`.
+- **MEDIUM:** The plan says `portfolio_impact` tool is added only when `--portfolio` is provided, but Plan 01 says it registers the tool in `TOOL_TO_TEMPLATE` and `SECTION_ORDER`. Static report template registration is fine; runtime tool registration must remain conditional.
+- **MEDIUM:** Bad path and malformed CSV are different failure modes. The plan mentions missing/malformed path, but malformed content should also fail cleanly with a concise error.
+- **LOW:** "Two `.section` cards" is a fragile HTML test if class names change. Prefer testing semantic headings or data attributes.
+- **LOW:** Logging privacy should include not logging the raw CSV path if the path can reveal account details or user names. Logging basename or a redacted path may be safer.
 
-### Risk Assessment: MEDIUM
+**Suggestions**
+- Add an explicit narrative generation step after `portfolio_impact` is built. For example: render deterministic structured tables from `portfolio_impact`, then call the local orchestrator model with a constrained prompt to produce `portfolio_narrative`.
+- Store narrative separately from structured data:
+  ```python
+  class PortfolioImpact(TypedDict):
+      matched_tickers: list[MatchedPortfolioTicker]
+      gap_tickers: list[PortfolioGap]
+      coverage_summary: CoverageSummary
+      narrative: str
+  ```
+  Or use a separate `portfolio_impact_narrative` observation if that fits the report system better.
+- Clarify whether `_handle_report()` runs after a completed simulation or starts the report engine against an existing `cycle_id`. If consensus is generated during `engine.run()`, move portfolio impact construction after entity impact exists.
+- Ensure pre-seeded observations are included in the ReACT conversation context before the first model call, not only appended to returned observations.
+- Make de-duplication deterministic by keying on `tool_name`, with `portfolio_impact` pre-seeded result winning and duplicate LLM calls discarded.
+- Keep runtime `tools` conditional on `--portfolio`, but allow static template registration so old reports can still render observations if present.
+- Add an integration test where the model never calls tools but the final markdown and HTML still contain the structured portfolio section and the LLM narrative.
+- Add an integration test where the model does call `portfolio_impact`; assert only one final section appears and the precomputed result wins.
+- Define the template input contract clearly: HTML should consume `PortfolioImpact.gap_tickers`, not `ExcludedHolding`.
+- Consider redacting the portfolio path in logs, or logging only `portfolio_file_provided=True` and aggregate counts.
 
-The data-layer scope is manageable, but unresolved semantics around excluded holdings and report persistence could cause the implementation to satisfy the code plan while missing the actual product requirement.
+**Risk Assessment: MEDIUM-HIGH**
+The deterministic pre-seeding idea is strong, but there is still a critical ambiguity around when consensus data exists and how the LLM-authored narrative is guaranteed. If those are resolved, the implementation risk drops to medium. Without that clarification, the feature may render structured tables reliably while still failing PORTFOLIO-04's narrative requirement.
 
-## Plan 25-02: Integration Layer
+### Cross-Plan Findings (Codex)
+- `ExcludedHolding` lacks `market_value_display`, while Plan 02's HTML/report path may expect display-ready values. Acceptable only if templates receive `PortfolioGap`, not raw `ExcludedHolding`.
+- `PortfolioGap.asset_type` is required, but `Holding` omits `asset_type`. Equity gaps need a guaranteed value.
+- `PortfolioImpact` currently has no narrative field, despite PORTFOLIO-04 requiring an LLM-authored narrative. Add one or define a separate observation/template contract.
+- Plan 01 must land before Plan 02. Plan 02 depends on existing report lifecycle details: whether `cycle_id` and `read_entity_impact()` data already exist before `_handle_report()` starts the ReACT report engine.
+- Pre-seeding satisfies deterministic availability of structured portfolio impact data but does not fully satisfy "LLM-generated narrative" unless the pre-seeded observation is passed into a local LLM narrative synthesis step.
 
-### Summary
-
-Plan 25-02 targets the right integration points: CLI argument, async parsing in `_handle_report()`, dynamic ReACT prompt construction, conditional tool registration, and HTML output. The biggest weakness is determinism. If the portfolio narrative and report sections depend on the LLM choosing to call `portfolio_impact`, the feature may be flaky even when the data layer works perfectly.
-
-### Strengths
-
-- Dynamic `build_react_system_prompt(include_portfolio: bool)` directly addresses the known prompt/tool mismatch risk.
-- Keeping `REACT_SYSTEM_PROMPT = build_react_system_prompt()` preserves compatibility for existing call sites.
-- Conditional tool registration avoids exposing unavailable tools when `--portfolio` is not provided.
-- Parsing the portfolio before constructing the `ReportEngine` keeps the runtime state simple.
-- Falling back to no-portfolio behavior protects existing report generation when the flag is omitted.
-
-### Concerns
-
-- **HIGH:** Relying on the ReACT loop to "naturally" call `portfolio_impact` is fragile. PORTFOLIO-04 requires narrative output in markdown and HTML; optional tool use may not satisfy that reliably.
-- **HIGH:** Falling back silently or semi-silently on missing/unreadable portfolio paths may hide user mistakes. If the user explicitly passes `--portfolio`, failing fast is probably safer than producing a report without portfolio analysis.
-- **HIGH:** `assemble_html()` depending on `sections` containing `portfolio_impact` "if called" repeats the determinism problem. If the model skips the tool, HTML sections disappear.
-- **MEDIUM:** Tool observation shape must be well-defined. If ReACT stores tool outputs as strings, JSON blobs, markdown, or dicts inconsistently, HTML rendering will become brittle.
-- **MEDIUM:** Prompt/tool consistency needs tests in both directions: portfolio absent means no tool description and no tool registration; portfolio present means both are enabled.
-- **MEDIUM:** Privacy-sensitive portfolio data may be included in LLM prompts, logs, and report files. Local Ollama is acceptable, but logs and report files need explicit handling.
-- **MEDIUM:** `ReportEngine.__init__` changes may affect every call site. The plan should include a compatibility audit.
-- **LOW:** CLI ergonomics: `Path` handling, helpful error messages, relative path resolution.
-
-### Suggestions
-
-- Make portfolio analysis deterministic: when `--portfolio` is provided, call `portfolio_impact` once before or during report assembly and inject the observation into the report context. The ReACT narrative can still synthesize from that observation.
-- If keeping ReACT-only approach, update the system prompt to say the model **must** call `portfolio_impact` when available, and add an integration test with a fake model/tool recorder.
-- Treat explicit `--portfolio` failures as errors by default. Missing file, unreadable file, malformed required columns, or zero parseable holdings should produce a clear CLI error.
-- Ensure no portfolio contents are logged. Log only path-level errors and aggregate counts.
-- HTML should render structured portfolio data with escaping, not raw model text. Use Jinja autoescape or explicit `|e`.
-- Add integration tests for: no `--portfolio` regression, with `--portfolio` registers tool, unreadable path behavior, output in markdown and HTML, LLM receives context only when requested, no Neo4j writes attempted.
-
-### Risk Assessment: MEDIUM-HIGH
-
-The integration design is directionally right, but the current plan leaves too much to probabilistic ReACT behavior. For a reporting feature, deterministic portfolio-section generation is important.
+**Overall Recommendation:** Proceed with Plan 01 after clarifying non-equity behavior and match semantics. Proceed with Plan 02 only after defining the lifecycle of consensus data and adding an explicit local LLM narrative generation contract.
 
 ---
 
 ## Consensus Summary
 
 ### Agreed Strengths
+- **Deterministic pre-seeding** is the right architectural decision — both reviewers validate that pre-calling `build_portfolio_impact()` and injecting a `ToolObservation` removes the key failure mode of ReACT non-determinism
+- **Word-boundary regex** matching is well-motivated (prevents `ARM` matching `ALARM`) — both reviewers praised this as a meaningful improvement over naive substring
+- **Dynamic header detection + UTF-8-sig encoding** — both reviewers called this out as critical for real-world Schwab CSV resilience
+- **Privacy-conscious logging** — counts and paths only, never position values — both reviewers affirmed this as appropriate for financial software
+- **Fail-fast CLI** validation before the engine run — both reviewers agreed this prevents wasted inference on a doomed report
+- **Async event-loop safety**: Both reviewers flagged that `parse_schwab_csv_async` must wrap synchronous `csv` work in `asyncio.to_thread()` (Codex MEDIUM, Gemini LOW)
 
-- **Decoupled data layer** (Plan 01 is side-effect-free, Plan 02 wires) — both reviewers praised the separation
-- **`asyncio.to_thread` for CSV I/O** — both confirmed this is the correct async pattern
-- **No-persistence design** for raw holdings — both praised as privacy-correct
-- **Dynamic `build_react_system_prompt()`** refactor — both identified this as a necessary and well-spotted requirement
-
-### Agreed Concerns (Highest Priority)
-
-1. **ReACT tool non-determinism (MEDIUM–HIGH):** Both reviewers flagged that the LLM may skip calling `portfolio_impact` entirely, leaving the portfolio section empty or absent from the report. PORTFOLIO-04 requires narrative in both markdown AND HTML — leaving this to probabilistic tool use is risky. **Fix:** Add a mandatory instruction in `build_react_system_prompt(include_portfolio=True)` stating the model MUST call `portfolio_impact` when it is available, or pre-call the tool and inject the result directly into `assemble()` / `assemble_html()`.
-
-2. **Ticker substring false positives (MEDIUM):** Both reviewers noted that case-insensitive substring matching (e.g., "ARM" matching "ALARM") can cause incorrect consensus signals. **Fix:** Use word-boundary matching (`\bARM\b`) or ensure `TICKER_ENTITY_MAP` values are long enough to be unambiguous.
-
-3. **Currency parsing edge cases:** Both flagged accounting-style negative values `($1,234.56)` as a gap in the strip logic. D-04 describes stripping `$`, `,`, spaces, and parens — but the plan's acceptance criteria should include an explicit test for negative value handling.
+### Agreed Concerns
+1. **(MEDIUM, consensus)** **TypedDict key inconsistency**: `ExcludedHolding` lacks `market_value_display`; templates and HTML path must consume `PortfolioGap`, not raw `ExcludedHolding`. Only safe if the bridge converts all excluded holdings to `PortfolioGap` before any display path touches them.
+2. **(MEDIUM, consensus)** **Async CSV parsing must use `asyncio.to_thread`**: `parse_schwab_csv_async` is backed by the synchronous `csv` module; wrapping in `asyncio.to_thread` is required for "100% async" compliance.
+3. **(HIGH, Codex / implicit Gemini)** **PORTFOLIO-04 narrative guarantee**: Pre-seeding the structured `portfolio_impact` observation does NOT by itself guarantee an LLM-authored narrative. Gemini suggests adding explicit LLM context-awareness language in `build_react_system_prompt`; Codex recommends a deterministic post-processing LLM call or a `narrative: str` field in `PortfolioImpact`. Both agree the narrative cannot be left entirely to emergent ReACT behavior.
+4. **(MEDIUM, consensus)** **`PortfolioGap.asset_type` for unmatched equities**: `Holding` omits `asset_type`, but equity gaps must emit `asset_type="Equity"`. The bridge code must explicitly hardcode this constant for unmatched equity rows.
 
 ### Divergent Views
-
-- **Overall risk level:** Gemini rates LOW; Codex rates MEDIUM overall (MEDIUM-HIGH for Plan 02). The difference is mainly in how much weight each reviewer places on ReACT non-determinism and the non-equity gap contradiction.
-- **Non-equity handling (Codex HIGH, not mentioned by Gemini):** Codex flags a real contradiction — D-03 says filter to Equity rows only, but they're also described as appearing as coverage gaps. This needs a decision: either (a) keep two separate passes (parse all rows, separate by asset type), or (b) accept that ETFs never appear in gaps (they're just silently excluded). The CONTEXT.md `<specifics>` section implies (a) is desired: "Coverage gap output should clearly distinguish: ETFs/non-equities (expected gaps) vs equities not mentioned in this simulation run."
-- **Type safety (Codex MEDIUM, not mentioned by Gemini):** Codex advocates for `TypedDict`/dataclasses over raw `dict[str, dict]`. Given the project's strict typing requirement in CLAUDE.md, this is worth considering but not blocking.
+- **Overall risk level**: Gemini rates Phase 25 as **LOW** risk because the deterministic seeding architecture removes the primary failure mode. Codex rates Plan 01 as **MEDIUM** and Plan 02 as **MEDIUM-HIGH**, citing PORTFOLIO-04 narrative ambiguity and the consensus-data ordering question. Worth investigating: confirm that `alphaswarm report` is always strictly post-simulation (i.e., `cycle_id` is from an existing completed simulation in Neo4j, not the current `engine.run()` cycle), which would resolve Codex's HIGH ordering concern.
+- **Non-equity in gap_tickers**: Codex rates D-03 expansion as HIGH concern; Gemini did not flag it. The behavior (showing ETFs/money market as `non_equity` gaps) is arguably a UX improvement over silently dropping them, but it diverges from the literal text of D-03. User should confirm whether this behavior is intended.
+- **Regex boundary approach**: Codex suggests `(?<![A-Za-z0-9])...(?![A-Za-z0-9])` lookaround as safer than `\b` for multi-word entity names with punctuation (`Hims & Hers`). Gemini did not raise this. Worth testing against actual Neo4j entity name corpus.
