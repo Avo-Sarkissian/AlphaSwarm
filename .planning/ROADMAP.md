@@ -92,7 +92,10 @@ Plans:
   2. Post-simulation output shows which held tickers the swarm has consensus signals for, and maps those signals to the user's positions
   3. Held tickers not covered by the simulation are explicitly listed as coverage gaps
   4. An LLM-generated narrative compares swarm consensus against user positions in natural language, appearing in both markdown and HTML reports
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 25-01-PLAN.md — portfolio.py module, TICKER_ENTITY_MAP, build_portfolio_impact, 10_portfolio_impact.j2 template, report.py registry (PORTFOLIO-01, PORTFOLIO-02, PORTFOLIO-03, PORTFOLIO-04)
+- [ ] 25-02-PLAN.md — --portfolio CLI flag, _handle_report wiring, dynamic REACT system prompt, HTML section cards, integration tests (PORTFOLIO-01, PORTFOLIO-02, PORTFOLIO-03, PORTFOLIO-04)
 
 ### Phase 26: Shock Injection Core
 **Goal**: Users can inject breaking events between simulation rounds and see all agents react to the new information
