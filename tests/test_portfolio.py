@@ -599,3 +599,182 @@ class TestTickerEntityMap:
             assert any(" " in s for s in substrings), (
                 f"{ticker} needs at least one multi-word substring to disambiguate"
             )
+
+
+# -----------------------------------------------------------------------------
+# Template rendering tests (Task 2)
+# -----------------------------------------------------------------------------
+
+from alphaswarm.report import (  # noqa: E402
+    SECTION_ORDER,
+    TOOL_TO_TEMPLATE,
+    ReportAssembler,
+    ToolObservation,
+)
+
+
+class TestTemplateRegistration:
+    def test_tool_to_template_includes_portfolio_impact(self) -> None:
+        assert TOOL_TO_TEMPLATE["portfolio_impact"] == "10_portfolio_impact.j2"
+
+    def test_section_order_last_entry_is_portfolio_impact(self) -> None:
+        assert SECTION_ORDER[-1] == "portfolio_impact"
+
+    def test_section_order_has_9_entries(self) -> None:
+        assert len(SECTION_ORDER) == 9
+
+
+class TestPortfolioTemplate:
+    def _sample_data(self) -> dict:
+        return {
+            "matched_tickers": [
+                {
+                    "ticker": "AAPL",
+                    "shares": 101.3071,
+                    "market_value": 26416.56,
+                    "market_value_display": "$26,416.56",
+                    "signal": "BUY",
+                    "confidence": 0.82,
+                    "entity_name": "Apple Inc",
+                    "avg_sentiment": 0.43,
+                    "mention_count": 45,
+                },
+            ],
+            "gap_tickers": [
+                {
+                    "ticker": "COHR",
+                    "shares": 50.0,
+                    "market_value": 3500.0,
+                    "market_value_display": "$3,500.00",
+                    "reason": "no_simulation_coverage",
+                    "asset_type": "Equity",
+                },
+                {
+                    "ticker": "QQQ",
+                    "shares": 10.0,
+                    "market_value": 25000.0,
+                    "market_value_display": "$25,000.00",
+                    "reason": "non_equity",
+                    "asset_type": "ETFs & Closed End Funds",
+                },
+            ],
+            "coverage_summary": {
+                "covered": 1,
+                "total_equity_holdings": 2,
+                "coverage_pct": 50.0,
+            },
+        }
+
+    def test_renders_primary_heading(self) -> None:
+        asm = ReportAssembler()
+        out = asm.render_section("10_portfolio_impact.j2", data=self._sample_data(), cycle_id="c1")
+        assert "## Portfolio Impact" in out
+
+    def test_renders_coverage_summary(self) -> None:
+        asm = ReportAssembler()
+        out = asm.render_section("10_portfolio_impact.j2", data=self._sample_data(), cycle_id="c1")
+        assert "*Coverage: 1/2 equity holdings matched to swarm consensus (50.0%)*" in out
+
+    def test_renders_matched_table_headers(self) -> None:
+        asm = ReportAssembler()
+        out = asm.render_section("10_portfolio_impact.j2", data=self._sample_data(), cycle_id="c1")
+        assert "| Ticker | Shares | Market Value | Swarm Signal | Agreement | Entity | Avg Sentiment |" in out
+
+    def test_renders_matched_row_with_formatted_market_value(self) -> None:
+        asm = ReportAssembler()
+        out = asm.render_section("10_portfolio_impact.j2", data=self._sample_data(), cycle_id="c1")
+        assert "$26,416.56" in out
+        assert "AAPL" in out
+        assert "Apple Inc" in out
+        assert "82%" in out  # round(0.82 * 100)
+        assert "0.43" in out  # avg_sentiment 2 decimals
+
+    def test_renders_matched_shares_4_decimals(self) -> None:
+        asm = ReportAssembler()
+        out = asm.render_section("10_portfolio_impact.j2", data=self._sample_data(), cycle_id="c1")
+        assert "101.3071" in out
+
+    def test_renders_no_coverage_subheading(self) -> None:
+        asm = ReportAssembler()
+        out = asm.render_section("10_portfolio_impact.j2", data=self._sample_data(), cycle_id="c1")
+        assert "### Coverage Gaps — No Simulation Coverage" in out
+        assert "COHR" in out
+        assert "$3,500.00" in out
+
+    def test_renders_non_equity_subheading_with_asset_type_column(self) -> None:
+        asm = ReportAssembler()
+        out = asm.render_section("10_portfolio_impact.j2", data=self._sample_data(), cycle_id="c1")
+        assert "### Coverage Gaps — Non-Equity Holdings" in out
+        assert "QQQ" in out
+        assert "ETFs & Closed End Funds" in out
+        assert "| Ticker | Shares | Market Value | Asset Type |" in out
+
+
+class TestPortfolioTemplateEmptyStates:
+    def test_empty_matched_shows_empty_copy(self) -> None:
+        asm = ReportAssembler()
+        data = {
+            "matched_tickers": [],
+            "gap_tickers": [{"ticker": "COHR", "shares": 5.0, "market_value": 500.0,
+                             "market_value_display": "$500.00",
+                             "reason": "no_simulation_coverage", "asset_type": "Equity"}],
+            "coverage_summary": {"covered": 0, "total_equity_holdings": 1, "coverage_pct": 0.0},
+        }
+        out = asm.render_section("10_portfolio_impact.j2", data=data, cycle_id="c1")
+        assert "*No held tickers match entities the swarm analyzed this cycle.*" in out
+
+    def test_all_covered_shows_all_covered_copy(self) -> None:
+        asm = ReportAssembler()
+        data = {
+            "matched_tickers": [{
+                "ticker": "AAPL", "shares": 1.0, "market_value": 260.0,
+                "market_value_display": "$260.00", "signal": "BUY", "confidence": 0.9,
+                "entity_name": "Apple", "avg_sentiment": 0.5, "mention_count": 10,
+            }],
+            "gap_tickers": [],
+            "coverage_summary": {"covered": 1, "total_equity_holdings": 1, "coverage_pct": 100.0},
+        }
+        out = asm.render_section("10_portfolio_impact.j2", data=data, cycle_id="c1")
+        assert "*All equity holdings have swarm coverage in this simulation.*" in out
+
+    def test_only_non_equity_gaps_omits_no_coverage_subheading(self) -> None:
+        asm = ReportAssembler()
+        data = {
+            "matched_tickers": [{
+                "ticker": "AAPL", "shares": 1.0, "market_value": 260.0,
+                "market_value_display": "$260.00", "signal": "BUY", "confidence": 0.9,
+                "entity_name": "Apple", "avg_sentiment": 0.5, "mention_count": 10,
+            }],
+            "gap_tickers": [{
+                "ticker": "QQQ", "shares": 10.0, "market_value": 5000.0,
+                "market_value_display": "$5,000.00",
+                "reason": "non_equity", "asset_type": "ETFs & Closed End Funds",
+            }],
+            "coverage_summary": {"covered": 1, "total_equity_holdings": 1, "coverage_pct": 100.0},
+        }
+        out = asm.render_section("10_portfolio_impact.j2", data=data, cycle_id="c1")
+        assert "### Coverage Gaps — No Simulation Coverage" not in out
+        assert "### Coverage Gaps — Non-Equity Holdings" in out
+
+
+class TestAssemblerIntegration:
+    def test_assemble_includes_portfolio_section_when_observation_present(self) -> None:
+        asm = ReportAssembler()
+        observations = [
+            ToolObservation(
+                tool_name="portfolio_impact",
+                tool_input={"cycle_id": "c1"},
+                result={
+                    "matched_tickers": [],
+                    "gap_tickers": [],
+                    "coverage_summary": {"covered": 0, "total_equity_holdings": 0, "coverage_pct": 0.0},
+                },
+            ),
+        ]
+        out = asm.assemble(observations, cycle_id="c1")
+        assert "## Portfolio Impact" in out
+
+    def test_assemble_omits_portfolio_section_when_absent(self) -> None:
+        asm = ReportAssembler()
+        out = asm.assemble([], cycle_id="c1")
+        assert "## Portfolio Impact" not in out
