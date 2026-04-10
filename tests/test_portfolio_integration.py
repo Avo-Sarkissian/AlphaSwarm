@@ -606,3 +606,311 @@ async def test_logging_never_contains_holdings_data(
     assert "NVIDIA" not in log_text
     assert "$2,600" not in log_text
     assert "$2,500" not in log_text
+
+
+# -----------------------------------------------------------------------------
+# HTML rendering (Task 3)
+# -----------------------------------------------------------------------------
+
+from alphaswarm.report import ReportAssembler
+
+
+class TestHtmlPortfolioSection:
+    def _matched_observation(self) -> ToolObservation:
+        return ToolObservation(
+            tool_name="portfolio_impact",
+            tool_input={"cycle_id": "c1"},
+            result={
+                "matched_tickers": [
+                    {
+                        "ticker": "AAPL",
+                        "shares": 101.3071,
+                        "market_value": 26416.56,
+                        "market_value_display": "$26,416.56",
+                        "signal": "BUY",
+                        "confidence": 0.82,
+                        "entity_name": "Apple Inc",
+                        "avg_sentiment": 0.43,
+                        "mention_count": 45,
+                    },
+                    {
+                        "ticker": "NVDA",
+                        "shares": 50.0,
+                        "market_value": 5000.0,
+                        "market_value_display": "$5,000.00",
+                        "signal": "SELL",
+                        "confidence": 0.61,
+                        "entity_name": "NVIDIA Corp",
+                        "avg_sentiment": -0.22,
+                        "mention_count": 33,
+                    },
+                ],
+                "gap_tickers": [
+                    {
+                        "ticker": "COHR",
+                        "shares": 25.0,
+                        "market_value": 1800.0,
+                        "market_value_display": "$1,800.00",
+                        "reason": "no_simulation_coverage",
+                        "asset_type": "Equity",
+                    },
+                    {
+                        "ticker": "VOO",
+                        "shares": 10.0,
+                        "market_value": 5000.0,
+                        "market_value_display": "$5,000.00",
+                        "reason": "non_equity",
+                        "asset_type": "ETFs & Closed End Funds",
+                    },
+                ],
+                "coverage_summary": {
+                    "covered": 2,
+                    "total_equity_holdings": 3,
+                    "coverage_pct": 66.7,
+                },
+            },
+        )
+
+    def test_html_contains_matched_heading(self) -> None:
+        asm = ReportAssembler()
+        html = asm.assemble_html([self._matched_observation()], cycle_id="c1")
+        assert "Portfolio Impact - Matched Positions" in html
+
+    def test_html_contains_coverage_gaps_heading(self) -> None:
+        asm = ReportAssembler()
+        html = asm.assemble_html([self._matched_observation()], cycle_id="c1")
+        assert "Portfolio Impact - Coverage Gaps" in html
+
+    def test_html_renders_matched_ticker_rows(self) -> None:
+        asm = ReportAssembler()
+        html = asm.assemble_html([self._matched_observation()], cycle_id="c1")
+        assert "AAPL" in html
+        assert "Apple Inc" in html
+        assert "$26,416.56" in html
+        assert "NVDA" in html
+        assert "NVIDIA Corp" in html
+
+    def test_html_uses_signal_class_for_buy(self) -> None:
+        asm = ReportAssembler()
+        html = asm.assemble_html([self._matched_observation()], cycle_id="c1")
+        assert 'class="signal-buy"' in html
+
+    def test_html_uses_signal_class_for_sell(self) -> None:
+        asm = ReportAssembler()
+        html = asm.assemble_html([self._matched_observation()], cycle_id="c1")
+        assert 'class="signal-sell"' in html
+
+    def test_html_renders_no_simulation_coverage_gap(self) -> None:
+        asm = ReportAssembler()
+        html = asm.assemble_html([self._matched_observation()], cycle_id="c1")
+        assert "COHR" in html
+        assert "$1,800.00" in html
+        assert "No simulation coverage" in html
+
+    def test_html_renders_non_equity_gap_with_asset_type(self) -> None:
+        """REVIEWS HIGH (Codex): non-equity holdings must appear as gaps with reason label."""
+        asm = ReportAssembler()
+        html = asm.assemble_html([self._matched_observation()], cycle_id="c1")
+        assert "VOO" in html
+        assert (
+            "Non-equity (ETFs &amp; Closed End Funds)" in html
+            or "Non-equity (ETFs & Closed End Funds)" in html
+        )
+
+    def test_html_renders_coverage_summary_text(self) -> None:
+        asm = ReportAssembler()
+        html = asm.assemble_html([self._matched_observation()], cycle_id="c1")
+        assert (
+            "Coverage: 2/3 equity holdings matched to swarm consensus (66.7%)"
+            in html
+        )
+
+    def test_html_renders_integer_agreement_percent(self) -> None:
+        asm = ReportAssembler()
+        html = asm.assemble_html([self._matched_observation()], cycle_id="c1")
+        assert "82%" in html
+        assert "61%" in html
+
+    def test_html_omits_portfolio_section_when_observation_absent(self) -> None:
+        asm = ReportAssembler()
+        html = asm.assemble_html([], cycle_id="c1")
+        assert "Portfolio Impact" not in html
+
+    def test_html_all_covered_shows_empty_gaps_copy(self) -> None:
+        asm = ReportAssembler()
+        obs = ToolObservation(
+            tool_name="portfolio_impact",
+            tool_input={},
+            result={
+                "matched_tickers": [
+                    {
+                        "ticker": "AAPL",
+                        "shares": 1.0,
+                        "market_value": 260.0,
+                        "market_value_display": "$260.00",
+                        "signal": "BUY",
+                        "confidence": 0.9,
+                        "entity_name": "Apple",
+                        "avg_sentiment": 0.5,
+                        "mention_count": 10,
+                    }
+                ],
+                "gap_tickers": [],
+                "coverage_summary": {
+                    "covered": 1,
+                    "total_equity_holdings": 1,
+                    "coverage_pct": 100.0,
+                },
+            },
+        )
+        html = asm.assemble_html([obs], cycle_id="c1")
+        assert "All equity holdings have swarm coverage in this simulation." in html
+
+    def test_html_no_matches_shows_empty_matched_copy(self) -> None:
+        asm = ReportAssembler()
+        obs = ToolObservation(
+            tool_name="portfolio_impact",
+            tool_input={},
+            result={
+                "matched_tickers": [],
+                "gap_tickers": [
+                    {
+                        "ticker": "COHR",
+                        "shares": 5.0,
+                        "market_value": 500.0,
+                        "market_value_display": "$500.00",
+                        "reason": "no_simulation_coverage",
+                        "asset_type": "Equity",
+                    }
+                ],
+                "coverage_summary": {
+                    "covered": 0,
+                    "total_equity_holdings": 1,
+                    "coverage_pct": 0.0,
+                },
+            },
+        )
+        html = asm.assemble_html([obs], cycle_id="c1")
+        assert "No held tickers match entities the swarm analyzed this cycle." in html
+
+    def test_html_escapes_entity_name_with_html_chars(self) -> None:
+        """REVIEWS LOW (Codex): user-controlled fields must go through Jinja autoescape."""
+        asm = ReportAssembler()
+        obs = ToolObservation(
+            tool_name="portfolio_impact",
+            tool_input={},
+            result={
+                "matched_tickers": [
+                    {
+                        "ticker": "XYZ",
+                        "shares": 1.0,
+                        "market_value": 100.0,
+                        "market_value_display": "$100.00",
+                        "signal": "BUY",
+                        "confidence": 0.5,
+                        "entity_name": "<script>alert(1)</script>",
+                        "avg_sentiment": 0.1,
+                        "mention_count": 1,
+                    }
+                ],
+                "gap_tickers": [],
+                "coverage_summary": {
+                    "covered": 1,
+                    "total_equity_holdings": 1,
+                    "coverage_pct": 100.0,
+                },
+            },
+        )
+        html = asm.assemble_html([obs], cycle_id="c1")
+        assert "<script>alert(1)</script>" not in html
+        assert "&lt;script&gt;" in html
+
+    def test_html_no_new_css_classes_introduced(self) -> None:
+        """Phase 25 must not add new CSS classes. Verify by checking template source."""
+        template_path = Path("src/alphaswarm/templates/report/report.html.j2")
+        src = template_path.read_text(encoding="utf-8")
+        assert ".portfolio-" not in src
+        assert ".matched-" not in src
+        assert ".gap-" not in src
+
+    def test_html_report_still_self_contained(self) -> None:
+        """Phase 24 constraint: HTML report must work offline."""
+        asm = ReportAssembler()
+        html = asm.assemble_html([self._matched_observation()], cycle_id="c1")
+        if "Portfolio Impact" in html:
+            portfolio_section = html.split("Portfolio Impact")[1]
+            assert "https://" not in portfolio_section
+            assert "http://" not in portfolio_section
+
+
+class TestDeterministicEndToEnd:
+    """REVIEWS HIGH consensus: the complete pipeline must render the Portfolio
+    Impact section in markdown AND HTML even if the ReACT loop never calls the tool."""
+
+    @pytest.mark.asyncio
+    async def test_lazy_llm_still_produces_portfolio_markdown_section(self) -> None:
+        """Simulates a 'lazy' LLM that ignores portfolio_impact. The pre-seeded
+        observation must still flow through ReportAssembler.assemble()."""
+        portfolio_obs = ToolObservation(
+            tool_name="portfolio_impact",
+            tool_input={"cycle_id": "c1"},
+            result={
+                "matched_tickers": [
+                    {
+                        "ticker": "AAPL",
+                        "shares": 10.0,
+                        "market_value": 2600.0,
+                        "market_value_display": "$2,600.00",
+                        "signal": "BUY",
+                        "confidence": 0.8,
+                        "entity_name": "Apple Inc",
+                        "avg_sentiment": 0.4,
+                        "mention_count": 20,
+                    }
+                ],
+                "gap_tickers": [],
+                "coverage_summary": {
+                    "covered": 1,
+                    "total_equity_holdings": 1,
+                    "coverage_pct": 100.0,
+                },
+            },
+        )
+        # Render via ReportAssembler directly (ReACT loop not needed — we simulate
+        # the end state after ReportEngine.run() returns pre_seeded observations).
+        asm = ReportAssembler()
+        md = asm.assemble([portfolio_obs], cycle_id="c1")
+        assert "Portfolio Impact" in md
+        assert "AAPL" in md
+
+    @pytest.mark.asyncio
+    async def test_lazy_llm_still_produces_portfolio_html_section(self) -> None:
+        portfolio_obs = ToolObservation(
+            tool_name="portfolio_impact",
+            tool_input={"cycle_id": "c1"},
+            result={
+                "matched_tickers": [
+                    {
+                        "ticker": "AAPL",
+                        "shares": 10.0,
+                        "market_value": 2600.0,
+                        "market_value_display": "$2,600.00",
+                        "signal": "BUY",
+                        "confidence": 0.8,
+                        "entity_name": "Apple Inc",
+                        "avg_sentiment": 0.4,
+                        "mention_count": 20,
+                    }
+                ],
+                "gap_tickers": [],
+                "coverage_summary": {
+                    "covered": 1,
+                    "total_equity_holdings": 1,
+                    "coverage_pct": 100.0,
+                },
+            },
+        )
+        asm = ReportAssembler()
+        html = asm.assemble_html([portfolio_obs], cycle_id="c1")
+        assert "Portfolio Impact - Matched Positions" in html
+        assert "AAPL" in html
