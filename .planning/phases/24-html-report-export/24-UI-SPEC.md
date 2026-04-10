@@ -1,7 +1,8 @@
 ---
 phase: 24
 slug: html-report-export
-status: draft
+status: approved
+reviewed_at: 2026-04-09
 shadcn_initialized: false
 preset: none
 created: 2026-04-09
