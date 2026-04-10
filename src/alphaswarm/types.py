@@ -91,47 +91,6 @@ class SeedEvent(BaseModel, frozen=True):
     raw_rumor: str
     entities: list[SeedEntity]
     overall_sentiment: float = Field(ge=-1.0, le=1.0)
-    # Phase 17: Extracted ticker symbols for market data fetching (D-07).
-    # Populated by seed parser when tickers are present in the rumor.
-    # Empty by default for backward compatibility.
-    tickers: list[ExtractedTicker] = Field(default_factory=list)
-
-
-class MarketDataSnapshot(BaseModel, frozen=True):
-    """Market data snapshot for a single ticker. Per Phase 17 D-03."""
-
-    symbol: str
-    company_name: str = ""
-    # Price history: 90-day daily OHLCV (D-01)
-    price_history: list[dict[str, float | int | str]] = Field(default_factory=list)
-    # Financial fundamentals (D-02)
-    pe_ratio: float | None = None
-    market_cap: float | None = None
-    fifty_two_week_high: float | None = None
-    fifty_two_week_low: float | None = None
-    eps_trailing: float | None = None
-    revenue_ttm: float | None = None
-    gross_margin_pct: float | None = None
-    debt_to_equity: float | None = None
-    earnings_surprise_pct: float | None = None
-    next_earnings_date: str | None = None
-    # Computed summary stats for quick access
-    last_close: float | None = None
-    price_change_30d_pct: float | None = None
-    price_change_90d_pct: float | None = None
-    avg_volume_30d: float | None = None
-    # Reserved for Phase 18 (D-04: news deferred, DATA-03 compliance in Phase 18)
-    headlines: list[str] = Field(default_factory=list)
-    # Degraded flag (D-15: True when both yfinance and AV fail)
-    is_degraded: bool = False
-
-
-class ExtractedTicker(BaseModel, frozen=True):
-    """A ticker symbol extracted from a seed rumor for market data fetching (Phase 17)."""
-
-    symbol: str
-    company_name: str
-    relevance: float = Field(ge=0.0, le=1.0)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -150,7 +109,6 @@ class ParsedSeedResult:
 
     seed_event: SeedEvent
     parse_tier: int
-    dropped_tickers: tuple[dict[str, str], ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -167,15 +125,6 @@ class ParsedModifiersResult:
     parse_tier: int
 
 
-class TickerDecision(BaseModel, frozen=True):
-    """Per-ticker directional decision with optional return estimate (Phase 18, D-06)."""
-
-    ticker: str
-    direction: SignalType
-    expected_return_pct: float | None = None
-    time_horizon: str | None = None
-
-
 class AgentDecision(BaseModel, frozen=True):
     """Structured decision output from an agent inference call."""
 
@@ -184,8 +133,6 @@ class AgentDecision(BaseModel, frozen=True):
     sentiment: float = Field(ge=-1.0, le=1.0, default=0.0)
     rationale: str = ""
     cited_agents: list[str] = Field(default_factory=list)
-    # Phase 18: Per-ticker decisions (D-07). Empty list default = backward-compatible.
-    ticker_decisions: list[TickerDecision] = Field(default_factory=list)
 
 
 class SimulationPhase(str, Enum):

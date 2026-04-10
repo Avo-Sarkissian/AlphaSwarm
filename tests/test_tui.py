@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from alphaswarm.state import AgentState, BracketSummary, GovernorMetrics, RationaleEntry, StateSnapshot, StateStore, TickerConsensus
+from alphaswarm.state import AgentState, BracketSummary, GovernorMetrics, RationaleEntry, StateSnapshot, StateStore
 from alphaswarm.tui import (
     AgentCell,
     AlphaSwarmApp,
@@ -19,7 +19,6 @@ from alphaswarm.tui import (
     HeaderBar,
     RationaleSidebar,
     TelemetryFooter,
-    TickerConsensusPanel,
     _format_elapsed,
     _phase_display_label,
     compute_cell_color,
@@ -527,142 +526,3 @@ def test_sentinel_poll_updates_footer(tmp_path: pytest.TempPathFactory) -> None:
 
     # Verify update_report_path was called with the correct path
     mock_footer.update_report_path.assert_called_once_with("reports/cycle-test-123_report.md")
-
-
-# ---------- TickerConsensusPanel unit tests (Phase 19, Plan 02) ----------
-
-
-def _make_ticker_consensus(
-    ticker: str = "AAPL",
-    round_num: int = 3,
-    weighted_signal: str = "BUY",
-    weighted_score: float = 0.74,
-    majority_signal: str = "BUY",
-    majority_pct: float = 0.68,    # FRACTION 0.0-1.0, not percentage
-    bracket_breakdown: tuple[BracketSummary, ...] = (),
-) -> TickerConsensus:
-    return TickerConsensus(
-        ticker=ticker, round_num=round_num, weighted_signal=weighted_signal,
-        weighted_score=weighted_score, majority_signal=majority_signal,
-        majority_pct=majority_pct, bracket_breakdown=bracket_breakdown,
-    )
-
-
-def test_ticker_consensus_panel_title() -> None:
-    """Panel render output starts with 'Tickers' heading."""
-    panel = TickerConsensusPanel()
-    panel.update_consensus((), SimulationPhase.IDLE, 0)
-    result = panel.render()
-    assert "Tickers" in result.plain
-
-
-def test_ticker_consensus_panel_empty_state_idle() -> None:
-    """Panel with no consensus and phase=IDLE renders 'No tickers' and 'extracted'."""
-    panel = TickerConsensusPanel()
-    panel.update_consensus((), SimulationPhase.IDLE, 0)
-    result = panel.render()
-    plain = result.plain
-    assert "No tickers" in plain
-    assert "extracted" in plain
-    assert "Awaiting" not in plain
-
-
-def test_ticker_consensus_panel_awaiting_state_round1() -> None:
-    """Panel with no consensus but phase=ROUND_1 renders 'Awaiting R1...' (review concern #3)."""
-    panel = TickerConsensusPanel()
-    panel.update_consensus((), SimulationPhase.ROUND_1, 1)
-    result = panel.render()
-    plain = result.plain
-    assert "Awaiting R1..." in plain
-    assert "No tickers" not in plain
-
-
-def test_ticker_consensus_panel_awaiting_state_round2() -> None:
-    """Panel with no consensus but phase=ROUND_2 renders 'Awaiting R2...'."""
-    panel = TickerConsensusPanel()
-    panel.update_consensus((), SimulationPhase.ROUND_2, 2)
-    result = panel.render()
-    plain = result.plain
-    assert "Awaiting R2..." in plain
-
-
-def test_ticker_consensus_panel_render_header_both_signals() -> None:
-    """Panel renders BOTH weighted and majority signals explicitly (review concern #2, DTUI-02).
-
-    When weighted and majority DISAGREE, both must be independently visible.
-    """
-    tc = _make_ticker_consensus(
-        weighted_signal="BUY", majority_signal="SELL",
-        weighted_score=0.74, majority_pct=0.54, round_num=3,
-    )
-    panel = TickerConsensusPanel()
-    panel.update_consensus((tc,), SimulationPhase.COMPLETE, 3)
-    result = panel.render()
-    plain = result.plain
-    assert "AAPL" in plain
-    assert "w:" in plain
-    assert "BUY" in plain
-    assert "0.74" in plain
-    assert "m:" in plain
-    assert "SELL" in plain
-    assert "54%" in plain
-    assert "R3" in plain
-
-
-def test_ticker_consensus_panel_render_header_agree() -> None:
-    """Panel with both signals='BUY' still renders both w: and m: labels."""
-    tc = _make_ticker_consensus(
-        weighted_signal="BUY", majority_signal="BUY",
-        weighted_score=0.80, majority_pct=0.75,
-    )
-    panel = TickerConsensusPanel()
-    panel.update_consensus((tc,), SimulationPhase.COMPLETE, 3)
-    result = panel.render()
-    plain = result.plain
-    assert "w:" in plain
-    assert "m:" in plain
-
-
-def test_ticker_consensus_panel_render_bracket_bars() -> None:
-    """Panel with 1 TickerConsensus having 10 BracketSummary entries renders all 10 names."""
-    bracket_names = [
-        "Quants", "Degens", "Sovereigns", "Macro", "Suits",
-        "Insiders", "Agents", "Doom-Posters", "Policy Wonks", "Whales",
-    ]
-    breakdowns = tuple(
-        _make_bracket_summary(bracket=name.lower().replace(" ", "_"), display_name=name)
-        for name in bracket_names
-    )
-    tc = _make_ticker_consensus(bracket_breakdown=breakdowns)
-    panel = TickerConsensusPanel()
-    panel.update_consensus((tc,), SimulationPhase.COMPLETE, 3)
-    result = panel.render()
-    plain = result.plain
-    for name in bracket_names:
-        assert name in plain
-    assert "\u2588" in plain   # Full block (filled)
-    assert "\u2591" in plain   # Light shade (empty)
-
-
-def test_ticker_consensus_panel_multiple_tickers() -> None:
-    """Panel with 2 TickerConsensus entries renders both ticker symbols."""
-    tc1 = _make_ticker_consensus(ticker="AAPL")
-    tc2 = _make_ticker_consensus(ticker="TSLA", weighted_signal="SELL", majority_signal="SELL")
-    panel = TickerConsensusPanel()
-    panel.update_consensus((tc1, tc2), SimulationPhase.COMPLETE, 3)
-    result = panel.render()
-    plain = result.plain
-    assert "AAPL" in plain
-    assert "TSLA" in plain
-
-
-def test_ticker_consensus_panel_majority_pct_display() -> None:
-    """majority_pct=0.68 (fraction) renders as '68%' in display (review concern #7)."""
-    tc = _make_ticker_consensus(majority_pct=0.68)
-    panel = TickerConsensusPanel()
-    panel.update_consensus((tc,), SimulationPhase.COMPLETE, 3)
-    result = panel.render()
-    plain = result.plain
-    assert "68%" in plain
-    assert "0.68%" not in plain
-    assert "0%" not in plain

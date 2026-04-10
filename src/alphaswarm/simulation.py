@@ -18,17 +18,9 @@ import structlog
 
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
-from alphaswarm.enrichment import (
-    EARNINGS_INSIDER_BRACKETS,
-    FUNDAMENTALS_BRACKETS,
-    TECHNICALS_BRACKETS,
-    build_enriched_user_message,
-    enrich_snapshots_with_headlines,
-)
-from alphaswarm.market_data import fetch_market_data
 from alphaswarm.seed import inject_seed
-from alphaswarm.state import BracketSummary, TickerConsensus
-from alphaswarm.types import AgentPersona, BracketType, MarketDataSnapshot, SignalType, SimulationPhase
+from alphaswarm.state import BracketSummary
+from alphaswarm.types import SignalType, SimulationPhase
 from alphaswarm.utils import sanitize_rationale
 from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_type
 
@@ -39,7 +31,7 @@ if TYPE_CHECKING:
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
     from alphaswarm.state import StateStore
-    from alphaswarm.types import AgentDecision, ParsedModifiersResult, ParsedSeedResult
+    from alphaswarm.types import AgentDecision, AgentPersona, ParsedModifiersResult, ParsedSeedResult
 
 logger = structlog.get_logger(component="simulation")
 
@@ -137,145 +129,6 @@ def compute_bracket_summaries(
                 avg_sentiment=sent_sums[bv] / t if t > 0 else 0.0,
             )
         )
-    return tuple(result)
-
-
-# Deterministic tie-break priority: BUY wins ties over HOLD, HOLD over SELL.
-# This ensures reproducible results regardless of dict insertion order.
-# (Addresses review concern #5: max() on dict follows insertion order, not stable priority.)
-_TIE_BREAK_ORDER: dict[str, int] = {"BUY": 0, "HOLD": 1, "SELL": 2}
-
-
-def compute_ticker_consensus(
-    agent_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
-    personas: list[AgentPersona],
-    brackets: list[BracketConfig],
-    influence_weights: dict[str, float],
-    round_num: int,
-) -> tuple[TickerConsensus, ...]:
-    """Compute per-ticker consensus from a round's decisions (Phase 19, D-08).
-
-    IMPORTANT: Bracket breakdown uses TickerDecision.direction (per-ticker),
-    NOT AgentDecision.signal (global). This is a CUSTOM aggregation, not a
-    reuse of compute_bracket_summaries(). See review concern #1.
-
-    majority_pct is stored as 0.0-1.0 fraction (review concern #7).
-    Ticker strings are normalized to uppercase (review concern #8).
-    Tie-breaks use BUY > HOLD > SELL priority (review concern #5).
-    """
-    persona_base: dict[str, float] = {p.id: p.influence_weight_base for p in personas}
-    agent_bracket: dict[str, str] = {p.id: p.bracket.value for p in personas}
-    display_lookup: dict[str, str] = {b.bracket_type.value: b.display_name for b in brackets}
-
-    # Collect all tickers present across decisions, normalized to uppercase (review concern #8)
-    all_tickers: set[str] = set()
-    for _, dec in agent_decisions:
-        if dec.signal == SignalType.PARSE_ERROR:
-            continue
-        if not dec.ticker_decisions:
-            continue
-        for td in dec.ticker_decisions:
-            all_tickers.add(td.ticker.upper())
-
-    result: list[TickerConsensus] = []
-    for ticker in sorted(all_tickers):
-        majority_counts: dict[str, int] = {"BUY": 0, "SELL": 0, "HOLD": 0}
-        weighted_sums: dict[str, float] = {"BUY": 0.0, "SELL": 0.0, "HOLD": 0.0}
-
-        # --- Per-ticker bracket aggregation (review concern #1) ---
-        # CRITICAL: We count TickerDecision.direction, NOT AgentDecision.signal.
-        # compute_bracket_summaries() counts decision.signal which is the GLOBAL
-        # signal, not the per-ticker direction. Reusing it would produce global
-        # sentiment bars instead of ticker-scoped bars. Hence this custom aggregator.
-        bracket_counts: dict[str, dict[str, int]] = {}
-        bracket_conf_sums: dict[str, float] = {}
-        bracket_sent_sums: dict[str, float] = {}
-        bracket_totals: dict[str, int] = {}
-        for b in brackets:
-            bv = b.bracket_type.value
-            bracket_counts[bv] = {"buy": 0, "sell": 0, "hold": 0}
-            bracket_conf_sums[bv] = 0.0
-            bracket_sent_sums[bv] = 0.0
-            bracket_totals[bv] = 0
-
-        for agent_id, dec in agent_decisions:
-            if dec.signal == SignalType.PARSE_ERROR:
-                continue
-            if not dec.ticker_decisions:
-                continue
-            # Find this agent's TickerDecision for the current ticker (case-insensitive)
-            td = next((t for t in dec.ticker_decisions if t.ticker.upper() == ticker), None)
-            if td is None:
-                continue
-            # Skip PARSE_ERROR directions (defensive)
-            if td.direction == SignalType.PARSE_ERROR:
-                continue
-
-            direction_upper = td.direction.value.upper()  # "buy" -> "BUY"
-            w = influence_weights.get(agent_id, persona_base.get(agent_id, 1.0))
-
-            # Majority vote accumulation
-            majority_counts[direction_upper] += 1
-            # Confidence-weighted accumulation
-            weighted_sums[direction_upper] += dec.confidence * w
-
-            # Per-ticker bracket accumulation using td.direction (NOT dec.signal)
-            bv = agent_bracket.get(agent_id)
-            if bv is not None and bv in bracket_counts:
-                signal_key = td.direction.value  # lowercase: "buy"/"sell"/"hold"
-                bracket_counts[bv][signal_key] = bracket_counts[bv].get(signal_key, 0) + 1
-                bracket_conf_sums[bv] += dec.confidence
-                bracket_sent_sums[bv] += dec.sentiment
-                bracket_totals[bv] += 1
-
-        total_votes = sum(majority_counts.values())
-        total_weighted = sum(weighted_sums.values())
-
-        # Skip tickers with zero valid votes (all agents were PARSE_ERROR or had no td for this ticker)
-        if total_votes == 0:
-            continue
-
-        # Deterministic tie-break: BUY > HOLD > SELL (review concern #5)
-        majority_signal = max(
-            majority_counts,
-            key=lambda k: (majority_counts[k], -_TIE_BREAK_ORDER.get(k, 99)),
-        )
-        weighted_signal = max(
-            weighted_sums,
-            key=lambda k: (weighted_sums[k], -_TIE_BREAK_ORDER.get(k, 99)),
-        )
-
-        # majority_pct as 0.0-1.0 FRACTION (review concern #7)
-        majority_pct = majority_counts[majority_signal] / total_votes if total_votes > 0 else 0.0
-        weighted_score = weighted_sums[weighted_signal] / total_weighted if total_weighted > 0.0 else 0.0
-
-        # Build ticker-scoped BracketSummary tuple
-        bracket_breakdown_list: list[BracketSummary] = []
-        for b in brackets:
-            bv = b.bracket_type.value
-            t = bracket_totals[bv]
-            bracket_breakdown_list.append(
-                BracketSummary(
-                    bracket=bv,
-                    display_name=display_lookup.get(bv, bv),
-                    buy_count=bracket_counts[bv]["buy"],
-                    sell_count=bracket_counts[bv]["sell"],
-                    hold_count=bracket_counts[bv]["hold"],
-                    total=t,
-                    avg_confidence=bracket_conf_sums[bv] / t if t > 0 else 0.0,
-                    avg_sentiment=bracket_sent_sums[bv] / t if t > 0 else 0.0,
-                )
-            )
-
-        result.append(TickerConsensus(
-            ticker=ticker,
-            round_num=round_num,
-            weighted_signal=weighted_signal,
-            weighted_score=weighted_score,
-            majority_signal=majority_signal,
-            majority_pct=majority_pct,
-            bracket_breakdown=tuple(bracket_breakdown_list),
-        ))
     return tuple(result)
 
 
@@ -564,116 +417,6 @@ def _compute_shifts(
 
 
 # ---------------------------------------------------------------------------
-# Phase 18: Sub-wave dispatch helpers (bracket-enriched market context)
-# ---------------------------------------------------------------------------
-
-
-def _group_personas_by_slice(
-    personas: list[AgentPersona],
-) -> list[tuple[list[AgentPersona], BracketType]]:
-    """Group personas into 3 bracket slice categories for sub-wave dispatch.
-
-    Returns list of (personas_in_group, representative_bracket) tuples.
-    The representative_bracket is any member of the group -- used to select
-    the correct enrichment slice in build_enriched_user_message().
-    Groups with zero personas are omitted.
-    """
-    groups: dict[str, tuple[list[AgentPersona], BracketType]] = {
-        "technicals": ([], BracketType.QUANTS),
-        "fundamentals": ([], BracketType.SUITS),
-        "earnings": ([], BracketType.INSIDERS),
-    }
-    for p in personas:
-        if p.bracket in TECHNICALS_BRACKETS:
-            groups["technicals"][0].append(p)
-        elif p.bracket in FUNDAMENTALS_BRACKETS:
-            groups["fundamentals"][0].append(p)
-        elif p.bracket in EARNINGS_INSIDER_BRACKETS:
-            groups["earnings"][0].append(p)
-        else:
-            # Fallback: unknown bracket gets earnings slice (safest default)
-            groups["earnings"][0].append(p)
-    return [(ps, rep) for ps, rep in groups.values() if ps]
-
-
-async def _dispatch_enriched_sub_waves(
-    personas: list[AgentPersona],
-    market_snapshots: dict[str, MarketDataSnapshot],
-    rumor: str,
-    governor: ResourceGovernor,
-    client: OllamaClient,
-    model: str,
-    settings: GovernorSettings,
-    *,
-    peer_contexts_by_id: dict[str, str | None] | None = None,
-    state_store: StateStore | None = None,
-) -> list[AgentDecision]:
-    """Dispatch 3 sub-waves (one per bracket slice) and merge results in original persona order.
-
-    When market_snapshots is empty, dispatches a single wave with bare rumor (existing behavior).
-    When peer_contexts_by_id is provided, extracts per-agent peer contexts for each sub-wave.
-    Returns decisions list aligned positionally with input personas.
-    """
-    if not market_snapshots:
-        # No market data -- single dispatch with bare rumor (backward compatible)
-        worker_configs = [persona_to_worker_config(p) for p in personas]
-        peer_ctxs = None
-        if peer_contexts_by_id is not None:
-            peer_ctxs = [peer_contexts_by_id.get(p.id) for p in personas]
-        return await dispatch_wave(
-            personas=worker_configs,
-            governor=governor,
-            client=client,
-            model=model,
-            user_message=rumor,
-            settings=settings,
-            peer_contexts=peer_ctxs,
-            state_store=state_store,
-        )
-
-    # Sub-wave dispatch per bracket group
-    bracket_groups = _group_personas_by_slice(personas)
-    results_by_id: dict[str, AgentDecision] = {}
-
-    for group_personas, rep_bracket in bracket_groups:
-        enriched_msg = build_enriched_user_message(rumor, market_snapshots, rep_bracket)
-        group_configs = [persona_to_worker_config(p) for p in group_personas]
-
-        # Extract per-agent peer contexts for this group if provided
-        group_peer_ctxs: list[str | None] | None = None
-        if peer_contexts_by_id is not None:
-            group_peer_ctxs = [peer_contexts_by_id.get(p.id) for p in group_personas]
-
-        group_decisions = await dispatch_wave(
-            personas=group_configs,
-            governor=governor,
-            client=client,
-            model=model,
-            user_message=enriched_msg,
-            settings=settings,
-            peer_contexts=group_peer_ctxs,
-            state_store=state_store,
-        )
-
-        # Positional invariant: dispatch_wave returns decisions aligned with group_configs
-        if len(group_decisions) != len(group_personas):
-            raise RuntimeError(
-                f"Sub-wave decision count mismatch: {len(group_decisions)} != {len(group_personas)}"
-            )
-
-        for persona, decision in zip(group_personas, group_decisions):
-            results_by_id[persona.id] = decision
-
-    # Merge in original persona order (Pitfall 5)
-    merged = [results_by_id[p.id] for p in personas]
-    if len(merged) != len(personas):
-        raise RuntimeError(
-            f"Merged decision count mismatch: {len(merged)} != {len(personas)}"
-        )
-    return merged
-
-
-# ---------------------------------------------------------------------------
 # Round 1 pipeline (Phase 6)
 # ---------------------------------------------------------------------------
 
@@ -689,7 +432,6 @@ async def run_round1(
     *,
     state_store: StateStore | None = None,
     pre_injected: tuple[str, ParsedSeedResult] | None = None,
-    market_snapshots: dict[str, MarketDataSnapshot] | None = None,  # Phase 18
 ) -> Round1Result:
     """Execute the Round 1 simulation pipeline.
 
@@ -699,7 +441,6 @@ async def run_round1(
     3. start_monitoring (governor RAM monitoring)
     4. load worker model
     5. dispatch_wave with peer_context=None (Round 1 = no peer influence)
-       Phase 18: Uses _dispatch_enriched_sub_waves for bracket-specific market context
     6. Positional assertion (dispatch results must match persona count)
     7. Pair agent IDs with decisions
     8. write_decisions with round_num=1
@@ -716,8 +457,6 @@ async def run_round1(
         pre_injected: Optional (cycle_id, parsed_result) when seed injection
             was already performed by the caller (e.g., run_simulation for Phase 13
             modifier generation). Skips inject_seed when provided.
-        market_snapshots: Optional market data snapshots for bracket-enriched prompts.
-            When provided and non-empty, agents receive bracket-specific market context.
 
     Returns:
         Round1Result with cycle_id, parsed_result, and agent_decisions.
@@ -753,16 +492,15 @@ async def run_round1(
         await model_manager.load_model(worker_alias)
         try:
             # 5. Convert personas and dispatch
-            # Phase 18: Sub-wave dispatch with bracket-enriched market context
             worker_configs = [persona_to_worker_config(p) for p in personas]
-            decisions = await _dispatch_enriched_sub_waves(
-                personas=personas,
-                market_snapshots=market_snapshots or {},
-                rumor=rumor,
+            decisions = await dispatch_wave(
+                personas=worker_configs,
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
+                user_message=rumor,
                 settings=settings.governor,
+                peer_context=None,
                 state_store=state_store,
             )
 
@@ -1032,41 +770,12 @@ async def run_simulation(
         personas = generate_personas(brackets, modifiers=modifier_result.modifiers)
         logger.info("personas_regenerated_with_modifiers", parse_tier=modifier_result.parse_tier)
 
-    # Phase 17: Fetch market data for extracted tickers (D-07)
-    # Must complete before Round 1 per DATA-01 / ENRICH-01
-    market_snapshots: dict[str, MarketDataSnapshot] = {}
-    if parsed_result.seed_event.tickers:
-        logger.info(
-            "market_data_fetch_start",
-            ticker_count=len(parsed_result.seed_event.tickers),
-            tickers=[t.symbol for t in parsed_result.seed_event.tickers],
-        )
-        market_snapshots = await fetch_market_data(
-            parsed_result.seed_event.tickers,
-            av_key=settings.alpha_vantage_api_key,
-        )
-        # Persist to Neo4j (D-12, D-13)
-        await graph_manager.create_ticker_with_market_data(cycle_id, market_snapshots)
-        logger.info(
-            "market_data_fetch_complete",
-            fetched=len(market_snapshots),
-            degraded=[s for s, snap in market_snapshots.items() if snap.is_degraded],
-        )
-
-    # Phase 18: Enrich snapshots with news headlines (ENRICH-03, D-09)
-    # Must happen once pre-simulation, not per-round (anti-pattern from Research)
-    if market_snapshots:
-        market_snapshots = await enrich_snapshots_with_headlines(
-            market_snapshots, av_key=settings.alpha_vantage_api_key,
-        )
-
     # Round 1 dispatch (skip inject_seed since we already did it)
     round1_result = await run_round1(
         rumor, settings, ollama_client, model_manager,
         graph_manager, governor, personas,
         state_store=state_store,
         pre_injected=(cycle_id, parsed_result),
-        market_snapshots=market_snapshots,  # Phase 18
     )
     cycle_id = round1_result.cycle_id
 
@@ -1111,23 +820,11 @@ async def run_simulation(
         round1_result.agent_decisions, personas, brackets,
     )
 
-    # Compute Round 1 ticker consensus (outside state_store guard so graph write always runs)
-    ticker_consensus_r1 = compute_ticker_consensus(
-        round1_result.agent_decisions, personas, brackets, round1_weights, round_num=1,
-    )
-
     # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
     if state_store is not None:
         await state_store.set_bracket_summaries(round1_summaries)
-        await state_store.set_ticker_consensus(ticker_consensus_r1)
         await _push_top_rationales(
             round1_result.agent_decisions, 1, state_store, influence_weights=round1_weights,
-        )
-
-    # Persist Round 1 ticker consensus to Neo4j (Phase 20 D-04)
-    if ticker_consensus_r1:
-        await graph_manager.write_ticker_consensus_summary(
-            cycle_id, 1, list(ticker_consensus_r1),
         )
 
     # Fire callback for Round 1 (progressive output)
@@ -1184,23 +881,16 @@ async def run_simulation(
         # Load worker model immediately before dispatch — no idle gap
         await model_manager.load_model(worker_alias)
         try:
-            # Phase 18: Build per-agent peer context lookup for sub-wave dispatch
-            round2_peer_ctx_by_id: dict[str, str | None] = {
-                p.id: ctx
-                for p, ctx in zip(personas, round2_peer_contexts)
-            }
-
-            # Dispatch Round 2 with bracket-enriched sub-waves (Phase 18)
+            # Dispatch Round 2 with pre-built peer contexts (bypass _dispatch_round)
             worker_configs = [persona_to_worker_config(p) for p in personas]
-            round2_wave_decisions = await _dispatch_enriched_sub_waves(
-                personas=personas,
-                market_snapshots=market_snapshots,
-                rumor=rumor,
+            round2_wave_decisions = await dispatch_wave(
+                personas=worker_configs,
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
+                user_message=rumor,
                 settings=settings.governor,
-                peer_contexts_by_id=round2_peer_ctx_by_id,
+                peer_contexts=round2_peer_contexts,
                 state_store=state_store,
             )
             round2_decisions: list[tuple[str, AgentDecision]] = [
@@ -1255,23 +945,11 @@ async def run_simulation(
             # Compute Round 2 bracket summaries (D-08)
             round2_summaries = compute_bracket_summaries(round2_decisions, personas, brackets)
 
-            # Compute Round 2 ticker consensus (outside state_store guard so graph write always runs)
-            ticker_consensus_r2 = compute_ticker_consensus(
-                round2_decisions, personas, brackets, round2_weights, round_num=2,
-            )
-
             # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
             if state_store is not None:
                 await state_store.set_bracket_summaries(round2_summaries)
-                await state_store.set_ticker_consensus(ticker_consensus_r2)
                 await _push_top_rationales(
                     round2_decisions, 2, state_store, influence_weights=round2_weights,
-                )
-
-            # Persist Round 2 ticker consensus to Neo4j (Phase 20 D-04)
-            if ticker_consensus_r2:
-                await graph_manager.write_ticker_consensus_summary(
-                    cycle_id, 2, list(ticker_consensus_r2),
                 )
 
             # Compute Round 2 shifts in-memory (D-13)
@@ -1322,22 +1000,15 @@ async def run_simulation(
                 peer_selection="ranked_posts",
             )
 
-            # Phase 18: Build per-agent peer context lookup for sub-wave dispatch
-            round3_peer_ctx_by_id: dict[str, str | None] = {
-                p.id: ctx
-                for p, ctx in zip(personas, round3_peer_contexts)
-            }
-
-            # Dispatch Round 3 with bracket-enriched sub-waves (Phase 18)
-            round3_wave_decisions = await _dispatch_enriched_sub_waves(
-                personas=personas,
-                market_snapshots=market_snapshots,
-                rumor=rumor,
+            # Dispatch Round 3 with pre-built peer contexts
+            round3_wave_decisions = await dispatch_wave(
+                personas=worker_configs,
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
+                user_message=rumor,
                 settings=settings.governor,
-                peer_contexts_by_id=round3_peer_ctx_by_id,
+                peer_contexts=round3_peer_contexts,
                 state_store=state_store,
             )
             round3_decisions: list[tuple[str, AgentDecision]] = [
@@ -1385,28 +1056,10 @@ async def run_simulation(
             # Compute Round 3 bracket summaries (D-08)
             round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
 
-            # Compute Round 3 ticker consensus (outside state_store guard so graph write always runs)
-            # Round 3 reuses round2_weights because no round3_weights are computed after
-            # Round 3 completes. This is consistent with the existing pattern:
-            # compute_bracket_summaries() is also called at this point without new weights.
-            # No new compute_influence_edges() call is made after Round 3 (the simulation
-            # ends). This is a deliberate design choice, not an oversight.
-            # (Review concern #4: documenting round2_weights reuse explicitly.)
-            ticker_consensus_r3 = compute_ticker_consensus(
-                round3_decisions, personas, brackets, round2_weights, round_num=3,
-            )
-
             # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
             if state_store is not None:
                 await state_store.set_bracket_summaries(round3_summaries)
-                await state_store.set_ticker_consensus(ticker_consensus_r3)
                 await _push_top_rationales(round3_decisions, 3, state_store)
-
-            # Persist Round 3 ticker consensus to Neo4j (Phase 20 D-04)
-            if ticker_consensus_r3:
-                await graph_manager.write_ticker_consensus_summary(
-                    cycle_id, 3, list(ticker_consensus_r3),
-                )
 
             # Compute Round 3 shifts in-memory (D-13)
             round3_shifts = _compute_shifts(

@@ -22,7 +22,7 @@ from textual.widget import Widget
 from textual import work
 from textual.widgets import Input, RichLog, Static
 
-from alphaswarm.state import AgentState, BracketSummary, RationaleEntry, TickerConsensus
+from alphaswarm.state import AgentState, BracketSummary, RationaleEntry
 from alphaswarm.types import SignalType, SimulationPhase
 
 if TYPE_CHECKING:
@@ -378,118 +378,6 @@ class BracketPanel(Widget):
 
 
 # ---------------------------------------------------------------------------
-# TickerConsensusPanel widget (Phase 19, DTUI-01/02/03)
-# ---------------------------------------------------------------------------
-
-
-class TickerConsensusPanel(Widget):
-    """Per-ticker consensus display with bracket mini-bars (Phase 19, DTUI-01/02/03).
-
-    Mirrors BracketPanel pattern: render() -> Text, diff-triggered updates.
-    Shows BOTH weighted signal AND majority signal explicitly (review concern #2).
-    Distinguishes "awaiting round data" from "no tickers extracted" (review concern #3).
-    majority_pct is 0.0-1.0 fraction; display converts to percentage (review concern #7).
-    """
-
-    DEFAULT_CSS = """
-    TickerConsensusPanel {
-        width: 44;
-        height: 100%;
-        background: $panel;
-        border-left: solid $secondary;
-        padding: 1 1 0 1;
-        overflow-y: auto;
-    }
-    """
-
-    FILL_CHAR = "\u2588"   # Full block
-    EMPTY_CHAR = "\u2591"  # Light shade
-    BAR_WIDTH = 12
-    BRACKET_LABEL_WIDTH = 14
-
-    _SIGNAL_COLORS: dict[str, str] = {
-        "buy": "#66BB6A",    # $success
-        "sell": "#EF5350",   # $error
-        "hold": "#78909C",   # $secondary
-    }
-
-    can_focus = False  # Passive display, no keyboard interaction (UI-SPEC)
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._consensus: tuple[TickerConsensus, ...] = ()
-        self._phase: SimulationPhase = SimulationPhase.IDLE
-        self._round_num: int = 0
-
-    def update_consensus(
-        self,
-        consensus: tuple[TickerConsensus, ...],
-        phase: SimulationPhase,
-        round_num: int,
-    ) -> None:
-        """Store ticker consensus with simulation context and trigger re-render.
-
-        Phase and round_num are needed to distinguish "awaiting round data"
-        (simulation active, consensus empty) from "no tickers extracted"
-        (simulation idle, consensus empty). See review concern #3.
-        """
-        self._consensus = consensus
-        self._phase = phase
-        self._round_num = round_num
-        self.refresh()
-
-    def render(self) -> Text:
-        text = Text()
-        text.append("Tickers\n", style="bold #4FC3F7")
-
-        if not self._consensus:
-            # Distinguish awaiting from empty (review concern #3):
-            # - If simulation is active (not IDLE and not COMPLETE), show "Awaiting R{n}..."
-            # - If simulation is IDLE or COMPLETE with no data, show "No tickers\nextracted"
-            if self._phase not in (SimulationPhase.IDLE, SimulationPhase.COMPLETE):
-                text.append(f"Awaiting R{self._round_num}...\n", style="#78909C")
-            else:
-                text.append("No tickers\nextracted\n", style="#78909C")
-            return text
-
-        for tc in self._consensus:
-            # Header line format (review concern #2): Show BOTH signals explicitly.
-            # Format: AAPL  w:BUY 0.74 | m:SELL (54%)  R3
-            # When weighted and majority disagree, user sees both independently.
-            w_color = self._SIGNAL_COLORS.get(tc.weighted_signal.lower(), "#78909C")
-            m_color = self._SIGNAL_COLORS.get(tc.majority_signal.lower(), "#78909C")
-
-            text.append(f"{tc.ticker:<6}", style="bold #E0E0E0")
-            # Weighted signal
-            text.append("  w:", style="#78909C")
-            text.append(f"{tc.weighted_signal}", style=f"bold {w_color}")
-            text.append(f" {tc.weighted_score:.2f}", style="#E0E0E0")
-            # Separator
-            text.append(" | ", style="#78909C")
-            # Majority signal (review concern #2: show majority_signal explicitly)
-            text.append("m:", style="#78909C")
-            text.append(f"{tc.majority_signal}", style=f"bold {m_color}")
-            # majority_pct: stored as 0.0-1.0 fraction, display as percentage (review concern #7)
-            text.append(f" ({tc.majority_pct * 100:.0f}%)", style="#78909C")
-            # Round label
-            text.append(f"  R{tc.round_num}\n", style="#78909C")
-
-            # Bracket mini-bars (10 rows per ticker, DTUI-03)
-            for s in tc.bracket_breakdown:
-                dominant, pct = BracketPanel._dominant_signal(s)
-                color = self._SIGNAL_COLORS.get(dominant, "#78909C")
-                filled = round(pct / 100 * self.BAR_WIDTH)
-                empty = self.BAR_WIDTH - filled
-                text.append(f"{s.display_name:<{self.BRACKET_LABEL_WIDTH}}", style="#78909C")
-                text.append("  [")
-                text.append(self.FILL_CHAR * filled, style=color)
-                text.append(self.EMPTY_CHAR * empty, style="#333333")
-                text.append(f"] {pct:.0f}%\n", style="#E0E0E0")
-            text.append("\n")  # Blank separator between tickers (lg spacing)
-        return text
-
-
-# ---------------------------------------------------------------------------
 # RumorInputScreen — shown on launch when no rumor is provided
 # ---------------------------------------------------------------------------
 
@@ -784,11 +672,6 @@ class AlphaSwarmApp(App):
         self._telemetry_footer: TelemetryFooter | None = None
         self._bracket_panel: BracketPanel | None = None
         self._prev_bracket_summaries: tuple[BracketSummary, ...] = ()
-        # Phase 19: Per-ticker consensus panel
-        self._ticker_consensus_panel: TickerConsensusPanel | None = None
-        self._prev_ticker_consensus: tuple[TickerConsensus, ...] = ()
-        self._prev_ticker_phase: SimulationPhase | None = None
-        self._prev_ticker_round: int | None = None
         self._cycle_id: str | None = None
         self._last_sentinel_mtime: float = 0.0  # Phase 15: sentinel file polling (D-06, Pitfall 5)
 
@@ -820,7 +703,6 @@ class AlphaSwarmApp(App):
         self._rationale_sidebar = RationaleSidebar()
         self._telemetry_footer = TelemetryFooter()
         self._bracket_panel = BracketPanel()
-        self._ticker_consensus_panel = TickerConsensusPanel()  # Phase 19
 
         with Container(id="main-row"):
             with Container(id="grid-container"):
@@ -831,7 +713,6 @@ class AlphaSwarmApp(App):
                         self._cells[persona.id] = cell
                         yield cell
             yield self._rationale_sidebar
-            yield self._ticker_consensus_panel  # Phase 19 (D-01: rightmost column)
 
         with Container(id="bottom-row"):
             yield self._telemetry_footer
@@ -1012,20 +893,6 @@ class AlphaSwarmApp(App):
             if snapshot.bracket_summaries != self._prev_bracket_summaries:
                 self._bracket_panel.update_summaries(snapshot.bracket_summaries)
                 self._prev_bracket_summaries = snapshot.bracket_summaries
-
-        # Phase 19: Update ticker consensus panel with phase context (DTUI-01, review concern #3)
-        if self._ticker_consensus_panel is not None:
-            if (
-                snapshot.ticker_consensus != self._prev_ticker_consensus
-                or snapshot.phase != self._prev_ticker_phase
-                or snapshot.round_num != self._prev_ticker_round
-            ):
-                self._ticker_consensus_panel.update_consensus(
-                    snapshot.ticker_consensus, snapshot.phase, snapshot.round_num,
-                )
-                self._prev_ticker_consensus = snapshot.ticker_consensus
-                self._prev_ticker_phase = snapshot.phase
-                self._prev_ticker_round = snapshot.round_num
 
         self._prev_snapshot = snapshot
 

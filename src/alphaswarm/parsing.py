@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Callable
 
 import structlog
 from pydantic import ValidationError
@@ -22,13 +21,11 @@ from alphaswarm.types import (
     AgentDecision,
     BracketType,
     EntityType,
-    ExtractedTicker,
     ParsedModifiersResult,
     ParsedSeedResult,
     SeedEntity,
     SeedEvent,
     SignalType,
-    TickerDecision,
 )
 
 logger = structlog.get_logger(component="parsing")
@@ -52,50 +49,6 @@ def _strip_code_fences(text: str) -> str:
     return text
 
 
-def _lenient_parse_ticker_decisions(raw_list: list) -> list[TickerDecision]:
-    """Parse ticker_decisions leniently: drop invalid entries, keep valid ones.
-
-    Addresses Codex review blocker #4: malformed nested values in ticker_decisions
-    should not collapse the entire AgentDecision to PARSE_ERROR. Individual invalid
-    entries are dropped with a debug log.
-    """
-    valid: list[TickerDecision] = []
-    for item in raw_list:
-        try:
-            valid.append(TickerDecision.model_validate(item))
-        except (ValidationError, TypeError, ValueError):
-            logger.debug("ticker_decision_dropped", item=str(item)[:100])
-            continue
-    return valid
-
-
-def _try_lenient_agent_parse(text: str, parse_tier: int) -> AgentDecision | None:
-    """Try lenient parsing: pop ticker_decisions, validate base, merge back.
-
-    Phase 18: Full model_validate_json may fail due to malformed ticker_decisions
-    while top-level fields are valid. This pops ticker_decisions, validates the
-    rest as AgentDecision (which works because ticker_decisions defaults to []),
-    then leniently parses the popped ticker_decisions and merges back.
-    """
-    try:
-        data = json.loads(text)
-        if not isinstance(data, dict) or "ticker_decisions" not in data:
-            return None
-        td_raw = data.pop("ticker_decisions")
-        base = AgentDecision.model_validate(data)
-        parsed_tds = _lenient_parse_ticker_decisions(td_raw if isinstance(td_raw, list) else [])
-        result = base.model_copy(update={"ticker_decisions": parsed_tds})
-        logger.debug(
-            "parse_succeeded_lenient",
-            parse_tier=parse_tier,
-            signal=result.signal.value,
-            ticker_decisions_kept=len(parsed_tds),
-        )
-        return result
-    except (json.JSONDecodeError, ValidationError, TypeError, ValueError):
-        return None
-
-
 def parse_agent_decision(raw: str) -> AgentDecision:
     """Parse raw LLM output into a validated AgentDecision.
 
@@ -103,10 +56,6 @@ def parse_agent_decision(raw: str) -> AgentDecision:
     1. Direct JSON validation via Pydantic model_validate_json()
     2. Code-fence stripping + regex extraction of JSON block, then validate
     3. PARSE_ERROR fallback with truncated raw content
-
-    Each tier also attempts lenient parsing of ticker_decisions when strict
-    validation fails (Phase 18: malformed nested fields should not collapse
-    the entire decision to PARSE_ERROR).
 
     Args:
         raw: Raw string from LLM response (message.content).
@@ -120,10 +69,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
         logger.debug("parse succeeded", parse_tier=1, signal=result.signal.value)
         return result
     except (ValidationError, ValueError):
-        # Phase 18: Try lenient parse for malformed ticker_decisions
-        lenient = _try_lenient_agent_parse(raw, parse_tier=1)
-        if lenient is not None:
-            return lenient
+        pass
 
     # Tier 2: Strip code fences, then regex extraction
     cleaned = _strip_code_fences(raw)
@@ -138,9 +84,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
         )
         return result
     except (ValidationError, ValueError):
-        lenient = _try_lenient_agent_parse(cleaned, parse_tier=2)
-        if lenient is not None:
-            return lenient
+        pass
 
     # Regex extraction on cleaned text
     match = _JSON_BLOCK_RE.search(cleaned)
@@ -154,9 +98,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
             )
             return result
         except (ValidationError, ValueError):
-            lenient = _try_lenient_agent_parse(match.group(), parse_tier=2)
-            if lenient is not None:
-                return lenient
+            pass
 
     # Also try regex on original text (in case code fence stripping lost context)
     if cleaned != raw:
@@ -171,9 +113,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
                 )
                 return result
             except (ValidationError, ValueError):
-                lenient = _try_lenient_agent_parse(match.group(), parse_tier=2)
-                if lenient is not None:
-                    return lenient
+                pass
 
     # Tier 3: PARSE_ERROR fallback
     logger.debug(
@@ -193,25 +133,21 @@ def parse_agent_decision(raw: str) -> AgentDecision:
 # ---------------------------------------------------------------------------
 
 
-def _try_parse_seed_json(
-    text: str,
-    original_rumor: str,
-    ticker_validator: Callable[[str], bool] | None = None,
-) -> tuple[SeedEvent | None, list[dict[str, str]]]:
-    """Attempt to parse text as JSON into SeedEvent. Returns (None, []) on any failure."""
+def _try_parse_seed_json(text: str, original_rumor: str) -> SeedEvent | None:
+    """Attempt to parse text as JSON into SeedEvent. Returns None on any failure."""
     try:
         data = json.loads(text)
     except (json.JSONDecodeError, ValueError):
-        return None, []
+        return None
 
     if not isinstance(data, dict):
-        return None, []
+        return None
 
     try:
         # Parse entities individually, skip invalid ones
         raw_entities = data.get("entities", [])
         if not isinstance(raw_entities, list):
-            return None, []
+            return None
         entities: list[SeedEntity] = []
         for e in raw_entities:
             try:
@@ -219,44 +155,17 @@ def _try_parse_seed_json(
             except (ValidationError, TypeError):
                 continue
 
-        # Phase 18: Parse tickers from orchestrator response (Codex blocker #3)
-        # Phase 21: Restore ticker validation and dropped-ticker tracking
-        dropped: list[dict[str, str]] = []
-        raw_tickers = data.get("tickers", [])
-        all_tickers: list[ExtractedTicker] = []
-        if isinstance(raw_tickers, list):
-            for t in raw_tickers:
-                try:
-                    ticker = ExtractedTicker.model_validate(t)
-                    if ticker_validator and not ticker_validator(ticker.symbol):
-                        dropped.append({"symbol": ticker.symbol, "reason": "invalid"})
-                        logger.warning("ticker_invalid", symbol=ticker.symbol)
-                        continue
-                    all_tickers.append(ticker)
-                except (ValidationError, TypeError):
-                    continue
-        all_tickers.sort(key=lambda t: t.relevance, reverse=True)
-        if len(all_tickers) > 3:
-            for t in all_tickers[3:]:
-                dropped.append({"symbol": t.symbol, "reason": "cap"})
-            all_tickers = all_tickers[:3]
-
         overall_sentiment = float(data.get("overall_sentiment", 0.0))
         return SeedEvent(
             raw_rumor=original_rumor,
             entities=entities,
             overall_sentiment=overall_sentiment,
-            tickers=all_tickers,
-        ), dropped
+        )
     except (ValidationError, TypeError, ValueError, KeyError):
-        return None, []
+        return None
 
 
-def parse_seed_event(
-    raw: str,
-    original_rumor: str,
-    ticker_validator: Callable[[str], bool] | None = None,
-) -> ParsedSeedResult:
+def parse_seed_event(raw: str, original_rumor: str) -> ParsedSeedResult:
     """Parse orchestrator output into SeedEvent with 3-tier fallback.
 
     Returns ParsedSeedResult with parse_tier metadata so callers can
@@ -265,41 +174,40 @@ def parse_seed_event(
     Args:
         raw: Raw string from orchestrator LLM response (message.content).
         original_rumor: The original rumor text, injected as raw_rumor.
-        ticker_validator: Optional callable to validate ticker symbols against SEC data.
 
     Returns:
         ParsedSeedResult -- always returns, never raises.
     """
     # Tier 1: Direct JSON parse
-    result, dropped = _try_parse_seed_json(raw, original_rumor, ticker_validator)
+    result = _try_parse_seed_json(raw, original_rumor)
     if result is not None:
         logger.debug("seed_parse_succeeded", parse_tier=1, entity_count=len(result.entities))
-        return ParsedSeedResult(seed_event=result, parse_tier=1, dropped_tickers=tuple(dropped))
+        return ParsedSeedResult(seed_event=result, parse_tier=1)
 
     # Tier 2: Strip code fences, then regex extraction
     cleaned = _strip_code_fences(raw)
     # Try cleaned text directly
-    result, dropped = _try_parse_seed_json(cleaned, original_rumor, ticker_validator)
+    result = _try_parse_seed_json(cleaned, original_rumor)
     if result is not None:
         logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
-        return ParsedSeedResult(seed_event=result, parse_tier=2, dropped_tickers=tuple(dropped))
+        return ParsedSeedResult(seed_event=result, parse_tier=2)
 
     # Regex extraction on cleaned text
     match = _JSON_BLOCK_RE.search(cleaned)
     if match:
-        result, dropped = _try_parse_seed_json(match.group(), original_rumor, ticker_validator)
+        result = _try_parse_seed_json(match.group(), original_rumor)
         if result is not None:
             logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
-            return ParsedSeedResult(seed_event=result, parse_tier=2, dropped_tickers=tuple(dropped))
+            return ParsedSeedResult(seed_event=result, parse_tier=2)
 
     # Regex on original text if different
     if cleaned != raw:
         match = _JSON_BLOCK_RE.search(raw)
         if match:
-            result, dropped = _try_parse_seed_json(match.group(), original_rumor, ticker_validator)
+            result = _try_parse_seed_json(match.group(), original_rumor)
             if result is not None:
                 logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
-                return ParsedSeedResult(seed_event=result, parse_tier=2, dropped_tickers=tuple(dropped))
+                return ParsedSeedResult(seed_event=result, parse_tier=2)
 
     # Tier 3: Fallback
     logger.debug("seed_parse_failed_all_tiers", parse_tier=3, raw_preview=raw[:500])
