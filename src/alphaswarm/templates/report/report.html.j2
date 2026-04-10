@@ -290,6 +290,82 @@
     </div>
     {% endif %}
 
+    {# Portfolio Impact - Matched Positions #}
+    {% if sections.get("portfolio_impact") and sections["portfolio_impact"].matched_tickers %}
+    <div class="section">
+        <h2>Portfolio Impact - Matched Positions</h2>
+        <p style="color: #78909C; font-size: 14px; margin-bottom: 16px;">
+            Coverage: {{ sections["portfolio_impact"].coverage_summary.covered }}/{{ sections["portfolio_impact"].coverage_summary.total_equity_holdings }} equity holdings matched to swarm consensus ({{ "%.1f"|format(sections["portfolio_impact"].coverage_summary.coverage_pct) }}%)
+        </p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Ticker</th>
+                    <th>Shares</th>
+                    <th>Market Value</th>
+                    <th>Swarm Signal</th>
+                    <th>Agreement</th>
+                    <th>Entity</th>
+                    <th>Avg Sentiment</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in sections["portfolio_impact"].matched_tickers %}
+                <tr>
+                    <td>{{ t.ticker }}</td>
+                    <td>{{ "%.4f"|format(t.shares) }}</td>
+                    <td>{{ t.market_value_display }}</td>
+                    <td class="signal-{{ t.signal|lower }}">{{ t.signal }}</td>
+                    <td>{{ (t.confidence * 100)|round|int }}%</td>
+                    <td>{{ t.entity_name }}</td>
+                    <td>{{ "%.2f"|format(t.avg_sentiment) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% elif sections.get("portfolio_impact") %}
+    <div class="section">
+        <h2>Portfolio Impact - Matched Positions</h2>
+        <p style="color: #78909C; font-size: 14px;">No held tickers match entities the swarm analyzed this cycle.</p>
+    </div>
+    {% endif %}
+
+    {# Portfolio Impact - Coverage Gaps #}
+    {% if sections.get("portfolio_impact") and sections["portfolio_impact"].gap_tickers %}
+    <div class="section">
+        <h2>Portfolio Impact - Coverage Gaps</h2>
+        <p style="color: #78909C; font-size: 14px; margin-bottom: 16px;">
+            The following holdings had no corresponding entity in this simulation run:
+        </p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Ticker</th>
+                    <th>Shares</th>
+                    <th>Market Value</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for g in sections["portfolio_impact"].gap_tickers %}
+                <tr>
+                    <td>{{ g.ticker }}</td>
+                    <td>{{ "%.4f"|format(g.shares) }}</td>
+                    <td>{{ g.market_value_display }}</td>
+                    <td>{% if g.reason == "non_equity" %}Non-equity ({{ g.asset_type }}){% else %}No simulation coverage{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% elif sections.get("portfolio_impact") %}
+    <div class="section">
+        <h2>Portfolio Impact - Coverage Gaps</h2>
+        <p style="color: #78909C; font-size: 14px;">All equity holdings have swarm coverage in this simulation.</p>
+    </div>
+    {% endif %}
+
     {# Ticker mini-charts — up to 3 tickers #}
     {% if ticker_svgs %}
     <div class="ticker-grid">
