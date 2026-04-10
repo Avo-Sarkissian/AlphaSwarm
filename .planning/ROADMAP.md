@@ -61,7 +61,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Milestone Goal:** Make the simulation interactive, replayable, shareable, and personally relevant.
 
 - [x] **Phase 24: HTML Report Export** - Self-contained HTML reports with inline SVG charts and dark theme (completed 2026-04-10)
-- [ ] **Phase 25: Portfolio Impact Analysis** - Map swarm consensus against Schwab holdings with LLM narrative
+- [x] **Phase 25: Portfolio Impact Analysis** - Map swarm consensus against Schwab holdings with LLM narrative (completed 2026-04-10)
 - [ ] **Phase 26: Shock Injection Core** - Governor suspend/resume, inter-round shock queue, agent prompt propagation, Neo4j persistence
 - [ ] **Phase 27: Shock Analysis and Reporting** - Before/after consensus comparison and shock impact report section
 - [ ] **Phase 28: Replay Data Layer** - Cycle listing, full-cycle Neo4j reads, ReplayStore with random-access snapshots
@@ -92,10 +92,10 @@ Plans:
   2. Post-simulation output shows which held tickers the swarm has consensus signals for, and maps those signals to the user's positions
   3. Held tickers not covered by the simulation are explicitly listed as coverage gaps
   4. An LLM-generated narrative compares swarm consensus against user positions in natural language, appearing in both markdown and HTML reports
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
-- [ ] 25-01-PLAN.md — portfolio.py module, TICKER_ENTITY_MAP, build_portfolio_impact, 10_portfolio_impact.j2 template, report.py registry (PORTFOLIO-01, PORTFOLIO-02, PORTFOLIO-03, PORTFOLIO-04)
-- [ ] 25-02-PLAN.md — --portfolio CLI flag, _handle_report wiring, dynamic REACT system prompt, HTML section cards, integration tests (PORTFOLIO-01, PORTFOLIO-02, PORTFOLIO-03, PORTFOLIO-04)
+- [x] 25-01-PLAN.md — portfolio.py module, TICKER_ENTITY_MAP, build_portfolio_impact, 10_portfolio_impact.j2 template, report.py registry (PORTFOLIO-01, PORTFOLIO-02, PORTFOLIO-03, PORTFOLIO-04)
+- [x] 25-02-PLAN.md — --portfolio CLI flag, _handle_report wiring, dynamic REACT system prompt, HTML section cards, integration tests (PORTFOLIO-01, PORTFOLIO-02, PORTFOLIO-03, PORTFOLIO-04)
 
 ### Phase 26: Shock Injection Core
 **Goal**: Users can inject breaking events between simulation rounds and see all agents react to the new information
@@ -171,7 +171,7 @@ Phases 24-29 execute in numeric order. Phases 24-25 (post-sim paths) ship first,
 | 22. Fix Report Tool Name Mismatch | v3.0 | 1/1 | Complete | 2026-04-08 |
 | 23. Validation Tracking and Requirements Traceability | v3.0 | 1/1 | Complete | 2026-04-08 |
 | 24. HTML Report Export | v4.0 | 2/2 | Complete | 2026-04-10 |
-| 25. Portfolio Impact Analysis | v4.0 | 0/0 | Not started | - |
+| 25. Portfolio Impact Analysis | v4.0 | 2/2 | Complete    | 2026-04-10 |
 | 26. Shock Injection Core | v4.0 | 0/0 | Not started | - |
 | 27. Shock Analysis and Reporting | v4.0 | 0/0 | Not started | - |
 | 28. Replay Data Layer | v4.0 | 0/0 | Not started | - |
