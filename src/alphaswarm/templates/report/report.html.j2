@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AlphaSwarm Report - {{ cycle_id }}</title>
+    <style>
+        /* Reset */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        /* Page — 60% dominant #121212 */
+        body {
+            background: #121212;
+            color: #E0E0E0;
+            font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            padding: 32px;
+        }
+
+        /* Header */
+        .header { border-bottom: 1px solid #333333; padding-bottom: 16px; margin-bottom: 32px; }
+        .header h1 { color: #4FC3F7; font-size: 24px; font-weight: 600; line-height: 1.2; }
+        .header .meta { color: #78909C; font-size: 14px; line-height: 1.4; margin-top: 4px; }
+
+        /* Chart grid — 30% secondary #1E1E1E panels */
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+        .chart-panel {
+            background: #1E1E1E;
+            border-radius: 4px;
+            padding: 16px;
+        }
+        .chart-panel svg { width: 100%; height: auto; }
+        .chart-panel .empty-chart { color: #78909C; font-size: 14px; font-style: italic; }
+
+        /* Ticker grid — responsive auto-fill */
+        .ticker-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        /* Section cards — 30% secondary */
+        .section {
+            background: #1E1E1E;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .section h2 {
+            color: #4FC3F7;
+            font-size: 18px;
+            font-weight: 600;
+            line-height: 1.2;
+            margin-bottom: 16px;
+        }
+
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            text-align: left;
+            color: #78909C;
+            font-size: 14px;
+            font-weight: 400;
+            line-height: 1.4;
+            border-bottom: 1px solid #333333;
+            padding: 8px;
+        }
+        td {
+            padding: 8px;
+            font-size: 16px;
+            border-bottom: 1px solid #252525;
+        }
+
+        /* Signal colors */
+        .signal-buy { color: #66BB6A; font-weight: 600; }
+        .signal-sell { color: #EF5350; font-weight: 600; }
+        .signal-hold { color: #78909C; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .chart-grid { grid-template-columns: 1fr; }
+            body { padding: 16px; }
+        }
+
+        /* Print */
+        @media print {
+            body { background: #FFFFFF; color: #333333; }
+            .chart-panel, .section { border: 1px solid #CCCCCC; }
+            .header h1, .section h2 { color: #333333; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>AlphaSwarm Post-Simulation Report</h1>
+        <div class="meta">Cycle: {{ cycle_id }} | Generated: {{ generated_at }}</div>
+    </div>
+
+    {# Chart grid — consensus bar + round timeline side by side #}
+    <div class="chart-grid">
+        <div class="chart-panel">
+            {% if consensus_svg %}
+                {{ consensus_svg | safe }}
+            {% else %}
+                <p class="empty-chart">Insufficient data to render chart.</p>
+            {% endif %}
+        </div>
+        <div class="chart-panel">
+            {% if timeline_svg %}
+                {{ timeline_svg | safe }}
+            {% else %}
+                <p class="empty-chart">Insufficient data to render chart.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Bracket analysis section with stacked bar chart #}
+    {% if bracket_svg or sections.get("bracket_narratives") %}
+    <div class="section">
+        <h2>Bracket Analysis</h2>
+        {% if bracket_svg %}
+            {{ bracket_svg | safe }}
+        {% endif %}
+        {% if sections.get("bracket_narratives") %}
+        <table>
+            <thead>
+                <tr><th>Bracket</th><th>BUY</th><th>SELL</th><th>HOLD</th><th>Avg Confidence</th><th>Avg Sentiment</th></tr>
+            </thead>
+            <tbody>
+                {% for b in sections["bracket_narratives"] %}
+                <tr>
+                    <td>{{ b.bracket }}</td>
+                    <td class="signal-buy">{{ b.buy_count }}</td>
+                    <td class="signal-sell">{{ b.sell_count }}</td>
+                    <td class="signal-hold">{{ b.hold_count }}</td>
+                    <td>{{ "%.2f"|format(b.avg_confidence) }}</td>
+                    <td>{{ "%.2f"|format(b.avg_sentiment) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# Consensus summary section #}
+    {% if sections.get("bracket_summary") %}
+    <div class="section">
+        <h2>Consensus Summary</h2>
+        {% set cs = sections["bracket_summary"] %}
+        <table>
+            <thead><tr><th>Signal</th><th>Count</th><th>Share</th></tr></thead>
+            <tbody>
+                <tr><td class="signal-buy">BUY</td><td>{{ cs.buy_count }}</td><td>{{ "%.1f"|format(cs.buy_count / cs.total * 100 if cs.total else 0) }}%</td></tr>
+                <tr><td class="signal-sell">SELL</td><td>{{ cs.sell_count }}</td><td>{{ "%.1f"|format(cs.sell_count / cs.total * 100 if cs.total else 0) }}%</td></tr>
+                <tr><td class="signal-hold">HOLD</td><td>{{ cs.hold_count }}</td><td>{{ "%.1f"|format(cs.hold_count / cs.total * 100 if cs.total else 0) }}%</td></tr>
+            </tbody>
+        </table>
+        <p style="margin-top: 8px; color: #78909C;">Total agents: {{ cs.total }}</p>
+    </div>
+    {% endif %}
+
+    {# Key Dissenters #}
+    {% if sections.get("key_dissenters") %}
+    <div class="section">
+        <h2>Key Dissenters</h2>
+        <table>
+            <thead><tr><th>Agent</th><th>Bracket</th><th>Signal</th><th>Bracket Majority</th></tr></thead>
+            <tbody>
+                {% for d in sections["key_dissenters"] %}
+                <tr>
+                    <td>{{ d.agent_id }}</td>
+                    <td>{{ d.bracket }}</td>
+                    <td class="signal-{{ d.signal|lower }}">{{ d.signal }}</td>
+                    <td>{{ d.bracket_majority }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {# Influence Leaders #}
+    {% if sections.get("influence_leaders") %}
+    <div class="section">
+        <h2>Influence Leaders</h2>
+        <table>
+            <thead><tr><th>Agent</th><th>Bracket</th><th>Influence Weight</th><th>Citations</th></tr></thead>
+            <tbody>
+                {% for l in sections["influence_leaders"] %}
+                <tr>
+                    <td>{{ l.agent_id }}</td>
+                    <td>{{ l.bracket }}</td>
+                    <td>{{ "%.3f"|format(l.total_influence_weight) }}</td>
+                    <td>{{ l.citation_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {# Signal Flip Analysis #}
+    {% if sections.get("signal_flip_analysis") %}
+    <div class="section">
+        <h2>Signal Flip Analysis</h2>
+        <table>
+            <thead><tr><th>Agent</th><th>Name</th><th>Bracket</th><th>Round</th><th>Flip</th><th>Final Signal</th></tr></thead>
+            <tbody>
+                {% for f in sections["signal_flip_analysis"] %}
+                <tr>
+                    <td>{{ f.agent_id }}</td>
+                    <td>{{ f.name }}</td>
+                    <td>{{ f.bracket }}</td>
+                    <td>{{ f.round_num }}</td>
+                    <td>{{ f.flip_type }}</td>
+                    <td class="signal-{{ f.final_signal|lower }}">{{ f.final_signal }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {# Entity Impact #}
+    {% if sections.get("entity_impact") %}
+    <div class="section">
+        <h2>Entity Impact</h2>
+        <table>
+            <thead><tr><th>Entity</th><th>Mentions</th><th>Avg Sentiment</th></tr></thead>
+            <tbody>
+                {% for e in sections["entity_impact"] %}
+                <tr>
+                    <td>{{ e.entity }}</td>
+                    <td>{{ e.mention_count }}</td>
+                    <td>{{ "%.2f"|format(e.avg_sentiment) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {# Social Post Reach #}
+    {% if sections.get("social_post_reach") %}
+    <div class="section">
+        <h2>Social Post Reach</h2>
+        <table>
+            <thead><tr><th>Agent</th><th>Bracket</th><th>Content</th><th>Readers</th></tr></thead>
+            <tbody>
+                {% for p in sections["social_post_reach"] %}
+                <tr>
+                    <td>{{ p.agent_id }}</td>
+                    <td>{{ p.bracket }}</td>
+                    <td>{{ p.content[:80] }}{% if p.content|length > 80 %}...{% endif %}</td>
+                    <td>{{ p.read_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {# Market Context #}
+    {% if market_context_data %}
+    <div class="section">
+        <h2>Market Context</h2>
+        <table>
+            <thead><tr><th>Ticker</th><th>Company</th><th>Last Close</th><th>Signal</th><th>Consensus</th><th>P/E</th></tr></thead>
+            <tbody>
+                {% for t in market_context_data %}
+                <tr>
+                    <td>{{ t.ticker }}</td>
+                    <td>{{ t.company_name }}</td>
+                    <td>{{ "%.2f"|format(t.last_close) if t.last_close is not none else "N/A" }}</td>
+                    <td class="signal-{{ t.majority_signal|lower }}">{{ t.majority_signal }}</td>
+                    <td>{{ "%.2f"|format(t.consensus_score) if t.consensus_score is not none else "N/A" }}</td>
+                    <td>{{ "%.1f"|format(t.pe_ratio) if t.pe_ratio is not none else "N/A" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {# Ticker mini-charts — up to 3 tickers #}
+    {% if ticker_svgs %}
+    <div class="ticker-grid">
+        {% for svg in ticker_svgs %}
+        <div class="chart-panel">{{ svg | safe }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</body>
+</html>

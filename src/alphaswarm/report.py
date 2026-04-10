@@ -16,6 +16,13 @@ from jinja2 import Environment, FileSystemLoader
 if TYPE_CHECKING:
     from alphaswarm.ollama_client import OllamaClient
 
+from alphaswarm.charts import (
+    render_bracket_breakdown,
+    render_consensus_bar,
+    render_round_timeline,
+    render_ticker_consensus,
+)
+
 log = structlog.get_logger(component="report")
 
 # ---------------------------------------------------------------------------
@@ -307,6 +314,73 @@ class ReportAssembler:
             sections.append(rendered)
 
         return header + "\n\n".join(sections)
+
+    def assemble_html(
+        self,
+        observations: list[ToolObservation],
+        cycle_id: str,
+        *,
+        market_context_data: list[dict] | None = None,  # type: ignore[type-arg]
+    ) -> str:
+        """Assemble observations into a self-contained HTML report.
+
+        Uses a separate Jinja2 Environment with autoescape=True for HTML safety.
+        SVG strings from chart builders are passed through |safe filter in template.
+
+        Args:
+            observations: List of tool observations from ReportEngine.run().
+            cycle_id: The simulation cycle ID.
+            market_context_data: Optional per-ticker market + consensus dicts.
+
+        Returns:
+            Complete self-contained HTML string.
+        """
+        html_env = Environment(
+            loader=FileSystemLoader(str(TEMPLATE_DIR)),
+            autoescape=True,
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+
+        obs_by_tool: dict[str, ToolObservation] = {obs.tool_name: obs for obs in observations}
+
+        # Generate SVG charts from observation data
+        consensus_svg = ""
+        if "bracket_summary" in obs_by_tool:
+            consensus_svg = render_consensus_bar(obs_by_tool["bracket_summary"].result)  # type: ignore[arg-type]
+
+        timeline_svg = ""
+        if "round_timeline" in obs_by_tool:
+            timeline_svg = render_round_timeline(obs_by_tool["round_timeline"].result)  # type: ignore[arg-type]
+
+        bracket_svg = ""
+        if "bracket_narratives" in obs_by_tool:
+            bracket_svg = render_bracket_breakdown(obs_by_tool["bracket_narratives"].result)  # type: ignore[arg-type]
+
+        # Ticker mini-charts — up to 3 tickers
+        ticker_svgs: list[str] = []
+        if market_context_data:
+            for ticker_row in market_context_data[:3]:
+                svg = render_ticker_consensus(ticker_row)
+                if svg:
+                    ticker_svgs.append(svg)
+
+        # Build sections dict for data tables
+        sections: dict[str, object] = {obs.tool_name: obs.result for obs in observations}
+
+        now_iso = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+
+        template = html_env.get_template("report.html.j2")
+        return template.render(
+            cycle_id=cycle_id,
+            generated_at=now_iso,
+            consensus_svg=consensus_svg,
+            timeline_svg=timeline_svg,
+            bracket_svg=bracket_svg,
+            ticker_svgs=ticker_svgs,
+            sections=sections,
+            market_context_data=market_context_data or [],
+        )
 
 
 async def write_report(path: Path, content: str) -> None:
