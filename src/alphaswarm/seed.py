@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 import structlog
 
 from alphaswarm.parsing import parse_seed_event
-from alphaswarm.ticker_validator import get_ticker_validator
 
 if TYPE_CHECKING:
     from alphaswarm.config import AppSettings
@@ -32,16 +31,9 @@ For each entity, determine:
 
 Also determine overall_sentiment for the entire rumor (-1.0 to 1.0).
 
-For each company entity, also extract its stock ticker symbol. Include a "tickers" array with:
-- symbol: The stock exchange ticker (e.g., "AAPL", "TSLA", "MSFT")
-- company_name: Full company name
-- relevance: Same relevance score as the entity (0.0-1.0)
-
-Only include tickers for publicly traded companies. Maximum 3 tickers, ordered by relevance.
-
 Be thorough: extract ALL entities mentioned or strongly implied. Include sectors affected even if not named directly. Assign relevance based on centrality to the rumor's core claim.
 
-Respond with JSON: {"entities": [...], "overall_sentiment": float, "tickers": [{"symbol": "AAPL", "company_name": "Apple Inc", "relevance": 0.9}]}"""
+Respond with JSON: {"entities": [...], "overall_sentiment": float}"""
 
 
 async def inject_seed(
@@ -86,8 +78,7 @@ async def inject_seed(
 
         # 3. Parse with 3-tier fallback (per D-06), returns ParsedSeedResult
         raw_content = response.message.content or ""
-        validator = await get_ticker_validator()
-        parsed_result = parse_seed_event(raw_content, rumor, ticker_validator=validator)
+        parsed_result = parse_seed_event(raw_content, rumor)
 
         # Log warning on fallback (addresses review concern #1: silent parse failure)
         if parsed_result.parse_tier == 3:
@@ -115,8 +106,6 @@ async def inject_seed(
             "seed_injection_complete",
             cycle_id=cycle_id,
             entity_count=len(parsed_result.seed_event.entities),
-            ticker_count=len(parsed_result.seed_event.tickers),
-            dropped_ticker_count=len(parsed_result.dropped_tickers),
             overall_sentiment=parsed_result.seed_event.overall_sentiment,
             parse_tier=parsed_result.parse_tier,
             modifier_parse_tier=modifier_result.parse_tier if modifier_result else None,

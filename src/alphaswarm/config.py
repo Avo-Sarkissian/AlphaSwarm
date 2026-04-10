@@ -87,9 +87,6 @@ class AppSettings(BaseSettings):
     neo4j: Neo4jSettings = Neo4jSettings()
     governor: GovernorSettings = GovernorSettings()
 
-    # Phase 17: Alpha Vantage fallback API key (D-17)
-    alpha_vantage_api_key: str | None = None
-
 
 # ---------------------------------------------------------------------------
 # JSON output instructions (appended to every persona system prompt)
@@ -99,12 +96,7 @@ JSON_OUTPUT_INSTRUCTIONS = (
     '\n\nRespond ONLY with a JSON object:\n'
     '{"signal": "buy"|"sell"|"hold", "confidence": 0.0-1.0, '
     '"sentiment": -1.0 to 1.0, "rationale": "brief reasoning", '
-    '"cited_agents": [], '
-    '"ticker_decisions": ['
-    '{"ticker": "AAPL", "direction": "buy"|"sell"|"hold", '
-    '"expected_return_pct": 5.2, "time_horizon": "1d"|"1w"|"1m"|"3m"|"6m"|"1y"}, '
-    '{"ticker": "TSLA", "direction": "sell", "expected_return_pct": -3.1, "time_horizon": "1m"}'
-    ']}'
+    '"cited_agents": []}'
 )
 
 

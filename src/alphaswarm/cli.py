@@ -28,7 +28,7 @@ if TYPE_CHECKING:
         ShiftMetrics,
         SimulationResult,
     )
-    from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, MarketDataSnapshot, ParsedSeedResult
+    from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, ParsedSeedResult
 
 logger = structlog.get_logger(component="cli")
 
@@ -77,7 +77,6 @@ def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> 
     print(f"  Overall Sentiment: {seed_event.overall_sentiment:+.2f}")
     print(f"  Parse Quality:     Tier {parsed_result.parse_tier} ({tier_label})")
     print(f"  Entities:          {len(seed_event.entities)}")
-    print(f"  Tickers:           {len(seed_event.tickers)}")
 
     if seed_event.entities:
         print(f"\n  {'Name':<25} {'Type':<10} {'Relevance':>10} {'Sentiment':>10}")
@@ -87,70 +86,6 @@ def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> 
                 f"  {entity.name:<25} {entity.type.value:<10} "
                 f"{entity.relevance:>10.2f} {entity.sentiment:>+10.2f}"
             )
-
-    if seed_event.tickers:
-        print(f"\n  {'Symbol':<10} {'Company':<30} {'Relevance':>10}")
-        print(f"  {'-'*10} {'-'*30} {'-'*10}")
-        for ticker in seed_event.tickers:
-            print(
-                f"  {ticker.symbol:<10} {ticker.company_name:<30} "
-                f"{ticker.relevance:>10.2f}"
-            )
-
-    if parsed_result.dropped_tickers:
-        print(f"\n  Dropped Tickers:")
-        print(f"  {'-'*40}")
-        for d in parsed_result.dropped_tickers:
-            print(f"  {d['symbol']:<10} (reason: {d['reason']})")
-
-    print(f"{'='*60}\n")
-
-
-def _format_market_cap(cap: float | None) -> str:
-    """Format market cap as human-readable string."""
-    if cap is None:
-        return "N/A"
-    if cap >= 1_000_000_000_000:
-        return f"${cap / 1_000_000_000_000:.1f}T"
-    if cap >= 1_000_000_000:
-        return f"${cap / 1_000_000_000:.1f}B"
-    if cap >= 1_000_000:
-        return f"${cap / 1_000_000:.1f}M"
-    return f"${cap:,.0f}"
-
-
-def _print_market_data_summary(
-    market_snapshots: dict[str, MarketDataSnapshot],
-) -> None:
-    """Print market data fetch summary with degraded-data warnings (Phase 17 D-16)."""
-    if not market_snapshots:
-        return
-
-    print(f"\n{'='*60}")
-    print("  Market Data Summary")
-    print(f"{'='*60}")
-
-    degraded = [s for s, snap in market_snapshots.items() if snap.is_degraded]
-    fetched = [s for s, snap in market_snapshots.items() if not snap.is_degraded]
-
-    print(f"  Tickers fetched:   {len(market_snapshots)}")
-    print(f"  Successful:        {len(fetched)}")
-    if degraded:
-        print(f"  DEGRADED:          {len(degraded)}")
-        print(f"\n  {'!'*50}")
-        print(f"  WARNING: Market data unavailable for: {', '.join(degraded)}")
-        print(f"  Agents will proceed without market context for these tickers.")
-        print(f"  {'!'*50}")
-
-    if fetched:
-        print(f"\n  {'Symbol':<10} {'Company':<25} {'Price':>10} {'P/E':>8} {'Mkt Cap':>15}")
-        print(f"  {'-'*10} {'-'*25} {'-'*10} {'-'*8} {'-'*15}")
-        for symbol in sorted(fetched):
-            snap = market_snapshots[symbol]
-            price_str = f"${snap.last_close:,.2f}" if snap.last_close else "N/A"
-            pe_str = f"{snap.pe_ratio:.1f}" if snap.pe_ratio else "N/A"
-            cap_str = _format_market_cap(snap.market_cap) if snap.market_cap else "N/A"
-            print(f"  {snap.symbol:<10} {snap.company_name[:25]:<25} {price_str:>10} {pe_str:>8} {cap_str:>15}")
 
     print(f"{'='*60}\n")
 
@@ -747,10 +682,6 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
         # Build tool registry: map 8 tool names -> bound graph_manager methods
         gm = app.graph_manager
-
-        # Fetch market context for report (Phase 20 D-01)
-        market_context_data = await gm.read_market_context(cycle_id)
-
         tools: dict[str, object] = {
             "bracket_summary": lambda **kw: gm.read_consensus_summary(kw.get("cycle_id", cycle_id)),
             "round_timeline": lambda **kw: gm.read_round_timeline(kw.get("cycle_id", cycle_id)),
@@ -772,9 +703,7 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
         # Assemble markdown report
         assembler = ReportAssembler()
-        content = assembler.assemble(
-            observations, cycle_id, market_context_data=market_context_data,
-        )
+        content = assembler.assemble(observations, cycle_id)
 
         # Determine output path
         output_path = Path(output) if output is not None else Path("reports") / f"{cycle_id}_report.md"

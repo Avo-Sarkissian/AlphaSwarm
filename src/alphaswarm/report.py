@@ -29,12 +29,12 @@ You are a post-simulation market analysis agent. Your task is to query the \
 simulation graph and produce a comprehensive structured analysis report.
 
 Available tools:
-- bracket_summary: Get per-bracket consensus summary (BUY/SELL/HOLD counts per bracket for Round 3)
+- consensus_summary: Get global BUY/SELL/HOLD breakdown for Round 3
 - round_timeline: Get signal distribution per round (rounds 1-3)
 - bracket_narratives: Get per-bracket stance summary for Round 3
 - key_dissenters: Find agents whose signal diverges from bracket majority in Round 3
 - influence_leaders: Get top agents by INFLUENCED_BY edge weight
-- signal_flip_analysis: Get agents who changed position between rounds
+- signal_flips: Get agents who changed position between rounds
 - entity_impact: Get per-entity sentiment aggregation
 - social_post_reach: Get top posts by READ_POST edge count
 - FINAL_ANSWER: Signal that you have gathered enough data and are done
@@ -271,26 +271,15 @@ class ReportAssembler:
         template = self._env.get_template(template_name)
         return template.render(data=data, cycle_id=cycle_id)
 
-    def assemble(
-        self,
-        observations: list[ToolObservation],
-        cycle_id: str,
-        *,
-        market_context_data: list[dict] | None = None,
-    ) -> str:
+    def assemble(self, observations: list[ToolObservation], cycle_id: str) -> str:
         """Assemble all observations into a complete markdown report document.
 
         Observations are ordered by SECTION_ORDER (may arrive out of order from ReACT).
         Sections not present in observations are silently skipped.
-        When market_context_data is provided and non-empty, the Market Context section
-        is prepended before the ReACT-derived sections (Phase 20 D-03).
 
         Args:
             observations: List of tool observations from ReportEngine.run().
             cycle_id: The simulation cycle ID.
-            market_context_data: Optional list of per-ticker market + consensus dicts
-                from GraphStateManager.read_market_context(). Silently omitted when
-                None or empty.
 
         Returns:
             Complete markdown report string with header and all sections.
@@ -307,16 +296,6 @@ class ReportAssembler:
         )
 
         sections: list[str] = []
-
-        # Prepend market context section when data is available (Phase 20 D-03)
-        if market_context_data:
-            market_section = self.render_section(
-                "09_market_context.j2",
-                data=market_context_data,
-                cycle_id=cycle_id,
-            )
-            sections.append(market_section)
-
         for tool_name in SECTION_ORDER:
             obs = obs_by_tool.get(tool_name)
             if obs is None:
