@@ -630,7 +630,7 @@ async def _handle_inject(rumor: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _handle_report(cycle_id: str | None, output: str | None) -> None:
+async def _handle_report(cycle_id: str | None, output: str | None, fmt: str = "md") -> None:
     """Async handler for the report subcommand.
 
     Lifecycle (per D-12: caller manages model lifecycle):
@@ -701,12 +701,22 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
         )
         observations = await engine.run(cycle_id)
 
-        # Assemble markdown report
+        # Assemble report — format branching (Phase 24 D-07)
         assembler = ReportAssembler()
-        content = assembler.assemble(observations, cycle_id)
+        if fmt == "html":
+            content = assembler.assemble_html(
+                observations, cycle_id, market_context_data=None,
+            )
+            default_suffix = ".html"
+        else:
+            content = assembler.assemble(observations, cycle_id)
+            default_suffix = ".md"
 
         # Determine output path
-        output_path = Path(output) if output is not None else Path("reports") / f"{cycle_id}_report.md"
+        output_path = (
+            Path(output) if output is not None
+            else Path("reports") / f"{cycle_id}_report{default_suffix}"
+        )
 
         # Write report and sentinel (per D-10, D-05)
         await write_report(output_path, content)
@@ -759,6 +769,11 @@ def main() -> None:
         "--output", type=str, default=None,
         help="Override output file path",
     )
+    report_parser.add_argument(
+        "--format", type=str, choices=["md", "html"], default="md",
+        dest="report_format",
+        help="Output format (default: md)",
+    )
 
     args = parser.parse_args()
 
@@ -794,7 +809,7 @@ def main() -> None:
             sys.exit(1)
     elif args.command == "report":
         try:
-            asyncio.run(_handle_report(args.cycle, args.output))
+            asyncio.run(_handle_report(args.cycle, args.output, args.report_format))
         except KeyboardInterrupt:
             print("\nAborted.", file=sys.stderr)
             sys.exit(1)
