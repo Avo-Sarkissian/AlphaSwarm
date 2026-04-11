@@ -95,6 +95,12 @@ Requirements for v4.0 Interactive Simulation & Analysis milestone. Each maps to 
 - [x] **PORTFOLIO-03**: Held tickers not covered by the simulation are explicitly listed as coverage gaps
 - [x] **PORTFOLIO-04**: An LLM-generated narrative compares swarm consensus against user positions in natural language, appearing in both markdown and HTML reports
 
+### Shock Injection
+
+- [ ] **SHOCK-01**: User can type a breaking event into a TUI input widget between rounds and submit it; the overlay screen dismisses with the trimmed text (or `None` if skipped)
+- [ ] **SHOCK-02**: All 100 agents in the next round's batch receive the shock text in their prompt context, and the governor does not enter false THROTTLED/PAUSED states during the inter-round shock pause (suspend/resume validated)
+- [ ] **SHOCK-03**: `ShockEvent` is persisted to Neo4j with `cycle_id` and `injected_before_round` metadata, queryable after simulation ends via a `(Cycle)-[:HAS_SHOCK]->(ShockEvent)` relationship
+
 ## v3 Requirements (Future)
 
 Deferred to future milestones. Tracked but not in current roadmap.
@@ -190,13 +196,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PORTFOLIO-02 | Phase 25: Portfolio Impact Analysis | Complete |
 | PORTFOLIO-03 | Phase 25: Portfolio Impact Analysis | Complete |
 | PORTFOLIO-04 | Phase 25: Portfolio Impact Analysis | Complete |
+| SHOCK-01 | Phase 26: Shock Injection Core | In Progress |
+| SHOCK-02 | Phase 26: Shock Injection Core | In Progress |
+| SHOCK-03 | Phase 26: Shock Injection Core | In Progress |
 
 **Coverage:**
 - v1 requirements: 27 total, 27 mapped (Complete)
 - v2 requirements: 13 total, 13 mapped (Complete)
-- v4 requirements: 7 total, 7 mapped (Complete)
+- v4 requirements: 10 total, 10 mapped (7 Complete, 3 In Progress)
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-04-10 after Phase 25 completion*
+*Last updated: 2026-04-11 — Phase 26 reviews revision (SHOCK-01/02/03 added)*
