@@ -121,7 +121,11 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. User can see a before/after consensus comparison in the TUI or report showing how signals, confidence, and bracket distributions shifted after the shock
   2. Post-simulation report includes a dedicated shock impact section showing which agents pivoted, which held firm, and bracket-level shift aggregations
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 27-00-PLAN.md — Wave 0 TDD scaffolding: 15 failing stubs across 4 test files (test_graph, test_tui, test_report, test_cli) (SHOCK-04, SHOCK-05)
+- [ ] 27-01-PLAN.md — GraphStateManager.read_shock_event + read_shock_impact + _aggregate_shock_impact; BracketPanel delta mode + _bracket_panel_delta_active latch + _activate_bracket_delta_mode worker (SHOCK-04)
+- [ ] 27-02-PLAN.md — 11_shock_impact.j2 template (5 sub-blocks), report.py TOOL_TO_TEMPLATE + SECTION_ORDER, CLI shock_impact pre-seeding, report.html.j2 HTML section block, REQUIREMENTS.md SHOCK-04/SHOCK-05 entries (SHOCK-04, SHOCK-05)
 
 ### Phase 28: Replay Data Layer
 **Goal**: Users can browse past simulations and the system can reconstruct full per-round agent state from Neo4j
@@ -178,6 +182,6 @@ Phases 24-29 execute in numeric order. Phases 24-25 (post-sim paths) ship first,
 | 24. HTML Report Export | v4.0 | 2/2 | Complete | 2026-04-10 |
 | 25. Portfolio Impact Analysis | v4.0 | 2/2 | Complete | 2026-04-10 |
 | 26. Shock Injection Core | v4.0 | 5/5 | Complete | 2026-04-11 |
-| 27. Shock Analysis and Reporting | v4.0 | 0/0 | Not started | - |
+| 27. Shock Analysis and Reporting | v4.0 | 0/3 | In Progress | - |
 | 28. Replay Data Layer | v4.0 | 0/0 | Not started | - |
 | 29. Replay TUI Playback | v4.0 | 0/0 | Not started | - |
