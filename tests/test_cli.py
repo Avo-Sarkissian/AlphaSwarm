@@ -945,3 +945,20 @@ def test_report_subcommand_registered() -> None:
     # Verify default behavior when --cycle is omitted
     args_no_cycle = parser.parse_args(["report"])
     assert args_no_cycle.cycle is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 27: CLI shock_impact pre-seeding (Plan 02)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_shock_impact_preseeded_when_shock_event_exists() -> None:
+    """Phase 27 SHOCK-05 — shock_impact ToolObservation added to pre_seeded when shock present."""
+    pytest.fail("Not yet implemented — see Plan 02 (CLI shock pre-seeding)")
+
+
+@pytest.mark.asyncio()
+async def test_shock_impact_not_preseeded_when_no_shock_event() -> None:
+    """Phase 27 SHOCK-05 — no shock_impact ToolObservation when read_shock_event returns None."""
+    pytest.fail("Not yet implemented — see Plan 02 (CLI shock pre-seeding)")

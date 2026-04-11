@@ -480,3 +480,38 @@ class TestChartStyleInSvg:
         assembler = ReportAssembler()
         html = assembler.assemble_html([_CONSENSUS_OBS], "test-cycle")
         assert "<?xml" not in html
+
+
+# ---------------------------------------------------------------------------
+# Phase 27: Shock impact report section (Plan 02)
+# ---------------------------------------------------------------------------
+
+
+def test_tool_to_template_contains_shock_impact() -> None:
+    """Phase 27 SHOCK-05 — TOOL_TO_TEMPLATE['shock_impact'] == '11_shock_impact.j2'."""
+    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+
+
+def test_section_order_contains_shock_impact_after_portfolio() -> None:
+    """Phase 27 SHOCK-05 — SECTION_ORDER ends with 'shock_impact' after 'portfolio_impact'."""
+    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+
+
+def test_assemble_includes_shock_section_when_observation_present() -> None:
+    """Phase 27 SHOCK-05 — assemble() includes Shock Impact Analysis when observation present."""
+    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+
+
+def test_assemble_skips_shock_section_when_no_observation() -> None:
+    """Phase 27 SHOCK-05 — assemble() does not include shock section when observation absent."""
+    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+
+
+def test_shock_impact_template_renders_bracket_delta_table() -> None:
+    """Phase 27 SHOCK-05 — 11_shock_impact.j2 renders Bracket Signal Shift heading + table."""
+    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+
+
+def test_shock_impact_template_renders_pivot_list() -> None:
+    """Phase 27 SHOCK-05 — 11_shock_impact.j2 renders Agent Pivot List heading when pivots exist."""
+    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
