@@ -573,23 +573,6 @@ def test_bracket_panel_render_delta_uses_delta_data() -> None:
     assert "[DELTA" in result.plain
 
 
-    assert len(pushed_screens) == 1, f"Expected 1 push, got {len(pushed_screens)}"
-
-    # Falling edge: simulation closes the window, latch resets
-    mock_state_store.is_shock_window_open.return_value = False
-    app._check_shock_window()
-    assert app._shock_window_was_open is False
-
-    # Rising edge #2: simulation opens a new window (e.g. R2→R3 gap), push again
-    mock_state_store.is_shock_window_open.return_value = True
-    mock_state_store.shock_next_round.return_value = 3
-    with patch.object(app, "push_screen", side_effect=lambda s, cb=None: pushed_screens.append(s)):
-        app._check_shock_window()
-    assert len(pushed_screens) == 2, (
-        f"Expected 2 pushes after reopen, got {len(pushed_screens)}"
-    )
-
-
 def test_bracket_panel_live_mode_unchanged_without_shock() -> None:
     """Phase 27 SHOCK-04 — render() does NOT contain '[DELTA' when delta mode not active."""
     panel = BracketPanel()
