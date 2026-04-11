@@ -1474,3 +1474,259 @@ class GraphStateManager:
                 "Failed to read latest cycle_id",
                 original_error=exc,
             ) from exc
+
+    # ------------------------------------------------------------------
+    # Phase 27: Shock analysis read methods (Plan 01)
+    # ------------------------------------------------------------------
+
+    async def read_shock_event(self, cycle_id: str) -> dict | None:  # type: ignore[type-arg]
+        """Return ShockEvent metadata for the cycle, or None if no shock was injected.
+
+        Used by the TUI delta-mode activation worker to decide whether to enter
+        delta mode after simulation completes (SHOCK-04).
+
+        Returns:
+            Dict with shock_id, shock_text, injected_before_round, created_at,
+            or None if no ShockEvent exists for the cycle.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                record = await session.execute_read(
+                    self._read_shock_event_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read shock_event for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug("read_shock_event", cycle_id=cycle_id)
+        return record
+
+    @staticmethod
+    async def _read_shock_event_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> dict | None:  # type: ignore[type-arg]
+        """Transaction function for shock event read."""
+        result = await tx.run(
+            """
+            MATCH (c:Cycle {cycle_id: $cycle_id})-[:HAS_SHOCK]->(se:ShockEvent)
+            RETURN se.shock_id AS shock_id,
+                   se.shock_text AS shock_text,
+                   se.injected_before_round AS injected_before_round,
+                   se.created_at AS created_at
+            LIMIT 1
+            """,
+            cycle_id=cycle_id,
+        )
+        record = await result.single()
+        return dict(record) if record else None
+
+    async def read_shock_impact(self, cycle_id: str) -> dict:  # type: ignore[type-arg]
+        """Return shock impact analysis: pivot counts, bracket deltas, notable agents.
+
+        Queries pre-shock and post-shock Decision nodes for the cycle and computes
+        pivot statistics. Uses an inner join (MATCH, not OPTIONAL MATCH) so only
+        agents with BOTH a pre-shock and post-shock decision are included.
+        The comparable_agents field tracks the effective denominator (NOT 100).
+
+        Returns:
+            Dict with shock_text, injected_before_round, comparable_agents,
+            pivot_count, held_firm_count, pivot_rate_pct, held_firm_rate_pct,
+            pivot_agents, bracket_deltas, largest_shift, notable_held_firm_agents.
+            Returns a zero-filled dict if no ShockEvent or no comparable agents.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                result = await session.execute_read(
+                    self._read_shock_impact_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read shock_impact for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "read_shock_impact",
+            cycle_id=cycle_id,
+            pivot_count=result["pivot_count"],
+            comparable_agents=result["comparable_agents"],
+        )
+        return result
+
+    @staticmethod
+    async def _read_shock_impact_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> dict:  # type: ignore[type-arg]
+        """Transaction function for shock impact analysis.
+
+        Uses MATCH (inner join) for both pre and post decisions so only agents
+        who participated in both rounds are included in the analysis.
+        WHERE shock_round >= 2 guards against injected_before_round=1 edge case
+        (rounds start at 1, so round-1=0 would not exist).
+        """
+        result = await tx.run(
+            """
+            MATCH (c:Cycle {cycle_id: $cycle_id})-[:HAS_SHOCK]->(se:ShockEvent)
+            WITH se.injected_before_round AS shock_round,
+                 se.shock_text AS shock_text
+            WHERE shock_round >= 2
+            MATCH (a:Agent)-[:MADE]->(pre:Decision {cycle_id: $cycle_id, round: shock_round - 1})
+            MATCH (a)-[:MADE]->(post:Decision {cycle_id: $cycle_id, round: shock_round})
+            RETURN a.id AS agent_id,
+                   a.name AS agent_name,
+                   a.bracket AS bracket,
+                   pre.signal AS pre_signal,
+                   post.signal AS post_signal,
+                   (pre.signal <> post.signal) AS pivoted,
+                   shock_round AS shock_round,
+                   shock_text AS shock_text
+            ORDER BY a.bracket, a.id
+            """,
+            cycle_id=cycle_id,
+        )
+        rows = [dict(r) async for r in result]
+        return GraphStateManager._aggregate_shock_impact(rows)
+
+    @staticmethod
+    def _aggregate_shock_impact(rows: list[dict]) -> dict:  # type: ignore[type-arg]
+        """Aggregate per-agent shock rows into summary statistics.
+
+        Pure Python — no I/O. Called by _read_shock_impact_tx after the Cypher
+        inner join returns rows. Also directly testable without a database.
+
+        Args:
+            rows: List of dicts from the Cypher query, each with keys:
+                agent_id, agent_name, bracket, pre_signal, post_signal,
+                pivoted, shock_round, shock_text.
+
+        Returns:
+            Dict with all shock impact fields. Returns zero-filled dict if rows
+            is empty (no comparable agents or no shock for this cycle).
+        """
+        from collections import Counter, defaultdict
+
+        if not rows:
+            return {
+                "shock_text": "",
+                "injected_before_round": 0,
+                "comparable_agents": 0,
+                "pivot_count": 0,
+                "held_firm_count": 0,
+                "pivot_rate_pct": 0.0,
+                "held_firm_rate_pct": 0.0,
+                "pivot_agents": [],
+                "bracket_deltas": [],
+                "largest_shift": {},
+                "notable_held_firm_agents": [],
+            }
+
+        shock_text: str = rows[0]["shock_text"]
+        injected_before_round: int = int(rows[0]["shock_round"])
+        comparable_agents: int = len(rows)
+
+        pivot_count = sum(1 for r in rows if r["pivoted"])
+        held_firm_count = comparable_agents - pivot_count
+        pivot_rate_pct = pivot_count / comparable_agents * 100
+        held_firm_rate_pct = held_firm_count / comparable_agents * 100
+
+        pivot_agents = [
+            {
+                "bracket": r["bracket"],
+                "agent_id": r["agent_id"],
+                "pre_signal": r["pre_signal"],
+                "post_signal": r["post_signal"],
+            }
+            for r in rows
+            if r["pivoted"]
+        ]
+
+        # Per-bracket signal counters for pre and post rounds
+        pre_by_bracket: dict[str, list[str]] = defaultdict(list)
+        post_by_bracket: dict[str, list[str]] = defaultdict(list)
+        for r in rows:
+            bracket = r["bracket"]
+            pre_by_bracket[bracket].append(r["pre_signal"])
+            post_by_bracket[bracket].append(r["post_signal"])
+
+        def _majority(signals: list[str]) -> str:
+            """Tie-break: BUY > SELL > HOLD."""
+            c = Counter(signals)
+            for sig in ("BUY", "SELL", "HOLD"):
+                if c[sig] == max(c.values()):
+                    return sig
+            return "HOLD"
+
+        def _pct(count: int, total: int) -> float:
+            return count / total * 100 if total > 0 else 0.0
+
+        bracket_deltas: list[dict] = []  # type: ignore[type-arg]
+        for bracket in sorted(pre_by_bracket.keys()):
+            pre_sigs = pre_by_bracket[bracket]
+            post_sigs = post_by_bracket[bracket]
+            total = len(pre_sigs)
+            pre_c = Counter(pre_sigs)
+            post_c = Counter(post_sigs)
+            pre_buy_pct = _pct(pre_c["BUY"], total)
+            post_buy_pct = _pct(post_c["BUY"], total)
+            pre_sell_pct = _pct(pre_c["SELL"], total)
+            post_sell_pct = _pct(post_c["SELL"], total)
+            pre_hold_pct = _pct(pre_c["HOLD"], total)
+            post_hold_pct = _pct(post_c["HOLD"], total)
+            delta_buy_pct = post_buy_pct - pre_buy_pct
+            dominant_post = _majority(post_sigs)
+            dominant_arrow = "▲" if delta_buy_pct > 0 else "▼" if delta_buy_pct < 0 else "·"
+            bracket_deltas.append({
+                "bracket": bracket,
+                "pre_buy_pct": pre_buy_pct,
+                "post_buy_pct": post_buy_pct,
+                "pre_sell_pct": pre_sell_pct,
+                "post_sell_pct": post_sell_pct,
+                "pre_hold_pct": pre_hold_pct,
+                "post_hold_pct": post_hold_pct,
+                "delta_buy_pct": delta_buy_pct,
+                "dominant_post": dominant_post,
+                "dominant_arrow": dominant_arrow,
+            })
+
+        # Largest absolute shift by bracket
+        largest_shift: dict = {}  # type: ignore[type-arg]
+        if bracket_deltas:
+            max_entry = max(bracket_deltas, key=lambda b: abs(b["delta_buy_pct"]))
+            largest_shift = {
+                "bracket": max_entry["bracket"],
+                "direction": "BUY" if max_entry["delta_buy_pct"] > 0 else "SELL",
+                "delta": max_entry["delta_buy_pct"],
+            }
+
+        # Notable held-firm agents: held firm AND their bracket majority changed
+        pre_majority_by_bracket = {b: _majority(sigs) for b, sigs in pre_by_bracket.items()}
+        post_majority_by_bracket = {b: _majority(sigs) for b, sigs in post_by_bracket.items()}
+
+        notable_held_firm_agents = [
+            {
+                "bracket": r["bracket"],
+                "agent_id": r["agent_id"],
+                "pre_signal": r["pre_signal"],
+                "pre_bracket_majority": pre_majority_by_bracket[r["bracket"]],
+                "post_bracket_majority": post_majority_by_bracket[r["bracket"]],
+            }
+            for r in rows
+            if not r["pivoted"]
+            and pre_majority_by_bracket[r["bracket"]] != post_majority_by_bracket[r["bracket"]]
+        ]
+
+        return {
+            "shock_text": shock_text,
+            "injected_before_round": injected_before_round,
+            "comparable_agents": comparable_agents,
+            "pivot_count": pivot_count,
+            "held_firm_count": held_firm_count,
+            "pivot_rate_pct": pivot_rate_pct,
+            "held_firm_rate_pct": held_firm_rate_pct,
+            "pivot_agents": pivot_agents,
+            "bracket_deltas": bracket_deltas,
+            "largest_shift": largest_shift,
+            "notable_held_firm_agents": notable_held_firm_agents,
+        }

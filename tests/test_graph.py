@@ -1433,22 +1433,107 @@ async def test_write_read_post_edges_wraps_neo4j_error(mock_driver: MagicMock) -
 @pytest.mark.asyncio()
 async def test_read_shock_event_returns_dict_when_exists(mock_driver: MagicMock) -> None:
     """Phase 27 SHOCK-04 — read_shock_event returns dict when ShockEvent exists for cycle."""
-    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
+    from alphaswarm.graph import GraphStateManager
+
+    expected = {
+        "shock_id": "shock-uuid-1",
+        "shock_text": "Fed emergency rate cut",
+        "injected_before_round": 2,
+        "created_at": "2026-04-11T12:00:00Z",
+    }
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value=expected)
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    result = await gsm.read_shock_event("cycle-123")
+
+    assert result == expected
+    session.execute_read.assert_awaited_once()
 
 
 @pytest.mark.asyncio()
 async def test_read_shock_event_returns_none_when_no_shock(mock_driver: MagicMock) -> None:
     """Phase 27 SHOCK-04 — read_shock_event returns None when no ShockEvent exists."""
-    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value=None)
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    result = await gsm.read_shock_event("cycle-no-shock")
+
+    assert result is None
 
 
 @pytest.mark.asyncio()
 async def test_read_shock_impact_returns_per_agent_rows(mock_driver: MagicMock) -> None:
     """Phase 27 SHOCK-04 — read_shock_impact returns dict with bracket_deltas, pivot_count, comparable_agents."""
-    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
+    from alphaswarm.graph import GraphStateManager
+
+    # 3 synthetic agents: 1 pivoted, 2 held firm
+    rows = [
+        {
+            "agent_id": "a1", "agent_name": "Agent 1", "bracket": "Quants",
+            "pre_signal": "BUY", "post_signal": "SELL", "pivoted": True,
+            "shock_round": 2, "shock_text": "Fed cut rates",
+        },
+        {
+            "agent_id": "a2", "agent_name": "Agent 2", "bracket": "Quants",
+            "pre_signal": "BUY", "post_signal": "BUY", "pivoted": False,
+            "shock_round": 2, "shock_text": "Fed cut rates",
+        },
+        {
+            "agent_id": "a3", "agent_name": "Agent 3", "bracket": "Degens",
+            "pre_signal": "SELL", "post_signal": "SELL", "pivoted": False,
+            "shock_round": 2, "shock_text": "Fed cut rates",
+        },
+    ]
+    session = mock_driver.session.return_value
+    # _read_shock_impact_tx calls _aggregate_shock_impact internally;
+    # we mock execute_read to return the aggregated result directly.
+    aggregated = GraphStateManager._aggregate_shock_impact(rows)
+    session.execute_read = AsyncMock(return_value=aggregated)
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    result = await gsm.read_shock_impact("cycle-123")
+
+    assert result["comparable_agents"] == 3
+    assert result["pivot_count"] == 1
+    assert result["held_firm_count"] == 2
+    assert abs(result["pivot_rate_pct"] - 33.333) < 0.1
+    assert "bracket_deltas" in result
+    assert isinstance(result["bracket_deltas"], list)
+    assert len(result["bracket_deltas"]) == 2  # Quants + Degens
 
 
 @pytest.mark.asyncio()
 async def test_read_shock_impact_pivot_flag_computed_correctly(mock_driver: MagicMock) -> None:
     """Phase 27 SHOCK-04 — pivot_count=1, held_firm_count=1, comparable_agents=2 when 1 of 2 agents changed signal."""
-    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
+    from alphaswarm.graph import GraphStateManager
+
+    rows = [
+        {
+            "agent_id": "a1", "agent_name": "Agent 1", "bracket": "Quants",
+            "pre_signal": "BUY", "post_signal": "SELL", "pivoted": True,
+            "shock_round": 2, "shock_text": "oil shock",
+        },
+        {
+            "agent_id": "a2", "agent_name": "Agent 2", "bracket": "Quants",
+            "pre_signal": "BUY", "post_signal": "BUY", "pivoted": False,
+            "shock_round": 2, "shock_text": "oil shock",
+        },
+    ]
+    result = GraphStateManager._aggregate_shock_impact(rows)
+
+    assert result["comparable_agents"] == 2
+    assert result["pivot_count"] == 1
+    assert result["held_firm_count"] == 1
+    assert result["pivot_rate_pct"] == pytest.approx(50.0)
+    assert result["held_firm_rate_pct"] == pytest.approx(50.0)
+    assert len(result["pivot_agents"]) == 1
+    assert result["pivot_agents"][0]["agent_id"] == "a1"
+    assert result["pivot_agents"][0]["pre_signal"] == "BUY"
+    assert result["pivot_agents"][0]["post_signal"] == "SELL"
+    # Quants: pre majority BUY (2), post majority BUY (1) vs SELL (1) -> BUY wins tie-break
+    # Agent 2 held BUY but bracket majority didn't change (BUY->BUY), so no notable held-firm
+    assert result["notable_held_firm_agents"] == []
