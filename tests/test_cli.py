@@ -955,10 +955,53 @@ def test_report_subcommand_registered() -> None:
 @pytest.mark.asyncio()
 async def test_shock_impact_preseeded_when_shock_event_exists() -> None:
     """Phase 27 SHOCK-05 — shock_impact ToolObservation added to pre_seeded when shock present."""
-    pytest.fail("Not yet implemented — see Plan 02 (CLI shock pre-seeding)")
+    from unittest.mock import AsyncMock, MagicMock
+
+    from alphaswarm.cli import _collect_shock_observation
+    from alphaswarm.report import ToolObservation
+
+    _SHOCK_IMPACT_RESULT = {
+        "shock_text": "Fed raises rates 75bps",
+        "injected_before_round": 2,
+        "comparable_agents": 95,
+        "pivot_count": 40,
+        "held_firm_count": 55,
+        "pivot_rate_pct": 42.1,
+        "held_firm_rate_pct": 57.9,
+        "pivot_agents": [],
+        "bracket_deltas": [],
+        "largest_shift": {},
+        "notable_held_firm_agents": [],
+    }
+
+    mock_gm = MagicMock()
+    mock_gm.read_shock_event = AsyncMock(return_value={"shock_id": "s1", "shock_text": "Fed raises rates 75bps"})
+    mock_gm.read_shock_impact = AsyncMock(return_value=_SHOCK_IMPACT_RESULT)
+
+    result = await _collect_shock_observation(mock_gm, "cycle-1")
+
+    assert result is not None
+    assert isinstance(result, ToolObservation)
+    assert result.tool_name == "shock_impact"
+    assert result.tool_input == {"cycle_id": "cycle-1"}
+    assert result.result == _SHOCK_IMPACT_RESULT
+    mock_gm.read_shock_event.assert_awaited_once_with("cycle-1")
+    mock_gm.read_shock_impact.assert_awaited_once_with("cycle-1")
 
 
 @pytest.mark.asyncio()
 async def test_shock_impact_not_preseeded_when_no_shock_event() -> None:
     """Phase 27 SHOCK-05 — no shock_impact ToolObservation when read_shock_event returns None."""
-    pytest.fail("Not yet implemented — see Plan 02 (CLI shock pre-seeding)")
+    from unittest.mock import AsyncMock, MagicMock
+
+    from alphaswarm.cli import _collect_shock_observation
+
+    mock_gm = MagicMock()
+    mock_gm.read_shock_event = AsyncMock(return_value=None)
+    mock_gm.read_shock_impact = AsyncMock()
+
+    result = await _collect_shock_observation(mock_gm, "cycle-no-shock")
+
+    assert result is None
+    mock_gm.read_shock_event.assert_awaited_once_with("cycle-no-shock")
+    mock_gm.read_shock_impact.assert_not_awaited()

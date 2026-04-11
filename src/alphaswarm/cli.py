@@ -630,6 +630,37 @@ async def _handle_inject(rumor: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+async def _collect_shock_observation(
+    gm: object,
+    cycle_id: str,
+) -> object:
+    """Pre-seed shock_impact ToolObservation when a ShockEvent exists for cycle_id.
+
+    Called by _handle_report before the ReACT engine so the shock impact data
+    is available in the conversation context from the first token. Returns
+    None when no ShockEvent is recorded for the cycle (non-shock simulation).
+
+    Args:
+        gm: GraphStateManager instance.
+        cycle_id: The simulation cycle ID.
+
+    Returns:
+        ToolObservation with tool_name='shock_impact' or None.
+    """
+    from alphaswarm.report import ToolObservation
+
+    shock_event = await gm.read_shock_event(cycle_id)  # type: ignore[union-attr]
+    if shock_event is None:
+        return None
+
+    shock_impact = await gm.read_shock_impact(cycle_id)  # type: ignore[union-attr]
+    return ToolObservation(
+        tool_name="shock_impact",
+        tool_input={"cycle_id": cycle_id},
+        result=shock_impact,
+    )
+
+
 async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     """Async handler for the report subcommand.
 
@@ -693,11 +724,18 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
             "social_post_reach": lambda **kw: gm.read_social_post_reach(kw.get("cycle_id", cycle_id)),
         }
 
+        # Phase 27: Pre-seed shock_impact observation when a ShockEvent exists
+        from alphaswarm.report import ToolObservation as _ToolObservation
+
+        shock_obs: _ToolObservation | None = await _collect_shock_observation(gm, cycle_id)  # type: ignore[arg-type]
+        pre_seeded = [shock_obs] if shock_obs is not None else []
+
         # Run ReACT engine
         engine = ReportEngine(
             ollama_client=app.ollama_client,
             model=orchestrator,
             tools=tools,  # type: ignore[arg-type]
+            pre_seeded_observations=pre_seeded or None,
         )
         observations = await engine.run(cycle_id)
 
