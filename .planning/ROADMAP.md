@@ -62,7 +62,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 24: HTML Report Export** - Self-contained HTML reports with inline SVG charts and dark theme (completed 2026-04-10)
 - [x] **Phase 25: Portfolio Impact Analysis** - Map swarm consensus against Schwab holdings with LLM narrative (completed 2026-04-10)
-- [ ] **Phase 26: Shock Injection Core** - Governor suspend/resume, inter-round shock queue, agent prompt propagation, Neo4j persistence
+- [x] **Phase 26: Shock Injection Core** - Governor suspend/resume, inter-round shock queue, agent prompt propagation, Neo4j persistence (completed 2026-04-11)
 - [ ] **Phase 27: Shock Analysis and Reporting** - Before/after consensus comparison and shock impact report section
 - [ ] **Phase 28: Replay Data Layer** - Cycle listing, full-cycle Neo4j reads, ReplayStore with random-access snapshots
 - [ ] **Phase 29: Replay TUI Playback** - Round-by-round TUI replay with speed control and navigation
@@ -106,8 +106,13 @@ Plans:
   2. All 100 agents in the next round's batch receive the shock text in their prompt context
   3. ShockEvent is persisted to Neo4j with the cycle ID and `injected_before_round` metadata, queryable after simulation ends
   4. Governor does not enter false THROTTLED/PAUSED states during the inter-round shock pause (suspend/resume validated)
-**Plans**: TBD
-**UI hint**: yes
+**Plans:** 5/5 plans complete
+Plans:
+- [x] 26-01-PLAN.md — Wave 0 TDD scaffolding: 20 failing stubs across 5 test files + mock_state_store fixture (SHOCK-01, SHOCK-02, SHOCK-03)
+- [x] 26-02-PLAN.md — ResourceGovernor.suspend() / resume() with callee-side memory-pressure guard (SHOCK-02)
+- [x] 26-03-PLAN.md — StateStore shock queue/window bridge (6 methods + SHOCK_TEXT_MAX_LEN) + GraphStateManager.write_shock_event() + shock_cycle_idx (SHOCK-01, SHOCK-03)
+- [x] 26-04-PLAN.md — ShockInputScreen TUI modal + _check_shock_window edge latch + _on_shock_submitted callback (SHOCK-01)
+- [x] 26-05-PLAN.md — _collect_inter_round_shock helper wired at R1→R2 and R2→R3 gaps in run_simulation (SHOCK-01, SHOCK-02, SHOCK-03)
 
 ### Phase 27: Shock Analysis and Reporting
 **Goal**: Users can quantify how the swarm shifted due to an injected shock and review the impact in the post-simulation report
@@ -171,8 +176,8 @@ Phases 24-29 execute in numeric order. Phases 24-25 (post-sim paths) ship first,
 | 22. Fix Report Tool Name Mismatch | v3.0 | 1/1 | Complete | 2026-04-08 |
 | 23. Validation Tracking and Requirements Traceability | v3.0 | 1/1 | Complete | 2026-04-08 |
 | 24. HTML Report Export | v4.0 | 2/2 | Complete | 2026-04-10 |
-| 25. Portfolio Impact Analysis | v4.0 | 2/2 | Complete    | 2026-04-10 |
-| 26. Shock Injection Core | v4.0 | 0/0 | Not started | - |
+| 25. Portfolio Impact Analysis | v4.0 | 2/2 | Complete | 2026-04-10 |
+| 26. Shock Injection Core | v4.0 | 5/5 | Complete | 2026-04-11 |
 | 27. Shock Analysis and Reporting | v4.0 | 0/0 | Not started | - |
 | 28. Replay Data Layer | v4.0 | 0/0 | Not started | - |
 | 29. Replay TUI Playback | v4.0 | 0/0 | Not started | - |
