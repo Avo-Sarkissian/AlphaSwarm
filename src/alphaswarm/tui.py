@@ -451,6 +451,96 @@ class RumorInputScreen(Screen[str]):
 
 
 # ---------------------------------------------------------------------------
+# ShockInputScreen — inter-round shock injection overlay (Phase 26)
+# ---------------------------------------------------------------------------
+
+
+class ShockInputScreen(Screen[str | None]):
+    """Phase 26 — full-screen modal for inter-round shock injection.
+
+    Pushed from _check_shock_window() when StateStore.is_shock_window_open() is True.
+    Dismisses with the trimmed shock text on Enter (non-empty), or None on Esc
+    / empty Enter. The dismiss value flows back via the parent App's
+    _on_shock_submitted callback to StateStore.submit_shock.
+
+    Per 26-UI-SPEC.md — visually mirrors RumorInputScreen with domain copy.
+    Per 26-CONTEXT.md D-15..D-17.
+    """
+
+    BINDINGS = [
+        ("escape", "skip_shock", "Skip"),
+    ]
+
+    DEFAULT_CSS = """
+    ShockInputScreen {
+        align: center middle;
+        background: #121212;
+    }
+
+    #shock-input-container {
+        width: 72;
+        height: auto;
+        border: solid #4FC3F7;
+        padding: 2 3;
+        background: #1E1E1E;
+    }
+
+    #shock-title {
+        width: 100%;
+        text-align: center;
+        color: #4FC3F7;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #shock-subtitle {
+        width: 100%;
+        text-align: center;
+        color: #78909C;
+        margin-bottom: 2;
+    }
+
+    #shock-input {
+        width: 100%;
+    }
+
+    #shock-hint {
+        width: 100%;
+        text-align: center;
+        color: #78909C;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, next_round: int) -> None:
+        super().__init__()
+        self._next_round = next_round
+
+    def compose(self) -> ComposeResult:
+        with Container(id="shock-input-container"):
+            yield Static("Inject Breaking Event", id="shock-title")
+            yield Static(
+                f"Shock the swarm before Round {self._next_round}",
+                id="shock-subtitle",
+            )
+            yield Input(
+                placeholder="e.g. Fed emergency rate cut to 0%...",
+                id="shock-input",
+            )
+            yield Static("Enter to inject  ·  Esc to skip", id="shock-hint")
+
+    def on_mount(self) -> None:
+        self.query_one("#shock-input", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        text = event.value.strip()
+        self.dismiss(text if text else None)
+
+    def action_skip_shock(self) -> None:
+        self.dismiss(None)
+
+
+# ---------------------------------------------------------------------------
 # InterviewScreen — post-simulation agent Q&A overlay (Phase 14)
 # ---------------------------------------------------------------------------
 

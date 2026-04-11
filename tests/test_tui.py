@@ -536,19 +536,102 @@ def test_sentinel_poll_updates_footer(tmp_path: pytest.TempPathFactory) -> None:
 @pytest.mark.asyncio
 async def test_shock_input_screen_enter_dismisses_with_text():
     """Phase 26 SHOCK-01 — Enter on ShockInputScreen dismisses with trimmed text."""
-    pytest.fail("Not yet implemented — see Plan 04 (TUI ShockInputScreen)")
+    from textual.app import App
+    from alphaswarm.tui import ShockInputScreen
+
+    class _TestApp(App):  # type: ignore[type-arg]
+        result: str | None | object = "UNSET"
+
+        async def on_mount(self) -> None:
+            def _capture(value: str | None) -> None:
+                self.result = value
+                self.exit()
+            await self.push_screen(ShockInputScreen(next_round=2), _capture)
+
+    app = _TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press(*"Fed emergency rate cut")
+        await pilot.press("enter")
+        await pilot.pause()
+    assert app.result == "Fed emergency rate cut"
 
 
 @pytest.mark.asyncio
 async def test_shock_input_screen_esc_dismisses_with_none():
     """Phase 26 SHOCK-01 — Esc on ShockInputScreen dismisses with None."""
-    pytest.fail("Not yet implemented — see Plan 04 (TUI ShockInputScreen)")
+    from textual.app import App
+    from alphaswarm.tui import ShockInputScreen
+
+    class _TestApp(App):  # type: ignore[type-arg]
+        result: str | None | object = "UNSET"
+
+        async def on_mount(self) -> None:
+            def _capture(value: str | None) -> None:
+                self.result = value
+                self.exit()
+            await self.push_screen(ShockInputScreen(next_round=3), _capture)
+
+    app = _TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+    assert app.result is None
 
 
 @pytest.mark.asyncio
 async def test_shock_input_screen_empty_enter_dismisses_with_none():
-    """Phase 26 SHOCK-01 — Enter on empty Input dismisses with None (D-07)."""
-    pytest.fail("Not yet implemented — see Plan 04 (TUI ShockInputScreen empty submit)")
+    """Phase 26 SHOCK-01 — Enter on empty Input dismisses with None (D-07).
+
+    REVIEWS-ADDED (2026-04-11): Codex flagged that empty-Enter behavior was
+    specified in on_input_submitted (text.strip() or None) but had no
+    regression test. This test asserts that the empty-string path dismisses
+    with None — not with "", which would be persisted as a degenerate
+    shock downstream.
+    """
+    from textual.app import App
+    from alphaswarm.tui import ShockInputScreen
+
+    class _TestApp(App):  # type: ignore[type-arg]
+        result: str | None | object = "UNSET"
+
+        async def on_mount(self) -> None:
+            def _capture(value: str | None) -> None:
+                self.result = value
+                self.exit()
+            await self.push_screen(ShockInputScreen(next_round=2), _capture)
+
+    app = _TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Press Enter with no text typed — the Input is empty
+        await pilot.press("enter")
+        await pilot.pause()
+    # Empty Enter must dismiss with None, NOT "" — downstream treats None as "no shock"
+    assert app.result is None, (
+        f"Empty Enter should dismiss with None; got {app.result!r}"
+    )
+
+    # Belt-and-suspenders: whitespace-only Enter should also dismiss with None.
+    class _WhitespaceTestApp(App):  # type: ignore[type-arg]
+        result: str | None | object = "UNSET"
+
+        async def on_mount(self) -> None:
+            def _capture(value: str | None) -> None:
+                self.result = value
+                self.exit()
+            await self.push_screen(ShockInputScreen(next_round=2), _capture)
+
+    app2 = _WhitespaceTestApp()
+    async with app2.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press(*"   ")  # only spaces
+        await pilot.press("enter")
+        await pilot.pause()
+    assert app2.result is None, (
+        f"Whitespace-only Enter should dismiss with None; got {app2.result!r}"
+    )
 
 
 @pytest.mark.asyncio
