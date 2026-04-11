@@ -1,7 +1,7 @@
 ---
 phase: 27
 slug: shock-analysis-and-reporting
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-04-11
@@ -52,7 +52,7 @@ Textual uses integer cell units. The existing `BracketPanel.DEFAULT_CSS` locks t
 |-------|---------------|---------------|-------|
 | xs | 1 | 4px | Intra-bar spacing, inline padding (`padding: 1 1 0 1`) |
 | sm | 2 | 8px | Gap between bracket rows (inherited from existing panel) |
-| md | 3 | 16px | Not used on this surface (reserved) |
+| md | 3 | 12px | Not used on this surface (reserved) |
 | lg | 6 | 24px | Not used (reserved) |
 
 **Fixed BracketPanel geometry (locked, unchanged from Phase 10):**
