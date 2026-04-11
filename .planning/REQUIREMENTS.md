@@ -78,29 +78,6 @@ Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 - [x] **PERSONA-01**: Orchestrator LLM generates entity-specific bracket modifiers from SeedEvent entities in a single JSON call
 - [x] **PERSONA-02**: Entity-aware modifiers injected into generate_personas() pipeline, preserving 10-bracket structure and 100-agent count
 
-## v4 Requirements (Interactive Simulation & Analysis)
-
-Requirements for v4.0 Interactive Simulation & Analysis milestone. Each maps to roadmap phases.
-
-### HTML Report Export
-
-- [x] **EXPORT-01**: CLI `report` subcommand accepts `--format html` flag and produces a single self-contained `.html` file that opens in any browser without network access
-- [x] **EXPORT-02**: HTML report contains inline SVG charts (consensus bars, signal timelines, bracket distributions) generated via pygal with a dark theme matching the TUI aesthetic
-- [x] **EXPORT-03**: Generated HTML file is under 1MB total size using inline SVG over JavaScript charting libraries
-
-### Portfolio Impact Analysis
-
-- [x] **PORTFOLIO-01**: User can point the CLI at a Schwab CSV file; system parses holdings without persisting any portfolio data to Neo4j or disk
-- [x] **PORTFOLIO-02**: Post-simulation output shows which held tickers the swarm has consensus signals for, mapping those signals to the user's positions
-- [x] **PORTFOLIO-03**: Held tickers not covered by the simulation are explicitly listed as coverage gaps
-- [x] **PORTFOLIO-04**: An LLM-generated narrative compares swarm consensus against user positions in natural language, appearing in both markdown and HTML reports
-
-### Shock Injection
-
-- [ ] **SHOCK-01**: User can type a breaking event into a TUI input widget between rounds and submit it; the overlay screen dismisses with the trimmed text (or `None` if skipped)
-- [ ] **SHOCK-02**: All 100 agents in the next round's batch receive the shock text in their prompt context, and the governor does not enter false THROTTLED/PAUSED states during the inter-round shock pause (suspend/resume validated)
-- [ ] **SHOCK-03**: `ShockEvent` is persisted to Neo4j with `cycle_id` and `injected_before_round` metadata, queryable after simulation ends via a `(Cycle)-[:HAS_SHOCK]->(ShockEvent)` relationship
-
 ## v3 Requirements (Future)
 
 Deferred to future milestones. Tracked but not in current roadmap.
@@ -189,23 +166,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REPORT-01 | Phase 15: Post-Simulation Report | Complete |
 | REPORT-02 | Phase 15: Post-Simulation Report | Complete |
 | REPORT-03 | Phase 15: Post-Simulation Report | Complete |
-| EXPORT-01 | Phase 24: HTML Report Export | Complete |
-| EXPORT-02 | Phase 24: HTML Report Export | Complete |
-| EXPORT-03 | Phase 24: HTML Report Export | Complete |
-| PORTFOLIO-01 | Phase 25: Portfolio Impact Analysis | Complete |
-| PORTFOLIO-02 | Phase 25: Portfolio Impact Analysis | Complete |
-| PORTFOLIO-03 | Phase 25: Portfolio Impact Analysis | Complete |
-| PORTFOLIO-04 | Phase 25: Portfolio Impact Analysis | Complete |
-| SHOCK-01 | Phase 26: Shock Injection Core | In Progress |
-| SHOCK-02 | Phase 26: Shock Injection Core | In Progress |
-| SHOCK-03 | Phase 26: Shock Injection Core | In Progress |
 
 **Coverage:**
 - v1 requirements: 27 total, 27 mapped (Complete)
-- v2 requirements: 13 total, 13 mapped (Complete)
-- v4 requirements: 10 total, 10 mapped (7 Complete, 3 In Progress)
+- v2 requirements: 13 total, 13 mapped (Pending)
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-04-11 — Phase 26 reviews revision (SHOCK-01/02/03 added)*
+*Last updated: 2026-03-31 after v2.0 roadmap creation*

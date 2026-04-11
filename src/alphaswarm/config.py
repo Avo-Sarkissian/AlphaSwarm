@@ -86,7 +86,6 @@ class AppSettings(BaseSettings):
     ollama: OllamaSettings = OllamaSettings()
     neo4j: Neo4jSettings = Neo4jSettings()
     governor: GovernorSettings = GovernorSettings()
-    alpha_vantage_api_key: str = ""
 
 
 # ---------------------------------------------------------------------------

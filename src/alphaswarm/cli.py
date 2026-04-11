@@ -630,12 +630,7 @@ async def _handle_inject(rumor: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _handle_report(
-    cycle_id: str | None,
-    output: str | None,
-    fmt: str = "md",
-    portfolio_path: str | None = None,
-) -> None:
+async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     """Async handler for the report subcommand.
 
     Lifecycle (per D-12: caller manages model lifecycle):
@@ -646,30 +641,15 @@ async def _handle_report(
     5. Build tool registry -> run ReACT engine -> collect observations
     6. Assemble report -> write to disk -> write sentinel
     7. Unload orchestrator model + close graph manager (finally)
-
-    When ``portfolio_path`` is provided (Phase 25), the handler also parses
-    the Schwab CSV, pre-calls build_portfolio_impact() deterministically,
-    injects the result as a pre-seeded ToolObservation, registers an
-    idempotent portfolio_impact tool closure, and passes a dynamic system
-    prompt that includes the portfolio narrative mandate. Fail-fast on any
-    error with SystemExit(2) — the caller explicitly asked for portfolio
-    analysis and a silent skip would produce a misleading report.
     """
     from pathlib import Path
 
     from alphaswarm.app import create_app_state
-    from alphaswarm.portfolio import (
-        PortfolioParseError,
-        build_portfolio_impact,
-        parse_schwab_csv_async,
-    )
     from alphaswarm.report import (
         ReportAssembler,
         ReportEngine,
         SECTION_ORDER,
         TOOL_TO_TEMPLATE,
-        ToolObservation,
-        build_react_system_prompt,
         write_report,
         write_sentinel,
     )
@@ -713,135 +693,20 @@ async def _handle_report(
             "social_post_reach": lambda **kw: gm.read_social_post_reach(kw.get("cycle_id", cycle_id)),
         }
 
-        # ------------------------------------------------------------------
-        # Phase 25: portfolio impact wiring (D-10, D-14, D-15, D-16)
-        #
-        # REVIEWS consensus HIGH concern: pure ReACT tool dispatch is too
-        # probabilistic to satisfy PORTFOLIO-04. We pre-call
-        # build_portfolio_impact once, inject the result as a pre-seeded
-        # ToolObservation into the engine, AND register an idempotent tool
-        # closure so the ReACT loop can still invoke it for narrative
-        # synthesis. Either path produces the same data.
-        #
-        # Fail-fast: if --portfolio is explicitly provided but invalid, exit
-        # with status 2 rather than silently skipping the section.
-        #
-        # REPLAN-6 — RUNTIME tool registration (conditional on --portfolio):
-        # This is where we CONDITIONALLY add ``portfolio_impact`` to the
-        # ``tools`` dict. The STATIC template registration
-        # (TOOL_TO_TEMPLATE / SECTION_ORDER) lives in report.py and is
-        # always present (Plan 01). When --portfolio is absent, we skip
-        # this entire block, the tools dict stays at 8 entries, the system
-        # prompt omits the portfolio_impact line, and no portfolio_impact
-        # observation is ever produced. The static TOOL_TO_TEMPLATE entry
-        # for portfolio_impact is a harmless no-op in that case because no
-        # matching observation reaches ReportAssembler.
-        # ------------------------------------------------------------------
-        pre_seeded_observations: list[ToolObservation] = []
-        include_portfolio = False
-        if portfolio_path is not None:
-            portfolio_p = Path(portfolio_path)
-            logger.info("portfolio.parse_attempt", path=str(portfolio_p))
-
-            if not portfolio_p.exists():
-                print(
-                    f"error: --portfolio file not found: {portfolio_path}",
-                    file=sys.stderr,
-                )
-                raise SystemExit(2)
-            if not portfolio_p.is_file():
-                print(
-                    f"error: --portfolio path is not a regular file: {portfolio_path}",
-                    file=sys.stderr,
-                )
-                raise SystemExit(2)
-
-            try:
-                parse_result = await parse_schwab_csv_async(portfolio_p)
-            except PortfolioParseError as exc:
-                logger.error("portfolio.parse_error", error_class=type(exc).__name__)
-                print(
-                    f"error: --portfolio CSV is malformed ({type(exc).__name__}). "
-                    "See Schwab Individual-Positions export format in docs.",
-                    file=sys.stderr,
-                )
-                raise SystemExit(2) from exc
-            except Exception as exc:  # noqa: BLE001
-                logger.error("portfolio.parse_error", error_class=type(exc).__name__)
-                print(
-                    f"error: failed to read --portfolio file ({type(exc).__name__}).",
-                    file=sys.stderr,
-                )
-                raise SystemExit(2) from exc
-
-            equity_count = len(parse_result["equity_holdings"])
-            excluded_count = len(parse_result["excluded_holdings"])
-            logger.info(
-                "portfolio.parse_success",
-                equity_count=equity_count,
-                excluded_count=excluded_count,
-            )
-
-            if equity_count == 0:
-                print(
-                    "error: --portfolio CSV contained zero parseable equity holdings. "
-                    "Check that the 'Asset Type' column contains 'Equity' rows.",
-                    file=sys.stderr,
-                )
-                raise SystemExit(2)
-
-            # Deterministic pre-call — this is the authoritative portfolio data.
-            portfolio_impact_result = await build_portfolio_impact(
-                parse_result, gm, cycle_id
-            )
-            logger.info(
-                "portfolio.impact_built",
-                matched_count=len(portfolio_impact_result["matched_tickers"]),
-                gap_count=len(portfolio_impact_result["gap_tickers"]),
-                coverage_pct=portfolio_impact_result["coverage_summary"]["coverage_pct"],
-            )
-
-            portfolio_observation = ToolObservation(
-                tool_name="portfolio_impact",
-                tool_input={"cycle_id": cycle_id},
-                result=portfolio_impact_result,
-            )
-            pre_seeded_observations.append(portfolio_observation)
-            include_portfolio = True
-
-            # Idempotent tool closure for the ReACT loop. Always returns the
-            # pre-computed result, so any number of LLM invocations is safe.
-            async def _portfolio_impact_tool(**kw: object) -> dict:
-                return portfolio_impact_result
-
-            tools["portfolio_impact"] = _portfolio_impact_tool
-
         # Run ReACT engine
         engine = ReportEngine(
             ollama_client=app.ollama_client,
             model=orchestrator,
             tools=tools,  # type: ignore[arg-type]
-            system_prompt=build_react_system_prompt(include_portfolio=include_portfolio),
-            pre_seeded_observations=pre_seeded_observations or None,
         )
         observations = await engine.run(cycle_id)
 
-        # Assemble report — format branching (Phase 24 D-07)
+        # Assemble markdown report
         assembler = ReportAssembler()
-        if fmt == "html":
-            content = assembler.assemble_html(
-                observations, cycle_id, market_context_data=None,
-            )
-            default_suffix = ".html"
-        else:
-            content = assembler.assemble(observations, cycle_id)
-            default_suffix = ".md"
+        content = assembler.assemble(observations, cycle_id)
 
         # Determine output path
-        output_path = (
-            Path(output) if output is not None
-            else Path("reports") / f"{cycle_id}_report{default_suffix}"
-        )
+        output_path = Path(output) if output is not None else Path("reports") / f"{cycle_id}_report.md"
 
         # Write report and sentinel (per D-10, D-05)
         await write_report(output_path, content)
@@ -894,20 +759,6 @@ def main() -> None:
         "--output", type=str, default=None,
         help="Override output file path",
     )
-    report_parser.add_argument(
-        "--format", type=str, choices=["md", "html"], default="md",
-        dest="report_format",
-        help="Output format (default: md)",
-    )
-    report_parser.add_argument(
-        "--portfolio", type=str, default=None,
-        help=(
-            "Path to a Schwab Individual-Positions CSV export. When provided, "
-            "the report includes a Portfolio Impact section mapping your holdings "
-            "to swarm consensus signals. Holdings are loaded in-memory only and "
-            "never written to disk or Neo4j."
-        ),
-    )
 
     args = parser.parse_args()
 
@@ -943,14 +794,7 @@ def main() -> None:
             sys.exit(1)
     elif args.command == "report":
         try:
-            asyncio.run(
-                _handle_report(
-                    args.cycle,
-                    args.output,
-                    args.report_format,
-                    portfolio_path=args.portfolio,
-                )
-            )
+            asyncio.run(_handle_report(args.cycle, args.output))
         except KeyboardInterrupt:
             print("\nAborted.", file=sys.stderr)
             sys.exit(1)

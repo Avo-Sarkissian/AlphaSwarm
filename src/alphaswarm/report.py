@@ -16,13 +16,6 @@ from jinja2 import Environment, FileSystemLoader
 if TYPE_CHECKING:
     from alphaswarm.ollama_client import OllamaClient
 
-from alphaswarm.charts import (
-    render_bracket_breakdown,
-    render_consensus_bar,
-    render_round_timeline,
-    render_ticker_consensus,
-)
-
 log = structlog.get_logger(component="report")
 
 # ---------------------------------------------------------------------------
@@ -31,11 +24,7 @@ log = structlog.get_logger(component="report")
 
 MAX_ITERATIONS = 10
 
-# ---------------------------------------------------------------------------
-# ReACT system prompt (dynamically composable — Phase 25)
-# ---------------------------------------------------------------------------
-
-_REACT_PROMPT_HEADER = """\
+REACT_SYSTEM_PROMPT = """\
 You are a post-simulation market analysis agent. Your task is to query the \
 simulation graph and produce a comprehensive structured analysis report.
 
@@ -47,29 +36,7 @@ Available tools:
 - influence_leaders: Get top agents by INFLUENCED_BY edge weight
 - signal_flips: Get agents who changed position between rounds
 - entity_impact: Get per-entity sentiment aggregation
-- social_post_reach: Get top posts by READ_POST edge count"""
-
-_REACT_PROMPT_PORTFOLIO_LINE = (
-    "- portfolio_impact: Map user's Schwab portfolio holdings against swarm "
-    "entity consensus and list coverage gaps"
-)
-
-_REACT_PROMPT_PORTFOLIO_MANDATE = (
-    "\n\nIMPORTANT — PORTFOLIO REPORTING CONTRACT:\n"
-    "When portfolio_impact is in your available tools, you MUST call it at "
-    "least once and you MUST include a paragraph in your FINAL ANSWER "
-    "summarizing how swarm consensus aligns (or conflicts) with the user's "
-    "positions. This is a hard requirement for the report.\n\n"
-    "CONTEXT AWARENESS (REPLAN-7):\n"
-    "You already have a portfolio_impact observation in your conversation "
-    "context (it was injected before the first iteration as a user message "
-    "starting with 'OBSERVATION: portfolio_impact:'). You MUST reference it "
-    "in your FINAL ANSWER with a narrative paragraph describing how swarm "
-    "consensus aligns (or conflicts) with the user's positions. Do NOT claim "
-    "the data is missing — it is already available in your context window."
-)
-
-_REACT_PROMPT_FOOTER = """\
+- social_post_reach: Get top posts by READ_POST edge count
 - FINAL_ANSWER: Signal that you have gathered enough data and are done
 
 For each step, output exactly this format:
@@ -82,37 +49,6 @@ THOUGHT: I have gathered all the data I need.
 ACTION: FINAL_ANSWER
 INPUT: {}
 """
-
-
-def build_react_system_prompt(*, include_portfolio: bool = False) -> str:
-    """Build the ReACT system prompt with optional portfolio tool line.
-
-    Per CONTEXT D-10, RESEARCH Pitfall 4, and REVIEWS consensus concern #1:
-    the ReACT LLM only calls tools it knows exist. When --portfolio is
-    provided at CLI, the portfolio_impact tool must appear in the
-    available-tools list AND the system prompt must include an explicit
-    MUST-call-and-summarize instruction so PORTFOLIO-04 is satisfied in
-    both markdown and HTML output.
-
-    Args:
-        include_portfolio: Append the portfolio_impact tool line and the
-            mandatory narrative clause when True.
-
-    Returns:
-        Complete ReACT system prompt string.
-    """
-    if include_portfolio:
-        middle = "\n" + _REACT_PROMPT_PORTFOLIO_LINE
-        mandate = _REACT_PROMPT_PORTFOLIO_MANDATE
-    else:
-        middle = ""
-        mandate = ""
-    return _REACT_PROMPT_HEADER + middle + "\n" + _REACT_PROMPT_FOOTER + mandate
-
-
-# Backwards-compatible module-level constant — equals build_react_system_prompt()
-# with no portfolio extension. Existing imports of REACT_SYSTEM_PROMPT keep working.
-REACT_SYSTEM_PROMPT = build_react_system_prompt()
 
 # ---------------------------------------------------------------------------
 # Regex patterns for ACTION/INPUT parsing (D-01)
@@ -187,17 +123,10 @@ class ReportEngine:
         ollama_client: OllamaClient,
         model: str,
         tools: dict[str, Callable],  # type: ignore[type-arg]
-        *,
-        system_prompt: str | None = None,
-        pre_seeded_observations: list[ToolObservation] | None = None,
     ) -> None:
         self._client = ollama_client
         self._model = model
         self._tools = tools
-        self._system_prompt = (
-            system_prompt if system_prompt is not None else REACT_SYSTEM_PROMPT
-        )
-        self._pre_seeded: list[ToolObservation] = list(pre_seeded_observations or [])
         self._log = structlog.get_logger(component="report")
 
     async def run(self, cycle_id: str) -> list[ToolObservation]:
@@ -209,11 +138,11 @@ class ReportEngine:
         Returns:
             List of ToolObservation records from successful tool dispatches.
         """
-        observations: list[ToolObservation] = list(self._pre_seeded)
+        observations: list[ToolObservation] = []
         seen_calls: set[tuple[str, str]] = set()
 
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": self._system_prompt},
+            {"role": "system", "content": REACT_SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": (
@@ -223,24 +152,6 @@ class ReportEngine:
             },
         ]
 
-        # REPLAN-3/REPLAN-7: Put pre-seeded observations into the LLM's
-        # conversation context so the model can see the pre-computed data
-        # and synthesize a narrative from it rather than trying to fetch
-        # data that is already available. Each pre-seeded observation is
-        # injected as a user-role message in the canonical OBSERVATION
-        # format so the model treats it as if it had just called the tool.
-        for _obs in self._pre_seeded:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        f"OBSERVATION: {_obs.tool_name}: "
-                        f"{json.dumps(_obs.result, default=str)}"
-                    ),
-                }
-            )
-
-        iteration = 0
         for iteration in range(MAX_ITERATIONS):
             response = await self._client.chat(
                 model=self._model, messages=messages, think=False,
@@ -292,15 +203,7 @@ class ReportEngine:
             total_iterations=min(iteration + 1, MAX_ITERATIONS),
             observation_count=len(observations),
         )
-
-        # Deterministic de-dup: pre-seeded observations are authoritative.
-        # If the ReACT loop re-called a pre-seeded tool, keep only the pre-seeded entry.
-        pre_seeded_names = {obs.tool_name for obs in self._pre_seeded}
-        deduped: list[ToolObservation] = list(self._pre_seeded)
-        for obs in observations[len(self._pre_seeded):]:
-            if obs.tool_name not in pre_seeded_names:
-                deduped.append(obs)
-        return deduped
+        return observations
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +221,6 @@ TOOL_TO_TEMPLATE: dict[str, str] = {
     "signal_flip_analysis": "06_signal_flip_analysis.j2",
     "entity_impact": "07_entity_impact.j2",
     "social_post_reach": "08_social_post_reach.j2",
-    "portfolio_impact": "10_portfolio_impact.j2",
 }
 
 # Canonical section order for assembling the report (D-07)
@@ -331,7 +233,6 @@ SECTION_ORDER: list[str] = [
     "signal_flip_analysis",
     "entity_impact",
     "social_post_reach",
-    "portfolio_impact",
 ]
 
 
@@ -406,73 +307,6 @@ class ReportAssembler:
             sections.append(rendered)
 
         return header + "\n\n".join(sections)
-
-    def assemble_html(
-        self,
-        observations: list[ToolObservation],
-        cycle_id: str,
-        *,
-        market_context_data: list[dict] | None = None,  # type: ignore[type-arg]
-    ) -> str:
-        """Assemble observations into a self-contained HTML report.
-
-        Uses a separate Jinja2 Environment with autoescape=True for HTML safety.
-        SVG strings from chart builders are passed through |safe filter in template.
-
-        Args:
-            observations: List of tool observations from ReportEngine.run().
-            cycle_id: The simulation cycle ID.
-            market_context_data: Optional per-ticker market + consensus dicts.
-
-        Returns:
-            Complete self-contained HTML string.
-        """
-        html_env = Environment(
-            loader=FileSystemLoader(str(TEMPLATE_DIR)),
-            autoescape=True,
-            trim_blocks=True,
-            lstrip_blocks=True,
-        )
-
-        obs_by_tool: dict[str, ToolObservation] = {obs.tool_name: obs for obs in observations}
-
-        # Generate SVG charts from observation data
-        consensus_svg = ""
-        if "bracket_summary" in obs_by_tool:
-            consensus_svg = render_consensus_bar(obs_by_tool["bracket_summary"].result)  # type: ignore[arg-type]
-
-        timeline_svg = ""
-        if "round_timeline" in obs_by_tool:
-            timeline_svg = render_round_timeline(obs_by_tool["round_timeline"].result)  # type: ignore[arg-type]
-
-        bracket_svg = ""
-        if "bracket_narratives" in obs_by_tool:
-            bracket_svg = render_bracket_breakdown(obs_by_tool["bracket_narratives"].result)  # type: ignore[arg-type]
-
-        # Ticker mini-charts — up to 3 tickers
-        ticker_svgs: list[str] = []
-        if market_context_data:
-            for ticker_row in market_context_data[:3]:
-                svg = render_ticker_consensus(ticker_row)
-                if svg:
-                    ticker_svgs.append(svg)
-
-        # Build sections dict for data tables
-        sections: dict[str, object] = {obs.tool_name: obs.result for obs in observations}
-
-        now_iso = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
-
-        template = html_env.get_template("report.html.j2")
-        return template.render(
-            cycle_id=cycle_id,
-            generated_at=now_iso,
-            consensus_svg=consensus_svg,
-            timeline_svg=timeline_svg,
-            bracket_svg=bracket_svg,
-            ticker_svgs=ticker_svgs,
-            sections=sections,
-            market_context_data=market_context_data or [],
-        )
 
 
 async def write_report(path: Path, content: str) -> None:
