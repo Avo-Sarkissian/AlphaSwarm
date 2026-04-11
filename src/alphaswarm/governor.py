@@ -230,6 +230,58 @@ class ResourceGovernor:
         if success:
             self._last_successful_inference = time.monotonic()
 
+    def suspend(self) -> None:
+        """Block new acquire() calls by clearing the resume event.
+
+        Used to pause agent acquisitions during an inter-round shock
+        authoring window (Phase 26). Per 26-CONTEXT.md D-01..D-03, this
+        method deliberately bypasses the governor state machine:
+
+        - Does NOT touch self._state, self._crisis_start, or
+          self._consecutive_green_checks
+        - Does NOT interact with the monitoring loop (which keeps running)
+        - Does NOT call stop_monitoring() (which resets the TokenPool)
+
+        The monitor loop's own authority over _resume_event (via
+        _update_resume_event()) is unaffected during shock pause because the
+        loop only fires on memory-pressure transitions, and inter-round gaps
+        have zero active agents. If pressure does spike during the shock
+        window, the monitor loop will re-clear this event on its next tick;
+        resume() then defers to that state (see resume() docstring).
+
+        Idempotent. Safe to call multiple times.
+        """
+        self._resume_event.clear()
+        log.info("governor_suspended", reason="shock_window")
+
+    def resume(self) -> None:
+        """Unblock new acquire() calls ONLY if governor state is RUNNING.
+
+        Per 2026-04-11 reviews revision (Codex HIGH / Gemini LOW concern):
+        the callee now respects the authoritative state machine. If the
+        monitor loop transitioned the governor to PAUSED or CRISIS during
+        the shock window (e.g. memory pressure spiked while the user was
+        typing), this method is a safe no-op — the monitor loop's own
+        _update_resume_event() will re-set the gate when pressure clears.
+
+        This prevents a subtle race where resume() could release agents
+        during a real memory-pressure event, violating the core memory-
+        safety invariant from CLAUDE.md (hard constraint).
+
+        Idempotent. Safe to call under all governor states.
+
+        Mirror of suspend() for the common RUNNING path. Per CONTEXT.md D-02.
+        """
+        if self._state == GovernorState.RUNNING:
+            self._resume_event.set()
+            log.info("governor_resumed", reason="shock_window")
+        else:
+            log.warning(
+                "governor_resume_deferred_memory_pressure",
+                reason="shock_window",
+                governor_state=self._state.value,
+            )
+
     async def start_monitoring(self) -> None:
         """Start background memory monitoring loop."""
         if self._monitor_task is None or self._monitor_task.done():
