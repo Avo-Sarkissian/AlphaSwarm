@@ -2447,29 +2447,271 @@ async def test_run_simulation_skips_read_post_edges_when_no_posts(
 
 
 # ---------------------------------------------------------------------------
-# Phase 26: Shock injection simulation stubs (Plan 05)
+# Phase 26: Shock injection simulation tests (Plan 05)
 # ---------------------------------------------------------------------------
+
+# Shared helpers for shock-injection tests
+# These avoid repeating the full run_simulation mock-invocation boilerplate
+# per test. They patch inject_seed and run_round1 at the module level so the
+# real run_simulation body executes, but no Ollama inference happens.
+
+
+def _make_governor_mock() -> AsyncMock:
+    """Governor mock compatible with the shock-injection helper."""
+    gov = AsyncMock()
+    gov.start_monitoring = AsyncMock()
+    gov.stop_monitoring = AsyncMock()
+    gov.report_wave_failures = MagicMock()
+    # suspend/resume are synchronous methods — must be plain MagicMock
+    gov.suspend = MagicMock()
+    gov.resume = MagicMock()
+    return gov
+
+
+async def _invoke_run_simulation_with_mocks(
+    *,
+    rumor: str = "Apple beats earnings",
+    state_store=None,
+    governor: AsyncMock | None = None,
+    graph_manager: AsyncMock | None = None,
+) -> None:
+    """Invoke run_simulation with fully mocked dependencies.
+
+    Patches inject_seed and run_round1 so no real inference happens.
+    dispatch_wave must be patched by the caller via ``patch()``.
+
+    Accepts optional overrides for governor and graph_manager so individual
+    tests can inject spies/custom behaviour without rebuilding the full stack.
+    """
+    from alphaswarm.simulation import run_simulation
+
+    if governor is None:
+        governor = _make_governor_mock()
+
+    if graph_manager is None:
+        gm = AsyncMock()
+        gm.write_decisions = AsyncMock(return_value=[])
+        gm.compute_influence_edges = AsyncMock(return_value={})
+        gm.read_cycle_entities = AsyncMock(return_value=[])
+        gm.write_decision_narratives = AsyncMock()
+        gm.write_rationale_episodes = AsyncMock()
+        gm.write_narrative_edges = AsyncMock()
+        gm.write_posts = AsyncMock(return_value=[])
+        gm.read_ranked_posts = AsyncMock(return_value=[])
+        gm.write_read_post_edges = AsyncMock(return_value=None)
+        gm.write_shock_event = AsyncMock(return_value="shock-id-fallback")
+        gm.create_cycle = AsyncMock(return_value=None)
+        gm.close_cycle = AsyncMock(return_value=None)
+        graph_manager = gm
+
+    # Patch the state_store with async methods that run_simulation awaits but
+    # the conftest mock_state_store fixture does not configure (MagicMock returns
+    # a non-awaitable MagicMock for unknown attributes).
+    if state_store is not None:
+        for _method in (
+            "set_phase", "set_round", "set_bracket_summaries",
+            "update_agent_state", "push_rationale",
+        ):
+            if not isinstance(getattr(state_store, _method, None), AsyncMock):
+                setattr(state_store, _method, AsyncMock())
+
+    settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
+    ollama_client = MagicMock()
+    ollama_client.generate = AsyncMock(return_value={"response": "test narrative"})
+    model_manager = AsyncMock()
+    model_manager.load_model = AsyncMock()
+    model_manager.unload_model = AsyncMock()
+    model_manager.ensure_clean_state = AsyncMock()
+
+    with (
+        patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock) as mock_inject,
+        patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock) as mock_round1,
+    ):
+        mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+        mock_round1.return_value = _mock_round1_result()
+
+        await run_simulation(
+            rumor=rumor,
+            settings=settings,
+            ollama_client=ollama_client,
+            model_manager=model_manager,
+            graph_manager=graph_manager,
+            governor=governor,
+            personas=TEST_PERSONAS,
+            brackets=TEST_BRACKETS,
+            generate_narratives=False,
+            state_store=state_store,
+        )
 
 
 @pytest.mark.asyncio
 async def test_shock_injected_into_round2_user_message(mock_state_store):
     """Phase 26 SHOCK-02 — shock text is prepended to rumor with [BREAKING] marker for Round 2."""
-    pytest.fail("Not yet implemented — see Plan 05 (simulation shock wiring)")
+    # AsyncMock side_effect returns successive values on each await call.
+    # R1→R2 gap returns "Fed cut rates"; R2→R3 gap returns None (skip).
+    # This avoids the maxsize=1 queue deadlock — we're testing wiring, not queue semantics.
+    mock_state_store.await_shock = AsyncMock(side_effect=["Fed cut rates", None])
+
+    captured_messages: list[str] = []
+
+    async def fake_dispatch_wave(**kwargs):
+        captured_messages.append(kwargs.get("user_message"))
+        return []
+
+    with patch("alphaswarm.simulation.dispatch_wave", side_effect=fake_dispatch_wave):
+        await _invoke_run_simulation_with_mocks(
+            rumor="Apple beats earnings",
+            state_store=mock_state_store,
+        )
+
+    # Round 1 is handled by run_round1 (mocked), so captured_messages[0] is Round 2.
+    # dispatch_wave is called twice: Round 2 and Round 3.
+    assert len(captured_messages) == 2, f"Expected 2 dispatch_wave calls; got {len(captured_messages)}"
+    round2_msg = captured_messages[0]
+    assert round2_msg == "Apple beats earnings\n\n[BREAKING] Fed cut rates"
 
 
 @pytest.mark.asyncio
 async def test_round2_unchanged_when_no_shock(mock_state_store):
     """Phase 26 SHOCK-02 — when no shock submitted, Round 2 receives bare rumor."""
-    pytest.fail("Not yet implemented — see Plan 05 (simulation shock wiring)")
+    mock_state_store.await_shock = AsyncMock(return_value=None)
+
+    captured_messages: list[str] = []
+
+    async def fake_dispatch_wave(**kwargs):
+        captured_messages.append(kwargs.get("user_message"))
+        return []
+
+    with patch("alphaswarm.simulation.dispatch_wave", side_effect=fake_dispatch_wave):
+        await _invoke_run_simulation_with_mocks(
+            rumor="Apple beats earnings",
+            state_store=mock_state_store,
+        )
+
+    assert len(captured_messages) == 2
+    round2_msg = captured_messages[0]
+    assert round2_msg == "Apple beats earnings"
 
 
 @pytest.mark.asyncio
 async def test_shock_does_not_mutate_base_rumor(mock_state_store):
     """Phase 26 SHOCK-02 — base rumor string is never mutated by shock injection."""
-    pytest.fail("Not yet implemented — see Plan 05 (simulation shock wiring)")
+    original_rumor = "Apple beats earnings"
+    # Shock both rounds with distinct text to exercise both injection sites
+    mock_state_store.await_shock = AsyncMock(side_effect=["Fed cut rates", "Oil shock"])
+
+    captured_messages: list[str] = []
+
+    async def fake_dispatch_wave(**kwargs):
+        captured_messages.append(kwargs.get("user_message"))
+        return []
+
+    with patch("alphaswarm.simulation.dispatch_wave", side_effect=fake_dispatch_wave):
+        await _invoke_run_simulation_with_mocks(
+            rumor=original_rumor,
+            state_store=mock_state_store,
+        )
+
+    # Round 2 and Round 3 each get a shocked message
+    assert len(captured_messages) == 2
+    assert captured_messages[0] == "Apple beats earnings\n\n[BREAKING] Fed cut rates", (
+        f"Round 2 should receive shock; got {captured_messages[0]!r}"
+    )
+    assert captured_messages[1] == "Apple beats earnings\n\n[BREAKING] Oil shock", (
+        f"Round 3 should receive shock; got {captured_messages[1]!r}"
+    )
+    # The original_rumor local in the test is still unchanged
+    assert original_rumor == "Apple beats earnings"
 
 
 @pytest.mark.asyncio
 async def test_run_simulation_without_state_store_skips_shock():
     """Phase 26 SHOCK-02 — state_store=None bypasses the shock window (no suspend)."""
-    pytest.fail("Not yet implemented — see Plan 05 (simulation shock wiring)")
+    captured_messages: list[str] = []
+
+    async def fake_dispatch_wave(**kwargs):
+        captured_messages.append(kwargs.get("user_message"))
+        return []
+
+    governor_mock = _make_governor_mock()
+
+    with patch("alphaswarm.simulation.dispatch_wave", side_effect=fake_dispatch_wave):
+        await _invoke_run_simulation_with_mocks(
+            rumor="Apple beats earnings",
+            state_store=None,
+            governor=governor_mock,
+        )
+
+    assert not governor_mock.suspend.called, "governor.suspend should not be called without state_store"
+    assert not governor_mock.resume.called, "governor.resume should not be called without state_store"
+    assert all(msg == "Apple beats earnings" for msg in captured_messages), (
+        f"All rounds should receive bare rumor; got {captured_messages}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_shock_round2():
+    """Phase 26 integration — shock flows to Round 2 dispatch + Neo4j write.
+
+    REVIEWS REVISION (2026-04-11): Added in-place by Plan 05 (NOT a Wave 0 stub).
+    Uses the AsyncMock side_effect pattern on await_shock to avoid the maxsize=1
+    queue deadlock that Codex flagged in the original plan. Queue semantics are
+    tested separately in Plan 03's test_shock_queue_roundtrip.
+    """
+    # Use mock_state_store pattern — DO NOT instantiate a real StateStore and
+    # pre-populate the queue. That would deadlock because submit_shock blocks
+    # when the maxsize=1 queue is full.
+    store_mock = MagicMock(name="MockStateStore")
+    store_mock.is_shock_window_open = MagicMock(return_value=False)
+    store_mock.shock_next_round = MagicMock(return_value=None)
+    store_mock.request_shock = AsyncMock()
+    store_mock.close_shock_window = AsyncMock()
+    store_mock.submit_shock = AsyncMock()
+    # Round 2 gap → "Fed cut rates"; Round 3 gap → None (skip)
+    store_mock.await_shock = AsyncMock(side_effect=["Fed cut rates", None])
+
+    graph_mock = AsyncMock()
+    graph_mock.write_decisions = AsyncMock(return_value=[])
+    graph_mock.compute_influence_edges = AsyncMock(return_value={})
+    graph_mock.read_cycle_entities = AsyncMock(return_value=[])
+    graph_mock.write_decision_narratives = AsyncMock()
+    graph_mock.write_rationale_episodes = AsyncMock()
+    graph_mock.write_narrative_edges = AsyncMock()
+    graph_mock.write_posts = AsyncMock(return_value=[])
+    graph_mock.read_ranked_posts = AsyncMock(return_value=[])
+    graph_mock.write_read_post_edges = AsyncMock(return_value=None)
+    graph_mock.write_shock_event = AsyncMock(return_value="shock-id-123")
+    graph_mock.create_cycle = AsyncMock(return_value=None)
+    graph_mock.close_cycle = AsyncMock(return_value=None)
+
+    captured_messages: list[str] = []
+
+    async def fake_dispatch_wave(**kwargs):
+        captured_messages.append(kwargs.get("user_message"))
+        return []
+
+    with patch("alphaswarm.simulation.dispatch_wave", side_effect=fake_dispatch_wave):
+        await _invoke_run_simulation_with_mocks(
+            rumor="Apple beats earnings",
+            state_store=store_mock,
+            graph_manager=graph_mock,
+        )
+
+    # Round 1 is handled by mocked run_round1.
+    # dispatch_wave is called twice: Round 2 (shocked) and Round 3 (bare).
+    assert len(captured_messages) == 2, f"Expected 2 dispatch_wave calls; got {len(captured_messages)}"
+    assert captured_messages[0] == "Apple beats earnings\n\n[BREAKING] Fed cut rates"
+    assert captured_messages[1] == "Apple beats earnings"
+
+    # Neo4j was called exactly once with Round 2 metadata
+    graph_mock.write_shock_event.assert_called_once()
+    call_kwargs = graph_mock.write_shock_event.call_args.kwargs
+    assert call_kwargs["shock_text"] == "Fed cut rates"
+    assert call_kwargs["injected_before_round"] == 2
+
+    # close_shock_window was called TWICE (once per gap) — proves the nested
+    # finally ran for both R1→R2 and R2→R3, including the None-skip path
+    assert store_mock.close_shock_window.call_count == 2, (
+        f"close_shock_window should run per-gap in nested finally; "
+        f"got {store_mock.close_shock_window.call_count}"
+    )

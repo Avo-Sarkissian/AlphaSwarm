@@ -18,6 +18,7 @@ import structlog
 
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
+from alphaswarm.errors import Neo4jWriteError
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
@@ -711,6 +712,81 @@ async def _dispatch_round(
 
 
 # ---------------------------------------------------------------------------
+# Phase 26: Inter-round shock window helper
+# ---------------------------------------------------------------------------
+
+
+async def _collect_inter_round_shock(
+    *,
+    next_round: int,
+    state_store: "StateStore | None",
+    governor: "ResourceGovernor",
+    graph_manager: "GraphStateManager",
+    cycle_id: str,
+) -> str | None:
+    """Phase 26 — open an inter-round shock window and return the submitted text.
+
+    Called at the R1→R2 and R2→R3 gaps from run_simulation. Returns None if
+    state_store is None (non-TUI path) or the user dismissed without text.
+
+    Lifecycle:
+        1. suspend the governor (blocks acquire())
+        2. OUTER TRY:
+             request the shock window (sets StateStore event)
+             INNER TRY:
+                 await_shock() — blocks until TUI submits or dismisses
+             INNER FINALLY:
+                 close_shock_window() — ALWAYS runs, even on cancellation
+             if shock_text:
+                 try write_shock_event; except Neo4jWriteError: log and continue
+        3. OUTER FINALLY:
+             governor.resume() — Plan 02's guard ensures this is a no-op if
+             memory pressure transitioned the governor to PAUSED/CRISIS
+
+    Per 26-CONTEXT.md D-05..D-10 and 26-REVIEWS.md Consensus HIGH items.
+    """
+    if state_store is None:
+        return None
+
+    governor.suspend()
+    shock_text: str | None = None
+    try:
+        await state_store.request_shock(next_round=next_round)
+        try:
+            shock_text = await state_store.await_shock()
+        finally:
+            # REVIEWS HIGH: close_shock_window MUST run even if await_shock
+            # is cancelled or raises, otherwise the TUI is stuck with the
+            # overlay open and the _shock_window_was_open latch never resets.
+            await state_store.close_shock_window()
+
+        if shock_text:
+            try:
+                await graph_manager.write_shock_event(
+                    cycle_id=cycle_id,
+                    shock_text=shock_text,
+                    injected_before_round=next_round,
+                )
+            except Neo4jWriteError as exc:
+                # Log and continue — losing a shock log is degraded but
+                # blocking the next round is worse.
+                logger.warning(
+                    "shock_event_write_failed",
+                    cycle_id=cycle_id,
+                    injected_before_round=next_round,
+                    error=str(exc),
+                )
+    finally:
+        # REVIEWS HIGH: always call resume(). Plan 02's resume() enforces
+        # the memory-pressure invariant at the callee — if the governor
+        # transitioned to PAUSED/CRISIS during await_shock, resume() is
+        # a no-op and logs governor_resume_deferred_memory_pressure.
+        governor.resume()
+
+    return shock_text
+
+
+# ---------------------------------------------------------------------------
 # Full 3-round simulation orchestrator (Phase 7)
 # ---------------------------------------------------------------------------
 
@@ -838,6 +914,21 @@ async def run_simulation(
             bracket_summaries=round1_summaries,
         ))
 
+    # Phase 26 — inter-round shock window (R1 → R2)
+    # Per CONTEXT.md D-05..D-10 and REVIEWS Consensus HIGH items
+    shock_text_r2 = await _collect_inter_round_shock(
+        next_round=2,
+        state_store=state_store,
+        governor=governor,
+        graph_manager=graph_manager,
+        cycle_id=cycle_id,
+    )
+
+    # Compute effective message for Round 2 (NEW local — does NOT mutate rumor)
+    effective_message_r2 = (
+        f"{rumor}\n\n[BREAKING] {shock_text_r2}" if shock_text_r2 else rumor
+    )
+
     # Reload worker for Rounds 2-3 (D-05)
     await model_manager.ensure_clean_state()
     worker_alias = settings.ollama.worker_model_alias
@@ -888,7 +979,7 @@ async def run_simulation(
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
-                user_message=rumor,
+                user_message=effective_message_r2,
                 settings=settings.governor,
                 peer_contexts=round2_peer_contexts,
                 state_store=state_store,
@@ -970,6 +1061,20 @@ async def run_simulation(
                     bracket_summaries=round2_summaries,
                 ))
 
+            # Phase 26 — inter-round shock window (R2 → R3)
+            # Uses the same _collect_inter_round_shock helper as R1→R2 to avoid drift
+            shock_text_r3 = await _collect_inter_round_shock(
+                next_round=3,
+                state_store=state_store,
+                governor=governor,
+                graph_manager=graph_manager,
+                cycle_id=cycle_id,
+            )
+
+            effective_message_r3 = (
+                f"{rumor}\n\n[BREAKING] {shock_text_r3}" if shock_text_r3 else rumor
+            )
+
             # Round 3 (D-09: peer context from Round 2)
             phase = SimulationPhase.ROUND_3
             logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
@@ -1006,7 +1111,7 @@ async def run_simulation(
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
-                user_message=rumor,
+                user_message=effective_message_r3,
                 settings=settings.governor,
                 peer_contexts=round3_peer_contexts,
                 state_store=state_store,
