@@ -764,6 +764,8 @@ class AlphaSwarmApp(App):
         self._prev_bracket_summaries: tuple[BracketSummary, ...] = ()
         self._cycle_id: str | None = None
         self._last_sentinel_mtime: float = 0.0  # Phase 15: sentinel file polling (D-06, Pitfall 5)
+        # Phase 26 — shock injection overlay edge latch
+        self._shock_window_was_open: bool = False
 
     def on_mount(self) -> None:
         """Register theme, then either show rumor input or start simulation."""
@@ -1001,3 +1003,39 @@ class AlphaSwarmApp(App):
                         self._telemetry_footer.update_report_path(report_path)
         except (OSError, ValueError, KeyError):
             pass  # Sentinel file may be mid-write or malformed; skip silently
+
+        # Phase 26 — shock window detection with rising-edge latch (D-16, Pitfall 2)
+        self._check_shock_window()
+
+    def _check_shock_window(self) -> None:
+        """Phase 26 — detect shock window rising/falling edge and push overlay.
+
+        Extracted from _poll_snapshot so it can be tested without mounting
+        the full dashboard widget tree (per Codex review MEDIUM on Plan 04).
+        """
+        store = self.app_state.state_store
+        is_open = store.is_shock_window_open()
+        if is_open and not self._shock_window_was_open:
+            # Rising edge: push the overlay exactly once
+            self._shock_window_was_open = True
+            next_round = store.shock_next_round() or 2
+            self.push_screen(
+                ShockInputScreen(next_round=next_round),
+                self._on_shock_submitted,
+            )
+        elif not is_open and self._shock_window_was_open:
+            # Falling edge: simulation closed the window — reset latch
+            self._shock_window_was_open = False
+
+    def _on_shock_submitted(self, shock_text: str | None) -> None:
+        """Phase 26 — ShockInputScreen dismiss callback.
+
+        Schedules the async StateStore.submit_shock on Textual's worker
+        manager so the sync timer context isn't blocked and the coroutine
+        actually runs (Pitfall 4 from 26-RESEARCH.md).
+        """
+        self.run_worker(
+            self.app_state.state_store.submit_shock(shock_text),
+            exclusive=False,
+            exit_on_error=True,
+        )

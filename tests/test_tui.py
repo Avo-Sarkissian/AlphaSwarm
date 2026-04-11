@@ -636,11 +636,72 @@ async def test_shock_input_screen_empty_enter_dismisses_with_none():
 
 @pytest.mark.asyncio
 async def test_poll_snapshot_pushes_shock_screen_on_window_open(mock_state_store):
-    """Phase 26 SHOCK-01 — _poll_snapshot pushes ShockInputScreen on shock_window rising edge."""
-    pytest.fail("Not yet implemented — see Plan 04 (TUI _poll_snapshot integration)")
+    """Phase 26 SHOCK-01 — _check_shock_window pushes ShockInputScreen on shock_window rising edge."""
+    from unittest.mock import patch
+    from alphaswarm.tui import AlphaSwarmApp, ShockInputScreen
+
+    # Configure mock to simulate shock window open
+    mock_state_store.is_shock_window_open.return_value = True
+    mock_state_store.shock_next_round.return_value = 2
+
+    app = AlphaSwarmApp(
+        rumor="test",
+        app_state=_make_mock_app_state(),
+        personas=_make_personas(),
+        brackets=_make_brackets(),
+        settings=_make_settings(),
+    )
+    # Override the state_store with our mock that has shock window open
+    app.app_state.state_store = mock_state_store
+    app._shock_window_was_open = False
+
+    pushed_screens = []
+    with patch.object(app, "push_screen", side_effect=lambda s, cb=None: pushed_screens.append((s, cb))):
+        app._check_shock_window()
+
+    assert len(pushed_screens) == 1
+    assert isinstance(pushed_screens[0][0], ShockInputScreen)
+    assert app._shock_window_was_open is True
 
 
 @pytest.mark.asyncio
 async def test_shock_screen_pushed_once_per_window(mock_state_store):
     """Phase 26 SHOCK-01 — edge latch prevents re-pushing ShockInputScreen while open."""
-    pytest.fail("Not yet implemented — see Plan 04 (TUI _poll_snapshot edge latch)")
+    from unittest.mock import patch
+    from alphaswarm.tui import AlphaSwarmApp
+
+    mock_state_store.is_shock_window_open.return_value = True
+    mock_state_store.shock_next_round.return_value = 2
+
+    app = AlphaSwarmApp(
+        rumor="test",
+        app_state=_make_mock_app_state(),
+        personas=_make_personas(),
+        brackets=_make_brackets(),
+        settings=_make_settings(),
+    )
+    app.app_state.state_store = mock_state_store
+    app._shock_window_was_open = False
+
+    pushed_screens = []
+    with patch.object(app, "push_screen", side_effect=lambda s, cb=None: pushed_screens.append(s)):
+        # Simulate 3 consecutive _check_shock_window calls with the window still open
+        app._check_shock_window()
+        app._check_shock_window()
+        app._check_shock_window()
+
+    assert len(pushed_screens) == 1, f"Expected 1 push, got {len(pushed_screens)}"
+
+    # Falling edge: simulation closes the window, latch resets
+    mock_state_store.is_shock_window_open.return_value = False
+    app._check_shock_window()
+    assert app._shock_window_was_open is False
+
+    # Rising edge #2: simulation opens a new window (e.g. R2→R3 gap), push again
+    mock_state_store.is_shock_window_open.return_value = True
+    mock_state_store.shock_next_round.return_value = 3
+    with patch.object(app, "push_screen", side_effect=lambda s, cb=None: pushed_screens.append(s)):
+        app._check_shock_window()
+    assert len(pushed_screens) == 2, (
+        f"Expected 2 pushes after reopen, got {len(pushed_screens)}"
+    )
