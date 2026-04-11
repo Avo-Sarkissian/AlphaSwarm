@@ -535,14 +535,47 @@ def test_sentinel_poll_updates_footer(tmp_path: pytest.TempPathFactory) -> None:
 
 def test_bracket_panel_enable_delta_mode_triggers_refresh() -> None:
     """Phase 27 SHOCK-04 — enable_delta_mode sets _delta_mode=True and calls refresh."""
-    pytest.fail("Not yet implemented — see Plan 01 (BracketPanel delta mode)")
+    from unittest.mock import patch
+
+    panel = BracketPanel()
+    assert panel._delta_mode is False
+    assert panel._delta_data is None
+
+    delta_data = {"bracket_deltas": [], "injected_before_round": 2}
+    with patch.object(panel, "refresh") as mock_refresh:
+        panel.enable_delta_mode(delta_data)
+
+    assert panel._delta_mode is True
+    assert panel._delta_data is not None
+    mock_refresh.assert_called_once()
 
 
 def test_bracket_panel_render_delta_uses_delta_data() -> None:
     """Phase 27 SHOCK-04 — render() returns Text with '[DELTA' when delta mode active."""
-    pytest.fail("Not yet implemented — see Plan 01 (BracketPanel delta mode)")
+    from unittest.mock import patch
+
+    panel = BracketPanel()
+    delta_data = {
+        "injected_before_round": 2,
+        "bracket_deltas": [
+            {
+                "bracket": "Quants",
+                "dominant_post": "BUY",
+                "dominant_arrow": "▲",
+                "delta_buy_pct": 30.0,
+            }
+        ],
+    }
+    with patch.object(panel, "refresh"):
+        panel.enable_delta_mode(delta_data)
+
+    result = panel.render()
+    assert "[DELTA" in result.plain
 
 
 def test_bracket_panel_live_mode_unchanged_without_shock() -> None:
     """Phase 27 SHOCK-04 — render() does NOT contain '[DELTA' when delta mode not active."""
-    pytest.fail("Not yet implemented — see Plan 01 (BracketPanel delta mode)")
+    panel = BracketPanel()
+    panel.update_summaries((_make_bracket_summary(buy=7, sell=2, hold=1),))
+    result = panel.render()
+    assert "[DELTA" not in result.plain

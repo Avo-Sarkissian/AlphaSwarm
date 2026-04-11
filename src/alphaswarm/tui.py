@@ -342,13 +342,28 @@ class BracketPanel(Widget):
     def __init__(self) -> None:
         super().__init__()
         self._summaries: tuple[BracketSummary, ...] = ()
+        self._delta_mode: bool = False
+        self._delta_data: dict | None = None  # type: ignore[type-arg]
 
     def update_summaries(self, summaries: tuple[BracketSummary, ...]) -> None:
         """Store bracket summaries and trigger a re-render."""
         self._summaries = summaries
         self.refresh()
 
-    def render(self) -> Text:
+    def enable_delta_mode(self, delta_data: dict) -> None:  # type: ignore[type-arg]
+        """Activate delta mode with shock impact data (per D-01, UI-SPEC)."""
+        self._delta_mode = True
+        self._delta_data = delta_data
+        self.refresh()
+
+    def reset_delta_mode(self) -> None:
+        """Reset to live mode (for use on new simulation start in same TUI session)."""
+        self._delta_mode = False
+        self._delta_data = None
+        self.refresh()
+
+    def _render_live(self) -> Text:
+        """Render bracket live-mode bars (original render logic)."""
         text = Text()
         text.append("Brackets\n", style="bold #4FC3F7")
         if not self._summaries:
@@ -366,6 +381,50 @@ class BracketPanel(Widget):
             text.append(self.EMPTY_CHAR * empty, style="#333333")
             text.append(f"] {pct:.0f}%\n", style="#E0E0E0")
         return text
+
+    def _render_delta(self) -> Text:
+        """Render bracket delta bars (compact delta-only style per UI-SPEC)."""
+        try:
+            data = self._delta_data
+            if not data or not data.get("bracket_deltas"):
+                return self._render_live()
+            text = Text()
+            text.append("Brackets\n", style="bold #4FC3F7")
+            round_n = data.get("injected_before_round", "?")
+            text.append(f"[DELTA · Shock before Round {round_n}]\n", style="#4FC3F7")
+            for b in data["bracket_deltas"]:
+                bracket = b.get("bracket", "")
+                dominant = b.get("dominant_post", "HOLD").upper()
+                arrow = b.get("dominant_arrow", "·")
+                delta = b.get("delta_buy_pct", 0.0)
+                color = self._SIGNAL_COLORS.get(dominant.lower(), "#78909C")
+                # Bar fill = abs(delta) / 100 * BAR_WIDTH, capped at BAR_WIDTH
+                filled = min(round(abs(delta) / 100 * self.BAR_WIDTH), self.BAR_WIDTH)
+                empty = self.BAR_WIDTH - filled
+                delta_style = "#66BB6A" if delta > 0 else "#EF5350" if delta < 0 else "#78909C"
+                text.append(f"{bracket:<14}  ", style="#78909C")
+                text.append(f"{dominant:<4} ", style=color)
+                text.append(f"{arrow} ", style=delta_style)
+                text.append("[")
+                text.append(self.FILL_CHAR * filled, style=color)
+                text.append(self.EMPTY_CHAR * empty, style="#333333")
+                text.append("] ", style="#E0E0E0")
+                text.append(f"{delta:+.0f}%\n", style=f"bold {delta_style}")
+            return text
+        except Exception:
+            import structlog as _structlog
+            _structlog.get_logger(component="tui").warning(
+                "bracket_delta_render_error",
+                cycle_delta_data_keys=list((self._delta_data or {}).keys()),
+            )
+            self._delta_mode = False
+            return self._render_live()
+
+    def render(self) -> Text:
+        """Dispatch to delta or live render based on mode."""
+        if self._delta_mode and self._delta_data:
+            return self._render_delta()
+        return self._render_live()
 
     @staticmethod
     def _dominant_signal(s: BracketSummary) -> tuple[str, float]:
@@ -674,6 +733,10 @@ class AlphaSwarmApp(App):
         self._prev_bracket_summaries: tuple[BracketSummary, ...] = ()
         self._cycle_id: str | None = None
         self._last_sentinel_mtime: float = 0.0  # Phase 15: sentinel file polling (D-06, Pitfall 5)
+        # Phase 26 — shock injection overlay edge latch
+        self._shock_window_was_open: bool = False
+        # Phase 27 — BracketPanel delta mode activation latch
+        self._bracket_panel_delta_active: bool = False
 
     def on_mount(self) -> None:
         """Register theme, then either show rumor input or start simulation."""
@@ -911,3 +974,53 @@ class AlphaSwarmApp(App):
                         self._telemetry_footer.update_report_path(report_path)
         except (OSError, ValueError, KeyError):
             pass  # Sentinel file may be mid-write or malformed; skip silently
+
+        # Phase 27 — activate BracketPanel delta mode post-simulation when shock detected
+        self._check_bracket_delta_mode()
+
+    def _check_bracket_delta_mode(self) -> None:
+        """Phase 27 — trigger delta mode once when simulation completes with a shock.
+
+        Called from _poll_snapshot (sync context). Uses run_worker for async graph read.
+        The latch _bracket_panel_delta_active is set INSIDE the async worker AFTER
+        enable_delta_mode() succeeds — not here. This allows retry on transient errors.
+        """
+        snapshot = self.app_state.state_store.snapshot()
+        if (
+            snapshot.phase == SimulationPhase.COMPLETE
+            and self._cycle_id is not None
+            and self._bracket_panel is not None
+            and not self._bracket_panel_delta_active
+        ):
+            self.run_worker(
+                self._activate_bracket_delta_mode(self._cycle_id),
+                exclusive=False,
+                exit_on_error=False,
+            )
+
+    async def _activate_bracket_delta_mode(self, cycle_id: str) -> None:
+        """Phase 27 — async worker: read shock impact and enable BracketPanel delta mode.
+
+        Only activates if a ShockEvent exists for the cycle.
+        Runs in Textual's worker thread pool (never on the sync timer callback).
+
+        LATCH TIMING: _bracket_panel_delta_active is set AFTER enable_delta_mode() succeeds.
+        If this worker exits early (no shock, no graph_manager), the latch stays False and
+        _check_bracket_delta_mode will re-run on the next 200ms tick. Once enable_delta_mode()
+        is called, the latch is set to prevent further re-triggers.
+        """
+        if self.app_state.graph_manager is None:
+            return
+        gm = self.app_state.graph_manager
+        shock_event = await gm.read_shock_event(cycle_id)
+        if shock_event is None:
+            # No shock for this cycle — live mode persists forever. Set latch to prevent
+            # repeated Neo4j calls on every tick for a confirmed no-shock cycle.
+            self._bracket_panel_delta_active = True
+            return
+        delta_data = await gm.read_shock_impact(cycle_id)
+        if self._bracket_panel is not None:
+            self._bracket_panel.enable_delta_mode(delta_data)
+        # Latch is set ONLY after successful enable_delta_mode() call.
+        # On transient failure before this line, latch stays False and next tick retries.
+        self._bracket_panel_delta_active = True
