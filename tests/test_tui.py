@@ -705,3 +705,23 @@ async def test_shock_screen_pushed_once_per_window(mock_state_store):
     assert len(pushed_screens) == 2, (
         f"Expected 2 pushes after reopen, got {len(pushed_screens)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 27: BracketPanel delta mode (Plan 01)
+# ---------------------------------------------------------------------------
+
+
+def test_bracket_panel_enable_delta_mode_triggers_refresh() -> None:
+    """Phase 27 SHOCK-04 — enable_delta_mode sets _delta_mode=True and _delta_data."""
+    pytest.fail("Not yet implemented — see Plan 01 (BracketPanel delta mode)")
+
+
+def test_bracket_panel_render_delta_uses_delta_data() -> None:
+    """Phase 27 SHOCK-04 — render() returns Text containing '[DELTA' after enable_delta_mode."""
+    pytest.fail("Not yet implemented — see Plan 01 (BracketPanel delta mode)")
+
+
+def test_bracket_panel_live_mode_unchanged_without_shock() -> None:
+    """Phase 27 SHOCK-04 — render() does not contain '[DELTA' when no enable_delta_mode called."""
+    pytest.fail("Not yet implemented — see Plan 01 (BracketPanel delta mode)")

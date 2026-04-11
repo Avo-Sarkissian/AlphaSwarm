@@ -1516,3 +1516,32 @@ def test_ensure_schema_includes_shock_cycle_index() -> None:
     assert len(matching) == 1, (
         f"Expected exactly one shock_cycle_idx statement; got {len(matching)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 27: Shock analysis graph methods (Plan 01)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_read_shock_event_returns_dict_when_exists(mock_driver: MagicMock) -> None:
+    """Phase 27 SHOCK-04 — read_shock_event returns dict when ShockEvent exists for cycle."""
+    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
+
+
+@pytest.mark.asyncio()
+async def test_read_shock_event_returns_none_when_no_shock(mock_driver: MagicMock) -> None:
+    """Phase 27 SHOCK-04 — read_shock_event returns None when no ShockEvent exists."""
+    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
+
+
+@pytest.mark.asyncio()
+async def test_read_shock_impact_returns_per_agent_rows(mock_driver: MagicMock) -> None:
+    """Phase 27 SHOCK-04 — read_shock_impact returns dict with bracket_deltas, pivot_count, comparable_agents."""
+    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
+
+
+@pytest.mark.asyncio()
+async def test_read_shock_impact_pivot_flag_computed_correctly(mock_driver: MagicMock) -> None:
+    """Phase 27 SHOCK-04 — pivot_count=1, held_firm_count=1, comparable_agents=2 when 1 of 2 agents changed signal."""
+    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
