@@ -165,3 +165,29 @@ async def graph_manager(neo4j_driver, all_personas):
         await session.run("MATCH (e:Entity) DETACH DELETE e")
         await session.run("MATCH (re:RationaleEpisode) DETACH DELETE re")
         await session.run("MATCH (p:Post) DETACH DELETE p")
+
+
+# ---------------------------------------------------------------------------
+# Phase 26: Shock injection fixtures
+# ---------------------------------------------------------------------------
+
+
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
+
+
+@pytest.fixture()
+def mock_state_store():
+    """Minimal StateStore test double for shock-injection tests.
+
+    Provides the shock-window API surface expected by Phase 26 tests.
+    Tests that need real queue semantics should use a real StateStore()
+    instance instead.
+    """
+    store = MagicMock(name="MockStateStore")
+    store.is_shock_window_open = MagicMock(return_value=False)
+    store.shock_next_round = MagicMock(return_value=None)
+    store.request_shock = AsyncMock()
+    store.close_shock_window = AsyncMock()
+    store.submit_shock = AsyncMock()
+    store.await_shock = AsyncMock(return_value=None)
+    return store

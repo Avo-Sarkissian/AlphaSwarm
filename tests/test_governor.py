@@ -666,3 +666,40 @@ class TestResourceGovernorProtocol:
         settings = GovernorSettings()
         gov = ResourceGovernor(settings)
         assert isinstance(type(gov).is_paused, property)
+
+
+# ---------------------------------------------------------------------------
+# Phase 26: Suspend/Resume tests (Plans 02)
+# ---------------------------------------------------------------------------
+
+
+class TestSuspendResume:
+    """Phase 26 — governor pause gate for shock-injection window.
+
+    Per CONTEXT.md D-01..D-03: suspend()/resume() must flip only
+    _resume_event, never touch _state, _crisis_start, _consecutive_green_checks,
+    or the monitor loop.
+
+    Fifth test (test_suspend_does_not_bypass_memory_pressure_state) added
+    per 2026-04-11 reviews revision — concurrent memory-pressure semantics.
+    """
+
+    @pytest.mark.asyncio
+    async def test_suspend_blocks_acquire(self):
+        pytest.fail("Not yet implemented — see Plan 02 (governor suspend/resume)")
+
+    @pytest.mark.asyncio
+    async def test_resume_unblocks_acquire(self):
+        pytest.fail("Not yet implemented — see Plan 02 (governor suspend/resume)")
+
+    @pytest.mark.asyncio
+    async def test_suspend_does_not_touch_state_machine(self):
+        pytest.fail("Not yet implemented — see Plan 02 (governor suspend/resume)")
+
+    @pytest.mark.asyncio
+    async def test_monitor_loop_continues_during_suspend(self):
+        pytest.fail("Not yet implemented — see Plan 02 (governor suspend/resume)")
+
+    @pytest.mark.asyncio
+    async def test_suspend_does_not_bypass_memory_pressure_state(self):
+        pytest.fail("Not yet implemented — see Plan 02 (concurrent memory pressure)")

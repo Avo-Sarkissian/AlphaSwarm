@@ -1422,4 +1422,32 @@ async def test_write_read_post_edges_wraps_neo4j_error(mock_driver: MagicMock) -
             agent_ids=["a1"], post_ids=["p1"], round_num=2, cycle_id="c1",
         )
 
+
+# ---------------------------------------------------------------------------
+# Phase 26: ShockEvent persistence stubs (Plan 03)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_shock_event_creates_node_and_edge():
+    """Phase 26 — _write_shock_event_tx emits CREATE ShockEvent + HAS_SHOCK Cypher."""
+    pytest.fail("Not yet implemented — see Plan 03 (ShockEvent persistence)")
+
+
+@pytest.mark.asyncio
+async def test_write_shock_event_returns_uuid():
+    """Phase 26 — write_shock_event returns a UUID4 string shock_id."""
+    pytest.fail("Not yet implemented — see Plan 03 (ShockEvent persistence)")
+
+
+@pytest.mark.asyncio
+async def test_write_shock_event_wraps_driver_errors():
+    """Phase 26 — Neo4jError is wrapped in Neo4jWriteError."""
+    pytest.fail("Not yet implemented — see Plan 03 (ShockEvent persistence)")
+
+
+def test_ensure_schema_includes_shock_cycle_index():
+    """Phase 26 — SCHEMA_STATEMENTS contains shock_cycle_idx CREATE INDEX."""
+    pytest.fail("Not yet implemented — see Plan 03 (ShockEvent persistence)")
+
     assert exc_info.value.original_error is original_exc

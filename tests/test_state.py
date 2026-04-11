@@ -299,4 +299,21 @@ async def test_push_top_rationales_skips_parse_errors() -> None:
 
     # Only good_agent should be in the queue
     assert len(snap.rationale_entries) == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 26: Shock queue + shock window stubs (Plan 03)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_shock_queue_roundtrip():
+    """Phase 26 — shock queue put/get roundtrip with text and None."""
+    pytest.fail("Not yet implemented — see Plan 03 (StateStore shock bridge)")
+
+
+@pytest.mark.asyncio
+async def test_shock_window_event_reflects_state():
+    """Phase 26 — is_shock_window_open() tracks request_shock / close_shock_window."""
+    pytest.fail("Not yet implemented — see Plan 03 (StateStore shock bridge)")
     assert snap.rationale_entries[0].agent_id == "good_agent"
