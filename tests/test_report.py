@@ -489,29 +489,115 @@ class TestChartStyleInSvg:
 
 def test_tool_to_template_contains_shock_impact() -> None:
     """Phase 27 SHOCK-05 — TOOL_TO_TEMPLATE['shock_impact'] == '11_shock_impact.j2'."""
-    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+    from alphaswarm.report import TOOL_TO_TEMPLATE
+
+    assert TOOL_TO_TEMPLATE.get("shock_impact") == "11_shock_impact.j2"
 
 
 def test_section_order_contains_shock_impact_after_portfolio() -> None:
     """Phase 27 SHOCK-05 — SECTION_ORDER ends with 'shock_impact' after 'portfolio_impact'."""
-    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+    from alphaswarm.report import SECTION_ORDER
+
+    assert "shock_impact" in SECTION_ORDER
+    assert "portfolio_impact" in SECTION_ORDER
+    assert SECTION_ORDER.index("shock_impact") > SECTION_ORDER.index("portfolio_impact")
 
 
 def test_assemble_includes_shock_section_when_observation_present() -> None:
     """Phase 27 SHOCK-05 — assemble() includes Shock Impact Analysis when observation present."""
-    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+    from alphaswarm.report import ReportAssembler, ToolObservation
+
+    shock_obs = ToolObservation(
+        tool_name="shock_impact",
+        tool_input={"cycle_id": "test-cycle"},
+        result={
+            "shock_text": "Fed raises rates by 75bps",
+            "injected_before_round": 2,
+            "comparable_agents": 95,
+            "pivot_count": 40,
+            "held_firm_count": 55,
+            "pivot_rate_pct": 42.1,
+            "held_firm_rate_pct": 57.9,
+            "pivot_agents": [],
+            "bracket_deltas": [],
+            "largest_shift": {"bracket": "Quants", "direction": "BUY", "delta": 20.0},
+            "notable_held_firm_agents": [],
+        },
+    )
+    assembler = ReportAssembler()
+    result = assembler.assemble([shock_obs], "test-cycle")
+
+    assert "Shock Impact Analysis" in result
+    assert "Fed raises rates by 75bps" in result
 
 
 def test_assemble_skips_shock_section_when_no_observation() -> None:
     """Phase 27 SHOCK-05 — assemble() does not include shock section when observation absent."""
-    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+    from alphaswarm.report import ReportAssembler
+
+    assembler = ReportAssembler()
+    result = assembler.assemble([], "test-cycle")
+
+    assert "Shock Impact Analysis" not in result
+
+
+# Shared fixture data for template rendering tests
+_SHOCK_IMPACT_DATA: dict = {
+    "shock_text": "Surprise CPI print: 9.1% YoY",
+    "injected_before_round": 2,
+    "comparable_agents": 88,
+    "pivot_count": 33,
+    "held_firm_count": 55,
+    "pivot_rate_pct": 37.5,
+    "held_firm_rate_pct": 62.5,
+    "bracket_deltas": [
+        {
+            "bracket": "Quants",
+            "pre_dominant": "BUY",
+            "dominant_post": "SELL",
+            "dominant_arrow": "▼",
+            "delta_buy_pct": -30.0,
+        },
+        {
+            "bracket": "Degens",
+            "pre_dominant": "HOLD",
+            "dominant_post": "BUY",
+            "dominant_arrow": "▲",
+            "delta_buy_pct": 15.0,
+        },
+    ],
+    "pivot_agents": [
+        {"bracket": "Quants", "agent_id": "a01", "pre_signal": "BUY", "post_signal": "SELL"},
+        {"bracket": "Quants", "agent_id": "a02", "pre_signal": "BUY", "post_signal": "SELL"},
+    ],
+    "largest_shift": {"bracket": "Quants", "direction": "SELL", "delta": -30.0},
+    "notable_held_firm_agents": [],
+}
 
 
 def test_shock_impact_template_renders_bracket_delta_table() -> None:
     """Phase 27 SHOCK-05 — 11_shock_impact.j2 renders Bracket Signal Shift heading + table."""
-    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+    from alphaswarm.report import ReportAssembler
+
+    assembler = ReportAssembler()
+    result = assembler.render_section(
+        "11_shock_impact.j2", data=_SHOCK_IMPACT_DATA, cycle_id="test-cycle"
+    )
+
+    assert "Bracket Signal Shift" in result
+    assert "Quants" in result
+    assert "Degens" in result
 
 
 def test_shock_impact_template_renders_pivot_list() -> None:
     """Phase 27 SHOCK-05 — 11_shock_impact.j2 renders Agent Pivot List heading when pivots exist."""
-    pytest.fail("Not yet implemented — see Plan 02 (shock impact report section)")
+    from alphaswarm.report import ReportAssembler
+
+    assembler = ReportAssembler()
+    result = assembler.render_section(
+        "11_shock_impact.j2", data=_SHOCK_IMPACT_DATA, cycle_id="test-cycle"
+    )
+
+    assert "Agent Pivot List" in result
+    assert "a01" in result
+    assert "a02" in result

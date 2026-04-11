@@ -123,10 +123,13 @@ class ReportEngine:
         ollama_client: OllamaClient,
         model: str,
         tools: dict[str, Callable],  # type: ignore[type-arg]
+        *,
+        pre_seeded_observations: list[ToolObservation] | None = None,
     ) -> None:
         self._client = ollama_client
         self._model = model
         self._tools = tools
+        self._pre_seeded: list[ToolObservation] = list(pre_seeded_observations or [])
         self._log = structlog.get_logger(component="report")
 
     async def run(self, cycle_id: str) -> list[ToolObservation]:
@@ -138,7 +141,7 @@ class ReportEngine:
         Returns:
             List of ToolObservation records from successful tool dispatches.
         """
-        observations: list[ToolObservation] = []
+        observations: list[ToolObservation] = list(self._pre_seeded)
         seen_calls: set[tuple[str, str]] = set()
 
         messages: list[dict[str, str]] = [
@@ -221,6 +224,8 @@ TOOL_TO_TEMPLATE: dict[str, str] = {
     "signal_flip_analysis": "06_signal_flip_analysis.j2",
     "entity_impact": "07_entity_impact.j2",
     "social_post_reach": "08_social_post_reach.j2",
+    "portfolio_impact": "10_portfolio_impact.j2",
+    "shock_impact": "11_shock_impact.j2",
 }
 
 # Canonical section order for assembling the report (D-07)
@@ -233,6 +238,8 @@ SECTION_ORDER: list[str] = [
     "signal_flip_analysis",
     "entity_impact",
     "social_post_reach",
+    "portfolio_impact",
+    "shock_impact",
 ]
 
 

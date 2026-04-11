@@ -1,0 +1,30 @@
+## Shock Impact Analysis
+
+**Event:** {{ data.shock_text }}
+**Injected Before Round:** {{ data.injected_before_round }}
+**Comparable Agents:** {{ data.comparable_agents }}
+
+| Metric | Value |
+|--------|-------|
+| Pivot Count | {{ data.pivot_count }} |
+| Held Firm Count | {{ data.held_firm_count }} |
+| Pivot Rate | {{ "%.1f"|format(data.pivot_rate_pct) }}% |
+| Held Firm Rate | {{ "%.1f"|format(data.held_firm_rate_pct) }}% |
+
+### Bracket Signal Shift
+
+| Bracket | Pre-Dominant | Post-Dominant | Arrow | Delta Buy% |
+|---------|-------------|---------------|-------|-----------|
+{% for bd in data.bracket_deltas %}
+| {{ bd.bracket }} | {{ bd.pre_dominant | default("—") }} | {{ bd.dominant_post }} | {{ bd.dominant_arrow }} | {{ "%.1f"|format(bd.delta_buy_pct) }}% |
+{% endfor %}
+
+{% if data.pivot_agents %}
+### Agent Pivot List
+
+| Bracket | Agent | Pre-Signal | Post-Signal |
+|---------|-------|-----------|------------|
+{% for pa in data.pivot_agents %}
+| {{ pa.bracket }} | {{ pa.agent_id }} | {{ pa.pre_signal }} | {{ pa.post_signal }} |
+{% endfor %}
+{% endif %}
