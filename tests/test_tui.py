@@ -526,3 +526,38 @@ def test_sentinel_poll_updates_footer(tmp_path: pytest.TempPathFactory) -> None:
 
     # Verify update_report_path was called with the correct path
     mock_footer.update_report_path.assert_called_once_with("reports/cycle-test-123_report.md")
+
+
+# ---------------------------------------------------------------------------
+# Phase 26: ShockInputScreen + _poll_snapshot stubs (Plan 04)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_shock_input_screen_enter_dismisses_with_text():
+    """Phase 26 SHOCK-01 — Enter on ShockInputScreen dismisses with trimmed text."""
+    pytest.fail("Not yet implemented — see Plan 04 (TUI ShockInputScreen)")
+
+
+@pytest.mark.asyncio
+async def test_shock_input_screen_esc_dismisses_with_none():
+    """Phase 26 SHOCK-01 — Esc on ShockInputScreen dismisses with None."""
+    pytest.fail("Not yet implemented — see Plan 04 (TUI ShockInputScreen)")
+
+
+@pytest.mark.asyncio
+async def test_shock_input_screen_empty_enter_dismisses_with_none():
+    """Phase 26 SHOCK-01 — Enter on empty Input dismisses with None (D-07)."""
+    pytest.fail("Not yet implemented — see Plan 04 (TUI ShockInputScreen empty submit)")
+
+
+@pytest.mark.asyncio
+async def test_poll_snapshot_pushes_shock_screen_on_window_open(mock_state_store):
+    """Phase 26 SHOCK-01 — _poll_snapshot pushes ShockInputScreen on shock_window rising edge."""
+    pytest.fail("Not yet implemented — see Plan 04 (TUI _poll_snapshot integration)")
+
+
+@pytest.mark.asyncio
+async def test_shock_screen_pushed_once_per_window(mock_state_store):
+    """Phase 26 SHOCK-01 — edge latch prevents re-pushing ShockInputScreen while open."""
+    pytest.fail("Not yet implemented — see Plan 04 (TUI _poll_snapshot edge latch)")

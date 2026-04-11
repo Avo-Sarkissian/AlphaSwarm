@@ -2444,3 +2444,32 @@ async def test_run_simulation_skips_read_post_edges_when_no_posts(
 
     # write_read_post_edges should NOT be called (empty post_ids guard)
     mock_graph_manager.write_read_post_edges.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Phase 26: Shock injection simulation stubs (Plan 05)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_shock_injected_into_round2_user_message(mock_state_store):
+    """Phase 26 SHOCK-02 — shock text is prepended to rumor with [BREAKING] marker for Round 2."""
+    pytest.fail("Not yet implemented — see Plan 05 (simulation shock wiring)")
+
+
+@pytest.mark.asyncio
+async def test_round2_unchanged_when_no_shock(mock_state_store):
+    """Phase 26 SHOCK-02 — when no shock submitted, Round 2 receives bare rumor."""
+    pytest.fail("Not yet implemented — see Plan 05 (simulation shock wiring)")
+
+
+@pytest.mark.asyncio
+async def test_shock_does_not_mutate_base_rumor(mock_state_store):
+    """Phase 26 SHOCK-02 — base rumor string is never mutated by shock injection."""
+    pytest.fail("Not yet implemented — see Plan 05 (simulation shock wiring)")
+
+
+@pytest.mark.asyncio
+async def test_run_simulation_without_state_store_skips_shock():
+    """Phase 26 SHOCK-02 — state_store=None bypasses the shock window (no suspend)."""
+    pytest.fail("Not yet implemented — see Plan 05 (simulation shock wiring)")
