@@ -451,96 +451,6 @@ class RumorInputScreen(Screen[str]):
 
 
 # ---------------------------------------------------------------------------
-# ShockInputScreen — inter-round shock injection overlay (Phase 26)
-# ---------------------------------------------------------------------------
-
-
-class ShockInputScreen(Screen[str | None]):
-    """Phase 26 — full-screen modal for inter-round shock injection.
-
-    Pushed from _check_shock_window() when StateStore.is_shock_window_open() is True.
-    Dismisses with the trimmed shock text on Enter (non-empty), or None on Esc
-    / empty Enter. The dismiss value flows back via the parent App's
-    _on_shock_submitted callback to StateStore.submit_shock.
-
-    Per 26-UI-SPEC.md — visually mirrors RumorInputScreen with domain copy.
-    Per 26-CONTEXT.md D-15..D-17.
-    """
-
-    BINDINGS = [
-        ("escape", "skip_shock", "Skip"),
-    ]
-
-    DEFAULT_CSS = """
-    ShockInputScreen {
-        align: center middle;
-        background: #121212;
-    }
-
-    #shock-input-container {
-        width: 72;
-        height: auto;
-        border: solid #4FC3F7;
-        padding: 2 3;
-        background: #1E1E1E;
-    }
-
-    #shock-title {
-        width: 100%;
-        text-align: center;
-        color: #4FC3F7;
-        text-style: bold;
-        margin-bottom: 1;
-    }
-
-    #shock-subtitle {
-        width: 100%;
-        text-align: center;
-        color: #78909C;
-        margin-bottom: 2;
-    }
-
-    #shock-input {
-        width: 100%;
-    }
-
-    #shock-hint {
-        width: 100%;
-        text-align: center;
-        color: #78909C;
-        margin-top: 1;
-    }
-    """
-
-    def __init__(self, next_round: int) -> None:
-        super().__init__()
-        self._next_round = next_round
-
-    def compose(self) -> ComposeResult:
-        with Container(id="shock-input-container"):
-            yield Static("Inject Breaking Event", id="shock-title")
-            yield Static(
-                f"Shock the swarm before Round {self._next_round}",
-                id="shock-subtitle",
-            )
-            yield Input(
-                placeholder="e.g. Fed emergency rate cut to 0%...",
-                id="shock-input",
-            )
-            yield Static("Enter to inject  ·  Esc to skip", id="shock-hint")
-
-    def on_mount(self) -> None:
-        self.query_one("#shock-input", Input).focus()
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.strip()
-        self.dismiss(text if text else None)
-
-    def action_skip_shock(self) -> None:
-        self.dismiss(None)
-
-
-# ---------------------------------------------------------------------------
 # InterviewScreen — post-simulation agent Q&A overlay (Phase 14)
 # ---------------------------------------------------------------------------
 
@@ -764,8 +674,6 @@ class AlphaSwarmApp(App):
         self._prev_bracket_summaries: tuple[BracketSummary, ...] = ()
         self._cycle_id: str | None = None
         self._last_sentinel_mtime: float = 0.0  # Phase 15: sentinel file polling (D-06, Pitfall 5)
-        # Phase 26 — shock injection overlay edge latch
-        self._shock_window_was_open: bool = False
 
     def on_mount(self) -> None:
         """Register theme, then either show rumor input or start simulation."""
@@ -1003,39 +911,3 @@ class AlphaSwarmApp(App):
                         self._telemetry_footer.update_report_path(report_path)
         except (OSError, ValueError, KeyError):
             pass  # Sentinel file may be mid-write or malformed; skip silently
-
-        # Phase 26 — shock window detection with rising-edge latch (D-16, Pitfall 2)
-        self._check_shock_window()
-
-    def _check_shock_window(self) -> None:
-        """Phase 26 — detect shock window rising/falling edge and push overlay.
-
-        Extracted from _poll_snapshot so it can be tested without mounting
-        the full dashboard widget tree (per Codex review MEDIUM on Plan 04).
-        """
-        store = self.app_state.state_store
-        is_open = store.is_shock_window_open()
-        if is_open and not self._shock_window_was_open:
-            # Rising edge: push the overlay exactly once
-            self._shock_window_was_open = True
-            next_round = store.shock_next_round() or 2
-            self.push_screen(
-                ShockInputScreen(next_round=next_round),
-                self._on_shock_submitted,
-            )
-        elif not is_open and self._shock_window_was_open:
-            # Falling edge: simulation closed the window — reset latch
-            self._shock_window_was_open = False
-
-    def _on_shock_submitted(self, shock_text: str | None) -> None:
-        """Phase 26 — ShockInputScreen dismiss callback.
-
-        Schedules the async StateStore.submit_shock on Textual's worker
-        manager so the sync timer context isn't blocked and the coroutine
-        actually runs (Pitfall 4 from 26-RESEARCH.md).
-        """
-        self.run_worker(
-            self.app_state.state_store.submit_shock(shock_text),
-            exclusive=False,
-            exit_on_error=True,
-        )

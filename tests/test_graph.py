@@ -1422,97 +1422,33 @@ async def test_write_read_post_edges_wraps_neo4j_error(mock_driver: MagicMock) -
             agent_ids=["a1"], post_ids=["p1"], round_num=2, cycle_id="c1",
         )
 
-
-# ---------------------------------------------------------------------------
-# Phase 26: ShockEvent persistence (Plan 03)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio()
-async def test_write_shock_event_creates_node_and_edge() -> None:
-    """Phase 26 SHOCK-03 — _write_shock_event_tx Cypher contains ShockEvent + HAS_SHOCK.
-
-    Per Codex MEDIUM feedback: verify the actual Cypher emitted by the
-    transaction function, not just that execute_write was called.
-    """
-    from alphaswarm.graph import GraphStateManager
-
-    mock_tx = AsyncMock()
-    mock_tx.run = AsyncMock()
-
-    await GraphStateManager._write_shock_event_tx(
-        mock_tx,
-        "shock-uuid-1",
-        "cycle-123",
-        "Fed cut rates",
-        2,
-    )
-
-    assert mock_tx.run.called
-    cypher = mock_tx.run.call_args.args[0]
-    assert "ShockEvent" in cypher
-    assert "HAS_SHOCK" in cypher
-    assert "MATCH (c:Cycle" in cypher
-    assert "CREATE (se:ShockEvent" in cypher
-    assert "CREATE (c)-[:HAS_SHOCK]->(se)" in cypher
-    kwargs = mock_tx.run.call_args.kwargs
-    assert kwargs["shock_id"] == "shock-uuid-1"
-    assert kwargs["cycle_id"] == "cycle-123"
-    assert kwargs["shock_text"] == "Fed cut rates"
-    assert kwargs["injected_before_round"] == 2
-
-
-@pytest.mark.asyncio()
-async def test_write_shock_event_returns_uuid(mock_driver: MagicMock) -> None:
-    """Phase 26 SHOCK-03 — write_shock_event returns a UUID4 string shock_id."""
-    from alphaswarm.graph import GraphStateManager
-
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-    shock_id = await gsm.write_shock_event(
-        cycle_id="cycle-abc",
-        shock_text="oil shock",
-        injected_before_round=3,
-    )
-
-    uuid4_pattern = re.compile(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    )
-    assert uuid4_pattern.match(shock_id), f"shock_id {shock_id!r} is not a UUID4"
-
-
-@pytest.mark.asyncio()
-async def test_write_shock_event_wraps_driver_errors(mock_driver: MagicMock) -> None:
-    """Phase 26 SHOCK-03 — Neo4jError is wrapped in Neo4jWriteError."""
-    from neo4j.exceptions import Neo4jError
-
-    from alphaswarm.graph import GraphStateManager
-
-    original_exc = Neo4jError("boom")
-    mock_driver.session.return_value.execute_write = AsyncMock(side_effect=original_exc)
-
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-    with pytest.raises(Neo4jWriteError) as exc_info:
-        await gsm.write_shock_event(
-            cycle_id="cycle-err",
-            shock_text="panic",
-            injected_before_round=2,
-        )
-    assert "cycle-err" in str(exc_info.value)
     assert exc_info.value.original_error is original_exc
 
 
-def test_ensure_schema_includes_shock_cycle_index() -> None:
-    """Phase 26 SHOCK-03 — SCHEMA_STATEMENTS contains shock_cycle_idx CREATE INDEX."""
-    from alphaswarm.graph import SCHEMA_STATEMENTS
+# ---------------------------------------------------------------------------
+# Phase 27: Shock analysis graph methods (Plan 01)
+# ---------------------------------------------------------------------------
 
-    matching = [
-        stmt for stmt in SCHEMA_STATEMENTS
-        if re.search(
-            r"CREATE INDEX\s+shock_cycle_idx.*ShockEvent.*cycle_id",
-            stmt,
-            re.IGNORECASE | re.DOTALL,
-        )
-    ]
-    assert len(matching) == 1, (
-        f"Expected exactly one shock_cycle_idx statement; got {len(matching)}"
-    )
+
+@pytest.mark.asyncio()
+async def test_read_shock_event_returns_dict_when_exists(mock_driver: MagicMock) -> None:
+    """Phase 27 SHOCK-04 — read_shock_event returns dict when ShockEvent exists for cycle."""
+    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
+
+
+@pytest.mark.asyncio()
+async def test_read_shock_event_returns_none_when_no_shock(mock_driver: MagicMock) -> None:
+    """Phase 27 SHOCK-04 — read_shock_event returns None when no ShockEvent exists."""
+    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
+
+
+@pytest.mark.asyncio()
+async def test_read_shock_impact_returns_per_agent_rows(mock_driver: MagicMock) -> None:
+    """Phase 27 SHOCK-04 — read_shock_impact returns dict with bracket_deltas, pivot_count, comparable_agents."""
+    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")
+
+
+@pytest.mark.asyncio()
+async def test_read_shock_impact_pivot_flag_computed_correctly(mock_driver: MagicMock) -> None:
+    """Phase 27 SHOCK-04 — pivot_count=1, held_firm_count=1, comparable_agents=2 when 1 of 2 agents changed signal."""
+    pytest.fail("Not yet implemented — see Plan 01 (shock analysis graph methods)")

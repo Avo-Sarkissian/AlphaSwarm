@@ -4,17 +4,16 @@
 
 A localized, multi-agent financial simulation engine that ingests a single "Seed Rumor" and simulates cascading market reactions across 100 distinct AI personas. The system runs a 3-round iterative consensus cascade on local hardware (M1 Max 64GB), visualizing real-time agent state via a Textual TUI dashboard and persisting interaction history in Neo4j.
 
-## Current Milestone: v4.0 Interactive Simulation & Analysis
+## Current Milestone: v2.0 Engine Depth
 
-**Goal:** Add interactive analysis layers — HTML report export, portfolio impact mapping against personal holdings, shock injection mid-simulation, and replay of completed cycles.
+**Goal:** Deepen the simulation engine with post-simulation capabilities, richer agent behavior, and dynamic persona generation — building the full data model before the web dashboard.
 
 **Target features:**
-- HTML Report Export — self-contained single-file HTML reports with inline SVG charts (Phase 24, complete)
-- Portfolio Impact Analysis — map Schwab CSV holdings against swarm consensus with coverage gaps and LLM narrative (Phase 25, complete)
-- Shock Injection — inject breaking events between rounds and see all agents react (Phase 26, next)
-- Shock Analysis and Reporting — before/after consensus comparison (Phase 27)
-- Replay Data Layer — cycle listing and full-cycle reads from Neo4j (Phase 28)
-- Replay TUI Playback — round-by-round TUI replay with speed control (Phase 29)
+- Agent Interviews — post-simulation live Q&A with any agent using full persona and decision context
+- Live Graph Memory — real-time Neo4j updates during simulation with rationale episodes and narrative edges
+- Post-Simulation Report — ReACT agent queries Neo4j and generates structured market analysis
+- Richer Agent Interactions — agents publish rationale posts that peers read and react to
+- Dynamic Persona Generation — extract entities from seed rumor to generate situation-specific agent personas
 
 ## Core Value
 
@@ -122,4 +121,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-10 — Phase 25 complete: portfolio-impact-analysis*
+*Last updated: 2026-04-01 — Phase 12 complete: richer-agent-interactions*

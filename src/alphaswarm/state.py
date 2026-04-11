@@ -10,20 +10,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 
-import structlog
-
 from alphaswarm.types import SignalType, SimulationPhase
-
-SHOCK_TEXT_MAX_LEN: int = 4096
-"""Phase 26 — maximum shock text length after whitespace strip.
-
-Per 2026-04-11 reviews revision (Codex MEDIUM): caps the shock payload
-to prevent multi-MB user input from inflating 100 agent prompts simultaneously
-and hitting M1 Max memory pressure. 4096 chars ≈ 1000 tokens, comfortably
-within num_ctx budget.
-"""
-
-_log = structlog.get_logger(component="state")
 
 
 @dataclass(frozen=True)
@@ -125,10 +112,6 @@ class StateStore:
         self._cumulative_eval_ns: int = 0
         # Phase 10: TUI-05 bracket summaries storage
         self._bracket_summaries: tuple[BracketSummary, ...] = ()
-        # Phase 26 — shock injection bridge (CONTEXT.md D-04..D-07)
-        self._shock_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=1)
-        self._shock_window: asyncio.Event = asyncio.Event()
-        self._shock_next_round: int | None = None
 
     async def update_agent_state(
         self,
@@ -177,91 +160,6 @@ class StateStore:
             except asyncio.QueueEmpty:
                 pass
             self._rationale_queue.put_nowait(entry)
-
-    async def request_shock(self, next_round: int) -> None:
-        """Phase 26 — signal the TUI that a shock window is open.
-
-        Called by simulation.run_simulation() at each inter-round gap after
-        suspending the governor. Sets the shock_window event so that
-        _poll_snapshot() on the TUI side will detect it on its next tick
-        and push the ShockInputScreen.
-
-        Per CONTEXT.md D-05, D-16.
-        """
-        self._shock_next_round = next_round
-        self._shock_window.set()
-
-    async def close_shock_window(self) -> None:
-        """Phase 26 — signal the TUI that the shock window is closed.
-
-        Called by simulation after await_shock() returns (user submitted
-        or dismissed). Clears both the event and the cached next_round.
-
-        Per CONTEXT.md D-05.
-        """
-        self._shock_window.clear()
-        self._shock_next_round = None
-
-    def is_shock_window_open(self) -> bool:
-        """Phase 26 — TUI reads this from _poll_snapshot() (sync 200ms timer).
-
-        Returns True if the simulation is currently waiting for shock input.
-        Must be synchronous because _poll_snapshot is a sync callback.
-
-        Per CONTEXT.md D-16.
-        """
-        return self._shock_window.is_set()
-
-    def shock_next_round(self) -> int | None:
-        """Phase 26 — the round number the shock will precede (2 or 3).
-
-        Returned so the TUI can render the subtitle "Shock the swarm before
-        Round {N}". Synchronous for the same reason as is_shock_window_open.
-        """
-        return self._shock_next_round
-
-    async def submit_shock(self, shock_text: str | None) -> None:
-        """Phase 26 — TUI ShockInputScreen dismiss callback pushes onto this.
-
-        Applies strip + length-cap policy before enqueueing:
-        - None is passed through unchanged (skip signal, D-07)
-        - Empty string after strip is normalized to None (also skip, D-07)
-        - Strings longer than SHOCK_TEXT_MAX_LEN are truncated with a log warning
-          (per 2026-04-11 reviews revision — Codex MEDIUM concern about
-          memory pressure from unbounded user input across 100-agent prompts)
-
-        Non-blocking in practice because maxsize=1 and the edge-latch in
-        the TUI guarantees at most one pending submit per window.
-
-        Per CONTEXT.md D-06, D-07.
-        """
-        if shock_text is None:
-            await self._shock_queue.put(None)
-            return
-
-        stripped = shock_text.strip()
-        if not stripped:
-            await self._shock_queue.put(None)
-            return
-
-        if len(stripped) > SHOCK_TEXT_MAX_LEN:
-            # Reviews revision: enforce length cap to protect M1 memory budget.
-            _log.warning(
-                "shock_text_truncated",
-                original_len=len(stripped),
-                truncated_len=SHOCK_TEXT_MAX_LEN,
-            )
-            stripped = stripped[:SHOCK_TEXT_MAX_LEN]
-
-        await self._shock_queue.put(stripped)
-
-    async def await_shock(self) -> str | None:
-        """Phase 26 — simulation blocks here waiting for TUI submission.
-
-        Returns the shock text (non-empty string) or None if the user
-        dismissed without submitting. Per CONTEXT.md D-05, D-07.
-        """
-        return await self._shock_queue.get()
 
     def update_tps(self, eval_count: int, eval_duration_ns: int) -> None:
         """Accumulate TPS from Ollama response metadata (D-05, TUI-04).

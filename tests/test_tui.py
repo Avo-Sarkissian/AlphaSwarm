@@ -529,179 +529,20 @@ def test_sentinel_poll_updates_footer(tmp_path: pytest.TempPathFactory) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 26: ShockInputScreen + _poll_snapshot stubs (Plan 04)
+# Phase 27: BracketPanel delta mode (Plan 01)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_shock_input_screen_enter_dismisses_with_text():
-    """Phase 26 SHOCK-01 — Enter on ShockInputScreen dismisses with trimmed text."""
-    from textual.app import App
-    from alphaswarm.tui import ShockInputScreen
-
-    class _TestApp(App):  # type: ignore[type-arg]
-        result: str | None | object = "UNSET"
-
-        async def on_mount(self) -> None:
-            def _capture(value: str | None) -> None:
-                self.result = value
-                self.exit()
-            await self.push_screen(ShockInputScreen(next_round=2), _capture)
-
-    app = _TestApp()
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press(*"Fed emergency rate cut")
-        await pilot.press("enter")
-        await pilot.pause()
-    assert app.result == "Fed emergency rate cut"
+def test_bracket_panel_enable_delta_mode_triggers_refresh() -> None:
+    """Phase 27 SHOCK-04 — enable_delta_mode sets _delta_mode=True and calls refresh."""
+    pytest.fail("Not yet implemented — see Plan 01 (BracketPanel delta mode)")
 
 
-@pytest.mark.asyncio
-async def test_shock_input_screen_esc_dismisses_with_none():
-    """Phase 26 SHOCK-01 — Esc on ShockInputScreen dismisses with None."""
-    from textual.app import App
-    from alphaswarm.tui import ShockInputScreen
-
-    class _TestApp(App):  # type: ignore[type-arg]
-        result: str | None | object = "UNSET"
-
-        async def on_mount(self) -> None:
-            def _capture(value: str | None) -> None:
-                self.result = value
-                self.exit()
-            await self.push_screen(ShockInputScreen(next_round=3), _capture)
-
-    app = _TestApp()
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("escape")
-        await pilot.pause()
-    assert app.result is None
+def test_bracket_panel_render_delta_uses_delta_data() -> None:
+    """Phase 27 SHOCK-04 — render() returns Text with '[DELTA' when delta mode active."""
+    pytest.fail("Not yet implemented — see Plan 01 (BracketPanel delta mode)")
 
 
-@pytest.mark.asyncio
-async def test_shock_input_screen_empty_enter_dismisses_with_none():
-    """Phase 26 SHOCK-01 — Enter on empty Input dismisses with None (D-07).
-
-    REVIEWS-ADDED (2026-04-11): Codex flagged that empty-Enter behavior was
-    specified in on_input_submitted (text.strip() or None) but had no
-    regression test. This test asserts that the empty-string path dismisses
-    with None — not with "", which would be persisted as a degenerate
-    shock downstream.
-    """
-    from textual.app import App
-    from alphaswarm.tui import ShockInputScreen
-
-    class _TestApp(App):  # type: ignore[type-arg]
-        result: str | None | object = "UNSET"
-
-        async def on_mount(self) -> None:
-            def _capture(value: str | None) -> None:
-                self.result = value
-                self.exit()
-            await self.push_screen(ShockInputScreen(next_round=2), _capture)
-
-    app = _TestApp()
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        # Press Enter with no text typed — the Input is empty
-        await pilot.press("enter")
-        await pilot.pause()
-    # Empty Enter must dismiss with None, NOT "" — downstream treats None as "no shock"
-    assert app.result is None, (
-        f"Empty Enter should dismiss with None; got {app.result!r}"
-    )
-
-    # Belt-and-suspenders: whitespace-only Enter should also dismiss with None.
-    class _WhitespaceTestApp(App):  # type: ignore[type-arg]
-        result: str | None | object = "UNSET"
-
-        async def on_mount(self) -> None:
-            def _capture(value: str | None) -> None:
-                self.result = value
-                self.exit()
-            await self.push_screen(ShockInputScreen(next_round=2), _capture)
-
-    app2 = _WhitespaceTestApp()
-    async with app2.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press(*"   ")  # only spaces
-        await pilot.press("enter")
-        await pilot.pause()
-    assert app2.result is None, (
-        f"Whitespace-only Enter should dismiss with None; got {app2.result!r}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_poll_snapshot_pushes_shock_screen_on_window_open(mock_state_store):
-    """Phase 26 SHOCK-01 — _check_shock_window pushes ShockInputScreen on shock_window rising edge."""
-    from unittest.mock import patch
-    from alphaswarm.tui import AlphaSwarmApp, ShockInputScreen
-
-    # Configure mock to simulate shock window open
-    mock_state_store.is_shock_window_open.return_value = True
-    mock_state_store.shock_next_round.return_value = 2
-
-    app = AlphaSwarmApp(
-        rumor="test",
-        app_state=_make_mock_app_state(),
-        personas=_make_personas(),
-        brackets=_make_brackets(),
-        settings=_make_settings(),
-    )
-    # Override the state_store with our mock that has shock window open
-    app.app_state.state_store = mock_state_store
-    app._shock_window_was_open = False
-
-    pushed_screens = []
-    with patch.object(app, "push_screen", side_effect=lambda s, cb=None: pushed_screens.append((s, cb))):
-        app._check_shock_window()
-
-    assert len(pushed_screens) == 1
-    assert isinstance(pushed_screens[0][0], ShockInputScreen)
-    assert app._shock_window_was_open is True
-
-
-@pytest.mark.asyncio
-async def test_shock_screen_pushed_once_per_window(mock_state_store):
-    """Phase 26 SHOCK-01 — edge latch prevents re-pushing ShockInputScreen while open."""
-    from unittest.mock import patch
-    from alphaswarm.tui import AlphaSwarmApp
-
-    mock_state_store.is_shock_window_open.return_value = True
-    mock_state_store.shock_next_round.return_value = 2
-
-    app = AlphaSwarmApp(
-        rumor="test",
-        app_state=_make_mock_app_state(),
-        personas=_make_personas(),
-        brackets=_make_brackets(),
-        settings=_make_settings(),
-    )
-    app.app_state.state_store = mock_state_store
-    app._shock_window_was_open = False
-
-    pushed_screens = []
-    with patch.object(app, "push_screen", side_effect=lambda s, cb=None: pushed_screens.append(s)):
-        # Simulate 3 consecutive _check_shock_window calls with the window still open
-        app._check_shock_window()
-        app._check_shock_window()
-        app._check_shock_window()
-
-    assert len(pushed_screens) == 1, f"Expected 1 push, got {len(pushed_screens)}"
-
-    # Falling edge: simulation closes the window, latch resets
-    mock_state_store.is_shock_window_open.return_value = False
-    app._check_shock_window()
-    assert app._shock_window_was_open is False
-
-    # Rising edge #2: simulation opens a new window (e.g. R2→R3 gap), push again
-    mock_state_store.is_shock_window_open.return_value = True
-    mock_state_store.shock_next_round.return_value = 3
-    with patch.object(app, "push_screen", side_effect=lambda s, cb=None: pushed_screens.append(s)):
-        app._check_shock_window()
-    assert len(pushed_screens) == 2, (
-        f"Expected 2 pushes after reopen, got {len(pushed_screens)}"
-    )
+def test_bracket_panel_live_mode_unchanged_without_shock() -> None:
+    """Phase 27 SHOCK-04 — render() does NOT contain '[DELTA' when delta mode not active."""
+    pytest.fail("Not yet implemented — see Plan 01 (BracketPanel delta mode)")

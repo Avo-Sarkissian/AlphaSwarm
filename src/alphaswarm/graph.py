@@ -67,7 +67,6 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX episode_cycle_round IF NOT EXISTS FOR (re:RationaleEpisode) ON (re.cycle_id, re.round)",
     "CREATE INDEX post_cycle_round IF NOT EXISTS FOR (p:Post) ON (p.cycle_id, p.round_num)",
     "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
-    "CREATE INDEX shock_cycle_idx IF NOT EXISTS FOR (s:ShockEvent) ON (s.cycle_id)",
 ]
 
 
@@ -171,75 +170,6 @@ class GraphStateManager:
             "CREATE (c:Cycle {cycle_id: $cycle_id, seed_rumor: $seed_rumor, created_at: datetime()})",
             cycle_id=cycle_id,
             seed_rumor=seed_rumor,
-        )
-
-    async def write_shock_event(
-        self,
-        cycle_id: str,
-        shock_text: str,
-        injected_before_round: int,
-    ) -> str:
-        """Phase 26 — persist a ShockEvent node linked to its Cycle via HAS_SHOCK.
-
-        Per CONTEXT.md D-11..D-13. Uses the session-per-method pattern consistent
-        with create_cycle() and write_decisions(). Raises Neo4jWriteError on
-        driver errors.
-
-        Args:
-            cycle_id: The Cycle this shock belongs to.
-            shock_text: The user-authored breaking event text (non-empty).
-            injected_before_round: The round number this shock precedes (2 or 3).
-
-        Returns:
-            shock_id: A UUID4 string identifying the new ShockEvent node.
-        """
-        shock_id = str(uuid.uuid4())
-        try:
-            async with self._driver.session(database=self._database) as session:
-                await session.execute_write(
-                    self._write_shock_event_tx,
-                    shock_id,
-                    cycle_id,
-                    shock_text,
-                    injected_before_round,
-                )
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to write shock_event for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
-        self._log.info(
-            "shock_event_written",
-            shock_id=shock_id,
-            cycle_id=cycle_id,
-            injected_before_round=injected_before_round,
-        )
-        return shock_id
-
-    @staticmethod
-    async def _write_shock_event_tx(
-        tx: AsyncManagedTransaction,
-        shock_id: str,
-        cycle_id: str,
-        shock_text: str,
-        injected_before_round: int,
-    ) -> None:
-        await tx.run(
-            """
-            MATCH (c:Cycle {cycle_id: $cycle_id})
-            CREATE (se:ShockEvent {
-                shock_id: $shock_id,
-                cycle_id: $cycle_id,
-                shock_text: $shock_text,
-                injected_before_round: $injected_before_round,
-                created_at: datetime()
-            })
-            CREATE (c)-[:HAS_SHOCK]->(se)
-            """,
-            shock_id=shock_id,
-            cycle_id=cycle_id,
-            shock_text=shock_text,
-            injected_before_round=injected_before_round,
         )
 
     async def create_cycle_with_seed_event(
