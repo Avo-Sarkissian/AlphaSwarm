@@ -113,10 +113,35 @@ Plans:
 - [x] 15-01-PLAN.md -- ReACT engine + Cypher query tools (ReportEngine, ToolObservation, _parse_action_input, 8 GraphStateManager read methods, unit tests)
 - [x] 15-02-PLAN.md -- Delivery layer (Jinja2 templates, ReportAssembler, CLI report subcommand, aiofiles export, sentinel file, TUI polling)
 
+### v4.0 Interactive Simulation & Analysis (Phases 24-28)
+
+**Milestone Goal:** Add mid-simulation shock injection, real-time impact analysis, HTML report export with Schwab portfolio overlay, and simulation replay — completing the full interactive analysis suite.
+
+- [x] **Phase 24: HTML Report Export** - Exportable HTML simulation reports with SVG charts and Schwab portfolio overlay (completed 2026-04-09)
+- [x] **Phase 26: Shock Injection Core** - Mid-simulation shock injection with governor suspend/resume and ReplayStore isolation (completed 2026-04-10)
+- [x] **Phase 27: Shock Analysis and Reporting** - Shock impact analysis with bracket delta mode, read_shock_impact, and Jinja2 shock template (completed 2026-04-11)
+- [ ] **Phase 28: Simulation Replay** - Re-render a past simulation cycle from stored Neo4j state without re-running inference
+
+### Phase 28: Simulation Replay
+**Goal**: Re-render any completed simulation cycle from stored Neo4j state, stepping through rounds 1-3 in the TUI without re-running agent inference
+**Depends on**: Phase 27
+**Requirements**: REPLAY-01
+**Success Criteria** (what must be TRUE):
+  1. A CLI `replay` subcommand accepts a `cycle_id` and re-populates the TUI grid round-by-round from Neo4j decision data
+  2. The existing TUI dashboard (agent grid, bracket panel, rationale sidebar) renders correctly from replayed state with no live inference calls
+  3. `read_full_cycle_signals()` Cypher query completes in under 2s for cycles with 600+ nodes (COLLECT aggregation profiled and optimized)
+  4. Replay mode is visually distinct from live simulation (e.g., header shows "REPLAY -- Cycle {id}")
+**Plans**: 3 plans
+
+Plans:
+- [ ] 28-01-PLAN.md -- Wave 0 tests, SimulationPhase.REPLAY enum, ReplayStore class, 4 GraphStateManager read methods
+- [ ] 28-02-PLAN.md -- CLI replay subcommand, TUI replay mode (CyclePickerScreen, key bindings, auto-advance, header/footer rendering)
+- [ ] 28-03-PLAN.md -- Human verification of TUI replay visual and interactive behavior
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
+Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15 -> 24 -> 26 -> 27 -> 28
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -130,8 +155,12 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15
 | 8. Dynamic Influence Topology | v1.0 | 3/3 | Complete | 2026-03-26 |
 | 9. TUI Core Dashboard | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 10. TUI Panels and Telemetry | v1.0 | 2/2 | Complete | 2026-03-27 |
-| 11. Live Graph Memory | v2.0 | 3/3 | Complete    | 2026-03-31 |
-| 12. Richer Agent Interactions | v2.0 | 2/2 | Complete    | 2026-04-01 |
-| 13. Dynamic Persona Generation | v2.0 | 2/2 | Complete   | 2026-04-02 |
-| 14. Agent Interviews | v2.0 | 2/2 | Complete   | 2026-04-02 |
-| 15. Post-Simulation Report | v2.0 | 2/2 | Complete    | 2026-04-02 |
+| 11. Live Graph Memory | v2.0 | 3/3 | Complete | 2026-03-31 |
+| 12. Richer Agent Interactions | v2.0 | 2/2 | Complete | 2026-04-01 |
+| 13. Dynamic Persona Generation | v2.0 | 2/2 | Complete | 2026-04-02 |
+| 14. Agent Interviews | v2.0 | 2/2 | Complete | 2026-04-02 |
+| 15. Post-Simulation Report | v2.0 | 2/2 | Complete | 2026-04-02 |
+| 24. HTML Report Export | v4.0 | -- | Complete | 2026-04-09 |
+| 26. Shock Injection Core | v4.0 | 5/5 | Complete | 2026-04-10 |
+| 27. Shock Analysis and Reporting | v4.0 | 3/3 | Complete | 2026-04-11 |
+| 28. Simulation Replay | v4.0 | 0/3 | Planned | -- |
