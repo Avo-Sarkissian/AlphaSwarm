@@ -2,11 +2,22 @@
 
 ## What This Is
 
-A localized, multi-agent financial simulation engine that ingests a single "Seed Rumor" and simulates cascading market reactions across 100 distinct AI personas. The system runs a 3-round iterative consensus cascade on local hardware (M1 Max 64GB), visualizing real-time agent state via a Textual TUI dashboard, persisting interaction history in Neo4j, and now supporting mid-simulation shock injection, HTML report export with Schwab portfolio overlay, and full simulation replay from stored state.
+A localized, multi-agent financial simulation engine that ingests a single "Seed Rumor" and simulates cascading market reactions across 100 distinct AI personas. The system runs a 3-round iterative consensus cascade on local hardware (M1 Max 64GB), persists interaction history in Neo4j, and exposes a Vue 3 + FastAPI web dashboard featuring a live force-directed graph where you can watch 100 agents reason, influence each other, and form consensus in real time.
 
 ## Core Value
 
 The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — the simulation engine is the product.
+
+## Current Milestone: v5.0 Web UI
+
+**Goal:** Replace the Textual TUI with a full Vue 3 + FastAPI web dashboard, with a live force-directed agent graph as the hero feature.
+
+**Target features:**
+- Live force-directed "mirofish" graph — 100 agent nodes, INFLUENCED_BY edges animating in real time, bracket clustering, click-to-inspect reasoning
+- WebSocket real-time state stream — replaces 200ms TUI tick with browser-consumable event stream
+- Web equivalents of all simulation controls — shock injection, replay player, agent interview panel, bracket summary, telemetry
+- FastAPI backend — serves frontend, exposes REST + WebSocket endpoints
+- Kill tui.py — Textual dependency removed entirely
 
 ## Requirements
 
@@ -33,8 +44,10 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 
 ### Active
 
-- [ ] Miro API v2 live network visualization with spatial layout (VIS-01, VIS-02) — deferred
-- [ ] Web dashboard (Vue 3 + FastAPI) for browser-based simulation monitoring (WEB-01 through WEB-06)
+- [ ] Vue 3 + FastAPI web dashboard replacing Textual TUI (WEB-01 through WEB-06)
+- [ ] Live force-directed agent influence graph ("mirofish canvas") with real-time edge animation (VIS-01, VIS-02)
+- [ ] WebSocket state stream for 100-agent real-time updates (WS-01)
+- [ ] Web-based shock injection, replay, and agent interview panels
 
 ### Out of Scope
 
@@ -45,6 +58,7 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - Cloud APIs or hosted services — all inference and state local
 - RL-based adaptive agents — LLM inference only, not reinforcement learning
 - Trade execution — no real money, no broker integration
+- Miro API v2 integration — replaced by embedded force-directed graph in web UI
 
 ## Context
 
@@ -60,9 +74,9 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 
 - **Hardware**: M1 Max 64GB — all inference local, no cloud APIs. Memory pressure is the primary bottleneck.
 - **Ollama**: Max 2 models loaded simultaneously, 16 parallel baseline (dynamically adjusted). Cold-loading a 70B model takes ~30s.
-- **Miro API**: 2-second minimum buffer between POST/PATCH. Bulk operations only. 429 handling mandatory.
 - **Concurrency**: All LLM calls and API interactions must be async (asyncio). No blocking I/O on the main event loop.
 - **Python**: 3.11+ required. Strong typing throughout.
+- **Web Stack**: Vue 3 + FastAPI. FastAPI runs on localhost only. No external hosting.
 
 ## Key Decisions
 
@@ -78,7 +92,8 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 | Schwab CSV loaded in-memory only | Portfolio data never persisted to Neo4j or cache — simulation stays uncontaminated | ✓ CSV read at report time only — Phase 25 |
 | Governor suspend/resume at callee (governor.py) | Prevents TOCTOU race vs caller-side check; resume() memory-pressure guard self-contained | ✓ governor.resume() guards against high-RAM resume — Phase 26 |
 | ReplayStore separate from StateStore | StateStore's destructive drain and timer would corrupt replay; clean separation required | ✓ ReplayStore with no-drain snapshot semantics — Phase 28 |
-| _replay_store set before phase change | Prevents _poll_snapshot race — store availability gates TUI branching, not phase enum | ✓ Explicit ORDERING comment in _enter_replay — Phase 28 |
+| Replace Miro API with embedded force-directed graph | Miro API requires external service + strict rate limits; embedded D3/Cytoscape gives same topology view with zero latency | — Pending — v5.0 |
+| Kill Textual TUI, go web-first | TUI limits shareability and visual expressiveness; web dashboard enables richer topology visualization | — Pending — v5.0 |
 
 ## Evolution
 
@@ -98,4 +113,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-12 after v4.0 milestone — Interactive Simulation & Analysis*
+*Last updated: 2026-04-12 — v5.0 Web UI milestone started*

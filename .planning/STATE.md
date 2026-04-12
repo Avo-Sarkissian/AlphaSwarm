@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v4.0
-milestone_name: Interactive Simulation & Analysis
-status: complete
-stopped_at: v4.0 milestone archived
+milestone: v5.0
+milestone_name: Web UI
+status: planning
+stopped_at: Milestone v5.0 started — defining requirements
 last_updated: "2026-04-12T00:00:00.000Z"
 last_activity: 2026-04-12
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -20,16 +20,17 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-04-12)
 
-**Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — grounded in real market data, the simulation engine is the product
-**Current focus:** Planning next milestone
+**Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — the simulation engine is the product
+**Current focus:** v5.0 Web UI — defining requirements
 
 ## Current Position
 
-Phase: 28 (simulation-replay) — COMPLETE
-Milestone: v4.0 — ARCHIVED
-Status: Ready for next milestone
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-12 — Milestone v5.0 started
 
-Progress: [██████████] 100% (v4.0 complete)
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
