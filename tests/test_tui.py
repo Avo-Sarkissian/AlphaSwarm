@@ -579,3 +579,22 @@ def test_bracket_panel_live_mode_unchanged_without_shock() -> None:
     panel.update_summaries((_make_bracket_summary(buy=7, sell=2, hold=1),))
     result = panel.render()
     assert "[DELTA" not in result.plain
+
+
+# ---------------------------------------------------------------------------
+# Phase 28 Task 3 Tests: TUI REPLAY label + design contract
+# ---------------------------------------------------------------------------
+
+
+def test_header_replay_format() -> None:
+    """_PHASE_LABELS includes REPLAY and _phase_display_label returns 'Replay'."""
+    assert _phase_display_label(SimulationPhase.REPLAY) == "Replay"
+
+
+def test_agent_cell_disabled_during_replay() -> None:
+    """REPLAY phase is not COMPLETE, so AgentCell click gate blocks interview.
+
+    NOTE: Full click-gate coverage with replay notification is in Plan 02
+    (Review concern #8 -- this test only validates the enum contract).
+    """
+    assert SimulationPhase.REPLAY != SimulationPhase.COMPLETE

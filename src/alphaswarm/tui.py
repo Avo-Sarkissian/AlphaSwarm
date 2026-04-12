@@ -131,6 +131,7 @@ _PHASE_LABELS: dict[SimulationPhase, str] = {
     SimulationPhase.ROUND_2: "Round 2",
     SimulationPhase.ROUND_3: "Round 3",
     SimulationPhase.COMPLETE: "Complete",
+    SimulationPhase.REPLAY: "Replay",
 }
 
 

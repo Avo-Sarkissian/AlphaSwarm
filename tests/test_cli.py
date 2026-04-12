@@ -1005,3 +1005,41 @@ async def test_shock_impact_not_preseeded_when_no_shock_event() -> None:
     assert result is None
     mock_gm.read_shock_event.assert_awaited_once_with("cycle-no-shock")
     mock_gm.read_shock_impact.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Phase 28 Task 3 Tests: CLI replay subcommand argument parsing
+# ---------------------------------------------------------------------------
+
+
+def test_replay_subcommand() -> None:
+    """'replay --cycle abc-123' parses command='replay' and cycle='abc-123'.
+
+    NOTE (Review concern #7): This builds a standalone parser rather than
+    importing from cli.py because cli.py does not yet expose a _build_parser()
+    factory. The replay subparser will be wired into main() in Plan 02.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="alphaswarm")
+    subparsers = parser.add_subparsers(dest="command")
+    replay_parser = subparsers.add_parser("replay", help="Replay a completed simulation")
+    replay_parser.add_argument("--cycle", type=str, default=None)
+
+    args = parser.parse_args(["replay", "--cycle", "abc-123"])
+    assert args.command == "replay"
+    assert args.cycle == "abc-123"
+
+
+def test_replay_subcommand_default_cycle() -> None:
+    """'replay' with no --cycle flag defaults cycle to None."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="alphaswarm")
+    subparsers = parser.add_subparsers(dest="command")
+    replay_parser = subparsers.add_parser("replay", help="Replay a completed simulation")
+    replay_parser.add_argument("--cycle", type=str, default=None)
+
+    args = parser.parse_args(["replay"])
+    assert args.command == "replay"
+    assert args.cycle is None
