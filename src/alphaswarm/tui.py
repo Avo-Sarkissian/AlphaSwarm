@@ -18,11 +18,13 @@ from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.screen import Screen
 from textual.theme import Theme
+from textual.timer import Timer
 from textual.widget import Widget
 from textual import work
-from textual.widgets import Input, RichLog, Static
+from textual.widgets import Input, OptionList, RichLog, Static
+from textual.widgets.option_list import Option
 
-from alphaswarm.state import AgentState, BracketSummary, RationaleEntry
+from alphaswarm.state import AgentState, BracketSummary, RationaleEntry, ReplayStore
 from alphaswarm.types import SignalType, SimulationPhase
 
 if TYPE_CHECKING:
@@ -100,9 +102,16 @@ class AgentCell(Widget):
             self.styles.background = new_color
 
     def on_click(self) -> None:
-        """Open interview for this agent if simulation is complete (per D-02)."""
+        """Open interview for this agent if simulation is complete (per D-02).
+
+        Review #8: Real click-gate -- check replay mode first, notify user.
+        """
         app = self.app
         if not isinstance(app, AlphaSwarmApp):
+            return
+        # Check if in replay mode first (per D-11, Review #8)
+        if app._replay_store is not None:
+            app.notify("Interviews unavailable during replay", severity="warning", timeout=3)
             return
         snapshot = app.app_state.state_store.snapshot()
         if snapshot.phase != SimulationPhase.COMPLETE:
@@ -185,6 +194,19 @@ class HeaderBar(Static):
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
         """Update header from a StateSnapshot."""
         self._render_header(snapshot.phase, snapshot.round_num, snapshot.elapsed_seconds)
+
+    def render_replay_header(
+        self, cycle_id: str, round_num: int, auto_mode: bool, done: bool,
+    ) -> None:
+        """Render replay-mode header (per UI-SPEC, D-10)."""
+        mode = "[DONE]" if done else ("[AUTO]" if auto_mode else "[PAUSED]")
+        mode_color = "#78909C" if (done or not auto_mode) else "#66BB6A"
+        self.update(
+            f"  [#4FC3F7 bold]AlphaSwarm[/]  "
+            f"[#78909C]|[/]  [#FFA726 bold]REPLAY[/] [#78909C]--[/] Cycle [#E0E0E0]{cycle_id}[/]  "
+            f"[#78909C]|[/]  Round {round_num}/3  "
+            f"[#78909C]|[/]  [{mode_color}]{mode}[/]  "
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +327,17 @@ class TelemetryFooter(Static):
         """Display the report file path in the footer (Phase 15, D-06)."""
         self._report_path = path
         self.update(f"Report: {path}")
+
+    def render_replay_footer(self, cycle_id: str, round_num: int) -> None:
+        """Render replay-mode footer with key hints (per UI-SPEC)."""
+        self.update(
+            f"  [#78909C]Mode:[/] [#E0E0E0]Replay[/]  "
+            f"[#78909C]|[/]  [#78909C]Cycle:[/] [#E0E0E0]{cycle_id}[/]  "
+            f"[#78909C]|[/]  [#78909C]Round:[/] [#E0E0E0]{round_num}/3[/]  "
+            f"[#78909C]|[/]  [#4FC3F7]Space/Right:[/] [#E0E0E0]Next[/]  "
+            f"[#4FC3F7]P:[/] [#E0E0E0]Play/Pause[/]  "
+            f"[#4FC3F7]Esc:[/] [#E0E0E0]Exit[/]"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -648,6 +681,83 @@ class InterviewScreen(Screen[None]):
 
 
 # ---------------------------------------------------------------------------
+# CyclePickerScreen — cycle selection overlay for replay mode (Phase 28)
+# ---------------------------------------------------------------------------
+
+
+class CyclePickerScreen(Screen[str | None]):
+    """Cycle selection overlay for replay mode (per D-02, UI-SPEC).
+
+    Review #4: Receives cycles from read_completed_cycles() -- only completed
+    cycles (those with Round 3 decisions) are shown.
+    """
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    DEFAULT_CSS = """
+    CyclePickerScreen {
+        align: center middle;
+        background: #121212;
+    }
+
+    #cycle-container {
+        width: 56;
+        height: auto;
+        max-height: 16;
+        border: solid #4FC3F7;
+        padding: 1 2;
+        background: #1E1E1E;
+    }
+
+    #cycle-title {
+        width: 100%;
+        text-align: center;
+        color: #4FC3F7;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #cycle-hint {
+        width: 100%;
+        text-align: center;
+        color: #78909C;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, cycles: list[dict]) -> None:
+        super().__init__()
+        self._cycles = cycles
+
+    def compose(self) -> ComposeResult:
+        with Container(id="cycle-container"):
+            yield Static("Select Simulation Cycle", id="cycle-title")
+            options: list[Option] = []
+            for i, c in enumerate(self._cycles):
+                short_id = str(c["cycle_id"])[:8]
+                created = c.get("created_at", "")
+                # Handle neo4j DateTime: convert to string if not already
+                if hasattr(created, "to_native"):
+                    created = created.to_native().strftime("%Y-%m-%d %H:%M")
+                else:
+                    created = str(created)[:16]
+                suffix = "  (latest)" if i == 0 else ""
+                label = f"{created}  --  {short_id}{suffix}"
+                options.append(Option(label, id=str(c["cycle_id"])))
+            yield OptionList(*options, id="cycle-list")
+            yield Static(
+                "Up/Down to select  \u00b7  Enter to replay  \u00b7  Esc to cancel",
+                id="cycle-hint",
+            )
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(str(event.option_id))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+# ---------------------------------------------------------------------------
 # Theme definition (UI-SPEC)
 # ---------------------------------------------------------------------------
 
@@ -709,7 +819,14 @@ class AlphaSwarmApp(App):
     }
     """
 
-    BINDINGS = [("q", "quit", "Quit"), ("s", "save_results", "Save")]
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+        ("s", "save_results", "Save"),
+        ("r", "start_replay", "Replay"),
+        ("p", "toggle_replay_mode", "Play/Pause"),
+        ("space", "replay_next_round", "Next Round"),
+        ("right", "replay_next_round", "Next Round"),
+    ]
 
     def __init__(
         self,
@@ -734,17 +851,35 @@ class AlphaSwarmApp(App):
         self._prev_bracket_summaries: tuple[BracketSummary, ...] = ()
         self._cycle_id: str | None = None
         self._last_sentinel_mtime: float = 0.0  # Phase 15: sentinel file polling (D-06, Pitfall 5)
+        # Phase 28 -- replay mode state
+        self.replay_cycle_id: str | None = None  # Set by CLI _handle_replay; None for normal TUI
+        self.replay_cli_mode: bool = False        # Review #3: True when launched via CLI
+        self._replay_store: ReplayStore | None = None
+        self._replay_timer: Timer | None = None
+        self._replay_round: int = 0
+        self._replay_auto: bool = True
+        self._replay_done: bool = False
+        self._replay_cycle_short_id: str = ""
+        self._replay_last_rendered_round: int = 0  # Review #2: tracks rendered round for sidebar dedup
         # Phase 26 — shock injection overlay edge latch
         self._shock_window_was_open: bool = False
         # Phase 27 — BracketPanel delta mode activation latch
         self._bracket_panel_delta_active: bool = False
 
     def on_mount(self) -> None:
-        """Register theme, then either show rumor input or start simulation."""
+        """Register theme, then start simulation or enter replay mode."""
         self.register_theme(ALPHASWARM_THEME)
         self.theme = "alphaswarm"
 
-        if not self.rumor:
+        if self.replay_cycle_id is not None:
+            # CLI replay mode: skip simulation, enter replay directly
+            self.set_interval(1 / 5, self._poll_snapshot)
+            self.run_worker(
+                self._enter_replay(self.replay_cycle_id),
+                exclusive=True,
+                exit_on_error=False,
+            )
+        elif not self.rumor:
             self.push_screen(RumorInputScreen(), self._on_rumor_received)
         else:
             self._start_simulation()
@@ -855,6 +990,10 @@ class AlphaSwarmApp(App):
         import datetime
         from pathlib import Path
 
+        if self._replay_store is not None:
+            self.notify("Save unavailable during replay", severity="warning", timeout=3)
+            return
+
         snap = self.app_state.state_store.snapshot()
         if snap.phase != SimulationPhase.COMPLETE:
             self.notify("Simulation not complete yet.", severity="warning")
@@ -912,12 +1051,261 @@ class AlphaSwarmApp(App):
         filename.write_text("\n".join(lines) + "\n")
         self.notify(f"Results saved to {filename}")
 
+    # -------------------------------------------------------------------------
+    # Phase 28: Replay mode methods
+    # -------------------------------------------------------------------------
+
+    async def _enter_replay(self, cycle_id: str) -> None:
+        """Load cycle signals and enter replay mode (per D-06, D-08, D-09).
+
+        ORDERING: Set _replay_store BEFORE any phase change. This prevents
+        _poll_snapshot race (RESEARCH Pitfall 3).
+        """
+        if self.app_state.graph_manager is None:
+            self.notify("Neo4j not connected -- cannot replay", severity="error")
+            return
+        gm = self.app_state.graph_manager
+        try:
+            signals = await gm.read_full_cycle_signals(cycle_id)
+        except Exception as e:
+            self.notify(f"Failed to load cycle data: {e}", severity="error", timeout=0)
+            return
+        if not signals:
+            self.notify("No decision data found for this cycle", severity="error")
+            return
+
+        short_id = cycle_id[:8]
+        self._replay_cycle_short_id = short_id
+        self._replay_round = 1
+        self._replay_auto = True
+        self._replay_done = False
+        self._replay_last_rendered_round = 0  # Review #2: force sidebar update on first round
+
+        # Set store BEFORE phase change (Pitfall 3 mitigation)
+        self._replay_store = ReplayStore(cycle_id=cycle_id, signals=signals)
+        self._replay_store.set_round(1)
+
+        # Load on-demand per-round data for Round 1 (per D-07)
+        await self._load_replay_round_data(cycle_id, 1)
+
+        # Start auto-advance timer (per D-03, 3s interval)
+        self._replay_timer = self.set_interval(3.0, self._advance_replay_round)
+
+        self.notify(
+            f"Replaying cycle {short_id} -- 3 rounds, 3s per round",
+            timeout=5,
+        )
+
+    async def _load_replay_round_data(self, cycle_id: str, round_num: int) -> None:
+        """Load on-demand bracket and rationale data for a round (per D-07).
+
+        Called during round transitions. Uses existing graph methods filtered by round.
+
+        Review #11: Stale load guard -- if self._replay_round has advanced past
+        round_num by the time this async method completes, discard the result
+        to prevent overwriting newer round data.
+        """
+        if self.app_state.graph_manager is None or self._replay_store is None:
+            return
+        gm = self.app_state.graph_manager
+
+        # Load bracket narratives for this round
+        try:
+            bracket_rows = await gm.read_bracket_narratives_for_round(cycle_id, round_num)
+            # Review #11: Stale load guard
+            if self._replay_store is None or round_num != self._replay_round:
+                return  # Round advanced while we were loading; discard stale data
+            bracket_summaries = tuple(
+                BracketSummary(
+                    bracket=row["bracket"],
+                    display_name=row["bracket"].replace("_", " ").title(),
+                    buy_count=int(row["buy_count"]),
+                    sell_count=int(row["sell_count"]),
+                    hold_count=int(row["hold_count"]),
+                    total=int(row["buy_count"]) + int(row["sell_count"]) + int(row["hold_count"]),
+                    avg_confidence=float(row["avg_confidence"]),
+                    avg_sentiment=float(row["avg_sentiment"]),
+                )
+                for row in bracket_rows
+            )
+            self._replay_store.set_bracket_summaries(bracket_summaries)
+        except Exception:
+            logger.warning("replay_bracket_load_failed", cycle_id=cycle_id, round_num=round_num)
+
+        # Load rationale entries for this round (per D-07, Pitfall 7)
+        try:
+            rationale_rows = await gm.read_rationale_entries_for_round(cycle_id, round_num, limit=10)
+            # Review #11: Stale load guard (check again after second await)
+            if self._replay_store is None or round_num != self._replay_round:
+                return  # Round advanced while we were loading; discard stale data
+            # Look up agent names from persona list (Pitfall 7 mitigation)
+            persona_map = {p.id: p.name for p in self.personas}
+            rationale_entries = tuple(
+                RationaleEntry(
+                    agent_id=persona_map.get(row["agent_id"], row["agent_id"]),
+                    signal=SignalType(row["signal"]) if row["signal"] else SignalType.HOLD,
+                    rationale=(row.get("rationale") or "")[:50],
+                    round_num=round_num,
+                )
+                for row in rationale_rows
+            )
+            self._replay_store.set_rationale_entries(rationale_entries)
+        except Exception:
+            logger.warning("replay_rationale_load_failed", cycle_id=cycle_id, round_num=round_num)
+
+    def _advance_replay_round(self) -> None:
+        """Timer callback: advance to next replay round (per D-03, D-05).
+
+        After Round 3 is displayed, stops timer and shows [DONE] indicator.
+        """
+        if self._replay_store is None:
+            return
+        if self._replay_round >= 3:
+            # End of replay (per D-05)
+            if self._replay_timer is not None:
+                self._replay_timer.stop()
+            self._replay_done = True
+            self.notify("Replay complete -- Esc to exit", timeout=0)
+            return
+        self._replay_round += 1
+        self._replay_store.set_round(self._replay_round)
+
+        # Load on-demand data for the new round (async via run_worker)
+        cycle_id = self._replay_store._cycle_id
+        self.run_worker(
+            self._load_replay_round_data(cycle_id, self._replay_round),
+            exclusive=False,
+            exit_on_error=False,
+        )
+
+    def action_start_replay(self) -> None:
+        """Enter replay mode from TUI (per D-01, D-02). Gated on COMPLETE."""
+        snapshot = self.app_state.state_store.snapshot()
+        if snapshot.phase != SimulationPhase.COMPLETE:
+            return  # Silently ignore -- not in COMPLETE phase
+        if self._replay_store is not None:
+            return  # Already in replay
+        if self.app_state.graph_manager is None:
+            self.notify("Neo4j not connected -- cannot replay", severity="error")
+            return
+        # Load completed cycles and show picker (or auto-select if only one)
+        self.run_worker(
+            self._start_replay_picker(),
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _start_replay_picker(self) -> None:
+        """Load completed cycles and push CyclePickerScreen (per D-02).
+
+        Review #4: Uses read_completed_cycles() to filter to completed cycles only.
+        """
+        if self.app_state.graph_manager is None:
+            return
+        gm = self.app_state.graph_manager
+        try:
+            cycles = await gm.read_completed_cycles(limit=10)
+        except Exception as e:
+            self.notify(f"Failed to load cycles: {e}", severity="error")
+            return
+        if not cycles:
+            self.notify("No completed simulation cycles found", severity="error")
+            return
+        if len(cycles) == 1:
+            # Auto-select single cycle (per D-02: skip picker if only one)
+            await self._enter_replay(cycles[0]["cycle_id"])
+        else:
+            self.push_screen(
+                CyclePickerScreen(cycles),
+                self._on_cycle_selected,
+            )
+
+    def _on_cycle_selected(self, cycle_id: str | None) -> None:
+        """Callback from CyclePickerScreen dismiss (per D-02)."""
+        if cycle_id is None:
+            return  # User cancelled
+        self.run_worker(
+            self._enter_replay(cycle_id),
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    def action_toggle_replay_mode(self) -> None:
+        """Toggle auto/manual replay mode (per D-03)."""
+        if self._replay_store is None or self._replay_done:
+            return
+        if self._replay_auto:
+            if self._replay_timer is not None:
+                self._replay_timer.pause()
+            self._replay_auto = False
+            self.notify("Manual mode -- Space or Right to advance", timeout=3)
+        else:
+            if self._replay_timer is not None:
+                self._replay_timer.resume()
+            self._replay_auto = True
+            self.notify("Auto-advance mode -- 3s per round", timeout=3)
+
+    def action_replay_next_round(self) -> None:
+        """Advance to next round in manual mode (per D-04)."""
+        if self._replay_store is None or self._replay_done:
+            return
+        if self._replay_auto:
+            return  # Ignored in auto mode (per D-04)
+        self._advance_replay_round()
+
+    def action_exit_replay(self) -> None:
+        """Exit replay mode (per D-05, D-12).
+
+        Review #3: CLI replay exits app entirely (no StateStore to restore).
+        In-app replay restores COMPLETE state from prior StateStore snapshot.
+
+        MUST stop timer before clearing store (Pitfall 2 mitigation).
+        """
+        if self._replay_store is None:
+            return
+        # Stop auto-advance timer (Pitfall 2)
+        if self._replay_timer is not None:
+            self._replay_timer.stop()
+            self._replay_timer = None
+        # Clear replay state
+        self._replay_store = None
+        self._replay_round = 0
+        self._replay_auto = True
+        self._replay_done = False
+        self._replay_cycle_short_id = ""
+        self._replay_last_rendered_round = 0
+
+        # Review #3: CLI replay has no prior StateStore to restore
+        if self.replay_cli_mode:
+            self.exit()
+            return
+
+        # In-app replay: restore COMPLETE state from StateStore
+        # Clear rationale sidebar from replay entries
+        if self._rationale_sidebar is not None:
+            self._rationale_sidebar._entries.clear()
+            self._rationale_sidebar.refresh()
+
+        # Restore BracketPanel to live mode
+        if self._bracket_panel is not None:
+            self._bracket_panel.reset_delta_mode()
+
+    def key_escape(self) -> None:
+        """Handle Escape: exit replay if active, otherwise ignore."""
+        if self._replay_store is not None:
+            self.action_exit_replay()
+
     def _poll_snapshot(self) -> None:
         """Timer callback: read snapshot, diff, update changed cells.
 
         Per TUI-02: Only refreshes cells that actually changed.
+        Phase 28: Branches on _replay_store to read from ReplayStore (RESEARCH Pattern 2).
         """
-        snapshot = self.app_state.state_store.snapshot()
+        # Replay mode: read from ReplayStore instead of StateStore (per RESEARCH Pattern 2)
+        if self._replay_store is not None:
+            snapshot = self._replay_store.snapshot()
+        else:
+            snapshot = self.app_state.state_store.snapshot()
 
         if self._prev_snapshot is None:
             # First tick: update all cells and header
@@ -925,7 +1313,15 @@ class AlphaSwarmApp(App):
                 agent_state = snapshot.agent_states.get(agent_id)
                 cell.update_color(agent_state)
             if self._header_bar is not None:
-                self._header_bar.update_from_snapshot(snapshot)
+                if self._replay_store is not None:
+                    self._header_bar.render_replay_header(
+                        cycle_id=self._replay_cycle_short_id,
+                        round_num=self._replay_round,
+                        auto_mode=self._replay_auto,
+                        done=self._replay_done,
+                    )
+                else:
+                    self._header_bar.update_from_snapshot(snapshot)
         else:
             # Diff: only update changed agents
             for agent_id, cell in self._cells.items():
@@ -934,25 +1330,54 @@ class AlphaSwarmApp(App):
                 if new_state != old_state:
                     cell.update_color(new_state)
 
-            # Update header if phase, round, or elapsed changed (elapsed always changes)
+            # Update header
             if self._header_bar is not None:
-                if (
+                if self._replay_store is not None:
+                    # Replay header: update every tick (round/mode can change)
+                    self._header_bar.render_replay_header(
+                        cycle_id=self._replay_cycle_short_id,
+                        round_num=self._replay_round,
+                        auto_mode=self._replay_auto,
+                        done=self._replay_done,
+                    )
+                elif (
                     snapshot.phase != self._prev_snapshot.phase
                     or snapshot.round_num != self._prev_snapshot.round_num
                     or int(snapshot.elapsed_seconds) != int(self._prev_snapshot.elapsed_seconds)
                 ):
+                    # Live mode: only update header if phase, round, or elapsed changed
                     self._header_bar.update_from_snapshot(snapshot)
 
-        # NEW: Drain rationale entries from snapshot and add to sidebar (TUI-03)
-        if self._rationale_sidebar is not None:
-            for entry in snapshot.rationale_entries:
-                self._rationale_sidebar.add_entry(entry)
+        # Rationale sidebar update
+        # Review #2: During replay, only update sidebar when round changes to prevent
+        # duplication (ReplayStore.snapshot() returns same entries every poll tick).
+        if self._replay_store is not None:
+            if self._replay_round != self._replay_last_rendered_round:
+                # Round changed -- update sidebar with new entries
+                self._replay_last_rendered_round = self._replay_round
+                if self._rationale_sidebar is not None:
+                    self._rationale_sidebar._entries.clear()
+                    for entry in snapshot.rationale_entries:
+                        self._rationale_sidebar.add_entry(entry)
+            # Skip normal rationale processing during replay (no drain needed)
+        else:
+            # Normal (non-replay) rationale processing -- drain queue
+            if self._rationale_sidebar is not None:
+                for entry in snapshot.rationale_entries:
+                    self._rationale_sidebar.add_entry(entry)
 
-        # NEW: Update telemetry footer from snapshot (TUI-04)
+        # Telemetry footer
         if self._telemetry_footer is not None:
-            self._telemetry_footer.update_from_snapshot(snapshot)
+            if self._replay_store is not None:
+                # Replay footer: show replay-specific key hints
+                self._telemetry_footer.render_replay_footer(
+                    cycle_id=self._replay_cycle_short_id,
+                    round_num=self._replay_round,
+                )
+            else:
+                self._telemetry_footer.update_from_snapshot(snapshot)
 
-        # NEW: Update bracket panel only when summaries change (TUI-05)
+        # Update bracket panel only when summaries change (TUI-05)
         if self._bracket_panel is not None:
             if snapshot.bracket_summaries != self._prev_bracket_summaries:
                 self._bracket_panel.update_summaries(snapshot.bracket_summaries)
@@ -960,24 +1385,25 @@ class AlphaSwarmApp(App):
 
         self._prev_snapshot = snapshot
 
-        # Phase 15: Check for report sentinel file (D-06)
-        import json as _json
-        from pathlib import Path as _Path
-        sentinel_path = _Path(".alphaswarm") / "last_report.json"
-        try:
-            if sentinel_path.exists():
-                mtime = sentinel_path.stat().st_mtime
-                if mtime > self._last_sentinel_mtime:
-                    self._last_sentinel_mtime = mtime
-                    data = _json.loads(sentinel_path.read_text())
-                    report_path = data.get("path", "")
-                    if self._telemetry_footer is not None:
-                        self._telemetry_footer.update_report_path(report_path)
-        except (OSError, ValueError, KeyError):
-            pass  # Sentinel file may be mid-write or malformed; skip silently
+        # Phase 15: Check for report sentinel file (D-06) -- skip during replay
+        if self._replay_store is None:
+            import json as _json
+            from pathlib import Path as _Path
+            sentinel_path = _Path(".alphaswarm") / "last_report.json"
+            try:
+                if sentinel_path.exists():
+                    mtime = sentinel_path.stat().st_mtime
+                    if mtime > self._last_sentinel_mtime:
+                        self._last_sentinel_mtime = mtime
+                        data = _json.loads(sentinel_path.read_text())
+                        report_path = data.get("path", "")
+                        if self._telemetry_footer is not None:
+                            self._telemetry_footer.update_report_path(report_path)
+            except (OSError, ValueError, KeyError):
+                pass  # Sentinel file may be mid-write or malformed; skip silently
 
-        # Phase 27 — activate BracketPanel delta mode post-simulation when shock detected
-        self._check_bracket_delta_mode()
+            # Phase 27 — activate BracketPanel delta mode post-simulation when shock detected
+            self._check_bracket_delta_mode()
 
     def _check_bracket_delta_mode(self) -> None:
         """Phase 27 — trigger delta mode once when simulation completes with a shock.
