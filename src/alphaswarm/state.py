@@ -227,3 +227,54 @@ class StateStore:
     def update_governor_metrics(self, metrics: GovernorMetrics) -> None:
         """Store latest governor metrics."""
         self._latest_governor_metrics = metrics
+
+
+class ReplayStore:
+    """Read-only store for replay mode. Feeds StateSnapshot to TUI pipeline.
+
+    Unlike StateStore, snapshot() has NO side effects (no queue drain).
+    Rationale entries and bracket summaries are set once per round transition,
+    not accumulated over time.
+    """
+
+    def __init__(self, cycle_id: str, signals: dict[tuple[str, int], AgentState]) -> None:
+        self._cycle_id = cycle_id
+        self._signals = signals
+        self._current_round: int = 0
+        self._bracket_summaries: tuple[BracketSummary, ...] = ()
+        self._rationale_entries: tuple[RationaleEntry, ...] = ()
+
+    def set_round(self, round_num: int) -> None:
+        """Set the active round for snapshot filtering."""
+        self._current_round = round_num
+
+    def set_bracket_summaries(self, summaries: tuple[BracketSummary, ...]) -> None:
+        """Replace bracket summaries (called once per round transition)."""
+        self._bracket_summaries = summaries
+
+    def set_rationale_entries(self, entries: tuple[RationaleEntry, ...]) -> None:
+        """Replace rationale entries (called once per round transition, no drain)."""
+        self._rationale_entries = entries
+
+    def snapshot(self) -> StateSnapshot:
+        """Return immutable snapshot for the active round.
+
+        No side effects -- calling snapshot() twice returns identical data
+        (unlike StateStore which drains the rationale queue on each call).
+        """
+        agent_states = {
+            agent_id: state
+            for (agent_id, rnd), state in self._signals.items()
+            if rnd == self._current_round
+        }
+        return StateSnapshot(
+            phase=SimulationPhase.REPLAY,
+            round_num=self._current_round,
+            agent_count=100,
+            agent_states=agent_states,
+            elapsed_seconds=0.0,
+            governor_metrics=None,
+            tps=0.0,
+            rationale_entries=self._rationale_entries,
+            bracket_summaries=self._bracket_summaries,
+        )

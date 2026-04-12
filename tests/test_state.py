@@ -9,6 +9,7 @@ from alphaswarm.state import (
     BracketSummary,
     GovernorMetrics,
     RationaleEntry,
+    ReplayStore,
     StateSnapshot,
     StateStore,
 )
@@ -300,3 +301,97 @@ async def test_push_top_rationales_skips_parse_errors() -> None:
     # Only good_agent should be in the queue
     assert len(snap.rationale_entries) == 1
     assert snap.rationale_entries[0].agent_id == "good_agent"
+
+
+# ---------------------------------------------------------------------------
+# Phase 28 Task 1 Tests: ReplayStore + SimulationPhase.REPLAY
+# ---------------------------------------------------------------------------
+
+
+def test_simulation_phase_replay() -> None:
+    """SimulationPhase.REPLAY exists and has value 'replay'."""
+    assert SimulationPhase.REPLAY.value == "replay"
+
+
+def test_replay_store_snapshot() -> None:
+    """ReplayStore with pre-loaded signals for round 1 returns correct StateSnapshot."""
+    signals: dict[tuple[str, int], AgentState] = {
+        ("quants_01", 1): AgentState(signal=SignalType.BUY, confidence=0.9),
+        ("degens_01", 1): AgentState(signal=SignalType.SELL, confidence=0.7),
+    }
+    store = ReplayStore(cycle_id="test-cycle-123", signals=signals)
+    store.set_round(1)
+    snap = store.snapshot()
+
+    assert snap.phase == SimulationPhase.REPLAY
+    assert snap.round_num == 1
+    assert snap.agent_states == {
+        "quants_01": AgentState(signal=SignalType.BUY, confidence=0.9),
+        "degens_01": AgentState(signal=SignalType.SELL, confidence=0.7),
+    }
+    assert snap.governor_metrics is None
+    assert snap.tps == 0.0
+    assert snap.elapsed_seconds == 0.0
+
+
+def test_replay_store_round_advance() -> None:
+    """set_round(2) changes snapshot round_num and filters agent_states to round 2."""
+    signals: dict[tuple[str, int], AgentState] = {
+        ("quants_01", 1): AgentState(signal=SignalType.BUY, confidence=0.9),
+        ("quants_01", 2): AgentState(signal=SignalType.SELL, confidence=0.6),
+    }
+    store = ReplayStore(cycle_id="test-cycle-123", signals=signals)
+
+    store.set_round(1)
+    assert store.snapshot().agent_states["quants_01"].signal == SignalType.BUY
+
+    store.set_round(2)
+    assert store.snapshot().round_num == 2
+    assert store.snapshot().agent_states["quants_01"].signal == SignalType.SELL
+
+
+def test_replay_store_set_bracket_summaries() -> None:
+    """set_bracket_summaries stores summaries returned in next snapshot."""
+    store = ReplayStore(cycle_id="test-cycle-123", signals={})
+    summary = BracketSummary(
+        bracket="quants",
+        display_name="Quants",
+        buy_count=5,
+        sell_count=3,
+        hold_count=2,
+        total=10,
+        avg_confidence=0.7,
+        avg_sentiment=0.3,
+    )
+    store.set_bracket_summaries((summary,))
+    assert store.snapshot().bracket_summaries == (summary,)
+
+
+def test_replay_store_set_rationale_entries() -> None:
+    """set_rationale_entries stores entries returned in next snapshot."""
+    store = ReplayStore(cycle_id="test-cycle-123", signals={})
+    entry = RationaleEntry(
+        agent_id="quants_01",
+        signal=SignalType.BUY,
+        rationale="test rationale",
+        round_num=1,
+    )
+    store.set_rationale_entries((entry,))
+    assert store.snapshot().rationale_entries == (entry,)
+
+
+def test_replay_store_no_drain() -> None:
+    """snapshot() does NOT drain rationale_entries -- same tuple returned every call."""
+    store = ReplayStore(cycle_id="test-cycle-123", signals={})
+    entry = RationaleEntry(
+        agent_id="quants_01",
+        signal=SignalType.BUY,
+        rationale="no drain test",
+        round_num=1,
+    )
+    store.set_rationale_entries((entry,))
+
+    snap1 = store.snapshot()
+    snap2 = store.snapshot()
+    assert snap1.rationale_entries == snap2.rationale_entries
+    assert len(snap1.rationale_entries) == 1

@@ -144,3 +144,4 @@ class SimulationPhase(str, Enum):
     ROUND_2 = "round_2"
     ROUND_3 = "round_3"
     COMPLETE = "complete"
+    REPLAY = "replay"
