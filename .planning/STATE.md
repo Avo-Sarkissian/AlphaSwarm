@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v4.0
-milestone_name: Interactive Simulation & Analysis
+milestone: v2.0
+milestone_name: Engine Depth
 status: completed
-stopped_at: Phase 27 complete — UAT approved
-last_updated: "2026-04-11T18:35:00.000Z"
-last_activity: 2026-04-11 -- Phase 27 complete (UAT approved)
+stopped_at: Phase 28 context gathered (discuss mode)
+last_updated: "2026-04-12T04:51:31.736Z"
+last_activity: 2026-04-11 -- Phase 27 executed (3/3 plans complete)
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 12
-  completed_plans: 12
+  completed_phases: 5
+  total_plans: 11
+  completed_plans: 11
   percent: 100
 ---
 
@@ -42,6 +42,10 @@ Progress: [██████████] 100% (Phase 27)
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 28 added: Simulation Replay (REPLAY-01 — re-render past cycle from Neo4j without re-inference)
+
 ### Decisions
 
 - Swarm stays uncontaminated by portfolio data — orchestrator reads consensus + holdings post-simulation only
@@ -64,6 +68,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-11T16:53:54.144Z
-Stopped at: Phase 27 UI-SPEC approved
+Last session: 2026-04-12T04:51:31.733Z
+Stopped at: Phase 28 context gathered (discuss mode)
 Next action: /gsd:plan-phase 27
