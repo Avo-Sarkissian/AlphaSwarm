@@ -120,7 +120,7 @@ Plans:
 - [x] **Phase 24: HTML Report Export** - Exportable HTML simulation reports with SVG charts and Schwab portfolio overlay (completed 2026-04-09)
 - [x] **Phase 26: Shock Injection Core** - Mid-simulation shock injection with governor suspend/resume and ReplayStore isolation (completed 2026-04-10)
 - [x] **Phase 27: Shock Analysis and Reporting** - Shock impact analysis with bracket delta mode, read_shock_impact, and Jinja2 shock template (completed 2026-04-11)
-- [ ] **Phase 28: Simulation Replay** - Re-render a past simulation cycle from stored Neo4j state without re-running inference
+- [x] **Phase 28: Simulation Replay** - Re-render a past simulation cycle from stored Neo4j state without re-running inference (completed 2026-04-12)
 
 ### Phase 28: Simulation Replay
 **Goal**: Re-render any completed simulation cycle from stored Neo4j state, stepping through rounds 1-3 in the TUI without re-running agent inference
@@ -134,9 +134,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 28-01-PLAN.md -- Wave 0 tests, SimulationPhase.REPLAY enum, ReplayStore class, 4 GraphStateManager read methods
-- [ ] 28-02-PLAN.md -- CLI replay subcommand, TUI replay mode (CyclePickerScreen, key bindings, auto-advance, header/footer rendering)
-- [ ] 28-03-PLAN.md -- Human verification of TUI replay visual and interactive behavior
+- [x] 28-01-PLAN.md -- Wave 0 tests, SimulationPhase.REPLAY enum, ReplayStore class, 4 GraphStateManager read methods
+- [x] 28-02-PLAN.md -- CLI replay subcommand, TUI replay mode (CyclePickerScreen, key bindings, auto-advance, header/footer rendering)
+- [x] 28-03-PLAN.md -- Human verification of TUI replay visual and interactive behavior
 
 ## Progress
 
@@ -163,4 +163,4 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15 -> 24 -> 26 -> 27 ->
 | 24. HTML Report Export | v4.0 | -- | Complete | 2026-04-09 |
 | 26. Shock Injection Core | v4.0 | 5/5 | Complete | 2026-04-10 |
 | 27. Shock Analysis and Reporting | v4.0 | 3/3 | Complete | 2026-04-11 |
-| 28. Simulation Replay | v4.0 | 0/3 | Planned | -- |
+| 28. Simulation Replay | v4.0 | 3/3 | Complete   | 2026-04-12 |
