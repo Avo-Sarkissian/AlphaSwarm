@@ -1730,3 +1730,216 @@ class GraphStateManager:
             "largest_shift": largest_shift,
             "notable_held_firm_agents": notable_held_firm_agents,
         }
+
+    # ------------------------------------------------------------------
+    # Phase 28: Simulation replay read methods (Plan 01)
+    # ------------------------------------------------------------------
+
+    async def read_full_cycle_signals(self, cycle_id: str) -> "dict[tuple[str, int], AgentState]":
+        """Load all agent signals for all rounds of a cycle (REPLAY-01, D-08).
+
+        Returns dict keyed by (agent_id, round_num) -> AgentState.
+        Uses flat rows (not COLLECT) for optimal index usage on decision_cycle_round.
+        Expected cardinality: 300 rows (100 agents x 3 rounds).
+
+        Performance instrumented via time.perf_counter() (Review concern #13).
+        Query starts from Decision node for better index usage (Review concern #6).
+        """
+        import time as _time
+
+        from alphaswarm.state import AgentState as _AgentState
+
+        t0 = _time.perf_counter()
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_full_cycle_signals_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read full cycle signals for {cycle_id}",
+                original_error=exc,
+            ) from exc
+        elapsed_ms = (_time.perf_counter() - t0) * 1000
+        self._log.debug(
+            "read_full_cycle_signals",
+            cycle_id=cycle_id,
+            count=len(records),
+            duration_ms=round(elapsed_ms, 1),
+        )
+        result: dict[tuple[str, int], _AgentState] = {}
+        for row in records:
+            agent_id = row["agent_id"]
+            round_num = int(row["round_num"])
+            signal_str = row["signal"]
+            signal = SignalType(signal_str) if signal_str else None
+            confidence = float(row["confidence"])
+            result[(agent_id, round_num)] = _AgentState(signal=signal, confidence=confidence)
+        return result
+
+    @staticmethod
+    async def _read_full_cycle_signals_tx(
+        tx: "AsyncManagedTransaction",
+        cycle_id: str,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction: load all Decision rows for a cycle, starting from Decision node (Review #6)."""
+        result = await tx.run(
+            """
+            MATCH (d:Decision {cycle_id: $cycle_id})<-[:MADE]-(a:Agent)
+            RETURN
+                a.id AS agent_id,
+                d.round AS round_num,
+                d.signal AS signal,
+                d.confidence AS confidence,
+                d.sentiment AS sentiment
+            ORDER BY d.round, a.id
+            """,
+            cycle_id=cycle_id,
+        )
+        return [dict(record) async for record in result]
+
+    async def read_completed_cycles(self, limit: int = 10) -> list[dict]:  # type: ignore[type-arg]
+        """Return completed cycles (those with Round 3 decisions), most recent first.
+
+        Used by CyclePickerScreen and CLI replay defaulting. LIMIT caps at 10.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_completed_cycles_tx, limit,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                "Failed to read completed cycles",
+                original_error=exc,
+            ) from exc
+        self._log.debug("read_completed_cycles", count=len(records))
+        return records
+
+    @staticmethod
+    async def _read_completed_cycles_tx(
+        tx: "AsyncManagedTransaction",
+        limit: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction: return cycles that have at least one Round 3 decision."""
+        result = await tx.run(
+            """
+            MATCH (c:Cycle)
+            WHERE EXISTS {
+                MATCH (:Agent)-[:MADE]->(d:Decision {cycle_id: c.cycle_id, round: 3})
+            }
+            RETURN
+                c.cycle_id AS cycle_id,
+                c.created_at AS created_at,
+                c.seed_rumor AS seed_rumor
+            ORDER BY c.created_at DESC
+            LIMIT $limit
+            """,
+            limit=limit,
+        )
+        return [dict(record) async for record in result]
+
+    async def read_bracket_narratives_for_round(
+        self, cycle_id: str, round_num: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Per-bracket signal distribution for a specific round (REPLAY-01, D-07).
+
+        Unlike read_bracket_narratives (hardcoded Round 3 for reports),
+        this accepts a round_num parameter for replay per-round display.
+
+        IMPORTANT: Signal casing uses lowercase 'buy'/'sell'/'hold' to match
+        the stored SignalType enum values (Review concern #1).
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_bracket_narratives_for_round_tx, cycle_id, round_num,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read bracket narratives for cycle {cycle_id} round {round_num}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "read_bracket_narratives_for_round",
+            cycle_id=cycle_id,
+            round_num=round_num,
+            count=len(records),
+        )
+        return records
+
+    @staticmethod
+    async def _read_bracket_narratives_for_round_tx(
+        tx: "AsyncManagedTransaction",
+        cycle_id: str,
+        round_num: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction: bracket signal distribution using LOWERCASE signal values (Review #1)."""
+        result = await tx.run(
+            """
+            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: $round_num})
+            RETURN
+                a.bracket AS bracket,
+                sum(CASE WHEN d.signal = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN d.signal = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN d.signal = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                avg(d.confidence) AS avg_confidence,
+                avg(d.sentiment) AS avg_sentiment
+            ORDER BY bracket
+            """,
+            cycle_id=cycle_id,
+            round_num=round_num,
+        )
+        return [dict(record) async for record in result]
+
+    async def read_rationale_entries_for_round(
+        self, cycle_id: str, round_num: int, limit: int = 10,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Top rationale entries for a specific round, ordered by confidence (REPLAY-01, D-07).
+
+        Returns agent_id, signal, rationale text, and round_num for the sidebar.
+        Limit defaults to 10 per round for readable sidebar display.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_rationale_entries_for_round_tx, cycle_id, round_num, limit,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read rationale entries for cycle {cycle_id} round {round_num}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "read_rationale_entries_for_round",
+            cycle_id=cycle_id,
+            round_num=round_num,
+            count=len(records),
+        )
+        return records
+
+    @staticmethod
+    async def _read_rationale_entries_for_round_tx(
+        tx: "AsyncManagedTransaction",
+        cycle_id: str,
+        round_num: int,
+        limit: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction: top rationale entries for a round, ordered by confidence DESC."""
+        result = await tx.run(
+            """
+            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: $round_num})
+            MATCH (d)-[:HAS_EPISODE]->(re:RationaleEpisode)
+            RETURN
+                a.id AS agent_id,
+                d.signal AS signal,
+                re.rationale AS rationale,
+                d.round AS round_num
+            ORDER BY d.confidence DESC
+            LIMIT $limit
+            """,
+            cycle_id=cycle_id,
+            round_num=round_num,
+            limit=limit,
+        )
+        return [dict(record) async for record in result]

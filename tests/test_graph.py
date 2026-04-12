@@ -1537,3 +1537,100 @@ async def test_read_shock_impact_pivot_flag_computed_correctly(mock_driver: Magi
     # Quants: pre majority BUY (2), post majority BUY (1) vs SELL (1) -> BUY wins tie-break
     # Agent 2 held BUY but bracket majority didn't change (BUY->BUY), so no notable held-firm
     assert result["notable_held_firm_agents"] == []
+
+
+# ---------------------------------------------------------------------------
+# Phase 28 Task 2 Tests: Replay read methods
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_read_full_cycle_signals(
+    mock_driver: MagicMock,
+    sample_personas_for_graph: list,
+) -> None:
+    """REPLAY-01 — read_full_cycle_signals returns dict keyed by (agent_id, round_num) -> AgentState."""
+    from alphaswarm.graph import GraphStateManager
+    from alphaswarm.state import AgentState
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value=[
+        {"agent_id": "quants_01", "round_num": 1, "signal": "buy", "confidence": 0.9, "sentiment": 0.5},
+        {"agent_id": "quants_01", "round_num": 2, "signal": "sell", "confidence": 0.6, "sentiment": -0.3},
+        {"agent_id": "degens_01", "round_num": 1, "signal": "hold", "confidence": 0.4, "sentiment": 0.0},
+    ])
+
+    gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
+    result = await gm.read_full_cycle_signals("test-cycle")
+
+    assert isinstance(result, dict)
+    assert result[("quants_01", 1)] == AgentState(signal=SignalType.BUY, confidence=0.9)
+    assert result[("quants_01", 2)] == AgentState(signal=SignalType.SELL, confidence=0.6)
+    assert result[("degens_01", 1)] == AgentState(signal=SignalType.HOLD, confidence=0.4)
+
+
+@pytest.mark.asyncio()
+async def test_read_completed_cycles(
+    mock_driver: MagicMock,
+    sample_personas_for_graph: list,
+) -> None:
+    """REPLAY-01 — read_completed_cycles returns list of cycle dicts."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value=[
+        {"cycle_id": "abc-123", "created_at": "2026-04-12T14:30:00", "seed_rumor": "Test rumor 1"},
+        {"cycle_id": "def-456", "created_at": "2026-04-11T09:15:00", "seed_rumor": "Test rumor 2"},
+    ])
+
+    gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
+    result = await gm.read_completed_cycles()
+
+    assert isinstance(result, list)
+    assert len(result) == 2
+    assert result[0]["cycle_id"] == "abc-123"
+
+
+@pytest.mark.asyncio()
+async def test_read_bracket_narratives_for_round(
+    mock_driver: MagicMock,
+    sample_personas_for_graph: list,
+) -> None:
+    """REPLAY-01 — read_bracket_narratives_for_round accepts (cycle_id, round_num) and returns bracket dicts."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value=[
+        {"bracket": "quants", "buy_count": 5, "sell_count": 3, "hold_count": 2, "avg_confidence": 0.7, "avg_sentiment": 0.3},
+        {"bracket": "degens", "buy_count": 8, "sell_count": 1, "hold_count": 1, "avg_confidence": 0.85, "avg_sentiment": 0.6},
+    ])
+
+    gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
+    result = await gm.read_bracket_narratives_for_round("test-cycle", 2)
+
+    assert isinstance(result, list)
+    assert len(result) == 2
+    assert result[0]["bracket"] == "quants"
+    assert result[0]["buy_count"] == 5
+
+
+@pytest.mark.asyncio()
+async def test_read_rationale_entries_for_round(
+    mock_driver: MagicMock,
+    sample_personas_for_graph: list,
+) -> None:
+    """REPLAY-01 — read_rationale_entries_for_round returns rationale dicts for given round."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value=[
+        {"agent_id": "quants_01", "signal": "buy", "rationale": "Strong momentum", "round_num": 1},
+        {"agent_id": "degens_01", "signal": "sell", "rationale": "Overbought signal", "round_num": 1},
+        {"agent_id": "macro_01", "signal": "hold", "rationale": "Wait and see", "round_num": 1},
+    ])
+
+    gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
+    result = await gm.read_rationale_entries_for_round("test-cycle", 1, limit=10)
+
+    assert isinstance(result, list)
+    assert len(result) == 3
