@@ -1,152 +1,189 @@
-# Stack Research: v2.0 Engine Depth
+# Stack Research: AlphaSwarm v5.0 Web UI
 
-**Domain:** Multi-agent financial simulation -- post-simulation interviews, live graph memory, report generation, social interactions, dynamic personas
-**Researched:** 2026-03-31
-**Confidence:** HIGH (existing stack validated; additions are incremental)
+**Domain:** Real-time multi-agent simulation dashboard (100 agents, force-directed graph, WebSocket state streaming)
+**Researched:** 2026-04-12
+**Confidence:** HIGH (core libs verified via official docs and npm/PyPI; versions cross-referenced)
 
 ## Scope
 
-This document covers ONLY the stack additions and changes needed for v2.0 Engine Depth features. The validated v1 stack (Python 3.11+, asyncio, ollama >=0.6.1, neo4j >=5.28, textual >=8.1.1, pydantic, structlog, psutil, httpx, backoff) is NOT re-evaluated. See the original STACK.md research from 2026-03-24 for v1 rationale.
+This document covers ONLY the stack additions needed for the v5.0 Web UI milestone. The validated existing stack (Python 3.11+, asyncio, ollama-python >=0.6.1, neo4j >=5.28, pydantic, pydantic-settings, structlog, psutil, httpx, backoff, Jinja2, aiofiles, pygal) is NOT re-evaluated.
 
-## Critical Finding: qwen3.5 Tool Calling Is Broken
+---
 
-**Impact:** REPORT-01 (ReACT report agent) cannot use Ollama's native tool calling with qwen3.5.
+## Critical Decision: Force-Directed Graph Library
 
-The Ollama tool calling pipeline sends Qwen 3 Hermes-style JSON tool schemas, but qwen3.5 was trained on the Qwen3-Coder XML format. This mismatch causes tool calls to be printed as text instead of executed, and unclosed `<think>` tags corrupt multi-turn conversations when thinking is enabled. A partial fix was merged (PR #14603, 2026-03-04) but community reports confirm tool calling still fails in production setups.
+**Recommendation: D3.js (`d3-force` + `d3-selection` + SVG rendering) -- not Cytoscape.js, not vis.js.**
 
-**Resolution:** Implement the ReACT report agent using prompt-based tool dispatching (Simon Willison pattern) instead of Ollama's native `tools=` parameter. The agent outputs structured `Action: tool_name: args` text, which Python code parses via regex and dispatches to registered Cypher query functions. This approach works with ANY model regardless of tool calling support, and is ~100 lines of code. The qwen3.5:32b orchestrator model is more than capable of following the ReACT prompt format.
+### Why D3 Wins for This Use Case
 
-**Confidence:** HIGH -- verified via GitHub issues #14493 and #14745, confirmed broken as of 2026-03-31.
+| Criterion | D3.js (d3-force) | Cytoscape.js | vis.js (vis-network) |
+|-----------|-------------------|--------------|----------------------|
+| **100-node performance** | Trivial (designed for 1000+) | Good but overhead from abstraction layer | Good, but auto-clusters at 100+ nodes (unwanted behavior) |
+| **Edge animation** | Full SVG control: stroke-dasharray animation, CSS transitions, particle effects via requestAnimationFrame | Limited: line-dash-offset hack via `ele.animation()`. Their own perf docs warn "edge arrows are expensive to render" and "semitransparent edges with arrows are more than twice as slow" | Canvas-only, no per-edge SVG animation |
+| **Bracket clustering** | `forceX`/`forceY` positioning forces per bracket + `d3-force-clustering` plugin = exact control over 10 bracket groups | Possible but requires manual layout override | Built-in clustering designed for node simplification, not visual grouping |
+| **Click-to-inspect** | Native SVG DOM events (`click`, `mouseover`) -- standard browser behavior | Custom event system (extra abstraction layer) | Custom event system |
+| **Live edge creation** | Add link to `simulation.force("link").links()`, call `simulation.alpha(0.3).restart()` -- edges animate into position naturally | `cy.add()` then re-run layout -- more disruptive to existing positions | Re-stabilization required |
+| **Color control** | Direct HSL manipulation on SVG fill attributes (exact match for existing `compute_cell_color` HSL logic in tui.py line 47) | Style sheets with limited color functions | Options-based theming, less granular |
+| **Vue 3 integration** | Use D3 for math/forces only, Vue owns the DOM via `<template>` SVG -- clean separation of concerns | Requires wrapper lib (`vue3-cytoscape`, 12 GitHub stars, uncertain maintenance) | No maintained Vue 3 wrapper exists |
+| **Bundle size** | `d3-force` + `d3-selection` + `d3-scale`: ~30KB gzipped (tree-shakeable, import only what you use) | ~300KB minified (monolithic, no tree-shaking) | ~200KB minified |
 
-## Recommended Stack Additions
+### The Decisive Factor: Edge Animation
 
-### New Dependencies
+The "mirofish canvas" hero feature requires **live edge animation** as INFLUENCED_BY relationships form during inference. This means:
 
-| Library | Version | Purpose | Why Recommended | Feature |
-|---------|---------|---------|-----------------|---------|
-| Jinja2 | >=3.1.6 | Report template rendering | Standard Python template engine. Report sections (consensus summary, dissenter analysis, flip analysis) are templated markdown with data placeholders. Jinja2 handles conditionals, loops, and filters that f-strings cannot (e.g., iterating bracket summaries, conditional dissent sections). Mature, zero-CVE history, 3.1.6 released 2025-03-05. | REPORT-01, REPORT-02, REPORT-03 |
-| aiofiles | >=24.1.0 | Async file I/O for report export | Report markdown must be written to disk without blocking the asyncio event loop. aiofiles wraps file I/O in a thread pool executor, providing `async with aiofiles.open()` semantics. Without it, `open().write()` blocks the event loop during report export, potentially stalling the TUI or interview session running concurrently. | REPORT-03 |
+- Edges must appear with a drawing/growing animation (SVG stroke-dasharray + dashoffset transition)
+- Edge color and weight must update in real-time based on influence strength
+- Edges need directional flow indicators (animated dashes or arrowhead markers)
 
-**That's it.** Two new dependencies. Everything else is built on the existing stack.
+D3's SVG approach gives **pixel-level control** over edge rendering via standard CSS/SVG animation techniques. Cytoscape.js uses Canvas rendering internally, which means edge animation requires their custom `ele.animation()` API -- and their own performance documentation explicitly warns about the rendering cost of edge arrows and transparency.
 
-### Why NOT More Dependencies
+With only 100 nodes and ~200-400 edges, SVG rendering is more than adequate. SVG performance concerns only emerge at 1000+ DOM elements. At our scale, the visual expressiveness of SVG is the correct tradeoff over Canvas.
 
-| Avoided | Why Not |
-|---------|---------|
-| LangChain / LangGraph | Massive dependency tree (50+ transitive deps). The ReACT loop is ~100 LOC of custom Python. LangChain's agent abstractions don't match AlphaSwarm's architecture (we have our own OllamaClient, governor, graph manager). Adding LangChain to call Ollama through their wrapper when we already have a wrapper is architectural debt. |
-| LlamaIndex | Same problem as LangChain. We need 1 tool-dispatching loop, not a retrieval framework. Our "retrieval" is direct Cypher queries, not vector search. |
-| markdown (Python-Markdown) | We're generating markdown, not parsing/rendering it to HTML. Jinja2 templates produce raw `.md` files. No HTML conversion needed. |
-| python-markdown-generator | Overly abstracted for our use case. Jinja2 templates with markdown syntax are more readable and maintainable than programmatic markdown generation via method calls. |
-| neo4j-graphrag | We don't need vector search or RAG pipelines. Our graph queries are handwritten Cypher optimized for our schema. |
-| Datapane / reportlab | Web-based reporting frameworks. We're generating plain markdown files viewable in TUI or exported. No PDF/HTML dashboards needed. |
-| APOC (Neo4j plugin) | Not needed for v2 features. All graph operations (rationale episodes, narrative edges, flip events) are expressible in pure Cypher with UNWIND batches. APOC adds Docker image complexity and security surface for no benefit. |
+### SVG vs Canvas at 100 Nodes
 
-### Existing Dependencies -- Version Updates
+The previous version of this document recommended Canvas rendering. After deeper analysis, **SVG is the better choice at 100 nodes** because:
 
-| Library | Current Pin | Recommended Pin | Reason |
-|---------|-------------|-----------------|--------|
-| neo4j | >=5.28,<6.0 | >=5.28,<6.0 | **Keep as-is.** Neo4j driver 6.x (released 2026-01-12) requires Python >=3.10 and Neo4j server 2025.x+. Our docker-compose uses `neo4j:5.26-community`. Upgrading driver to 6.x would require upgrading the Neo4j server image simultaneously. This is scope creep for v2 -- the 5.x driver fully supports all v2 features (async sessions, UNWIND batches, transaction functions). Upgrade to 6.x in a future infrastructure phase. |
-| textual | >=8.1.1 | >=8.1.1 | **Keep as-is.** Latest is 8.2.1 (2026-03-29). The `>=8.1.1` pin already allows 8.2.x via uv resolution. No API changes needed for v2 features -- Textual's Screen push/pop, Input widget, RichLog, and mode system are all available in 8.1.1+. |
-| ollama | >=0.6.1 | >=0.6.1 | **Keep as-is.** Latest is still 0.6.1 (2025-11-13). The existing AsyncClient.chat() API handles everything v2 needs: multi-turn conversations (interview), streaming responses, and message history management. No native tool calling needed (see critical finding above). |
+1. **Edge animation**: SVG stroke-dasharray + CSS transitions provide smooth edge drawing effects with zero custom render loop code. Canvas requires manual animation frame management.
+2. **Click interaction**: SVG elements are standard DOM nodes with native event handlers. Canvas requires hit-testing math (point-in-rectangle/circle calculations).
+3. **CSS styling**: SVG elements accept CSS properties directly, including transitions and hover states. Canvas styling must be imperative.
+4. **Browser DevTools**: SVG elements appear in the DOM inspector. Canvas is a black box.
+5. **100 nodes + 400 edges = 500 SVG elements**: Well within browser SVG performance budget. Frame drops only occur at 2000+ elements with frequent full redraws.
 
-### Docker Compose -- No Changes
+Canvas becomes necessary at 1000+ nodes. We have 100.
 
-The existing `docker-compose.yml` with `neo4j:5.26-community` supports all v2 Neo4j features. No APOC plugin needed. No server version upgrade required.
+### Integration Pattern: D3 for Math, Vue for DOM
 
-## Feature-by-Feature Stack Mapping
+Do NOT let D3 touch the DOM. Use D3's force simulation as a pure computation engine:
 
-### Phase 11: Agent Interviews (INT-01, INT-02, INT-03)
+```
+D3 forceSimulation  -->  computes { x, y } per node per tick
+Vue reactive refs   -->  bind x, y to <circle>, <line> in <svg> template
+```
 
-**New code, no new dependencies.**
+This avoids the classic D3-in-a-framework trap where D3's `enter/exit/update` selection pattern fights the framework's reactivity system. Vue owns the DOM; D3 owns the physics.
 
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| Interview context builder | Cypher queries via existing `neo4j` driver | Extends `GraphStateManager` with `read_agent_interview_context()` -- fetches persona, all 3 rounds of decisions, peer influences, rationale history for a single agent |
-| Conversation loop | `ollama` AsyncClient.chat() | Multi-turn conversation using message list accumulation. System prompt = full persona + decision context. User messages = operator questions. Assistant messages = agent responses. Append each exchange to the list. |
-| Context window management | Custom trimming logic | Worker model context window is ~4K tokens (qwen3.5:4b default). Interview context (persona + 3 rounds + rationale) could exceed this. Implement a sliding window: keep system prompt + last N exchanges, summarize earlier exchanges. |
-| TUI interview mode | Textual `Screen` push/pop + `Input` widget + `RichLog` | Push an `InterviewScreen` on top of the main dashboard when user selects an agent. `Input` at bottom for questions, `RichLog` for scrollable conversation history. Pop screen to return to grid. |
-| Model lifecycle | Existing `OllamaModelManager` | Worker model stays loaded post-simulation (INT-03). Set `keep_alive=-1` to prevent auto-unload, or simply don't call `unload_model()` after Round 3. |
-| Streaming responses | `ollama` AsyncClient.chat(stream=True) | Stream interview responses token-by-token into the `RichLog` for real-time feel. Each chunk appends text. Final chunk triggers conversation history update. |
+---
 
-**Key design decision:** The interview uses the WORKER model (qwen3.5:4b/9b), not the orchestrator. The worker is already loaded post-simulation. Loading the 32b orchestrator for interviews would require unloading the worker and a ~30s cold load. Use the smaller model with rich context injection instead.
+## Recommended Stack
 
-### Phase 12: Live Graph Memory (GRAPH-01, GRAPH-02, GRAPH-03)
+### Backend (Python -- NEW additions)
 
-**New code, no new dependencies.**
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| FastAPI | >=0.135.0 | REST + WebSocket API server | Already decided per PROJECT.md. Built on Starlette with native async WebSocket support via `@app.websocket()`. Pydantic integration matches existing models. Latest: 0.135.3 (April 2026) |
+| uvicorn | >=0.44.0 | ASGI server | Production-grade, required by FastAPI. Single-worker mode shares asyncio event loop with simulation -- critical for StateStore access without IPC. Latest: 0.44.0 (April 2026) |
+| websockets | >=15.0 | WebSocket protocol implementation | Required by Starlette for WebSocket transport. Installed automatically via `uvicorn[standard]` |
 
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| Rationale episode nodes | Cypher via existing `neo4j` driver | New node type `:RationaleEpisode` with properties: `text`, `signal`, `confidence`, `sentiment`, `round`, `cycle_id`, `timestamp`. Connected to Agent via `[:EXPRESSED]` edge. Written during simulation, not after. |
-| Signal flip events | Cypher via existing `neo4j` driver | New node type `:FlipEvent` with properties: `from_signal`, `to_signal`, `confidence_delta`, `round`, `cycle_id`. Connected to Agent via `[:FLIPPED]` edge. Computed in `_compute_shifts()` and persisted alongside ShiftMetrics. |
-| Narrative edges | Cypher via existing `neo4j` driver | New relationship types: `[:REASONED_ABOUT]` (Agent -> Entity, with rationale text), `[:FLIPPED_BECAUSE]` (FlipEvent -> PeerDecision that triggered the flip). Built from citation analysis in existing `compute_influence_edges()`. |
-| Real-time writes | Existing batch write pattern | Extend `write_decisions()` to also write RationaleEpisode nodes in the same UNWIND transaction. Zero additional Neo4j round-trips -- add the episode creation to the existing Cypher statement. |
-| Schema extensions | `ensure_schema()` | Add indexes: `CREATE INDEX episode_cycle_round IF NOT EXISTS FOR (e:RationaleEpisode) ON (e.cycle_id, e.round)`, `CREATE INDEX flip_cycle IF NOT EXISTS FOR (f:FlipEvent) ON (f.cycle_id)`. |
-| Graph exploration | Neo4j Browser (localhost:7474) | Already available. GRAPH-03 requires no code -- users open the browser and run Cypher queries against the enriched graph. Document useful exploration queries in a guide. |
+### Frontend Core
 
-**Memory impact:** Additional Neo4j writes add ~2-5ms per round (100 episodes in one UNWIND). Negligible compared to LLM inference time (~minutes).
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| Vue | ^3.5.32 | UI framework | Already decided. Composition API + `<script setup>` + reactivity system for real-time state binding. v3.5 is current stable (v3.6 targeted mid-2026). Latest: 3.5.32 (April 2026) |
+| Vite | ^8.0.0 | Build tool / dev server | Official Vue tooling. Sub-50ms HMR, ESM-native, proxy config for FastAPI backend. Requires Node.js >=20.19. Latest major: 8.0 (2026) |
+| vue-router | ^5.0.4 | Client-side routing | Official router for Vue 3. Routes: `/simulation`, `/replay/:id`, `/report/:id`. Latest: 5.0.4 (March 2026) |
+| Pinia | ^3.0.4 | State management | Official Vue state library, replaces Vuex. Composition API-native, TypeScript-first. Stores: simulation state, WebSocket connection, agent selection. Requires Vue 3.5+. Latest: 3.0.4 |
+| TypeScript | ^5.7.0 | Type safety | Strict mode. Type WebSocket message protocol, agent state interfaces, graph node/edge types. Matches Python codebase's strict typing philosophy |
 
-### Phase 13: Post-Simulation Report (REPORT-01, REPORT-02, REPORT-03)
+### Frontend Visualization (D3 modules -- tree-shakeable)
 
-**New dependencies: Jinja2, aiofiles.**
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| d3-force | ^3.0.0 | Force simulation engine | Physics computation for 100-node layout. Velocity Verlet integrator, tick events, alpha/decay control. 10 bracket groups via `forceX`/`forceY`. ~8KB gzipped |
+| d3-selection | ^3.0.0 | DOM utility (minimal use) | Only for `d3.select()` to read SVG bounding box dimensions in the graph composable. Vue handles all actual DOM rendering |
+| d3-scale | ^4.0.0 | Color and size scales | Map confidence (0.0-1.0) to HSL lightness, map influence weight to edge thickness/opacity. Matches existing `compute_cell_color` HSL logic |
+| d3-interpolate | ^3.0.0 | Smooth color transitions | Interpolate between color states during round transitions (pending grey -> BUY green / SELL red). Smooth visual transitions instead of abrupt color pops |
+| d3-force-clustering | ^1.0.0 | Bracket group clustering | Custom clustering force pulling nodes toward bracket centroid. 10 archetypes = 10 visual clusters. Maintained by vasturiano (recommended replacement for deprecated d3-force-cluster-3d) |
 
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| ReACT loop | Custom Python (~100 LOC) | Prompt-based tool dispatching. System prompt defines available tools and ReACT format. Agent outputs `Thought: ... Action: tool_name: args`. Python parses via regex `r'^Action: (\w+): (.*)$'`, dispatches to registered functions, feeds `Observation: result` back. Loop until `Answer:` is emitted or max_turns exceeded. |
-| Tool: consensus_summary | Cypher query function | `MATCH (d:Decision) WHERE d.cycle_id = $cid AND d.round = 3 RETURN d.signal, count(*) AS cnt, avg(d.confidence)` -- returns final signal distribution. |
-| Tool: key_dissenters | Cypher query function | Find agents whose Round 3 signal disagrees with bracket majority. Returns agent_id, bracket, signal, rationale. |
-| Tool: bracket_trends | Cypher query function | Per-bracket signal distribution across all 3 rounds. Shows convergence or divergence patterns. |
-| Tool: flip_analysis | Cypher query function | `MATCH (f:FlipEvent) WHERE f.cycle_id = $cid RETURN f.from_signal, f.to_signal, count(*)` -- requires Phase 12 FlipEvent nodes. |
-| Tool: influence_leaders | Cypher query function | Top-N agents by INFLUENCED_BY edge count. Returns agent_id, citation_count, bracket. |
-| Report template | Jinja2 | Template file `templates/report.md.j2` with sections: Executive Summary, Consensus Distribution, Bracket Analysis, Key Dissenters, Signal Flip Analysis, Influence Network, Confidence Distribution. Each section uses Jinja2 loops and conditionals. |
-| Report rendering | Jinja2 `Environment` | Load template, render with ReACT-gathered data dict. Output is a complete markdown string. |
-| Report export | aiofiles | `async with aiofiles.open(f"reports/{cycle_id}.md", "w") as f: await f.write(rendered)`. Non-blocking file write. |
-| TUI report viewer | Textual `RichLog` or `Static` | Push a `ReportScreen` that renders the markdown in the terminal using Rich's markdown renderer. |
-| LLM for ReACT | Orchestrator model (qwen3.5:32b) | The ReACT agent needs reasoning capability to decide which tools to call and synthesize findings. Use the orchestrator model, not the worker. This means a model swap post-simulation: unload worker, load orchestrator, run ReACT loop, unload orchestrator. |
+### Frontend Utilities
 
-**Critical constraint:** The ReACT agent must use the ORCHESTRATOR model for quality reasoning. This requires a model swap after simulation completes (unload worker -> load orchestrator -> run report -> unload orchestrator). Budget ~30s for the cold load. The interview feature (Phase 11) should be offered BEFORE report generation, while the worker model is still loaded.
+| Library | Version | Purpose | When to Use |
+|---------|---------|---------|-------------|
+| @vueuse/core | ^14.2.0 | Composition utilities | `useWebSocket` (auto-reconnect, heartbeat, reactive status/data refs), `useResizeObserver` (responsive graph container), `useThrottleFn` (throttle snapshot processing). Requires Vue >=3.5. Latest: 14.2.1 (February 2026) |
 
-### Phase 14: Richer Agent Interactions (SOCIAL-01, SOCIAL-02)
+---
 
-**New code, no new dependencies.**
+## WebSocket Architecture: Hybrid WebSocket + REST
 
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| Rationale posts | Extended `AgentDecision` model | Add `public_rationale: str` field -- a short, shareable version of the agent's reasoning (distinct from internal rationale). Generated by the LLM in the same inference call via an extended JSON schema. |
-| Post storage | Cypher via existing `neo4j` driver | New node type `:Post` with properties: `text`, `agent_id`, `round`, `cycle_id`. Connected via `[:PUBLISHED]`. Stored in the same UNWIND batch as decisions. |
-| Peer reading | Extended `read_peer_decisions()` | Include peer posts in the context injected for Rounds 2-3. Current peer context format: `[Bracket] SIGNAL (conf: X.XX) "rationale"`. Extended: add the peer's `public_rationale` as a quotable post. |
-| Reactions | New relationship types | `[:AGREED_WITH]`, `[:DISAGREED_WITH]`, `[:CITED_POST]` edges between agents. Inferred from Round 2-3 LLM output -- if an agent's rationale references a specific peer's post, create the edge. |
-| Engagement-based influence | Extended `compute_influence_edges()` | Current weight = citations / total_agents. Extended: weight += reaction_count * reaction_weight. Agents with highly-engaged posts gain more influence in subsequent rounds. |
+### Why WebSocket Over SSE
 
-**Prompt engineering, not code engineering:** The main work is crafting prompts that make agents produce public rationale posts AND react to peers' posts. The JSON output schema extends from `{signal, confidence, sentiment, rationale, cited_agents}` to `{signal, confidence, sentiment, rationale, public_rationale, cited_agents, reactions: [{agent_id, reaction_type}]}`. Parsing extends the existing `parse_agent_decision()` 3-tier fallback.
+SSE (Server-Sent Events) is simpler for pure server-to-client streaming and reportedly scales better for broadcast-only scenarios (one 2026 source reports SSE handling 100K connections where WebSocket choked at 12K). However, AlphaSwarm needs **bidirectional communication**:
 
-### Phase 15: Dynamic Persona Generation (PERSONA-01, PERSONA-02)
+- **Server -> Client:** State snapshots (~5/sec), individual agent decisions, edge creation events, governor metrics, phase transitions, interview response tokens
+- **Client -> Server:** Shock injection text, interview questions, replay commands (play/pause/step), simulation start/stop
 
-**New code, no new dependencies.**
+SSE + separate REST POST would work but doubles the transport surface area (two connection types, two reconnection strategies, two error handling paths). WebSocket handles both directions cleanly on a single connection.
 
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| Entity-aware persona generation | Orchestrator LLM (qwen3.5:32b) | Extend `inject_seed()` to also generate dynamic personas. After entity extraction, a second orchestrator call generates 5-15 situation-specific personas based on extracted entities (e.g., oil rumor -> energy trader, OPEC analyst, pipeline engineer). |
-| Dynamic persona schema | Pydantic model | New `DynamicPersona` model extending `AgentPersona` with `origin: Literal["static", "dynamic"]` and `entity_context: str` fields. Dynamic personas supplement (not replace) the standard 100 agents. |
-| Persona count management | Configuration | Total agent count becomes configurable: 100 static + N dynamic (where N = 5-15 based on seed complexity). ResourceGovernor budget must account for the additional agents. Add `max_dynamic_agents: int = 15` to `AppSettings`. |
-| Prompt template | Existing `system_prompt_template` pattern | Dynamic personas use the same prompt structure as static personas but with entity-specific context injected: `"You are a {role} with deep expertise in {entity}. Given recent developments in {sector}..."`. |
+**Verdict:** WebSocket for the main simulation channel. REST for stateless read operations (fetch report HTML, list past simulation cycles, load replay data from Neo4j).
 
-**Memory constraint:** Each additional agent adds one more inference call per round. 15 extra agents across 3 rounds = 45 additional inferences. With the current governor, this adds ~2-3 minutes to simulation time. Acceptable.
+### Connection Manager Pattern
+
+FastAPI's official docs recommend a `ConnectionManager` class with an `active_connections: list[WebSocket]` for multi-client broadcast. For AlphaSwarm (single-operator, localhost-only, no load balancer, no multi-worker), this in-memory pattern is sufficient. No Redis pub/sub, no `encode/broadcaster`, no external message broker needed.
+
+The existing `StateStore.snapshot()` maps directly:
+
+```
+Current TUI:  StateStore.snapshot() --> Textual set_interval(1/5) reads at 200ms
+New Web UI:   StateStore.snapshot() --> asyncio task broadcasts JSON at 200ms via WebSocket
+```
+
+### Message Protocol: JSON Text Frames
+
+Do NOT use msgpack, protobuf, or binary serialization.
+
+- 100 agents x ~40 bytes each = ~4KB per snapshot. JSON overhead is negligible at this size
+- Browser DevTools can inspect JSON WebSocket frames directly -- critical during development
+- No serialization library dependency on either end (stdlib `json` on Python, `JSON.parse` in browser)
+- msgpack's ~25% size savings is meaningless at 4KB over localhost loopback
+
+Do NOT add `orjson`. At 4KB payloads broadcast 5 times per second, stdlib `json.dumps()` takes <0.1ms. orjson's 5-10x speedup saves microseconds that are invisible next to the 200ms polling interval. One fewer dependency.
+
+### Typed Message Envelopes
+
+```typescript
+// Server -> Client
+type ServerMessage =
+  | { type: "snapshot"; data: StateSnapshot }
+  | { type: "edge_created"; data: { source: string; target: string; weight: number } }
+  | { type: "agent_decision"; data: { agent_id: string; signal: string; confidence: number } }
+  | { type: "phase_change"; data: { phase: string; round: number } }
+  | { type: "governor"; data: GovernorMetrics }
+  | { type: "interview_token"; data: { agent_id: string; token: string; done: boolean } }
+
+// Client -> Server
+type ClientMessage =
+  | { type: "inject_shock"; data: { text: string } }
+  | { type: "interview"; data: { agent_id: string; question: string } }
+  | { type: "replay_command"; data: { action: "play" | "pause" | "step"; cycle_id?: string } }
+  | { type: "start_simulation"; data: { seed_rumor: string } }
+```
+
+### Granular Events + Polling Snapshots (Hybrid)
+
+The current TUI polls `snapshot()` every 200ms for bulk state. For the web UI, supplement polling with **push events** for things that animate better as discrete occurrences:
+
+- **Polling (200ms):** Agent grid colors, bracket summaries, governor telemetry -- same as TUI
+- **Push events:** Edge creation (animate the edge drawing in), individual agent decisions (pop the node color), phase transitions (trigger round transition animation)
+
+This requires adding lightweight event hooks in `simulation.py` that push to the WebSocket manager alongside the existing StateStore writes.
+
+---
 
 ## Installation
 
+### Backend (Python)
+
 ```bash
-# New v2 dependencies (add to existing pyproject.toml)
-uv add jinja2 aiofiles
+# Add to existing pyproject.toml dependencies
+uv add fastapi "uvicorn[standard]"
 
-# Dev dependencies (no changes)
-# Existing: pytest, pytest-asyncio, pytest-cov, ruff, mypy
+# This pulls in: fastapi, starlette, uvicorn, websockets, httptools, uvloop
+# Total new direct deps: 2 (fastapi, uvicorn)
 
-# No Docker changes needed
-# No Ollama model changes needed
-# No Neo4j server upgrade needed
+# REMOVE after web UI is feature-complete:
+uv remove textual
 ```
 
-Updated `pyproject.toml` dependencies section:
+Updated `pyproject.toml` dependencies:
 
 ```toml
 dependencies = [
@@ -157,161 +194,261 @@ dependencies = [
     "ollama>=0.6.1",
     "backoff>=2.2.1",
     "neo4j>=5.28,<6.0",
-    "textual>=8.1.1",
-    # v2 additions
     "jinja2>=3.1.6",
-    "aiofiles>=24.1.0",
+    "aiofiles>=25.1.0",
+    # v5.0: web UI
+    "fastapi>=0.135.0",
+    "uvicorn[standard]>=0.44.0",
+    # REMOVED: "textual>=8.1.1"
 ]
 ```
+
+### Frontend (new directory: `frontend/`)
+
+```bash
+# Scaffold Vue 3 + TypeScript + Pinia + Router + ESLint (from repo root)
+npm create vue@latest frontend -- --typescript --pinia --router --eslint
+
+cd frontend
+
+# D3 modules (tree-shakeable -- import only what you use)
+npm install d3-force d3-selection d3-scale d3-interpolate d3-force-clustering
+
+# D3 type definitions
+npm install -D @types/d3-force @types/d3-selection @types/d3-scale @types/d3-interpolate
+
+# VueUse for useWebSocket, useResizeObserver, useThrottleFn
+npm install @vueuse/core
+```
+
+---
+
+## Alternatives Considered
+
+| Recommended | Alternative | When to Use Alternative Instead |
+|-------------|-------------|----------------------------------|
+| D3 `d3-force` + SVG | Cytoscape.js (Canvas) | If you need 5000+ nodes where Canvas outperforms SVG. Cytoscape's edge animation is also limited and expensive per their own docs. Not relevant at 100 nodes |
+| D3 `d3-force` + SVG | vis.js (vis-network) | If you want a plug-and-play network viz with zero customization. Wrong when edge animation, bracket clustering, and HSL color control are hero features |
+| D3 `d3-force` + SVG | Sigma.js + Graphology | If you need WebGL rendering for 10,000+ nodes. Massive overkill at 100 nodes, and WebGL makes click interaction harder |
+| D3 `d3-force` + SVG | force-graph (vasturiano) | Higher-level Canvas wrapper around d3-force. Convenient but less control over bracket clustering layout and edge animation. Revisit only if the custom composable gets unmanageably complex |
+| SVG rendering | Canvas rendering | If element count exceeds ~1500 with frequent full redraws. At 100 nodes + 400 edges = 500 elements, SVG is comfortably performant and gives native DOM events + CSS transitions |
+| Pinia ^3.0.4 | Vuex 4 | Never. Vuex is in maintenance mode since 2022. Pinia is the official Vue 3 successor |
+| VueUse `useWebSocket` | Native `WebSocket` API | If you want zero extra dependencies. But you lose auto-reconnect, heartbeat, and reactive refs. The ~3KB cost is worth the robustness |
+| JSON text frames | msgpack binary frames | If payloads exceed ~50KB per message. At 4KB over localhost, JSON debugging transparency wins |
+| WebSocket | SSE (Server-Sent Events) | If the dashboard were purely read-only with no shock injection, interviews, or replay controls |
+| stdlib `json` | orjson | If serialization is a measurable bottleneck. At 4KB x 5/sec, stdlib json takes <0.1ms per call. orjson saves microseconds for an extra dependency |
+| FastAPI native WebSocket | Socket.IO (python-socketio) | If you need rooms, namespaces, automatic long-polling fallback. Single-operator localhost needs none of this |
+| uvicorn single-worker | uvicorn multi-worker / gunicorn | Multi-worker runs separate processes with isolated memory. StateStore and ResourceGovernor cannot be shared across processes without IPC. Single-user local tool does not need multi-worker |
+
+---
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| Ollama native tool calling (`tools=` param) | Broken with qwen3.5 models (wrong XML/JSON format mismatch, unclosed think tags). GitHub issues #14493, #14745 confirm as of 2026-03-31. | Prompt-based ReACT with regex parsing (~100 LOC) |
-| LangChain / LangGraph | 50+ transitive deps, wrong abstraction (we have our own inference pipeline). Would require wrapping our OllamaClient in their LLM interface, adding indirection for no benefit. | Custom ReACT loop that directly uses our existing OllamaClient |
-| LlamaIndex | Vector RAG framework -- we do graph queries, not embedding search. Massive dep tree. | Direct Cypher queries via neo4j driver |
-| APOC Neo4j plugin | Not needed. All v2 graph operations are pure Cypher. APOC adds Docker complexity, version pinning headaches, and security surface. | Pure Cypher with UNWIND batches |
-| neo4j driver 6.x | Requires Neo4j server upgrade (5.26 -> 2025.x), potential breaking changes. Zero features in 6.x that v2 needs. | Keep neo4j >=5.28,<6.0 |
-| Separate Markdown rendering lib | We generate markdown (text), not render it to HTML. Jinja2 produces .md files directly. | Jinja2 templates with markdown syntax |
-| WebSocket for TUI-interview comm | Single-process app. Interview runs in the same asyncio loop as TUI. No IPC needed. | Direct async function calls within Textual Worker |
+| **Plotly.js** | 15MB+ bundle. Already rejected in v4.0. Chart-oriented, not network-topology-oriented | D3 for graph viz. Keep pygal for report SVG charts (already working) |
+| **Socket.IO** | Abstraction layer with rooms/namespaces/fallback-to-polling. Single-operator localhost needs none of this. Adds `python-socketio` + `socket.io-client` deps | Native FastAPI WebSocket via Starlette |
+| **Vuex** | Maintenance mode since 2022. Pinia is the official replacement | Pinia ^3.0.4 |
+| **Chart.js** (for agent graph) | Renders bar/line/pie charts, not network topology graphs | D3 `d3-force` |
+| **Three.js / 3D force graph** | 3D adds visual complexity without value for a 100-node influence topology. 2D is clearer and matches the 10x10 grid mental model | 2D D3 force layout with SVG |
+| **Tailwind CSS** | PostCSS build pipeline complexity for a single-page dashboard. "Clean minimalist aesthetic" is better served by scoped CSS | `<style scoped>` in Vue SFCs + CSS custom properties for dark theme |
+| **Nuxt** | SSR/SSG framework for multi-page SEO apps. This is a single-page localhost dashboard | Plain Vue 3 + Vite + vue-router |
+| **Axios** | `fetch()` is built into every browser with TypeScript support. Axios adds 13KB for no benefit in localhost-only app | Native `fetch()` for REST calls |
+| **vue-d3-network / vue-force-graph** | Thin wrappers with <100 GitHub stars, unmaintained, fight Vue reactivity by letting D3 own DOM | Custom `useForceGraph` composable (~150 LOC): D3 for math, Vue `<template>` for SVG |
+| **vue3-cytoscape** | 12 GitHub stars, uncertain maintenance, extra abstraction layer | Direct D3 integration if using D3, or direct Cytoscape API (but D3 is recommended) |
+| **Redis / message broker** | Single-operator, single-process, localhost. In-memory ConnectionManager is sufficient | `ConnectionManager` class per FastAPI official docs |
+| **orjson** | 4KB JSON payloads x 5/sec. stdlib `json.dumps` takes <0.1ms. orjson saves microseconds for an extra dep | `import json` (stdlib) |
+| **Tailwind UI / Headless UI / Radix Vue** | Component libraries for complex multi-page apps. Dashboard has 3 views with minimal form controls | Custom Vue components |
+| **Quasar / Vuetify / PrimeVue** | Full UI frameworks impose a visual language conflicting with minimalist dark-terminal aesthetic. 200KB+ bundles | Custom dark theme via CSS variables matching TUI palette |
+| **msgpack / protobuf** | Binary WebSocket frames. Lose browser DevTools inspection for ~25% size savings on 4KB payloads | JSON text frames |
 
-## Architecture Patterns for v2
+---
 
-### ReACT Report Agent (No Framework)
+## Stack Patterns
 
-```python
-# Minimal ReACT loop -- no LangChain needed
-import re
+### Force-Directed Graph Composable (`useForceGraph.ts`)
 
-ACTION_RE = re.compile(r"^Action: (\w+): (.*)$", re.MULTILINE)
+```typescript
+// D3 for physics computation, Vue for SVG DOM rendering
+const nodes = ref<GraphNode[]>([])
+const links = ref<GraphLink[]>([])
 
-TOOLS = {
-    "consensus_summary": query_consensus_summary,  # Cypher function
-    "key_dissenters": query_key_dissenters,
-    "bracket_trends": query_bracket_trends,
-    "flip_analysis": query_flip_analysis,
-    "influence_leaders": query_influence_leaders,
+// NOT reactive -- D3 mutates node objects directly during simulation
+let simulation: d3.Simulation<GraphNode, GraphLink>
+
+onMounted(() => {
+  simulation = d3.forceSimulation(nodes.value)
+    .force("charge", d3.forceManyBody().strength(-80))
+    .force("link", d3.forceLink(links.value).id(d => d.id).distance(60))
+    .force("center", d3.forceCenter(width / 2, height / 2))
+    // Bracket clustering: pull nodes toward bracket group centers
+    .force("clusterX", d3.forceX(d => bracketCenterX[d.bracket]).strength(0.15))
+    .force("clusterY", d3.forceY(d => bracketCenterY[d.bracket]).strength(0.15))
+    .force("collide", d3.forceCollide(12))
+    .on("tick", () => {
+      // Trigger Vue reactivity -- spread creates new array reference
+      nodes.value = [...simulation.nodes()]
+    })
+})
+
+// When WebSocket pushes new INFLUENCED_BY edge:
+function addEdge(source: string, target: string, weight: number) {
+  links.value.push({ source, target, weight })
+  simulation.force("link", d3.forceLink(links.value).id(d => d.id).distance(60))
+  simulation.alpha(0.3).restart()  // Reheat to animate new edge into position
 }
-
-async def run_react_report(client: OllamaClient, model: str, cycle_id: str, graph: GraphStateManager) -> str:
-    messages = [{"role": "system", "content": REACT_SYSTEM_PROMPT}]
-    messages.append({"role": "user", "content": f"Generate a market analysis report for cycle {cycle_id}."})
-
-    for turn in range(MAX_TURNS):
-        response = await client.chat(model=model, messages=messages, think=True)
-        content = response.message.content or ""
-        messages.append({"role": "assistant", "content": content})
-
-        match = ACTION_RE.search(content)
-        if match:
-            tool_name, tool_input = match.groups()
-            if tool_name in TOOLS:
-                observation = await TOOLS[tool_name](graph, cycle_id, tool_input)
-                messages.append({"role": "user", "content": f"Observation: {observation}"})
-            else:
-                messages.append({"role": "user", "content": f"Observation: Unknown tool '{tool_name}'."})
-        else:
-            # No action found -- agent is done
-            return content
-
-    return content  # max turns exceeded
 ```
 
-### Interview Conversation Loop
+### WebSocket State Sync Composable (`useSimulationSocket.ts`)
 
-```python
-# Multi-turn interview using existing OllamaClient
-async def interview_agent(client: OllamaClient, model: str, context: InterviewContext) -> AsyncGenerator[str, str]:
-    messages = [
-        {"role": "system", "content": context.build_system_prompt()},
-    ]
-    while True:
-        question = yield  # Receive question from TUI
-        messages.append({"role": "user", "content": question})
+```typescript
+// VueUse handles reconnect, heartbeat, reactive connection status
+const { status, data, send } = useWebSocket('ws://localhost:8000/ws/simulation', {
+  autoReconnect: { retries: 5, delay: 1000 },
+  heartbeat: { message: 'ping', interval: 30000 },
+})
 
-        # Stream response
-        full_response = ""
-        async for chunk in await client.chat(model=model, messages=messages, stream=True):
-            token = chunk.message.content or ""
-            full_response += token
-            yield token  # Send token to TUI for real-time display
+// Route incoming messages to appropriate Pinia store actions
+watch(data, (raw) => {
+  if (!raw) return
+  const msg: ServerMessage = JSON.parse(raw)
+  switch (msg.type) {
+    case 'snapshot':       simulationStore.applySnapshot(msg.data); break
+    case 'edge_created':   graphStore.addEdge(msg.data); break
+    case 'agent_decision': simulationStore.updateAgent(msg.data); break
+    case 'phase_change':   simulationStore.setPhase(msg.data); break
+    case 'governor':       simulationStore.updateGovernor(msg.data); break
+    case 'interview_token': interviewStore.appendToken(msg.data); break
+  }
+})
 
-        messages.append({"role": "assistant", "content": full_response})
-
-        # Trim history if approaching context limit
-        if estimate_tokens(messages) > MAX_CONTEXT * 0.8:
-            messages = trim_conversation(messages, keep_system=True, keep_recent=6)
+// Send commands to server
+function injectShock(text: string) {
+  send(JSON.stringify({ type: 'inject_shock', data: { text } }))
+}
 ```
 
-### Textual Screen Modes for Post-Simulation
+### Pinia Simulation Store (`stores/simulation.ts`)
 
-```python
-# Textual mode switching for interview vs report vs grid
-class AlphaSwarmApp(App):
-    MODES = {
-        "simulation": SimulationScreen,   # Main 10x10 grid
-        "interview": InterviewScreen,      # Chat interface
-        "report": ReportScreen,            # Rendered markdown
+```typescript
+export const useSimulationStore = defineStore('simulation', () => {
+  const agents = ref(new Map<string, AgentState>())
+  const phase = ref<SimulationPhase>('IDLE')
+  const round = ref(0)
+  const governorMetrics = ref<GovernorMetrics | null>(null)
+  const bracketSummaries = ref<BracketSummary[]>([])
+  const selectedAgentId = ref<string | null>(null)
+
+  // Derived state (computed)
+  const agentsByBracket = computed(() => groupBy(agents.value, 'bracket'))
+  const signalDistribution = computed(() => countSignals(agents.value))
+  const selectedAgent = computed(() =>
+    selectedAgentId.value ? agents.value.get(selectedAgentId.value) ?? null : null
+  )
+
+  function applySnapshot(snapshot: StateSnapshot) {
+    phase.value = snapshot.phase
+    round.value = snapshot.round_num
+    for (const [id, state] of Object.entries(snapshot.agent_states)) {
+      agents.value.set(id, state)
     }
+    bracketSummaries.value = snapshot.bracket_summaries
+    governorMetrics.value = snapshot.governor_metrics
+  }
 
-    # Post-simulation: push interview screen
-    def action_interview(self, agent_id: str) -> None:
-        self.push_screen(InterviewScreen(agent_id=agent_id))
-
-    # After interview: push report screen
-    def action_generate_report(self) -> None:
-        self.push_screen(ReportScreen(cycle_id=self.cycle_id))
+  return { agents, phase, round, selectedAgentId, agentsByBracket,
+           signalDistribution, selectedAgent, applySnapshot }
+})
 ```
 
-## Version Compatibility Matrix
+---
+
+## Version Compatibility
 
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
-| jinja2 >=3.1.6 | Python >=3.7, pydantic >=2.x | No conflicts. Jinja2 has zero overlapping deps with existing stack. |
-| aiofiles >=24.1.0 | Python >=3.8, asyncio | Thread pool executor under the hood. Compatible with Textual's event loop. |
-| neo4j >=5.28,<6.0 | Neo4j server 5.x (our docker-compose uses 5.26) | Pinned correctly. Do NOT upgrade to 6.x without server upgrade. |
-| ollama >=0.6.1 | Ollama server 0.5+ | Streaming, tool schemas, async client all stable at 0.6.1. |
-| textual >=8.1.1 | Python >=3.9, rich >=14.x | Screen modes, Input, RichLog all available. 8.2.1 (latest) is compatible. |
+| Vue ^3.5.32 | Pinia ^3.0.4 | Pinia 3.x requires Vue 3.5+ (dropped Vue 2 support) |
+| Vue ^3.5.32 | @vueuse/core ^14.2.0 | VueUse 14.x requires Vue 3.5+ |
+| Vue ^3.5.32 | vue-router ^5.0.4 | Router 5.x is the Vue 3 line |
+| Vite ^8.0.0 | Node.js >=20.19 or >=22.12 | Vite 8 dropped Node 18 support |
+| FastAPI >=0.135.0 | Python >=3.10 | Project uses 3.11+, compatible |
+| FastAPI >=0.135.0 | uvicorn >=0.44.0 | Recommended ASGI server per FastAPI docs |
+| FastAPI >=0.135.0 | starlette (auto-installed) | FastAPI pins its Starlette version internally |
+| d3-force ^3.0.0 | d3-selection ^3.0.0 | Both D3 v7 era modules, compatible |
+| d3-force ^3.0.0 | d3-force-clustering ^1.0.0 | d3-force-clustering designed as d3-force plugin |
+| @types/d3-force | d3-force ^3.0.0 | DefinitelyTyped definitions match d3-force v3 API |
 
-## Model Strategy for v2 Features
+---
 
-| Feature | Model | Why | Memory Impact |
-|---------|-------|-----|---------------|
-| Agent Interviews | Worker (qwen3.5:4b or 9b) | Already loaded post-simulation. No cold load needed. Fast responses. | None (model already loaded) |
-| Live Graph Memory | N/A (pure Cypher) | No LLM needed. Graph writes happen during simulation alongside existing decision writes. | ~5ms/round additional Neo4j I/O |
-| ReACT Report Agent | Orchestrator (qwen3.5:32b) | Needs reasoning capability to decide tool usage and synthesize findings. Worker model too small for multi-step reasoning. | Requires model swap: unload worker (~3.4GB freed), load orchestrator (~18GB). ~30s cold load. |
-| Richer Interactions | Worker (qwen3.5:4b or 9b) | Extended inference during existing rounds. Same model, slightly larger JSON output schema. | ~10% more tokens per agent (longer output with public_rationale + reactions). Negligible. |
-| Dynamic Personas | Orchestrator (qwen3.5:32b) | Persona generation is a seed injection extension. Orchestrator already loaded during seed phase. | None (runs during existing orchestrator phase). |
+## Integration with Existing Codebase
 
-**Post-simulation model lifecycle:**
-1. Simulation completes -- worker model still loaded
-2. Offer **Agent Interviews** (uses worker model, no swap needed)
-3. User finishes interviews, requests report
-4. Unload worker, load orchestrator (~30s)
-5. Run **ReACT Report Agent** (uses orchestrator)
-6. Unload orchestrator
-7. Export report to file
+### StateStore -> WebSocket Bridge
+
+The existing `StateStore` class (state.py line 87) produces `StateSnapshot` frozen dataclasses via `snapshot()`. The WebSocket layer wraps this:
+
+1. `StateStore.snapshot()` returns `StateSnapshot` (existing, unchanged)
+2. New: `snapshot_to_dict()` serializer -- use `dataclasses.asdict()` with custom enum handling, or a parallel Pydantic model
+3. New: `WebSocketBroadcaster` asyncio background task calls `store.snapshot()` at 200ms intervals and broadcasts via ConnectionManager
+
+### Existing HSL Color Logic Ports Directly
+
+The `compute_cell_color()` function in tui.py (line 47) uses HSL color mapping:
+- BUY: `hsl(120, 60%, 20-50%)` green, lightness scaled by confidence
+- SELL: `hsl(0, 70%, 20-50%)` red, lightness scaled by confidence
+- HOLD: `#555555` fixed grey
+- PENDING: `#333333` dim grey
+
+This maps directly to SVG `fill` attributes. Use `d3.scaleLinear` for confidence -> lightness, producing CSS `hsl()` strings that work identically in SVG.
+
+### Files That Change
+
+| File | Change | Scope |
+|------|--------|-------|
+| `state.py` | Add `snapshot_to_dict()` or Pydantic serializer for StateSnapshot | ~20 lines added |
+| `simulation.py` | Add event hooks for edge creation, per-agent decisions (push to WebSocket) | ~30 lines added |
+| `app.py` | New FastAPI application factory, mount WebSocket + REST routes | New file or major refactor |
+| `tui.py` | **Delete entirely** (~800+ lines) | Full removal |
+| `cli.py` | Update entrypoints: `start` launches uvicorn instead of Textual app | Small refactor |
+| `pyproject.toml` | Add fastapi + uvicorn, remove textual, update `[project.scripts]` | Small edit |
+
+---
+
+## Development Tooling
+
+| Tool | Purpose | Configuration |
+|------|---------|---------------|
+| Vite dev server | Frontend HMR + API proxy | `vite.config.ts`: proxy `/api/*` and `/ws/*` to `localhost:8000` |
+| uvicorn `--reload` | Backend hot-reload during dev | `uvicorn alphaswarm.web:app --reload --port 8000` |
+| Vue DevTools (browser extension) | Pinia store inspection, component tree, reactivity tracking | Install for Chrome or Firefox |
+| wscat | WebSocket testing from CLI | `npx wscat -c ws://localhost:8000/ws/simulation` |
+| Vitest | Vue component unit tests | Ships with `create-vue` scaffold |
+| pytest-asyncio | FastAPI endpoint and WebSocket tests (existing) | Already in dev dependencies |
+
+---
 
 ## Sources
 
-- [Ollama Python PyPI (v0.6.1)](https://pypi.org/project/ollama/) -- verified latest version, streaming/async API
-- [Ollama tool calling docs](https://docs.ollama.com/capabilities/tool-calling) -- native tool calling API reference
-- [Qwen 3.5 tool calling bug #14493](https://github.com/ollama/ollama/issues/14493) -- confirmed broken, partial fix insufficient
-- [Qwen 3.5 tool calling bug #14745](https://github.com/ollama/ollama/issues/14745) -- 9b variant prints tool calls as text
-- [Simon Willison ReACT pattern](https://til.simonwillison.net/llms/python-react-pattern) -- minimal Python ReACT implementation (~100 LOC)
-- [Jinja2 PyPI (v3.1.6)](https://pypi.org/project/Jinja2/) -- Python >=3.7, latest stable
-- [aiofiles PyPI](https://pypi.org/project/aiofiles/) -- async file I/O for asyncio
-- [Neo4j Python driver PyPI (v6.1.0)](https://pypi.org/project/neo4j/) -- confirmed 5.x compatibility, 6.x available but not needed
-- [Neo4j Python async driver docs](https://neo4j.com/docs/python-manual/current/concurrency/) -- concurrent transaction patterns
-- [Textual PyPI (v8.2.1)](https://pypi.org/project/textual/) -- latest version, Screen/mode system docs
-- [Textual Screens guide](https://textual.textualize.io/guide/screens/) -- push/pop, mode switching
-- [Textual RichLog widget](https://textual.textualize.io/widgets/rich_log/) -- real-time scrollable content
-- [Textual chat TUI example](https://chaoticengineer.hashnode.dev/textual-and-chatgpt) -- Input + VerticalScroll chat pattern
-- [Ollama conversation history](https://deepwiki.com/ollama/ollama-python/4.7-conversation-history) -- message list accumulation pattern
-- [Ollama context length docs](https://docs.ollama.com/context-length) -- default 2K context, configurable via Modelfile
+- [D3 Force Module -- official docs](https://d3js.org/d3-force) -- Force API, available forces, velocity Verlet integrator (HIGH confidence)
+- [D3 Force Simulation -- official docs](https://d3js.org/d3-force/simulation) -- Alpha/decay, tick events, restart, node positioning API (HIGH confidence)
+- [FastAPI WebSocket -- official docs](https://fastapi.tiangolo.com/advanced/websockets/) -- ConnectionManager pattern, broadcast, websockets requirement (HIGH confidence)
+- [Pinia -- official docs](https://pinia.vuejs.org/) -- v3.0.4, official Vue 3 state management (HIGH confidence)
+- [VueUse useWebSocket](https://vueuse.org/core/usewebsocket/) -- Auto-reconnect, heartbeat, reactive refs API (HIGH confidence)
+- [Cytoscape.js performance docs](https://github.com/cytoscape/cytoscape.js/blob/master/documentation/md/performance.md) -- Edge rendering cost warnings (HIGH confidence)
+- [d3-force-clustering -- GitHub](https://github.com/vasturiano/d3-force-clustering) -- Bracket clustering force plugin (MEDIUM confidence -- third-party)
+- [SVG edge animation technique](https://www.visualcinnamon.com/2016/01/animating-dashed-line-d3/) -- stroke-dasharray + dashoffset pattern (HIGH confidence -- established technique)
+- [FastAPI 0.135.3 -- PyPI](https://pypi.org/project/fastapi/) -- Latest version April 2026 (HIGH confidence)
+- [uvicorn 0.44.0 -- PyPI](https://pypi.org/project/uvicorn/) -- Latest version April 2026 (HIGH confidence)
+- [Vue 3.5.32 -- npm](https://www.npmjs.com/package/vue) -- Latest stable April 2026 (HIGH confidence)
+- [vue-router 5.0.4 -- npm](https://www.npmjs.com/package/vue-router) -- Latest March 2026 (HIGH confidence)
+- [Pinia 3.0.4 -- npm](https://www.npmjs.com/package/pinia) -- Latest November 2025 (HIGH confidence)
+- [VueUse 14.2.1 -- npm](https://www.npmjs.com/package/@vueuse/core) -- Latest February 2026 (HIGH confidence)
+- [Vite 8.0 -- releases](https://vite.dev/releases) -- Latest major 2026 (MEDIUM confidence -- exact minor unverified)
+- [D3 7.9.0 -- npm](https://www.npmjs.com/package/d3) -- Umbrella package version (HIGH confidence)
+- [Cytoscape.js 3.33.2 -- npm](https://www.npmjs.com/package/cytoscape) -- Evaluated and rejected for this use case (HIGH confidence)
+- [SSE vs WebSocket 2026](https://dev.to/polliog/server-sent-events-beat-websockets-for-95-of-real-time-apps-heres-why-a4l) -- Bidirectional requirement justifies WebSocket (MEDIUM confidence)
 
 ---
-*Stack research for: AlphaSwarm v2.0 Engine Depth*
-*Researched: 2026-03-31*
-*Builds on: v1 stack research from 2026-03-24*
+*Stack research for: AlphaSwarm v5.0 Web UI*
+*Researched: 2026-04-12*
+*Supersedes: v2.0 stack research from 2026-03-31*
+*Builds on: v1-v4 validated stack (Python 3.11+, asyncio, Ollama, Neo4j, pydantic, structlog)*

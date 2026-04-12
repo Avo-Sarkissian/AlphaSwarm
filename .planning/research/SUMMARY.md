@@ -1,191 +1,258 @@
 # Project Research Summary
 
-**Project:** AlphaSwarm v2.0 Engine Depth
-**Domain:** Local-first multi-agent LLM financial simulation engine (feature expansion)
-**Researched:** 2026-03-31
+**Project:** AlphaSwarm v5.0 Web UI
+**Domain:** Real-time multi-agent simulation dashboard — Vue 3 SPA + FastAPI replacing Textual TUI
+**Researched:** 2026-04-12
 **Confidence:** HIGH
+
+---
 
 ## Executive Summary
 
-AlphaSwarm v2.0 expands a proven v1 simulation engine (10 phases shipped, fully operational) into a deeper analytical platform. The core challenge is not building the simulation -- it works -- but enriching it with post-simulation intelligence: living graph memory, conversational agent interviews, structured market reports, social influence dynamics, and entity-aware persona generation. All five features build on the same stack (Python 3.11+, asyncio, Ollama, Neo4j, Textual) with only two new dependencies needed (Jinja2 for report templates, aiofiles for non-blocking file writes). This is an incremental engineering problem, not a greenfield one.
+AlphaSwarm v5.0 replaces the Textual TUI with a browser-based dashboard that visualizes 100 agents reasoning toward consensus on a live force-directed graph. This is a well-understood class of problem: a single-process asyncio simulation engine bridged to a Vue 3 SPA over WebSocket, serving a single operator on localhost. The stack decision space is narrow and well-researched — all technologies are current stable releases with strong official documentation. Execution risk is not about which libraries to pick. It is about how they connect to the existing engine, and two integration decisions must be made correctly in Phase 1 or everything downstream will fail in difficult-to-debug ways.
 
-The recommended approach is dependency-ordered: Live Graph Memory must ship first because every other v2 feature reads from the enriched Neo4j graph it creates. Post-simulation Report and Agent Interviews follow as the primary analytical outputs. Richer Agent Interactions and Dynamic Persona Generation then layer social dynamics and input quality onto the stable foundation. One critical finding shapes the entire implementation: Ollama native tool calling is broken for qwen3.5 models (confirmed GitHub issues #14493, #14745). The ReACT report agent must use prompt-based tool dispatching with Python-side parsing -- no framework dependency needed, approximately 100 lines of code.
+The recommended graph approach is D3 `d3-force` + SVG, not Cytoscape.js, not vis.js, not Canvas. At 100 nodes, SVG provides native DOM events, CSS transitions, and stroke-dasharray edge animation with zero custom hit-testing code. Cytoscape's own performance documentation explicitly warns about edge arrow rendering cost and opacity overhead. D3 is used as a pure physics computation engine — it produces `{x, y}` coordinates per tick, and Vue's `<template>` SVG renders them via `:cx="node.x"` bindings. D3 does not touch the DOM. This separation eliminates the classic framework-vs-D3 DOM conflict and is the decisive pattern for the hero feature. Canvas is only necessary above ~1,500 SVG elements; AlphaSwarm is fixed at 100 agents.
 
-The primary risk is M1 Max memory pressure and model lifecycle coordination in the post-simulation phase. Model swaps between the worker (qwen3.5:9b) and orchestrator (qwen3.5:32b) take approximately 30 seconds each and must be serialized. Interviews should use the worker model (already loaded post-simulation); reports use the orchestrator (requires model swap). Running both concurrently would cause queue starvation and must be prevented at the CLI/TUI level. All write patterns must use the existing batch UNWIND approach -- per-agent writes during simulation would increase Neo4j transactions 700x and cause connection pool exhaustion.
+The two non-negotiable Phase 1 decisions: (1) Uvicorn must own the asyncio event loop — all `StateStore` locks, `ResourceGovernor` events, and Neo4j driver must be created inside the FastAPI lifespan context manager, not before `uvicorn.run()`. This is the same failure mode as the prior 7-bug governor deadlock. (2) `StateStore.snapshot()` has a destructive side effect that drains up to 5 rationale entries per call, designed for a single TUI consumer. Before Phase 2 WebSocket broadcast is built, `snapshot()` must be refactored to be non-destructive, with a separate `drain_rationales()` method called exactly once per broadcast tick by the `StateRelay`. Every other feature — graph, panels, replay, interview — flows correctly once these two foundations are solid.
+
+---
 
 ## Key Findings
 
 ### Recommended Stack
 
-The v1 stack requires no major changes. Two libraries are additive: Jinja2 (>=3.1.6) for report section templating and aiofiles (>=24.1.0) for non-blocking markdown file export. Every framework-level alternative (LangChain, LlamaIndex, APOC, Zep Cloud, neo4j driver 6.x) was evaluated and rejected -- they add dependency weight or architectural impedance for capabilities already present in the existing codebase. The qwen3.5 tool calling bug is the only stack-level surprise: native `tools=` parameter support does not work and requires a prompt-based ReACT workaround.
+The backend adds only two direct Python dependencies: `fastapi>=0.135.0` and `uvicorn[standard]>=0.44.0`. The `textual` dependency is removed in Phase 8. The frontend scaffolds with Vue 3.5.32, Vite 8, TypeScript 5.7, Pinia 3, and vue-router 5. D3 is imported as individual tree-shakeable modules (`d3-force`, `d3-selection`, `d3-scale`, `d3-interpolate`, `d3-force-clustering`) totaling ~30KB gzipped — versus Cytoscape's 300KB monolith. VueUse `@vueuse/core` 14.2 provides the `useWebSocket` composable with built-in auto-reconnect, heartbeat, and reactive connection state.
+
+Version compatibility is tightly constrained: Pinia 3.x requires Vue 3.5+, VueUse 14.x requires Vue 3.5+, Vite 8 requires Node.js >=20.19. All three requirements are satisfied by the Vue 3.5.32 target. Node 18 is dropped by Vite 8 and must not be used on the development machine.
 
 **Core technologies:**
-- **Python 3.11+ / asyncio:** 100% async runtime -- no blocking I/O on main event loop. All new components (InterviewEngine, ReportGenerator, PersonaGenerator) must respect this constraint.
-- **ollama-python >=0.6.1:** Handles multi-turn interviews (message list accumulation), streaming responses, and model lifecycle. No native tool calling -- prompt-based ReACT replaces it.
-- **neo4j >=5.28,<6.0:** Session-per-method async driver pattern already in place. v2 extends GraphStateManager with approximately 8 new methods. Do NOT upgrade to 6.x without a simultaneous Neo4j server upgrade.
-- **textual >=8.1.1:** Screen push/pop, Input widget, RichLog, and mode system support all interview and report UI patterns. 8.2.x (latest) is pin-compatible.
-- **Jinja2 >=3.1.6 (NEW):** Report template rendering. Handles conditional sections, loops, and markdown output. Zero dependency conflicts with existing stack.
-- **aiofiles >=24.1.0 (NEW):** Async file write for report export. Prevents event loop blocking during markdown persistence.
-- **Model strategy:** Worker (qwen3.5:9b) for interviews (already loaded post-simulation, fast, no cold-load). Orchestrator (qwen3.5:32b) for report ReACT and dynamic persona generation (both require complex reasoning). Offer interviews BEFORE report to avoid unneeded model swaps.
+- FastAPI 0.135 + Uvicorn 0.44: REST and WebSocket server, ASGI lifecycle owner — Starlette-native async WebSocket, Pydantic integration matches existing models
+- Vue 3.5.32 + Pinia 3 + vue-router 5: SPA framework — Composition API with `<script setup>`, reactive state stores, official Vue ecosystem only
+- d3-force + d3-selection + d3-scale + d3-interpolate: Graph physics and color scales — ~30KB tree-shakeable; D3 for math only, Vue owns the SVG DOM
+- d3-force-clustering: Bracket group clustering force — pulls agents toward bracket centroid, enabling 10 visual archetype clusters
+- @vueuse/core 14.2: WebSocket composable + resize observer — auto-reconnect, heartbeat, reactive status refs; `useWebSocket`, `useResizeObserver`, `useThrottleFn`
+- TypeScript 5.7 strict mode: Typed WebSocket message envelopes, graph node/edge interfaces, Pinia store types — matches Python codebase strict typing philosophy
+
+**Explicitly rejected (do not use):**
+- Cytoscape.js — 300KB monolith; Canvas-only edge animation is expensive per their own docs; edge arrows and semitransparent edges are specifically flagged as 2x+ rendering cost
+- vis.js — auto-clusters at 100+ nodes (unwanted); Canvas-only; no maintained Vue 3 wrapper
+- Socket.IO — rooms/namespaces/fallback-polling overkill for single-operator localhost
+- Tailwind CSS — PostCSS build pipeline complexity for a single dark-theme dashboard; scoped CSS is correct
+- Three.js / 3D force graph — WebGL complexity with no analytical value at 100 nodes; 2D is more readable
+- Redis / message broker — in-memory `ConnectionManager` is sufficient; single process, single user
+- orjson — saves microseconds on 4KB payloads at 5Hz; stdlib json is correct for MVP
+- Canvas rendering for the force graph — SVG is correct at 100 nodes; Canvas becomes necessary only above ~1,500 elements
 
 ### Expected Features
 
-**Must have (table stakes for v2.0 milestone):**
-- **Live Graph Memory (GRAPH-01, GRAPH-02, GRAPH-03)** -- Every serious simulation framework (Generative Agents, MiroFish, TwinMarket) stores reasoning as it happens. Without it, Neo4j is a write-once dump, not a living memory. All other v2 features depend on this.
-- **Post-Simulation Report (REPORT-01, REPORT-02, REPORT-03)** -- A simulation producing 300 decisions across 3 rounds with no summary is a data dump, not an analytical tool. Competitors (MiroFish ReportAgent, TradingAgents chain-of-thought logs) all provide structured post-simulation analysis.
-- **Agent Interviews (INT-01, INT-02, INT-03)** -- Stanford Generative Agents (Park et al. 2023) established post-simulation Q&A as the standard evaluation methodology for multi-agent systems. Without interviews, users cannot probe WHY agents made specific decisions.
+Features are organized by the dependency chain from FEATURES.md. The backbone is serial (Phases 1-4); panels and polish can parallelize from Phase 5 onward.
 
-**Should have (differentiators worth building):**
-- **Dynamic Persona Generation (PERSONA-01, PERSONA-02)** -- Entity-aware modifier injection into existing bracket templates. One orchestrator call generates situational context for all 10 brackets. Independent of all other v2 features; can be built in parallel.
-- **Richer Agent Interactions (SOCIAL-01, SOCIAL-02)** -- Agents publish public rationale posts that peers read and react to. Key constraint: OASIS-style social features at AlphaSwarm's inference budget require a lightweight approach (zero extra inference calls, posts are part of existing decision output, top-K post selection for peer context injection).
-- **Narrative Edges (optional, enhances Report)** -- REFERENCES edges from Decision nodes to Entity nodes. Low complexity, high analytical value for report queries.
+**Must have (table stakes — replaces TUI parity):**
+- Live force-directed graph replacing the 10x10 color grid — 100 nodes, HSL signal+confidence coloring, INFLUENCED_BY edges
+- WebSocket real-time state stream at 200ms cadence
+- Start simulation from browser (REST POST + seed rumor text input)
+- Agent click-to-inspect (SVG DOM click event + tooltip/side panel)
+- Bracket signal distribution panel (reads from snapshot brackets array)
+- Rationale feed panel — rolling window, last 50 entries, append on receive
+- Telemetry footer — TPS, elapsed, governor state, memory pressure
+- Shock injection during simulation (POST + governor suspend/resume with race guard)
+- Simulation replay mode (REST endpoints + StateRelay dual-source switch)
+- Agent interview panel (WebSocket session wrapping InterviewEngine, post-simulation only)
 
-**Defer to v2.1+:**
-- **Reflection Synthesis** -- Extra orchestrator call between rounds adds ~30s model swap mid-simulation. High complexity, high compute cost, marginal benefit when live graph memory already captures reasoning arcs.
-- **Full OASIS social media simulation layer** -- 21 social actions, RecSys engine, follower graphs. Requires 4,000+ LLM calls at cloud scale; incompatible with M1 Max budget.
-- **Vector embeddings for agent memory** -- Embedding model adds a third Ollama model violating the 2-model limit. The 300-decision corpus is small enough for exact Cypher queries.
-- **Interview-driven persona refinement** -- Development workflow feature; no runtime automation needed in v2.
+**Should have (differentiators beyond TUI):**
+- Force-directed INFLUENCED_BY edge visualization — edges animate into position as agents cite each other each round; the TUI never showed edges
+- Bracket clustering in graph — forceX/forceY pulls each of 10 archetypes toward a soft cluster; fixed-position grid was TUI's blunt instrument
+- Edge animation on new influence — stroke-dasharray SVG transition when a new edge is created
+- Smooth agent color transitions between rounds — d3-interpolate between HSL states instead of abrupt color swap
+- Round-by-round edge diff in replay — new edges highlighted per round
+- Zoom and pan on graph (d3-zoom composable on the SVG element)
+
+**Defer to v2+:**
+- Real-time LLM token streaming in interview (complete response only for v5.0 MVP)
+- Export graph as image (screenshot suffices for now)
+- Mobile responsiveness (desktop-only, 1280px minimum; local tool)
+- Dark/light theme toggle (dark only; maintaining two themes doubles CSS work)
+- Report viewer in browser (CLI path still works; lowest-priority differentiator)
+
+**Critical graph edge data gap:** `StateSnapshot` contains no `INFLUENCED_BY` edge data — the TUI never rendered edges, so this was never needed in the snapshot contract. Edge data lives only in Neo4j. Do NOT add edges to `StateStore`'s hot-path write contract. Resolution: `GET /api/edges/{cycle_id}?round=N` REST endpoint; Vue watches `snapshot.round_num` and fetches on round change. Edges update once per round, so polling on round transition is efficient.
 
 ### Architecture Approach
 
-The v2 architecture extends the existing five-subsystem pipeline (CLI/TUI -> AppState DI container -> SeedInjector -> SimulationEngine -> StateStore/TUI) without restructuring it. Three new modules are added (interview.py, report.py, persona_gen.py) maintaining the flat module convention. GraphStateManager gains approximately 8 new methods covering rationale episode writes, narrative edge writes, and read paths for interviews and reports. The simulation round loop gains two async calls post-dispatch (write_rationale_episodes, write_narrative_edges). Post-simulation features (InterviewEngine, ReportGenerator) are orchestrated outside the simulation lifecycle and must be explicitly serialized to prevent model slot contention.
+The architecture is single-process, single-event-loop. Uvicorn owns the loop. The simulation runs as `asyncio.create_task()` from a REST trigger. The `StateRelay` is the sole bridge between `StateStore` and all WebSocket clients: it awaits `StateStore._change_event`, drains rationales exactly once, serializes the full snapshot once, and broadcasts the same bytes string to all connected clients via per-client `asyncio.Queue` writer tasks. REST handles all control actions. WebSocket handles server-to-client state push and the stateful multi-turn interview conversation.
+
+The frontend organization separates concerns cleanly: Pinia stores own application state; composables (`useForceGraph.ts`, `useSimulationSocket.ts`) own framework integration logic; Vue components are thin consumers of store data. D3's `forceSimulation` is stored as a plain `let` variable — never in a Vue `ref()` or `reactive()`. Node arrays use `shallowRef()` to prevent Vue's Proxy from intercepting D3's per-tick `node.x = newX` mutations.
 
 **Major components:**
-1. **PersonaGenerator (persona_gen.py)** -- Extracts seed entities, generates situation-specific bracket modifier text, replaces generic agents within fixed 100-agent grid. Runs between inject_seed() and run_simulation().
-2. **GraphStateManager (graph.py, extended)** -- All Cypher operations centralized here. New methods for RationaleEpisode nodes, NARRATIVE edges, READ_POST relationships, and read paths for interview context reconstruction and report tool handlers.
-3. **InterviewEngine (interview.py)** -- Stateful chat session per agent. Loads full decision history, rationale history, and influence data from Neo4j at session start. Uses worker LLM with agent's original system prompt restored. Conversation history managed with sliding window to prevent context overflow.
-4. **ReportGenerator (report.py)** -- ReACT loop (max 8-10 iterations, hard cap). Tool registry of Cypher query functions. Pydantic-validated JSON action parsing (not regex). Uses orchestrator LLM. Requires model swap from worker. Jinja2 templates produce structured markdown, aiofiles writes async to disk.
-5. **StateStore (state.py, extended)** -- Adds interview_active, interview_messages, and report_progress fields. TUI polls at 200ms as before.
+1. `WebApp` (`src/alphaswarm/web/app.py`) — FastAPI factory with lifespan; creates `AppState`, starts `StateRelay` task, mounts CORS and static files
+2. `StateRelay` (`src/alphaswarm/web/state_relay.py`) — sole `StateStore` snapshot consumer; awaits `_change_event`; serialize-once broadcast; dual-source switch for live vs replay
+3. `SimulationManager` (`src/alphaswarm/web/simulation_manager.py`) — `asyncio.Lock` singleton guard; wraps `run_simulation()` as background task; enforces one simulation at a time
+4. `InterviewRelay` (`src/alphaswarm/web/interview_relay.py`) — wraps `InterviewEngine` in per-client WebSocket session; enforces post-simulation gating via phase check
+5. Route modules (`routes/sim.py`, `routes/replay.py`, `routes/report.py`, `routes/cycles.py`) — REST endpoints; `asyncio.Lock` on shock injection endpoint
+6. `useForceGraph.ts` composable — D3 `forceSimulation` as pure physics engine; `shallowRef` + `triggerRef` for node array; strict `onBeforeUnmount` cleanup; topology-only reheats
+7. Pinia simulation store (`stores/simulation.ts`) — `applySnapshot()` merges WebSocket payload; computed signal distribution and bracket groupings; `selectedAgentId` drives tooltip/interview panel
+
+**Python files that change:**
+- `state.py` — add `_change_event: asyncio.Event`; refactor `snapshot()` to non-destructive; add `drain_rationales()` method (~25 lines total)
+- `cli.py` — add `web` subcommand routing to uvicorn entrypoint
+- `app.py` — new FastAPI factory and lifespan (or major refactor of existing)
+- `tui.py` — deleted in Phase 8
+- `pyproject.toml` — add fastapi + uvicorn; remove textual; update `[project.scripts]`
 
 ### Critical Pitfalls
 
-1. **Model lifecycle collision post-simulation** -- Worker and orchestrator cannot be loaded simultaneously without explicit serialization. Offer interviews (worker model, no swap) before report (orchestrator, 30s swap). Never load orchestrator while simulation-adjacent code expects worker to be available. Add SimulationPhase.INTERVIEWING and SimulationPhase.REPORTING states to gate valid operations.
+Research identified 16 pitfalls across critical, moderate, and minor categories. The 5 highest-impact pitfalls that can cause architectural rewrites or simulation corruption:
 
-2. **Write amplification crashing Neo4j** -- Per-agent real-time writes during simulation would increase transaction count from 3 to approximately 2,100 per simulation (700x). Always batch rationale episode writes in a write-behind queue and flush via single UNWIND transaction after each round completes -- exactly as write_decisions() does today. Size connection pool at max_connection_pool_size=32, not the default 100.
+1. **Event loop conflict — Phase 1** (Pitfall 1): If `uvicorn.run()` and `asyncio.run()` coexist, all asyncio primitives bind to different loops. `ResourceGovernor._resume_event.wait()` hangs forever; `asyncio.Queue` operations silently deadlock. This is the exact failure class of the prior 7-bug governor deadlock. Fix: Uvicorn owns the loop; all objects created inside FastAPI lifespan context manager; simulation launched as `asyncio.create_task()`, not `asyncio.run()`.
 
-3. **ReACT infinite tool-call loops** -- Without a hard iteration cap and duplicate-call detection, the report agent will loop indefinitely on identical queries. Enforce max 8-10 tool calls, cache (tool_name, param_hash) pairs, compress observations to 2-3 sentences before appending to context, and pre-define report sections to constrain exploration.
+2. **StateStore destructive drain breaks broadcast — Phase 1-2** (Pitfall 2): `StateStore.snapshot()` drains up to 5 rationale entries per call (state.py lines 200-204). Any second caller (REST health check, debug endpoint, second WebSocket handler) silently consumes entries. `ReplayStore.snapshot()` is already non-destructive and documents this explicitly — `StateStore` must match. Fix: `drain_rationales()` method called exactly once per broadcast tick by `StateRelay`; `snapshot()` becomes a pure read with no side effects.
 
-4. **Social post context window overflow** -- Ten peer rationale posts at full text easily exceeds the 2048 token context limit. When Ollama silently truncates from the front, the system prompt and persona instructions are dropped first, causing all agents to produce generic, undifferentiated responses. Enforce a strict token budget (system: 400, seed: 200, peer decisions: 300, social posts: 300, response headroom: 600) and use a budget-aware context builder.
+3. **Vue Proxy corrupts D3 node mutation — Phase 3** (Pitfall 7): Storing the D3 node array in `ref()` wraps every object in an ES Proxy. D3's per-tick `node.x = newX` triggers Vue setter traps — 6,000+ per second at 100 nodes × 60fps. Frame rate drops to 10-15fps. Fix: `shallowRef()` for node and edge arrays; manual `triggerRef(nodesRef)` once after D3 tick callback; or keep D3 arrays as plain `let` variables entirely outside Vue reactivity.
 
-5. **Prompt injection via dynamic personas** -- Seed rumors are untrusted user input. Extracted entity names flow directly into system prompts; adversarial seeds can override bracket instructions. Sanitize entity names (strip injection patterns, limit to 50 chars), never concatenate raw entity text into system prompts, use template variables only, and validate generated prompts against structural rules.
+4. **D3 alpha thrashing on 200ms live updates — Phase 3** (Pitfall 5): Calling `simulation.alpha(1).restart()` on every snapshot resets simulation energy 5 times per second. The graph never reaches equilibrium; all 100 nodes perpetually bounce. The hero feature becomes an unusable animated blur. Fix: separate data updates (signal color, confidence opacity) from layout updates; only reheat on topology changes (new INFLUENCED_BY edges); use `alpha(0.05)` warm restart, never `alpha(1)`; pin nodes after initial layout settles.
 
-6. **Hollow interview context** -- v1 schema does not store the peer context agents received when making decisions. Interviews will feel generic without it. Store compressed context summaries (peer IDs, cited post IDs, not full text) on Decision nodes during live graph memory writes. Add a pre-computed "decision narrative" property on Agent nodes summarizing the 3-round arc.
+5. **Interview LLM contention during simulation — Phase 7** (Pitfall 4): `InterviewEngine.ask()` calls `OllamaClient.chat()`, which queues behind active simulation inference. On M1 Max with `OLLAMA_MAX_LOADED_MODELS=2`, this causes 60+ second interview waits and potential governor CRISIS from unmonitored KV cache growth. The governor's `TokenPool` does not account for interview requests. Fix: gate interviews to `SimulationPhase.COMPLETE` only; return HTTP 409 during active simulation. This preserves the original TUI design contract where the interview screen was inaccessible until simulation completion.
 
-7. **ReACT format conflict between STACK.md and ARCHITECTURE.md** -- STACK.md recommends regex-based text parsing (Simon Willison pattern). ARCHITECTURE.md recommends JSON-structured output with Pydantic validation. Both are valid; the JSON approach is more robust to malformed output. Resolve during Phase 15 implementation with a spike test.
+**Additional pitfalls to wire into phases:**
+- Per-client `asyncio.Queue` writer task with `asyncio.wait_for` timeout (Pitfall 3, Phase 2): prevents one paused browser tab from blocking the entire broadcast and stalling the simulation
+- WebSocket disconnect detection via concurrent reader task + heartbeat (Pitfall 8, Phase 2): Starlette reports `CONNECTED` for dead clients until TCP keepalive expires (2+ minutes on macOS); send-only broadcast never detects disconnects
+- Governor suspend/resume race on concurrent shock requests (Pitfall 10, Phase 4): `asyncio.Lock` on the shock endpoint; HTTP 409 on second concurrent request
+- D3 simulation memory leak on Vue component unmount (Pitfall 6, Phase 3): `simulation.stop()` + `simulation.on('tick', null)` + `cancelAnimationFrame()` + remove zoom/drag listeners in `onBeforeUnmount()`; HMR makes this immediately visible during development
+- Vite WebSocket proxy requires `ws: true` flag (Pitfall 13, Phase 3 dev tooling): without it, WebSocket upgrade handshake silently fails through the Vite dev server proxy
+- StaticFiles mount order in production FastAPI (Pitfall 14, Phase 8): mount last after all API routers; `app.mount("/", StaticFiles(...))` catches all routes if registered first
+
+---
 
 ## Implications for Roadmap
 
-Based on combined research, the phase structure is clear and has a single valid ordering driven by data dependencies. All three research files (FEATURES.md, ARCHITECTURE.md, PITFALLS.md) independently arrive at the same build order for the foundational phase. The only ordering divergence is whether Richer Agent Interactions (SOCIAL) comes before or after Interviews -- architecture research recommends SOCIAL second, feature research recommends it fourth. The recommendation below follows the architecture ordering for reasons explained in Phase Ordering Rationale.
+The feature dependency graph defines a clear linear backbone for Phases 1-4, with parallel work possible across Phases 5-7. The build order below is consistent across all four research files and the key themes identified for this synthesis.
 
-### Phase 11: Live Graph Memory
+### Phase 1: FastAPI Skeleton + Event Loop Foundation
+**Rationale:** The event loop ownership decision and StateStore drain refactor must precede all other work. Two browser-visible features require zero lines of Vue code to validate. Getting this wrong poisons everything downstream silently.
+**Delivers:** `WebApp` FastAPI factory, lifespan context manager, `AppState` wired to Uvicorn, `StateStore._change_event` field, `drain_rationales()` method, non-destructive `snapshot()`, `SimulationManager` singleton guard with `asyncio.Lock`, `cli.py web` subcommand, `/api/health` endpoint.
+**Addresses:** Architectural foundation for all table-stakes features.
+**Avoids:** Pitfall 1 (event loop conflict), Pitfall 2 (destructive drain), Pitfall 11 (double-start corruption), Pitfall 16 (enum serialization: build explicit `serialize_snapshot()` here with `.value` conversion)
+**Research flag:** STANDARD PATTERNS — FastAPI lifespan + `asyncio.create_task` are official FastAPI documentation. No phase research needed.
 
-**Rationale:** Foundational dependency. Every other v2 feature reads from the enriched graph data this phase creates. Without RationaleEpisode nodes and NARRATIVE edges, interviews return hollow responses and reports have no rationale data to query. Three independent research files confirm this must come first.
-**Delivers:** RationaleEpisode nodes per-agent per-round, NARRATIVE edges across rounds, interview context summaries on Decision nodes, new Neo4j schema indexes. No new modules -- extends graph.py and simulation.py only.
-**Addresses:** GRAPH-01 (per-agent episode writes via UNWIND batch), GRAPH-02 (RationaleEpisode with full metadata including cited_agents and timestamps), GRAPH-03 (NARRATIVE edges linking same-agent episodes across rounds, optional REFERENCES edges to Entity nodes).
-**Avoids:** Write amplification pitfall (Pitfall 2) -- must use batch UNWIND pattern from day one, not per-agent writes. Connection pool must be explicitly sized at 32.
-**Research flag:** Standard patterns. Mirrors existing write_decisions(). No additional research needed.
-**Risk:** LOW.
+### Phase 2: WebSocket State Stream
+**Rationale:** All frontend work requires a working data pipe. The `StateRelay` architecture must be correct from the first commit — retrofitting per-client queues and disconnect detection after the broadcast pattern is established is painful.
+**Delivers:** `StateRelay` asyncio task (event-driven, 200ms throttle floor), `ConnectionManager` with per-client `asyncio.Queue(maxsize=10)` writer tasks, heartbeat/reader coroutine per client for disconnect detection, `serialize_snapshot()` (single call, `send_text(bytes)` to all clients), `/ws/state` WebSocket endpoint. Testable via `npx wscat`.
+**Uses:** FastAPI native WebSocket, stdlib json (serialize once per tick regardless of client count)
+**Avoids:** Pitfall 3 (slow client blocks broadcast), Pitfall 8 (dead client accumulation), Pitfall 9 (per-client serialization cost)
+**Research flag:** STANDARD PATTERNS — FastAPI `ConnectionManager` is directly from official FastAPI docs. Per-client queue pattern is well-documented.
 
-### Phase 12: Richer Agent Interactions
+### Phase 3: Vue SPA + Force-Directed Graph
+**Rationale:** The hero feature. Once data flows from Phase 2, the Vue scaffold and D3 graph can be built. This phase must nail the D3/Vue ownership contract (who touches the DOM, who manages reactivity) from the start. Retrofitting `shallowRef`, cleanup protocol, and alpha management into a working-but-broken graph is expensive.
+**Delivers:** Vue 3 + Vite scaffold in `web/`, Pinia simulation store with `applySnapshot()`, `useSimulationSocket.ts` composable routing WebSocket messages to stores, `useForceGraph.ts` composable (D3 physics + `shallowRef` + `onBeforeUnmount` cleanup + warm-restart-only alpha management), `ForceGraph.vue` SVG component with 100 nodes colored by HSL signal/confidence, bracket clustering via `forceX`/`forceY`, zoom/pan via d3-zoom, `AgentTooltip.vue` on SVG click events, `GET /api/edges/{cycle_id}?round=N` REST endpoint, Vue watcher on `snapshot.round_num` triggering edge fetch, Vite config with `ws: true` proxy.
+**Addresses:** Table stakes — live agent graph, agent click-to-inspect. Differentiators — INFLUENCED_BY edge visualization, bracket clustering, zoom/pan.
+**Avoids:** Pitfall 5 (alpha thrashing), Pitfall 6 (D3 memory leak), Pitfall 7 (Vue Proxy corruption), Pitfall 12 (edge data gap), Pitfall 13 (Vite WebSocket proxy)
+**Research flag:** NEEDS ATTENTION — `useForceGraph.ts` is custom code with several non-obvious constraints that interact. Recommend a focused spike: scaffold the composable with shallowRef + cleanup + warm restart before building any panel components on top of it. Validate with real WebSocket data at 200ms cadence before declaring Phase 3 complete.
 
-**Rationale:** Architecture research places this second because RationaleEpisode nodes from Phase 11 serve double duty as the social posts that peers read. Building social dynamics into the simulation before post-simulation features means reports and interviews operate on richer, socially-enriched graph data from their first run. Feature research places this fourth but acknowledges independence from live graph memory; the architecture ordering is more efficient.
-**Delivers:** Public rationale post field in AgentDecision output, top-K post ranking and injection into peer context for Rounds 2-3, READ_POST edges, optional REACTED_TO edges tracking agreement/disagreement.
-**Addresses:** SOCIAL-01 (public_rationale field in decision JSON schema, Post nodes in Neo4j), SOCIAL-02 (top-K post selection ranked by influence weight, injection into _format_peer_context()).
-**Avoids:** Context window overflow pitfall (Pitfall 4) -- token-budget-aware context builder must be implemented as the foundation of this phase before any social posts are added to prompts.
-**Research flag:** Needs phase research. Social post ranking algorithm (by influence weight vs bracket diversity vs signal divergence) is not specified in research and requires a design decision. The interaction between richer prompts and agent output quality needs empirical validation.
-**Risk:** MEDIUM. Modifies the core dispatch path. Careful testing required to confirm richer context improves rather than degrades agent output.
+### Phase 4: REST Controls + Control Bar
+**Rationale:** Start-simulation from browser closes the end-to-end loop for MVP. Shock injection requires the race condition guard on governor suspend/resume — this must be in the endpoint from day one, not added after a race is observed.
+**Delivers:** `POST /api/sim/start` (launches `SimulationManager.start(rumor)`), `POST /api/sim/shock` (with `asyncio.Lock` guard, HTTP 409 on concurrent request), `ControlBar.vue` (start button, shock text input, phase indicator), frontend button disable state tied to simulation phase from Pinia store.
+**Addresses:** Table stakes — start simulation from browser, shock injection.
+**Avoids:** Pitfall 10 (governor suspend/resume race), Pitfall 11 (double-start, already guarded in Phase 1's SimulationManager)
+**Research flag:** STANDARD PATTERNS — REST + asyncio.Lock + HTTP 409 are standard patterns. No research needed.
 
-### Phase 13: Dynamic Persona Generation
+### Phase 5: Panels + Visual Polish
+**Rationale:** TUI parity features that require the graph and data pipe but not each other. All read from Pinia store state already populated by Phases 2-3. Can be developed in parallel within the phase.
+**Delivers:** `BracketPanel.vue` (signal distribution per archetype), `RationalePanel.vue` (rolling window, last 50 entries, append-on-receive), `TelemetryFooter.vue` (TPS, elapsed, governor state + memory % from snapshot), edge animation on new INFLUENCED_BY (stroke-dasharray SVG transition triggered by edge fetch), smooth agent node color transitions between rounds (d3-interpolate between HSL states on round change), agent search/filter by bracket or ID in Pinia store with graph highlight.
+**Addresses:** Table stakes — bracket panel, rationale feed, telemetry footer. Differentiators — edge animation, smooth color transitions, agent filter.
+**Research flag:** STANDARD PATTERNS — Pinia computed state and Vue component composition. d3-interpolate color transitions are well-documented.
 
-**Rationale:** Independent of Phases 11-12 in data dependency -- it modifies simulation INPUT (personas), not the simulation loop or output. Placed here rather than in parallel to ensure Phase 11 and 12 graph patterns are stable before a new input source is introduced. Low risk relative to other phases.
-**Delivers:** PersonaGenerator module (persona_gen.py), entity-aware bracket modifier generation, persona replacement within fixed 100-agent grid (grid invariant preserved), PersonaGenSettings configuration, option to keep orchestrator loaded between inject_seed() and generate() to avoid a double cold-load.
-**Addresses:** PERSONA-01 (orchestrator generates entity-specific bracket modifiers from SeedEvent.entities), PERSONA-02 (modifier injection into generate_personas() pipeline, DynamicPersonaSpec dataclass).
-**Avoids:** Prompt injection pitfall (Pitfall 5) -- input sanitization must be the first thing built in this phase, before persona template code. Validate generated prompts against structural rules.
-**Research flag:** Standard patterns. Follows existing inject_seed() orchestrator-call pattern. No additional research needed.
-**Risk:** LOW.
+### Phase 6: Replay Mode
+**Rationale:** Depends on the existing `ReplayStore` (already built, non-destructive snapshot semantics) and the graph from Phase 3. `StateRelay` dual-source mode is a small addition to Phase 2's relay component. No new architectural concepts — replay follows the same WebSocket broadcast path, just with a different store as source.
+**Delivers:** `POST /api/replay/start`, `POST /api/replay/advance`, `POST /api/replay/stop`, `GET /api/cycles`, `StateRelay` dual-source mode (live vs replay switch), `ReplayControls.vue` (cycle picker, round advance, auto-advance toggle), round-by-round edge diff highlighting (compare edge sets between rounds, color new edges).
+**Addresses:** Table stakes — simulation replay. Differentiator — round edge diff.
+**Research flag:** STANDARD PATTERNS — `ReplayStore` semantics are already defined and tested. StateRelay dual-source is a straightforward conditional on `_active_store`.
 
-### Phase 14: Agent Interviews
+### Phase 7: Agent Interview Panel
+**Rationale:** Post-simulation only. Adding this late means the gating logic (phase check → HTTP 409 during active simulation) is natural rather than bolted on. Interview requires a completed simulation for agent context anyway, so deferring preserves the original TUI design contract with zero special handling.
+**Delivers:** `/ws/interview/{agent_id}` WebSocket endpoint, `InterviewRelay` session manager (load context from Neo4j, create `InterviewEngine`, deliver context message on connect, relay Q&A turns), `InterviewPanel.vue` (slide-out, multi-turn Q&A, loading state for 5-60s LLM response), HTTP 409 guard during active simulation, `try/finally` cleanup of `InterviewEngine` on WebSocket disconnect.
+**Addresses:** Table stakes — agent interview.
+**Avoids:** Pitfall 4 (LLM contention during simulation), Pitfall 15 (engine memory leak on disconnect)
+**Research flag:** NEEDS ATTENTION — Interview gating strategy should be confirmed before coding: post-simulation-only (simplest, matches TUI contract) vs semaphore-during-simulation (adds complexity, governor awareness gap). Recommendation from research is post-simulation-only. Confirm with project owner.
 
-**Rationale:** Depends on Phase 11 for rationale history context. Post-simulation feature that does not affect core simulation reliability. Benefits from Phase 12 data (richer graph context for interview reconstruction). Feature and architecture research both place this in the second-to-last position.
-**Delivers:** InterviewEngine module (interview.py), stateful InterviewSession with graph-backed context, interactive TUI interview mode (push/pop Screen with Input widget and RichLog), CLI interview subcommand, multi-turn conversation with sliding window history management, SimulationPhase.INTERVIEWING state.
-**Addresses:** INT-01 (agent context reconstruction -- decisions + rationale history + influence data from Neo4j), INT-02 (conversational loop using worker LLM with agent's original system prompt + decision narrative context), INT-03 (TUI integration accessible from agent grid, clean exit to dashboard).
-**Avoids:** Model lifecycle collision (Pitfall 1) -- must use worker model for interviews; never load orchestrator while interview is available. Incomplete interview context (Pitfall 6) -- retrieval query must traverse MADE, CITED, and INFLUENCED_BY relationships, not just Decision nodes. Blocking TUI during inference (anti-pattern) -- run inference as Textual Worker.
-**Research flag:** Needs phase research. qwen3.5:9b's interview response quality with 1,250+ token context loads needs empirical validation. Textual Worker pattern for streaming interview responses needs implementation design.
-**Risk:** MEDIUM. TUI changes introduce user input handling in a previously output-only interface.
-
-### Phase 15: Post-Simulation Report
-
-**Rationale:** Most complex new component (ReACT loop with tool dispatch). Placed last because it benefits from the richest possible graph data (all prior phases contributing RationaleEpisode, narrative edges, READ_POST edges, social reactions) and because the report query patterns validate that the graph schema is queryable in the ways the report needs. Feature and architecture research both place this last.
-**Delivers:** ReportGenerator module (report.py), ReACT loop with hard iteration cap, Pydantic-validated JSON action parsing (ReACTAction model), Cypher query tool registry (consensus, shifts, influence leaders, bracket narratives, convergence), Jinja2 report templates, aiofiles async export to results/, CLI report subcommand, TUI report progress indicator (ReportProgress in StateStore), SimulationPhase.REPORTING state.
-**Addresses:** REPORT-01 (ReACT loop using OllamaClient directly, prompt-based tool dispatching -- no LangChain), REPORT-02 (Cypher query tools via GraphStateManager public methods, not raw driver access), REPORT-03 (structured markdown report output, CLI integration, file path displayed in TUI).
-**Avoids:** ReACT infinite loops (Pitfall 3) -- hard iteration cap (max 8-10 calls), duplicate tool call detection via (tool_name, param_hash) cache, compressed observations. Model slot competition (Pitfall 7) -- serialize report before or after interview via post-simulation menu, never concurrent. qwen3.5 tool calling bug -- never use `tools=` parameter, always prompt-based.
-**Research flag:** Needs phase research. qwen3.5:32b's ability to produce reliable JSON-structured Thought/Tool/Input outputs needs empirical testing before committing to the full tool registry. Run a spike test with 2-3 tools before building all 5-6.
-**Risk:** MEDIUM-HIGH. ReACT loop depends on orchestrator output quality. Needs robust 3-tier fallback for malformed JSON actions (same pattern as existing parsing.py).
+### Phase 8: Report Viewer + TUI Removal
+**Rationale:** Least-risk phase. Report viewer is read-only. TUI removal is file deletion. StaticFiles mount order must be correct in production — register after all API routers. TUI must not be removed until all table-stakes features are smoke-tested in the web UI.
+**Delivers:** `GET /api/report/{cycle_id}` (generate via `ReportEngine` or return cached), `ReportViewer.vue` (renders report markdown in browser), `StaticFiles` mount as final registration in `app.py`, `tui.py` deleted, `textual` removed from `pyproject.toml`, `pyproject.toml` `[project.scripts]` updated.
+**Addresses:** Differentiator — report viewer in browser. Milestone complete — TUI fully removed.
+**Avoids:** Pitfall 14 (StaticFiles mount order catches `/api/*` routes if registered first)
+**Research flag:** STANDARD PATTERNS — StaticFiles serving, markdown rendering, and dependency removal are trivial operations.
 
 ### Phase Ordering Rationale
 
-- **Phase 11 is non-negotiable first.** All three research files (FEATURES.md, ARCHITECTURE.md, PITFALLS.md) independently confirm this. The data it creates is a prerequisite for every other v2 feature, and Pitfall 6 (hollow interview context) specifically requires context summaries to be written to the graph DURING simulation, not added as an afterthought.
-- **Phase 12 before interviews and reports.** Building social dynamics into simulation rounds means the graph that interviews and reports query is richer from the first run. The RationaleEpisode nodes created in Phase 11 serve directly as the social posts in Phase 12, making this a natural continuation rather than a separate track.
-- **Phase 13 can shift.** Dynamic persona generation is independent of Phases 12, 14, and 15. It could be built in parallel or earlier without blocking other work. Its placement at Phase 13 (after the simulation loop is stable with enriched writes) reflects conservative risk management.
-- **Phase 14 before 15.** Interviews validate that graph read paths (decisions, rationale history, influence data) work correctly for single-agent context reconstruction. These same read patterns underlie report query tools. A working interview is evidence the graph is correctly populated.
-- **Never run report and interview concurrently.** Pitfall 7 is explicit: serialize post-simulation activities. The CLI/TUI must present a sequential menu (1. Interview Agents, 2. Generate Report) to prevent model slot competition.
+- Phases 1-2 are the mandatory data backbone. No frontend work is valid until Phase 2 produces a wscat-testable WebSocket broadcast. These two phases exist to eliminate the two founding risks (event loop, rationale drain) before any UI code is written against them.
+- Phase 3 is high creative risk. The D3/Vue integration contract has multiple non-obvious traps (shallowRef, onBeforeUnmount, alpha management) that interact. Getting it right the first time is cheaper than retrofitting. Treat Phase 3 as the risk-reduction phase for the entire frontend.
+- Phases 4-5 are independent of each other once Phase 3 is stable. They can be interleaved or assigned to parallel workstreams.
+- Phases 6-7 are independent of each other. Replay is lower risk than Interview; either order works. Both depend on Phase 3 (graph) and Phase 5 (panels) being stable, but neither requires the other.
+- Phase 8 is always last. TUI removal before web UI verification would leave the project without a working UI.
 
-### Research Flags
+### Research Flags Summary
 
-Phases needing deeper research during planning:
-- **Phase 12 (Richer Agent Interactions):** Social post ranking algorithm is unspecified. The interaction between expanded prompts and agent output quality needs empirical design before implementation.
-- **Phase 14 (Agent Interviews):** Worker model response quality at interview context token loads needs validation. Textual Worker pattern for streaming responses needs architectural design.
-- **Phase 15 (Post-Simulation Report):** ReACT prompt engineering for qwen3.5:32b is the highest-uncertainty element. A 2-3 tool spike test should precede full implementation.
+| Phase | Research Needed | Reason |
+|-------|-----------------|--------|
+| Phase 3 | Yes — spike recommended | `useForceGraph.ts` composable has multiple interacting non-obvious constraints; validate D3/Vue ownership split with real data before building panels on top |
+| Phase 7 | Yes — decision required | Interview gating: post-simulation-only vs semaphore-during-simulation; confirm with project owner before coding the endpoint |
+| Phase 1 | No | FastAPI lifespan + asyncio.create_task are official-documentation patterns |
+| Phase 2 | No | ConnectionManager + per-client queue are FastAPI official patterns |
+| Phase 4 | No | REST + asyncio.Lock + HTTP 409 are standard; governor integration points are known |
+| Phase 5 | No | Pinia + Vue SFC composition; d3-interpolate color transitions are well-documented |
+| Phase 6 | No | ReplayStore is pre-built; StateRelay dual-source is well-defined; no new concepts |
+| Phase 8 | No | File deletion + static file serving + pyproject edit |
 
-Phases with standard patterns (skip research-phase):
-- **Phase 11 (Live Graph Memory):** Pattern mirrors existing write_decisions() exactly. UNWIND batch writes, schema indexes, and GraphStateManager extension are all validated in v1.
-- **Phase 13 (Dynamic Persona Generation):** Follows existing inject_seed() orchestrator-call pattern. Risk is low; straightforward extension.
+---
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Existing v1 stack fully validated. Two new deps (Jinja2, aiofiles) are mature and conflict-free. qwen3.5 tool calling bug confirmed via two GitHub issues with community reproduction. |
-| Features | HIGH | Feature set grounded in primary research papers (Park et al. 2023, OASIS, TwinMarket, TradingAgents) and production frameworks (MiroFish 44.9k stars). Prioritization matrix is internally consistent and grounded in competitor analysis. |
-| Architecture | HIGH | Builds on existing codebase patterns with explicit modification points identified per file. Five-phase build structure independently confirmed by both feature and architecture research. Anti-patterns are concrete and specific to existing code (dispatch_wave, session-per-method, UNWIND batch). |
-| Pitfalls | HIGH | All 7 critical pitfalls verified against existing codebase architecture. Performance traps are quantified (700x write amplification, 2048 token context limit, 30s cold-load). Recovery strategies provided for each pitfall. |
+| Stack | HIGH | All versions verified against official npm/PyPI registries as of April 2026. Version compatibility matrix cross-checked. D3 SVG vs Canvas decision grounded in official Cytoscape performance docs and SVG performance research. |
+| Features | HIGH | Feature list derived from direct TUI parity analysis. Edge data gap is a known and resolved gap (REST endpoint). Anti-features explicitly excluded with rationale. |
+| Architecture | HIGH | Integration points map precisely to existing codebase (state.py lines 200-204 for drain, governor.py for _resume_event, simulation.py for run_simulation signature). Patterns are from FastAPI official docs. Single-process constraint is proven by TUI architecture. |
+| Pitfalls | HIGH | Critical pitfalls 1-2 are grounded in the existing codebase (governor deadlock analysis in MEMORY.md, StateStore drain in state.py). D3 pitfalls 5-7 are documented against D3 source behavior with observable warning signs. Starlette disconnect pitfall confirmed against Starlette Issue #1811. |
 
-**Overall confidence:** HIGH
+**Overall confidence: HIGH**
 
 ### Gaps to Address
 
-- **ReACT output format:** STACK.md recommends regex-based text parsing (Simon Willison pattern). ARCHITECTURE.md recommends JSON-structured output with Pydantic validation. Both are viable; run a spike test during Phase 15 planning to determine which qwen3.5:32b produces more reliably in the AlphaSwarm ReACT prompt context.
-- **Interview context window budget:** The 8K token context estimate for the orchestrator model assumes default Ollama configuration. Verify qwen3.5:32b context window as configured in AlphaSwarm's Modelfile.orchestrator. If pinned to 4K, the sliding window triggers after approximately 10 exchanges instead of 22.
-- **Social post ranking algorithm:** SOCIAL-02 requires top-K post selection for peer context injection. Ranking criteria (by influence weight, bracket diversity, or signal divergence) are unspecified in all research files. Design decision required during Phase 12 planning.
-- **ARCHITECTURE.md and FEATURES.md phase ordering disagreement:** Features research recommends SOCIAL last (Phase 14, after Interviews); Architecture research recommends SOCIAL second (Phase 12, before Interviews). This summary recommends architecture order. Validate this choice during Phase 12 planning by confirming that social enrichment materially improves interview context quality.
+- **SVG vs Canvas rendering discrepancy:** ARCHITECTURE.md contains a section recommending Canvas and listing SVG as "Anti-Pattern 5." STACK.md and PITFALLS.md both explicitly argue SVG is the correct choice at 100 nodes and mark it "acceptable permanently" in the technical debt table. The synthesis verdict is **SVG** — the Canvas recommendation in ARCHITECTURE.md is an artifact of an earlier research draft. Confirm SVG choice with project owner before Phase 3 work begins; a one-line correction in ARCHITECTURE.md would prevent future confusion.
+
+- **d3-force-clustering third-party status:** The `d3-force-clustering` package (vasturiano) is flagged MEDIUM confidence in STACK.md. If it proves incompatible or unmaintained, bracket clustering falls back to vanilla `forceX`/`forceY` targeting bracket centroid coordinates — a straightforward ~10-line alternative requiring no plugin. Not a blocking risk.
+
+- **orjson for serialize-once path:** PITFALLS.md (Pitfall 9) recommends orjson for the serialize-once broadcast. STACK.md recommends stdlib json for MVP. Resolution: start with stdlib json and `send_text(pre_serialized_string)` (serialize once, regardless of client count). Add orjson only if CPU profiling identifies serialization as a measurable bottleneck. Not a blocking gap.
+
+- **Interview streaming (future):** MVP defers LLM token streaming. If added later, `InterviewRelay` needs Ollama's `stream=True` path. The WebSocket architecture supports it; it is not designed out. Plan a separate research spike when the feature is scheduled.
+
+- **Shock injection write path verification:** FEATURES.md and ARCHITECTURE.md describe `write_shock_event()` in `GraphStateManager`, but the exact method signature should be verified against `graph.py` before Phase 4 implementation. Listed as a low-risk gap — most likely present, but confirm.
+
+---
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- [Generative Agents: Interactive Simulacra of Human Behavior (Park et al. 2023)](https://arxiv.org/abs/2304.03442) -- Interview evaluation methodology, memory stream architecture
-- [OASIS: Open Agent Social Interaction Simulations (CAMEL-AI)](https://github.com/camel-ai/oasis) -- Social action patterns, RecSys-driven propagation
-- [TwinMarket: Scalable Behavioral and Social Simulation](https://arxiv.org/html/2502.01506v2) -- Forum-style social posts, hot-score ranking, opinion leader emergence
-- [MiroFish (GitHub, 44.9k stars)](https://github.com/666ghj/MiroFish) -- ReACT report agent, agent interviews, OASIS social integration
-- [TradingAgents: Multi-Agent LLM Financial Trading](https://github.com/TauricResearch/TradingAgents) -- Chain-of-thought logs, hierarchical report writing
-- [Ollama tool calling bug #14493](https://github.com/ollama/ollama/issues/14493) -- Confirmed broken qwen3.5 tool calling
-- [Ollama tool calling bug #14745](https://github.com/ollama/ollama/issues/14745) -- 9b variant prints tool calls as text
-- [Neo4j Python driver concurrency docs](https://neo4j.com/docs/python-manual/current/concurrency/) -- AsyncSession constraints and performance recommendations
-- [ReACT: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629) -- Original ReACT paper
-- [Jinja2 PyPI (v3.1.6)](https://pypi.org/project/Jinja2/) -- Template engine, Python >=3.7
-- [aiofiles PyPI](https://pypi.org/project/aiofiles/) -- Async file I/O for asyncio
-- [Textual PyPI (v8.2.1)](https://pypi.org/project/textual/) -- Screen modes, Input, RichLog
-- [Neo4j Text2Cypher ReACT agent example](https://github.com/neo4j-field/text2cypher-react-agent-example) -- ReACT + Neo4j integration pattern
+- FastAPI official docs (fastapi.tiangolo.com) — WebSocket ConnectionManager, lifespan context manager, StaticFiles mount order, Depends() DI pattern
+- D3.js official docs (d3js.org/d3-force) — Force simulation API, alpha/decay, tick events, restart semantics, `forceX`/`forceY`
+- Cytoscape.js performance documentation — Edge rendering cost warnings, edge arrow overhead, semitransparent edge cost (basis for rejection)
+- Pinia official docs (pinia.vuejs.org) — defineStore, Composition API pattern, Vue 3.5+ requirement confirmed
+- VueUse docs (vueuse.org/core/usewebsocket) — useWebSocket auto-reconnect, heartbeat interval, reactive status/data refs
+- PyPI registries: fastapi 0.135.3, uvicorn 0.44.0 (April 2026 current)
+- npm registries: vue 3.5.32, pinia 3.0.4, vue-router 5.0.4, @vueuse/core 14.2.1 (current as of research date)
+- Existing AlphaSwarm codebase: `state.py` lines 155-162 (rationale queue drop logic), lines 200-204 (destructive drain), lines 259-280 (ReplayStore non-destructive snapshot); `governor.py` (_resume_event, _adjustment_lock, TokenPool); `simulation.py` (run_simulation signature and parameters)
+- AlphaSwarm MEMORY.md governor bug analysis — confirms asyncio event loop split as root cause of the 7-bug governor deadlock; validates Pitfall 1 as the highest-priority risk
 
 ### Secondary (MEDIUM confidence)
-- [Graphiti: Knowledge Graph Memory (Neo4j/Zep)](https://neo4j.com/blog/developer/graphiti-knowledge-graph-memory/) -- Bi-temporal episode model patterns
-- [Neo4j Agent Memory (neo4j-labs)](https://github.com/neo4j-labs/agent-memory) -- Episodic/semantic memory schema patterns
-- [Simon Willison ReACT pattern](https://til.simonwillison.net/llms/python-react-pattern) -- Minimal Python ReACT implementation
-- [Population-Aligned Persona Generation (2025)](https://arxiv.org/abs/2509.10127) -- Three-stage persona generation pipeline
-- [PersonaAgent: LLM Agents Meet Personalization (2025)](https://arxiv.org/abs/2506.06254) -- Test-time persona alignment
-- [OWASP LLM Top 10 2025: Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) -- Indirect prompt injection via untrusted data
-- [Memory in LLM-based Multi-agent Systems (TechRxiv)](https://www.techrxiv.org/doi/full/10.36227/techrxiv.176539617.79044553/v1) -- Context degradation and memory synchronization challenges
-- [Ollama Keep-Alive Memory Management](https://markaicode.com/ollama-keep-alive-memory-management/) -- Model eviction behavior and cold-load latency
+- d3-force-clustering (github.com/vasturiano) — third-party D3 force plugin; active maintenance but not part of official D3 org
+- Starlette Issue #1811 — `websocket.client_state` reports CONNECTED after client is gone in send-only pattern
+- FastAPI Discussion #9031 — confirmed Starlette disconnect detection gap
+- Visual Cinnamon (visualcinnamon.com) — stroke-dasharray + dashoffset edge animation technique (established SVG pattern)
+- DEV Community (dev.to) — Vue 3 + D3 Composition API integration patterns; multiple independent sources confirming shallowRef recommendation
+- SSE vs WebSocket 2026 comparison — bidirectional requirement justifies WebSocket over SSE for this use case
+
+### Tertiary (LOW confidence)
+- Vite 8.0 minor version — major release confirmed for 2026; exact minor version unverified at research time
 
 ---
-*Research completed: 2026-03-31*
+
+*Research completed: 2026-04-12*
 *Ready for roadmap: yes*
