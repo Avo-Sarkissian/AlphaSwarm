@@ -982,6 +982,50 @@ class GraphStateManager:
         )
 
     # ------------------------------------------------------------------
+    # Phase 31: Influence edge reads (VIS-03)
+    # ------------------------------------------------------------------
+
+    async def read_influence_edges(
+        self, cycle_id: str, round_num: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Read INFLUENCED_BY edges for a specific cycle and round.
+
+        Returns list of dicts: [{"source_id": str, "target_id": str, "weight": float}].
+        Used by GET /api/edges/{cycle_id}?round=N endpoint (D-11).
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_influence_edges_tx, cycle_id, round_num,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read influence edges for cycle {cycle_id} round {round_num}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "influence_edges_read", cycle_id=cycle_id, round_num=round_num, count=len(records),
+        )
+        return records
+
+    @staticmethod
+    async def _read_influence_edges_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        round_num: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for reading INFLUENCED_BY edges."""
+        result = await tx.run(
+            """
+            MATCH (src:Agent)-[infl:INFLUENCED_BY {cycle_id: $cycle_id, round: $round_num}]->(tgt:Agent)
+            RETURN src.id AS source_id, tgt.id AS target_id, infl.weight AS weight
+            """,
+            cycle_id=cycle_id,
+            round_num=round_num,
+        )
+        return [dict(record) async for record in result]
+
+    # ------------------------------------------------------------------
     # Phase 14: Interview context reads
     # ------------------------------------------------------------------
 
