@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: Web UI
-status: planning
-stopped_at: Milestone v5.0 started — defining requirements
+status: ready_to_plan
+stopped_at: Roadmap created — 8 phases (29-36), 24 requirements mapped
 last_updated: "2026-04-12T00:00:00.000Z"
 last_activity: 2026-04-12
 progress:
-  total_phases: 0
+  total_phases: 8
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-12)
 
 **Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — the simulation engine is the product
-**Current focus:** v5.0 Web UI — defining requirements
+**Current focus:** v5.0 Web UI — Phase 29 ready to plan
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 29 of 36 (FastAPI Skeleton and Event Loop Foundation)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-04-12 — Milestone v5.0 started
+Status: Ready to plan
+Last activity: 2026-04-12 — Roadmap created for v5.0 (8 phases, 24 requirements)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -44,11 +44,11 @@ Progress: [░░░░░░░░░░] 0%
 
 ### Decisions
 
-- SVG charts via pygal (not Plotly) — HTML reports under 1MB vs 15MB+
-- Schwab CSV loaded in-memory only — simulation stays uncontaminated by portfolio data
-- Governor suspend/resume guard at callee (governor.py) — prevents TOCTOU race
-- ReplayStore separate from StateStore — destructive drain and timer corruption make reuse unsafe
-- `_replay_store` set before phase change — prevents `_poll_snapshot` race
+- SVG (not Canvas) for force graph at 100 nodes — native DOM events, CSS transitions, zero custom hit-testing
+- D3 as physics engine only, Vue owns SVG DOM — shallowRef + triggerRef, no Vue Proxy on D3 node array
+- Uvicorn must own the asyncio event loop — all objects created inside FastAPI lifespan (prevents governor deadlock class)
+- StateStore.snapshot() refactored to non-destructive — separate drain_rationales() called once per broadcast tick
+- Post-simulation-only interview gating — matches TUI contract, prevents Ollama contention
 
 ### Pending Todos
 
@@ -56,10 +56,10 @@ None.
 
 ### Blockers/Concerns
 
-None — v4.0 fully archived.
+None.
 
 ## Session Continuity
 
 Last session: 2026-04-12
-Stopped at: v4.0 milestone complete — archived
-Next action: /gsd-new-milestone
+Stopped at: v5.0 roadmap created — 8 phases (29-36), 24 requirements mapped
+Next action: /gsd:plan-phase 29

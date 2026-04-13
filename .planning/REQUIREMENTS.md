@@ -80,36 +80,36 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BE-01 | TBD | Pending |
-| BE-02 | TBD | Pending |
-| BE-03 | TBD | Pending |
-| BE-04 | TBD | Pending |
-| BE-05 | TBD | Pending |
-| BE-06 | TBD | Pending |
-| BE-07 | TBD | Pending |
-| BE-08 | TBD | Pending |
-| BE-09 | TBD | Pending |
-| BE-10 | TBD | Pending |
-| BE-11 | TBD | Pending |
-| VIS-01 | TBD | Pending |
-| VIS-02 | TBD | Pending |
-| VIS-03 | TBD | Pending |
-| VIS-04 | TBD | Pending |
-| MON-01 | TBD | Pending |
-| MON-02 | TBD | Pending |
-| MON-03 | TBD | Pending |
-| CTL-01 | TBD | Pending |
-| CTL-02 | TBD | Pending |
-| CTL-03 | TBD | Pending |
-| INT-01 | TBD | Pending |
-| INT-02 | TBD | Pending |
-| RPT-01 | TBD | Pending |
+| BE-01 | Phase 29 | Pending |
+| BE-02 | Phase 29 | Pending |
+| BE-03 | Phase 29 | Pending |
+| BE-04 | Phase 30 | Pending |
+| BE-05 | Phase 32 | Pending |
+| BE-06 | Phase 32 | Pending |
+| BE-07 | Phase 32 | Pending |
+| BE-08 | Phase 32 | Pending |
+| BE-09 | Phase 32 | Pending |
+| BE-10 | Phase 32 | Pending |
+| BE-11 | Phase 35 | Pending |
+| VIS-01 | Phase 31 | Pending |
+| VIS-02 | Phase 31 | Pending |
+| VIS-03 | Phase 31 | Pending |
+| VIS-04 | Phase 31 | Pending |
+| MON-01 | Phase 33 | Pending |
+| MON-02 | Phase 33 | Pending |
+| MON-03 | Phase 33 | Pending |
+| CTL-01 | Phase 32 | Pending |
+| CTL-02 | Phase 32 | Pending |
+| CTL-03 | Phase 34 | Pending |
+| INT-01 | Phase 35 | Pending |
+| INT-02 | Phase 35 | Pending |
+| RPT-01 | Phase 36 | Pending |
 
 **Coverage:**
 - v5.0 requirements: 24 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 24 ⚠️
+- Mapped to phases: 24
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-12*
-*Last updated: 2026-04-12 after initial definition*
+*Last updated: 2026-04-12 after roadmap creation*
