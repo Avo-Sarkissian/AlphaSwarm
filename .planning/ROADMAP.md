@@ -96,7 +96,10 @@ Plans:
   1. Connecting to ws://localhost:8000/ws/state with wscat during an active simulation produces a continuous stream of JSON snapshots at approximately 200ms intervals
   2. A slow or paused client does not block snapshot delivery to other connected clients (bounded queue with drop-oldest or skip)
   3. Disconnecting a client cleanly removes its writer task with no error logs or resource leaks
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 30-01-PLAN.md — Wave 0 test stubs + broadcaster.py (snapshot_to_json + start_broadcaster) + routes/websocket.py (/ws/state endpoint)
+- [ ] 30-02-PLAN.md — Wire broadcaster task and ws_router into app.py + human wscat verification
 
 ### Phase 31: Vue SPA and Force-Directed Graph
 **Goal**: Users see a live force-directed graph of 100 agent nodes in the browser, clustered by bracket archetype, with signal-colored nodes and animated INFLUENCED_BY edges that appear on each round transition
@@ -194,7 +197,7 @@ Phases execute in numeric order: 1-10 (v1.0) -> 11-15 (v2.0) -> 24-28 (v4.0) -> 
 | 27. Shock Analysis and Reporting | v4.0 | 3/3 | Complete | 2026-04-11 |
 | 28. Simulation Replay | v4.0 | 3/3 | Complete | 2026-04-12 |
 | 29. FastAPI Skeleton and Event Loop Foundation | v5.0 | 5/5 | Complete   | 2026-04-13 |
-| 30. WebSocket State Stream | v5.0 | 0/? | Not started | - |
+| 30. WebSocket State Stream | v5.0 | 0/2 | Planned | - |
 | 31. Vue SPA and Force-Directed Graph | v5.0 | 0/? | Not started | - |
 | 32. REST Controls and Simulation Control Bar | v5.0 | 0/? | Not started | - |
 | 33. Monitoring Panels | v5.0 | 0/? | Not started | - |
