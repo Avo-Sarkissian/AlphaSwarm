@@ -12,6 +12,7 @@ from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.routes.health import router as health_router
+from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.simulation_manager import SimulationManager
 
 log = structlog.get_logger(component="web.app")
@@ -56,4 +57,5 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(title="AlphaSwarm", lifespan=lifespan)
     app.include_router(health_router, prefix="/api")
+    app.include_router(simulation_router, prefix="/api")
     return app

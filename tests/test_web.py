@@ -32,6 +32,7 @@ def _make_test_app() -> FastAPI:
     from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
     from alphaswarm.web.connection_manager import ConnectionManager
     from alphaswarm.web.routes.health import router as health_router
+    from alphaswarm.web.routes.simulation import router as simulation_router
     from alphaswarm.web.simulation_manager import SimulationManager
 
     @asynccontextmanager
@@ -56,6 +57,7 @@ def _make_test_app() -> FastAPI:
 
     app = FastAPI(title="AlphaSwarm-Test", lifespan=_unit_lifespan)
     app.include_router(health_router, prefix="/api")
+    app.include_router(simulation_router, prefix="/api")
     return app
 
 
@@ -203,3 +205,26 @@ async def test_connection_manager_disconnect_cancels_task() -> None:
     assert task.cancelled() or task.done()
     assert ws not in cm._clients
     assert ws not in cm._tasks
+
+
+# ---------------------------------------------------------------------------
+# Test 7: POST /api/simulate/start returns 409 when simulation is running (SC-4)
+# ---------------------------------------------------------------------------
+
+
+def test_simulate_start_409_when_running() -> None:
+    """POST /api/simulate/start returns HTTP 409 when simulation is already running."""
+    from unittest.mock import AsyncMock, patch
+    from alphaswarm.web.simulation_manager import SimulationAlreadyRunningError
+
+    with TestClient(_make_test_app()) as client:
+        with patch.object(
+            client.app.state.sim_manager,
+            "start",
+            new=AsyncMock(side_effect=SimulationAlreadyRunningError("Simulation already running")),
+        ):
+            r = client.post("/api/simulate/start", json={"seed": "test seed"})
+            assert r.status_code == 409
+            data = r.json()
+            assert "detail" in data
+            assert data["detail"]["error"] == "simulation_already_running"
