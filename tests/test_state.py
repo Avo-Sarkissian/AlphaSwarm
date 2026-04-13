@@ -123,16 +123,16 @@ def test_rationale_entry_frozen() -> None:
 
 
 async def test_rationale_queue_drain() -> None:
-    """Push 7 entries; drain_rationales(5) returns 5, second drain returns 2."""
+    """Push 7 entries; snapshot drains 5 first call, 2 second call."""
     store = StateStore()
     for i in range(7):
         await store.push_rationale(
             RationaleEntry(agent_id=f"A_{i}", signal=SignalType.BUY, rationale="test", round_num=1)
         )
-    batch1 = store.drain_rationales(5)
-    assert len(batch1) == 5
-    batch2 = store.drain_rationales(5)
-    assert len(batch2) == 2
+    snap1 = store.snapshot()
+    assert len(snap1.rationale_entries) == 5
+    snap2 = store.snapshot()
+    assert len(snap2.rationale_entries) == 2
 
 
 async def test_rationale_queue_empty_drain() -> None:
@@ -154,12 +154,12 @@ async def test_rationale_queue_full_drops_oldest() -> None:
     await store.push_rationale(
         RationaleEntry(agent_id="NEWEST", signal=SignalType.BUY, rationale="newest", round_num=2)
     )
-    # Drain all entries via drain_rationales()
+    # Drain all entries (maxsize=50 so drain 5 per snapshot, need 10 calls)
     all_entries: list[RationaleEntry] = []
-    for _ in range(11):
-        drained = store.drain_rationales(5)
-        all_entries.extend(drained)
-        if not drained:
+    for _ in range(11):  # 10 * 5 = 50 entries
+        snap = store.snapshot()
+        all_entries.extend(snap.rationale_entries)
+        if not snap.rationale_entries:
             break
     agent_ids = [e.agent_id for e in all_entries]
     assert "NEWEST" in agent_ids
@@ -220,68 +220,16 @@ async def test_state_snapshot_new_defaults() -> None:
 
 
 async def test_snapshot_drain_queue_twice() -> None:
-    """snapshot() is non-destructive; drain_rationales() removes entries."""
+    """Calling snapshot() twice drains queue only for entries present at call time."""
     store = StateStore()
     await store.push_rationale(
         RationaleEntry(agent_id="A_0", signal=SignalType.HOLD, rationale="hold signal", round_num=3)
     )
-    # snapshot() does NOT drain -- rationale_entries is always ()
     snap1 = store.snapshot()
-    assert snap1.rationale_entries == ()
-    # Explicit drain removes the entry
-    drained = store.drain_rationales(5)
-    assert len(drained) == 1
-    assert drained[0].agent_id == "A_0"
-    # Second drain is empty
-    drained2 = store.drain_rationales(5)
-    assert drained2 == ()
-
-
-async def test_snapshot_non_destructive() -> None:
-    """snapshot() called twice returns identical rationale_entries (always empty tuple)."""
-    store = StateStore()
-    for i in range(3):
-        await store.push_rationale(
-            RationaleEntry(agent_id=f"A_{i}", signal=SignalType.BUY, rationale="test", round_num=1)
-        )
-    snap1 = store.snapshot()
+    assert len(snap1.rationale_entries) == 1
+    # Second call gets empty -- no new entries pushed
     snap2 = store.snapshot()
-    assert snap1.rationale_entries == ()
     assert snap2.rationale_entries == ()
-    # Queue still has entries -- not drained by snapshot
-    drained = store.drain_rationales(10)
-    assert len(drained) == 3
-
-
-async def test_drain_rationales() -> None:
-    """drain_rationales removes entries; second call returns fewer."""
-    store = StateStore()
-    for i in range(8):
-        await store.push_rationale(
-            RationaleEntry(agent_id=f"A_{i}", signal=SignalType.SELL, rationale="test", round_num=2)
-        )
-    batch1 = store.drain_rationales(5)
-    assert len(batch1) == 5
-    assert all(isinstance(e, RationaleEntry) for e in batch1)
-    batch2 = store.drain_rationales(5)
-    assert len(batch2) == 3
-    batch3 = store.drain_rationales(5)
-    assert batch3 == ()
-
-
-async def test_drain_rationales_tui_compat() -> None:
-    """TUI compatibility: snapshot() + drain_rationales(5) together reproduce old behavior."""
-    store = StateStore()
-    for i in range(3):
-        await store.push_rationale(
-            RationaleEntry(agent_id=f"A_{i}", signal=SignalType.HOLD, rationale="compat test", round_num=1)
-        )
-    snap = store.snapshot()
-    entries = store.drain_rationales(5)
-    # snap has all scalar fields; entries has the rationale data
-    assert snap.phase == SimulationPhase.IDLE
-    assert len(entries) == 3
-    assert entries[0].agent_id == "A_0"
 
 
 def test_bracket_summary_frozen() -> None:
@@ -328,12 +276,12 @@ async def test_push_top_rationales_sorts_by_influence() -> None:
     influence_weights = {"high_agent": 0.9, "mid_agent": 0.5, "low_agent": 0.1}
 
     await _push_top_rationales(decisions, 1, store, influence_weights=influence_weights, limit=2)
-    entries = store.drain_rationales(5)
+    snap = store.snapshot()
 
     # Should have pushed at most 2 entries (limit=2)
-    assert len(entries) == 2
+    assert len(snap.rationale_entries) == 2
     # First entry should be high_agent (highest influence)
-    assert entries[0].agent_id == "high_agent"
+    assert snap.rationale_entries[0].agent_id == "high_agent"
 
 
 async def test_push_top_rationales_skips_parse_errors() -> None:
@@ -348,11 +296,11 @@ async def test_push_top_rationales_skips_parse_errors() -> None:
     ]
 
     await _push_top_rationales(decisions, 2, store)
-    entries = store.drain_rationales(5)
+    snap = store.snapshot()
 
     # Only good_agent should be in the queue
-    assert len(entries) == 1
-    assert entries[0].agent_id == "good_agent"
+    assert len(snap.rationale_entries) == 1
+    assert snap.rationale_entries[0].agent_id == "good_agent"
 
 
 # ---------------------------------------------------------------------------
