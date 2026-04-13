@@ -63,7 +63,7 @@ See full details: `.planning/milestones/v4.0-ROADMAP.md`
 **Milestone Goal:** Replace the Textual TUI with a Vue 3 + FastAPI web dashboard featuring a live force-directed agent influence graph as the hero feature.
 
 - [x] **Phase 29: FastAPI Skeleton and Event Loop Foundation** — FastAPI app factory with Uvicorn lifespan owning the event loop, non-destructive StateStore snapshot, and per-client WebSocket queue architecture (completed 2026-04-13)
-- [ ] **Phase 30: WebSocket State Stream** — Real-time WebSocket broadcast of StateSnapshot JSON at 5Hz to all connected browser clients
+- [x] **Phase 30: WebSocket State Stream** — Real-time WebSocket broadcast of StateSnapshot JSON at 5Hz to all connected browser clients (completed 2026-04-13)
 - [ ] **Phase 31: Vue SPA and Force-Directed Graph** — Vue 3 SPA with live D3 force-directed graph rendering 100 agent nodes clustered by bracket with animated INFLUENCED_BY edges
 - [ ] **Phase 32: REST Controls and Simulation Control Bar** — REST endpoints for simulation start, shock injection, replay, and edge queries plus browser-side control bar and shock drawer
 - [ ] **Phase 33: Monitoring Panels** — Bracket summary, rationale sidebar, and telemetry strip panels consuming the WebSocket state stream
