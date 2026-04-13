@@ -33,6 +33,7 @@ def _make_test_app() -> FastAPI:
     from alphaswarm.web.connection_manager import ConnectionManager
     from alphaswarm.web.routes.health import router as health_router
     from alphaswarm.web.routes.simulation import router as simulation_router
+    from alphaswarm.web.routes.websocket import router as ws_router
     from alphaswarm.web.simulation_manager import SimulationManager
 
     @asynccontextmanager
@@ -58,6 +59,7 @@ def _make_test_app() -> FastAPI:
     app = FastAPI(title="AlphaSwarm-Test", lifespan=_unit_lifespan)
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")
+    app.include_router(ws_router)  # No prefix — /ws/state is the full path
     return app
 
 
