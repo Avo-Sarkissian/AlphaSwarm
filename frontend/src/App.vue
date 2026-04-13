@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, provide } from 'vue'
+import { computed, provide, ref } from 'vue'
 import { useWebSocket } from './composables/useWebSocket'
+import ForceGraph from './components/ForceGraph.vue'
 
 const { snapshot, connected, reconnectFailed, latestRationales } = useWebSocket()
 
@@ -8,6 +9,13 @@ const { snapshot, connected, reconnectFailed, latestRationales } = useWebSocket(
 provide('snapshot', snapshot)
 provide('connected', connected)
 provide('latestRationales', latestRationales)
+
+const selectedAgentId = ref<string | null>(null)
+provide('selectedAgentId', selectedAgentId)
+
+function onSelectAgent(agentId: string | null) {
+  selectedAgentId.value = agentId
+}
 
 const isIdle = computed(() => snapshot.value.phase === 'idle')
 </script>
@@ -20,9 +28,9 @@ const isIdle = computed(() => snapshot.value.phase === 'idle')
       <p class="empty-state__body">Start a simulation to see 100 agents deliberate in real time.</p>
     </div>
 
-    <!-- Graph container: Plan 03 replaces this with ForceGraph.vue -->
+    <!-- Active simulation: render force graph -->
     <div v-else class="graph-container" id="graph-container">
-      <!-- ForceGraph.vue will be mounted here in Plan 03 -->
+      <ForceGraph @select-agent="onSelectAgent" />
     </div>
 
     <!-- Connection error banner (UI-SPEC: Error State - WebSocket Disconnected) -->
