@@ -1,4 +1,4 @@
-"""Tests for AlphaSwarm web package: health endpoint, lifespan, SimulationManager, ConnectionManager."""
+"""Tests for AlphaSwarm web package: health endpoint, lifespan, SimulationManager, ConnectionManager, WebSocket state stream."""
 
 from __future__ import annotations
 
@@ -228,3 +228,141 @@ def test_simulate_start_409_when_running() -> None:
             data = r.json()
             assert "detail" in data
             assert data["detail"]["error"] == "simulation_already_running"
+
+
+# ---------------------------------------------------------------------------
+# Phase 30: WebSocket State Stream test helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_ws_test_app() -> FastAPI:
+    """FastAPI test app for WebSocket tests. Starts broadcaster (unlike _unit_lifespan)."""
+    from contextlib import asynccontextmanager
+    from collections.abc import AsyncGenerator
+
+    from alphaswarm.app import create_app_state
+    from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+    from alphaswarm.web.broadcaster import start_broadcaster
+    from alphaswarm.web.connection_manager import ConnectionManager
+    from alphaswarm.web.routes.websocket import router as ws_router
+    from alphaswarm.web.simulation_manager import SimulationManager
+
+    @asynccontextmanager
+    async def _ws_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
+        brackets = load_bracket_configs()
+        personas = generate_personas(brackets)
+        app_state = create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
+        sim_manager = SimulationManager(app_state)
+        connection_manager = ConnectionManager()
+
+        app.state.app_state = app_state
+        app.state.sim_manager = sim_manager
+        app.state.connection_manager = connection_manager
+
+        # Start broadcaster — needed for WebSocket tests
+        broadcaster_task = start_broadcaster(app_state.state_store, connection_manager)
+        app.state.broadcaster_task = broadcaster_task
+
+        yield
+
+        broadcaster_task.cancel()
+        try:
+            await broadcaster_task
+        except asyncio.CancelledError:
+            pass
+
+        if app_state.graph_manager is not None:
+            await app_state.graph_manager.close()
+
+    app = FastAPI(title="AlphaSwarm-WS-Test", lifespan=_ws_lifespan)
+    app.include_router(ws_router)  # No prefix — /ws/state is the full path
+    return app
+
+
+# ---------------------------------------------------------------------------
+# Phase 30: WebSocket State Stream tests (BE-04)
+# ---------------------------------------------------------------------------
+
+
+def test_snapshot_to_json() -> None:
+    """snapshot_to_json returns valid JSON with all required fields."""
+    import json
+
+    from alphaswarm.state import StateStore
+    from alphaswarm.web.broadcaster import snapshot_to_json
+
+    store = StateStore()
+    raw = snapshot_to_json(store)
+    parsed = json.loads(raw)
+    assert "phase" in parsed
+    assert "agent_states" in parsed
+    assert "bracket_summaries" in parsed
+    assert "rationale_entries" in parsed
+    assert "governor_metrics" in parsed
+    # rationale_entries must be a list (not string or None)
+    assert isinstance(parsed["rationale_entries"], list)
+
+
+def test_broadcaster_cancellation() -> None:
+    """start_broadcaster returns a cancellable asyncio.Task."""
+    from alphaswarm.state import StateStore
+    from alphaswarm.web.broadcaster import start_broadcaster
+
+    async def _run() -> None:
+        store = StateStore()
+        cm = ConnectionManager()
+        task = start_broadcaster(store, cm)
+        assert not task.done()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert task.cancelled()
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_ws_state_receives_snapshot() -> None:
+    """Connecting to /ws/state receives JSON when broadcaster sends."""
+    import json
+
+    app = _make_ws_test_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/state") as ws:
+            # Seed a broadcast directly via app state — no 200ms tick dependency
+            client.app.state.connection_manager.broadcast(
+                json.dumps({"phase": "idle", "agent_states": {}, "rationale_entries": []})
+            )
+            data = ws.receive_text()
+            parsed = json.loads(data)
+            assert "phase" in parsed
+            assert "agent_states" in parsed
+            assert "rationale_entries" in parsed
+
+
+def test_ws_state_disconnect_cleanup() -> None:
+    """Client count drops to 0 after WebSocket disconnect."""
+    app = _make_ws_test_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/state") as ws:
+            assert client.app.state.connection_manager.client_count == 1
+        # After exiting context manager, disconnect should have fired
+        assert client.app.state.connection_manager.client_count == 0
+
+
+def test_ws_state_same_connection_manager() -> None:
+    """Broadcaster and /ws/state endpoint share the same connection_manager object."""
+    import json
+
+    app = _make_ws_test_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/state") as ws:
+            # Broadcasting via app.state.connection_manager should reach the WS client
+            # This proves the route handler and lifespan use the same object
+            cm = client.app.state.connection_manager
+            cm.broadcast(json.dumps({"phase": "identity_check"}))
+            data = ws.receive_text()
+            parsed = json.loads(data)
+            assert parsed["phase"] == "identity_check"
