@@ -1361,11 +1361,9 @@ class AlphaSwarmApp(App):
                         self._rationale_sidebar.add_entry(entry)
             # Skip normal rationale processing during replay (no drain needed)
         else:
-            # Normal (non-replay) rationale processing -- explicit drain (D-07, Phase 29)
-            # snapshot() is now non-destructive; drain_rationales() does the queue pop
+            # Normal (non-replay) rationale processing -- drain queue
             if self._rationale_sidebar is not None:
-                rationale_entries = self.app_state.state_store.drain_rationales(5)
-                for entry in rationale_entries:
+                for entry in snapshot.rationale_entries:
                     self._rationale_sidebar.add_entry(entry)
 
         # Telemetry footer
