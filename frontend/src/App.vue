@@ -2,6 +2,7 @@
 import { computed, provide, ref } from 'vue'
 import { useWebSocket } from './composables/useWebSocket'
 import ForceGraph from './components/ForceGraph.vue'
+import AgentSidebar from './components/AgentSidebar.vue'
 
 const { snapshot, connected, reconnectFailed, latestRationales } = useWebSocket()
 
@@ -17,6 +18,11 @@ function onSelectAgent(agentId: string | null) {
   selectedAgentId.value = agentId
 }
 
+function onCloseSidebar() {
+  selectedAgentId.value = null
+}
+
+const sidebarOpen = computed(() => selectedAgentId.value !== null)
 const isIdle = computed(() => snapshot.value.phase === 'idle')
 </script>
 
@@ -29,9 +35,14 @@ const isIdle = computed(() => snapshot.value.phase === 'idle')
     </div>
 
     <!-- Active simulation: render force graph -->
-    <div v-else class="graph-container" id="graph-container">
+    <div v-else class="graph-container" :class="{ 'graph-container--sidebar-open': sidebarOpen }" id="graph-container">
       <ForceGraph @select-agent="onSelectAgent" />
     </div>
+
+    <!-- Agent detail sidebar (slides in from right on node click) -->
+    <Transition name="sidebar">
+      <AgentSidebar v-if="selectedAgentId" :agentId="selectedAgentId" @close="onCloseSidebar" />
+    </Transition>
 
     <!-- Connection error banner (UI-SPEC: Error State - WebSocket Disconnected) -->
     <div v-if="reconnectFailed" class="connection-error">
@@ -84,6 +95,22 @@ const isIdle = computed(() => snapshot.value.phase === 'idle')
   width: 100%;
   height: 100%;
   transition: width var(--duration-sidebar-enter) var(--easing-enter);
+}
+
+.graph-container--sidebar-open {
+  width: calc(100vw - var(--sidebar-width));
+}
+
+/* Sidebar slide transition (300ms enter ease-out, 200ms exit ease-in) */
+.sidebar-enter-active {
+  transition: transform var(--duration-sidebar-enter) var(--easing-enter);
+}
+.sidebar-leave-active {
+  transition: transform var(--duration-sidebar-exit) var(--easing-exit);
+}
+.sidebar-enter-from,
+.sidebar-leave-to {
+  transform: translateX(100%);
 }
 
 /* Connection error banner (UI-SPEC: fixed bottom-center, 32px from bottom) */
