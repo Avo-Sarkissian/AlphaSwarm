@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -10,9 +11,11 @@ from fastapi import FastAPI
 
 from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.routes.health import router as health_router
 from alphaswarm.web.routes.simulation import router as simulation_router
+from alphaswarm.web.routes.websocket import router as ws_router
 from alphaswarm.web.simulation_manager import SimulationManager
 
 log = structlog.get_logger(component="web.app")
@@ -38,11 +41,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.sim_manager = sim_manager
     app.state.connection_manager = connection_manager
 
+    # Object identity: start_broadcaster receives the same `connection_manager` stored on
+    # app.state.connection_manager above. ws_state reads websocket.app.state.connection_manager
+    # at request time — both paths reference the same object, ensuring broadcasts reach clients.
+    broadcaster_task = start_broadcaster(app_state.state_store, connection_manager)
+    app.state.broadcaster_task = broadcaster_task
+
     log.info("lifespan_started", phase="idle")
 
     yield
 
-    # Teardown
+    # Teardown — cancel broadcaster BEFORE closing graph_manager, because the broadcaster
+    # loop calls state_store.snapshot() which may reference state that graph_manager
+    # teardown would invalidate.
+    broadcaster_task.cancel()
+    try:
+        await broadcaster_task
+    except asyncio.CancelledError:
+        pass
+
     if app_state.graph_manager is not None:
         await app_state.graph_manager.close()
 
@@ -58,4 +75,5 @@ def create_app() -> FastAPI:
     app = FastAPI(title="AlphaSwarm", lifespan=lifespan)
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")
+    app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
     return app

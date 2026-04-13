@@ -368,3 +368,23 @@ def test_ws_state_same_connection_manager() -> None:
             data = ws.receive_text()
             parsed = json.loads(data)
             assert parsed["phase"] == "identity_check"
+
+
+# ---------------------------------------------------------------------------
+# Test 13: create_app() production path registers /ws/state (BE-04)
+# ---------------------------------------------------------------------------
+
+
+def test_create_app_ws_route_registered() -> None:
+    """Production create_app() registers /ws/state -- catches wiring drift from _make_test_app."""
+    from alphaswarm.web.app import create_app as production_create_app
+
+    # Inspect registered routes on the production app before lifespan starts.
+    # This catches the case where ws_router is missing from create_app() even though
+    # _make_test_app() includes it. Does NOT start lifespan (no Ollama/Neo4j needed).
+    prod_app = production_create_app()
+    route_paths = [getattr(r, "path", None) for r in prod_app.routes]
+    assert "/ws/state" in route_paths, (
+        f"/ws/state not registered in production create_app(). "
+        f"Found routes: {route_paths}"
+    )
