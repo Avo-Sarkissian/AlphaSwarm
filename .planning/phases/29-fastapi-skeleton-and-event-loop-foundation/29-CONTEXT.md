@@ -72,6 +72,9 @@ The Vue frontend, WebSocket broadcast, REST control endpoints, and all monitorin
 ### Project config
 - `pyproject.toml` — add fastapi + uvicorn[standard] to `[project] dependencies`
 
+### Research flag
+- **uvloop + neo4j async driver on M1:** `uvicorn[standard]` activates `uvloop` automatically on macOS. Some neo4j async driver versions have loop-compatibility constraints. Researcher must verify whether `uvloop` is safe with `neo4j>=5.28` on Darwin — if not, pin `uvicorn` without `[standard]` or set `loop="none"` in `uvicorn.run()`.
+
 </canonical_refs>
 
 <code_context>
