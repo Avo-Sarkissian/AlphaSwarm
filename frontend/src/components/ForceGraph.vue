@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { inject, ref, shallowRef, triggerRef, watch, onMounted, onUnmounted, type Ref } from 'vue'
+import { computed, inject, ref, shallowRef, triggerRef, watch, onMounted, onUnmounted, type Ref } from 'vue'
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, type SimulationNodeDatum } from 'd3-force'
-import type { StateSnapshot } from '../types'
+import type { StateSnapshot, EdgeItem, EdgesResponse } from '../types'
 import { BRACKET_ARCHETYPES, BRACKET_RADIUS, SIGNAL_COLORS, PENDING_COLOR } from '../types'
 
 // --- Types ---
@@ -13,6 +13,13 @@ interface GraphNode extends SimulationNodeDatum {
   color: string
 }
 
+interface GraphEdge {
+  source_id: string
+  target_id: string
+  weight: number
+  isNew: boolean  // true for edges just fetched — CSS fade-in trigger
+}
+
 // --- Injected state ---
 const snapshot = inject<Ref<StateSnapshot>>('snapshot')!
 
@@ -21,6 +28,7 @@ const containerRef = ref<HTMLDivElement | null>(null)
 const width = ref(window.innerWidth)
 const height = ref(window.innerHeight)
 const nodes = shallowRef<GraphNode[]>([])
+const edges = shallowRef<GraphEdge[]>([])
 const selectedAgentId = ref<string | null>(null)
 
 // Emit selected agent to parent (App.vue will pass to AgentSidebar in Plan 04)
@@ -139,6 +147,66 @@ watch(() => snapshot.value.agent_states, (agentStates) => {
   }
 }, { deep: true })
 
+// --- Edge fetching and animation ---
+
+async function fetchEdges(roundNum: number): Promise<void> {
+  try {
+    const response = await fetch(`/api/edges/current?round=${roundNum}`)
+    if (!response.ok) return  // Graceful degradation — graph works without edges
+
+    const data: EdgesResponse = await response.json()
+    const newEdges: GraphEdge[] = data.edges.map(e => ({ ...e, isNew: true }))
+
+    // Keep existing edges from prior rounds (D-14: edges persist)
+    const existing = edges.value.map(e => ({ ...e, isNew: false }))
+    edges.value = [...existing, ...newEdges]
+    triggerRef(edges)
+
+    // After DOM render, clear isNew flag to trigger CSS opacity transition (0 -> 0.4)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        edges.value = edges.value.map(e => ({ ...e, isNew: false }))
+        triggerRef(edges)
+      })
+    })
+  } catch {
+    // Network error — edges unavailable, graph still works
+  }
+}
+
+// Fetch edges when round changes (D-15)
+watch(() => snapshot.value.round_num, (newRound, oldRound) => {
+  if (newRound > 0 && newRound !== oldRound) {
+    fetchEdges(newRound)
+  }
+})
+
+// Clear edges when cycle resets
+watch(() => snapshot.value.phase, (newPhase) => {
+  if (newPhase === 'idle' || newPhase === 'seeding') {
+    edges.value = []
+    triggerRef(edges)
+  }
+})
+
+// --- Node position lookup for edge coordinates (performance-optimized) ---
+
+const nodePositions = computed(() => {
+  const map = new Map<string, { x: number; y: number }>()
+  for (const node of nodes.value) {
+    map.set(node.id, { x: node.x ?? 0, y: node.y ?? 0 })
+  }
+  return map
+})
+
+function getNodeX(agentId: string): number {
+  return nodePositions.value.get(agentId)?.x ?? 0
+}
+
+function getNodeY(agentId: string): number {
+  return nodePositions.value.get(agentId)?.y ?? 0
+}
+
 // --- Handle click on node ---
 function onNodeClick(agentId: string): void {
   selectedAgentId.value = agentId
@@ -212,9 +280,20 @@ onUnmounted(() => {
       <!-- Background rect for click detection -->
       <rect class="graph-bg" :width="width" :height="height" fill="transparent" />
 
-      <!-- Edges rendered here by Plan 04 via slot or direct integration -->
+      <!-- INFLUENCED_BY edges with fade-in animation -->
       <g class="edges-layer">
-        <!-- Plan 04: edge <line> elements will be rendered here -->
+        <line
+          v-for="(edge, idx) in edges"
+          :key="`${edge.source_id}-${edge.target_id}-${idx}`"
+          :x1="getNodeX(edge.source_id)"
+          :y1="getNodeY(edge.source_id)"
+          :x2="getNodeX(edge.target_id)"
+          :y2="getNodeY(edge.target_id)"
+          stroke="var(--color-edge)"
+          stroke-width="1"
+          :opacity="edge.isNew ? 0 : 0.4"
+          class="edge-line"
+        />
       </g>
 
       <!-- Agent nodes -->
@@ -250,5 +329,9 @@ onUnmounted(() => {
 .agent-node {
   cursor: pointer;
   pointer-events: all;
+}
+
+.edge-line {
+  transition: opacity var(--duration-edge-fade) var(--easing-enter);
 }
 </style>

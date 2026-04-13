@@ -43,5 +43,12 @@ async def get_edges(
             detail={"error": "graph_unavailable", "message": "Neo4j is not connected"},
         )
 
-    edges = await graph_manager.read_influence_edges(cycle_id, round)
+    # Resolve "current" to the latest cycle_id from Neo4j
+    resolved_cycle_id = cycle_id
+    if cycle_id == "current":
+        resolved_cycle_id = await graph_manager.read_latest_cycle_id()
+        if resolved_cycle_id is None:
+            return EdgesResponse(edges=[])
+
+    edges = await graph_manager.read_influence_edges(resolved_cycle_id, round)
     return EdgesResponse(edges=[EdgeItem(**e) for e in edges])
