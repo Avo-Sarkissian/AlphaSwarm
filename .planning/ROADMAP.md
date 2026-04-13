@@ -62,7 +62,7 @@ See full details: `.planning/milestones/v4.0-ROADMAP.md`
 
 **Milestone Goal:** Replace the Textual TUI with a Vue 3 + FastAPI web dashboard featuring a live force-directed agent influence graph as the hero feature.
 
-- [ ] **Phase 29: FastAPI Skeleton and Event Loop Foundation** — FastAPI app factory with Uvicorn lifespan owning the event loop, non-destructive StateStore snapshot, and per-client WebSocket queue architecture
+- [x] **Phase 29: FastAPI Skeleton and Event Loop Foundation** — FastAPI app factory with Uvicorn lifespan owning the event loop, non-destructive StateStore snapshot, and per-client WebSocket queue architecture (completed 2026-04-13)
 - [ ] **Phase 30: WebSocket State Stream** — Real-time WebSocket broadcast of StateSnapshot JSON at 5Hz to all connected browser clients
 - [ ] **Phase 31: Vue SPA and Force-Directed Graph** — Vue 3 SPA with live D3 force-directed graph rendering 100 agent nodes clustered by bracket with animated INFLUENCED_BY edges
 - [ ] **Phase 32: REST Controls and Simulation Control Bar** — REST endpoints for simulation start, shock injection, replay, and edge queries plus browser-side control bar and shock drawer
@@ -82,11 +82,11 @@ See full details: `.planning/milestones/v4.0-ROADMAP.md`
   2. StateStore.snapshot() can be called multiple times in succession without losing rationale entries (non-destructive reads verified by test)
   3. A second WebSocket client connecting does not drain rationale entries that the first client should have received (per-client queue isolation)
   4. POST /api/simulate/start while a simulation is already running returns HTTP 409 (SimulationManager singleton guard)
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [x] 29-01-PLAN.md — Install deps + StateStore non-destructive refactor + TUI call site update
 - [x] 29-02-PLAN.md — web/ package scaffold (app factory, lifespan, health endpoint, SimulationManager, ConnectionManager) + tests
-- [ ] 29-03-PLAN.md — CLI web subparser + integration verification
+- [x] 29-03-PLAN.md — CLI web subparser + integration verification
 
 ### Phase 30: WebSocket State Stream
 **Goal**: Browser clients receive a live JSON state stream over WebSocket at 5Hz so the frontend can render real-time agent state without polling
@@ -193,7 +193,7 @@ Phases execute in numeric order: 1-10 (v1.0) -> 11-15 (v2.0) -> 24-28 (v4.0) -> 
 | 26. Shock Injection Core | v4.0 | 5/5 | Complete | 2026-04-10 |
 | 27. Shock Analysis and Reporting | v4.0 | 3/3 | Complete | 2026-04-11 |
 | 28. Simulation Replay | v4.0 | 3/3 | Complete | 2026-04-12 |
-| 29. FastAPI Skeleton and Event Loop Foundation | v5.0 | 2/3 | In Progress|  |
+| 29. FastAPI Skeleton and Event Loop Foundation | v5.0 | 3/3 | Complete   | 2026-04-13 |
 | 30. WebSocket State Stream | v5.0 | 0/? | Not started | - |
 | 31. Vue SPA and Force-Directed Graph | v5.0 | 0/? | Not started | - |
 | 32. REST Controls and Simulation Control Bar | v5.0 | 0/? | Not started | - |
