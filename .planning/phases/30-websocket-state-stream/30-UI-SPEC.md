@@ -1,7 +1,8 @@
 ---
 phase: 30
 slug: websocket-state-stream
-status: draft
+status: approved
+reviewed_at: 2026-04-12
 shadcn_initialized: false
 preset: none
 created: 2026-04-12
