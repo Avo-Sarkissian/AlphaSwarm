@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from starlette.staticfiles import StaticFiles
 
 from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
+from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
@@ -75,5 +78,14 @@ def create_app() -> FastAPI:
     app = FastAPI(title="AlphaSwarm", lifespan=lifespan)
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")
+    app.include_router(edges_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
+
+    # Serve Vue SPA production build as static files (D-02).
+    # Must be LAST mount — html=True serves index.html as fallback for all non-API paths,
+    # enabling Vue Router history mode. Only mounted when dist/ exists (production build).
+    frontend_dist = os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend", "dist")
+    if os.path.isdir(frontend_dist):
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+
     return app

@@ -31,6 +31,7 @@ def _make_test_app() -> FastAPI:
     from alphaswarm.app import create_app_state
     from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
     from alphaswarm.web.connection_manager import ConnectionManager
+    from alphaswarm.web.routes.edges import router as edges_router
     from alphaswarm.web.routes.health import router as health_router
     from alphaswarm.web.routes.simulation import router as simulation_router
     from alphaswarm.web.routes.websocket import router as ws_router
@@ -59,6 +60,7 @@ def _make_test_app() -> FastAPI:
     app = FastAPI(title="AlphaSwarm-Test", lifespan=_unit_lifespan)
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")
+    app.include_router(edges_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full path
     return app
 
@@ -387,4 +389,44 @@ def test_create_app_ws_route_registered() -> None:
     assert "/ws/state" in route_paths, (
         f"/ws/state not registered in production create_app(). "
         f"Found routes: {route_paths}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 31: Edges endpoint tests (VIS-03)
+# ---------------------------------------------------------------------------
+
+
+def test_edges_endpoint_503_without_neo4j() -> None:
+    """GET /api/edges/{cycle_id}?round=1 returns 503 when graph_manager is None."""
+    with TestClient(_make_test_app()) as client:
+        r = client.get("/api/edges/test-cycle?round=1")
+        assert r.status_code == 503
+        data = r.json()
+        assert data["detail"]["error"] == "graph_unavailable"
+
+
+def test_edges_endpoint_requires_round_param() -> None:
+    """GET /api/edges/{cycle_id} without round query param returns 422."""
+    with TestClient(_make_test_app()) as client:
+        r = client.get("/api/edges/test-cycle")
+        assert r.status_code == 422
+
+
+def test_edges_endpoint_round_validation() -> None:
+    """GET /api/edges/{cycle_id}?round=0 returns 422 (round must be 1-3)."""
+    with TestClient(_make_test_app()) as client:
+        r = client.get("/api/edges/test-cycle?round=0")
+        assert r.status_code == 422
+        r2 = client.get("/api/edges/test-cycle?round=4")
+        assert r2.status_code == 422
+
+
+def test_edges_route_registered_in_production_app() -> None:
+    """Production create_app() registers /api/edges/{cycle_id} route."""
+    from alphaswarm.web.app import create_app as production_create_app
+    prod_app = production_create_app()
+    route_paths = [getattr(r, "path", None) for r in prod_app.routes]
+    assert "/api/edges/{cycle_id}" in route_paths, (
+        f"/api/edges/{{cycle_id}} not registered. Found: {route_paths}"
     )
