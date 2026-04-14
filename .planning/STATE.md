@@ -1,54 +1,62 @@
 ---
 gsd_state_version: 1.0
-milestone: v5.0
-milestone_name: Web UI
+milestone: v2.0
+milestone_name: Engine Depth
 status: executing
-stopped_at: Phase 32 UI-SPEC approved
-last_updated: "2026-04-14T14:31:50.080Z"
-last_activity: 2026-04-14 -- Phase 32 planning complete
+stopped_at: Phase 28 UI-SPEC approved
+last_updated: "2026-04-12T05:55:20.624Z"
+last_activity: 2026-04-12 -- Phase 28 planning complete
 progress:
-  total_phases: 8
-  completed_phases: 3
-  total_plans: 15
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 11
   completed_plans: 11
-  percent: 73
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-12)
+See: .planning/PROJECT.md (updated 2026-04-09)
 
-**Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — the simulation engine is the product
-**Current focus:** Phase 32 — next phase
+**Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — grounded in real market data, the simulation engine is the product
+**Current focus:** Phase 27 — shock-analysis-and-reporting (COMPLETE, awaiting UAT)
 
 ## Current Position
 
-Phase: 31 (vue-spa-and-force-directed-graph) — COMPLETE ✓
-Plan: 4 of 4
+Phase: 27 (shock-analysis-and-reporting) — VERIFYING
+Plan: 3 of 3
 Status: Ready to execute
-Last activity: 2026-04-14 -- Phase 32 planning complete
+Last activity: 2026-04-12 -- Phase 28 planning complete
 
-Progress: ████░░░░░░ 38%
+Progress: [██████████] 100% (Phase 27)
 
 ## Performance Metrics
 
 **All-time:**
 
-- Total phases completed: ~28 (v1.0 + v2.0 + v3.0 + v4.0)
-- Total plans completed: ~68
-- Total milestones shipped: 4 (v1.0, v2.0, v3.0, v4.0)
+- Total phases completed: 26 (v1.0 + v2.0 + v3.0 + v4.0 partial)
+- Total plans completed: 55
+- Total milestones shipped: 3
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 28 added: Simulation Replay (REPLAY-01 — re-render past cycle from Neo4j without re-inference)
+
 ### Decisions
 
-- SVG (not Canvas) for force graph at 100 nodes — native DOM events, CSS transitions, zero custom hit-testing
-- D3 as physics engine only, Vue owns SVG DOM — shallowRef + triggerRef, no Vue Proxy on D3 node array
-- Uvicorn must own the asyncio event loop — all objects created inside FastAPI lifespan (prevents governor deadlock class)
-- StateStore.snapshot() refactored to non-destructive — separate drain_rationales() called once per broadcast tick
-- Post-simulation-only interview gating — matches TUI contract, prevents Ollama contention
+- Swarm stays uncontaminated by portfolio data — orchestrator reads consensus + holdings post-simulation only
+- Schwab CSV loaded in-memory only during report step, never persisted to Neo4j or cache
+- SVG charts via pygal (not Plotly) — keeps HTML reports under 1MB vs 15MB+
+- Governor suspend/resume must be first deliverable in shock phase — prevents false THROTTLED states (SHIPPED Phase 26)
+- ReplayStore is separate from StateStore — destructive snapshot drain and timer corruption make reuse unsafe
+- resume() memory-pressure guard lives at the CALLEE (governor.py), not the caller (simulation.py) — eliminates TOCTOU race
+- _collect_inter_round_shock uses nested try/finally: inner finally for close_shock_window, outer finally for governor.resume()
+- ShockInputScreen edge latch (_shock_window_was_open) prevents re-pushing on consecutive _poll_snapshot ticks
+- SHOCK_TEXT_MAX_LEN = 4096 caps prompt injection size across 100 agents (M1 memory constraint)
 
 ### Pending Todos
 
@@ -56,10 +64,10 @@ None.
 
 ### Blockers/Concerns
 
-None.
+- Phase 28 (Replay): read_full_cycle() Cypher query needs performance profiling for COLLECT aggregation across 600+ nodes
 
 ## Session Continuity
 
-Last session: 2026-04-14T05:44:01.678Z
-Stopped at: Phase 32 UI-SPEC approved
-Next action: /gsd:plan-phase 29
+Last session: 2026-04-12T05:09:24.500Z
+Stopped at: Phase 28 UI-SPEC approved
+Next action: /gsd:plan-phase 27

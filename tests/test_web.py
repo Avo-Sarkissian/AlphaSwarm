@@ -10,7 +10,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from alphaswarm.web.simulation_manager import SimulationAlreadyRunningError, SimulationManager
+from alphaswarm.web.simulation_manager import (
+    NoSimulationRunningError,
+    ShockAlreadyQueuedError,
+    SimulationAlreadyRunningError,
+    SimulationManager,
+)
 from alphaswarm.web.connection_manager import ConnectionManager
 
 
@@ -45,7 +50,7 @@ def _make_test_app() -> FastAPI:
         personas = generate_personas(brackets)
         # with_ollama=False, with_neo4j=False for unit tests (no external services)
         app_state = create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
-        sim_manager = SimulationManager(app_state)
+        sim_manager = SimulationManager(app_state, brackets)
         connection_manager = ConnectionManager()
 
         app.state.app_state = app_state
@@ -111,7 +116,7 @@ async def test_simulation_manager_409_guard() -> None:
     from unittest.mock import MagicMock
 
     mock_app_state = MagicMock()
-    sm = SimulationManager(mock_app_state)
+    sm = SimulationManager(mock_app_state, brackets=[])
 
     # Hold the lock to simulate a running simulation
     await sm._lock.acquire()
@@ -257,7 +262,7 @@ def _make_ws_test_app() -> FastAPI:
         brackets = load_bracket_configs()
         personas = generate_personas(brackets)
         app_state = create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
-        sim_manager = SimulationManager(app_state)
+        sim_manager = SimulationManager(app_state, brackets)
         connection_manager = ConnectionManager()
 
         app.state.app_state = app_state
@@ -430,3 +435,136 @@ def test_edges_route_registered_in_production_app() -> None:
     assert "/api/edges/{cycle_id}" in route_paths, (
         f"/api/edges/{{cycle_id}} not registered. Found: {route_paths}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 32 Task 1: SimulationManager create_task + done-callback + stop + shock
+# ---------------------------------------------------------------------------
+
+
+async def test_sim_manager_init_accepts_brackets() -> None:
+    """SimulationManager.__init__ accepts app_state and brackets; stores both."""
+    from unittest.mock import MagicMock
+
+    mock_app_state = MagicMock()
+    brackets_list = [MagicMock(), MagicMock()]
+    sm = SimulationManager(mock_app_state, brackets=brackets_list)
+    assert sm._app_state is mock_app_state
+    assert sm._brackets is brackets_list
+
+
+async def test_sim_manager_start_creates_task() -> None:
+    """start(seed) creates an asyncio.Task stored as self._task."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_app_state = MagicMock()
+    mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_phase = AsyncMock()
+    sm = SimulationManager(mock_app_state, brackets=[])
+
+    # Mock _run so it completes immediately without needing real deps
+    async def _fake_run(seed: str) -> None:
+        pass
+
+    with patch.object(sm, "_run", side_effect=_fake_run):
+        await sm.start("test seed")
+        # Task should exist right after start
+        assert sm._task is not None
+        assert sm._is_running is True
+
+        # Wait for task to complete
+        await asyncio.sleep(0.05)
+
+        # After completion, done-callback should have reset state
+        assert sm._is_running is False
+        assert sm._task is None
+
+
+async def test_sim_manager_done_callback_releases_lock_on_exception() -> None:
+    """_on_task_done releases lock and resets _is_running even if task had exception."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_app_state = MagicMock()
+    mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_phase = AsyncMock()
+    sm = SimulationManager(mock_app_state, brackets=[])
+
+    async def _failing_run(seed: str) -> None:
+        raise RuntimeError("Simulation exploded")
+
+    with patch.object(sm, "_run", side_effect=_failing_run):
+        await sm.start("test seed")
+        # Wait for task to complete and callback to fire
+        await asyncio.sleep(0.05)
+
+        assert sm._is_running is False
+        assert sm._task is None
+        assert not sm._lock.locked()  # Lock must be released
+
+
+async def test_sim_manager_stop_cancels_task() -> None:
+    """stop() calls self._task.cancel() when running; raises when not running."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_app_state = MagicMock()
+    mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_phase = AsyncMock()
+    sm = SimulationManager(mock_app_state, brackets=[])
+
+    # stop() when not running should raise
+    with pytest.raises(NoSimulationRunningError):
+        sm.stop()
+
+    # Start a long-running simulation
+    async def _long_run(seed: str) -> None:
+        await asyncio.sleep(100)
+
+    with patch.object(sm, "_run", side_effect=_long_run):
+        await sm.start("test seed")
+        assert sm._is_running is True
+
+        sm.stop()  # Should cancel the task
+
+        # Wait for cancellation + callback
+        await asyncio.sleep(0.05)
+
+        assert sm._is_running is False
+        assert sm._task is None
+        assert not sm._lock.locked()
+
+
+async def test_sim_manager_inject_shock() -> None:
+    """inject_shock(text) stores _pending_shock when running; raises when not running."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_app_state = MagicMock()
+    mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_phase = AsyncMock()
+    sm = SimulationManager(mock_app_state, brackets=[])
+
+    # inject_shock when not running should raise
+    with pytest.raises(NoSimulationRunningError):
+        sm.inject_shock("crash news")
+
+    # Start a long-running simulation
+    async def _long_run(seed: str) -> None:
+        await asyncio.sleep(100)
+
+    with patch.object(sm, "_run", side_effect=_long_run):
+        await sm.start("test seed")
+
+        sm.inject_shock("crash news")
+        assert sm.pending_shock == "crash news"
+
+        # Second inject should raise (concurrent guard)
+        with pytest.raises(ShockAlreadyQueuedError):
+            sm.inject_shock("another shock")
+
+        # consume_shock returns and clears
+        consumed = sm.consume_shock()
+        assert consumed == "crash news"
+        assert sm.pending_shock is None
+
+        # Clean up
+        sm.stop()
+        await asyncio.sleep(0.05)

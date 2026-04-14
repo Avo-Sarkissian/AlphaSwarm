@@ -2,10 +2,8 @@
 
 ## Milestones
 
-- [x] **v1.0 Core Engine** — Phases 1-10 (shipped 2026-03-27)
-- [x] **v2.0 Engine Depth** — Phases 11-15 (shipped 2026-04-02)
-- [x] **v4.0 Interactive Simulation & Analysis** — Phases 24-28 (shipped 2026-04-12)
-- [ ] **v5.0 Web UI** — Phases 29-36 (in progress)
+- [x] **v1.0 Core Engine** - Phases 1-10 (shipped 2026-03-27)
+- [ ] **v2.0 Engine Depth** - Phases 11-15 (in progress)
 
 ## Phases
 
@@ -16,174 +14,134 @@
 Decimal phases appear between their surrounding integers in numeric order.
 
 <details>
-<summary>v1.0 Core Engine (Phases 1-10) — SHIPPED 2026-03-27</summary>
+<summary>v1.0 Core Engine (Phases 1-10) - SHIPPED 2026-03-27</summary>
 
-- [x] **Phase 1: Project Foundation** — Scaffold, configuration system, type definitions, and structured logging (completed 2026-03-24)
-- [x] **Phase 2: Ollama Integration** — Async LLM client, sequential model loading, and structured output parsing (completed 2026-03-25)
-- [x] **Phase 3: Resource Governance** — Dynamic concurrency control, memory monitoring, task safety, and retry logic (completed 2026-03-25)
-- [x] **Phase 4: Neo4j Graph State** — Graph schema with cycle-scoped indexes and batch-writing GraphStateManager (completed 2026-03-25)
-- [x] **Phase 5: Seed Injection and Agent Personas** — Orchestrator entity extraction and 100 agent personas with decision schema (completed 2026-03-26)
-- [x] **Phase 6: Round 1 Standalone** — All 100 agents process a seed rumor independently in a single inference wave (completed 2026-03-26)
-- [x] **Phase 7: Rounds 2-3 Peer Influence and Consensus** — Peer context injection and final consensus lock complete the 3-round cascade (completed 2026-03-26)
-- [x] **Phase 8: Dynamic Influence Topology** — INFLUENCED_BY edges form from citation patterns, bracket aggregation, and Miro batcher stub (completed 2026-03-26)
-- [x] **Phase 9: TUI Core Dashboard** — Agent grid, snapshot-based rendering, and simulation status display (completed 2026-03-27)
-- [x] **Phase 10: TUI Panels and Telemetry** — Rationale sidebar, hardware telemetry footer, and bracket aggregation panel (completed 2026-03-27)
-
-See full details: `.planning/milestones/v1.0-ROADMAP.md`
+- [x] **Phase 1: Project Foundation** - Scaffold, configuration system, type definitions, and structured logging (completed 2026-03-24)
+- [x] **Phase 2: Ollama Integration** - Async LLM client, sequential model loading, and structured output parsing (completed 2026-03-25)
+- [x] **Phase 3: Resource Governance** - Dynamic concurrency control, memory monitoring, task safety, and retry logic (completed 2026-03-25)
+- [x] **Phase 4: Neo4j Graph State** - Graph schema with cycle-scoped indexes and batch-writing GraphStateManager (completed 2026-03-25)
+- [x] **Phase 5: Seed Injection and Agent Personas** - Orchestrator entity extraction and 100 agent personas with decision schema (completed 2026-03-26)
+- [x] **Phase 6: Round 1 Standalone** - All 100 agents process a seed rumor independently in a single inference wave (completed 2026-03-26)
+- [x] **Phase 7: Rounds 2-3 Peer Influence and Consensus** - Peer context injection and final consensus lock complete the 3-round cascade (completed 2026-03-26)
+- [x] **Phase 8: Dynamic Influence Topology** - INFLUENCED_BY edges form from citation patterns, bracket aggregation, and Miro batcher stub (completed 2026-03-26)
+- [x] **Phase 9: TUI Core Dashboard** - Agent grid, snapshot-based rendering, and simulation status display (completed 2026-03-27)
+- [x] **Phase 10: TUI Panels and Telemetry** - Rationale sidebar, hardware telemetry footer, and bracket aggregation panel (completed 2026-03-27)
 
 </details>
 
-<details>
-<summary>v2.0 Engine Depth (Phases 11-15) — SHIPPED 2026-04-02</summary>
+### v2.0 Engine Depth (Phases 11-15)
 
-- [x] **Phase 11: Live Graph Memory** — Real-time Neo4j rationale episodes, narrative edges, and interview context summaries written during simulation (completed 2026-03-31)
-- [x] **Phase 12: Richer Agent Interactions** — Agents publish public rationale posts that peers read and react to via token-budget-aware context injection (completed 2026-04-01)
-- [x] **Phase 13: Dynamic Persona Generation** — Entity-aware bracket modifiers generated from seed rumor for situation-specific agent personas (completed 2026-04-02)
-- [x] **Phase 14: Agent Interviews** — Post-simulation conversational Q&A with any agent using reconstructed decision context (completed 2026-04-02)
-- [x] **Phase 15: Post-Simulation Report** — ReACT agent queries Neo4j and generates structured market analysis as exportable markdown (completed 2026-04-02)
+**Milestone Goal:** Deepen the simulation engine with live graph memory, richer agent behavior, dynamic persona generation, post-simulation interviews, and structured report generation -- building the full analytical data model.
 
-See full details: `.planning/milestones/v2.0-ROADMAP.md`
-
-</details>
-
-<details>
-<summary>v4.0 Interactive Simulation & Analysis (Phases 24-28) — SHIPPED 2026-04-12</summary>
-
-- [x] **Phase 24: HTML Report Export** — Exportable HTML simulation reports with SVG charts and Schwab portfolio overlay (completed 2026-04-09)
-- [x] **Phase 26: Shock Injection Core** — Mid-simulation shock injection with governor suspend/resume and ReplayStore isolation (completed 2026-04-10)
-- [x] **Phase 27: Shock Analysis and Reporting** — Shock impact analysis with bracket delta mode, read_shock_impact, and Jinja2 shock template (completed 2026-04-11)
-- [x] **Phase 28: Simulation Replay** — Re-render a past simulation cycle from stored Neo4j state without re-running inference (completed 2026-04-12)
-
-See full details: `.planning/milestones/v4.0-ROADMAP.md`
-
-</details>
-
-### v5.0 Web UI (In Progress)
-
-**Milestone Goal:** Replace the Textual TUI with a Vue 3 + FastAPI web dashboard featuring a live force-directed agent influence graph as the hero feature.
-
-- [x] **Phase 29: FastAPI Skeleton and Event Loop Foundation** — FastAPI app factory with Uvicorn lifespan owning the event loop, non-destructive StateStore snapshot, and per-client WebSocket queue architecture (completed 2026-04-13)
-- [x] **Phase 30: WebSocket State Stream** — Real-time WebSocket broadcast of StateSnapshot JSON at 5Hz to all connected browser clients (completed 2026-04-13)
-- [x] **Phase 31: Vue SPA and Force-Directed Graph** — Vue 3 SPA with live D3 force-directed graph rendering 100 agent nodes clustered by bracket with animated INFLUENCED_BY edges (completed 2026-04-14)
-- [ ] **Phase 32: REST Controls and Simulation Control Bar** — REST endpoints for simulation start, shock injection, replay, and edge queries plus browser-side control bar and shock drawer
-- [ ] **Phase 33: Monitoring Panels** — Bracket summary, rationale sidebar, and telemetry strip panels consuming the WebSocket state stream
-- [ ] **Phase 34: Replay Mode Web UI** — Web-based replay player with cycle picker, round stepper, and auto-advance consuming the replay REST endpoints
-- [ ] **Phase 35: Agent Interview Panel** — Post-simulation agent Q&A via streaming WebSocket with interview gating to COMPLETE phase only
-- [ ] **Phase 36: Report Viewer and Final Integration** — Browser-based report generation trigger and HTML report viewing via FastAPI static file serving
+- [x] **Phase 11: Live Graph Memory** - Real-time Neo4j rationale episodes, narrative edges, and interview context summaries written during simulation (completed 2026-03-31)
+- [x] **Phase 12: Richer Agent Interactions** - Agents publish public rationale posts that peers read and react to via token-budget-aware context injection (completed 2026-04-01)
+- [x] **Phase 13: Dynamic Persona Generation** - Entity-aware bracket modifiers generated from seed rumor for situation-specific agent personas (completed 2026-04-02)
+- [x] **Phase 14: Agent Interviews** - Post-simulation conversational Q&A with any agent using reconstructed decision context (completed 2026-04-02)
+- [x] **Phase 15: Post-Simulation Report** - ReACT agent queries Neo4j and generates structured market analysis as exportable markdown (completed 2026-04-02)
 
 ## Phase Details
 
-### Phase 29: FastAPI Skeleton and Event Loop Foundation
-**Goal**: Uvicorn owns the asyncio event loop and all simulation infrastructure (StateStore, Governor, Neo4j driver) is created inside the FastAPI lifespan context so downstream phases have a correct single-loop foundation
-**Depends on**: Phase 28 (v4.0 complete)
-**Requirements**: BE-01, BE-02, BE-03
+### Phase 11: Live Graph Memory
+**Goal**: Neo4j becomes a living memory that captures per-agent reasoning arcs, narrative connections, and decision context as the simulation runs -- not just a post-round data dump
+**Depends on**: Phase 10 (v1 complete)
+**Requirements**: GRAPH-01, GRAPH-02, GRAPH-03
 **Success Criteria** (what must be TRUE):
-  1. Running `alphaswarm web` starts a Uvicorn server and GET /api/health returns 200 with simulation phase and memory stats
-  2. StateStore.snapshot() can be called multiple times in succession without losing rationale entries (non-destructive reads verified by test)
-  3. A second WebSocket client connecting does not drain rationale entries that the first client should have received (per-client queue isolation)
-  4. POST /api/simulate/start while a simulation is already running returns HTTP 409 (SimulationManager singleton guard)
-**Plans:** 5/5 plans complete
+  1. After a simulation completes, each agent has a RationaleEpisode node per round in Neo4j containing their rationale text, timestamps, peer context received, and signal flip detection
+  2. Narrative REFERENCES edges connect Decision nodes to Entity nodes extracted during seed injection, queryable by entity name
+  3. Running a Cypher query against a completed simulation returns a complete 3-round reasoning arc for any agent (decisions, rationale episodes, influence relationships, and entity references)
+  4. Write performance remains stable -- batch UNWIND pattern keeps Neo4j transaction count under 10 per round (not 100 per-agent transactions)
+**Plans**: 3 plans
 Plans:
-- [x] 29-01-PLAN.md — Install deps + StateStore non-destructive refactor + TUI call site update
-- [x] 29-02-PLAN.md — web/ package scaffold (app factory, lifespan, health endpoint, SimulationManager, ConnectionManager) + tests
-- [x] 29-03-PLAN.md — CLI web subparser + integration verification
+- [x] 11-01-PLAN.md -- FlipType enum, WriteBuffer module, and compute_flip_type with unit tests
+- [x] 11-02-PLAN.md -- GraphStateManager extensions (4 new methods, schema, decision_id refactor)
+- [x] 11-03-PLAN.md -- Simulation integration (WriteBuffer wiring, narrative generation, integration tests)
 
-### Phase 30: WebSocket State Stream
-**Goal**: Browser clients receive a live JSON state stream over WebSocket at 5Hz so the frontend can render real-time agent state without polling
-**Depends on**: Phase 29
-**Requirements**: BE-04
+### Phase 12: Richer Agent Interactions
+**Goal**: Agents influence each other through published rationale content, not just signal votes, creating observable social dynamics in the simulation graph
+**Depends on**: Phase 11
+**Requirements**: SOCIAL-01, SOCIAL-02
 **Success Criteria** (what must be TRUE):
-  1. Connecting to ws://localhost:8000/ws/state with wscat during an active simulation produces a continuous stream of JSON snapshots at approximately 200ms intervals
-  2. A slow or paused client does not block snapshot delivery to other connected clients (bounded queue with drop-oldest or skip)
-  3. Disconnecting a client cleanly removes its writer task with no error logs or resource leaks
-**Plans:** 2 plans
+  1. Each agent's decision output includes a public_rationale field that is stored as a Post node in Neo4j with zero additional inference calls
+  2. In Rounds 2 and 3, each agent receives top-K ranked peer rationale posts (by influence weight) as part of their prompt context, with a strict token budget preventing context window overflow
+  3. READ_POST edges in Neo4j trace which agents read which posts, enabling post-simulation analysis of information flow
+  4. Agent outputs in Rounds 2-3 show observable reactions to peer rationale content (citations, agreement, disagreement) compared to Round 1 baseline
+**Plans**: 2 plans
 Plans:
-- [ ] 30-01-PLAN.md — Wave 0 test stubs + broadcaster.py (snapshot_to_json + start_broadcaster) + routes/websocket.py (/ws/state endpoint)
-- [ ] 30-02-PLAN.md — Wire broadcaster task and ws_router into app.py + human wscat verification
+- [x] 12-01-PLAN.md -- Post node data layer (RankedPost type, write_posts, read_ranked_posts, write_read_post_edges, schema index, tests)
+- [x] 12-02-PLAN.md -- Simulation integration (budget-aware _format_peer_context, run_simulation wiring, test updates)
 
-### Phase 31: Vue SPA and Force-Directed Graph
-**Goal**: Users see a live force-directed graph of 100 agent nodes in the browser, clustered by bracket archetype, with signal-colored nodes and animated INFLUENCED_BY edges that appear on each round transition
-**Depends on**: Phase 30
-**Requirements**: VIS-01, VIS-02, VIS-03, VIS-04
+### Phase 13: Dynamic Persona Generation
+**Goal**: The simulation generates situation-specific agent personas from the seed rumor itself, so agents have domain-relevant expertise and biases tailored to the scenario
+**Depends on**: Phase 11
+**Requirements**: PERSONA-01, PERSONA-02
 **Success Criteria** (what must be TRUE):
-  1. Opening localhost:8000 in a browser during simulation shows 100 agent nodes arranged in a force-directed layout with visible bracket clustering (10 archetype groups)
-  2. Agent nodes change color in real time as signals update (green=buy, red=sell, gray=hold) and node size reflects bracket archetype
-  3. INFLUENCED_BY edges animate into the graph when a new round completes, fetched from GET /api/edges/{cycle_id}?round=N
-  4. Clicking any agent node opens a detail sidebar showing agent name, bracket, current signal, and current-round rationale text
-  5. The graph remains smooth (no perpetual bouncing) during 200ms state updates — layout only reheats on topology changes, not on every snapshot
-**Plans:** 4/4 plans complete
+  1. Given a seed rumor about a specific domain (e.g., oil markets, tech earnings), the orchestrator LLM generates entity-specific bracket modifiers in a single JSON call
+  2. Generated modifiers are injected into the existing generate_personas() pipeline, producing 100 agents across 10 brackets with situation-aware system prompts while preserving the bracket structure and agent count invariant
+  3. Input sanitization prevents prompt injection via adversarial seed rumor entity names -- entity text is validated, length-limited, and never concatenated raw into system prompts
+**Plans**: 2 plans
 Plans:
-- [x] 31-01-PLAN.md — Backend edges endpoint + StaticFiles mount + GraphStateManager.read_influence_edges + tests
-- [x] 31-02-PLAN.md — Frontend Vite scaffold + design tokens + WebSocket composable + App shell empty state
-- [x] 31-03-PLAN.md — ForceGraph.vue with D3 force simulation, bracket clustering, real-time signal coloring
-- [x] 31-04-PLAN.md — Edge animation + AgentSidebar + human visual verification
-**UI hint**: yes
+- [x] 13-01-PLAN.md -- Data layer: ParsedModifiersResult type, sanitize_entity_name, parse_modifier_response 3-tier fallback, generate_personas modifiers kwarg, tests
+- [x] 13-02-PLAN.md -- Integration: generate_modifiers orchestrator call, inject_seed modifier callback, run_simulation wiring
 
-### Phase 32: REST Controls and Simulation Control Bar
-**Goal**: Users can start a simulation, inject shocks, and trigger replay from the browser via REST endpoints wired to a control bar UI
-**Depends on**: Phase 31
-**Requirements**: BE-05, BE-06, BE-07, BE-08, BE-09, BE-10, CTL-01, CTL-02
+### Phase 14: Agent Interviews
+**Goal**: After simulation completes, users can select any agent and have a live multi-turn conversation about their decisions, with the agent responding in character using full decision context
+**Depends on**: Phase 11
+**Requirements**: INT-01, INT-02, INT-03
 **Success Criteria** (what must be TRUE):
-  1. User can type a seed rumor into a text input and click Start to launch a simulation — the control bar disables the start button while a simulation is active
-  2. User can open a shock injection drawer mid-simulation, submit shock text, and see a confirmation — a second concurrent shock request shows an error (HTTP 409 guard)
-  3. GET /api/edges/{cycle_id}?round=N returns the INFLUENCED_BY edge list for the requested round
-  4. GET /api/replay/cycles returns a list of completed simulation cycles eligible for replay
-  5. POST /api/replay/start/{cycle_id} and POST /api/replay/advance endpoints accept requests and return correct responses
-**Plans:** 4 plans
+  1. Selecting an agent reconstructs their full context from Neo4j -- persona, all 3 rounds of decisions, rationale history, peer influences received, and entity references
+  2. The agent responds conversationally in character using the worker LLM with their original system prompt restored, maintaining consistency with their simulation decisions across multiple exchanges
+  3. Users can interview agents via the TUI by clicking any agent cell in the grid post-simulation, opening an interactive Q&A panel with clean exit back to the dashboard
+  4. Interview sessions use a sliding window for conversation history to prevent context overflow during extended exchanges
+**Plans**: 2 plans
 Plans:
-- [ ] 32-01-PLAN.md — SimulationManager refactor (create_task + done-callback) + stop/shock endpoints + tests
-- [ ] 32-02-PLAN.md — Replay router (cycles query + start/advance stubs) + registration + tests
-- [ ] 32-03-PLAN.md — ControlBar.vue + ShockDrawer.vue + App.vue flex layout restructure
-- [ ] 32-04-PLAN.md — Human visual verification of control bar and shock drawer
+- [x] 14-01-PLAN.md -- Interview data layer and engine (InterviewContext/RoundDecision types, read_agent_interview_context graph method, InterviewEngine with sliding window, unit tests)
+- [x] 14-02-PLAN.md -- TUI integration (InterviewScreen overlay, AgentCell.on_click handler, cycle_id capture, human verification)
 **UI hint**: yes
 
-### Phase 33: Monitoring Panels
-**Goal**: Users can monitor bracket signal distributions, read agent rationale, and observe system telemetry in dedicated panels alongside the force graph
-**Depends on**: Phase 31
-**Requirements**: MON-01, MON-02, MON-03
+### Phase 15: Post-Simulation Report
+**Goal**: A ReACT agent autonomously queries the simulation graph and produces a structured market analysis report that synthesizes 300 agent decisions into actionable narrative
+**Depends on**: Phase 11
+**Requirements**: REPORT-01, REPORT-02, REPORT-03
 **Success Criteria** (what must be TRUE):
-  1. A bracket summary bar shows per-bracket buy/sell/hold distribution and updates live as WebSocket snapshots arrive
-  2. Selecting an agent (via graph click or panel) shows that agent's full reasoning text for the active round, updating on round transitions
-  3. A telemetry strip displays current RAM %, active semaphore count, simulation phase label, and round indicator — all updating in real time
-**Plans**: TBD
-**UI hint**: yes
+  1. The ReACT agent completes a Thought-Action-Observation loop using prompt-based tool dispatching (no Ollama native tools), with a hard cap of 8-10 iterations and duplicate call detection
+  2. Cypher query tools return structured data for bracket consensus summaries, influence topology leaders, entity-level sentiment trends, and signal flip metrics
+  3. A CLI `report` subcommand generates a structured markdown report and exports it to a file via aiofiles, with the file path displayed in the TUI
+  4. The report contains distinct analytical sections (consensus summary, key dissenters, bracket narratives, entity impact analysis) rendered from Jinja2 templates
+  5. Report generation uses the orchestrator model with proper model lifecycle serialization -- never runs concurrently with agent interviews
+**Plans**: 2 plans
+Plans:
+- [x] 15-01-PLAN.md -- ReACT engine + Cypher query tools (ReportEngine, ToolObservation, _parse_action_input, 8 GraphStateManager read methods, unit tests)
+- [x] 15-02-PLAN.md -- Delivery layer (Jinja2 templates, ReportAssembler, CLI report subcommand, aiofiles export, sentinel file, TUI polling)
 
-### Phase 34: Replay Mode Web UI
-**Goal**: Users can replay a past simulation cycle in the browser with round-by-round stepping through the same graph and panels used for live simulation
-**Depends on**: Phase 32, Phase 33
-**Requirements**: CTL-03
-**Success Criteria** (what must be TRUE):
-  1. User can select a completed cycle from a dropdown, click to enter replay mode, and see the graph populate with that cycle's Round 1 state
-  2. User can step through rounds manually (next-round button) or enable auto-advance, with the graph and panels updating to show each round's state
-  3. Round progress display shows current round number and total rounds during replay
-**Plans**: TBD
-**UI hint**: yes
+### v4.0 Interactive Simulation & Analysis (Phases 24-28)
 
-### Phase 35: Agent Interview Panel
-**Goal**: Users can conduct post-simulation Q&A conversations with any agent, receiving streamed token responses via WebSocket
-**Depends on**: Phase 31
-**Requirements**: BE-11, INT-01, INT-02
-**Success Criteria** (what must be TRUE):
-  1. After simulation completes, clicking an agent in the graph or detail sidebar opens an interview chat panel that streams the LLM response token-by-token
-  2. During an active simulation, the interview panel is disabled with an explanatory tooltip indicating interviews are available after simulation completes
-  3. Multiple interview turns with the same agent maintain conversation context (multi-turn Q&A with sliding window)
-**Plans**: TBD
-**UI hint**: yes
+**Milestone Goal:** Add mid-simulation shock injection, real-time impact analysis, HTML report export with Schwab portfolio overlay, and simulation replay — completing the full interactive analysis suite.
 
-### Phase 36: Report Viewer and Final Integration
-**Goal**: Users can generate and view the simulation report directly in the browser without leaving the web dashboard
-**Depends on**: Phase 35
-**Requirements**: RPT-01
+- [x] **Phase 24: HTML Report Export** - Exportable HTML simulation reports with SVG charts and Schwab portfolio overlay (completed 2026-04-09)
+- [x] **Phase 26: Shock Injection Core** - Mid-simulation shock injection with governor suspend/resume and ReplayStore isolation (completed 2026-04-10)
+- [x] **Phase 27: Shock Analysis and Reporting** - Shock impact analysis with bracket delta mode, read_shock_impact, and Jinja2 shock template (completed 2026-04-11)
+- [x] **Phase 28: Simulation Replay** - Re-render a past simulation cycle from stored Neo4j state without re-running inference (completed 2026-04-12)
+
+### Phase 28: Simulation Replay
+**Goal**: Re-render any completed simulation cycle from stored Neo4j state, stepping through rounds 1-3 in the TUI without re-running agent inference
+**Depends on**: Phase 27
+**Requirements**: REPLAY-01
 **Success Criteria** (what must be TRUE):
-  1. User can click a Generate Report button after simulation completes, see a loading indicator, and then view the generated HTML report in a new browser tab served by FastAPI
-  2. The report generation button is disabled during active simulation and before any simulation has completed
-**Plans**: TBD
-**UI hint**: yes
+  1. A CLI `replay` subcommand accepts a `cycle_id` and re-populates the TUI grid round-by-round from Neo4j decision data
+  2. The existing TUI dashboard (agent grid, bracket panel, rationale sidebar) renders correctly from replayed state with no live inference calls
+  3. `read_full_cycle_signals()` Cypher query completes in under 2s for cycles with 600+ nodes (COLLECT aggregation profiled and optimized)
+  4. Replay mode is visually distinct from live simulation (e.g., header shows "REPLAY -- Cycle {id}")
+**Plans**: 3 plans
+
+Plans:
+- [x] 28-01-PLAN.md -- Wave 0 tests, SimulationPhase.REPLAY enum, ReplayStore class, 4 GraphStateManager read methods
+- [x] 28-02-PLAN.md -- CLI replay subcommand, TUI replay mode (CyclePickerScreen, key bindings, auto-advance, header/footer rendering)
+- [x] 28-03-PLAN.md -- Human verification of TUI replay visual and interactive behavior
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1-10 (v1.0) -> 11-15 (v2.0) -> 24-28 (v4.0) -> 29-36 (v5.0)
+Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15 -> 24 -> 26 -> 27 -> 28
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -202,15 +160,7 @@ Phases execute in numeric order: 1-10 (v1.0) -> 11-15 (v2.0) -> 24-28 (v4.0) -> 
 | 13. Dynamic Persona Generation | v2.0 | 2/2 | Complete | 2026-04-02 |
 | 14. Agent Interviews | v2.0 | 2/2 | Complete | 2026-04-02 |
 | 15. Post-Simulation Report | v2.0 | 2/2 | Complete | 2026-04-02 |
-| 24. HTML Report Export | v4.0 | 2/2 | Complete | 2026-04-09 |
+| 24. HTML Report Export | v4.0 | -- | Complete | 2026-04-09 |
 | 26. Shock Injection Core | v4.0 | 5/5 | Complete | 2026-04-10 |
 | 27. Shock Analysis and Reporting | v4.0 | 3/3 | Complete | 2026-04-11 |
-| 28. Simulation Replay | v4.0 | 3/3 | Complete | 2026-04-12 |
-| 29. FastAPI Skeleton and Event Loop Foundation | v5.0 | 5/5 | Complete   | 2026-04-13 |
-| 30. WebSocket State Stream | v5.0 | 0/2 | Planned | - |
-| 31. Vue SPA and Force-Directed Graph | v5.0 | 4/4 | Complete   | 2026-04-14 |
-| 32. REST Controls and Simulation Control Bar | v5.0 | 0/4 | Planned | - |
-| 33. Monitoring Panels | v5.0 | 0/? | Not started | - |
-| 34. Replay Mode Web UI | v5.0 | 0/? | Not started | - |
-| 35. Agent Interview Panel | v5.0 | 0/? | Not started | - |
-| 36. Report Viewer and Final Integration | v5.0 | 0/? | Not started | - |
+| 28. Simulation Replay | v4.0 | 3/3 | Complete   | 2026-04-12 |
