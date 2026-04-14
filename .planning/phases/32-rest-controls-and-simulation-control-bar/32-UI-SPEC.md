@@ -1,7 +1,8 @@
 ---
 phase: 32
 slug: rest-controls-and-simulation-control-bar
-status: draft
+status: approved
+reviewed_at: 2026-04-14T00:00:00Z
 shadcn_initialized: false
 preset: none
 created: 2026-04-14
@@ -91,7 +92,7 @@ Destructive `#ef4444` reserved for (Phase 32 additions in bold):
 | +Inject Shock | transparent | `#3b82f6` | 1px solid `#3b82f6` | `#3b82f6` at 10% opacity bg |
 | +Inject Shock (disabled) | transparent | `#6b7280` | 1px solid `#374151` | no hover change |
 | Shock Submit | `#3b82f6` | `#e5e7eb` | none | `#2563eb` |
-| Shock Cancel | transparent | `#9ca3af` | 1px solid `#374151` | `#374151` bg |
+| Discard Shock | transparent | `#9ca3af` | 1px solid `#374151` | `#374151` bg |
 
 ### Textarea Colors
 
@@ -130,6 +131,8 @@ Left-to-right layout within the 48px strip:
 1. **Seed textarea** -- 1 line height, `flex: 1` to fill available width, max-height 32px, Body 14px/400, placeholder "Enter a seed rumor...", vertically centered
 2. **Start button** -- Label 12px/600, text "Start Simulation", height 32px, padding 0 16px, border-radius 4px, accent background `#3b82f6`
 
+**Focal point (Idle):** Seed textarea -- the primary input area. It fills most of the bar width and draws the eye as the only interactive element with a visible placeholder.
+
 When `phase === 'complete'`, both elements are enabled (user can start a new simulation).
 
 #### Active State (phase !== 'idle' AND phase !== 'complete')
@@ -141,6 +144,8 @@ Left-to-right layout:
 3. **Phase label** -- Label 12px/400, text `#9ca3af`, e.g. "Round 2 / 3", margin-left auto (pushes to right side), `white-space: nowrap`
 4. **Stop button** -- Label 12px/600, text "Stop", height 32px, padding 0 16px, border-radius 4px, destructive background `#ef4444`
 5. **"+Inject Shock" button** -- Label 12px/400, text "+Inject Shock", height 32px, padding 0 16px, border-radius 4px, ghost style (transparent bg, accent border + text)
+
+**Focal point (Active):** Stop button -- destructive red background (`#ef4444`) draws the eye as the highest-contrast element in the bar, positioned rightward for immediate access to the most consequential action.
 
 Phase label text mapping:
 
@@ -183,8 +188,10 @@ Top to bottom:
 1. **Label** -- "Inject Market Shock" -- Label 12px/600, `#9ca3af`
 2. **Shock textarea** -- 3 rows, width 100%, Body 14px/400, placeholder "Describe the shock event...", max-height 80px
 3. **Button row** -- `display: flex; justify-content: flex-end; gap: 8px`
-   - **Cancel button** -- ghost style, Label 12px/400, height 32px, padding 0 16px
+   - **Discard Shock button** -- ghost style, Label 12px/400, height 32px, padding 0 16px
    - **Submit button** -- accent fill, Label 12px/600, text "Inject Shock", height 32px, padding 0 16px
+
+**Focal point (Drawer open):** Shock textarea -- auto-focused on open, occupying the largest area within the drawer and serving as the primary interaction target.
 
 #### Drawer States
 
@@ -259,7 +266,7 @@ Same as Idle. Seed textarea is cleared and re-enabled. Start button awaits new i
 6. `POST /api/simulate/shock` fires with `{shock_text: "..."}`
 7. On 200 response: drawer slides up (150ms ease-in), shock text cleared
 8. On 409 response: inline error appears below textarea, drawer stays open
-9. User can click Cancel at any time to close without submitting
+9. User can click "Discard Shock" at any time to close without submitting
 
 ### Stop Flow
 
@@ -300,7 +307,7 @@ The Phase 31 empty state ("Waiting for Simulation") now renders below the contro
 | Shock submit button label | "Inject Shock" |
 | Shock submit loading label | "Injecting..." |
 | Start loading label | "Starting..." |
-| Shock cancel button label | "Cancel" |
+| Shock cancel button label | "Discard Shock" |
 | Shock error: already queued | "A shock is already queued." |
 | Shock error: no simulation | "No simulation is running." |
 | Empty state heading | "Waiting for Simulation" (unchanged from Phase 31) |
@@ -317,7 +324,7 @@ The Phase 31 empty state ("Waiting for Simulation") now renders below the contro
 | Animation | Property | Duration | Easing | Trigger |
 |-----------|----------|----------|--------|---------|
 | Shock drawer open | max-height 0 -> 160px (or transform translateY) | 200ms | ease-out | "+Inject Shock" click |
-| Shock drawer close | max-height 160px -> 0 (or transform translateY) | 150ms | ease-in | Cancel click or successful submit |
+| Shock drawer close | max-height 160px -> 0 (or transform translateY) | 150ms | ease-in | "Discard Shock" click or successful submit |
 
 New CSS custom property additions to `variables.css`:
 
