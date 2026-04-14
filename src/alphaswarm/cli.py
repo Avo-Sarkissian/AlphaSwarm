@@ -817,6 +817,25 @@ def _handle_replay(cycle_id: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Web server handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_web(host: str, port: int) -> None:
+    """Start Uvicorn web server. Synchronous — Uvicorn manages the event loop.
+
+    Per D-13: uvicorn.run() is a blocking synchronous call that creates and owns
+    the asyncio event loop internally. Do NOT wrap with asyncio.run().
+    All stateful objects are created inside the FastAPI lifespan context (D-04).
+    """
+    import uvicorn
+
+    from alphaswarm.web import create_app
+
+    uvicorn.run(create_app(), host=host, port=port)
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -855,6 +874,16 @@ def main() -> None:
     replay_parser.add_argument(
         "--cycle", type=str, default=None,
         help="Cycle ID to replay (defaults to most recent completed)",
+    )
+
+    web_parser = subparsers.add_parser("web", help="Start web UI server")
+    web_parser.add_argument(
+        "--host", type=str, default="127.0.0.1",
+        help="Bind address (default: 127.0.0.1)",
+    )
+    web_parser.add_argument(
+        "--port", type=int, default=8000,
+        help="Port number (default: 8000)",
     )
 
     args = parser.parse_args()
@@ -907,6 +936,16 @@ def main() -> None:
             sys.exit(1)
         except Exception as e:
             logger.error("replay_failed", error=str(e))
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+    elif args.command == "web":
+        try:
+            _handle_web(args.host, args.port)
+        except KeyboardInterrupt:
+            print("\nAborted.", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            logger.error("web_failed", error=str(e))
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
     else:

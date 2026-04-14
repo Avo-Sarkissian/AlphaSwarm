@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
-    sim_manager = SimulationManager(app_state)
+    sim_manager = SimulationManager(app_state, brackets)
     connection_manager = ConnectionManager()
 
     app.state.app_state = app_state
