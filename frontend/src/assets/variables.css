@@ -51,6 +51,15 @@
   --duration-sidebar-exit: 200ms;
   --easing-enter: ease-out;
   --easing-exit: ease-in;
+
+  /* Phase 32: Control bar */
+  --control-bar-height: 48px;
+  --duration-drawer-enter: 200ms;
+  --duration-drawer-exit: 150ms;
+
+  /* Button hover states */
+  --color-accent-hover: #2563eb;
+  --color-destructive-hover: #dc2626;
 }
 
 *,
