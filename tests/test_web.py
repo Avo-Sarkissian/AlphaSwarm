@@ -568,3 +568,126 @@ async def test_sim_manager_inject_shock() -> None:
         # Clean up
         sm.stop()
         await asyncio.sleep(0.05)
+
+
+# ---------------------------------------------------------------------------
+# Phase 32 Task 2: Stop and shock REST endpoints + cancellation phase reset
+# ---------------------------------------------------------------------------
+
+
+def test_simulate_start_202() -> None:
+    """POST /api/simulate/start returns 202 with accepted status."""
+    from unittest.mock import AsyncMock, patch
+
+    with TestClient(_make_test_app()) as client:
+        with patch.object(
+            client.app.state.sim_manager,
+            "start",
+            new=AsyncMock(),
+        ):
+            r = client.post("/api/simulate/start", json={"seed": "test rumor"})
+            assert r.status_code == 202
+            data = r.json()
+            assert data["status"] == "accepted"
+            assert data["message"] == "Simulation started"
+
+
+def test_simulate_stop_200_and_409() -> None:
+    """POST /api/simulate/stop returns 200 when running, 409 when not."""
+    from unittest.mock import MagicMock, patch
+    from alphaswarm.web.simulation_manager import NoSimulationRunningError
+
+    with TestClient(_make_test_app()) as client:
+        # Happy path: stop succeeds
+        with patch.object(
+            client.app.state.sim_manager,
+            "stop",
+            new=MagicMock(),
+        ):
+            r = client.post("/api/simulate/stop")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["status"] == "stopped"
+
+        # Sad path: no simulation running
+        with patch.object(
+            client.app.state.sim_manager,
+            "stop",
+            new=MagicMock(side_effect=NoSimulationRunningError("No simulation is running")),
+        ):
+            r = client.post("/api/simulate/stop")
+            assert r.status_code == 409
+            data = r.json()
+            assert data["detail"]["error"] == "no_simulation_running"
+
+
+def test_simulate_shock_queued_and_409() -> None:
+    """POST /api/simulate/shock returns 200 when queued, 409 when not running."""
+    from unittest.mock import MagicMock, patch
+    from alphaswarm.web.simulation_manager import NoSimulationRunningError
+
+    with TestClient(_make_test_app()) as client:
+        # Happy path: shock queued
+        with patch.object(
+            client.app.state.sim_manager,
+            "inject_shock",
+            new=MagicMock(),
+        ):
+            r = client.post("/api/simulate/shock", json={"shock_text": "market crash"})
+            assert r.status_code == 200
+            data = r.json()
+            assert data["status"] == "queued"
+            assert data["message"] == "Shock queued for next round"
+
+        # Sad path: no simulation running
+        with patch.object(
+            client.app.state.sim_manager,
+            "inject_shock",
+            new=MagicMock(side_effect=NoSimulationRunningError("No simulation is running")),
+        ):
+            r = client.post("/api/simulate/shock", json={"shock_text": "crash"})
+            assert r.status_code == 409
+            data = r.json()
+            assert data["detail"]["error"] == "no_simulation_running"
+
+
+def test_simulate_shock_concurrent_409() -> None:
+    """POST /api/simulate/shock returns 409 when shock already queued."""
+    from unittest.mock import MagicMock, patch
+    from alphaswarm.web.simulation_manager import ShockAlreadyQueuedError
+
+    with TestClient(_make_test_app()) as client:
+        with patch.object(
+            client.app.state.sim_manager,
+            "inject_shock",
+            new=MagicMock(side_effect=ShockAlreadyQueuedError("A shock is already queued")),
+        ):
+            r = client.post("/api/simulate/shock", json={"shock_text": "another shock"})
+            assert r.status_code == 409
+            data = r.json()
+            assert data["detail"]["error"] == "shock_already_queued"
+
+
+async def test_sim_manager_cancellation_resets_phase_to_idle() -> None:
+    """Cancelling a simulation resets StateStore.phase to IDLE."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from alphaswarm.types import SimulationPhase
+
+    mock_app_state = MagicMock()
+    mock_state_store = MagicMock()
+    mock_state_store.set_phase = AsyncMock()
+    mock_app_state.state_store = mock_state_store
+    sm = SimulationManager(mock_app_state, brackets=[])
+
+    async def _long_run(seed: str) -> None:
+        await asyncio.sleep(100)
+
+    with patch.object(sm, "_run", side_effect=_long_run):
+        await sm.start("test seed")
+        sm.stop()
+
+        # Wait for cancellation + done-callback + reset task
+        await asyncio.sleep(0.1)
+
+        # Verify set_phase was called with IDLE
+        mock_state_store.set_phase.assert_called_with(SimulationPhase.IDLE)
