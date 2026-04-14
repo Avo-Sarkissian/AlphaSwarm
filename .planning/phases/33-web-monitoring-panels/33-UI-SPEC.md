@@ -1,7 +1,8 @@
 ---
 phase: 33
 slug: web-monitoring-panels
-status: draft
+status: approved
+reviewed_at: 2026-04-14T00:00:00Z
 shadcn_initialized: false
 preset: none
 created: 2026-04-14
