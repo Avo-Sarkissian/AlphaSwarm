@@ -162,7 +162,10 @@ Plans:
   2. Bracket sentiment bars render as D3 SVG charts with one bar per bracket, updating after each round from `snapshot.bracket_summaries`
   3. Layout is responsive — panels fit alongside the force graph without clipping or overflow
   4. Feed is capped (e.g. 20 entries) with oldest entries fading out to prevent unbounded DOM growth
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 33-01-PLAN.md -- Foundation layer: d3-transition dep, CSS vars, allRationales composable, BracketPanel.vue, RationaleFeed.vue
+- [ ] 33-02-PLAN.md -- App.vue layout integration and human visual verification
 
 ### Phase 34: Replay Mode Web UI
 **Goal**: Wire the Phase 32 replay contract stubs into a real browser replay experience — cycle picker, round-by-round stepping, and live force graph re-render from Neo4j state without new inference
@@ -229,7 +232,7 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15 -> 24 -> 26 -> 27 ->
 | 30. WebSocket State Stream | v5.0 | -- | Complete | 2026-04-13 |
 | 31. Vue SPA and Force-Directed Graph | v5.0 | 4/4 | Complete | 2026-04-14 |
 | 32. REST Controls and Simulation Control Bar | v5.0 | 4/4 | Complete | 2026-04-14 |
-| 33. Web Monitoring Panels | v5.0 | 0/0 | Planned | — |
-| 34. Replay Mode Web UI | v5.0 | 0/0 | Planned | — |
-| 35. Agent Interviews Web UI | v5.0 | 0/0 | Planned | — |
-| 36. Report Viewer | v5.0 | 0/0 | Planned | — |
+| 33. Web Monitoring Panels | v5.0 | 0/2 | Planned | -- |
+| 34. Replay Mode Web UI | v5.0 | 0/0 | Planned | -- |
+| 35. Agent Interviews Web UI | v5.0 | 0/0 | Planned | -- |
+| 36. Report Viewer | v5.0 | 0/0 | Planned | -- |
