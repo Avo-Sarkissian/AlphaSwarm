@@ -64,7 +64,7 @@ See full details: `.planning/milestones/v4.0-ROADMAP.md`
 
 - [x] **Phase 29: FastAPI Skeleton and Event Loop Foundation** — FastAPI app factory with Uvicorn lifespan owning the event loop, non-destructive StateStore snapshot, and per-client WebSocket queue architecture (completed 2026-04-13)
 - [x] **Phase 30: WebSocket State Stream** — Real-time WebSocket broadcast of StateSnapshot JSON at 5Hz to all connected browser clients (completed 2026-04-13)
-- [ ] **Phase 31: Vue SPA and Force-Directed Graph** — Vue 3 SPA with live D3 force-directed graph rendering 100 agent nodes clustered by bracket with animated INFLUENCED_BY edges
+- [x] **Phase 31: Vue SPA and Force-Directed Graph** — Vue 3 SPA with live D3 force-directed graph rendering 100 agent nodes clustered by bracket with animated INFLUENCED_BY edges (completed 2026-04-14)
 - [ ] **Phase 32: REST Controls and Simulation Control Bar** — REST endpoints for simulation start, shock injection, replay, and edge queries plus browser-side control bar and shock drawer
 - [ ] **Phase 33: Monitoring Panels** — Bracket summary, rationale sidebar, and telemetry strip panels consuming the WebSocket state stream
 - [ ] **Phase 34: Replay Mode Web UI** — Web-based replay player with cycle picker, round stepper, and auto-advance consuming the replay REST endpoints
@@ -111,12 +111,12 @@ Plans:
   3. INFLUENCED_BY edges animate into the graph when a new round completes, fetched from GET /api/edges/{cycle_id}?round=N
   4. Clicking any agent node opens a detail sidebar showing agent name, bracket, current signal, and current-round rationale text
   5. The graph remains smooth (no perpetual bouncing) during 200ms state updates — layout only reheats on topology changes, not on every snapshot
-**Plans:** 4 plans
+**Plans:** 4/4 plans complete
 Plans:
-- [ ] 31-01-PLAN.md — Backend edges endpoint + StaticFiles mount + GraphStateManager.read_influence_edges + tests
-- [ ] 31-02-PLAN.md — Frontend Vite scaffold + design tokens + WebSocket composable + App shell empty state
-- [ ] 31-03-PLAN.md — ForceGraph.vue with D3 force simulation, bracket clustering, real-time signal coloring
-- [ ] 31-04-PLAN.md — Edge animation + AgentSidebar + human visual verification
+- [x] 31-01-PLAN.md — Backend edges endpoint + StaticFiles mount + GraphStateManager.read_influence_edges + tests
+- [x] 31-02-PLAN.md — Frontend Vite scaffold + design tokens + WebSocket composable + App shell empty state
+- [x] 31-03-PLAN.md — ForceGraph.vue with D3 force simulation, bracket clustering, real-time signal coloring
+- [x] 31-04-PLAN.md — Edge animation + AgentSidebar + human visual verification
 **UI hint**: yes
 
 ### Phase 32: REST Controls and Simulation Control Bar
@@ -203,7 +203,7 @@ Phases execute in numeric order: 1-10 (v1.0) -> 11-15 (v2.0) -> 24-28 (v4.0) -> 
 | 28. Simulation Replay | v4.0 | 3/3 | Complete | 2026-04-12 |
 | 29. FastAPI Skeleton and Event Loop Foundation | v5.0 | 5/5 | Complete   | 2026-04-13 |
 | 30. WebSocket State Stream | v5.0 | 0/2 | Planned | - |
-| 31. Vue SPA and Force-Directed Graph | v5.0 | 0/4 | Planned | - |
+| 31. Vue SPA and Force-Directed Graph | v5.0 | 4/4 | Complete   | 2026-04-14 |
 | 32. REST Controls and Simulation Control Bar | v5.0 | 0/? | Not started | - |
 | 33. Monitoring Panels | v5.0 | 0/? | Not started | - |
 | 34. Replay Mode Web UI | v5.0 | 0/? | Not started | - |
