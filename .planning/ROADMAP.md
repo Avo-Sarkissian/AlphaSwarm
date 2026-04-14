@@ -129,7 +129,12 @@ Plans:
   3. GET /api/edges/{cycle_id}?round=N returns the INFLUENCED_BY edge list for the requested round
   4. GET /api/replay/cycles returns a list of completed simulation cycles eligible for replay
   5. POST /api/replay/start/{cycle_id} and POST /api/replay/advance endpoints accept requests and return correct responses
-**Plans**: TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 32-01-PLAN.md — SimulationManager refactor (create_task + done-callback) + stop/shock endpoints + tests
+- [ ] 32-02-PLAN.md — Replay router (cycles query + start/advance stubs) + registration + tests
+- [ ] 32-03-PLAN.md — ControlBar.vue + ShockDrawer.vue + App.vue flex layout restructure
+- [ ] 32-04-PLAN.md — Human visual verification of control bar and shock drawer
 **UI hint**: yes
 
 ### Phase 33: Monitoring Panels
@@ -204,7 +209,7 @@ Phases execute in numeric order: 1-10 (v1.0) -> 11-15 (v2.0) -> 24-28 (v4.0) -> 
 | 29. FastAPI Skeleton and Event Loop Foundation | v5.0 | 5/5 | Complete   | 2026-04-13 |
 | 30. WebSocket State Stream | v5.0 | 0/2 | Planned | - |
 | 31. Vue SPA and Force-Directed Graph | v5.0 | 4/4 | Complete   | 2026-04-14 |
-| 32. REST Controls and Simulation Control Bar | v5.0 | 0/? | Not started | - |
+| 32. REST Controls and Simulation Control Bar | v5.0 | 0/4 | Planned | - |
 | 33. Monitoring Panels | v5.0 | 0/? | Not started | - |
 | 34. Replay Mode Web UI | v5.0 | 0/? | Not started | - |
 | 35. Agent Interview Panel | v5.0 | 0/? | Not started | - |
