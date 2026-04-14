@@ -64,7 +64,7 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - [ ] Miro live visualization — API v2 network visualization with spatial layout and dynamic connectors (VIS-01, VIS-02)
 - [ ] Simulation replay from stored Neo4j state (REPLAY-01)
 - [ ] Exportable simulation reports (REPLAY-02)
-- [ ] Mid-simulation shock injection (REPLAY-03)
+- [x] Mid-simulation shock injection (REPLAY-03) — Validated in Phase 32: rest-controls-and-simulation-control-bar
 
 ### Out of Scope
 
@@ -106,6 +106,8 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
+
+**Phase 32 complete (2026-04-14):** REST simulation controls (start/stop/shock), replay router stubs, Vue ControlBar + ShockDrawer. Phase 32 is the last planned phase in the v5.0 Web UI milestone.
 
 **After each phase transition** (via `/gsd:transition`):
 1. Requirements invalidated? → Move to Out of Scope with reason
