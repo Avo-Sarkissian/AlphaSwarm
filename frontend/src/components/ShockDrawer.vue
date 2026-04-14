@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 
-const props = defineProps<{ open: boolean }>()
+defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const shockText = ref('')
