@@ -3,10 +3,11 @@ import { computed, provide, ref } from 'vue'
 import { useWebSocket } from './composables/useWebSocket'
 import ForceGraph from './components/ForceGraph.vue'
 import AgentSidebar from './components/AgentSidebar.vue'
+import ControlBar from './components/ControlBar.vue'
 
 const { snapshot, connected, reconnectFailed, latestRationales } = useWebSocket()
 
-// Provide snapshot to child components (ForceGraph, AgentSidebar in later plans)
+// Provide snapshot to child components (ForceGraph, AgentSidebar, ControlBar)
 provide('snapshot', snapshot)
 provide('connected', connected)
 provide('latestRationales', latestRationales)
@@ -23,28 +24,29 @@ function onCloseSidebar() {
 }
 
 const sidebarOpen = computed(() => selectedAgentId.value !== null)
-const isIdle = computed(() => snapshot.value.phase === 'idle')
+const isIdle = computed(() => snapshot.value.phase === 'idle' || snapshot.value.phase === 'complete')
 </script>
 
 <template>
   <div class="app-root">
-    <!-- Empty state: shown when no simulation running (UI-SPEC: Graph - Empty) -->
-    <div v-if="isIdle" class="empty-state">
-      <h1 class="empty-state__heading">Waiting for Simulation</h1>
-      <p class="empty-state__body">Start a simulation to see 100 agents deliberate in real time.</p>
+    <!-- ControlBar owns ShockDrawer internally -- no event wiring needed -->
+    <ControlBar />
+
+    <!-- Main content area: fills remaining space -->
+    <div class="main-content">
+      <div v-if="isIdle" class="empty-state">
+        <h1 class="empty-state__heading">Waiting for Simulation</h1>
+        <p class="empty-state__body">Start a simulation to see 100 agents deliberate in real time.</p>
+      </div>
+      <div v-else class="graph-container" :class="{ 'graph-container--sidebar-open': sidebarOpen }" id="graph-container">
+        <ForceGraph @select-agent="onSelectAgent" />
+      </div>
     </div>
 
-    <!-- Active simulation: render force graph -->
-    <div v-else class="graph-container" :class="{ 'graph-container--sidebar-open': sidebarOpen }" id="graph-container">
-      <ForceGraph @select-agent="onSelectAgent" />
-    </div>
-
-    <!-- Agent detail sidebar (slides in from right on node click) -->
     <Transition name="sidebar">
       <AgentSidebar v-if="selectedAgentId" :agentId="selectedAgentId" @close="onCloseSidebar" />
     </Transition>
 
-    <!-- Connection error banner (UI-SPEC: Error State - WebSocket Disconnected) -->
     <div v-if="reconnectFailed" class="connection-error">
       Connection Lost -- Attempting to reconnect to the simulation server.
     </div>
@@ -53,11 +55,18 @@ const isIdle = computed(() => snapshot.value.phase === 'idle')
 
 <style scoped>
 .app-root {
-  width: 100vw;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
-  position: relative;
   overflow: hidden;
   background-color: var(--color-bg-primary);
+}
+
+.main-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
 }
 
 /* Empty state (UI-SPEC: centered h+v, pulse animation on heading) */
