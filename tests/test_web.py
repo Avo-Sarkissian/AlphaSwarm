@@ -38,6 +38,7 @@ def _make_test_app() -> FastAPI:
     from alphaswarm.web.connection_manager import ConnectionManager
     from alphaswarm.web.routes.edges import router as edges_router
     from alphaswarm.web.routes.health import router as health_router
+    from alphaswarm.web.routes.replay import router as replay_router
     from alphaswarm.web.routes.simulation import router as simulation_router
     from alphaswarm.web.routes.websocket import router as ws_router
     from alphaswarm.web.simulation_manager import SimulationManager
@@ -66,6 +67,7 @@ def _make_test_app() -> FastAPI:
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")
     app.include_router(edges_router, prefix="/api")
+    app.include_router(replay_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full path
     return app
 
@@ -691,3 +693,63 @@ async def test_sim_manager_cancellation_resets_phase_to_idle() -> None:
 
         # Verify set_phase was called with IDLE
         mock_state_store.set_phase.assert_called_with(SimulationPhase.IDLE)
+
+
+# ---------------------------------------------------------------------------
+# Phase 32 Plan 02: Replay endpoints (BE-08, BE-09, BE-10)
+# ---------------------------------------------------------------------------
+
+
+def test_replay_cycles_503() -> None:
+    """GET /api/replay/cycles returns 503 when graph_manager is None."""
+    with TestClient(_make_test_app()) as client:
+        r = client.get("/api/replay/cycles")
+        assert r.status_code == 503
+        data = r.json()
+        assert data["detail"]["error"] == "graph_unavailable"
+
+
+def test_replay_start_stub() -> None:
+    """POST /api/replay/start/{cycle_id} returns correct stub response."""
+    with TestClient(_make_test_app()) as client:
+        r = client.post("/api/replay/start/test-cycle-123")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        assert data["cycle_id"] == "test-cycle-123"
+        assert data["round_num"] == 1
+
+
+def test_replay_advance_stub() -> None:
+    """POST /api/replay/advance returns correct stub response."""
+    with TestClient(_make_test_app()) as client:
+        r = client.post("/api/replay/advance")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        assert data["round_num"] == 1
+
+
+def test_replay_routes_registered_in_production_app() -> None:
+    """Production create_app() registers /api/replay/* routes."""
+    from alphaswarm.web.app import create_app as production_create_app
+
+    prod_app = production_create_app()
+    route_paths = [getattr(r, "path", None) for r in prod_app.routes]
+    assert "/api/replay/cycles" in route_paths
+    assert "/api/replay/start/{cycle_id}" in route_paths
+    assert "/api/replay/advance" in route_paths
+
+
+def test_edges_endpoint_regression_sc3() -> None:
+    """GET /api/edges/{cycle_id}?round=N returns 503 without Neo4j (SC-3 regression).
+
+    SC-3: GET /api/edges/{cycle_id}?round=N returns the INFLUENCED_BY edge list.
+    This endpoint was implemented in Phase 31. This test verifies it is still
+    registered and responds correctly after Phase 32 router additions.
+    """
+    with TestClient(_make_test_app()) as client:
+        r = client.get("/api/edges/test-cycle?round=1")
+        assert r.status_code == 503  # graph_manager is None in test app
+        data = r.json()
+        assert data["detail"]["error"] == "graph_unavailable"
