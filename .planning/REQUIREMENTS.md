@@ -78,18 +78,18 @@ Requirements for v2.0 Engine Depth milestone. Each maps to roadmap phases.
 - [x] **PERSONA-01**: Orchestrator LLM generates entity-specific bracket modifiers from SeedEvent entities in a single JSON call
 - [x] **PERSONA-02**: Entity-aware modifiers injected into generate_personas() pipeline, preserving 10-bracket structure and 100-agent count
 
-## v3 Requirements (Future)
+## v5 Requirements
 
-Deferred to future milestones. Tracked but not in current roadmap.
+Requirements for v5.0 Web UI milestone. Phases 29-36.
 
 ### Web Dashboard
 
-- **WEB-01**: Vue 3 + Vite browser-based dashboard with live 10x10 agent grid, color-coded by signal (BUY/SELL/HOLD), polling agent state every 2s
-- **WEB-02**: D3.js force-directed influence graph -- agent nodes colored by sentiment, INFLUENCED_BY edges as weighted Bezier curves, zoom/pan/click-to-inspect
-- **WEB-03**: Real-time rationale feed with animated entry transitions, cursor-based incremental fetching
-- **WEB-04**: Bracket sentiment bar charts (D3 SVG) updated after each round
-- **WEB-05**: FastAPI backend serving REST endpoints for simulation status, agent states, rationale, brackets, and graph data
-- **WEB-06**: Post-simulation views -- agent interview panel, report viewer, results export
+- [x] **WEB-01**: Vue 3 + Vite browser-based dashboard with live force-directed agent graph, color-coded by signal, WebSocket state stream
+- [x] **WEB-02**: D3.js force-directed influence graph -- agent nodes colored by sentiment, INFLUENCED_BY edges as weighted Bezier curves, zoom/pan/click-to-inspect
+- [ ] **WEB-03**: Real-time rationale feed with animated entry transitions in the browser
+- [ ] **WEB-04**: Bracket sentiment bar charts (D3 SVG) updated after each round in the browser
+- [x] **WEB-05**: FastAPI backend serving REST endpoints for simulation status, agent states, rationale, brackets, graph data, and simulation controls
+- [ ] **WEB-06**: Post-simulation views -- agent interview panel, report viewer, replay mode
 
 ### Visualization
 
@@ -167,11 +167,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REPORT-02 | Phase 15: Post-Simulation Report | Complete |
 | REPORT-03 | Phase 15: Post-Simulation Report | Complete |
 
+| WEB-01 | Phase 29: FastAPI Skeleton / Phase 31: Vue SPA | Complete |
+| WEB-02 | Phase 31: Vue SPA and Force-Directed Graph | Complete |
+| WEB-03 | Phase 33: Web Monitoring Panels | Planned |
+| WEB-04 | Phase 33: Web Monitoring Panels | Planned |
+| WEB-05 | Phase 29: FastAPI Skeleton / Phase 32: REST Controls | Complete |
+| WEB-06 | Phase 34: Replay Mode Web UI / Phase 35: Agent Interviews Web UI / Phase 36: Report Viewer | Planned |
+
 **Coverage:**
 - v1 requirements: 27 total, 27 mapped (Complete)
-- v2 requirements: 13 total, 13 mapped (Pending)
+- v2 requirements: 13 total, 13 mapped (Complete)
+- v5 requirements: 6 total, 6 mapped (3 complete, 3 planned)
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-03-31 after v2.0 roadmap creation*
+*Last updated: 2026-04-14 after v5.0 phases 33-36 added to roadmap*
