@@ -6,6 +6,7 @@ import AgentSidebar from './components/AgentSidebar.vue'
 import ControlBar from './components/ControlBar.vue'
 import BracketPanel from './components/BracketPanel.vue'
 import RationaleFeed from './components/RationaleFeed.vue'
+import CyclePicker from './components/CyclePicker.vue'
 
 const { snapshot, connected, reconnectFailed, latestRationales, allRationales } = useWebSocket()
 
@@ -28,12 +29,26 @@ function onCloseSidebar() {
 
 const sidebarOpen = computed(() => selectedAgentId.value !== null)
 const isIdle = computed(() => snapshot.value.phase === 'idle' || snapshot.value.phase === 'complete')
+
+// CyclePicker modal state
+const showCyclePicker = ref(false)
+
+function onOpenCyclePicker() {
+  showCyclePicker.value = true
+}
+function onCloseCyclePicker() {
+  showCyclePicker.value = false
+}
+function onStartReplay(cycleId: string) {
+  showCyclePicker.value = false
+  // POST already handled by CyclePicker -- phase update comes via WebSocket
+}
 </script>
 
 <template>
   <div class="app-root">
-    <!-- ControlBar owns ShockDrawer internally -- no event wiring needed -->
-    <ControlBar />
+    <!-- ControlBar owns ShockDrawer internally -->
+    <ControlBar @open-cycle-picker="onOpenCyclePicker" />
 
     <!-- Main content area: fills remaining space -->
     <div class="main-content">
@@ -56,6 +71,12 @@ const isIdle = computed(() => snapshot.value.phase === 'idle' || snapshot.value.
     <Transition name="sidebar">
       <AgentSidebar v-if="selectedAgentId" :agentId="selectedAgentId" @close="onCloseSidebar" />
     </Transition>
+
+    <CyclePicker
+      v-if="showCyclePicker"
+      @start-replay="onStartReplay"
+      @close="onCloseCyclePicker"
+    />
 
     <div v-if="reconnectFailed" class="connection-error">
       Connection Lost -- Attempting to reconnect to the simulation server.

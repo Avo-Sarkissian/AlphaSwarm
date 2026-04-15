@@ -183,7 +183,7 @@ watch(() => snapshot.value.round_num, (newRound, oldRound) => {
 
 // Clear edges when cycle resets
 watch(() => snapshot.value.phase, (newPhase) => {
-  if (newPhase === 'idle' || newPhase === 'seeding') {
+  if (newPhase === 'idle' || newPhase === 'seeding' || newPhase === 'replay') {
     edges.value = []
     triggerRef(edges)
   }

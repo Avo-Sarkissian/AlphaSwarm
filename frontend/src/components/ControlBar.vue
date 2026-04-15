@@ -7,8 +7,15 @@ const snapshot = inject<Ref<StateSnapshot>>('snapshot')!
 
 // Phase detection
 const isActive = computed(() =>
-  snapshot.value.phase !== 'idle' && snapshot.value.phase !== 'complete'
+  snapshot.value.phase !== 'idle' &&
+  snapshot.value.phase !== 'complete' &&
+  snapshot.value.phase !== 'replay'
 )
+const isReplay = computed(() => snapshot.value.phase === 'replay')
+
+const emit = defineEmits<{
+  'open-cycle-picker': []
+}>()
 
 // Seed input
 const seedText = ref('')
@@ -86,29 +93,64 @@ async function stopSimulation() {
     console.error('Stop error:', err)
   }
 }
+
+// Replay mode state and functions
+const advancePending = ref(false)
+const replayRound = computed(() => snapshot.value.round_num)
+
+async function advanceReplay() {
+  if (advancePending.value || replayRound.value >= 3) return
+  advancePending.value = true
+  try {
+    const res = await fetch('/api/replay/advance', { method: 'POST' })
+    if (!res.ok) console.error('Advance failed:', res.status)
+    // Round update comes via WebSocket snapshot
+  } catch (err) {
+    console.error('Advance error:', err)
+  } finally {
+    advancePending.value = false
+  }
+}
+
+async function exitReplay() {
+  try {
+    await fetch('/api/replay/stop', { method: 'POST' })
+    // Phase resets to idle via WebSocket snapshot
+  } catch (err) {
+    console.error('Exit replay error:', err)
+  }
+}
 </script>
 
 <template>
   <div class="control-bar-wrapper">
     <div class="control-bar">
-      <textarea
-        v-model="seedText"
-        class="control-bar__seed"
-        :class="{ 'control-bar__seed--disabled': isActive }"
-        :disabled="isActive"
-        placeholder="Enter a seed rumor..."
-        rows="1"
-      />
-      <button
-        class="control-bar__btn control-bar__btn--start"
-        :class="{ 'control-bar__btn--disabled': !canStart }"
-        :disabled="!canStart"
-        @click="startSimulation"
-      >
-        {{ startPending ? 'Starting...' : 'Start Simulation' }}
-      </button>
+      <!-- Idle mode: seed input + Start + Replay buttons -->
+      <template v-if="!isActive && !isReplay">
+        <textarea
+          v-model="seedText"
+          class="control-bar__seed"
+          placeholder="Enter a seed rumor..."
+          rows="1"
+        />
+        <button
+          class="control-bar__btn control-bar__btn--start"
+          :class="{ 'control-bar__btn--disabled': !canStart }"
+          :disabled="!canStart"
+          @click="startSimulation"
+        >
+          {{ startPending ? 'Starting...' : 'Start Simulation' }}
+        </button>
+        <button
+          class="control-bar__btn control-bar__btn--replay-idle"
+          @click="emit('open-cycle-picker')"
+        >
+          Replay
+        </button>
+      </template>
 
-      <template v-if="isActive">
+      <!-- Live simulation mode -->
+      <template v-else-if="isActive">
         <span class="control-bar__phase">{{ phaseLabel }}</span>
         <button
           class="control-bar__btn control-bar__btn--stop"
@@ -121,6 +163,26 @@ async function stopSimulation() {
           @click="toggleDrawer"
         >
           +Inject Shock
+        </button>
+      </template>
+
+      <!-- Replay mode (D-03, D-04, D-05, D-06) -->
+      <template v-else-if="isReplay">
+        <span class="control-bar__replay-badge">&#9632; REPLAY</span>
+        <span class="control-bar__replay-info">Round {{ replayRound }} / 3</span>
+        <button
+          class="control-bar__btn control-bar__btn--next"
+          :class="{ 'control-bar__btn--next-disabled': replayRound >= 3 || advancePending }"
+          :disabled="replayRound >= 3 || advancePending"
+          @click="advanceReplay"
+        >
+          {{ advancePending ? 'Advancing...' : '\u25B6 Next' }}
+        </button>
+        <button
+          class="control-bar__btn control-bar__btn--exit"
+          @click="exitReplay"
+        >
+          &#10005; Exit
         </button>
       </template>
     </div>
@@ -220,5 +282,60 @@ async function stopSimulation() {
   font-weight: var(--font-weight-regular);
   color: var(--color-text-secondary);
   white-space: nowrap;
+}
+
+.control-bar__btn--replay-idle {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-regular);
+}
+.control-bar__btn--replay-idle:hover {
+  background: var(--color-border);
+}
+
+.control-bar__replay-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 var(--space-sm);
+  background: var(--color-replay);
+  color: var(--color-replay-text);
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.control-bar__replay-info {
+  font-size: var(--font-size-label);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.control-bar__btn--next {
+  background: var(--color-accent);
+  color: var(--color-text-primary);
+}
+.control-bar__btn--next:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+.control-bar__btn--next-disabled {
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.control-bar__btn--exit {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-regular);
+}
+.control-bar__btn--exit:hover {
+  background: var(--color-border);
 }
 </style>
