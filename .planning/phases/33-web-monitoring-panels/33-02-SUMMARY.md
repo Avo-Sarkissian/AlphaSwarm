@@ -2,22 +2,23 @@
 phase: 33-web-monitoring-panels
 plan: 02
 subsystem: ui
-tags: [vue3, layout, flex-column, panel-strip, provide-inject]
+tags: [vue3, flex-layout, provide-inject, panel-strip, responsive-css]
 
 # Dependency graph
 requires:
   - phase: 33-web-monitoring-panels
     plan: 01
-    provides: BracketPanel.vue, RationaleFeed.vue, allRationales composable, CSS tokens
+    provides: BracketPanel.vue, RationaleFeed.vue, allRationales composable, CSS custom properties
 provides:
-  - App.vue layout integration of monitoring panels (panel-strip below force graph)
-  - allRationales provide chain for child components
+  - App.vue flex-column layout with force graph + bottom panel strip
+  - allRationales provide/inject wiring for child components
+  - Responsive panel stacking below 1024px
 affects: []
 
 # Tech tracking
 tech-stack:
   added: []
-  patterns: [flex-column layout with fixed-height panel strip, template v-else for multi-element conditional]
+  patterns: [flex-column layout with fixed-height panel strip, template-v-else multi-element conditional, sidebar-open width calc pattern]
 
 key-files:
   created: []
@@ -25,56 +26,73 @@ key-files:
     - frontend/src/App.vue
 
 key-decisions:
-  - "template v-else wraps both graph-container and panel-strip so they share the !isIdle condition"
-  - "flex column layout: graph gets flex:1 min-height:0, panel strip gets fixed height via CSS var"
+  - "template v-else wrapper for multi-element conditional -- wraps graph-container and panel-strip so both share the !isIdle condition without an extra wrapper div"
+  - "Panel strip uses flex-shrink:0 with CSS variable height -- fixed 232px from --panel-strip-height token, graph flexes to fill remaining space"
+
+patterns-established:
+  - "Panel strip layout: fixed-height bottom strip with flex:1 content above, using CSS custom property for height"
+  - "Sidebar-open pattern reuse: panel-strip--sidebar-open mirrors graph-container--sidebar-open calc(100vw - var(--sidebar-width))"
+
+requirements-completed: [WEB-03, WEB-04]
 
 # Metrics
-duration: pending (checkpoint)
-completed: pending
+duration: 3min
+completed: 2026-04-15
 ---
 
 # Phase 33 Plan 02: Web Monitoring Panels - App.vue Integration Summary
 
-**Flex column layout integration with BracketPanel and RationaleFeed in a 232px bottom panel strip, wired via provide/inject**
-
-## Status: CHECKPOINT PENDING (human-verify)
-
-Task 1 complete. Awaiting human visual verification (Task 2).
+**Flex-column layout integration wiring BracketPanel and RationaleFeed into App.vue with panel-strip, provide chain, and responsive stacking**
 
 ## Performance
 
-- **Started:** 2026-04-15T00:28:00Z
-- **Tasks:** 1/2 (checkpoint pending)
+- **Duration:** 3 min
+- **Started:** 2026-04-15T01:20:00Z
+- **Completed:** 2026-04-15T01:28:00Z
+- **Tasks:** 2 (1 auto + 1 human-verify checkpoint)
 - **Files modified:** 1
 
 ## Accomplishments
-- Restructured App.vue main-content from simple overflow container to flex column layout
-- Added BracketPanel and RationaleFeed imports, rendered in panel-strip below force graph
-- Wired allRationales provide from useWebSocket to child components
-- Panel strip: 232px fixed height, flex row with divider, sidebar-open width adjustment
-- Responsive stacking at less than 1024px via media query
-- template v-else ensures panels only render during active simulation
+- Restructured App.vue main-content from single-element to flex-column layout: force graph (flex:1) on top, 232px panel strip at bottom
+- Wired BracketPanel and RationaleFeed into panel-strip with divider, importing both components and providing allRationales via inject chain
+- Added sidebar-open width adjustment and responsive vertical stacking below 1024px
+- Human visual verification confirmed: panel strip layout, bracket bars, rationale feed animations, dedup behavior, idle-state reset, and sidebar interaction all working correctly
 
 ## Task Commits
 
+Each task was committed atomically:
+
 1. **Task 1: Restructure App.vue layout and wire monitoring panels** - `a966ba0` (feat)
-2. **Task 2: Visual verification of monitoring panels** - PENDING (checkpoint:human-verify)
+2. **Task 2: Visual verification of monitoring panels** - checkpoint:human-verify approved, no code changes
 
 ## Files Modified
-- `frontend/src/App.vue` - Added BracketPanel/RationaleFeed imports, allRationales provide, panel-strip template and CSS
+- `frontend/src/App.vue` - Added BracketPanel/RationaleFeed imports, allRationales provide, template v-else wrapper, panel-strip markup, flex-column CSS, responsive media query
 
 ## Decisions Made
-- Used `<template v-else>` to wrap both graph-container and panel-strip, sharing the `!isIdle` conditional without adding a wrapper div
-- Flex column layout with `flex: 1; min-height: 0` on graph-container allows it to shrink when panel strip appears
+- Used `<template v-else>` to wrap both graph-container and panel-strip under a single conditional, avoiding an unnecessary wrapper div
+- Panel strip uses `flex-shrink: 0` with `var(--panel-strip-height)` so the graph container absorbs all available space above it
 
 ## Deviations from Plan
 
-None - Task 1 executed exactly as written.
-
-## Issues Encountered
-
-- Pre-existing `vue-tsc -b` type errors (same as documented in 33-01-SUMMARY.md): unused imports in ForceGraph.vue and readonly type incompatibilities in useWebSocket.ts. These are out of scope. Vite production build succeeds (597ms).
+None - plan executed exactly as written.
 
 ## Known Stubs
 
-None - all components are fully wired to their data sources via provide/inject chain.
+None - all components are fully wired to live WebSocket data sources via provide/inject chain.
+
+## Issues Encountered
+
+- Pre-existing `vue-tsc -b` type-check errors (unused imports in ForceGraph.vue, readonly type incompatibilities in useWebSocket.ts return). These exist on the base commit before Plan 01 and 02 changes. `vite build` (production bundling) passes cleanly. Already logged to deferred-items.md in Plan 01 as out of scope.
+
+## User Setup Required
+
+None.
+
+## Verification Results
+
+- `vite build` passes: 310 modules transformed, built in 617ms
+- Human visual verification: APPROVED -- panel strip layout, bracket bars, rationale feed, animations, dedup, idle reset, and sidebar interaction all confirmed working
+
+## Self-Check: PASSED
+
+All 1 modified file verified present. Task 1 commit hash `a966ba0` verified in git log.
