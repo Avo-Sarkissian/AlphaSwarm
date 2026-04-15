@@ -148,7 +148,7 @@ Plans:
 - [x] **Phase 30: WebSocket State Stream** - Real-time StateSnapshot broadcast over WebSocket with connection manager (completed 2026-04-13)
 - [x] **Phase 31: Vue SPA and Force-Directed Graph** - Vue 3 + Vite SPA with D3 force-directed agent graph, sidebar, and WebSocket composable (completed 2026-04-14)
 - [x] **Phase 32: REST Controls and Simulation Control Bar** - Simulation start/stop/shock REST endpoints, replay contract stubs, and Vue control bar with shock drawer (completed 2026-04-14)
-- [ ] **Phase 33: Web Monitoring Panels** - Live rationale feed with animated entries and D3 bracket sentiment bars in the browser
+- [x] **Phase 33: Web Monitoring Panels** - Live rationale feed with animated entries and D3 bracket sentiment bars in the browser (completed 2026-04-15)
 - [ ] **Phase 34: Replay Mode Web UI** - Cycle picker, round stepping, and force graph re-render from stored Neo4j state (wires Phase 32 stubs)
 - [ ] **Phase 35: Agent Interviews Web UI** - Click any post-simulation graph node to open a live multi-turn interview panel in the browser
 - [ ] **Phase 36: Report Viewer** - Fetch and render the post-simulation market analysis report as a formatted panel within the SPA
@@ -164,8 +164,8 @@ Plans:
   4. Feed is capped (e.g. 20 entries) with oldest entries fading out to prevent unbounded DOM growth
 **Plans**: 2 plans
 Plans:
-- [ ] 33-01-PLAN.md -- Foundation layer: d3-transition dep, CSS vars, allRationales composable, BracketPanel.vue, RationaleFeed.vue
-- [ ] 33-02-PLAN.md -- App.vue layout integration and human visual verification
+- [x] 33-01-PLAN.md -- Foundation layer: d3-transition dep, CSS vars, allRationales composable, BracketPanel.vue, RationaleFeed.vue
+- [x] 33-02-PLAN.md -- App.vue layout integration and human visual verification
 
 ### Phase 34: Replay Mode Web UI
 **Goal**: Wire the Phase 32 replay contract stubs into a real browser replay experience — cycle picker, round-by-round stepping, and live force graph re-render from Neo4j state without new inference
@@ -232,7 +232,7 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15 -> 24 -> 26 -> 27 ->
 | 30. WebSocket State Stream | v5.0 | -- | Complete | 2026-04-13 |
 | 31. Vue SPA and Force-Directed Graph | v5.0 | 4/4 | Complete | 2026-04-14 |
 | 32. REST Controls and Simulation Control Bar | v5.0 | 4/4 | Complete | 2026-04-14 |
-| 33. Web Monitoring Panels | v5.0 | 0/2 | Planned | -- |
+| 33. Web Monitoring Panels | v5.0 | 2/2 | Complete   | 2026-04-15 |
 | 34. Replay Mode Web UI | v5.0 | 0/0 | Planned | -- |
 | 35. Agent Interviews Web UI | v5.0 | 0/0 | Planned | -- |
 | 36. Report Viewer | v5.0 | 0/0 | Planned | -- |
