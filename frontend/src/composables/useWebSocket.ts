@@ -1,4 +1,4 @@
-import { ref, readonly, type Ref } from 'vue'
+import { ref, readonly, watch, type Ref } from 'vue'
 import type { StateSnapshot, RationaleEntry } from '../types'
 
 const DEFAULT_SNAPSHOT: StateSnapshot = {
@@ -19,6 +19,8 @@ export interface WebSocketState {
   reconnectFailed: Readonly<Ref<boolean>>
   /** Accumulated rationale entries (latest per agent, updated on each snapshot) */
   latestRationales: Readonly<Ref<Map<string, RationaleEntry>>>
+  /** Ordered list of rationale entries (newest first), capped at 20. For the rationale feed panel. */
+  allRationales: Readonly<Ref<RationaleEntry[]>>
 }
 
 /**
@@ -33,6 +35,7 @@ export function useWebSocket(): WebSocketState {
   const connected = ref(false)
   const reconnectFailed = ref(false)
   const latestRationales = ref<Map<string, RationaleEntry>>(new Map())
+  const allRationales = ref<RationaleEntry[]>([])
 
   let ws: WebSocket | null = null
   let consecutiveFailures = 0
@@ -68,6 +71,20 @@ export function useWebSocket(): WebSocketState {
             map.set(entry.agent_id, entry)
           }
           latestRationales.value = map
+
+          // Accumulate rationale entries for feed panel (newest first, capped at 20)
+          // REVIEW FIX (HIGH): Deduplicate by agent_id + round_num composite key.
+          // Backend uses drain_rationales() (delta, not cumulative), but dedup
+          // guards against WebSocket reconnection edge cases.
+          const existingKeys = new Set(
+            allRationales.value.map(e => `${e.agent_id}:${e.round_num}`)
+          )
+          const newEntries = data.rationale_entries.filter(
+            (e: RationaleEntry) => !existingKeys.has(`${e.agent_id}:${e.round_num}`)
+          )
+          if (newEntries.length > 0) {
+            allRationales.value = [...newEntries, ...allRationales.value].slice(0, 20)
+          }
         }
       } catch {
         // Ignore malformed JSON
@@ -102,10 +119,19 @@ export function useWebSocket(): WebSocketState {
   // Initial connection
   connect()
 
+  // REVIEW FIX (HIGH): Clear accumulated rationales when simulation resets to idle.
+  // Prevents stale entries from a previous run lingering in the feed.
+  watch(() => snapshot.value.phase, (newPhase) => {
+    if (newPhase === 'idle') {
+      allRationales.value = []
+    }
+  })
+
   return {
     snapshot: readonly(snapshot),
     connected: readonly(connected),
     reconnectFailed: readonly(reconnectFailed),
     latestRationales: readonly(latestRationales),
+    allRationales: readonly(allRationales),
   }
 }

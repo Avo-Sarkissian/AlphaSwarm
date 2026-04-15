@@ -57,6 +57,11 @@
   --duration-drawer-enter: 200ms;
   --duration-drawer-exit: 150ms;
 
+  /* Phase 33: Monitoring panels */
+  --panel-strip-height: 232px;
+  --duration-feed-enter: 200ms;
+  --duration-feed-exit: 200ms;
+
   /* Button hover states */
   --color-accent-hover: #2563eb;
   --color-destructive-hover: #dc2626;
