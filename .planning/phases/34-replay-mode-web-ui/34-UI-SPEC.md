@@ -1,7 +1,8 @@
 ---
 phase: 34
 slug: replay-mode-web-ui
-status: draft
+status: approved
+reviewed_at: 2026-04-14
 shadcn_initialized: false
 preset: none
 created: 2026-04-15
@@ -92,7 +93,7 @@ New components introduced in Phase 34:
 
 ### CyclePicker.vue (modal)
 
-Mounted in `App.vue` via `v-if="showCyclePicker"`. Emits `start-replay(cycleId: string)` and `cancel`.
+Mounted in `App.vue` via `v-if="showCyclePicker"`. Emits `start-replay(cycleId: string)` and `close`.
 
 **Anatomy:**
 ```
@@ -102,7 +103,7 @@ Mounted in `App.vue` via `v-if="showCyclePicker"`. Emits `start-replay(cycleId: 
 │  ┌─ .cycle-picker-modal ─────────────────────────┐ │
 │  │  max-width: 480px, bg --color-bg-secondary    │ │
 │  │  border: 1px solid --color-border             │ │
-│  │  border-radius: 6px                           │ │
+│  │  border-radius: 8px                           │ │
 │  │  padding: --space-lg                          │ │
 │  │                                               │ │
 │  │  <h2> Select a Cycle to Replay </h2>          │ │
@@ -119,7 +120,7 @@ Mounted in `App.vue` via `v-if="showCyclePicker"`. Emits `start-replay(cycleId: 
 │  │  Error state: "Could not load cycles. Retry." │ │
 │  │                                               │ │
 │  │  ┌─ .cycle-picker-actions ────────────────┐   │ │
-│  │  │  [Cancel]              [Start Replay]  │   │ │
+│  │  │  [Close Picker]        [Start Replay]  │   │ │
 │  │  └────────────────────────────────────────┘   │ │
 │  └───────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────┘
@@ -137,7 +138,7 @@ Mounted in `App.vue` via `v-if="showCyclePicker"`. Emits `start-replay(cycleId: 
 
 **"Start Replay" button:** Only enabled when a cycle row is selected. Same styling as ControlBar `--start` button: `--color-accent` fill, 32px height, `--font-size-label`, `--font-weight-semibold`.
 
-**"Cancel" button:** Same styling as ShockDrawer `--discard` button: transparent fill, `--color-border` border, `--color-text-secondary` text.
+**"Close Picker" button:** Same styling as ShockDrawer `--discard` button: transparent fill, `--color-border` border, `--color-text-secondary` text.
 
 **Loading state:** Replace list with a single row of text "Loading cycles..." in 14px body color `--color-text-muted`. No spinner animation — plain text is sufficient.
 
@@ -182,7 +183,7 @@ Gap between all strip elements: `--space-sm` (8px).
 - Show "Loading cycles..." during fetch
 - On success with 0 results: show empty state copy
 - On fetch error (network or 500): show error state copy with a "Retry" link (inline text button, `color: --color-accent`)
-- Backdrop click dismisses the modal (same as Cancel)
+- Backdrop click dismisses the modal (same as Close Picker)
 - Escape key dismisses the modal
 
 ### Replay Start Flow
@@ -219,21 +220,22 @@ Gap between all strip elements: `--space-sm` (8px).
 
 ## Copywriting Contract
 
-| Element | Copy |
-|---------|------|
-| Primary CTA (idle Replay entry) | `Replay` |
-| Primary CTA (modal start) | `Start Replay` |
-| Modal title | `Select a Cycle to Replay` |
-| Next round button | `▶ Next` |
-| Next round button (in-flight) | `Advancing...` |
-| Exit button | `✕ Exit` |
-| Loading state (cycle list) | `Loading cycles...` |
-| Empty state (no completed cycles) | `No completed cycles found.` + body: `Run a simulation to create a replayable cycle.` |
-| Error state (fetch failed) | `Could not load cycles.` + inline retry: `Try again` |
-| Error state (cycle not found on start) | `Cycle not found in Neo4j. Select a different cycle.` |
-| REPLAY badge text | `■ REPLAY` |
-| Round indicator format | `Round N / 3` (N = 1, 2, or 3) |
-| Starting state (Start Replay in-flight) | `Starting...` |
+| Element | Copy | Location |
+|---------|------|----------|
+| Primary CTA (idle Replay entry) | `Replay` | ControlBar — idle strip |
+| Primary CTA (modal start) | `Start Replay` | CyclePicker modal footer |
+| Close Picker | Dismiss cycle picker modal without starting replay | Button — CyclePicker modal footer |
+| Modal title | `Select a Cycle to Replay` | CyclePicker modal header |
+| Next round button | `▶ Next` | ControlBar — replay strip |
+| Next round button (in-flight) | `Advancing...` | ControlBar — replay strip |
+| Exit button | `✕ Exit` | ControlBar — replay strip |
+| Loading state (cycle list) | `Loading cycles...` | CyclePicker modal list area |
+| Empty state (no completed cycles) | `No completed cycles found.` + body: `Run a simulation to create a replayable cycle.` | CyclePicker modal list area |
+| Error state (fetch failed) | `Could not load cycles.` + inline retry: `Try again` | CyclePicker modal list area |
+| Error state (cycle not found on start) | `Cycle not found in Neo4j. Select a different cycle.` | CyclePicker modal — below list |
+| REPLAY badge text | `■ REPLAY` | ControlBar — replay strip |
+| Round indicator format | `Round N / 3` (N = 1, 2, or 3) | ControlBar — replay strip |
+| Starting state (Start Replay in-flight) | `Starting...` | CyclePicker modal footer |
 
 No destructive actions in Phase 34. `[✕ Exit]` is not destructive — it is a mode switch that can be re-entered. No confirmation copy required.
 
@@ -288,7 +290,7 @@ No third-party component registries. All components are hand-authored Vue SFCs u
 | REQUIREMENTS.md | 2 (WEB-06, REPLAY-01 success criteria) |
 | `variables.css` | All spacing, typography, and color tokens |
 | `ControlBar.vue` | Button height (32px), gap (--space-sm), padding (--space-md) patterns |
-| `ShockDrawer.vue` | Ghost button style (Cancel), modal-within-ControlBar pattern |
+| `ShockDrawer.vue` | Ghost button style (Close Picker), modal-within-ControlBar pattern |
 | `AgentSidebar.vue` | Transition timing (300ms/200ms), fixed positioning pattern |
 | User input | 0 — all questions answered by upstream artifacts |
 
