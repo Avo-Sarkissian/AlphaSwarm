@@ -4,13 +4,16 @@ import { useWebSocket } from './composables/useWebSocket'
 import ForceGraph from './components/ForceGraph.vue'
 import AgentSidebar from './components/AgentSidebar.vue'
 import ControlBar from './components/ControlBar.vue'
+import BracketPanel from './components/BracketPanel.vue'
+import RationaleFeed from './components/RationaleFeed.vue'
 
-const { snapshot, connected, reconnectFailed, latestRationales } = useWebSocket()
+const { snapshot, connected, reconnectFailed, latestRationales, allRationales } = useWebSocket()
 
 // Provide snapshot to child components (ForceGraph, AgentSidebar, ControlBar)
 provide('snapshot', snapshot)
 provide('connected', connected)
 provide('latestRationales', latestRationales)
+provide('allRationales', allRationales)
 
 const selectedAgentId = ref<string | null>(null)
 provide('selectedAgentId', selectedAgentId)
@@ -38,9 +41,16 @@ const isIdle = computed(() => snapshot.value.phase === 'idle' || snapshot.value.
         <h1 class="empty-state__heading">Waiting for Simulation</h1>
         <p class="empty-state__body">Start a simulation to see 100 agents deliberate in real time.</p>
       </div>
-      <div v-else class="graph-container" :class="{ 'graph-container--sidebar-open': sidebarOpen }" id="graph-container">
-        <ForceGraph @select-agent="onSelectAgent" />
-      </div>
+      <template v-else>
+        <div class="graph-container" :class="{ 'graph-container--sidebar-open': sidebarOpen }" id="graph-container">
+          <ForceGraph @select-agent="onSelectAgent" />
+        </div>
+        <div class="panel-strip" :class="{ 'panel-strip--sidebar-open': sidebarOpen }">
+          <BracketPanel />
+          <div class="panel-strip__divider" />
+          <RationaleFeed />
+        </div>
+      </template>
     </div>
 
     <Transition name="sidebar">
@@ -64,6 +74,8 @@ const isIdle = computed(() => snapshot.value.phase === 'idle' || snapshot.value.
 
 .main-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   position: relative;
   min-height: 0;
@@ -102,7 +114,8 @@ const isIdle = computed(() => snapshot.value.phase === 'idle' || snapshot.value.
 /* Graph container: fills viewport, shrinks when sidebar opens */
 .graph-container {
   width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   transition: width var(--duration-sidebar-enter) var(--easing-enter);
 }
 
@@ -120,6 +133,47 @@ const isIdle = computed(() => snapshot.value.phase === 'idle' || snapshot.value.
 .sidebar-enter-from,
 .sidebar-leave-to {
   transform: translateX(100%);
+}
+
+/* Phase 33: Bottom monitoring panel strip (per D-01, D-02) */
+.panel-strip {
+  height: var(--panel-strip-height);
+  flex-shrink: 0;
+  display: flex;
+  background-color: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  transition: width var(--duration-sidebar-enter) var(--easing-enter);
+}
+
+.panel-strip--sidebar-open {
+  width: calc(100vw - var(--sidebar-width));
+}
+
+.panel-strip__divider {
+  width: 1px;
+  flex-shrink: 0;
+  background-color: var(--color-border);
+}
+
+/* Each panel half fills equally */
+.panel-strip > :first-child,
+.panel-strip > :last-child {
+  flex: 1;
+  overflow: hidden;
+  padding: var(--space-md);
+  min-width: 0;
+}
+
+/* Responsive: stack panels vertically below 1024px */
+@media (max-width: 1023px) {
+  .panel-strip {
+    flex-direction: column;
+  }
+  .panel-strip__divider {
+    width: 100%;
+    height: 1px;
+    flex-shrink: 0;
+  }
 }
 
 /* Connection error banner (UI-SPEC: fixed bottom-center, 32px from bottom) */
