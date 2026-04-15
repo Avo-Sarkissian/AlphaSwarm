@@ -62,6 +62,12 @@
   --duration-feed-enter: 200ms;
   --duration-feed-exit: 200ms;
 
+  /* Phase 34: Replay mode */
+  --color-replay: #f59e0b;
+  --color-replay-text: #0f1117;
+  --duration-modal-enter: 200ms;
+  --duration-modal-exit: 150ms;
+
   /* Button hover states */
   --color-accent-hover: #2563eb;
   --color-destructive-hover: #dc2626;

@@ -193,8 +193,16 @@ class StateStore:
 
         No lock needed for read -- dict copy is atomic enough at 200ms polling granularity.
 
-        No side effects. Queue entries are accessed only via drain_rationales().
+        Side effect: drains up to 5 rationale entries from the queue per call.
+        This is intentional -- the TUI consumes entries in batches of 5 per 200ms tick.
+        Documented side effect per Phase 10 decision D-04.
         """
+        entries: list[RationaleEntry] = []
+        for _ in range(5):
+            try:
+                entries.append(self._rationale_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
         return StateSnapshot(
             phase=self._phase,
             round_num=self._round_num,
@@ -207,31 +215,9 @@ class StateStore:
             ),
             governor_metrics=self._latest_governor_metrics,
             tps=self._compute_tps(),
-            rationale_entries=(),
+            rationale_entries=tuple(entries),
             bracket_summaries=self._bracket_summaries,
         )
-
-    def drain_rationales(self, limit: int = 5) -> tuple[RationaleEntry, ...]:
-        """Pop up to `limit` entries from the rationale queue.
-
-        This is the explicit destructive read path. Each consumer (TUI,
-        WebSocket broadcaster) calls this independently on its own tick cadence
-        without interfering with other consumers.
-
-        Args:
-            limit: Maximum number of entries to return. Defaults to 5 to match
-                   the original TUI batch size (Phase 10 decision D-04).
-
-        Returns:
-            Tuple of up to `limit` RationaleEntry objects, oldest-first.
-        """
-        entries: list[RationaleEntry] = []
-        for _ in range(limit):
-            try:
-                entries.append(self._rationale_queue.get_nowait())
-            except asyncio.QueueEmpty:
-                break
-        return tuple(entries)
 
     @property
     def governor_metrics(self) -> GovernorMetrics | None:
