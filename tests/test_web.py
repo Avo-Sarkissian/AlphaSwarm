@@ -36,6 +36,7 @@ def _make_test_app() -> FastAPI:
     from alphaswarm.app import create_app_state
     from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
     from alphaswarm.web.connection_manager import ConnectionManager
+    from alphaswarm.web.replay_manager import ReplayManager
     from alphaswarm.web.routes.edges import router as edges_router
     from alphaswarm.web.routes.health import router as health_router
     from alphaswarm.web.routes.replay import router as replay_router
@@ -52,10 +53,12 @@ def _make_test_app() -> FastAPI:
         # with_ollama=False, with_neo4j=False for unit tests (no external services)
         app_state = create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
         sim_manager = SimulationManager(app_state, brackets)
+        replay_manager = ReplayManager(app_state)
         connection_manager = ConnectionManager()
 
         app.state.app_state = app_state
         app.state.sim_manager = sim_manager
+        app.state.replay_manager = replay_manager
         app.state.connection_manager = connection_manager
 
         yield
@@ -709,25 +712,22 @@ def test_replay_cycles_503() -> None:
         assert data["detail"]["error"] == "graph_unavailable"
 
 
-def test_replay_start_stub() -> None:
-    """POST /api/replay/start/{cycle_id} returns correct stub response."""
+def test_replay_start_503_without_neo4j() -> None:
+    """POST /api/replay/start/{cycle_id} returns 503 when graph_manager is None."""
     with TestClient(_make_test_app()) as client:
         r = client.post("/api/replay/start/test-cycle-123")
-        assert r.status_code == 200
+        assert r.status_code == 503
         data = r.json()
-        assert data["status"] == "ok"
-        assert data["cycle_id"] == "test-cycle-123"
-        assert data["round_num"] == 1
+        assert data["detail"]["error"] == "graph_unavailable"
 
 
-def test_replay_advance_stub() -> None:
-    """POST /api/replay/advance returns correct stub response."""
+def test_replay_advance_409_no_active_replay() -> None:
+    """POST /api/replay/advance returns 409 when no replay is active."""
     with TestClient(_make_test_app()) as client:
         r = client.post("/api/replay/advance")
-        assert r.status_code == 200
+        assert r.status_code == 409
         data = r.json()
-        assert data["status"] == "ok"
-        assert data["round_num"] == 1
+        assert data["detail"]["error"] == "no_replay_active"
 
 
 def test_replay_routes_registered_in_production_app() -> None:
@@ -739,6 +739,7 @@ def test_replay_routes_registered_in_production_app() -> None:
     assert "/api/replay/cycles" in route_paths
     assert "/api/replay/start/{cycle_id}" in route_paths
     assert "/api/replay/advance" in route_paths
+    assert "/api/replay/stop" in route_paths
 
 
 def test_edges_endpoint_regression_sc3() -> None:
@@ -753,3 +754,164 @@ def test_edges_endpoint_regression_sc3() -> None:
         assert r.status_code == 503  # graph_manager is None in test app
         data = r.json()
         assert data["detail"]["error"] == "graph_unavailable"
+
+
+# ---------------------------------------------------------------------------
+# Phase 34 Plan 01: Replay backend tests (D-07 through D-11)
+# ---------------------------------------------------------------------------
+
+
+def test_replay_start_real_logic() -> None:
+    """POST /api/replay/start/{cycle_id} loads signals, sets round 1, returns 200."""
+    from unittest.mock import AsyncMock
+
+    from alphaswarm.state import AgentState
+    from alphaswarm.types import SignalType
+
+    app = _make_test_app()
+    with TestClient(app) as client:
+        # Access app_state and set mock graph_manager
+        app_state = app.state.app_state
+        mock_gm = AsyncMock()
+        # read_full_cycle_signals returns dict[(agent_id, round), AgentState]
+        mock_gm.read_full_cycle_signals = AsyncMock(return_value={
+            ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
+            ("agent_1", 2): AgentState(signal=SignalType.SELL, confidence=0.6),
+            ("agent_1", 3): AgentState(signal=SignalType.HOLD, confidence=0.5),
+        })
+        mock_gm.read_bracket_narratives_for_round = AsyncMock(return_value=[])
+        mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
+        app_state.graph_manager = mock_gm
+
+        r = client.post("/api/replay/start/test-cycle-abc")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        assert data["cycle_id"] == "test-cycle-abc"
+        assert data["round_num"] == 1
+        assert app.state.replay_manager.is_active is True
+
+
+def test_replay_start_409_already_active() -> None:
+    """POST /api/replay/start returns 409 when replay already active."""
+    from unittest.mock import AsyncMock
+
+    from alphaswarm.state import AgentState
+    from alphaswarm.types import SignalType
+
+    app = _make_test_app()
+    with TestClient(app) as client:
+        app_state = app.state.app_state
+        mock_gm = AsyncMock()
+        mock_gm.read_full_cycle_signals = AsyncMock(return_value={
+            ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
+        })
+        mock_gm.read_bracket_narratives_for_round = AsyncMock(return_value=[])
+        mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
+        app_state.graph_manager = mock_gm
+
+        r1 = client.post("/api/replay/start/cycle-1")
+        assert r1.status_code == 200
+        r2 = client.post("/api/replay/start/cycle-2")
+        assert r2.status_code == 409
+        assert r2.json()["detail"]["error"] == "replay_already_active"
+
+
+def test_replay_start_404_cycle_not_found() -> None:
+    """POST /api/replay/start returns 404 when cycle has no signals."""
+    from unittest.mock import AsyncMock
+
+    app = _make_test_app()
+    with TestClient(app) as client:
+        mock_gm = AsyncMock()
+        mock_gm.read_full_cycle_signals = AsyncMock(return_value={})  # empty
+        app.state.app_state.graph_manager = mock_gm
+
+        r = client.post("/api/replay/start/nonexistent-cycle")
+        assert r.status_code == 404
+        assert r.json()["detail"]["error"] == "cycle_not_found"
+
+
+def test_replay_advance_real_logic() -> None:
+    """POST /api/replay/advance increments round and returns new round_num."""
+    from unittest.mock import AsyncMock
+
+    from alphaswarm.state import AgentState
+    from alphaswarm.types import SignalType
+
+    app = _make_test_app()
+    with TestClient(app) as client:
+        mock_gm = AsyncMock()
+        mock_gm.read_full_cycle_signals = AsyncMock(return_value={
+            ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
+            ("agent_1", 2): AgentState(signal=SignalType.SELL, confidence=0.6),
+            ("agent_1", 3): AgentState(signal=SignalType.HOLD, confidence=0.5),
+        })
+        mock_gm.read_bracket_narratives_for_round = AsyncMock(return_value=[])
+        mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
+        app.state.app_state.graph_manager = mock_gm
+
+        client.post("/api/replay/start/test-cycle-abc")
+        r = client.post("/api/replay/advance")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        assert data["round_num"] == 2
+
+
+def test_replay_stop_resets_phase() -> None:
+    """POST /api/replay/stop resets replay_manager to inactive and phase to IDLE."""
+    from unittest.mock import AsyncMock
+
+    from alphaswarm.state import AgentState
+    from alphaswarm.types import SignalType
+
+    app = _make_test_app()
+    with TestClient(app) as client:
+        mock_gm = AsyncMock()
+        mock_gm.read_full_cycle_signals = AsyncMock(return_value={
+            ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
+        })
+        mock_gm.read_bracket_narratives_for_round = AsyncMock(return_value=[])
+        mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
+        app.state.app_state.graph_manager = mock_gm
+
+        client.post("/api/replay/start/test-cycle-abc")
+        assert app.state.replay_manager.is_active is True
+        r = client.post("/api/replay/stop")
+        assert r.status_code == 200
+        assert r.json()["status"] == "ok"
+        assert app.state.replay_manager.is_active is False
+
+
+def test_replay_stop_409_no_active_replay() -> None:
+    """POST /api/replay/stop returns 409 when no replay is active."""
+    with TestClient(_make_test_app()) as client:
+        r = client.post("/api/replay/stop")
+        assert r.status_code == 409
+        assert r.json()["detail"]["error"] == "no_replay_active"
+
+
+def test_broadcaster_uses_replay_snapshot_when_active() -> None:
+    """snapshot_to_json uses replay_manager.store.snapshot() when active."""
+    import json
+    from unittest.mock import MagicMock
+
+    from alphaswarm.state import AgentState, ReplayStore, StateStore
+    from alphaswarm.types import SignalType
+    from alphaswarm.web.broadcaster import snapshot_to_json
+
+    state_store = StateStore()
+    signals = {("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8)}
+    replay_store = ReplayStore("cycle-test", signals)
+    replay_store.set_round(1)
+
+    mock_replay_manager = MagicMock()
+    mock_replay_manager.is_active = True
+    mock_replay_manager.store = replay_store
+
+    result = snapshot_to_json(state_store, replay_manager=mock_replay_manager)
+    data = json.loads(result)
+    assert data["phase"] == "replay"
+    assert "agent_1" in data["agent_states"]
+    assert data["agent_states"]["agent_1"]["signal"] == "buy"
