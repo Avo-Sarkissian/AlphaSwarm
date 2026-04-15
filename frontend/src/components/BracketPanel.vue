@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { inject, ref, watch, onMounted, type Ref } from 'vue'
-import { select } from 'd3-selection'
+import { select, type Selection } from 'd3-selection'
 import { scaleLinear } from 'd3-scale'
 import 'd3-transition'  // REQUIRED side-effect import: augments Selection.prototype.transition
 import type { StateSnapshot, BracketSummary } from '../types'
@@ -114,43 +114,43 @@ function updateBars(summaries: BracketSummary[]): void {
     .attr('fill', SIGNAL_COLORS.hold)
 
   // UPDATE (merge enter + existing): animate bar widths (per D-06, 600ms transition)
-  const merged = rows.merge(enter)
+  const merged = rows.merge(enter) as unknown as Selection<SVGGElement, BracketSummary, SVGSVGElement, unknown>
 
-  merged.select('.bar-bg')
+  merged.select<SVGRectElement>('.bar-bg')
     .transition()
     .duration(600)
     .attr('width', BAR_WIDTH)
 
-  merged.select('.bar-buy')
+  merged.select<SVGRectElement>('.bar-buy')
     .transition()
     .duration(600)
-    .attr('width', d => {
+    .attr('width', (d: BracketSummary) => {
       const total = d.total
       return total > 0 ? x(d.buy_count / total) : 0
     })
 
-  merged.select('.bar-sell')
+  merged.select<SVGRectElement>('.bar-sell')
     .transition()
     .duration(600)
-    .attr('x', d => {
+    .attr('x', (d: BracketSummary) => {
       const total = d.total
       return LABEL_WIDTH + (total > 0 ? x(d.buy_count / total) : 0)
     })
-    .attr('width', d => {
+    .attr('width', (d: BracketSummary) => {
       const total = d.total
       return total > 0 ? x(d.sell_count / total) : 0
     })
 
-  merged.select('.bar-hold')
+  merged.select<SVGRectElement>('.bar-hold')
     .transition()
     .duration(600)
-    .attr('x', d => {
+    .attr('x', (d: BracketSummary) => {
       const total = d.total
       const buyW = total > 0 ? x(d.buy_count / total) : 0
       const sellW = total > 0 ? x(d.sell_count / total) : 0
       return LABEL_WIDTH + buyW + sellW
     })
-    .attr('width', d => {
+    .attr('width', (d: BracketSummary) => {
       const total = d.total
       return total > 0 ? x(d.hold_count / total) : 0
     })

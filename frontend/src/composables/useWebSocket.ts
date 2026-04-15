@@ -39,7 +39,7 @@ export function useWebSocket(): WebSocketState {
 
   let ws: WebSocket | null = null
   let consecutiveFailures = 0
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let _reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   function getWsUrl(): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -103,6 +103,10 @@ export function useWebSocket(): WebSocketState {
   }
 
   function scheduleReconnect(): void {
+    if (_reconnectTimer !== null) {
+      clearTimeout(_reconnectTimer)
+      _reconnectTimer = null
+    }
     consecutiveFailures++
     if (consecutiveFailures >= 3) {
       reconnectFailed.value = true
@@ -110,8 +114,8 @@ export function useWebSocket(): WebSocketState {
 
     // Exponential backoff: 1s, 2s, 4s, 8s (max 8s)
     const delay = Math.min(1000 * Math.pow(2, consecutiveFailures - 1), 8000)
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null
+    _reconnectTimer = setTimeout(() => {
+      _reconnectTimer = null
       connect()
     }, delay)
   }
@@ -128,10 +132,10 @@ export function useWebSocket(): WebSocketState {
   })
 
   return {
-    snapshot: readonly(snapshot),
+    snapshot: readonly(snapshot) as Readonly<Ref<StateSnapshot>>,
     connected: readonly(connected),
     reconnectFailed: readonly(reconnectFailed),
-    latestRationales: readonly(latestRationales),
-    allRationales: readonly(allRationales),
+    latestRationales: readonly(latestRationales) as Readonly<Ref<Map<string, RationaleEntry>>>,
+    allRationales: readonly(allRationales) as Readonly<Ref<RationaleEntry[]>>,
   }
 }

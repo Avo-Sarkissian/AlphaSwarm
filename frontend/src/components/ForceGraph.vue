@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, ref, shallowRef, triggerRef, watch, onMounted, onUnmounted, type Ref } from 'vue'
-import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, type SimulationNodeDatum } from 'd3-force'
-import type { StateSnapshot, EdgeItem, EdgesResponse } from '../types'
+import { forceSimulation, forceManyBody, forceCenter, forceCollide, forceX, forceY, type SimulationNodeDatum } from 'd3-force'
+import type { StateSnapshot, EdgesResponse } from '../types'
 import { BRACKET_ARCHETYPES, BRACKET_RADIUS, SIGNAL_COLORS, PENDING_COLOR } from '../types'
 
 // --- Types ---

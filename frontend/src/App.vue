@@ -39,7 +39,7 @@ function onOpenCyclePicker() {
 function onCloseCyclePicker() {
   showCyclePicker.value = false
 }
-function onStartReplay(cycleId: string) {
+function onStartReplay(_cycleId: string) {
   showCyclePicker.value = false
   // POST already handled by CyclePicker -- phase update comes via WebSocket
 }
