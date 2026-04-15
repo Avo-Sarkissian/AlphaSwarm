@@ -20,6 +20,7 @@ from alphaswarm.web.routes.health import router as health_router
 from alphaswarm.web.routes.replay import router as replay_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
+from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.simulation_manager import SimulationManager
 
 log = structlog.get_logger(component="web.app")
@@ -39,16 +40,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     personas = generate_personas(brackets)
     app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
     sim_manager = SimulationManager(app_state, brackets)
+    replay_manager = ReplayManager(app_state)
     connection_manager = ConnectionManager()
 
     app.state.app_state = app_state
     app.state.sim_manager = sim_manager
+    app.state.replay_manager = replay_manager
     app.state.connection_manager = connection_manager
 
     # Object identity: start_broadcaster receives the same `connection_manager` stored on
     # app.state.connection_manager above. ws_state reads websocket.app.state.connection_manager
     # at request time — both paths reference the same object, ensuring broadcasts reach clients.
-    broadcaster_task = start_broadcaster(app_state.state_store, connection_manager)
+    broadcaster_task = start_broadcaster(app_state.state_store, connection_manager, replay_manager)
     app.state.broadcaster_task = broadcaster_task
 
     log.info("lifespan_started", phase="idle")
