@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Engine Depth
-status: idle
-stopped_at: Phase 35 complete
-last_updated: "2026-04-16T03:30:00.000Z"
-last_activity: 2026-04-16 -- Completed quick task 260416-m8x: Tier 1 surgical bug fixes (B4/B7/B8/B9/B10)
+status: executing
+stopped_at: Phase 35 complete — all v2.0 phases executed and verified
+last_updated: "2026-04-16T21:20:10.002Z"
+last_activity: 2026-04-16 -- Phase 35.1 planning complete
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 11
-  completed_plans: 11
-  percent: 100
+  total_phases: 11
+  completed_phases: 9
+  total_plans: 24
+  completed_plans: 22
+  percent: 92
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 
 Phase: 35 (agent-interviews-web-ui) — COMPLETE ✓
 Plan: 3 of 3
-Status: Idle — all v2.0 phases complete
-Last activity: 2026-04-16 -- Completed quick task 260416-m8x: Tier 1 surgical bug fixes (B4/B7/B8/B9/B10)
+Status: Ready to execute
+Last activity: 2026-04-16 -- Phase 35.1 planning complete
 
 Progress: [██████████] 100%
 
@@ -45,6 +45,7 @@ Progress: [██████████] 100%
 ### Roadmap Evolution
 
 - Phase 28 added: Simulation Replay (REPLAY-01 — re-render past cycle from Neo4j without re-inference)
+- Phase 35.1 inserted after Phase 35: Shock Injection Wiring (URGENT — unblocks Phase 36 report shock-impact; see BUGFIX-CONTEXT.md B1)
 
 ### Decisions
 
