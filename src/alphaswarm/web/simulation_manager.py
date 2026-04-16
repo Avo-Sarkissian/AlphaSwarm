@@ -129,6 +129,7 @@ class SimulationManager:
                 personas=list(self._app_state.personas),
                 brackets=list(self._brackets),
                 state_store=self._app_state.state_store,
+                consume_shock=self.consume_shock,
             )
             # B10: do NOT set COMPLETE here — simulation.py:1109 is the single
             # source of truth and sets it before this await returns.

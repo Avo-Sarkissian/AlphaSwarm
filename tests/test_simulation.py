@@ -127,6 +127,8 @@ def mock_graph_manager() -> AsyncMock:
     gm.write_posts = AsyncMock(return_value=["post_id_1", "post_id_2"])
     gm.read_ranked_posts = AsyncMock(return_value=[])
     gm.write_read_post_edges = AsyncMock(return_value=None)
+    # Phase 35.1 — shock injection writer (B1 wiring fix)
+    gm.write_shock_event = AsyncMock(return_value="shock-id-123")
     return gm
 
 
@@ -2444,3 +2446,229 @@ async def test_run_simulation_skips_read_post_edges_when_no_posts(
 
     # write_read_post_edges should NOT be called (empty post_ids guard)
     mock_graph_manager.write_read_post_edges.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Phase 35.1 — shock wiring (B1 wiring fix)
+# ---------------------------------------------------------------------------
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_injects_shock_into_round2(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """consume_shock returning text before Round 2 augments that round's user_message and writes a ShockEvent."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    consume_shock = MagicMock(side_effect=["FED SURPRISE RATE HIKE", None])
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        consume_shock=consume_shock,
+    )
+
+    assert mock_dispatch_wave.await_count == 2, "expected Round 2 + Round 3"
+    round2_call = mock_dispatch_wave.await_args_list[0]
+    round3_call = mock_dispatch_wave.await_args_list[1]
+    r2_msg = round2_call.kwargs["user_message"]
+    r3_msg = round3_call.kwargs["user_message"]
+
+    assert "[MARKET SHOCK]: FED SURPRISE RATE HIKE" in r2_msg
+    assert r2_msg.startswith(MOCK_RUMOR)
+    assert r3_msg == MOCK_RUMOR, "Round 3 should see the untouched rumor when no shock is queued"
+
+    assert mock_graph_manager.write_shock_event.await_count == 1
+    shock_call = mock_graph_manager.write_shock_event.await_args
+    # Accept either positional or keyword style; normalize with `call`:
+    keys = ["cycle_id", "shock_text", "injected_before_round"]
+    all_kwargs = {**dict(zip(keys, shock_call.args, strict=False)), **shock_call.kwargs}
+    assert all_kwargs.get("cycle_id") == "test-cycle-id"
+    assert all_kwargs.get("shock_text") == "FED SURPRISE RATE HIKE"
+    assert all_kwargs.get("injected_before_round") == 2
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_injects_shock_into_round3_when_round2_skipped(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """consume_shock returning None-then-text routes the shock into Round 3."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    consume_shock = MagicMock(side_effect=[None, "LATE NEWS BREAKS"])
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        consume_shock=consume_shock,
+    )
+
+    round2_call = mock_dispatch_wave.await_args_list[0]
+    round3_call = mock_dispatch_wave.await_args_list[1]
+    assert round2_call.kwargs["user_message"] == MOCK_RUMOR
+    assert "[MARKET SHOCK]: LATE NEWS BREAKS" in round3_call.kwargs["user_message"]
+    assert round3_call.kwargs["user_message"].startswith(MOCK_RUMOR)
+
+    assert mock_graph_manager.write_shock_event.await_count == 1
+    shock_call = mock_graph_manager.write_shock_event.await_args
+    keys = ["cycle_id", "shock_text", "injected_before_round"]
+    all_kwargs = {**dict(zip(keys, shock_call.args, strict=False)), **shock_call.kwargs}
+    assert all_kwargs.get("injected_before_round") == 3
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_no_shock_passthrough(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """consume_shock returning None for both rounds leaves user_message == rumor and skips write_shock_event."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    consume_shock = MagicMock(return_value=None)
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        consume_shock=consume_shock,
+    )
+
+    assert consume_shock.call_count == 2, "consume_shock should be invoked once per round"
+    for call in mock_dispatch_wave.await_args_list:
+        assert call.kwargs["user_message"] == MOCK_RUMOR
+    mock_graph_manager.write_shock_event.assert_not_awaited()
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_shock_does_not_mutate_base_rumor(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Shock injection builds a NEW string; the passed-in rumor is never mutated."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    original_rumor = "Base rumor"  # Fresh string — no interning surprises
+    snapshot = original_rumor
+    consume_shock = MagicMock(side_effect=["SHOCK", None])
+
+    await run_simulation(
+        rumor=original_rumor,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        consume_shock=consume_shock,
+    )
+
+    assert original_rumor == snapshot, "original rumor string must not be mutated"
+    r2_msg = mock_dispatch_wave.await_args_list[0].kwargs["user_message"]
+    assert r2_msg != original_rumor, "Round 2 message should be a distinct augmented string"
+    assert r2_msg.startswith(original_rumor)
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_default_consume_shock_is_none(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Omitting consume_shock (default None) preserves legacy behavior: no shock, no write_shock_event."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        # NOTE: consume_shock kwarg intentionally omitted
+    )
+
+    assert mock_dispatch_wave.await_count == 2
+    for call in mock_dispatch_wave.await_args_list:
+        assert call.kwargs["user_message"] == MOCK_RUMOR
+    mock_graph_manager.write_shock_event.assert_not_awaited()

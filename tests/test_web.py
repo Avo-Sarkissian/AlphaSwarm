@@ -580,6 +580,39 @@ async def test_sim_manager_inject_shock() -> None:
         await asyncio.sleep(0.05)
 
 
+async def test_sim_manager_run_passes_consume_shock() -> None:
+    """Phase 35.1 — SimulationManager._run forwards consume_shock=self.consume_shock to run_simulation."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_app_state = MagicMock()
+    mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_phase = AsyncMock()
+    sm = SimulationManager(mock_app_state, brackets=[])
+
+    called_kwargs: dict = {}
+
+    async def _capture_run(*args: object, **kwargs: object) -> None:
+        called_kwargs.update(kwargs)
+
+    with patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_capture_run)):
+        await sm.start("test seed")
+        # Allow the background task a tick to await run_simulation.
+        await asyncio.sleep(0.05)
+        # Task should have completed (run_simulation returns immediately via _capture_run).
+        if sm._task is not None:
+            await sm._task
+
+    assert "consume_shock" in called_kwargs, (
+        f"run_simulation was NOT called with consume_shock kwarg. "
+        f"kwargs received: {sorted(called_kwargs.keys())}"
+    )
+    # The forwarded value must be the manager's own consume_shock bound method
+    # (not a newly created lambda), so replays see pending shock state.
+    assert called_kwargs["consume_shock"] == sm.consume_shock, (
+        "consume_shock kwarg must be the SimulationManager.consume_shock bound method"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Phase 32 Task 2: Stop and shock REST endpoints + cancellation phase reset
 # ---------------------------------------------------------------------------

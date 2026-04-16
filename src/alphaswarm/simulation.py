@@ -728,6 +728,7 @@ async def run_simulation(
     on_round_complete: OnRoundComplete = None,
     state_store: StateStore | None = None,
     generate_narratives: bool = True,
+    consume_shock: Callable[[], str | None] | None = None,
 ) -> SimulationResult:
     """Execute the full 3-round simulation pipeline (D-04).
 
@@ -853,6 +854,23 @@ async def run_simulation(
             await state_store.set_phase(SimulationPhase.ROUND_2)
             await state_store.set_round(2)
 
+        # Phase 35.1: Shock gate — consume a pending shock BEFORE Round 2 dispatch (B1 wiring fix).
+        # Keep the base `rumor` string immutable; augment a local for this round's user_message.
+        effective_rumor_r2 = rumor
+        if consume_shock is not None:
+            shock_text_r2 = consume_shock()
+            if shock_text_r2:
+                effective_rumor_r2 = f"{rumor}\n\n[MARKET SHOCK]: {shock_text_r2}"
+                await graph_manager.write_shock_event(
+                    cycle_id, shock_text_r2, injected_before_round=2,
+                )
+                logger.info(
+                    "shock_injected",
+                    cycle_id=cycle_id,
+                    round_num=2,
+                    shock_length=len(shock_text_r2),
+                )
+
         # Phase 12: Build peer contexts from Round 1 posts (D-12 ordering)
         round2_peer_contexts: list[str | None] = []
         all_round1_post_ids = round1_post_ids  # For READ_POST edges
@@ -888,7 +906,7 @@ async def run_simulation(
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
-                user_message=rumor,
+                user_message=effective_rumor_r2,
                 settings=settings.governor,
                 peer_contexts=round2_peer_contexts,
                 state_store=state_store,
@@ -977,6 +995,23 @@ async def run_simulation(
                 await state_store.set_phase(SimulationPhase.ROUND_3)
                 await state_store.set_round(3)
 
+            # Phase 35.1: Shock gate — consume a pending shock BEFORE Round 3 dispatch.
+            # If Round 2 already consumed, consume_shock returns None and Round 3 runs clean.
+            effective_rumor_r3 = rumor
+            if consume_shock is not None:
+                shock_text_r3 = consume_shock()
+                if shock_text_r3:
+                    effective_rumor_r3 = f"{rumor}\n\n[MARKET SHOCK]: {shock_text_r3}"
+                    await graph_manager.write_shock_event(
+                        cycle_id, shock_text_r3, injected_before_round=3,
+                    )
+                    logger.info(
+                        "shock_injected",
+                        cycle_id=cycle_id,
+                        round_num=3,
+                        shock_length=len(shock_text_r3),
+                    )
+
             # Phase 12: Build peer contexts from Round 2 posts (D-12 ordering)
             round3_peer_contexts: list[str | None] = []
             for persona in personas:
@@ -1006,7 +1041,7 @@ async def run_simulation(
                 governor=governor,
                 client=ollama_client,
                 model=worker_alias,
-                user_message=rumor,
+                user_message=effective_rumor_r3,
                 settings=settings.governor,
                 peer_contexts=round3_peer_contexts,
                 state_store=state_store,
