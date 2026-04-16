@@ -3,6 +3,7 @@ import { computed, provide, ref } from 'vue'
 import { useWebSocket } from './composables/useWebSocket'
 import ForceGraph from './components/ForceGraph.vue'
 import AgentSidebar from './components/AgentSidebar.vue'
+import InterviewPanel from './components/InterviewPanel.vue'
 import ControlBar from './components/ControlBar.vue'
 import BracketPanel from './components/BracketPanel.vue'
 import RationaleFeed from './components/RationaleFeed.vue'
@@ -19,7 +20,12 @@ provide('allRationales', allRationales)
 const selectedAgentId = ref<string | null>(null)
 provide('selectedAgentId', selectedAgentId)
 
+const interviewAgentId = ref<string | null>(null)
+
 function onSelectAgent(agentId: string | null) {
+  // Per D-04: mutual exclusion is bidirectional. Switching agent selection
+  // must close any open interview panel (addresses Codex HIGH review concern).
+  interviewAgentId.value = null
   selectedAgentId.value = agentId
 }
 
@@ -27,8 +33,20 @@ function onCloseSidebar() {
   selectedAgentId.value = null
 }
 
-const sidebarOpen = computed(() => selectedAgentId.value !== null)
-const isIdle = computed(() => snapshot.value.phase === 'idle' || snapshot.value.phase === 'complete')
+function onOpenInterview(agentId: string) {
+  interviewAgentId.value = agentId
+  selectedAgentId.value = null  // close sidebar, per D-04
+}
+
+function onCloseInterview() {
+  interviewAgentId.value = null
+}
+
+const sidebarOpen = computed(() => selectedAgentId.value !== null || interviewAgentId.value !== null)
+// 'idle' is the ONLY phase that shows the empty state.
+// 'complete' now falls through to the v-else branch (graph + panel strip),
+// which is required for the Interview flow per WEB-06.
+const isIdle = computed(() => snapshot.value.phase === 'idle')
 
 // CyclePicker modal state
 const showCyclePicker = ref(false)
@@ -69,7 +87,19 @@ function onStartReplay(_cycleId: string) {
     </div>
 
     <Transition name="sidebar">
-      <AgentSidebar v-if="selectedAgentId" :agentId="selectedAgentId" @close="onCloseSidebar" />
+      <InterviewPanel
+        v-if="interviewAgentId"
+        :agentId="interviewAgentId"
+        @close="onCloseInterview"
+      />
+    </Transition>
+    <Transition name="sidebar">
+      <AgentSidebar
+        v-if="selectedAgentId && !interviewAgentId"
+        :agentId="selectedAgentId"
+        @close="onCloseSidebar"
+        @open-interview="onOpenInterview"
+      />
     </Transition>
 
     <CyclePicker

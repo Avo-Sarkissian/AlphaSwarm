@@ -9,6 +9,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'open-interview', agentId: string): void
 }>()
 
 const snapshot = inject<Ref<StateSnapshot>>('snapshot')!
@@ -49,6 +50,8 @@ const rationale = computed(() => {
   const entry = latestRationales.value.get(props.agentId)
   return entry?.rationale || null
 })
+
+const isComplete = computed(() => snapshot.value.phase === 'complete')
 </script>
 
 <template>
@@ -71,6 +74,15 @@ const rationale = computed(() => {
       <p v-if="rationale">{{ rationale }}</p>
       <p v-else class="sidebar__rationale-empty">Awaiting rationale for this round.</p>
     </div>
+    <template v-if="isComplete">
+      <hr class="sidebar__interview-divider" />
+      <button
+        class="sidebar__interview-btn"
+        @click="emit('open-interview', props.agentId)"
+      >
+        Interview {{ agentName }}
+      </button>
+    </template>
   </div>
 </template>
 
@@ -126,4 +138,27 @@ const rationale = computed(() => {
   overflow-y: auto; flex: 1;
 }
 .sidebar__rationale-empty { font-style: italic; color: var(--color-text-muted); }
+
+.sidebar__interview-divider {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  margin: var(--space-md) 0;
+}
+
+.sidebar__interview-btn {
+  width: 100%;
+  height: 32px;
+  margin-top: auto;
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sidebar__interview-btn:hover {
+  background: rgba(59, 130, 246, 0.08);
+}
 </style>
