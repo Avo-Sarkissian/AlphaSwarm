@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 .env
 results/
+.DS_Store
+*.vue.js
+frontend/tsconfig.*.tsbuildinfo
+Schwab/
+/*.csv
