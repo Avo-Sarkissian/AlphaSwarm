@@ -1634,3 +1634,82 @@ async def test_read_rationale_entries_for_round(
 
     assert isinstance(result, list)
     assert len(result) == 3
+
+
+# ---------------------------------------------------------------------------
+# Phase 35.1 — write_shock_event (B1 wiring fix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_write_shock_event_creates_node_and_edge(mock_driver: MagicMock) -> None:
+    """write_shock_event calls execute_write with (tx_fn, cycle_id, shock_id, shock_text, injected_before_round)."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    shock_id = await gsm.write_shock_event(
+        cycle_id="c1",
+        shock_text="Fed cut rates",
+        injected_before_round=2,
+    )
+
+    session.execute_write.assert_awaited_once()
+    call_args = session.execute_write.call_args
+    # Positional args: (tx_func, cycle_id, shock_id, shock_text, injected_before_round)
+    assert call_args[0][1] == "c1"
+    assert call_args[0][2] == shock_id  # shock_id passed as the exact value returned
+    assert call_args[0][3] == "Fed cut rates"
+    assert call_args[0][4] == 2
+
+
+@pytest.mark.asyncio()
+async def test_write_shock_event_returns_uuid4(mock_driver: MagicMock) -> None:
+    """write_shock_event returns a UUID4 string shock_id."""
+    from alphaswarm.graph import GraphStateManager
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    shock_id = await gsm.write_shock_event(
+        cycle_id="c1",
+        shock_text="anything",
+        injected_before_round=3,
+    )
+
+    # UUID4: 8-4-4-4-12 hex, 3rd group starts with 4, 4th group starts with 8/9/a/b
+    uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    assert re.fullmatch(uuid4_pattern, shock_id) is not None, (
+        f"shock_id {shock_id!r} is not a valid UUID4"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_write_shock_event_wraps_driver_errors(mock_driver: MagicMock) -> None:
+    """Neo4jError from the driver is wrapped in Neo4jWriteError."""
+    from neo4j.exceptions import Neo4jError
+
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_write.side_effect = Neo4jError("boom")
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    with pytest.raises(Neo4jWriteError, match="Failed to write shock_event for cycle c1"):
+        await gsm.write_shock_event(
+            cycle_id="c1",
+            shock_text="anything",
+            injected_before_round=2,
+        )
+
+
+def test_schema_includes_shock_id_unique_constraint() -> None:
+    """SCHEMA_STATEMENTS contains a uniqueness constraint on (:ShockEvent).shock_id."""
+    from alphaswarm.graph import SCHEMA_STATEMENTS
+
+    pattern = r"CREATE CONSTRAINT shock_id_unique.*FOR \(se:ShockEvent\).*REQUIRE se\.shock_id IS UNIQUE"
+    matches = [s for s in SCHEMA_STATEMENTS if re.search(pattern, s)]
+    assert len(matches) == 1, (
+        f"Expected exactly one shock_id_unique constraint, found {len(matches)}: "
+        f"{matches!r}"
+    )

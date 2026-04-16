@@ -67,6 +67,7 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX episode_cycle_round IF NOT EXISTS FOR (re:RationaleEpisode) ON (re.cycle_id, re.round)",
     "CREATE INDEX post_cycle_round IF NOT EXISTS FOR (p:Post) ON (p.cycle_id, p.round_num)",
     "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
+    "CREATE CONSTRAINT shock_id_unique IF NOT EXISTS FOR (se:ShockEvent) REQUIRE se.shock_id IS UNIQUE",
 ]
 
 
@@ -982,50 +983,6 @@ class GraphStateManager:
         )
 
     # ------------------------------------------------------------------
-    # Phase 31: Influence edge reads (VIS-03)
-    # ------------------------------------------------------------------
-
-    async def read_influence_edges(
-        self, cycle_id: str, round_num: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Read INFLUENCED_BY edges for a specific cycle and round.
-
-        Returns list of dicts: [{"source_id": str, "target_id": str, "weight": float}].
-        Used by GET /api/edges/{cycle_id}?round=N endpoint (D-11).
-        """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_influence_edges_tx, cycle_id, round_num,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read influence edges for cycle {cycle_id} round {round_num}",
-                original_error=exc,
-            ) from exc
-        self._log.debug(
-            "influence_edges_read", cycle_id=cycle_id, round_num=round_num, count=len(records),
-        )
-        return records
-
-    @staticmethod
-    async def _read_influence_edges_tx(
-        tx: AsyncManagedTransaction,
-        cycle_id: str,
-        round_num: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for reading INFLUENCED_BY edges."""
-        result = await tx.run(
-            """
-            MATCH (src:Agent)-[infl:INFLUENCED_BY {cycle_id: $cycle_id, round: $round_num}]->(tgt:Agent)
-            RETURN src.id AS source_id, tgt.id AS target_id, infl.weight AS weight
-            """,
-            cycle_id=cycle_id,
-            round_num=round_num,
-        )
-        return [dict(record) async for record in result]
-
-    # ------------------------------------------------------------------
     # Phase 14: Interview context reads
     # ------------------------------------------------------------------
 
@@ -1774,6 +1731,82 @@ class GraphStateManager:
             "largest_shift": largest_shift,
             "notable_held_firm_agents": notable_held_firm_agents,
         }
+
+    # ------------------------------------------------------------------
+    # Phase 35.1: Shock event writer (B1 wiring fix — see BUGFIX-CONTEXT.md)
+    # ------------------------------------------------------------------
+
+    async def write_shock_event(
+        self,
+        cycle_id: str,
+        shock_text: str,
+        injected_before_round: int,
+    ) -> str:
+        """Create a ShockEvent node and (Cycle)-[:HAS_SHOCK]->(ShockEvent) edge.
+
+        Counterpart to read_shock_event / read_shock_impact (Phase 27).
+        Returns the generated shock_id (UUID4 string).
+
+        Args:
+            cycle_id: Target cycle; must exist prior to this call.
+            shock_text: Raw shock text (caller enforces length cap per CONTEXT D-12).
+            injected_before_round: 2 or 3 — the round that receives the shock.
+
+        Raises:
+            Neo4jWriteError: wraps any underlying Neo4jError.
+        """
+        shock_id = str(uuid.uuid4())
+        try:
+            async with self._driver.session(database=self._database) as session:
+                await session.execute_write(
+                    self._write_shock_event_tx,
+                    cycle_id,
+                    shock_id,
+                    shock_text,
+                    injected_before_round,
+                )
+        except Neo4jError as exc:
+            raise Neo4jWriteError(
+                f"Failed to write shock_event for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.info(
+            "shock_event_written",
+            cycle_id=cycle_id,
+            injected_before_round=injected_before_round,
+            shock_length=len(shock_text),
+        )
+        return shock_id
+
+    @staticmethod
+    async def _write_shock_event_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        shock_id: str,
+        shock_text: str,
+        injected_before_round: int,
+    ) -> None:
+        """Transaction function: CREATE ShockEvent + HAS_SHOCK edge.
+
+        Uses MATCH on Cycle (not MERGE) so a typo'd cycle_id fails loudly.
+        All user input flows via parameters — no f-string interpolation (T-35.1-01).
+        """
+        await tx.run(
+            """
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            CREATE (se:ShockEvent {
+                shock_id: $shock_id,
+                shock_text: $shock_text,
+                injected_before_round: $injected_before_round,
+                created_at: datetime()
+            })
+            CREATE (c)-[:HAS_SHOCK]->(se)
+            """,
+            cycle_id=cycle_id,
+            shock_id=shock_id,
+            shock_text=shock_text,
+            injected_before_round=injected_before_round,
+        )
 
     # ------------------------------------------------------------------
     # Phase 28: Simulation replay read methods (Plan 01)
