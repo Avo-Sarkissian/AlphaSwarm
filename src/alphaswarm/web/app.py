@@ -43,12 +43,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Per D-06 and review consensus: sessions stored as {agent_id: {"engine": InterviewEngine, "lock": asyncio.Lock}}
     # Initialized before SimulationManager so the on_start lambda can reference app.state.interview_sessions.
     app.state.interview_sessions = {}
+    # ReplayManager must be constructed BEFORE SimulationManager so the latter
+    # can hold a reference for the B4 replay-active guard in start().
+    replay_manager = ReplayManager(app_state)
     sim_manager = SimulationManager(
         app_state,
         brackets,
         on_start=lambda: app.state.interview_sessions.clear(),
+        replay_manager=replay_manager,
     )
-    replay_manager = ReplayManager(app_state)
     connection_manager = ConnectionManager()
 
     app.state.app_state = app_state

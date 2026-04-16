@@ -11,6 +11,7 @@ import structlog
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
     from alphaswarm.types import BracketConfig
+    from alphaswarm.web.replay_manager import ReplayManager
 
 log = structlog.get_logger(component="web.simulation_manager")
 
@@ -25,6 +26,10 @@ class NoSimulationRunningError(Exception):
 
 class ShockAlreadyQueuedError(Exception):
     """Raised when inject_shock called while a shock is already queued."""
+
+
+class ReplayActiveError(Exception):
+    """Raised when start() is called while a replay session is active."""
 
 
 class SimulationManager:
@@ -49,10 +54,12 @@ class SimulationManager:
         app_state: AppState,
         brackets: list[BracketConfig],
         on_start: Callable[[], None] | None = None,
+        replay_manager: ReplayManager | None = None,
     ) -> None:
         self._app_state = app_state
         self._brackets = brackets
         self._on_start = on_start
+        self._replay_manager = replay_manager
         self._lock = asyncio.Lock()
         self._is_running: bool = False
         self._task: asyncio.Task[None] | None = None
@@ -71,9 +78,18 @@ class SimulationManager:
     async def start(self, seed: str) -> None:
         """Start a simulation. Raises SimulationAlreadyRunningError if one is active.
 
+        Raises ReplayActiveError if a replay session is currently active (B4).
+        The replay-active check fires BEFORE the already-running check so a
+        concurrent replay takes precedence over a concurrent-start error.
+
         Uses lock.locked() as a fast non-blocking check before acquiring.
         The lock is acquired here but ONLY released in _on_task_done.
         """
+        # B4 sim-side: bi-directional guard — prevent live sim start during replay.
+        # Use getattr chain so tests passing MagicMock as app_state (without explicit
+        # replay_manager) continue to work when _replay_manager is None.
+        if self._replay_manager is not None and getattr(self._replay_manager, "is_active", False):
+            raise ReplayActiveError("Cannot start simulation while replay is active")
         if self._lock.locked():
             raise SimulationAlreadyRunningError("Simulation already running")
         # Review fix: Clear interview sessions (and any other start hooks) before pipeline begins.
@@ -88,33 +104,58 @@ class SimulationManager:
         self._task.add_done_callback(self._on_task_done)
 
     async def _run(self, seed: str) -> None:
-        """Execute the simulation pipeline in a background task."""
+        """Execute the simulation pipeline in a background task.
+
+        B8: Phase reset on CancelledError / Exception happens INSIDE this
+        coroutine (before the done-callback fires), not as a separate
+        fire-and-forget task. This guarantees phase is IDLE before the
+        lock is released, closing the race where a concurrent start()
+        could slip between lock-release and the async reset.
+
+        B10: COMPLETE is set by simulation.py:1109 as the single source of
+        truth — no duplicate set_phase(COMPLETE) here.
+        """
         from alphaswarm.simulation import run_simulation
         from alphaswarm.types import SimulationPhase
 
-        await run_simulation(
-            rumor=seed,
-            settings=self._app_state.settings,
-            ollama_client=self._app_state.ollama_client,
-            model_manager=self._app_state.model_manager,
-            graph_manager=self._app_state.graph_manager,
-            governor=self._app_state.governor,
-            personas=list(self._app_state.personas),
-            brackets=list(self._brackets),
-            state_store=self._app_state.state_store,
-        )
-        # Caller (TUI) is responsible for setting COMPLETE, replicate that here
-        await self._app_state.state_store.set_phase(SimulationPhase.COMPLETE)
+        try:
+            await run_simulation(
+                rumor=seed,
+                settings=self._app_state.settings,
+                ollama_client=self._app_state.ollama_client,
+                model_manager=self._app_state.model_manager,
+                graph_manager=self._app_state.graph_manager,
+                governor=self._app_state.governor,
+                personas=list(self._app_state.personas),
+                brackets=list(self._brackets),
+                state_store=self._app_state.state_store,
+            )
+            # B10: do NOT set COMPLETE here — simulation.py:1109 is the single
+            # source of truth and sets it before this await returns.
+        except asyncio.CancelledError:
+            # B8: reset phase synchronously BEFORE re-raising; the done-callback
+            # fires after _run returns, so the phase is guaranteed IDLE before
+            # the lock is released.
+            try:
+                await self._app_state.state_store.set_phase(SimulationPhase.IDLE)
+            except Exception:
+                log.error("failed_to_reset_phase_to_idle_on_cancel")
+            raise
+        except Exception:
+            try:
+                await self._app_state.state_store.set_phase(SimulationPhase.IDLE)
+            except Exception:
+                log.error("failed_to_reset_phase_to_idle_on_error")
+            raise
 
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
-        """Synchronous done-callback: releases lock unconditionally.
+        """Synchronous done-callback: releases lock and logs outcome.
 
-        CRITICAL STATE RESET:
-        - When the task is cancelled or raises an exception, StateStore.phase
-          may be stuck at round_2 or round_3. The done-callback resets
-          phase to IDLE in these cases so the UI returns to idle state.
-        - For successful completion, _run() already sets COMPLETE, so no
-          additional phase reset is needed.
+        B8: Phase reset on cancel/exception is now handled inside _run's
+        try/except (awaited before the task completes). This callback no
+        longer schedules a fire-and-forget reset task — that created a
+        race where a concurrent start() could slip between lock-release
+        and the async phase reset.
         """
         self._is_running = False
         self._task = None
@@ -122,24 +163,11 @@ class SimulationManager:
         self._lock.release()
         if task.cancelled():
             log.info("simulation_cancelled")
-            # Reset phase to IDLE so UI does not stay stuck on round_2/round_3
-            asyncio.create_task(self._reset_phase_to_idle())
         elif task.exception() is not None:
             exc = task.exception()
             log.error("simulation_failed", error=str(exc))
-            # Reset phase to IDLE on failure too
-            asyncio.create_task(self._reset_phase_to_idle())
         else:
             log.info("simulation_completed")
-
-    async def _reset_phase_to_idle(self) -> None:
-        """Reset StateStore phase to IDLE after cancellation or failure."""
-        from alphaswarm.types import SimulationPhase
-
-        try:
-            await self._app_state.state_store.set_phase(SimulationPhase.IDLE)
-        except Exception:
-            log.error("failed_to_reset_phase_to_idle")
 
     def stop(self) -> None:
         """Stop the running simulation by cancelling the background task.
