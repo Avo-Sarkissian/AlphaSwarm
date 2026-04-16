@@ -53,8 +53,10 @@ def _make_test_app() -> FastAPI:
         personas = generate_personas(brackets)
         # with_ollama=False, with_neo4j=False for unit tests (no external services)
         app_state = create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
-        sim_manager = SimulationManager(app_state, brackets)
+        # m8x Task 3: construct ReplayManager BEFORE SimulationManager so the
+        # latter can hold a reference for the B4 replay-active guard.
         replay_manager = ReplayManager(app_state)
+        sim_manager = SimulationManager(app_state, brackets, replay_manager=replay_manager)
         connection_manager = ConnectionManager()
 
         app.state.app_state = app_state
@@ -677,7 +679,15 @@ def test_simulate_shock_concurrent_409() -> None:
 
 
 async def test_sim_manager_cancellation_resets_phase_to_idle() -> None:
-    """Cancelling a simulation resets StateStore.phase to IDLE."""
+    """Cancelling a simulation resets StateStore.phase to IDLE.
+
+    Post-m8x (B8 fix): the phase reset now lives inside _run's try/except
+    block (awaited synchronously before the done-callback fires), not as a
+    fire-and-forget task scheduled in _on_task_done. To exercise that path
+    we must patch alphaswarm.simulation.run_simulation at the module level
+    so the real _run with its try/except runs, rather than patching _run
+    itself (which would short-circuit the fix).
+    """
     from unittest.mock import AsyncMock, MagicMock, patch
     from alphaswarm.types import SimulationPhase
 
@@ -685,19 +695,25 @@ async def test_sim_manager_cancellation_resets_phase_to_idle() -> None:
     mock_state_store = MagicMock()
     mock_state_store.set_phase = AsyncMock()
     mock_app_state.state_store = mock_state_store
+    mock_app_state.personas = []
     sm = SimulationManager(mock_app_state, brackets=[])
 
-    async def _long_run(seed: str) -> None:
+    async def _long_run(**kwargs: object) -> None:
         await asyncio.sleep(100)
 
-    with patch.object(sm, "_run", side_effect=_long_run):
+    # Patch run_simulation so the REAL _run runs (including the B8 try/except).
+    with patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_long_run)):
         await sm.start("test seed")
+        # Yield once so the background task reaches `await run_simulation(...)`
+        # before stop() cancels it — otherwise the task body never runs and
+        # the except block never executes.
+        await asyncio.sleep(0)
         sm.stop()
 
-        # Wait for cancellation + done-callback + reset task
+        # Wait for cancellation + in-_run phase reset + done-callback
         await asyncio.sleep(0.1)
 
-        # Verify set_phase was called with IDLE
+        # Verify set_phase(IDLE) was called by _run's except block
         mock_state_store.set_phase.assert_called_with(SimulationPhase.IDLE)
 
 
@@ -918,3 +934,211 @@ def test_broadcaster_uses_replay_snapshot_when_active() -> None:
     assert data["phase"] == "replay"
     assert "agent_1" in data["agent_states"]
     assert data["agent_states"]["agent_1"]["signal"] == "buy"
+
+
+# ---------------------------------------------------------------------------
+# Quick-260416-m8x Tier 1 regression tests
+# One test per fixed bug (B4 route-side, B4 sim-side, B7, B8, B9, B10).
+# Each test must fail on pre-fix code and pass on post-fix code.
+# ---------------------------------------------------------------------------
+
+
+def test_m8x_replay_start_409_when_simulation_running() -> None:
+    """B4 route-side: POST /api/replay/start returns 409 when sim is running."""
+    from unittest.mock import AsyncMock
+
+    app = _make_test_app()
+    with TestClient(app) as client:
+        # Provide a graph_manager so the route reaches the sim-running check.
+        mock_gm = AsyncMock()
+        mock_gm.read_full_cycle_signals = AsyncMock(return_value={})
+        app.state.app_state.graph_manager = mock_gm
+
+        # Flip the sim-manager into "running" state without actually running.
+        client.app.state.sim_manager._is_running = True
+
+        r = client.post("/api/replay/start/any-cycle")
+        assert r.status_code == 409
+        data = r.json()
+        assert data["detail"]["error"] == "simulation_in_progress"
+        assert "simulation is running" in data["detail"]["message"].lower()
+
+
+async def test_m8x_sim_manager_start_raises_when_replay_active() -> None:
+    """B4 sim-side: sim_manager.start() raises ReplayActiveError when replay is active."""
+    from unittest.mock import MagicMock
+
+    from alphaswarm.web.simulation_manager import ReplayActiveError
+
+    mock_app_state = MagicMock()
+    mock_replay_manager = MagicMock()
+    mock_replay_manager.is_active = True
+    sm = SimulationManager(mock_app_state, brackets=[], replay_manager=mock_replay_manager)
+
+    with pytest.raises(ReplayActiveError):
+        await sm.start("test seed")
+
+    # Lock must NOT have been acquired (replay check fires before lock acquisition).
+    assert not sm._lock.locked()
+    assert sm._is_running is False
+
+
+async def test_m8x_connection_manager_writer_cleans_up_on_exception() -> None:
+    """B7: _writer's finally block pops ws from _clients and _tasks when send raises."""
+    from unittest.mock import AsyncMock
+
+    cm = ConnectionManager()
+    queue: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
+    ws = AsyncMock()
+    # Force send_text to raise a non-CancelledError exception.
+    ws.send_text = AsyncMock(side_effect=RuntimeError("connection reset"))
+    cm._clients[ws] = queue
+    cm._tasks[ws] = asyncio.create_task(cm._writer(ws, queue))
+
+    # Put one message so the writer wakes up, tries to send, and crashes.
+    queue.put_nowait("payload")
+    # Give the writer enough time to consume + fail + run its finally.
+    await asyncio.sleep(0.05)
+
+    # The finally block must have cleaned up both dicts.
+    assert ws not in cm._clients
+    assert ws not in cm._tasks
+
+
+async def test_m8x_sim_manager_cancellation_phase_reset_before_lock_release() -> None:
+    """B8: set_phase(IDLE) completes INSIDE _run (before the lock is released).
+
+    After the fix, phase reset is awaited inside _run's except block before
+    the task is marked done. The done-callback then releases the lock. So by
+    the time the lock is released, set_phase(IDLE) has already been called.
+
+    NOTE: This test asserts the correctness-preserving invariant — phase was
+    IDLE before lock release — rather than trying to reproduce the race
+    itself (which is probabilistic under the event loop). If direct ordering
+    check proves flaky we fall back to the weaker "eventually IDLE" check.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from alphaswarm.types import SimulationPhase
+
+    mock_app_state = MagicMock()
+    mock_state_store = MagicMock()
+    mock_state_store.set_phase = AsyncMock()
+    mock_app_state.state_store = mock_state_store
+    mock_app_state.personas = []
+    sm = SimulationManager(mock_app_state, brackets=[])
+
+    # Capture lock-state at the moment the done-callback fires.
+    lock_state_at_callback: list[tuple[bool, int]] = []
+
+    original_callback = sm._on_task_done
+
+    def capturing_callback(task: asyncio.Task[None]) -> None:
+        # Record set_phase call count BEFORE the original callback releases the lock.
+        lock_state_at_callback.append((sm._lock.locked(), mock_state_store.set_phase.call_count))
+        original_callback(task)
+
+    async def _long_run(**kwargs: object) -> None:
+        await asyncio.sleep(100)
+
+    with patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_long_run)):
+        await sm.start("seed")
+        # Replace the callback AFTER start has added the original, so our capturing
+        # version runs instead. We must re-register on the task directly.
+        assert sm._task is not None
+        # Remove all existing callbacks and install ours.
+        sm._task.remove_done_callback(original_callback)
+        sm._task.add_done_callback(capturing_callback)
+
+        await asyncio.sleep(0)  # let _run enter its try block
+        sm.stop()
+        await asyncio.sleep(0.1)
+
+    # Invariant: at the moment the done-callback was invoked, set_phase(IDLE) was
+    # already called (call_count >= 1) — meaning _run's except block completed
+    # BEFORE the task was marked done and the callback fired.
+    assert len(lock_state_at_callback) == 1
+    lock_locked, set_phase_calls = lock_state_at_callback[0]
+    assert set_phase_calls >= 1, (
+        f"set_phase(IDLE) was not called before done-callback fired "
+        f"(call_count={set_phase_calls}). B8 race is NOT fixed."
+    )
+    # Verify it was IDLE that was set.
+    mock_state_store.set_phase.assert_called_with(SimulationPhase.IDLE)
+
+
+async def test_m8x_replay_manager_advance_and_stop_hold_lock() -> None:
+    """B9: advance() and stop() acquire self._lock exactly once per call."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from alphaswarm.state import AgentState
+    from alphaswarm.types import SignalType
+    from alphaswarm.web.replay_manager import ReplayManager
+
+    mock_app_state = MagicMock()
+    mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_phase = AsyncMock()
+    rm = ReplayManager(mock_app_state)
+
+    # Count lock acquisitions by wrapping _lock.acquire.
+    acquire_counter = {"count": 0}
+    original_acquire = rm._lock.acquire
+
+    async def counting_acquire() -> bool:  # type: ignore[override]
+        acquire_counter["count"] += 1
+        return await original_acquire()
+
+    rm._lock.acquire = counting_acquire  # type: ignore[method-assign]
+
+    # Seed a minimal store + state so advance() does not early-return.
+    mock_cm = MagicMock()
+    mock_gm = AsyncMock()
+    mock_gm.read_bracket_narratives_for_round = AsyncMock(return_value=[])
+    mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
+    signals = {("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8)}
+
+    await rm.start("cycle-x", signals, mock_cm, mock_gm)
+    assert acquire_counter["count"] == 1  # start() acquires once
+
+    await rm.advance(mock_cm, mock_gm)
+    assert acquire_counter["count"] == 2  # advance() acquires once (B9)
+
+    await rm.stop()
+    assert acquire_counter["count"] == 3  # stop() acquires once (B9)
+
+
+async def test_m8x_sim_manager_complete_phase_set_once() -> None:
+    """B10: set_phase(COMPLETE) is invoked exactly once per run (no manager-level duplicate).
+
+    We simulate simulation.py:1109 calling set_phase(COMPLETE) from within
+    run_simulation, then assert the manager does NOT call set_phase(COMPLETE)
+    a second time after the pipeline returns.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from alphaswarm.types import SimulationPhase
+
+    mock_app_state = MagicMock()
+    mock_state_store = MagicMock()
+    mock_state_store.set_phase = AsyncMock()
+    mock_app_state.state_store = mock_state_store
+    mock_app_state.personas = []
+    sm = SimulationManager(mock_app_state, brackets=[])
+
+    # Simulate simulation.py:1109 by calling set_phase(COMPLETE) from the
+    # patched run_simulation, then returning successfully.
+    async def _fake_pipeline(**kwargs: object) -> None:
+        await mock_state_store.set_phase(SimulationPhase.COMPLETE)
+
+    with patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_fake_pipeline)):
+        await sm.start("seed")
+        await asyncio.sleep(0.05)
+
+    complete_calls = [
+        call for call in mock_state_store.set_phase.call_args_list
+        if call.args == (SimulationPhase.COMPLETE,)
+    ]
+    assert len(complete_calls) == 1, (
+        f"Expected exactly one set_phase(COMPLETE) call, got {len(complete_calls)}. "
+        f"B10 duplicate COMPLETE call is NOT removed. "
+        f"All calls: {mock_state_store.set_phase.call_args_list}"
+    )
