@@ -210,12 +210,10 @@ Plans:
   2. A Report Viewer panel renders the report with formatted sections (consensus summary, bracket narratives, entity impact analysis)
   3. The viewer is accessible from the control bar or sidebar after simulation completes
   4. If no report exists yet, the panel shows a "Generate Report" button that triggers report generation and polls for completion
-**Plans**: 3 plans
+**Plans**: TBD — phase not yet planned
 
 Plans:
-- [x] 34-01-PLAN.md -- ReplayManager class, replay route implementations, broadcaster coupling, Wave 0 tests
-- [x] 34-02-PLAN.md -- CSS tokens, CyclePicker.vue modal, ControlBar replay strip, ForceGraph edge-clear fix, App.vue wiring
-- [x] 34-03-PLAN.md -- Human verification of replay mode in browser
+- [ ] TBD — plans to be created when Phase 36 work begins
 
 ## Progress
 
