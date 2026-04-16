@@ -39,6 +39,7 @@ def _make_test_app() -> FastAPI:
     from alphaswarm.web.replay_manager import ReplayManager
     from alphaswarm.web.routes.edges import router as edges_router
     from alphaswarm.web.routes.health import router as health_router
+    from alphaswarm.web.routes.interview import router as interview_router
     from alphaswarm.web.routes.replay import router as replay_router
     from alphaswarm.web.routes.simulation import router as simulation_router
     from alphaswarm.web.routes.websocket import router as ws_router
@@ -60,6 +61,7 @@ def _make_test_app() -> FastAPI:
         app.state.sim_manager = sim_manager
         app.state.replay_manager = replay_manager
         app.state.connection_manager = connection_manager
+        app.state.interview_sessions = {}
 
         yield
 
@@ -71,6 +73,7 @@ def _make_test_app() -> FastAPI:
     app.include_router(simulation_router, prefix="/api")
     app.include_router(edges_router, prefix="/api")
     app.include_router(replay_router, prefix="/api")
+    app.include_router(interview_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full path
     return app
 
