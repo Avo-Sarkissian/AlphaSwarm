@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import structlog
@@ -43,9 +44,15 @@ class SimulationManager:
       starts to slip through.
     """
 
-    def __init__(self, app_state: AppState, brackets: list[BracketConfig]) -> None:
+    def __init__(
+        self,
+        app_state: AppState,
+        brackets: list[BracketConfig],
+        on_start: Callable[[], None] | None = None,
+    ) -> None:
         self._app_state = app_state
         self._brackets = brackets
+        self._on_start = on_start
         self._lock = asyncio.Lock()
         self._is_running: bool = False
         self._task: asyncio.Task[None] | None = None
@@ -69,6 +76,10 @@ class SimulationManager:
         """
         if self._lock.locked():
             raise SimulationAlreadyRunningError("Simulation already running")
+        # Review fix: Clear interview sessions (and any other start hooks) before pipeline begins.
+        # on_start is set in app.py lifespan to lambda: app.state.interview_sessions.clear()
+        if self._on_start is not None:
+            self._on_start()
         await self._lock.acquire()
         self._is_running = True
         self._pending_shock = None  # Reset shock state

@@ -17,6 +17,7 @@ from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
+from alphaswarm.web.routes.interview import router as interview_router
 from alphaswarm.web.routes.replay import router as replay_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
@@ -39,7 +40,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
-    sim_manager = SimulationManager(app_state, brackets)
+    # Per D-06 and review consensus: sessions stored as {agent_id: {"engine": InterviewEngine, "lock": asyncio.Lock}}
+    # Initialized before SimulationManager so the on_start lambda can reference app.state.interview_sessions.
+    app.state.interview_sessions = {}
+    sim_manager = SimulationManager(
+        app_state,
+        brackets,
+        on_start=lambda: app.state.interview_sessions.clear(),
+    )
     replay_manager = ReplayManager(app_state)
     connection_manager = ConnectionManager()
 
@@ -84,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(simulation_router, prefix="/api")
     app.include_router(edges_router, prefix="/api")
     app.include_router(replay_router, prefix="/api")
+    app.include_router(interview_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
 
     # Serve Vue SPA production build as static files (D-02).

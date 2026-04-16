@@ -39,7 +39,13 @@ def _make_interview_test_app() -> FastAPI:
         brackets = load_bracket_configs()
         personas = generate_personas(brackets)
         app_state = create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
-        sim_manager = SimulationManager(app_state, brackets)
+        # Initialize interview_sessions before SimulationManager so on_start lambda can reference it
+        app.state.interview_sessions = {}
+        sim_manager = SimulationManager(
+            app_state,
+            brackets,
+            on_start=lambda: app.state.interview_sessions.clear(),
+        )
         replay_manager = ReplayManager(app_state)
         connection_manager = ConnectionManager()
 
@@ -47,8 +53,6 @@ def _make_interview_test_app() -> FastAPI:
         app.state.sim_manager = sim_manager
         app.state.replay_manager = replay_manager
         app.state.connection_manager = connection_manager
-        # Per D-06 and review consensus: interview sessions dict cleared on each new run
-        app.state.interview_sessions = {}
 
         yield
 
