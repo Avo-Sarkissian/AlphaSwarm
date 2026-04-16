@@ -49,7 +49,17 @@ class ConnectionManager:
         log.info("client_disconnected", client_count=len(self._clients))
 
     async def _writer(self, ws: WebSocket, queue: asyncio.Queue[str]) -> None:
-        """Dedicated per-client writer: drain queue and send to WebSocket."""
+        """Dedicated per-client writer: drain queue and send to WebSocket.
+
+        B7: finally block cleans up self._clients and self._tasks on ALL
+        exit paths (normal return, CancelledError, or other Exception).
+        Before the fix, a crashed client that never routed through
+        disconnect() left stale entries behind, causing broadcast() to
+        put messages into dead queues and leaking memory.
+
+        disconnect() also pops these entries; dict.pop(key, None) is
+        idempotent so the double-pop is safe.
+        """
         try:
             while True:
                 data = await queue.get()
@@ -57,8 +67,13 @@ class ConnectionManager:
         except asyncio.CancelledError:
             raise
         except Exception:
-            # Connection dropped — task exits naturally
-            pass
+            # Connection dropped — log then fall through to finally for cleanup.
+            log.warning("websocket_writer_exited_with_exception")
+        finally:
+            # B7: remove our own registry entries so broadcast() no longer
+            # puts into a dead queue. Safe to run after CancelledError too.
+            self._clients.pop(ws, None)
+            self._tasks.pop(ws, None)
 
     def broadcast(self, message: str) -> None:
         """Non-blocking put to all client queues. Drop-oldest on overflow.

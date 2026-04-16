@@ -103,6 +103,7 @@ async def replay_start(cycle_id: str, request: Request) -> ReplayStartResponse:
     sets round 1, and broadcasts the round-1 snapshot over WebSocket.
 
     Returns 503 if Neo4j is not connected.
+    Returns 409 if a live simulation is currently running (B4 route-side).
     Returns 409 if a replay session is already active.
     Returns 404 if the cycle has no signals in Neo4j.
     """
@@ -110,6 +111,18 @@ async def replay_start(cycle_id: str, request: Request) -> ReplayStartResponse:
     replay_manager = request.app.state.replay_manager
     connection_manager = request.app.state.connection_manager
     graph_manager = app_state.graph_manager
+    sim_manager = request.app.state.sim_manager
+
+    # B4 route-side: block replay while a live simulation is running. Runs
+    # BEFORE graph/replay-active checks so the most-specific conflict wins.
+    if sim_manager.is_running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "simulation_in_progress",
+                "message": "Cannot start replay while a simulation is running",
+            },
+        )
 
     if graph_manager is None:
         raise HTTPException(
