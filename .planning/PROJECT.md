@@ -109,6 +109,8 @@ This document evolves at phase transitions and milestone boundaries.
 
 **Phase 32 complete (2026-04-14):** REST simulation controls (start/stop/shock), replay router stubs, Vue ControlBar + ShockDrawer. Phase 32 is the last planned phase in the v5.0 Web UI milestone.
 
+**Phase 35.1 complete (2026-04-16):** Shock injection wiring — B1 gap closure. `GraphStateManager.write_shock_event` added; `run_simulation` now accepts `consume_shock` and gates shock injection before Round 2 and Round 3; `SimulationManager._run` wires `consume_shock=self.consume_shock`. ShockEvent nodes are now persisted in Neo4j end-to-end. 193 tests pass.
+
 **After each phase transition** (via `/gsd:transition`):
 1. Requirements invalidated? → Move to Out of Scope with reason
 2. Requirements validated? → Move to Validated with phase reference
@@ -123,4 +125,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-01 — Phase 12 complete: richer-agent-interactions*
+*Last updated: 2026-04-16 — Phase 35.1 complete: shock-injection-wiring*
