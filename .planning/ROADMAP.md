@@ -151,7 +151,7 @@ Plans:
 - [x] **Phase 33: Web Monitoring Panels** - Live rationale feed with animated entries and D3 bracket sentiment bars in the browser (completed 2026-04-15)
 - [x] **Phase 34: Replay Mode Web UI** - Cycle picker, round stepping, and force graph re-render from stored Neo4j state (wires Phase 32 stubs) (completed 2026-04-15)
 - [ ] **Phase 35: Agent Interviews Web UI** - Click any post-simulation graph node to open a live multi-turn interview panel in the browser
-- [ ] **Phase 36: Report Viewer** - Fetch and render the post-simulation market analysis report as a formatted panel within the SPA
+- [x] **Phase 36: Report Viewer** - Fetch and render the post-simulation market analysis report as a formatted panel within the SPA (completed 2026-04-17)
 
 ### Phase 33: Web Monitoring Panels
 **Goal**: Bring full observability into the browser — live rationale feed with animated entries and D3 bracket sentiment bars updating from the WebSocket snapshot, matching the TUI panel equivalents
@@ -213,8 +213,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 36-01-PLAN.md -- Report route (GET + POST /generate), background task, tests, lifespan wiring (backend)
-- [ ] 36-02-PLAN.md -- ReportViewer.vue modal with marked+DOMPurify, ControlBar Report button, App.vue mount, human verification (frontend)
+- [x] 36-01-PLAN.md -- Report route (GET + POST /generate), background task, tests, lifespan wiring (backend)
+- [x] 36-02-PLAN.md -- ReportViewer.vue modal with marked+DOMPurify, ControlBar Report button, App.vue mount, human verification (frontend)
 
 ## Progress
 
@@ -249,4 +249,4 @@ Phases execute in numeric order: 11 -> 12 -> 13 -> 14 -> 15 -> 24 -> 26 -> 27 ->
 | 33. Web Monitoring Panels | v5.0 | 2/2 | Complete    | 2026-04-15 |
 | 34. Replay Mode Web UI | v5.0 | 3/3 | Complete   | 2026-04-15 |
 | 35. Agent Interviews Web UI | v5.0 | 0/3 | Planned | -- |
-| 36. Report Viewer | v5.0 | 0/0 | Planned | -- |
+| 36. Report Viewer | v5.0 | 2/2 | Complete    | 2026-04-17 |
