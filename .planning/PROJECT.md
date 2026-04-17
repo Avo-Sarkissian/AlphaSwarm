@@ -111,6 +111,8 @@ This document evolves at phase transitions and milestone boundaries.
 
 **Phase 35.1 complete (2026-04-16):** Shock injection wiring — B1 gap closure. `GraphStateManager.write_shock_event` added; `run_simulation` now accepts `consume_shock` and gates shock injection before Round 2 and Round 3; `SimulationManager._run` wires `consume_shock=self.consume_shock`. ShockEvent nodes are now persisted in Neo4j end-to-end. 193 tests pass.
 
+**Phase 36 complete (2026-04-16):** Report viewer — web UI surface for the post-simulation report. FastAPI `GET /api/report/{cycle_id}` (async read-through with aiofiles) and `POST /api/report/{cycle_id}/generate` (non-blocking 202 Accepted, background asyncio.Task mirroring cli.py). Vue 3 `ReportViewer.vue` full-screen modal: marked + DOMPurify render pipeline, 3s polling with REVISION-1 state-machine split (viewState independent of isGenerating), 500 error terminates polling. ControlBar "Report" button gated on phase='complete'. 59 tests pass, TypeScript clean, production build 80 kB gzip. This is the last planned phase of the v2.0 Engine Depth milestone.
+
 **After each phase transition** (via `/gsd:transition`):
 1. Requirements invalidated? → Move to Out of Scope with reason
 2. Requirements validated? → Move to Validated with phase reference
