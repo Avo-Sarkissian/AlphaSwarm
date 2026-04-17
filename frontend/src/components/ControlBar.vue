@@ -12,9 +12,11 @@ const isActive = computed(() =>
   snapshot.value.phase !== 'replay'
 )
 const isReplay = computed(() => snapshot.value.phase === 'replay')
+const isComplete = computed(() => snapshot.value.phase === 'complete')
 
 const emit = defineEmits<{
   'open-cycle-picker': []
+  'open-report-viewer': []
 }>()
 
 // Seed input
@@ -126,7 +128,7 @@ async function exitReplay() {
   <div class="control-bar-wrapper">
     <div class="control-bar">
       <!-- Idle mode: seed input + Start + Replay buttons -->
-      <template v-if="!isActive && !isReplay">
+      <template v-if="!isActive && !isReplay && !isComplete">
         <textarea
           v-model="seedText"
           class="control-bar__seed"
@@ -183,6 +185,23 @@ async function exitReplay() {
           @click="exitReplay"
         >
           &#10005; Exit
+        </button>
+      </template>
+
+      <!-- Complete phase: Report + Stop buttons (Phase 36 D-08) -->
+      <template v-else-if="isComplete">
+        <span class="control-bar__phase">{{ phaseLabel }}</span>
+        <button
+          class="control-bar__btn control-bar__btn--report"
+          @click="emit('open-report-viewer')"
+        >
+          Report
+        </button>
+        <button
+          class="control-bar__btn control-bar__btn--stop"
+          @click="stopSimulation"
+        >
+          Stop
         </button>
       </template>
     </div>
@@ -337,5 +356,15 @@ async function exitReplay() {
 }
 .control-bar__btn--exit:hover {
   background: var(--color-border);
+}
+
+.control-bar__btn--report {
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+}
+.control-bar__btn--report:hover {
+  background: rgba(59, 130, 246, 0.08);
 }
 </style>

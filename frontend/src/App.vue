@@ -8,6 +8,7 @@ import ControlBar from './components/ControlBar.vue'
 import BracketPanel from './components/BracketPanel.vue'
 import RationaleFeed from './components/RationaleFeed.vue'
 import CyclePicker from './components/CyclePicker.vue'
+import ReportViewer from './components/ReportViewer.vue'
 
 const { snapshot, connected, reconnectFailed, latestRationales, allRationales } = useWebSocket()
 
@@ -61,12 +62,25 @@ function onStartReplay(_cycleId: string) {
   showCyclePicker.value = false
   // POST already handled by CyclePicker -- phase update comes via WebSocket
 }
+
+// ReportViewer modal state (Phase 36 D-06, D-09)
+const showReportViewer = ref(false)
+
+function onOpenReportViewer() {
+  showReportViewer.value = true
+}
+function onCloseReportViewer() {
+  showReportViewer.value = false
+}
 </script>
 
 <template>
   <div class="app-root">
     <!-- ControlBar owns ShockDrawer internally -->
-    <ControlBar @open-cycle-picker="onOpenCyclePicker" />
+    <ControlBar
+      @open-cycle-picker="onOpenCyclePicker"
+      @open-report-viewer="onOpenReportViewer"
+    />
 
     <!-- Main content area: fills remaining space -->
     <div class="main-content">
@@ -106,6 +120,11 @@ function onStartReplay(_cycleId: string) {
       v-if="showCyclePicker"
       @start-replay="onStartReplay"
       @close="onCloseCyclePicker"
+    />
+
+    <ReportViewer
+      v-if="showReportViewer"
+      @close="onCloseReportViewer"
     />
 
     <div v-if="reconnectFailed" class="connection-error">
