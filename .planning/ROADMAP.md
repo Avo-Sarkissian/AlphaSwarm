@@ -210,10 +210,11 @@ Plans:
   2. A Report Viewer panel renders the report with formatted sections (consensus summary, bracket narratives, entity impact analysis)
   3. The viewer is accessible from the control bar or sidebar after simulation completes
   4. If no report exists yet, the panel shows a "Generate Report" button that triggers report generation and polls for completion
-**Plans**: TBD — phase not yet planned
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD — plans to be created when Phase 36 work begins
+- [ ] 36-01-PLAN.md -- Report route (GET + POST /generate), background task, tests, lifespan wiring (backend)
+- [ ] 36-02-PLAN.md -- ReportViewer.vue modal with marked+DOMPurify, ControlBar Report button, App.vue mount, human verification (frontend)
 
 ## Progress
 
