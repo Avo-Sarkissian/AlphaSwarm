@@ -1,4 +1,4 @@
-import { ref, readonly, watch, type Ref } from 'vue'
+import { ref, readonly, watch, onUnmounted, type Ref } from 'vue'
 import type { StateSnapshot, RationaleEntry } from '../types'
 
 const DEFAULT_SNAPSHOT: StateSnapshot = {
@@ -125,10 +125,27 @@ export function useWebSocket(): WebSocketState {
 
   // REVIEW FIX (HIGH): Clear accumulated rationales when simulation resets to idle.
   // Prevents stale entries from a previous run lingering in the feed.
-  watch(() => snapshot.value.phase, (newPhase) => {
+  const stopPhaseWatcher = watch(() => snapshot.value.phase, (newPhase) => {
     if (newPhase === 'idle') {
       allRationales.value = []
     }
+  })
+
+  onUnmounted(() => {
+    // Stop reconnect timer so no new connection attempt fires after unmount
+    if (_reconnectTimer !== null) {
+      clearTimeout(_reconnectTimer)
+      _reconnectTimer = null
+    }
+    // Close the socket cleanly — suppress the onclose handler to avoid scheduling
+    // a reconnect after the component is gone
+    if (ws !== null) {
+      ws.onclose = null
+      ws.close()
+      ws = null
+    }
+    // Stop the phase watcher
+    stopPhaseWatcher()
   })
 
   return {
