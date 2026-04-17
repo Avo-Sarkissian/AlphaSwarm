@@ -1,3 +1,12 @@
 node_modules
 dist
 *.local
+
+# Vue-TSC compiler emission artifacts (noEmit should prevent these, but guard anyway)
+*.vue.js
+*.vue.js.map
+tsconfig.*.tsbuildinfo
+
+# macOS Finder duplicates (space-2 suffix pattern)
+* 2.*
+* 2/
