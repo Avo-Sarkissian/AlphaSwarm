@@ -19,6 +19,7 @@ from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
 from alphaswarm.web.routes.interview import router as interview_router
 from alphaswarm.web.routes.replay import router as replay_router
+from alphaswarm.web.routes.report import router as report_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
 from alphaswarm.web.replay_manager import ReplayManager
@@ -43,6 +44,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Per D-06 and review consensus: sessions stored as {agent_id: {"engine": InterviewEngine, "lock": asyncio.Lock}}
     # Initialized before SimulationManager so the on_start lambda can reference app.state.interview_sessions.
     app.state.interview_sessions = {}
+    # Phase 36 D-02: single task handle for in-progress report generation detection.
+    app.state.report_task = None
+    # Phase 36 T-36-15: per-cycle error capture from the background task's done_callback.
+    # Keys are cycle_id strings; values are {"error": ..., "message": ...} dicts.
+    # GET /api/report/{cycle_id} reads this to surface 500 so the frontend can stop polling.
+    app.state.report_generation_error = {}
     # ReplayManager must be constructed BEFORE SimulationManager so the latter
     # can hold a reference for the B4 replay-active guard in start().
     replay_manager = ReplayManager(app_state)
@@ -96,6 +103,7 @@ def create_app() -> FastAPI:
     app.include_router(edges_router, prefix="/api")
     app.include_router(replay_router, prefix="/api")
     app.include_router(interview_router, prefix="/api")
+    app.include_router(report_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
 
     # Serve Vue SPA production build as static files (D-02).

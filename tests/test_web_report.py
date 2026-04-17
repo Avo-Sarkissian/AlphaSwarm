@@ -194,8 +194,9 @@ def test_get_report_uses_async_filesystem() -> None:
 def test_generate_report_503_no_services() -> None:
     """POST /api/report/{cycle_id}/generate returns 503 when services are missing."""
     app = _make_report_test_app()
-    _mock_complete_app_state(app)
     with TestClient(app) as client:
+        # Inside lifespan so app.state.app_state exists.
+        _mock_complete_app_state(app)
         r = client.post("/api/report/abc-123/generate")
         assert r.status_code == 503
         assert r.json()["detail"]["error"] == "services_unavailable"
@@ -204,12 +205,12 @@ def test_generate_report_503_no_services() -> None:
 def test_generate_report_409_wrong_phase() -> None:
     """POST returns 409 when snapshot.phase != COMPLETE (D-01)."""
     app = _make_report_test_app()
-    _mock_all_services(app)
-    mock_snap = MagicMock()
-    mock_snap.phase = SimulationPhase.ROUND_2
-    app.state.app_state.state_store = MagicMock()
-    app.state.app_state.state_store.snapshot = MagicMock(return_value=mock_snap)
     with TestClient(app) as client:
+        _mock_all_services(app)
+        mock_snap = MagicMock()
+        mock_snap.phase = SimulationPhase.ROUND_2
+        app.state.app_state.state_store = MagicMock()
+        app.state.app_state.state_store.snapshot = MagicMock(return_value=mock_snap)
         r = client.post("/api/report/abc-123/generate")
         assert r.status_code == 409
         assert r.json()["detail"]["error"] == "report_unavailable"
@@ -219,9 +220,9 @@ def test_generate_report_409_wrong_phase() -> None:
 def test_generate_report_409_in_progress() -> None:
     """POST returns 409 when app.state.report_task is a live (not .done()) task (D-02)."""
     app = _make_report_test_app()
-    _mock_all_services(app)
-    _mock_complete_app_state(app)
     with TestClient(app) as client:
+        _mock_all_services(app)
+        _mock_complete_app_state(app)
         fake_task = MagicMock()
         fake_task.done = MagicMock(return_value=False)
         app.state.report_task = fake_task
@@ -237,9 +238,9 @@ def test_generate_report_202_spawns_task() -> None:
         return None
 
     app = _make_report_test_app()
-    _mock_all_services(app)
-    _mock_complete_app_state(app)
     with TestClient(app) as client:
+        _mock_all_services(app)
+        _mock_complete_app_state(app)
         # Pre-seed a stale error for this cycle — it must be cleared on the new spawn.
         app.state.report_generation_error = {
             "abc-123": {"error": "report_generation_failed", "message": "old"},
@@ -262,9 +263,9 @@ def test_generate_report_202_spawns_task() -> None:
 def test_generate_report_400_invalid_cycle_id() -> None:
     """POST returns 400 when cycle_id fails regex (T-36-01)."""
     app = _make_report_test_app()
-    _mock_all_services(app)
-    _mock_complete_app_state(app)
     with TestClient(app) as client:
+        _mock_all_services(app)
+        _mock_complete_app_state(app)
         r = client.post("/api/report/..bad..traversal../generate")
         assert r.status_code == 400
         assert r.json()["detail"]["error"] == "invalid_cycle_id"
