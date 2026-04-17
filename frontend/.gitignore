@@ -6,6 +6,8 @@ dist
 *.vue.js
 *.vue.js.map
 tsconfig.*.tsbuildinfo
+vite.config.js
+vite.config.js.map
 
 # macOS Finder duplicates (space-2 suffix pattern)
 * 2.*
