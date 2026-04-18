@@ -130,4 +130,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-16 — Phase 35.1 complete: shock-injection-wiring*
+*Last updated: 2026-04-18 — Phase 37 complete: isolation-foundation-provider-scaffolding (v6.0 ISOL-01 through ISOL-07 all landed)*
