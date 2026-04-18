@@ -15,6 +15,7 @@ from alphaswarm.ingestion.providers import (
     MarketDataProvider,
     NewsProvider,
 )
+from alphaswarm.ingestion.rss_provider import RSSNewsProvider
 from alphaswarm.ingestion.types import (
     ContextPacket,
     Fundamentals,
@@ -33,6 +34,7 @@ __all__ = [
     "MarketSlice",
     "NewsProvider",
     "NewsSlice",
+    "RSSNewsProvider",
     "StalenessState",
     "YFinanceMarketDataProvider",
 ]

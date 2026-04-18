@@ -18,6 +18,7 @@ dependencies = [
     "uvicorn>=0.34.0",
     "httpx>=0.28.0",
     "yfinance>=1.2.2,<2.0",
+    "feedparser>=6.0.12,<7.0",
 ]
 
 [dependency-groups]
@@ -76,6 +77,7 @@ source_modules = [
     "alphaswarm.ingestion.providers",
     "alphaswarm.ingestion.types",
     "alphaswarm.ingestion.yfinance_provider",
+    "alphaswarm.ingestion.rss_provider",
     "alphaswarm.interview",
     "alphaswarm.logging",
     "alphaswarm.memory_monitor",
