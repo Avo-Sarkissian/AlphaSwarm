@@ -4,19 +4,17 @@
 
 A localized, multi-agent financial simulation engine that ingests a single "Seed Rumor" and simulates cascading market reactions across 100 distinct AI personas. The system runs a 3-round iterative consensus cascade on local hardware (M1 Max 64GB), visualizing real-time agent state via a Textual TUI dashboard and persisting interaction history in Neo4j.
 
-## Current Milestone: v5.0 Web UI
+## Current Milestone: v6.0 Real Data + Advisory
 
-**Goal:** Replace the Textual TUI with a browser-based Vue 3 + FastAPI dashboard featuring a live force-directed agent graph, full simulation controls, replay mode, agent interviews, and post-simulation report viewer.
+**Goal:** Ground the simulation in real market data — live price feeds, news headlines, and portfolio holdings loaded from Schwab CSV — and surface personalized post-simulation advisory insights via an orchestrator synthesis pipeline.
 
 **Target features:**
-- FastAPI skeleton with async event loop foundation and WebSocket broadcaster
-- Vue 3 SPA with D3 force-directed graph ("mirofish" agent view)
-- REST controls for start/stop/shock injection + Vue ControlBar
-- Web monitoring panels (rationale, telemetry, brackets)
-- Replay mode web UI (re-render past cycles from Neo4j)
-- Agent interviews web UI (click-to-interview overlay)
-- Shock injection wiring (ShockEvent Neo4j persistence)
-- Report viewer web UI (marked + DOMPurify render pipeline)
+- Real `MarketDataProvider` (yfinance) and `NewsProvider` (RSS/newsapi) implementations
+- `HoldingsLoader` — Schwab CSV → `PortfolioSnapshot` with HOLD-02 account number hashing
+- `GET /api/holdings` REST endpoint (isolation-enforced via importlinter whitelist)
+- `ContextPacket` wiring into simulation seed injection (agents receive grounded price + headline context)
+- `alphaswarm.advisory` synthesis — joins holdings positions against bracket consensus signals
+- `GET /api/advisory/{cycle_id}` + Vue `AdvisoryPanel.vue`
 
 ## Core Value
 
@@ -130,4 +128,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-18 — Phase 37 complete: isolation-foundation-provider-scaffolding (v6.0 ISOL-01 through ISOL-07 all landed)*
+*Last updated: 2026-04-18 — v5.0 Web UI milestone closed; v6.0 Real Data + Advisory active (Phase 37 complete, Phase 38 next)*

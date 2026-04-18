@@ -1,44 +1,44 @@
 ---
 gsd_state_version: 1.0
-milestone: v5.0
-milestone_name: Web UI
+milestone: v6.0
+milestone_name: Real Data + Advisory
 status: executing
-stopped_at: Phase 36 UI-SPEC approved
-last_updated: "2026-04-18T17:00:54.988Z"
+stopped_at: Phase 37 complete — v6.0 isolation foundation landed
+last_updated: "2026-04-18T17:00:00.000Z"
 last_activity: 2026-04-18
 progress:
-  total_phases: 10
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 100
+  total_phases: 5
+  completed_phases: 1
+  total_plans: 14
+  completed_plans: 4
+  percent: 20
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-09)
+See: .planning/PROJECT.md (updated 2026-04-18)
 
 **Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — grounded in real market data, the simulation engine is the product
-**Current focus:** Phase 36 — report-viewer
+**Current focus:** Phase 38 — market-data-and-news-providers
 
 ## Current Position
 
-Phase: 37
+Phase: 38
 Plan: Not started
-Status: Executing Phase 36
+Status: Ready to plan
 Last activity: 2026-04-18
 
-Progress: [██████████] 100%
+Progress: [██░░░░░░░░] 20% (1/5 phases, 4/14 plans)
 
 ## Performance Metrics
 
 **All-time:**
 
-- Total phases completed: 26 (v1.0 + v2.0 + v3.0 + v4.0 partial)
-- Total plans completed: 69
-- Total milestones shipped: 3
+- Total phases completed: 27 (v1.0 + v2.0 + v4.0 + v5.0 + Phase 37)
+- Total plans completed: 73
+- Total milestones shipped: 4 (v1.0, v2.0, v4.0, v5.0)
 
 ## Accumulated Context
 
