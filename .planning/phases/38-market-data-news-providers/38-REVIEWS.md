@@ -1,7 +1,7 @@
 ---
 phase: 38
 reviewers: [gemini, codex]
-reviewed_at: 2026-04-18T00:00:00Z
+reviewed_at: 2026-04-18T17:47:00Z
 plans_reviewed: [38-01-PLAN.md, 38-02-PLAN.md, 38-03-PLAN.md]
 ---
 
@@ -9,158 +9,110 @@ plans_reviewed: [38-01-PLAN.md, 38-02-PLAN.md, 38-03-PLAN.md]
 
 ## Gemini Review
 
-### Summary
-The implementation plans for Phase 38 are exceptionally well-structured and demonstrate a deep understanding of the specific technical hurdles associated with `yfinance` and RSS ingestion. The plans successfully address the "never-raise" contract (D-19) and the strict async requirements of the AlphaSwarm engine. By prioritizing surgical unit tests and real-network integration tests, the approach ensures that the "local-first" philosophy is maintained while grounding the simulation in real-world data. The design choices regarding financial precision (`Decimal`) and security (`quote_plus`, `User-Agent`) are particularly strong.
+This review evaluates the implementation plans for **Phase 38: Market Data + News Providers**. The plans demonstrate a high level of technical maturity, specifically in their handling of asynchronous boundaries and the known idiosyncrasies of the `yfinance` and `feedparser` libraries.
 
-### Strengths
-- **Precision Management:** Using `Decimal(str(float_value))` correctly avoids the binary floating-point rounding errors that plague financial applications.
-- **Async Pattern Integrity:** Correct usage of `asyncio.to_thread` for the blocking `yfinance` library and `httpx` + `feedparser` for RSS ensures the main event loop remains unblocked.
-- **Error Isolation:** The use of `asyncio.gather` with per-ticker error handling ensures that one delisted or malformed ticker doesn't crash the entire batch fetch.
-- **Security Mindfulness:** Proactive mitigation of URL injection (T-38-01) via `quote_plus` and XML bomb protection (T-38-13) by specifying `feedparser` versioning.
-- **Pitfall Awareness:** Explicitly guarding against "Pitfall 9" (empty ticker lists) and "Pitfall 4" (Yahoo 429s due to missing User-Agent) shows high attention to detail.
-- **Infrastructure Consistency:** Leveraging `tests/integration/` with the `enable_socket` marker aligns perfectly with the existing testing architecture.
+### 1. Summary
+The Phase 38 plan set is exceptionally robust, directly addressing the "never-raise" (D-19) and async-first requirements while proactively mitigating documented pitfalls discovered during research (e.g., `yfinance` delisting errors and `feedparser` timezone skews). The architecture correctly separates the sync-heavy `yfinance` logic into threads and utilizes `httpx` for efficient RSS ingestion. The inclusion of the "cross-AI" fixes—specifically `calendar.timegm` for UTC consistency and `_decimal_or_none` for data integrity—ensures the simulation receives grounded, high-quality context without risking event-loop blockage.
 
-### Concerns
-- **[MEDIUM] yfinance Library Fragility (T-38-09):** `yfinance` is a wrapper around private API endpoints. Yahoo Finance frequently changes their JSON structure, which can break `fast_info` or `.info` without notice. While the "never-raise" contract handles this via `fetch_failed`, the simulation could silently lose data quality if the library drifts.
-- **[MEDIUM] Thread Pool Exhaustion:** Plan 38-01 suggests `asyncio.to_thread` per ticker. If a user provides a large list of tickers (e.g., 50+), this could saturate the default `ThreadPoolExecutor`, potentially slowing down other `to_thread` tasks in the system.
-- **[LOW] Google News RSS Redirects:** Google News RSS often uses tracking redirects for links. While the implementation focuses on *headlines*, if the `link` field is needed later (Phase 40), simple `httpx` fetches might require `follow_redirects=True`.
-- **[LOW] Entity Filter Collisions:** A simple case-insensitive substring match (D-03) for "Apple" might catch "Apple Valley" or "Apple of my eye." While acceptable for a prototype, it may introduce noise into the agent's context.
+### 2. Strengths
+- **Performance Optimization:** Plan 38-01's use of a shared `_fetch_batch_shared` helper is a smart design choice. Since `yfinance` fetches most data in a single network request, this prevents tripling the I/O overhead for a single ticker.
+- **Data Integrity:** The implementation of `_decimal_or_none` using `Decimal(str(value))` (Pitfall 5) and explicit guards for `NaN/Inf` ensures that the simulation logic won't crash on invalid financial ratios.
+- **Resilience (Never-Raise):** The plans strictly adhere to the D-19 mandate. By converting all exceptions into `fetch_failed` states at the provider level, the simulation governor remains insulated from external API instability.
+- **Security & Sanitization:** Plan 38-02 correctly balances flexibility and security by using strict regex for tickers while employing `quote_plus` for general entities to prevent URL injection in the Google News RSS path.
+- **Test Rigor:** The integration tests (Plan 38-03) include a "tolerant" assertion strategy for unknown tickers, which is critical for CI stability when dealing with the non-deterministic nature of live market data.
 
-### Suggestions
-- **Httpx Timeouts:** Explicitly define a `timeout` (e.g., 10.0s) in the `httpx.AsyncClient` configuration for `RSSNewsProvider`. Default timeouts can sometimes be too generous, leading to "hanging" fetches if a source is sluggish.
-- **Decimal Validation:** In `YFinanceMarketDataProvider`, add a check for `math.isnan()` or `math.isinf()` on the float values returned by `yfinance` before string conversion, as these will cause `Decimal` constructor errors.
-- **User-Agent Randomization (Optional):** If Yahoo begins flagging the `AlphaSwarm/6.0` string, consider a small internal list of common browser User-Agents to rotate, though the current plan is a good starting point.
-- **Integration Test Throttling:** If integration tests are run frequently in CI, consider adding a small `asyncio.sleep(1)` between test cases to avoid being IP-blocked by Yahoo Finance during rapid-fire test execution.
+### 3. Concerns
+- **Ticker Regex Bias (MEDIUM):** The RSS routing regex `^[A-Z]{1,5}$` is strictly tuned for US-listed tickers. If a "Seed Rumor" includes international assets (e.g., `VOD.L` or `SHOP.TO`), they will be routed to Google News search rather than the structured Yahoo Finance RSS feed.
+- **Thread Pool Exhaustion (LOW):** Plan 38-01 uses `asyncio.to_thread` per ticker. While D-07 notes these are called once per simulation, a "Seed Rumor" referencing a very high number of tickers (e.g., 50+) could lead to a temporary spike in thread creation.
+- **HTTP Client Lifecycle (LOW):** Plan 38-02 mentions `httpx.AsyncClient` timeouts but does not explicitly state the lifecycle of the client. Creating a new client per `get_headlines` call is less efficient than using a single client across the `asyncio.gather` batch.
 
-### Risk Assessment
-**Overall Risk: LOW**
+### 4. Suggestions
+- **RSS Routing Refinement:** Consider updating the `_TICKER_RE` to `^[A-Z]{1,5}(\.[A-Z]{1,2})?$` to support common international suffixes if the project roadmap anticipates global market support.
+- **Client Management:** In `RSSNewsProvider`, ensure the `httpx.AsyncClient` is used as an asynchronous context manager within the batch fetching logic to ensure proper connection pooling and socket closure.
+- **Logging Context:** Given the "never-raise" requirement, ensure that when an exception is caught and converted to a `fetch_failed` slice, the original exception is logged with `structlog.exception` to allow for post-simulation debugging of data gaps.
+- **YFinance Version Lock:** While the plan specifies `>=1.3.0,<2.0`, `yfinance` is notorious for breaking changes. Consider a more restrictive pin (e.g., `~=1.3.0`) in `pyproject.toml` if the current environment is stable.
 
-The plans are technically sound and defensive. The decision to use `asyncio.to_thread` for `yfinance` is the correct trade-off given the library's synchronous nature. The "never-raise" contract (D-19) acts as a critical safety net that prevents network-level failures from cascading into the simulation engine. The primary remaining risk is external (Yahoo/Google API changes), which is mitigated by the robust `StalenessState` typing and the dedicated integration testing suite.
+### 5. Risk Assessment: LOW
+The overall risk is **LOW**. The plans are highly defensive, account for library-specific edge cases, and provide a clear path for verification via integration tests. The "never-raise" architecture ensures that even if external providers fail or change their data format, the core AlphaSwarm simulation will degrade gracefully rather than crash. The incorporation of all prior cross-review feedback (NaN guards, timeout consensus, and timezone fixes) indicates a high degree of readiness for implementation.
 
 ---
 
 ## Codex Review
 
 ### Summary
-Overall, the Phase 38 plans are well-scoped and mostly aligned with the milestone: implement real market/news providers behind existing ingestion protocols, preserve async behavior around blocking libraries, enforce the D-19 never-raise contract, and avoid premature simulation wiring. The strongest parts are the explicit handling of known library/network pitfalls and the separation between unit tests and real-network integration tests. Main risks are around semantic drift from the Protocol contracts, fragile real-network tests, unbounded fan-out for provider calls, and a few edge cases where "never raise" can still be violated by parsing, normalization, or test assumptions.
 
-### Plan 38-01: YFinanceMarketDataProvider
+Phase 38 is generally well-scoped and the plan set addresses INGEST-01 and INGEST-02 without drifting into Phase 40 simulation wiring. The async boundary choices are mostly sound: yfinance is isolated behind `asyncio.to_thread`, RSS uses `httpx.AsyncClient`, failures are converted into typed failed slices, and live tests are correctly separated under `tests/integration/`. The main risks are dependency/version correctness, over-fetching and failure coupling in the yfinance provider, HTTP status handling in the RSS provider, and live integration test flakiness.
 
-**Strengths**
-- Uses `asyncio.to_thread` around `yfinance`, which is the right mitigation for sync/blocking I/O.
-- Broad per-ticker exception handling directly addresses the delisted ticker `KeyError('currentTradingPeriod')` failure mode.
-- `Decimal(str(value))` is the correct precision choice and avoids binary float artifacts.
-- Empty input guard before `asyncio.gather` is good defensive handling.
-- Per-ticker isolation through independent tasks matches D-05 and prevents one bad ticker from poisoning the batch.
-- Monkeypatched unit tests cover the most important deterministic behaviors: field mapping, precision, failure staleness, duplicates, and Protocol conformance.
+### Strengths
 
-**Concerns**
-- **[MEDIUM]** "Shared helper avoids 3x network cost" may be overstated. If `get_prices`, `get_fundamentals`, and `get_volume` are separate public calls and there is no cache by decision D-10, callers invoking all three will still pay three network fetches. The helper reduces implementation duplication, not necessarily network cost across methods.
-- **[MEDIUM]** No semaphore cap is a user decision, but completely unbounded ticker input can still cause large task fan-out, Yahoo throttling, or threadpool pressure.
-- **[MEDIUM]** Ticker normalization is not mentioned. Inputs like `" aapl "`, `"AAPL"`, `"BRK.B"`, `"^GSPC"`, or lowercase symbols could produce inconsistent keys or unexpected failures.
-- **[LOW]** `fast_info` and `.info` access can each independently fail. A broad catch around the whole ticker body is safe, but it means a transient `.info` failure could discard an otherwise valid price/volume.
-- **[LOW]** It is unclear how missing partial fields are represented on success. For example, `last_price` present but volume absent, or fundamentals unavailable for ETFs/indices.
+- Clear separation between provider implementation and later simulation wiring.
+- Correctly incorporates the major cross-review fixes:
+  - `Decimal(str(value))` instead of `Decimal(float)`.
+  - NaN/Inf guard for fundamentals.
+  - `calendar.timegm()` for RSS `published_parsed`.
+  - `httpx` timeout at client/request level.
+  - Tolerant live assertion for unknown/delisted yfinance tickers.
+- Good async model: yfinance sync work in `asyncio.to_thread`; RSS network I/O via `httpx.AsyncClient`; batch fetches via `asyncio.gather`.
+- Good test isolation: unit tests monkeypatch yfinance/httpx; live tests under `tests/integration/`; empty-list behavior explicitly tested for yfinance.
+- RSS URL construction is mostly secure: ticker route uses strict regex; non-ticker entities are URL-encoded with `quote_plus`.
 
-**Suggestions**
-- Clarify whether each Protocol method returns a full `MarketSlice` or only method-specific data. Align tests with the exact Phase 37 contract.
-- Add an explicit input normalization helper, even if minimal: strip whitespace, preserve canonical uppercase for simple symbols.
-- Consider bounded deduplication before spawning tasks: normalize inputs, remove duplicates, fetch once per unique symbol.
-- Add tests for partial missing data, not just total failure.
-- Add tests asserting D-19 for unexpected exceptions during `Decimal` conversion and result assembly.
+### Concerns
 
-**Risk Assessment: MEDIUM** — The plan is technically sound, but `yfinance` is unstable in shape and behavior, and the "three methods/shared fetch" semantics need careful alignment with the existing Protocol.
+- **HIGH - yfinance version pin is currently unsatisfiable.** The plan pins `yfinance>=1.3.0,<2.0`, but PyPI currently lists `1.2.2` as the latest release as of April 13, 2026. This would block `uv sync` today. Use a tested available floor such as `>=1.2.2,<2.0` or whatever version the live probe actually used.
 
-### Plan 38-02: RSSNewsProvider
+- **HIGH - RSS provider must call `response.raise_for_status()` or explicitly reject non-2xx responses.** Without that, a Yahoo 429 or Google error page can be parsed as an empty feed and incorrectly marked `fresh`. This directly weakens Pitfall 4 coverage and violates the intended `fetch_failed` behavior on provider failure.
 
-**Strengths**
-- Correctly avoids `feedparser.parse(url)` and uses `httpx.AsyncClient` for async network I/O.
-- User-Agent handling directly addresses the Yahoo 429 pitfall.
-- URL routing is simple: strict ticker regex to Yahoo, everything else to Google News.
-- `quote_plus` for Google News query construction is a good mitigation for URL injection.
-- Treating HTTP 200 with zero entries as `fresh` is a good semantic distinction from fetch failure.
-- Entity substring filtering matches D-03 and avoids overcomplicated NLP scope creep.
+- **MEDIUM - yfinance shared helper may over-fetch and couple unrelated failures.** If every call to `get_prices`, `get_volume`, and `get_fundamentals` fetches both `fast_info` and `.info`, then lightweight price/volume calls pay the expensive `.info` cost. Worse, a fundamentals `.info` failure can turn an otherwise valid price fetch into `fetch_failed`.
 
-**Concerns**
-- **[HIGH]** D-19 "never raises" must cover more than HTTP failures. `feedparser.parse`, date conversion, malformed entries, missing title/link fields, and `time.mktime` conversion can all produce exceptions if not isolated per entry/feed.
-- **[MEDIUM]** `time.mktime(published_parsed)` interprets the struct as local time, not UTC. The research finding says to use it with `tz=UTC`, but this can still introduce timezone skew. Prefer `calendar.timegm(published_parsed)` for RSS/Atom timestamps intended as UTC.
-- **[MEDIUM]** The ticker regex `^[A-Z]{1,5}$` excludes common valid market entities such as `BRK.B`, `BRK-B`, `^GSPC`, `BTC-USD`. This may be acceptable, but it should be intentional.
-- **[MEDIUM]** Entity substring filtering can fail for ticker feeds. A Yahoo RSS item for `AAPL` may say "Apple" but not "AAPL", so strict substring matching on the original entity may drop relevant headlines.
-- **[MEDIUM]** HTTP non-200 behavior is not stated. 429, 403, 500, redirects, and timeouts should all produce `fetch_failed` without raising.
-- **[LOW]** `max_age_hours` handling depends on reliable timestamps. Entries without `published_parsed` need a defined behavior.
+- **MEDIUM - shared yfinance helper does not prevent triple network cost across separate protocol calls.** Code reuse inside `_fetch_batch_shared` is good, but with D-10 no caching, calling all three protocol methods separately still performs multiple yfinance fetches. Phase 40 needs a clear call pattern.
 
-**Suggestions**
-- Wrap feed-level and entry-level parsing separately so one malformed entry does not fail the entire entity.
-- Use `calendar.timegm(entry.published_parsed)` instead of `time.mktime(...)` for correct UTC conversion.
-- Define behavior for missing timestamps (currently treated as potentially fresh — document explicitly).
-- Ensure `httpx.AsyncClient` has explicit timeout settings.
-- Test HTTP status failures separately from transport exceptions and malformed feed content.
+- **MEDIUM - `asyncio.gather(return_exceptions=False)` is brittle for a never-raise contract.** Even if `_fetch_one_sync` is intended never to raise, a bug or unexpected wrapper error could break the whole batch. Using `return_exceptions=True` gives a stronger D-19 contract at the gather layer.
 
-**Risk Assessment: MEDIUM** — The provider design is good, but RSS is messy. The highest risk is accidental exceptions from malformed entries or date handling, followed by over-filtering valid ticker headlines.
+- **MEDIUM - RSS exact substring filtering may over-filter useful ticker news.** For ticker `AAPL`, Yahoo Finance RSS titles often say "Apple" rather than "AAPL". If the filter is strictly `entity.lower() in title.lower()`, ticker-routed feeds may return empty headlines even when relevant articles exist.
 
-### Plan 38-03: Integration Tests
+- **MEDIUM - RSS integration tests are likely flaky.** Assertions like `len >= 1` for `EV battery`, exact entity-filter verification against live Google News, and a live "User-Agent prevents 429" test depend on third-party behavior.
 
-**Strengths**
-- Correctly separates real-network tests under `tests/integration/`.
-- Avoids exact live price/news assertions, which would be brittle.
-- Covers success, failure, mixed batch, fundamentals, routing, and User-Agent behavior.
-- No sleeps keeps runtime efficient and avoids timing-dependent tests.
-- Integration tests are scoped to provider boundaries and do not leak into Phase 40 simulation wiring.
+- **LOW - RSS empty-list behavior is not explicitly listed.** Pitfall 9 covers yfinance empty-list. RSS should have an explicit unit and integration test that `get_headlines([]) == {}`.
 
-**Concerns**
-- **[HIGH]** Real-network tests against Yahoo Finance and Google News are inherently flaky. 429s, regional responses, empty feeds, bot checks, DNS issues, and market data shape changes can fail CI even if the implementation is correct.
-- **[HIGH]** A "delisted ticker fetch_failed" test can be unstable if the symbol behavior changes, gets reused, or `yfinance` changes error semantics.
-- **[MEDIUM]** "User-Agent 429 guard" is difficult to prove reliably against the real service. A passing request does not prove the header prevented 429.
-- **[MEDIUM]** 15-20 seconds total runtime may be optimistic for cold DNS/TLS, Yahoo latency, Google latency, and multiple `yfinance` calls.
-- **[MEDIUM]** Integration tests need clear skip behavior when network is unavailable.
+- **LOW - lockfile update is missing from file lists.** If `uv.lock` is tracked, both dependency tasks should update it in the same wave as `pyproject.toml`.
 
-**Suggestions**
-- Mark real-network tests with an integration marker in addition to relying on path-based `enable_socket`, so they can be selected/excluded intentionally.
-- Prefer assertions like "returns `MarketSlice`, staleness is one of expected states, never raises" over "must be fresh" for network-dependent cases.
-- For delisted ticker coverage, make the integration test tolerant: assert no raise and either `fetch_failed` or a structurally valid slice.
-- Make the User-Agent guard primarily a unit test assertion against request headers.
+- **LOW - input size limits are not addressed.** A huge entity string from a seed rumor could create oversized URLs or noisy external requests. A conservative max entity length would make this more robust.
 
-**Risk Assessment: HIGH** — Integration tests against public unofficial endpoints are valuable but flaky. The CI reliability risk is high unless the tests are marked, skippable, timeout-bound, and tolerant of live-service variability.
+### Suggestions
 
-### Cross-Plan Concerns
-- **[MEDIUM]** Both providers need explicit timeout behavior. "Never raises" is not enough if calls can hang indefinitely.
-- **[MEDIUM]** Dependency changes in `pyproject.toml` and importlinter updates appear in both provider plans. If implemented separately, this can create merge churn.
-- **[LOW]** No mention of structured logging. For never-raise providers, logging failures at debug/warn level is important for observability when `fetch_failed` is returned silently.
-- **[LOW]** No mention of provider-level result size limits for RSS. A large feed or many entities could produce more headlines than the simulation needs.
+- Change the yfinance dependency pin to a currently available tested version (`>=1.2.2,<2.0`).
+- In `RSSNewsProvider._fetch_one`, add `response.raise_for_status()` before feedparser parse; add unit test asserting non-2xx becomes `_fetch_failed_news_slice`.
+- Consider splitting yfinance fetch paths: `get_prices`/`get_volume` use only `fast_info`; `get_fundamentals` uses `.info`. Or add `include_fundamentals: bool` flag so price-only paths avoid `.info`.
+- Document which single method Phase 40 should call to avoid duplicate provider work.
+- Harden `_decimal_or_none` to return `None` on `InvalidOperation`, `TypeError`, string placeholders.
+- For RSS ticker routes, document explicitly whether Yahoo Finance RSS is entity-scoped enough to skip title filtering.
+- Convert the "User-Agent prevents 429" check into a unit-level header assertion; keep live RSS tests as smoke tests with tolerant assertions.
+- Add an RSS empty-list test and include `uv.lock` in planned modified files.
 
-**Overall Risk: MEDIUM** — Plans are coherent and should achieve Phase 38 goal. Main risks are Protocol semantic mismatch, RSS parsing edge cases, and flaky real-network tests.
+### Risk Assessment: MEDIUM
+
+The implementation direction is sound. The highest practical blocker is the yfinance version pin (appears invalid today). The highest behavioral risk is RSS status handling (silently marking failed HTTP responses as fresh). The highest future performance risk is yfinance over-fetching via `.info`, especially if Phase 40 calls multiple provider methods per simulation run.
 
 ---
 
 ## Consensus Summary
 
+Phase 38 reviewed by 2 AI systems (Gemini, Codex).
+
 ### Agreed Strengths
-- **Decimal(str(float))** precision pattern — both reviewers praised it explicitly
-- **asyncio.to_thread + asyncio.gather** per-ticker structure — correctly handles sync library + async isolation
-- **feedparser.parse(r.text)** never feedparser.parse(url) — both highlighted as a correct critical design choice
-- **User-Agent header** preventing Yahoo 429s — both confirmed importance
-- **quote_plus URL injection prevention** — both validated as correct mitigation
-- **Per-ticker error isolation** via asyncio.gather — both acknowledged D-05 is properly addressed
-- **D-19 never-raise contract** — both confirmed it is well-integrated throughout
-- **Integration test structure** under tests/integration/ with enable_socket — consistent with existing infra
+- **D-19 never-raise architecture** — both reviewers praised the broad try/except approach converting all exceptions to typed failed slices; simulation governor insulated from external API instability
+- **Async boundary design** — yfinance behind `asyncio.to_thread`, RSS via `httpx.AsyncClient`, batch fetches via `asyncio.gather` is universally considered correct
+- **Cross-review fixes correctly incorporated** — Decimal NaN/Inf guard, `calendar.timegm`, timeout on client+request, tolerant delisted-ticker assertion all confirmed present
+- **URL injection security** — strict regex for ticker route + `quote_plus` for topic route is validated by both reviewers
+- **Test separation** — unit tests monkeypatched; integration tests under `tests/integration/`; tolerant assertions for live assertions
 
 ### Agreed Concerns
-1. **yfinance / Yahoo API fragility** (both MEDIUM) — Yahoo changes schema without notice; `fast_info`/`.info` shape can break silently. D-19 contains the blast radius but data quality degrades invisibly.
-2. **Thread pool exhaustion / unbounded fan-out** (both MEDIUM) — asyncio.to_thread per ticker with no cap; large ticker inputs could saturate the default ThreadPoolExecutor.
-3. **Missing explicit HTTP timeout on httpx** (both raised) — `httpx.AsyncClient` must have explicit timeout; a hanging fetch violates "never blocks" even if it never *raises*.
-4. **Integration test fragility** (Gemini MEDIUM, Codex HIGH) — real-network tests against Yahoo/Google are inherently flaky in CI.
+1. **yfinance version pin `>=1.3.0,<2.0` may be unsatisfiable** (Codex HIGH, Gemini LOW implied) — confirm actual available version on PyPI before execution; adjust floor to `>=1.2.2,<2.0` or whatever `uv sync` resolves
+2. **RSS provider needs `response.raise_for_status()`** (Codex HIGH) — without it, 429s or error pages silently become empty-but-fresh feeds, defeating Pitfall 4 defense
+3. **httpx.AsyncClient lifecycle** (Gemini LOW, Codex implied) — ensure client is created once per `get_headlines` call inside an `async with` context manager, not per-entity
+4. **yfinance `.info` fetched for all three protocol methods** (Codex MEDIUM) — `get_prices` and `get_volume` pay the expensive fundamentals HTTP call unnecessarily; Phase 40 call pattern needs documentation
 
 ### Divergent Views
-- **Overall risk rating:** Gemini gives LOW, Codex gives MEDIUM. The difference is Codex focuses on Protocol semantic precision and RSS parsing edge cases; Gemini focuses on the correctness of the architecture as written. The MEDIUM rating is more conservative and appropriate given the RSS `time.mktime` timezone issue.
-- **`time.mktime` vs `calendar.timegm`:** Only Codex raised this (HIGH concern for RSS). `time.mktime` interprets `published_parsed` as local time; RSS timestamps are intended as UTC. `calendar.timegm(published_parsed)` is the correct conversion. **This should be fixed in Plan 38-02.**
-- **Entity filter behavior for ticker Yahoo feeds:** Only Codex raised that "AAPL" needle won't match "Apple beats earnings" headline from a ticker-routed Yahoo RSS feed. Gemini only noted substring collision noise in the opposite direction.
-- **math.isnan/isinf check before Decimal:** Only Gemini raised — yfinance can return NaN/Inf floats for some fields (e.g., `trailingPE` for pre-earnings companies).
-
----
-
-### Top 3 Consensus Recommendations for /gsd-plan-phase --reviews
-
-1. **Fix `time.mktime` → `calendar.timegm`** in Plan 38-02 Task 2 `_entry_age_hours()`. RSS timestamps are UTC; `time.mktime` reinterprets them as local time causing timezone skew in `max_age_hours` filtering.
-
-2. **Add explicit `timeout` to httpx.AsyncClient** constructor (e.g., `httpx.AsyncClient(follow_redirects=True, timeout=10.0)`) in `RSSNewsProvider`. D-19 prevents raises but a stalled provider call will block the pre-cascade assembly indefinitely.
-
-3. **Add `math.isnan()`/`math.isinf()` guards in `_decimal_or_none()`** before `Decimal(str(value))` — yfinance can return `float('nan')` or `float('inf')` for `trailingPE` and other ratio fields, which would produce `Decimal('nan')` instead of `None`, breaking the Phase 40 advisory synthesis.
+- **Overall risk level:** Gemini rates LOW, Codex rates MEDIUM. The difference is driven by Codex's concern about the yfinance version pin blocker and RSS status handling — both actionable before execution.
+- **`asyncio.gather(return_exceptions=False)`:** Codex considers this brittle for D-19; Gemini did not raise it. Worth considering `return_exceptions=True` with explicit type-check on results (though `_fetch_one_sync` being contractually never-raise means this is defense-in-depth, not a critical gap).
+- **RSS entity filter for ticker-routed feeds:** Codex raises that Yahoo RSS titles say "Apple" not "AAPL" so substring filtering may over-filter; Gemini did not flag this. D-03 is literal in the design decisions; Phase 38 accepts this for now.
