@@ -1,36 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v5.0
-milestone_name: Web UI
-status: executing
-stopped_at: Phase 36 UI-SPEC approved
-last_updated: "2026-04-18T04:19:14.652Z"
+milestone: v6.0
+milestone_name: Data Enrichment & Personalized Advisory
+status: defining_requirements
+stopped_at: milestone kickoff
+last_updated: "2026-04-18T00:00:00.000Z"
 last_activity: 2026-04-18
 progress:
-  total_phases: 10
-  completed_phases: 10
-  total_plans: 24
-  completed_plans: 24
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-09)
+See: .planning/PROJECT.md (updated 2026-04-18)
 
-**Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — grounded in real market data, the simulation engine is the product
-**Current focus:** Phase 36 — report-viewer
+**Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — the simulation engine is the product.
+**Current focus:** v6.0 milestone kickoff — defining requirements
 
 ## Current Position
 
-Phase: 36
-Plan: Not started
-Status: Executing Phase 36
-Last activity: 2026-04-18
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-18 — Milestone v6.0 started
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
