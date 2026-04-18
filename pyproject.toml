@@ -56,3 +56,55 @@ markers = [
 [tool.mypy]
 python_version = "3.11"
 strict = true
+
+[tool.importlinter]
+root_package = "alphaswarm"
+
+[[tool.importlinter.contracts]]
+name = "Holdings isolation — only advisory and web.routes.holdings may import alphaswarm.holdings"
+type = "forbidden"
+source_modules = [
+    "alphaswarm.app",
+    "alphaswarm.batch_dispatcher",
+    "alphaswarm.cli",
+    "alphaswarm.config",
+    "alphaswarm.errors",
+    "alphaswarm.governor",
+    "alphaswarm.graph",
+    "alphaswarm.ingestion",
+    "alphaswarm.ingestion.providers",
+    "alphaswarm.ingestion.types",
+    "alphaswarm.interview",
+    "alphaswarm.logging",
+    "alphaswarm.memory_monitor",
+    "alphaswarm.miro",
+    "alphaswarm.ollama_client",
+    "alphaswarm.ollama_models",
+    "alphaswarm.parsing",
+    "alphaswarm.report",
+    "alphaswarm.security",
+    "alphaswarm.security.hashing",
+    "alphaswarm.seed",
+    "alphaswarm.simulation",
+    "alphaswarm.state",
+    "alphaswarm.tui",
+    "alphaswarm.types",
+    "alphaswarm.utils",
+    "alphaswarm.worker",
+    "alphaswarm.write_buffer",
+    "alphaswarm.web",
+    "alphaswarm.web.app",
+    "alphaswarm.web.broadcaster",
+    "alphaswarm.web.connection_manager",
+    "alphaswarm.web.replay_manager",
+    "alphaswarm.web.simulation_manager",
+    "alphaswarm.web.routes",
+    "alphaswarm.web.routes.edges",
+    "alphaswarm.web.routes.health",
+    "alphaswarm.web.routes.interview",
+    "alphaswarm.web.routes.replay",
+    "alphaswarm.web.routes.report",
+    "alphaswarm.web.routes.simulation",
+    "alphaswarm.web.routes.websocket",
+]
+forbidden_modules = ["alphaswarm.holdings"]
