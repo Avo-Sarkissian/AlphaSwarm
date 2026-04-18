@@ -73,7 +73,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Milestone Goal:** Ground the simulation in real market data — live price feeds, news headlines, and portfolio holdings loaded from Schwab CSV — and surface personalized post-simulation advisory insights via an orchestrator synthesis pipeline.
 
 - [x] **Phase 37: Isolation Foundation + Provider Scaffolding** - Frozen type contracts, provider protocols + fakes, PII redaction, socket gate, importlinter holdings isolation (completed 2026-04-18)
-- [ ] **Phase 38: Market Data + News Providers** - Real `MarketDataProvider` (yfinance) and `NewsProvider` (RSS/newsapi) implementations with integration tests
+- [x] **Phase 38: Market Data + News Providers** - Real `MarketDataProvider` (yfinance) and `NewsProvider` (RSS/newsapi) implementations with integration tests (completed 2026-04-18)
 - [ ] **Phase 39: Holdings Loader** - `HoldingsLoader` reads Schwab CSV into `PortfolioSnapshot` with HOLD-02 account number hashing; `GET /api/holdings` REST endpoint
 - [ ] **Phase 40: Simulation Context Wiring** - Wire `ContextPacket` (entities + market + news) into simulation seed injection so agents receive grounded price/headline context
 - [ ] **Phase 41: Advisory Pipeline** - `alphaswarm.advisory` synthesis: post-simulation advisory report joining holdings positions against consensus signals and market data; `GET /api/advisory/{cycle_id}` endpoint + Vue advisory panel
@@ -110,9 +110,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 38-01-PLAN.md -- YFinanceMarketDataProvider: thread-per-ticker fast_info+info, _fetch_batch_shared, Decimal precision, D-19 fetch_failed, unit tests (monkeypatched yf.Ticker)
-- [ ] 38-02-PLAN.md -- RSSNewsProvider: dual-source URL routing (Yahoo ticker / Google News topic with quote_plus), httpx+feedparser, entity filter, max_age_hours, D-19, unit tests (mocked httpx)
-- [ ] 38-03-PLAN.md -- Integration tests: real-network yfinance + RSS tests in tests/integration/ (auto enable_socket via conftest) + User-Agent regression guard
+- [x] 38-01-PLAN.md -- YFinanceMarketDataProvider: thread-per-ticker fast_info+info, _fetch_batch_shared, Decimal precision, D-19 fetch_failed, unit tests (monkeypatched yf.Ticker)
+- [x] 38-02-PLAN.md -- RSSNewsProvider: dual-source URL routing (Yahoo ticker / Google News topic with quote_plus), httpx+feedparser, entity filter, max_age_hours, D-19, unit tests (mocked httpx)
+- [x] 38-03-PLAN.md -- Integration tests: real-network yfinance + RSS tests in tests/integration/ (auto enable_socket via conftest) + User-Agent regression guard
 
 ### Phase 39: Holdings Loader
 **Goal**: Load Schwab CSV export into a `PortfolioSnapshot` with account number hashing (HOLD-02), expose holdings via a `GET /api/holdings` FastAPI endpoint, and wire `web.routes.holdings` into the importlinter whitelist
@@ -142,7 +142,7 @@ Plans:
 
 Plans:
 - [ ] 40-01-PLAN.md -- ContextPacket assembly in orchestrator, run_simulation context_packet param, prompt injection, unit tests
-- [ ] 40-02-PLAN.md -- Integration test: full simulation run with real ContextPacket from Phase 38 providers
+- [x] 40-02-PLAN.md -- Integration test: full simulation run with real ContextPacket from Phase 38 providers (completed 2026-04-18)
 
 ### Phase 41: Advisory Pipeline
 **Goal**: After simulation completes, synthesize a personalized advisory by joining the agent consensus signals against the user's `PortfolioSnapshot` holdings and current market data — surfacing which positions are most affected by the simulated market reaction
@@ -172,7 +172,7 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40 -> 41
 | 24–28. v4.0 Interactive | v4.0 | ✓ | Complete | 2026-04-12 |
 | 29–36. v5.0 Web UI | v5.0 | ✓ | Complete | 2026-04-18 |
 | 37. Isolation Foundation + Provider Scaffolding | v6.0 | 4/4 | Complete | 2026-04-18 |
-| 38. Market Data + News Providers | v6.0 | 0/3 | Not started | — |
+| 38. Market Data + News Providers | v6.0 | 3/3 | Complete    | 2026-04-18 |
 | 39. Holdings Loader | v6.0 | 0/2 | Not started | — |
 | 40. Simulation Context Wiring | v6.0 | 0/2 | Not started | — |
 | 41. Advisory Pipeline | v6.0 | 0/3 | Not started | — |
