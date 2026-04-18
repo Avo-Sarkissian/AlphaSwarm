@@ -267,13 +267,63 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WEB-05 | Phase 29: FastAPI Skeleton / Phase 32: REST Controls | Complete |
 | WEB-06 | Phase 34: Replay Mode Web UI / Phase 35: Agent Interviews Web UI / Phase 36: Report Viewer | Complete |
 
-| ISOL-01..07 | Phase 37: Isolation Foundation | Pending |
-| INGEST-01..07 | Phase 38: Market Data + News Ingestion | Pending |
-| HOLD-01..08 | Phase 39: Holdings CSV Ingestion | Pending |
-| CTX-01..08 | Phase 40: Context Packet Assembly | Pending |
-| ADV-01..13 | Phase 41: Advisory Pipeline | Pending |
-| ADVUI-01..06 | Phase 42: Advisory Web UI | Pending |
-| V6UAT-01..08 | Phase 43: v6 E2E + Carry-Forward | Pending |
+| ISOL-01 | Phase 37: Isolation Foundation & Provider Scaffolding | Pending |
+| ISOL-02 | Phase 37: Isolation Foundation & Provider Scaffolding | Pending |
+| ISOL-03 | Phase 37: Isolation Foundation & Provider Scaffolding | Pending |
+| ISOL-04 | Phase 37: Isolation Foundation & Provider Scaffolding | Pending |
+| ISOL-05 | Phase 37: Isolation Foundation & Provider Scaffolding | Pending |
+| ISOL-06 | Phase 37: Isolation Foundation & Provider Scaffolding | Pending |
+| ISOL-07 | Phase 37: Isolation Foundation & Provider Scaffolding | Pending |
+| INGEST-01 | Phase 38: Market Data + News Ingestion | Pending |
+| INGEST-02 | Phase 38: Market Data + News Ingestion | Pending |
+| INGEST-03 | Phase 38: Market Data + News Ingestion | Pending |
+| INGEST-04 | Phase 38: Market Data + News Ingestion | Pending |
+| INGEST-05 | Phase 38: Market Data + News Ingestion | Pending |
+| INGEST-06 | Phase 38: Market Data + News Ingestion | Pending |
+| INGEST-07 | Phase 38: Market Data + News Ingestion | Pending |
+| HOLD-01 | Phase 39: Holdings CSV Ingestion | Pending |
+| HOLD-02 | Phase 39: Holdings CSV Ingestion | Pending |
+| HOLD-03 | Phase 39: Holdings CSV Ingestion | Pending |
+| HOLD-04 | Phase 39: Holdings CSV Ingestion | Pending |
+| HOLD-05 | Phase 39: Holdings CSV Ingestion | Pending |
+| HOLD-06 | Phase 39: Holdings CSV Ingestion | Pending |
+| HOLD-07 | Phase 39: Holdings CSV Ingestion | Pending |
+| HOLD-08 | Phase 39: Holdings CSV Ingestion | Pending |
+| CTX-01 | Phase 40: Context Packet Assembly & Swarm Injection | Pending |
+| CTX-02 | Phase 40: Context Packet Assembly & Swarm Injection | Pending |
+| CTX-03 | Phase 40: Context Packet Assembly & Swarm Injection | Pending |
+| CTX-04 | Phase 40: Context Packet Assembly & Swarm Injection | Pending |
+| CTX-05 | Phase 40: Context Packet Assembly & Swarm Injection | Pending |
+| CTX-06 | Phase 40: Context Packet Assembly & Swarm Injection | Pending |
+| CTX-07 | Phase 40: Context Packet Assembly & Swarm Injection | Pending |
+| CTX-08 | Phase 40: Context Packet Assembly & Swarm Injection | Pending |
+| ADV-01 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-02 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-03 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-04 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-05 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-06 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-07 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-08 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-09 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-10 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-11 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-12 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADV-13 | Phase 41: Advisory Pipeline (Orchestrator Synthesis) | Pending |
+| ADVUI-01 | Phase 42: Advisory Web UI | Pending |
+| ADVUI-02 | Phase 42: Advisory Web UI | Pending |
+| ADVUI-03 | Phase 42: Advisory Web UI | Pending |
+| ADVUI-04 | Phase 42: Advisory Web UI | Pending |
+| ADVUI-05 | Phase 42: Advisory Web UI | Pending |
+| ADVUI-06 | Phase 42: Advisory Web UI | Pending |
+| V6UAT-01 | Phase 43: v6 E2E & Carry-Forward Validation | Pending |
+| V6UAT-02 | Phase 43: v6 E2E & Carry-Forward Validation | Pending |
+| V6UAT-03 | Phase 43: v6 E2E & Carry-Forward Validation | Pending |
+| V6UAT-04 | Phase 43: v6 E2E & Carry-Forward Validation | Pending |
+| V6UAT-05 | Phase 43: v6 E2E & Carry-Forward Validation | Pending |
+| V6UAT-06 | Phase 43: v6 E2E & Carry-Forward Validation | Pending |
+| V6UAT-07 | Phase 43: v6 E2E & Carry-Forward Validation | Pending |
+| V6UAT-08 | Phase 43: v6 E2E & Carry-Forward Validation | Pending |
 
 **Coverage:**
 - v1 requirements: 27 total, 27 mapped (Complete)
@@ -284,4 +334,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-04-18 after v6.0 Data Enrichment & Personalized Advisory requirements added*
+*Last updated: 2026-04-18 after v6.0 roadmap (Phases 37-43) written; traceability expanded to per-REQ-ID rows*
