@@ -4,16 +4,19 @@
 
 A localized, multi-agent financial simulation engine that ingests a single "Seed Rumor" and simulates cascading market reactions across 100 distinct AI personas. The system runs a 3-round iterative consensus cascade on local hardware (M1 Max 64GB), visualizing real-time agent state via a Textual TUI dashboard and persisting interaction history in Neo4j.
 
-## Current Milestone: v2.0 Engine Depth
+## Current Milestone: v5.0 Web UI
 
-**Goal:** Deepen the simulation engine with post-simulation capabilities, richer agent behavior, and dynamic persona generation — building the full data model before the web dashboard.
+**Goal:** Replace the Textual TUI with a browser-based Vue 3 + FastAPI dashboard featuring a live force-directed agent graph, full simulation controls, replay mode, agent interviews, and post-simulation report viewer.
 
 **Target features:**
-- Agent Interviews — post-simulation live Q&A with any agent using full persona and decision context
-- Live Graph Memory — real-time Neo4j updates during simulation with rationale episodes and narrative edges
-- Post-Simulation Report — ReACT agent queries Neo4j and generates structured market analysis
-- Richer Agent Interactions — agents publish rationale posts that peers read and react to
-- Dynamic Persona Generation — extract entities from seed rumor to generate situation-specific agent personas
+- FastAPI skeleton with async event loop foundation and WebSocket broadcaster
+- Vue 3 SPA with D3 force-directed graph ("mirofish" agent view)
+- REST controls for start/stop/shock injection + Vue ControlBar
+- Web monitoring panels (rationale, telemetry, brackets)
+- Replay mode web UI (re-render past cycles from Neo4j)
+- Agent interviews web UI (click-to-interview overlay)
+- Shock injection wiring (ShockEvent Neo4j persistence)
+- Report viewer web UI (marked + DOMPurify render pipeline)
 
 ## Core Value
 
@@ -111,7 +114,7 @@ This document evolves at phase transitions and milestone boundaries.
 
 **Phase 35.1 complete (2026-04-16):** Shock injection wiring — B1 gap closure. `GraphStateManager.write_shock_event` added; `run_simulation` now accepts `consume_shock` and gates shock injection before Round 2 and Round 3; `SimulationManager._run` wires `consume_shock=self.consume_shock`. ShockEvent nodes are now persisted in Neo4j end-to-end. 193 tests pass.
 
-**Phase 36 complete (2026-04-16):** Report viewer — web UI surface for the post-simulation report. FastAPI `GET /api/report/{cycle_id}` (async read-through with aiofiles) and `POST /api/report/{cycle_id}/generate` (non-blocking 202 Accepted, background asyncio.Task mirroring cli.py). Vue 3 `ReportViewer.vue` full-screen modal: marked + DOMPurify render pipeline, 3s polling with REVISION-1 state-machine split (viewState independent of isGenerating), 500 error terminates polling. ControlBar "Report" button gated on phase='complete'. 59 tests pass, TypeScript clean, production build 80 kB gzip. This is the last planned phase of the v2.0 Engine Depth milestone.
+**Phase 36 complete (2026-04-16):** Report viewer — web UI surface for the post-simulation report. FastAPI `GET /api/report/{cycle_id}` (async read-through with aiofiles) and `POST /api/report/{cycle_id}/generate` (non-blocking 202 Accepted, background asyncio.Task mirroring cli.py). Vue 3 `ReportViewer.vue` full-screen modal: marked + DOMPurify render pipeline, 3s polling with REVISION-1 state-machine split (viewState independent of isGenerating), 500 error terminates polling. ControlBar "Report" button gated on phase='complete'. 59 tests pass, TypeScript clean, production build 80 kB gzip. This is the last planned phase of the v5.0 Web UI milestone.
 
 **After each phase transition** (via `/gsd:transition`):
 1. Requirements invalidated? → Move to Out of Scope with reason

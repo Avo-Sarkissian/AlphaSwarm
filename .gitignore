@@ -7,3 +7,5 @@ results/
 frontend/tsconfig.*.tsbuildinfo
 Schwab/
 /*.csv
+.alphaswarm/
+data/sec_tickers.json
