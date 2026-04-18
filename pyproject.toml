@@ -48,6 +48,10 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "--disable-socket --allow-unix-socket"
+markers = [
+    "enable_socket: opt-in marker for tests that need real network (D-12 escape hatch)",
+]
 
 [tool.mypy]
 python_version = "3.11"
