@@ -315,11 +315,6 @@ _SENSITIVE_KEY_VARIANTS = st.sampled_from(
         "Shares",
     ]
 )
-_SAFE_KEY_STRATEGY = st.text(
-    alphabet=st.characters(whitelist_categories=("Ll",)), min_size=3, max_size=10
-).filter(_normalize_safe)
-
-
 def _normalize_safe(s: str) -> bool:
     """Filter out accidental matches with sensitive-normalized keys."""
     blacklist = {
@@ -348,7 +343,17 @@ def _normalize_safe(s: str) -> bool:
     return s.lower() not in blacklist
 
 
-_VALUE_STRATEGY = st.text(min_size=1, max_size=30)
+_SAFE_KEY_STRATEGY = st.text(
+    alphabet=st.characters(whitelist_categories=("Ll",)), min_size=3, max_size=10
+).filter(_normalize_safe)
+
+
+# Sensitive values use a fixed prefix so they are distinguishable from key names in
+# rendered JSON — avoids false positives where a short value appears as a substring
+# of a key name (e.g., value='aa' inside key 'aaa').
+_VALUE_STRATEGY = st.text(
+    alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")), min_size=6, max_size=30
+).map(lambda s: f"SVAL_{s}")
 
 
 def _nested_sensitive_strategy() -> Any:
