@@ -622,22 +622,25 @@ def pytest_collection_modifyitems(config, items):
 
 This table is non-empty but all items are LOW or MEDIUM risk with clear verification paths during Phase 37 implementation. **A2 is the only item the planner should explicitly verify** before closing Phase 37.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **How does pytest-socket 0.7.0 actually handle loopback when `--disable-socket` is set without `--allow-hosts`?**
    - What we know: D-10 requires loopback blocked by default. pytest-socket docs show `--allow-hosts` as opt-in allowlist, implying unlisted hosts are blocked.
    - What's unclear: The official README does not explicitly state "loopback is blocked by default."
    - Recommendation: Planner adds a first-task verification in Phase 37 — write a deliberately-failing test that hits `127.0.0.1` and assert `SocketBlockedError` is raised. If not, escalate to add `--allow-hosts=` empty or equivalent suppression.
+   - **RESOLVED:** Handled by tripwire test `test_loopback_connect_is_blocked_by_default` in Plan 37-03 Task 2. If loopback is not blocked, the fallback is to add `--allow-hosts=` with an empty string to `addopts` in pyproject.toml.
 
 2. **Where should `sha256_first8()` live?**
    - What we know: D-06 and HOLD-04 both use it; planner discretion per CONTEXT.md.
    - What's unclear: `alphaswarm/security/hashing.py` vs. `alphaswarm/holdings/redaction.py` vs. inline in `logging.py`.
    - Recommendation: `alphaswarm/security/hashing.py` — single well-named home, importable by both the redaction processor (ingestion-side) and HoldingsLoader (Phase 39). Keeps `alphaswarm/holdings/` free of any import except its own types and the shared security module. But: the importlinter whitelist says `holdings` can only be imported by advisory and web.routes.holdings — so `security` importing `holdings` is fine, but `holdings` importing `security.hashing` may need an `ignore_imports` allowlist entry (D-03 test should verify).
+   - **RESOLVED:** Placed in `alphaswarm/security/hashing.py` (Plan 37-01). Shared home importable by logging processor (Plan 37-03) and HoldingsLoader in Phase 39.
 
 3. **Should the canary test run in Phase 37's regular test suite or be quarantined?**
    - What we know: D-16 marks the canary `@pytest.mark.enable_socket` because it touches Neo4j + WebSocket.
    - What's unclear: If Neo4j isn't running during unit-test CI, the canary will fail — should it be in `tests/integration/` instead of `tests/invariants/`?
    - Recommendation: Keep in `tests/invariants/` conceptually, but use dependency-injected fakes for Neo4j session and broadcaster (not real connections). The "four surfaces" (logs, Neo4j, WebSocket, prompts) can all be tested with in-process fakes; the integration-smoke version runs separately in Phase 43. This avoids Neo4j being a Phase 37 dependency.
+   - **RESOLVED:** Canary stays in `tests/invariants/` using in-memory fakes for all four surfaces (Plan 37-04 Task 2). No real Neo4j dependency in Phase 37. Integration smoke test deferred to Phase 43.
 
 ## Environment Availability
 
