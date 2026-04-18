@@ -107,18 +107,111 @@ Requirements for v5.0 Web UI milestone. Phases 29-36.
 - **SCALE-01**: Configurable agent count (parameterize beyond hardcoded 100/10)
 - **SCALE-02**: Multiple simultaneous simulations with isolated cycle namespaces
 
+## v6 Requirements
+
+Requirements for v6.0 Data Enrichment & Personalized Advisory milestone. Phases 37–43.
+
+**Architecture principle (Option A — locked):** ingestion layer fetches data → swarm consumes frozen `ContextPacket` only → orchestrator synthesizes advisory from holdings + swarm output. Holdings never enter any worker prompt, log, Neo4j node, or WebSocket frame.
+
+### Isolation Foundation (Phase 37)
+
+- [ ] **ISOL-01**: `Holding` and `PortfolioSnapshot` frozen dataclasses in `alphaswarm/holdings/types.py` with zero I/O
+- [ ] **ISOL-02**: `ContextPacket`, `MarketSlice`, `NewsSlice` frozen pydantic models in `alphaswarm/ingestion/types.py` with `extra="forbid"` and zero holdings fields
+- [ ] **ISOL-03**: `importlinter` contract in `pyproject.toml` forbidding `alphaswarm.holdings` imports from simulation, worker, ingestion, seed, and parsing modules; enforced in CI
+- [ ] **ISOL-04**: structlog PII redaction processor installed globally before any holdings code is written
+- [ ] **ISOL-05**: `MarketDataProvider` and `NewsProvider` Protocol definitions (no implementations yet)
+- [ ] **ISOL-06**: `pytest-socket` in CI blocks outbound network calls during test runs
+- [ ] **ISOL-07**: Canary test scaffold (`test_holdings_isolation.py`) with sentinel ticker/cost-basis fixtures (trivially passes until advisory phase activates the join point)
+
+### Market Data + News Ingestion (Phase 38)
+
+- [ ] **INGEST-01**: `AsyncTTLCache` (dict + asyncio.Lock, ~30 LOC) with market-hours-aware TTL
+- [ ] **INGEST-02**: `YFinanceProvider` — `asyncio.to_thread` wrapper over `yfinance 1.3.0`, bulk fetch via `yf.download()`, 4-worker bounded semaphore
+- [ ] **INGEST-03**: `tenacity` exponential backoff on 429; graceful degradation (packet carries `{data: null, staleness: "fetch_failed"}` rather than crashing)
+- [ ] **INGEST-04**: Staleness metadata present on every market data field (timestamp + source + freshness flag)
+- [ ] **INGEST-05**: `RSSProvider` — primary news source; httpx async byte fetch + feedparser parse, 72h freshness window, 2-items-per-source-per-entity cap, content-hash dedup
+- [ ] **INGEST-06**: `NewsAPIProvider` available behind `settings.news.newsapi_enabled` feature flag as optional enrichment (default off — matches local-first constraint)
+- [ ] **INGEST-07**: Unit tests use `FakeMarketDataProvider` / `FakeNewsProvider`; VCR cassettes for provider contracts; full test suite runs offline
+
+### Holdings CSV Ingestion (Phase 39)
+
+- [ ] **HOLD-01**: Broker adapter pattern with fingerprint dispatch — Schwab adapter, Fidelity adapter, generic column-mapping adapter (covers Robinhood + long-tail)
+- [ ] **HOLD-02**: `HoldingsLoader` uses pandas inside `asyncio.to_thread`; BOM stripping; SHA256 account-number hashing (raw account numbers never stored)
+- [ ] **HOLD-03**: `HoldingsStore` singleton on `app.state` — in-memory only, cleared on shutdown, never serialized to Neo4j or disk
+- [ ] **HOLD-04**: Pydantic validation with row-level error messages surfaced to UI
+- [ ] **HOLD-05**: `POST /api/holdings/upload` and `GET /api/holdings/status` REST endpoints
+- [ ] **HOLD-06**: `HoldingsUploader.vue` — drag-drop upload, post-parse preview table, explicit "Confirm" gate before `HoldingsStore` commits
+- [ ] **HOLD-07**: Generic column-mapping UI for unknown broker fingerprints (user maps columns manually, no crash)
+- [ ] **HOLD-08**: Neo4j schema assertion test — no `:Holding` or `:Position` labels ever exist in the graph
+
+### Context Packet Assembly (Phase 40)
+
+- [ ] **CTX-01**: `ContextAssembler.build(seed) -> ContextPacket` — pure function, produces frozen packet with market + news slices per entity
+- [ ] **CTX-02**: `slice_for(bracket) -> ArchetypeSlice` — filter-not-expand projection; initial split: Quants get fundamentals + technicals, Degens get volume ratio + 52-week range + headline count
+- [ ] **CTX-03**: `MAX_WORKER_CONTEXT_TOKENS = 2000` budget enforced at packet assembly; calibrated empirically during phase validation
+- [ ] **CTX-04**: `count_tokens(prompt) <= budget` assertion in every `build_agent_prompt()` unit test
+- [ ] **CTX-05**: `simulation.py` accepts optional `context_packet` parameter — backward-compatible (None → existing behavior unchanged)
+- [ ] **CTX-06**: `worker.py` Jinja template references `{{ context_slice }}` when packet present; no template change when absent
+- [ ] **CTX-07**: `SimulationPhase.INGESTING` enum value emitted via `state_store.set_phase()` and surfaced through broadcaster
+- [ ] **CTX-08**: Scale smoke test — 100 agents × full packet runs without ResourceGovernor pause (regression guard for `bug_governor_deadlock.md`)
+
+### Advisory Pipeline (Phase 41)
+
+- [ ] **ADV-01**: `AdvisoryPipeline.generate(sim_result, portfolio, context_packet)` — the ONLY function in the codebase receiving both holdings and swarm output simultaneously
+- [ ] **ADV-02**: Orchestrator LLM invoked at `temperature=0.1`, `top_p=0.8` via existing `OllamaModelManager`
+- [ ] **ADV-03**: Jinja prompt templates with explicit system / instruction / user section separation (guards against prompt injection from seed rumor text)
+- [ ] **ADV-04**: Closed-universe grounding constraint in synthesis prompt (`"You may ONLY reference tickers from: {ticker_allowlist}"`)
+- [ ] **ADV-05**: Post-synthesis validator extracts uppercase tickers via regex; rejects any not in `holdings_tickers ∪ swarm_entities`; regenerates up to 2 times; persistent failure produces explicit validation error
+- [ ] **ADV-06**: Explicit abstention — empty holdings or weak-signal consensus → "No actionable signal" (never fabricated)
+- [ ] **ADV-07**: Cited-position advisory — references specific `RationaleEpisode` rationale snippets (reuses v2 live-graph-memory infrastructure)
+- [ ] **ADV-08**: Advisory written to `reports/{cycle_id}/advisory.md` via aiofiles
+- [ ] **ADV-09**: `SimulationPhase.ADVISING` enum value emitted between Round 3 consensus and COMPLETE
+- [ ] **ADV-10**: `SimulationManager._run` invokes `AdvisoryPipeline.generate()` after `run_simulation()` returns, gated on `holdings_store.has_portfolio`
+- [ ] **ADV-11**: Advisory fully disableable via `settings.advisory.enabled = False` — pure rumor engine (v5.0 behavior) still works
+- [ ] **ADV-12**: SEC-style plain-English methodology disclaimer block rendered as non-optional boilerplate in every advisory report
+- [ ] **ADV-13**: Advisory report uses qualitative language only ("Review / Monitor / No action indicated") — no Buy/Sell, no price targets, no trade orders
+
+### Advisory Web UI (Phase 42)
+
+- [ ] **ADVUI-01**: `POST /api/advisory/generate` and `GET /api/advisory/{cycle_id}` routes (mirror Phase 36 report route pattern, non-blocking 202 Accepted)
+- [ ] **ADVUI-02**: `AdvisoryPanel.vue` — markdown viewer via marked + DOMPurify, persistent "Simulation output — not investment advice" banner, staleness chip on every data point
+- [ ] **ADVUI-03**: `AdvisoryReportPublic` pydantic model for WebSocket payloads — zero holdings fields, aggregate stats only
+- [ ] **ADVUI-04**: Explicit allowlist serializer `snapshot_to_ws_payload()` — adding any new field requires modifying this function (catches accidental drift at code-review time)
+- [ ] **ADVUI-05**: WebSocket contract test — sentinel ticker inserted into fixture holdings must never appear in any WS frame across a full simulation
+- [ ] **ADVUI-06**: Advisory panel gated on presence of generated advisory; clean "no advisory yet" empty state
+
+### v6 E2E & Carry-Forward Validation (Phase 43)
+
+- [ ] **V6UAT-01**: Full E2E run — CSV upload → confirm → seed rumor → INGESTING → Rounds 1-3 → ADVISING → advisory panel rendered
+- [ ] **V6UAT-02**: 5-run RSS telemetry plateau confirmed (no cache memory leak across repeat cycles)
+- [ ] **V6UAT-03**: Final isolation audit — log-grep over full simulation log with sentinel holdings fixture (holdings never appear)
+- [ ] **V6UAT-04**: Advisory abstention validated on empty holdings and on weak-consensus runs
+- [ ] **V6UAT-05**: 429 graceful-degradation path validated via mocked yfinance failure
+- [ ] **V6UAT-06**: Phase 29 planning artifact backfill (carry-forward v5.0 tech debt)
+- [ ] **V6UAT-07**: Nyquist `VALIDATION.md` backfill for phases 29, 31, 35.1
+- [ ] **V6UAT-08**: Human UAT items resolved or explicitly re-deferred for phases 32, 34, 36 (9 items from v5.0 audit)
+
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Real market data feeds | Simulation-only engine, no live API integrations |
-| Trade execution | No real money, no broker integration |
-| Historical backtesting | Forward simulation only for v1 |
+| Real market data feeds | *(Superseded v6.0: yfinance ingestion is now in scope via strict Option A isolation. Original v1 exclusion rescinded.)* |
+| Trade execution | No real money, no broker integration — simulation engine only |
+| Historical backtesting | Forward simulation only |
 | Fine-tuned LLMs | Use base Ollama models with prompt engineering |
 | Multi-user / network mode | Single-operator local-first design |
 | GPU / cloud inference | M1 Max Metal only, no CUDA or cloud APIs |
 | Order book microstructure | Sentiment simulation, not tick-level market mechanics |
 | RL-based adaptive agents | Agents use LLM inference, not reinforcement learning |
+| Real-time streaming market data | yfinance `AsyncWebSocket` exists but non-essential for MVP — defer to v7.0+ |
+| SEC EDGAR filings ingestion | Stretch goal — defer to v7.0 if scope remains tight |
+| Social sentiment scraping | Stretch goal — defer to v7.0 |
+| Short positions / options in holdings schema | v6.0 holdings schema is long-only equities + cash — defer complex instruments to v7.0 |
+| LLM-generated price targets or trade orders | Advisory is qualitative only; price targets invite liability and invite hallucination |
+| Holdings persisted to Neo4j or disk | **Option A invariant** — in-memory only, cleared on shutdown. Never persisted |
+| Brokerage API integration | Simulation only — no live trades, no account linking |
+| Replay-compatible advisory | Replay re-renders swarm reasoning from Neo4j, not market data; advisory is a live-run artifact — defer to v7.0 |
+| Robinhood-specific CSV adapter | Covered by generic column-mapping UI; native Robinhood CSV export is unavailable |
 
 ## Traceability
 
@@ -174,12 +267,21 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WEB-05 | Phase 29: FastAPI Skeleton / Phase 32: REST Controls | Complete |
 | WEB-06 | Phase 34: Replay Mode Web UI / Phase 35: Agent Interviews Web UI / Phase 36: Report Viewer | Complete |
 
+| ISOL-01..07 | Phase 37: Isolation Foundation | Pending |
+| INGEST-01..07 | Phase 38: Market Data + News Ingestion | Pending |
+| HOLD-01..08 | Phase 39: Holdings CSV Ingestion | Pending |
+| CTX-01..08 | Phase 40: Context Packet Assembly | Pending |
+| ADV-01..13 | Phase 41: Advisory Pipeline | Pending |
+| ADVUI-01..06 | Phase 42: Advisory Web UI | Pending |
+| V6UAT-01..08 | Phase 43: v6 E2E + Carry-Forward | Pending |
+
 **Coverage:**
 - v1 requirements: 27 total, 27 mapped (Complete)
 - v2 requirements: 13 total, 13 mapped (Complete)
-- v5 requirements: 6 total, 6 mapped (6 complete)
+- v5 requirements: 6 total, 6 mapped (Complete)
+- v6 requirements: 57 total, 57 mapped (Pending)
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-04-14 after v5.0 phases 33-36 added to roadmap*
+*Last updated: 2026-04-18 after v6.0 Data Enrichment & Personalized Advisory requirements added*
