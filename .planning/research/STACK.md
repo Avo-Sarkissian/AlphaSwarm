@@ -1,317 +1,233 @@
-# Stack Research: v2.0 Engine Depth
+# Stack Research — v6.0 Data Enrichment & Personalized Advisory
 
-**Domain:** Multi-agent financial simulation -- post-simulation interviews, live graph memory, report generation, social interactions, dynamic personas
-**Researched:** 2026-03-31
-**Confidence:** HIGH (existing stack validated; additions are incremental)
+**Domain:** Financial data ingestion + personalized advisory synthesis (additions to existing async AlphaSwarm stack)
+**Researched:** 2026-04-18
+**Confidence:** MEDIUM-HIGH (library versions verified via PyPI; async integration patterns verified via official docs + GitHub issues)
 
 ## Scope
 
-This document covers ONLY the stack additions and changes needed for v2.0 Engine Depth features. The validated v1 stack (Python 3.11+, asyncio, ollama >=0.6.1, neo4j >=5.28, textual >=8.1.1, pydantic, structlog, psutil, httpx, backoff) is NOT re-evaluated. See the original STACK.md research from 2026-03-24 for v1 rationale.
+This document covers **only** the net-new dependencies required for the v6.0 milestone:
 
-## Critical Finding: qwen3.5 Tool Calling Is Broken
+1. Market data ingestion (yfinance)
+2. News/headlines ingestion (NewsAPI / RSS)
+3. Holdings CSV ingestion (pandas)
+4. Caching layer for ingestion (aiocache)
+5. Advisory report markdown generation
 
-**Impact:** REPORT-01 (ReACT report agent) cannot use Ollama's native tool calling with qwen3.5.
+Existing stack (Python 3.11+, `uv`, `ollama-python>=0.6.1`, async `neo4j`, FastAPI + `uvicorn` + `httpx`, Vue 3 + D3, `pydantic`, `pydantic-settings`, `structlog`, `pytest-asyncio`) is assumed and **not re-researched**.
 
-The Ollama tool calling pipeline sends Qwen 3 Hermes-style JSON tool schemas, but qwen3.5 was trained on the Qwen3-Coder XML format. This mismatch causes tool calls to be printed as text instead of executed, and unclosed `<think>` tags corrupt multi-turn conversations when thinking is enabled. A partial fix was merged (PR #14603, 2026-03-04) but community reports confirm tool calling still fails in production setups.
+## Recommended Additions
 
-**Resolution:** Implement the ReACT report agent using prompt-based tool dispatching (Simon Willison pattern) instead of Ollama's native `tools=` parameter. The agent outputs structured `Action: tool_name: args` text, which Python code parses via regex and dispatches to registered Cypher query functions. This approach works with ANY model regardless of tool calling support, and is ~100 lines of code. The qwen3.5:32b orchestrator model is more than capable of following the ReACT prompt format.
+### Core New Dependencies
 
-**Confidence:** HIGH -- verified via GitHub issues #14493 and #14745, confirmed broken as of 2026-03-31.
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| `yfinance` | **1.3.0** (2026-04-16) | Market data: price/volume/fundamentals, optionally `AsyncWebSocket` for streaming | Ships a native `AsyncWebSocket` class (PR #2201 merged in the 1.x line) with auto-reconnect + heartbeat, removing the previous "must wrap in `run_in_executor`" caveat for streaming. REST methods (`.history`, `.info`, etc.) are **still synchronous** — see PITFALLS. No paid key needed, matches "no cloud APIs / local-first" constraint since the API is free and anonymous. |
+| `pandas` | **3.0.2** (2026-03-31) | Parse holdings CSV, normalize schema, validate columns | 3.0 requires Python >=3.11 — matches our runtime. CSV parsing with typed dtypes is the fastest, best-tested option. Only used in the ingestion layer; the swarm never touches pandas DataFrames. |
+| `aiocache` | **0.12.3** (2024-09-25) | TTL cache for yfinance results + news results, in-memory backend | Native asyncio API (`SimpleMemoryCache` with per-key TTL). Avoids re-hitting Yahoo's rate limiter across a 100-agent swarm that may reference the same ticker. `diskcache` is faster but sync-only (SQLite blocks event loop). Last release is ~18 months old but the 0.12 branch is stable; the 1.0 alpha exists but isn't needed. |
+| `feedparser` | **6.0.12** (2025-09-10) | RSS/Atom parsing for news feeds (fallback / primary depending on source) | Industry standard for RSS. Parses RSS 0.9x–2.0, Atom 0.3/1.0, CDF. Parsing itself is sync/CPU-bound but **fast** (<50ms for typical financial RSS sizes) — we fetch the bytes via existing `httpx` and pass to `feedparser.parse()`. |
+| `mistune` | **3.2.0** (2025-12-23) | Server-side markdown → HTML rendering (if needed for advisory report preview/export) | Fastest pure-Python CommonMark parser. Supports Python 3.8–3.14. **Note:** the web UI already uses `marked` + `DOMPurify` (from Phase 36 Report Viewer) client-side, so mistune is only needed if we render advisory markdown on the server (e.g., for export/download). For pure markdown **generation** we use f-strings + Jinja2-style templates — no library needed. |
 
-## Recommended Stack Additions
+### Supporting Libraries (conditional)
 
-### New Dependencies
+| Library | Version | Purpose | When to Use |
+|---------|---------|---------|-------------|
+| `newsapi-python` (mattlisiv) | 0.2.7 | Thin wrapper over NewsAPI.org REST | **Only if** we commit to NewsAPI.org. Sync-based (uses `requests`) — prefer rolling our own thin `httpx` client instead to stay 100% async. See PITFALLS. |
+| `jinja2` | 3.1.x | Markdown advisory report templating | If the advisory report has complex conditional sections. Otherwise, f-strings suffice. Already transitively in FastAPI deps. |
+| `tenacity` | 9.x | Declarative retry/backoff for ingestion fetches | Recommended — we already use custom exponential backoff for Ollama; `tenacity` gives the same pattern for yfinance/news fetches with cleaner decorator syntax. Pure Python, no deps. |
+| `aiofiles` | 24.x | Async CSV read of holdings from disk | Already used in Phase 36 for the report viewer; reuse it for holdings CSV ingestion. Pair with `io.StringIO` + `pd.read_csv` inside `asyncio.to_thread`. |
 
-| Library | Version | Purpose | Why Recommended | Feature |
-|---------|---------|---------|-----------------|---------|
-| Jinja2 | >=3.1.6 | Report template rendering | Standard Python template engine. Report sections (consensus summary, dissenter analysis, flip analysis) are templated markdown with data placeholders. Jinja2 handles conditionals, loops, and filters that f-strings cannot (e.g., iterating bracket summaries, conditional dissent sections). Mature, zero-CVE history, 3.1.6 released 2025-03-05. | REPORT-01, REPORT-02, REPORT-03 |
-| aiofiles | >=24.1.0 | Async file I/O for report export | Report markdown must be written to disk without blocking the asyncio event loop. aiofiles wraps file I/O in a thread pool executor, providing `async with aiofiles.open()` semantics. Without it, `open().write()` blocks the event loop during report export, potentially stalling the TUI or interview session running concurrently. | REPORT-03 |
+### Development Tools (no new additions)
 
-**That's it.** Two new dependencies. Everything else is built on the existing stack.
+No new dev tooling. Existing `pytest-asyncio`, `ruff`, `mypy`, `structlog` cover all v6.0 testing/linting/logging needs.
 
-### Why NOT More Dependencies
-
-| Avoided | Why Not |
-|---------|---------|
-| LangChain / LangGraph | Massive dependency tree (50+ transitive deps). The ReACT loop is ~100 LOC of custom Python. LangChain's agent abstractions don't match AlphaSwarm's architecture (we have our own OllamaClient, governor, graph manager). Adding LangChain to call Ollama through their wrapper when we already have a wrapper is architectural debt. |
-| LlamaIndex | Same problem as LangChain. We need 1 tool-dispatching loop, not a retrieval framework. Our "retrieval" is direct Cypher queries, not vector search. |
-| markdown (Python-Markdown) | We're generating markdown, not parsing/rendering it to HTML. Jinja2 templates produce raw `.md` files. No HTML conversion needed. |
-| python-markdown-generator | Overly abstracted for our use case. Jinja2 templates with markdown syntax are more readable and maintainable than programmatic markdown generation via method calls. |
-| neo4j-graphrag | We don't need vector search or RAG pipelines. Our graph queries are handwritten Cypher optimized for our schema. |
-| Datapane / reportlab | Web-based reporting frameworks. We're generating plain markdown files viewable in TUI or exported. No PDF/HTML dashboards needed. |
-| APOC (Neo4j plugin) | Not needed for v2 features. All graph operations (rationale episodes, narrative edges, flip events) are expressible in pure Cypher with UNWIND batches. APOC adds Docker image complexity and security surface for no benefit. |
-
-### Existing Dependencies -- Version Updates
-
-| Library | Current Pin | Recommended Pin | Reason |
-|---------|-------------|-----------------|--------|
-| neo4j | >=5.28,<6.0 | >=5.28,<6.0 | **Keep as-is.** Neo4j driver 6.x (released 2026-01-12) requires Python >=3.10 and Neo4j server 2025.x+. Our docker-compose uses `neo4j:5.26-community`. Upgrading driver to 6.x would require upgrading the Neo4j server image simultaneously. This is scope creep for v2 -- the 5.x driver fully supports all v2 features (async sessions, UNWIND batches, transaction functions). Upgrade to 6.x in a future infrastructure phase. |
-| textual | >=8.1.1 | >=8.1.1 | **Keep as-is.** Latest is 8.2.1 (2026-03-29). The `>=8.1.1` pin already allows 8.2.x via uv resolution. No API changes needed for v2 features -- Textual's Screen push/pop, Input widget, RichLog, and mode system are all available in 8.1.1+. |
-| ollama | >=0.6.1 | >=0.6.1 | **Keep as-is.** Latest is still 0.6.1 (2025-11-13). The existing AsyncClient.chat() API handles everything v2 needs: multi-turn conversations (interview), streaming responses, and message history management. No native tool calling needed (see critical finding above). |
-
-### Docker Compose -- No Changes
-
-The existing `docker-compose.yml` with `neo4j:5.26-community` supports all v2 Neo4j features. No APOC plugin needed. No server version upgrade required.
-
-## Feature-by-Feature Stack Mapping
-
-### Phase 11: Agent Interviews (INT-01, INT-02, INT-03)
-
-**New code, no new dependencies.**
-
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| Interview context builder | Cypher queries via existing `neo4j` driver | Extends `GraphStateManager` with `read_agent_interview_context()` -- fetches persona, all 3 rounds of decisions, peer influences, rationale history for a single agent |
-| Conversation loop | `ollama` AsyncClient.chat() | Multi-turn conversation using message list accumulation. System prompt = full persona + decision context. User messages = operator questions. Assistant messages = agent responses. Append each exchange to the list. |
-| Context window management | Custom trimming logic | Worker model context window is ~4K tokens (qwen3.5:4b default). Interview context (persona + 3 rounds + rationale) could exceed this. Implement a sliding window: keep system prompt + last N exchanges, summarize earlier exchanges. |
-| TUI interview mode | Textual `Screen` push/pop + `Input` widget + `RichLog` | Push an `InterviewScreen` on top of the main dashboard when user selects an agent. `Input` at bottom for questions, `RichLog` for scrollable conversation history. Pop screen to return to grid. |
-| Model lifecycle | Existing `OllamaModelManager` | Worker model stays loaded post-simulation (INT-03). Set `keep_alive=-1` to prevent auto-unload, or simply don't call `unload_model()` after Round 3. |
-| Streaming responses | `ollama` AsyncClient.chat(stream=True) | Stream interview responses token-by-token into the `RichLog` for real-time feel. Each chunk appends text. Final chunk triggers conversation history update. |
-
-**Key design decision:** The interview uses the WORKER model (qwen3.5:4b/9b), not the orchestrator. The worker is already loaded post-simulation. Loading the 32b orchestrator for interviews would require unloading the worker and a ~30s cold load. Use the smaller model with rich context injection instead.
-
-### Phase 12: Live Graph Memory (GRAPH-01, GRAPH-02, GRAPH-03)
-
-**New code, no new dependencies.**
-
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| Rationale episode nodes | Cypher via existing `neo4j` driver | New node type `:RationaleEpisode` with properties: `text`, `signal`, `confidence`, `sentiment`, `round`, `cycle_id`, `timestamp`. Connected to Agent via `[:EXPRESSED]` edge. Written during simulation, not after. |
-| Signal flip events | Cypher via existing `neo4j` driver | New node type `:FlipEvent` with properties: `from_signal`, `to_signal`, `confidence_delta`, `round`, `cycle_id`. Connected to Agent via `[:FLIPPED]` edge. Computed in `_compute_shifts()` and persisted alongside ShiftMetrics. |
-| Narrative edges | Cypher via existing `neo4j` driver | New relationship types: `[:REASONED_ABOUT]` (Agent -> Entity, with rationale text), `[:FLIPPED_BECAUSE]` (FlipEvent -> PeerDecision that triggered the flip). Built from citation analysis in existing `compute_influence_edges()`. |
-| Real-time writes | Existing batch write pattern | Extend `write_decisions()` to also write RationaleEpisode nodes in the same UNWIND transaction. Zero additional Neo4j round-trips -- add the episode creation to the existing Cypher statement. |
-| Schema extensions | `ensure_schema()` | Add indexes: `CREATE INDEX episode_cycle_round IF NOT EXISTS FOR (e:RationaleEpisode) ON (e.cycle_id, e.round)`, `CREATE INDEX flip_cycle IF NOT EXISTS FOR (f:FlipEvent) ON (f.cycle_id)`. |
-| Graph exploration | Neo4j Browser (localhost:7474) | Already available. GRAPH-03 requires no code -- users open the browser and run Cypher queries against the enriched graph. Document useful exploration queries in a guide. |
-
-**Memory impact:** Additional Neo4j writes add ~2-5ms per round (100 episodes in one UNWIND). Negligible compared to LLM inference time (~minutes).
-
-### Phase 13: Post-Simulation Report (REPORT-01, REPORT-02, REPORT-03)
-
-**New dependencies: Jinja2, aiofiles.**
-
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| ReACT loop | Custom Python (~100 LOC) | Prompt-based tool dispatching. System prompt defines available tools and ReACT format. Agent outputs `Thought: ... Action: tool_name: args`. Python parses via regex `r'^Action: (\w+): (.*)$'`, dispatches to registered functions, feeds `Observation: result` back. Loop until `Answer:` is emitted or max_turns exceeded. |
-| Tool: consensus_summary | Cypher query function | `MATCH (d:Decision) WHERE d.cycle_id = $cid AND d.round = 3 RETURN d.signal, count(*) AS cnt, avg(d.confidence)` -- returns final signal distribution. |
-| Tool: key_dissenters | Cypher query function | Find agents whose Round 3 signal disagrees with bracket majority. Returns agent_id, bracket, signal, rationale. |
-| Tool: bracket_trends | Cypher query function | Per-bracket signal distribution across all 3 rounds. Shows convergence or divergence patterns. |
-| Tool: flip_analysis | Cypher query function | `MATCH (f:FlipEvent) WHERE f.cycle_id = $cid RETURN f.from_signal, f.to_signal, count(*)` -- requires Phase 12 FlipEvent nodes. |
-| Tool: influence_leaders | Cypher query function | Top-N agents by INFLUENCED_BY edge count. Returns agent_id, citation_count, bracket. |
-| Report template | Jinja2 | Template file `templates/report.md.j2` with sections: Executive Summary, Consensus Distribution, Bracket Analysis, Key Dissenters, Signal Flip Analysis, Influence Network, Confidence Distribution. Each section uses Jinja2 loops and conditionals. |
-| Report rendering | Jinja2 `Environment` | Load template, render with ReACT-gathered data dict. Output is a complete markdown string. |
-| Report export | aiofiles | `async with aiofiles.open(f"reports/{cycle_id}.md", "w") as f: await f.write(rendered)`. Non-blocking file write. |
-| TUI report viewer | Textual `RichLog` or `Static` | Push a `ReportScreen` that renders the markdown in the terminal using Rich's markdown renderer. |
-| LLM for ReACT | Orchestrator model (qwen3.5:32b) | The ReACT agent needs reasoning capability to decide which tools to call and synthesize findings. Use the orchestrator model, not the worker. This means a model swap post-simulation: unload worker, load orchestrator, run ReACT loop, unload orchestrator. |
-
-**Critical constraint:** The ReACT agent must use the ORCHESTRATOR model for quality reasoning. This requires a model swap after simulation completes (unload worker -> load orchestrator -> run report -> unload orchestrator). Budget ~30s for the cold load. The interview feature (Phase 11) should be offered BEFORE report generation, while the worker model is still loaded.
-
-### Phase 14: Richer Agent Interactions (SOCIAL-01, SOCIAL-02)
-
-**New code, no new dependencies.**
-
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| Rationale posts | Extended `AgentDecision` model | Add `public_rationale: str` field -- a short, shareable version of the agent's reasoning (distinct from internal rationale). Generated by the LLM in the same inference call via an extended JSON schema. |
-| Post storage | Cypher via existing `neo4j` driver | New node type `:Post` with properties: `text`, `agent_id`, `round`, `cycle_id`. Connected via `[:PUBLISHED]`. Stored in the same UNWIND batch as decisions. |
-| Peer reading | Extended `read_peer_decisions()` | Include peer posts in the context injected for Rounds 2-3. Current peer context format: `[Bracket] SIGNAL (conf: X.XX) "rationale"`. Extended: add the peer's `public_rationale` as a quotable post. |
-| Reactions | New relationship types | `[:AGREED_WITH]`, `[:DISAGREED_WITH]`, `[:CITED_POST]` edges between agents. Inferred from Round 2-3 LLM output -- if an agent's rationale references a specific peer's post, create the edge. |
-| Engagement-based influence | Extended `compute_influence_edges()` | Current weight = citations / total_agents. Extended: weight += reaction_count * reaction_weight. Agents with highly-engaged posts gain more influence in subsequent rounds. |
-
-**Prompt engineering, not code engineering:** The main work is crafting prompts that make agents produce public rationale posts AND react to peers' posts. The JSON output schema extends from `{signal, confidence, sentiment, rationale, cited_agents}` to `{signal, confidence, sentiment, rationale, public_rationale, cited_agents, reactions: [{agent_id, reaction_type}]}`. Parsing extends the existing `parse_agent_decision()` 3-tier fallback.
-
-### Phase 15: Dynamic Persona Generation (PERSONA-01, PERSONA-02)
-
-**New code, no new dependencies.**
-
-| Component | Technology | Integration Point |
-|-----------|-----------|-------------------|
-| Entity-aware persona generation | Orchestrator LLM (qwen3.5:32b) | Extend `inject_seed()` to also generate dynamic personas. After entity extraction, a second orchestrator call generates 5-15 situation-specific personas based on extracted entities (e.g., oil rumor -> energy trader, OPEC analyst, pipeline engineer). |
-| Dynamic persona schema | Pydantic model | New `DynamicPersona` model extending `AgentPersona` with `origin: Literal["static", "dynamic"]` and `entity_context: str` fields. Dynamic personas supplement (not replace) the standard 100 agents. |
-| Persona count management | Configuration | Total agent count becomes configurable: 100 static + N dynamic (where N = 5-15 based on seed complexity). ResourceGovernor budget must account for the additional agents. Add `max_dynamic_agents: int = 15` to `AppSettings`. |
-| Prompt template | Existing `system_prompt_template` pattern | Dynamic personas use the same prompt structure as static personas but with entity-specific context injected: `"You are a {role} with deep expertise in {entity}. Given recent developments in {sector}..."`. |
-
-**Memory constraint:** Each additional agent adds one more inference call per round. 15 extra agents across 3 rounds = 45 additional inferences. With the current governor, this adds ~2-3 minutes to simulation time. Acceptable.
-
-## Installation
+## Installation (uv)
 
 ```bash
-# New v2 dependencies (add to existing pyproject.toml)
-uv add jinja2 aiofiles
+# Core v6.0 additions
+uv add yfinance==1.3.0 pandas==3.0.2 aiocache==0.12.3 feedparser==6.0.12
 
-# Dev dependencies (no changes)
-# Existing: pytest, pytest-asyncio, pytest-cov, ruff, mypy
+# If we do server-side markdown rendering for advisory export
+uv add mistune==3.2.0
 
-# No Docker changes needed
-# No Ollama model changes needed
-# No Neo4j server upgrade needed
+# Retry/backoff (recommended)
+uv add tenacity
+
+# No news client library — we roll our own httpx-based client (see below)
 ```
 
-Updated `pyproject.toml` dependencies section:
+## Architecture Integration Notes
 
-```toml
-dependencies = [
-    "pydantic>=2.12.5",
-    "pydantic-settings>=2.13.1",
-    "structlog>=25.5.0",
-    "psutil>=7.2.2",
-    "ollama>=0.6.1",
-    "backoff>=2.2.1",
-    "neo4j>=5.28,<6.0",
-    "textual>=8.1.1",
-    # v2 additions
-    "jinja2>=3.1.6",
-    "aiofiles>=24.1.0",
-]
+### yfinance + asyncio (CRITICAL)
+
+yfinance's REST methods (`Ticker().history()`, `.info`, `.financials`, `.download()`) are **synchronous** and internally do blocking HTTP calls. They will freeze the FastAPI event loop if called directly from a coroutine.
+
+**Pattern to use:**
+
+```python
+# alphaswarm/ingestion/market_data.py
+import asyncio
+import yfinance as yf
+from aiocache import Cache
+from aiocache.serializers import PickleSerializer
+
+cache = Cache(Cache.MEMORY, ttl=300, serializer=PickleSerializer())
+
+async def fetch_ticker_history(symbol: str, period: str = "1mo") -> pd.DataFrame:
+    cached = await cache.get(f"hist:{symbol}:{period}")
+    if cached is not None:
+        return cached
+    # Offload blocking yfinance call
+    df = await asyncio.to_thread(lambda: yf.Ticker(symbol).history(period=period))
+    await cache.set(f"hist:{symbol}:{period}", df, ttl=300)
+    return df
 ```
+
+- `asyncio.to_thread` is the Python 3.9+ equivalent of `loop.run_in_executor(None, fn)` and is the idiomatic choice for Python 3.11+.
+- Dedicate a bounded `ThreadPoolExecutor` (e.g., 4 workers) to yfinance calls so concurrent ticker fetches from the swarm don't spawn unbounded threads.
+- yfinance also exposes `AsyncWebSocket` (native asyncio) for **streaming** quotes — only adopt if v6.0 actually needs live intraday price updates in the swarm context (probably not for MVP; defer to v7.0).
+
+### News ingestion: roll our own over httpx
+
+**Verdict: avoid `newsapi-python` library; build a ~50-line async client on top of existing `httpx.AsyncClient`.**
+
+Reasons:
+1. `newsapi-python` wraps `requests` — adding it forces us to `asyncio.to_thread` every call, which defeats the point of a thin client.
+2. We already have `httpx` in the stack (used for existing outbound calls).
+3. NewsAPI.org's free "Developer" tier is **dev-only** (100 req/day, 24h article delay, localhost-only) per their ToS — this is fine for local simulation but we must explicitly gate it.
+4. For production, `feedparser` + Yahoo Finance/Bloomberg/Reuters RSS endpoints is **free, no key, no ToS risk**, and suits the "local-first" constraint better.
+
+**Recommended approach:** Dual-source with RSS as primary and NewsAPI as optional enrichment.
+
+```python
+# Primary: RSS (free, unlimited, no key)
+async with httpx.AsyncClient(timeout=10) as client:
+    resp = await client.get(f"https://finance.yahoo.com/rss/headline?s={symbol}")
+    feed = feedparser.parse(resp.text)  # CPU-bound but fast
+
+# Optional: NewsAPI (dev-local only)
+async with httpx.AsyncClient(...) as client:
+    resp = await client.get(
+        "https://newsapi.org/v2/everything",
+        params={"q": symbol, "apiKey": settings.news_api_key, "pageSize": 20},
+    )
+```
+
+### Holdings CSV ingestion
+
+```python
+# alphaswarm/ingestion/holdings.py
+import io, asyncio
+import aiofiles
+import pandas as pd
+from pydantic import BaseModel, field_validator
+
+class Holding(BaseModel):
+    symbol: str
+    shares: float
+    cost_basis: float | None = None
+
+    @field_validator("symbol")
+    @classmethod
+    def _upper(cls, v: str) -> str: return v.strip().upper()
+
+async def load_holdings(path: str) -> list[Holding]:
+    async with aiofiles.open(path, "r") as f:
+        raw = await f.read()
+    df = await asyncio.to_thread(
+        pd.read_csv, io.StringIO(raw),
+        dtype={"symbol": str, "shares": float, "cost_basis": float},
+    )
+    return [Holding(**row) for row in df.to_dict(orient="records")]
+```
+
+- CSV is read via `aiofiles`, parsed in a worker thread, validated by pydantic.
+- **Never persisted to Neo4j.** Holdings live only in the orchestrator's memory for the duration of a simulation run.
+- Info-isolation enforcement: the context-packet builder and any prompt renderer must be pure functions of `(market_data, news, archetype)` — holdings must not be reachable from that call tree. Enforce via:
+  - Unit test: import holdings module → assert no import from `packet_builder` module.
+  - Runtime: pass `ContextPacket` dataclass frozen (via `pydantic.BaseModel(frozen=True)` or `dataclass(frozen=True)`) into swarm prompts; holdings live in a separate `Portfolio` dataclass only reachable from orchestrator.
+
+### Advisory report generation
+
+- Generate markdown with **f-strings + Python string templates** (or Jinja2 if branching grows) — no generator library needed.
+- If export (HTML/PDF) is in scope: `mistune.html(markdown_text)` for server-side render; client-side Vue already has the `marked` + `DOMPurify` pipeline from Phase 36, so reuse that for in-UI viewing.
+- Advisory report can be written to disk via `aiofiles` (same as the Phase 36 post-simulation report pattern) so it integrates naturally with the existing `/api/report/{cycle_id}` endpoint family.
+
+## Alternatives Considered
+
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| `yfinance` 1.3.0 | `yahooquery` | Use if yfinance rate-limiting becomes blocking. `yahooquery` uses official endpoints, more stable, but less ergonomic. Swap is non-trivial (different API). |
+| `yfinance` 1.3.0 | Alpaca / Finnhub / EODHD | Only if we abandon "no cloud APIs" — all require signed-up API keys. Out of scope per CLAUDE.md hard constraint #2 ("Local First"). |
+| Roll-own httpx NewsAPI client | `newsapi-python` (mattlisiv) | Never — sync `requests`-based, stale. |
+| Roll-own httpx NewsAPI client | Finlight.me / Newsdata.io | If NewsAPI free tier is insufficient and budget allows; both offer better free tiers. Defer unless actually blocked. |
+| `feedparser` | `atoma-api` | If benchmarks show feedparser is a bottleneck (unlikely — RSS feeds rarely exceed 100 entries). |
+| `aiocache` (memory) | `diskcache` | If we need persistent cache across simulation restarts. Sync-only, needs `asyncio.to_thread` wrapper — more machinery than we need for TTL of 5–15 min. |
+| `aiocache` (memory) | `aiocache` + Redis backend | If multi-process ingestion is needed later. Requires Redis in Docker Compose — adds infra weight. Start with memory backend. |
+| `mistune` (server markdown) | `markdown-it-py` | Equivalent quality, slightly slower. Either works; mistune has plugin ecosystem. |
+| f-strings for markdown generation | `jinja2` | If advisory report gets conditional sections, loops over holdings, archetype-specific blocks. Likely needed — preemptively add to the planner's option list. |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| Ollama native tool calling (`tools=` param) | Broken with qwen3.5 models (wrong XML/JSON format mismatch, unclosed think tags). GitHub issues #14493, #14745 confirm as of 2026-03-31. | Prompt-based ReACT with regex parsing (~100 LOC) |
-| LangChain / LangGraph | 50+ transitive deps, wrong abstraction (we have our own inference pipeline). Would require wrapping our OllamaClient in their LLM interface, adding indirection for no benefit. | Custom ReACT loop that directly uses our existing OllamaClient |
-| LlamaIndex | Vector RAG framework -- we do graph queries, not embedding search. Massive dep tree. | Direct Cypher queries via neo4j driver |
-| APOC Neo4j plugin | Not needed. All v2 graph operations are pure Cypher. APOC adds Docker complexity, version pinning headaches, and security surface. | Pure Cypher with UNWIND batches |
-| neo4j driver 6.x | Requires Neo4j server upgrade (5.26 -> 2025.x), potential breaking changes. Zero features in 6.x that v2 needs. | Keep neo4j >=5.28,<6.0 |
-| Separate Markdown rendering lib | We generate markdown (text), not render it to HTML. Jinja2 produces .md files directly. | Jinja2 templates with markdown syntax |
-| WebSocket for TUI-interview comm | Single-process app. Interview runs in the same asyncio loop as TUI. No IPC needed. | Direct async function calls within Textual Worker |
+| `newsapi-python` (mattlisiv) | Wraps `requests` (sync). Forces `asyncio.to_thread` per call for no ergonomic gain. Last update ages ago. | Thin async client over existing `httpx.AsyncClient` (~50 LOC). |
+| `pandas-datareader` | Multiple data sources deprecated; Yahoo support is indirect and less reliable than yfinance direct. | `yfinance` 1.3.0. |
+| Calling `yf.Ticker(...).history()` directly from an async function | Blocks the FastAPI event loop — will stall WebSocket broadcaster and Ollama batcher. | `await asyncio.to_thread(yf.Ticker(sym).history, ...)` with a bounded executor. |
+| `requests` for news/data | Sync only. We already have `httpx`. Adding `requests` creates two HTTP clients with different config/timeouts. | `httpx.AsyncClient` (already in stack). |
+| `aiohttp` | Faster than httpx but adds a second async HTTP client to the codebase. httpx already handles FastAPI's outbound needs and supports both sync + async with HTTP/2. | `httpx.AsyncClient`. |
+| Persisting holdings in Neo4j | Violates the v6.0 information-isolation architecture (Option A). Any Cypher write of Holdings creates a leak vector into swarm queries. | In-memory `Portfolio` dataclass, scoped to a single orchestrator run. Enforce with unit test + log-grep. |
+| `diskcache` in async path without wrapping | SQLite-backed, blocks event loop. Acceptable only inside `asyncio.to_thread`. | `aiocache` SimpleMemoryCache — native async, TTL built-in. |
+| yfinance streaming WebSocket for MVP | Complex to test; adds reconnect/heartbeat state machine. Simulation is "snapshot of the world at T=0" — streaming is a v7.0 concern. | Batch fetch once per simulation, cache in aiocache for the run's duration. |
+| Storing NewsAPI key in `.env` committed to repo | ToS + security. | `pydantic-settings` reads from environment; `.env` stays gitignored (already true in the repo). |
+| Calling yfinance from inside a swarm agent | Violates Option A architecture — ingestion is its own layer. Agents consume pre-built context packets. | Ingestion service builds `ContextPacket`; swarm only receives packets. |
 
-## Architecture Patterns for v2
+## Stack Patterns by Variant
 
-### ReACT Report Agent (No Framework)
+**If ingestion throughput becomes a bottleneck (100 agents × multiple tickers):**
+- Pre-fetch all unique tickers in a single pass before dispatching the swarm cycle
+- Cache all fundamental data with a longer TTL (e.g., 24h for `.info`, 5min for `.history`)
+- Move to `aiocache` + Redis if multi-process workers are introduced
 
-```python
-# Minimal ReACT loop -- no LangChain needed
-import re
+**If NewsAPI rate limit blocks local dev:**
+- Default to RSS only (Yahoo Finance + Reuters + Bloomberg feeds)
+- Treat NewsAPI as optional enrichment behind a feature flag in `pydantic-settings`
 
-ACTION_RE = re.compile(r"^Action: (\w+): (.*)$", re.MULTILINE)
+**If yfinance gets IP-banned by Yahoo mid-simulation:**
+- Implement `tenacity` exponential backoff with jitter (10s → 30s → 60s → abandon)
+- Log a `structlog` warning and emit a degraded `ContextPacket` with `market_data=None`
+- Consider `yahooquery` as a drop-in fallback
 
-TOOLS = {
-    "consensus_summary": query_consensus_summary,  # Cypher function
-    "key_dissenters": query_key_dissenters,
-    "bracket_trends": query_bracket_trends,
-    "flip_analysis": query_flip_analysis,
-    "influence_leaders": query_influence_leaders,
-}
+**If the advisory report format grows complex:**
+- Upgrade from f-strings to `jinja2` templates in `alphaswarm/advisory/templates/`
+- Keep rendered markdown as the canonical artifact; HTML/PDF via `mistune` + weasyprint only if explicitly requested
 
-async def run_react_report(client: OllamaClient, model: str, cycle_id: str, graph: GraphStateManager) -> str:
-    messages = [{"role": "system", "content": REACT_SYSTEM_PROMPT}]
-    messages.append({"role": "user", "content": f"Generate a market analysis report for cycle {cycle_id}."})
-
-    for turn in range(MAX_TURNS):
-        response = await client.chat(model=model, messages=messages, think=True)
-        content = response.message.content or ""
-        messages.append({"role": "assistant", "content": content})
-
-        match = ACTION_RE.search(content)
-        if match:
-            tool_name, tool_input = match.groups()
-            if tool_name in TOOLS:
-                observation = await TOOLS[tool_name](graph, cycle_id, tool_input)
-                messages.append({"role": "user", "content": f"Observation: {observation}"})
-            else:
-                messages.append({"role": "user", "content": f"Observation: Unknown tool '{tool_name}'."})
-        else:
-            # No action found -- agent is done
-            return content
-
-    return content  # max turns exceeded
-```
-
-### Interview Conversation Loop
-
-```python
-# Multi-turn interview using existing OllamaClient
-async def interview_agent(client: OllamaClient, model: str, context: InterviewContext) -> AsyncGenerator[str, str]:
-    messages = [
-        {"role": "system", "content": context.build_system_prompt()},
-    ]
-    while True:
-        question = yield  # Receive question from TUI
-        messages.append({"role": "user", "content": question})
-
-        # Stream response
-        full_response = ""
-        async for chunk in await client.chat(model=model, messages=messages, stream=True):
-            token = chunk.message.content or ""
-            full_response += token
-            yield token  # Send token to TUI for real-time display
-
-        messages.append({"role": "assistant", "content": full_response})
-
-        # Trim history if approaching context limit
-        if estimate_tokens(messages) > MAX_CONTEXT * 0.8:
-            messages = trim_conversation(messages, keep_system=True, keep_recent=6)
-```
-
-### Textual Screen Modes for Post-Simulation
-
-```python
-# Textual mode switching for interview vs report vs grid
-class AlphaSwarmApp(App):
-    MODES = {
-        "simulation": SimulationScreen,   # Main 10x10 grid
-        "interview": InterviewScreen,      # Chat interface
-        "report": ReportScreen,            # Rendered markdown
-    }
-
-    # Post-simulation: push interview screen
-    def action_interview(self, agent_id: str) -> None:
-        self.push_screen(InterviewScreen(agent_id=agent_id))
-
-    # After interview: push report screen
-    def action_generate_report(self) -> None:
-        self.push_screen(ReportScreen(cycle_id=self.cycle_id))
-```
-
-## Version Compatibility Matrix
+## Version Compatibility
 
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
-| jinja2 >=3.1.6 | Python >=3.7, pydantic >=2.x | No conflicts. Jinja2 has zero overlapping deps with existing stack. |
-| aiofiles >=24.1.0 | Python >=3.8, asyncio | Thread pool executor under the hood. Compatible with Textual's event loop. |
-| neo4j >=5.28,<6.0 | Neo4j server 5.x (our docker-compose uses 5.26) | Pinned correctly. Do NOT upgrade to 6.x without server upgrade. |
-| ollama >=0.6.1 | Ollama server 0.5+ | Streaming, tool schemas, async client all stable at 0.6.1. |
-| textual >=8.1.1 | Python >=3.9, rich >=14.x | Screen modes, Input, RichLog all available. 8.2.1 (latest) is compatible. |
-
-## Model Strategy for v2 Features
-
-| Feature | Model | Why | Memory Impact |
-|---------|-------|-----|---------------|
-| Agent Interviews | Worker (qwen3.5:4b or 9b) | Already loaded post-simulation. No cold load needed. Fast responses. | None (model already loaded) |
-| Live Graph Memory | N/A (pure Cypher) | No LLM needed. Graph writes happen during simulation alongside existing decision writes. | ~5ms/round additional Neo4j I/O |
-| ReACT Report Agent | Orchestrator (qwen3.5:32b) | Needs reasoning capability to decide tool usage and synthesize findings. Worker model too small for multi-step reasoning. | Requires model swap: unload worker (~3.4GB freed), load orchestrator (~18GB). ~30s cold load. |
-| Richer Interactions | Worker (qwen3.5:4b or 9b) | Extended inference during existing rounds. Same model, slightly larger JSON output schema. | ~10% more tokens per agent (longer output with public_rationale + reactions). Negligible. |
-| Dynamic Personas | Orchestrator (qwen3.5:32b) | Persona generation is a seed injection extension. Orchestrator already loaded during seed phase. | None (runs during existing orchestrator phase). |
-
-**Post-simulation model lifecycle:**
-1. Simulation completes -- worker model still loaded
-2. Offer **Agent Interviews** (uses worker model, no swap needed)
-3. User finishes interviews, requests report
-4. Unload worker, load orchestrator (~30s)
-5. Run **ReACT Report Agent** (uses orchestrator)
-6. Unload orchestrator
-7. Export report to file
+| `pandas==3.0.2` | Python >=3.11 | Pandas 3.0 **dropped** Python 3.10 support. Our runtime is 3.11+ so safe. |
+| `yfinance==1.3.0` | `pandas>=2.0`, Python 3.9+ | Returns pandas DataFrames; no incompatibility with pandas 3.x. |
+| `aiocache==0.12.3` | Python >=3.6 | Older release (Sep 2024) but stable. Pure-Python, no native deps. |
+| `feedparser==6.0.12` | Python >=3.6 | Pure-Python. No conflict with httpx. |
+| `mistune==3.2.0` | Python 3.8–3.14 | Breaking changes in 3.x from 2.x; start fresh (no legacy 2.x code to migrate). |
+| `httpx` (existing) | `yfinance.AsyncWebSocket` | Independent — yfinance WebSocket uses its own `websockets` client internally. No conflict. |
+| Neo4j async driver (existing) | All v6.0 additions | No shared dependencies. Holdings never hit Neo4j by design. |
 
 ## Sources
 
-- [Ollama Python PyPI (v0.6.1)](https://pypi.org/project/ollama/) -- verified latest version, streaming/async API
-- [Ollama tool calling docs](https://docs.ollama.com/capabilities/tool-calling) -- native tool calling API reference
-- [Qwen 3.5 tool calling bug #14493](https://github.com/ollama/ollama/issues/14493) -- confirmed broken, partial fix insufficient
-- [Qwen 3.5 tool calling bug #14745](https://github.com/ollama/ollama/issues/14745) -- 9b variant prints tool calls as text
-- [Simon Willison ReACT pattern](https://til.simonwillison.net/llms/python-react-pattern) -- minimal Python ReACT implementation (~100 LOC)
-- [Jinja2 PyPI (v3.1.6)](https://pypi.org/project/Jinja2/) -- Python >=3.7, latest stable
-- [aiofiles PyPI](https://pypi.org/project/aiofiles/) -- async file I/O for asyncio
-- [Neo4j Python driver PyPI (v6.1.0)](https://pypi.org/project/neo4j/) -- confirmed 5.x compatibility, 6.x available but not needed
-- [Neo4j Python async driver docs](https://neo4j.com/docs/python-manual/current/concurrency/) -- concurrent transaction patterns
-- [Textual PyPI (v8.2.1)](https://pypi.org/project/textual/) -- latest version, Screen/mode system docs
-- [Textual Screens guide](https://textual.textualize.io/guide/screens/) -- push/pop, mode switching
-- [Textual RichLog widget](https://textual.textualize.io/widgets/rich_log/) -- real-time scrollable content
-- [Textual chat TUI example](https://chaoticengineer.hashnode.dev/textual-and-chatgpt) -- Input + VerticalScroll chat pattern
-- [Ollama conversation history](https://deepwiki.com/ollama/ollama-python/4.7-conversation-history) -- message list accumulation pattern
-- [Ollama context length docs](https://docs.ollama.com/context-length) -- default 2K context, configurable via Modelfile
+- [yfinance 1.3.0 on PyPI](https://pypi.org/project/yfinance/) — released 2026-04-16, verified HIGH
+- [yfinance AsyncWebSocket docs](https://ranaroussi.github.io/yfinance/reference/api/yfinance.AsyncWebSocket.html) — native async streaming API confirmed, HIGH
+- [yfinance thread-safety issue #2557](https://github.com/ranaroussi/yfinance/issues/2557) — confirms sync REST calls need `run_in_executor`/`to_thread` wrapper, HIGH
+- [pandas 3.0.2 on PyPI](https://pypi.org/project/pandas/) — released 2026-03-31, requires Python >=3.11, HIGH
+- [feedparser 6.0.12 on PyPI](https://pypi.org/project/feedparser/) — released 2025-09-10, HIGH
+- [mistune 3.2.0 on PyPI](https://pypi.org/project/mistune/) — released 2025-12-23, HIGH
+- [aiocache 0.12.3 on PyPI](https://pypi.org/project/aiocache/) — Snyk maintenance analysis "sustainable", MEDIUM (last release ~18 months old)
+- [NewsAPI.org Terms](https://newsapi.org/terms) — Developer tier is dev-only, 100 req/day, 24h article delay, HIGH
+- [HTTPX vs AIOHTTP 2026 comparison](https://decodo.com/blog/httpx-vs-requests-vs-aiohttp) — confirms httpx is appropriate for existing outbound needs, MEDIUM
+- [yfinance rate-limit discussion #2431](https://github.com/ranaroussi/yfinance/discussions/2431) — rate-limit behavior documented, HIGH
+- [Sling Academy: yfinance rate limits](https://www.slingacademy.com/article/rate-limiting-and-api-best-practices-for-yfinance/) — best-practice patterns, MEDIUM
 
 ---
-*Stack research for: AlphaSwarm v2.0 Engine Depth*
-*Researched: 2026-03-31*
-*Builds on: v1 stack research from 2026-03-24*
+*Stack research for: v6.0 Data Enrichment & Personalized Advisory additions*
+*Researched: 2026-04-18*
