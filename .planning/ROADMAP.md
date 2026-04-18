@@ -110,9 +110,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 38-01-PLAN.md -- YFinanceMarketDataProvider: fetch_batch, Fundamentals mapping, staleness logic, unit tests with Fake
-- [ ] 38-02-PLAN.md -- RSSNewsProvider (or NewsAPIProvider): fetch_headlines, entity filtering, staleness logic, unit tests with Fake
-- [ ] 38-03-PLAN.md -- Integration tests: real-network provider tests in tests/integration/ with enable_socket
+- [ ] 38-01-PLAN.md -- YFinanceMarketDataProvider: thread-per-ticker fast_info+info, _fetch_batch_shared, Decimal precision, D-19 fetch_failed, unit tests (monkeypatched yf.Ticker)
+- [ ] 38-02-PLAN.md -- RSSNewsProvider: dual-source URL routing (Yahoo ticker / Google News topic with quote_plus), httpx+feedparser, entity filter, max_age_hours, D-19, unit tests (mocked httpx)
+- [ ] 38-03-PLAN.md -- Integration tests: real-network yfinance + RSS tests in tests/integration/ (auto enable_socket via conftest) + User-Agent regression guard
 
 ### Phase 39: Holdings Loader
 **Goal**: Load Schwab CSV export into a `PortfolioSnapshot` with account number hashing (HOLD-02), expose holdings via a `GET /api/holdings` FastAPI endpoint, and wire `web.routes.holdings` into the importlinter whitelist
