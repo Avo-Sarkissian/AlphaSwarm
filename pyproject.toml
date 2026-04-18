@@ -17,6 +17,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.34.0",
     "httpx>=0.28.0",
+    "yfinance>=1.2.2,<2.0",
 ]
 
 [dependency-groups]
@@ -74,6 +75,7 @@ source_modules = [
     "alphaswarm.ingestion",
     "alphaswarm.ingestion.providers",
     "alphaswarm.ingestion.types",
+    "alphaswarm.ingestion.yfinance_provider",
     "alphaswarm.interview",
     "alphaswarm.logging",
     "alphaswarm.memory_monitor",
