@@ -89,7 +89,7 @@ Requirements for v5.0 Web UI milestone. Phases 29-36.
 - [x] **WEB-03**: Real-time rationale feed with animated entry transitions in the browser — Validated in Phase 33: Web Monitoring Panels
 - [x] **WEB-04**: Bracket sentiment bar charts (D3 SVG) updated after each round in the browser — Validated in Phase 33: Web Monitoring Panels
 - [x] **WEB-05**: FastAPI backend serving REST endpoints for simulation status, agent states, rationale, brackets, graph data, and simulation controls
-- [ ] **WEB-06**: Post-simulation views -- agent interview panel, report viewer, replay mode
+- [x] **WEB-06**: Post-simulation views -- agent interview panel, report viewer, replay mode
 
 ### Visualization
 
@@ -172,12 +172,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WEB-03 | Phase 33: Web Monitoring Panels | Complete |
 | WEB-04 | Phase 33: Web Monitoring Panels | Complete |
 | WEB-05 | Phase 29: FastAPI Skeleton / Phase 32: REST Controls | Complete |
-| WEB-06 | Phase 34: Replay Mode Web UI / Phase 35: Agent Interviews Web UI / Phase 36: Report Viewer | Planned |
+| WEB-06 | Phase 34: Replay Mode Web UI / Phase 35: Agent Interviews Web UI / Phase 36: Report Viewer | Complete |
 
 **Coverage:**
 - v1 requirements: 27 total, 27 mapped (Complete)
 - v2 requirements: 13 total, 13 mapped (Complete)
-- v5 requirements: 6 total, 6 mapped (3 complete, 3 planned)
+- v5 requirements: 6 total, 6 mapped (6 complete)
 - Unmapped: 0
 
 ---
