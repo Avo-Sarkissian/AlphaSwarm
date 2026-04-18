@@ -4,29 +4,19 @@
 
 A localized, multi-agent financial simulation engine that ingests a single "Seed Rumor" and simulates cascading market reactions across 100 distinct AI personas. The system runs a 3-round iterative consensus cascade on local hardware (M1 Max 64GB), visualizing real-time agent state via a Textual TUI dashboard and persisting interaction history in Neo4j.
 
-## Current Milestone: v6.0 Data Enrichment & Personalized Advisory
+## Current Milestone: v5.0 Web UI
 
-**Goal:** Transform AlphaSwarm from isolated rumor simulator into an informed advisory system. The swarm reasons on real market data; the orchestrator synthesizes personalized recommendations against a user holdings CSV — with strict information isolation (swarm never sees holdings).
-
-**Architecture principle (Option A — locked):**
-- Ingestion layer fetches data (yfinance, news)
-- Swarm consumes **context packets** only (no holdings access)
-- Orchestrator is synthesis-only: holdings + swarm output → advisory markdown (no direct API calls from orchestrator)
+**Goal:** Replace the Textual TUI with a browser-based Vue 3 + FastAPI dashboard featuring a live force-directed agent graph, full simulation controls, replay mode, agent interviews, and post-simulation report viewer.
 
 **Target features:**
-- Holdings CSV ingestion (schema, async loader, validation — in-memory only, never persisted)
-- Orchestrator recommendation layer (swarm output + holdings → personalized advisory report)
-- Market data ingestion (yfinance: price/volume/fundamentals with caching, async wrapper)
-- News & headlines ingestion (NewsAPI or RSS, per-entity aggregation)
-- Context packet assembly + swarm prompt integration
-- Per-archetype data tailoring (Quants → fundamentals, Degens → social, Macro → news)
-- Advisory report surfaced in web UI (recommendations panel)
-- Stretch: SEC EDGAR, social sentiment (defer to v7.0 if scope tight)
-
-**Carry-forward tech debt (from `milestones/v5.0-MILESTONE-AUDIT.md`):**
-- Phase 29 planning artifact backfill
-- Nyquist `VALIDATION.md` backfill for phases 29, 31, 35.1
-- Human UAT items for phases 32, 34, 36 (9 items)
+- FastAPI skeleton with async event loop foundation and WebSocket broadcaster
+- Vue 3 SPA with D3 force-directed graph ("mirofish" agent view)
+- REST controls for start/stop/shock injection + Vue ControlBar
+- Web monitoring panels (rationale, telemetry, brackets)
+- Replay mode web UI (re-render past cycles from Neo4j)
+- Agent interviews web UI (click-to-interview overlay)
+- Shock injection wiring (ShockEvent Neo4j persistence)
+- Report viewer web UI (marked + DOMPurify render pipeline)
 
 ## Core Value
 
@@ -60,18 +50,9 @@ The 3-round consensus cascade must produce believable, diverse market reactions 
 - [x] StateStore data layer extensions: rationale queue, TPS accumulation from Ollama eval metadata, bracket summary storage — Validated in Phase 10: tui-panels-and-telemetry
 
 ### Active
-
-<!-- v6.0 Data Enrichment & Personalized Advisory — detailed REQ-IDs in REQUIREMENTS.md -->
-
-- [ ] Holdings CSV ingestion (schema, loader, validation — in-memory only)
-- [ ] Market data ingestion (yfinance with caching)
-- [ ] News & headlines ingestion (NewsAPI or RSS, per-entity aggregation)
-- [ ] Context packet assembly for swarm prompts
-- [ ] Per-archetype data tailoring
-- [ ] Orchestrator recommendation layer (advisory report synthesis)
-- [ ] Advisory report surfaced in web UI
-
-**Information isolation invariant:** Holdings never appear in any swarm prompt. Enforced by log-grep and unit tests.
+- [ ] Async batched Ollama inference with adaptive ResourceGovernor (psutil-driven semaphore)
+- [ ] Miro API v2 batcher (stubbed for v1, full implementation deferred)
+- [ ] Exponential backoff for Ollama retries and Miro 429 handling
 
 ### Validated
 
@@ -135,10 +116,6 @@ This document evolves at phase transitions and milestone boundaries.
 
 **Phase 36 complete (2026-04-16):** Report viewer — web UI surface for the post-simulation report. FastAPI `GET /api/report/{cycle_id}` (async read-through with aiofiles) and `POST /api/report/{cycle_id}/generate` (non-blocking 202 Accepted, background asyncio.Task mirroring cli.py). Vue 3 `ReportViewer.vue` full-screen modal: marked + DOMPurify render pipeline, 3s polling with REVISION-1 state-machine split (viewState independent of isGenerating), 500 error terminates polling. ControlBar "Report" button gated on phase='complete'. 59 tests pass, TypeScript clean, production build 80 kB gzip. This is the last planned phase of the v5.0 Web UI milestone.
 
-**v5.0 Web UI shipped (2026-04-18):** 10 phases (29, 31–36, 35.1), all WEB-01..WEB-06 requirements satisfied. Audit status `tech_debt`, no critical blockers — see `milestones/v5.0-MILESTONE-AUDIT.md`. Carry-forward items tracked above.
-
-**v6.0 started (2026-04-18):** Data Enrichment & Personalized Advisory. Architecture locks Option A: ingestion layer → context packets → swarm → orchestrator (holdings-aware). Swarm remains uncontaminated by portfolio data.
-
 **After each phase transition** (via `/gsd:transition`):
 1. Requirements invalidated? → Move to Out of Scope with reason
 2. Requirements validated? → Move to Validated with phase reference
@@ -153,4 +130,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-18 — v6.0 Data Enrichment & Personalized Advisory milestone started*
+*Last updated: 2026-04-16 — Phase 35.1 complete: shock-injection-wiring*

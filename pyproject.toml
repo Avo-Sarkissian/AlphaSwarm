@@ -26,6 +26,9 @@ dev = [
     "pytest-cov>=6.0",
     "ruff",
     "mypy",
+    "import-linter==2.11",
+    "pytest-socket==0.7.0",
+    "hypothesis==6.152.1",
 ]
 
 [project.scripts]
