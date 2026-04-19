@@ -616,3 +616,92 @@ async def test_dispatch_wave_peer_contexts_none_falls_back_to_scalar(
 
     # All agents should have received the scalar peer_context
     assert all(c == "shared_context" for c in received_contexts)
+
+
+# ---------------------------------------------------------------------------
+# Phase 40 Plan 01: market_context plumbing tests (D-07 — same scalar for all)
+# ---------------------------------------------------------------------------
+
+
+async def test_dispatch_wave_forwards_market_context(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """Phase 40 D-07: dispatch_wave forwards the same market_context scalar to every agent."""
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    received_market_contexts: list[str | None] = []
+
+    async def mock_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
+        received_market_contexts.append(market_context)
+        return AgentDecision(signal=SignalType.BUY, confidence=0.8)
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_worker = AsyncMock()
+        mock_worker.infer = mock_infer
+        mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        client = _make_mock_client()
+        settings = GovernorSettings(baseline_parallel=16)
+
+        with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+            results = await dispatch_wave(
+                personas=sample_personas,
+                governor=governor,
+                client=client,
+                model="test-model",
+                user_message="test",
+                settings=settings,
+                market_context="SHARED_MKT",
+            )
+
+    assert len(results) == 4
+    # D-07: every agent gets the exact same market_context scalar
+    assert len(received_market_contexts) == 4
+    assert all(c == "SHARED_MKT" for c in received_market_contexts)
+
+
+async def test_dispatch_wave_market_context_default_none(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """When market_context kwarg is omitted, dispatch_wave forwards None to every agent (backward compat)."""
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    received_market_contexts: list[str | None] = []
+
+    async def mock_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
+        received_market_contexts.append(market_context)
+        return AgentDecision(signal=SignalType.BUY, confidence=0.8)
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_worker = AsyncMock()
+        mock_worker.infer = mock_infer
+        mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        client = _make_mock_client()
+        settings = GovernorSettings(baseline_parallel=16)
+
+        with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+            results = await dispatch_wave(
+                personas=sample_personas,
+                governor=governor,
+                client=client,
+                model="test-model",
+                user_message="test",
+                settings=settings,
+            )
+
+    assert len(results) == 4
+    assert len(received_market_contexts) == 4
+    assert all(c is None for c in received_market_contexts)

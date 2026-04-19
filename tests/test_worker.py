@@ -165,3 +165,35 @@ async def test_infer_with_peer_context(
     messages = call_kwargs.get("messages")
     assert len(messages) == 3
     assert "Peer context" in messages[1]["content"]
+
+
+async def test_infer_with_market_context(
+    sample_persona: WorkerPersonaConfig,
+    mock_ollama_client: MagicMock,
+) -> None:
+    """Phase 40 D-04: market_context injected as system msg before user msg."""
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
+    async with agent_worker(sample_persona, governor, mock_ollama_client) as worker:
+        await worker.infer(user_message="test", market_context="Market context body")
+    call_kwargs = mock_ollama_client.chat.call_args.kwargs
+    messages = call_kwargs.get("messages")
+    assert len(messages) == 3
+    assert messages[1]["role"] == "system"
+    assert messages[1]["content"] == "Market context:\nMarket context body"
+    assert messages[2]["role"] == "user"
+    assert messages[2]["content"] == "test"
+
+
+async def test_infer_with_market_and_peer_context(
+    sample_persona: WorkerPersonaConfig,
+    mock_ollama_client: MagicMock,
+) -> None:
+    """Phase 40 D-04: market_context comes before peer_context when both present."""
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
+    async with agent_worker(sample_persona, governor, mock_ollama_client) as worker:
+        await worker.infer(user_message="test", market_context="MKT", peer_context="PEER")
+    messages = mock_ollama_client.chat.call_args.kwargs.get("messages")
+    assert len(messages) == 4
+    assert messages[1]["content"] == "Market context:\nMKT"
+    assert messages[2]["content"] == "Peer context:\nPEER"
+    assert messages[3]["content"] == "test"

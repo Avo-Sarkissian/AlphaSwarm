@@ -2672,3 +2672,70 @@ async def test_run_simulation_default_consume_shock_is_none(
     for call in mock_dispatch_wave.await_args_list:
         assert call.kwargs["user_message"] == MOCK_RUMOR
     mock_graph_manager.write_shock_event.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Phase 40 Plan 01: market_context plumbing into run_round1 (D-06 — Round 1 only)
+# ---------------------------------------------------------------------------
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_market_context_round1_only(
+    mock_inject: AsyncMock,
+    mock_dispatch: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Phase 40 D-06: run_round1 forwards market_context kwarg to dispatch_wave."""
+    from alphaswarm.simulation import run_round1
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_round1(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        market_context="ROUND1_MKT",
+        pre_injected=("test-cycle-id", MOCK_PARSED_RESULT),
+    )
+
+    assert mock_dispatch.call_args.kwargs["market_context"] == "ROUND1_MKT"
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_round1_market_context_default_none(
+    mock_inject: AsyncMock,
+    mock_dispatch: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Calling run_round1 without market_context kwarg passes None to dispatch_wave (backward compat)."""
+    from alphaswarm.simulation import run_round1
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_round1(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+    )
+
+    assert mock_dispatch.call_args.kwargs["market_context"] is None
