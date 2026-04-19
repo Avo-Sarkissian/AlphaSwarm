@@ -48,7 +48,8 @@ created: 2026-04-19
 | 40-03-01 | 03 | 2 | INGEST-03 | ISOL-04 | ContextPacket logged without PII redaction kicking in | unit | `uv run pytest tests/test_logging.py::test_context_packet_not_redacted -x` | ❌ W0 | ⬜ pending |
 | 40-03-02 | 03 | 2 | — | — | lifespan constructs providers; sim_manager forwards them | integration | `uv run pytest tests/test_web.py::test_lifespan_wires_providers -x` | ❌ W0 | ⬜ pending |
 | 40-03-03 | 03 | 2 | — | — | cli._run_pipeline constructs providers before calling run_simulation | unit | `uv run pytest tests/test_cli.py::test_run_pipeline_constructs_providers -x` | ❌ W0 | ⬜ pending |
-| 40-03-04 | 03 | 2 | INGEST-03, SIM-04 | — | End-to-end: FakeMarketDataProvider + FakeNewsProvider → run_simulation → worker receives fixture data | integration (no network) | `uv run pytest tests/test_simulation.py::test_run_simulation_end_to_end_with_fake_providers -x` | ❌ W0 | ⬜ pending |
+| 40-03-04a | 03 | 2 | INGEST-03, SIM-04 | — | Forwarding: run_simulation→run_round1 receives formatted market_context string from fake providers | integration (no network) | `uv run pytest tests/test_simulation.py::test_run_simulation_forwards_market_context_to_run_round1 -x` | ❌ W0 | ⬜ pending |
+| 40-03-04b | 03 | 2 | INGEST-03, SIM-04 | — | Dispatch-depth: run_round1→dispatch_wave→AgentWorker.infer messages contain market_context system message at correct index | integration (no network) | `uv run pytest tests/test_simulation.py::test_run_simulation_through_dispatch_wave -x` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
