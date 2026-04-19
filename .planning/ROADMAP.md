@@ -74,7 +74,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 37: Isolation Foundation + Provider Scaffolding** - Frozen type contracts, provider protocols + fakes, PII redaction, socket gate, importlinter holdings isolation (completed 2026-04-18)
 - [x] **Phase 38: Market Data + News Providers** - Real `MarketDataProvider` (yfinance) and `NewsProvider` (RSS/newsapi) implementations with integration tests (completed 2026-04-18)
-- [ ] **Phase 39: Holdings Loader** - `HoldingsLoader` reads Schwab CSV into `PortfolioSnapshot` with HOLD-02 account number hashing; `GET /api/holdings` REST endpoint
+- [x] **Phase 39: Holdings Loader** - `HoldingsLoader` reads Schwab CSV into `PortfolioSnapshot` with HOLD-02 account number hashing; `GET /api/holdings` REST endpoint (completed 2026-04-19)
 - [ ] **Phase 40: Simulation Context Wiring** - Wire `ContextPacket` (entities + market + news) into simulation seed injection so agents receive grounded price/headline context
 - [ ] **Phase 41: Advisory Pipeline** - `alphaswarm.advisory` synthesis: post-simulation advisory report joining holdings positions against consensus signals and market data; `GET /api/advisory/{cycle_id}` endpoint + Vue advisory panel
 
@@ -126,8 +126,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 39-01-PLAN.md -- HoldingsLoader class, CSV parser, sha256_first8 account hashing, unit tests
-- [ ] 39-02-PLAN.md -- GET /api/holdings route, lifespan loader wiring, isolation canary activation, integration test
+- [x] 39-01-PLAN.md -- HoldingsLoader class, CSV parser, sha256_first8 account hashing, unit tests
+- [x] 39-02-PLAN.md -- GET /api/holdings route, lifespan loader wiring, isolation canary activation, integration test
 
 ### Phase 40: Simulation Context Wiring
 **Goal**: Wire `ContextPacket` (entities + market slices + news slices) into the simulation seed injection path so agents receive grounded current price and headline context alongside the seed rumor
@@ -173,6 +173,6 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40 -> 41
 | 29–36. v5.0 Web UI | v5.0 | ✓ | Complete | 2026-04-18 |
 | 37. Isolation Foundation + Provider Scaffolding | v6.0 | 4/4 | Complete | 2026-04-18 |
 | 38. Market Data + News Providers | v6.0 | 3/3 | Complete    | 2026-04-18 |
-| 39. Holdings Loader | v6.0 | 0/2 | Not started | — |
+| 39. Holdings Loader | v6.0 | 2/2 | Complete    | 2026-04-19 |
 | 40. Simulation Context Wiring | v6.0 | 0/2 | Not started | — |
 | 41. Advisory Pipeline | v6.0 | 0/3 | Not started | — |
