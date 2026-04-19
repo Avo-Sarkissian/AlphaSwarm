@@ -112,3 +112,11 @@ source_modules = [
     "alphaswarm.web.routes.websocket",
 ]
 forbidden_modules = ["alphaswarm.holdings"]
+# D-04 whitelist: alphaswarm.web.routes.holdings is the ONE permitted importer.
+# alphaswarm.web.routes is listed in source_modules above (covers its submodules),
+# but this route is intentionally exempted via ignore_imports so it can import
+# alphaswarm.holdings and alphaswarm.holdings.loader at module scope.
+ignore_imports = [
+    "alphaswarm.web.routes.holdings -> alphaswarm.holdings",
+    "alphaswarm.web.routes.holdings -> alphaswarm.holdings.loader",
+]
