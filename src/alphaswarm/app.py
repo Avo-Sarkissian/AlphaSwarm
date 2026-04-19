@@ -20,6 +20,8 @@ from alphaswarm.types import AgentPersona
 if TYPE_CHECKING:
     from neo4j import AsyncDriver
 
+    from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
+
 
 @dataclass
 class AppState:
@@ -38,6 +40,8 @@ class AppState:
     ollama_client: OllamaClient | None = None  # Wired in Phase 2, None if offline
     model_manager: OllamaModelManager | None = None  # Wired in Phase 2, None if offline
     graph_manager: GraphStateManager | None = None  # Wired in Phase 4, None if offline
+    market_provider: MarketDataProvider | None = None  # Phase 40 D-10
+    news_provider: NewsProvider | None = None  # Phase 40 D-10
 
 
 def create_app_state(
@@ -117,4 +121,6 @@ def create_app_state(
         ollama_client=ollama_client,
         model_manager=model_manager,
         graph_manager=graph_manager,
+        market_provider=None,  # Phase 40 D-10 — caller wires post-construction
+        news_provider=None,  # Phase 40 D-10 — caller wires post-construction
     )

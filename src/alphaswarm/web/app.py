@@ -13,6 +13,7 @@ from starlette.staticfiles import StaticFiles
 
 from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.routes.edges import router as edges_router
@@ -76,6 +77,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Codex MEDIUM). On None, GET /api/holdings surfaces 503 while the
     # broadcaster below still starts (D-08 success criterion 4).
     app.state.portfolio_snapshot = await asyncio.to_thread(load_portfolio_snapshot, settings.holdings_csv_path)  # noqa: E501
+
+    # Phase 40 D-10: construct Yahoo Finance + RSS providers once at startup.
+    # Both __init__ methods are synchronous and do no network I/O (lazy fetch).
+    # Providers are stored on BOTH app.state (request-handler convenience) and
+    # app_state (subsystem convenience for SimulationManager) — same instance.
+    market_provider = YFinanceMarketDataProvider()
+    news_provider = RSSNewsProvider()
+    app.state.market_provider = market_provider
+    app.state.news_provider = news_provider
+    app_state.market_provider = market_provider
+    app_state.news_provider = news_provider
+    log.info("providers_wired", market="yfinance", news="rss")
 
     # Object identity: start_broadcaster receives the same `connection_manager` stored on
     # app.state.connection_manager above. ws_state reads websocket.app.state.connection_manager

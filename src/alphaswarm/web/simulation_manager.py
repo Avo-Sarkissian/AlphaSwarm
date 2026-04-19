@@ -130,6 +130,8 @@ class SimulationManager:
                 brackets=list(self._brackets),
                 state_store=self._app_state.state_store,
                 consume_shock=self.consume_shock,
+                market_provider=self._app_state.market_provider,
+                news_provider=self._app_state.news_provider,
             )
             # B10: do NOT set COMPLETE here — simulation.py:1109 is the single
             # source of truth and sets it before this await returns.

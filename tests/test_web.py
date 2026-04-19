@@ -35,6 +35,7 @@ def _make_test_app() -> FastAPI:
 
     from alphaswarm.app import create_app_state
     from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+    from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
     from alphaswarm.web.connection_manager import ConnectionManager
     from alphaswarm.web.replay_manager import ReplayManager
     from alphaswarm.web.routes.edges import router as edges_router
@@ -69,6 +70,16 @@ def _make_test_app() -> FastAPI:
         app.state.report_task = None
         # Phase 36 T-36-15: per-cycle error capture from background task done_callback.
         app.state.report_generation_error = {}
+
+        # Phase 40 D-10: mirror production provider wiring in the isolated test lifespan.
+        # Construction is synchronous and does no network I/O — preserves with_ollama=False,
+        # with_neo4j=False isolation posture.
+        market_provider = YFinanceMarketDataProvider()
+        news_provider = RSSNewsProvider()
+        app.state.market_provider = market_provider
+        app.state.news_provider = news_provider
+        app_state.market_provider = market_provider
+        app_state.news_provider = news_provider
 
         yield
 
@@ -120,6 +131,27 @@ def test_lifespan_creates_objects_inside_loop() -> None:
         assert client.app.state.connection_manager is not None
         assert client.app.state.app_state.state_store is not None
         assert client.app.state.app_state.governor is not None
+
+
+def test_lifespan_wires_providers() -> None:
+    """Phase 40 D-10: lifespan constructs YFinance + RSS providers on app.state,
+    mirrored onto app_state for SimulationManager consumption.
+
+    Uses the isolated _make_test_app() helper (AppSettings(_env_file=None),
+    with_ollama=False, with_neo4j=False) per REVIEWS feedback — production
+    create_app() would pull in .env/Neo4j/Ollama side effects that break
+    the existing test isolation pattern.
+    """
+    from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
+
+    with TestClient(_make_test_app()) as client:
+        # Inside `with`: lifespan startup has completed.
+        assert isinstance(client.app.state.market_provider, YFinanceMarketDataProvider)
+        assert isinstance(client.app.state.news_provider, RSSNewsProvider)
+        # Identity: app_state mirrors app.state (same object, not copies).
+        # This is the contract SimulationManager._run depends on.
+        assert client.app.state.app_state.market_provider is client.app.state.market_provider
+        assert client.app.state.app_state.news_provider is client.app.state.news_provider
 
 
 # ---------------------------------------------------------------------------
