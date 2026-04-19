@@ -128,4 +128,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-18 — v5.0 Web UI milestone closed; v6.0 Real Data + Advisory active (Phase 37 complete, Phase 38 next)*
+*Last updated: 2026-04-19 — Phase 39 complete (HoldingsLoader + GET /api/holdings). Phase 40 next: simulation-context-wiring.*
