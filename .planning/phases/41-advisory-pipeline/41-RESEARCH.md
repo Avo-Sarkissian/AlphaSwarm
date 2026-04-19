@@ -503,7 +503,7 @@ async def _advisory_harness_body(
 | A5 | The ISOL-07 canary can run as async test under `asyncio_mode = "auto"` without additional pytest markers. | Runtime State Inventory, Example D | Verified: `[tool.pytest.ini_options] asyncio_mode = "auto"` [VERIFIED: pyproject.toml:51] — async tests need no `@pytest.mark.asyncio` decorator. The canary file already imports `pytest` and uses `pytestmark = pytest.mark.enable_socket` — planner must preserve that marker when replacing `_minimal_simulation_body`. |
 | A6 | `alphaswarm.advisory` does NOT need to be added to importlinter `source_modules`, because `source_modules` enumerates modules forbidden to import `alphaswarm.holdings`. Since advisory IS permitted, it is correctly absent from that list. `alphaswarm.web.routes.advisory` SHOULD be added to `source_modules` because, like every other `web.routes.*`, it is forbidden from importing holdings directly (it imports `alphaswarm.advisory` instead). | Pattern 5 / Pitfall 8 | [VERIFIED: pyproject.toml:68-114 lists `alphaswarm.web.routes.*` submodules individually for each existing route; Phase 41 must add `alphaswarm.web.routes.advisory` to that list.] |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should Plan 41-01 store `market_context_tickers` on `app_state` (requires Phase 40 touch) or accept D-02/D-03 fallback?**
    - What we know: Phase 40 computes `tickers` locally; it is not persisted.
