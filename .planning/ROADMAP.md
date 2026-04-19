@@ -138,11 +138,12 @@ Plans:
   2. `ContextPacket` is assembled by the orchestrator before simulation via `MarketDataProvider.fetch_batch` + `NewsProvider.fetch_headlines` on extracted entities
   3. Context packet contents are scrubbed by the PII redaction processor before reaching logs or Neo4j (Phase 37 ISOL-04)
   4. Simulation runs correctly with `context_packet=None` (backward-compatible default)
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 40-01-PLAN.md -- ContextPacket assembly in orchestrator, run_simulation context_packet param, prompt injection, unit tests
-- [x] 40-02-PLAN.md -- Integration test: full simulation run with real ContextPacket from Phase 38 providers (completed 2026-04-18)
+- [ ] 40-01-PLAN.md -- Thread market_context plumbing through worker.infer, dispatch_wave, run_round1 (SIM-04 signature half); Wave 0 unit tests
+- [ ] 40-02-PLAN.md -- format_market_context pure formatter + ContextPacket assembly inside run_simulation via asyncio.gather + ISOL-04 canary (INGEST-03, SIM-04)
+- [ ] 40-03-PLAN.md -- FastAPI lifespan + CLI inline provider wiring (D-10, D-11); AppState extension; end-to-end integration test with Fake providers
 
 ### Phase 41: Advisory Pipeline
 **Goal**: After simulation completes, synthesize a personalized advisory by joining the agent consensus signals against the user's `PortfolioSnapshot` holdings and current market data — surfacing which positions are most affected by the simulated market reaction
@@ -174,5 +175,5 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40 -> 41
 | 37. Isolation Foundation + Provider Scaffolding | v6.0 | 4/4 | Complete | 2026-04-18 |
 | 38. Market Data + News Providers | v6.0 | 3/3 | Complete    | 2026-04-18 |
 | 39. Holdings Loader | v6.0 | 2/2 | Complete    | 2026-04-19 |
-| 40. Simulation Context Wiring | v6.0 | 0/2 | Not started | — |
+| 40. Simulation Context Wiring | v6.0 | 0/3 | Not started | — |
 | 41. Advisory Pipeline | v6.0 | 0/3 | Not started | — |
