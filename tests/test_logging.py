@@ -79,3 +79,16 @@ def test_log_level_filtering(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert "should not appear" not in captured.out
     assert "should appear" in captured.out
+
+
+def test_context_packet_fields_not_in_pii_redaction_set() -> None:
+    """Phase 40 ISOL-04 canary: ContextPacket field names must NOT be in the PII
+    redaction set. If a future maintainer adds 'market', 'news', or 'entities'
+    to _LITERAL_NORMALIZED, ContextPacket log events would be silently corrupted
+    and integration tests that assert 'market' key presence would start failing.
+    """
+    from alphaswarm.logging import _LITERAL_NORMALIZED
+
+    assert "market" not in _LITERAL_NORMALIZED
+    assert "news" not in _LITERAL_NORMALIZED
+    assert "entities" not in _LITERAL_NORMALIZED
