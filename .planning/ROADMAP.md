@@ -75,7 +75,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 37: Isolation Foundation + Provider Scaffolding** - Frozen type contracts, provider protocols + fakes, PII redaction, socket gate, importlinter holdings isolation (completed 2026-04-18)
 - [x] **Phase 38: Market Data + News Providers** - Real `MarketDataProvider` (yfinance) and `NewsProvider` (RSS/newsapi) implementations with integration tests (completed 2026-04-18)
 - [x] **Phase 39: Holdings Loader** - `HoldingsLoader` reads Schwab CSV into `PortfolioSnapshot` with HOLD-02 account number hashing; `GET /api/holdings` REST endpoint (completed 2026-04-19)
-- [ ] **Phase 40: Simulation Context Wiring** - Wire `ContextPacket` (entities + market + news) into simulation seed injection so agents receive grounded price/headline context
+- [x] **Phase 40: Simulation Context Wiring** - Wire `ContextPacket` (entities + market + news) into simulation seed injection so agents receive grounded price/headline context (completed 2026-04-19)
 - [ ] **Phase 41: Advisory Pipeline** - `alphaswarm.advisory` synthesis: post-simulation advisory report joining holdings positions against consensus signals and market data; `GET /api/advisory/{cycle_id}` endpoint + Vue advisory panel
 
 ## Phase Details
@@ -141,9 +141,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 40-01-PLAN.md -- Thread market_context plumbing through worker.infer, dispatch_wave, run_round1 (SIM-04 signature half); Wave 0 unit tests
-- [ ] 40-02-PLAN.md -- format_market_context pure formatter + ContextPacket assembly inside run_simulation via asyncio.gather + ISOL-04 canary (INGEST-03, SIM-04)
-- [ ] 40-03-PLAN.md -- FastAPI lifespan + CLI inline provider wiring (D-10, D-11); AppState extension; end-to-end integration test with Fake providers
+- [x] 40-01-PLAN.md -- Thread market_context plumbing through worker.infer, dispatch_wave, run_round1 (SIM-04 signature half); Wave 0 unit tests
+- [x] 40-02-PLAN.md -- format_market_context pure formatter + ContextPacket assembly inside run_simulation via asyncio.gather + ISOL-04 canary (INGEST-03, SIM-04)
+- [x] 40-03-PLAN.md -- FastAPI lifespan + CLI inline provider wiring (D-10, D-11); AppState extension; end-to-end integration test with Fake providers
 
 ### Phase 41: Advisory Pipeline
 **Goal**: After simulation completes, synthesize a personalized advisory by joining the agent consensus signals against the user's `PortfolioSnapshot` holdings and current market data — surfacing which positions are most affected by the simulated market reaction
@@ -175,5 +175,5 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40 -> 41
 | 37. Isolation Foundation + Provider Scaffolding | v6.0 | 4/4 | Complete | 2026-04-18 |
 | 38. Market Data + News Providers | v6.0 | 3/3 | Complete    | 2026-04-18 |
 | 39. Holdings Loader | v6.0 | 2/2 | Complete    | 2026-04-19 |
-| 40. Simulation Context Wiring | v6.0 | 0/3 | Not started | — |
+| 40. Simulation Context Wiring | v6.0 | 3/3 | Complete   | 2026-04-19 |
 | 41. Advisory Pipeline | v6.0 | 0/3 | Not started | — |
