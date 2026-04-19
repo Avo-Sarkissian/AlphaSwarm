@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unicodedata
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
@@ -87,6 +88,11 @@ class AppSettings(BaseSettings):
     ollama: OllamaSettings = OllamaSettings()
     neo4j: Neo4jSettings = Neo4jSettings()
     governor: GovernorSettings = GovernorSettings()
+
+    # Phase 39 HOLD-01/HOLD-03, D-05: CSV path for HoldingsLoader, eager-loaded at lifespan startup.
+    # env_prefix="ALPHASWARM_" maps this flat field to env var ALPHASWARM_HOLDINGS_CSV_PATH.
+    # pydantic-settings v2 coerces string env values to pathlib.Path automatically.
+    holdings_csv_path: Path = Path("Schwab/holdings.csv")
 
 
 # ---------------------------------------------------------------------------
