@@ -432,6 +432,7 @@ async def run_round1(
     *,
     state_store: StateStore | None = None,
     pre_injected: tuple[str, ParsedSeedResult] | None = None,
+    market_context: str | None = None,
 ) -> Round1Result:
     """Execute the Round 1 simulation pipeline.
 
@@ -457,6 +458,10 @@ async def run_round1(
         pre_injected: Optional (cycle_id, parsed_result) when seed injection
             was already performed by the caller (e.g., run_simulation for Phase 13
             modifier generation). Skips inject_seed when provided.
+        market_context: Optional grounded market data block injected as a system
+            message in Round 1 agent prompts per Phase 40 D-04, D-06. Forwarded
+            to dispatch_wave. When None, behavior is identical to pre-Phase-40
+            (rumor-only prompts).
 
     Returns:
         Round1Result with cycle_id, parsed_result, and agent_decisions.
@@ -501,6 +506,7 @@ async def run_round1(
                 user_message=rumor,
                 settings=settings.governor,
                 peer_context=None,
+                market_context=market_context,
                 state_store=state_store,
             )
 

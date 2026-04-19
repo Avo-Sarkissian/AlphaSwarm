@@ -214,7 +214,7 @@ async def test_partial_failure_produces_parse_error(
 
     call_count = 0
 
-    async def mock_infer(user_message: str, peer_context: str | None = None) -> AgentDecision:
+    async def mock_infer(user_message: str, peer_context: str | None = None, market_context: str | None = None) -> AgentDecision:
         nonlocal call_count
         call_count += 1
         if call_count == 2:
@@ -268,7 +268,7 @@ async def test_high_failure_rate_calls_report_wave_failures(
 
     call_idx = 0
 
-    async def mock_infer(user_message: str, peer_context: str | None = None) -> AgentDecision:
+    async def mock_infer(user_message: str, peer_context: str | None = None, market_context: str | None = None) -> AgentDecision:
         nonlocal call_idx
         call_idx += 1
         if call_idx <= 3:
@@ -314,7 +314,7 @@ async def test_low_failure_rate_does_not_call_report(
 
     call_idx = 0
 
-    async def mock_infer(user_message: str, peer_context: str | None = None) -> AgentDecision:
+    async def mock_infer(user_message: str, peer_context: str | None = None, market_context: str | None = None) -> AgentDecision:
         nonlocal call_idx
         call_idx += 1
         if call_idx == 1:
@@ -449,6 +449,7 @@ async def test_cancelled_error_propagates(
                 model="test-model",
                 user_message="test",
                 peer_context=None,
+                market_context=None,
                 jitter_min=0.5,
                 jitter_max=1.5,
             )
@@ -489,6 +490,7 @@ async def test_keyboard_interrupt_propagates(
                 model="test-model",
                 user_message="test",
                 peer_context=None,
+                market_context=None,
                 jitter_min=0.5,
                 jitter_max=1.5,
             )
@@ -527,7 +529,7 @@ async def test_dispatch_wave_per_agent_peer_contexts(
 
     received_contexts: list[str | None] = []
 
-    async def mock_infer(user_message: str, peer_context: str | None = None) -> AgentDecision:
+    async def mock_infer(user_message: str, peer_context: str | None = None, market_context: str | None = None) -> AgentDecision:
         received_contexts.append(peer_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
@@ -589,7 +591,7 @@ async def test_dispatch_wave_peer_contexts_none_falls_back_to_scalar(
 
     received_contexts: list[str | None] = []
 
-    async def mock_infer(user_message: str, peer_context: str | None = None) -> AgentDecision:
+    async def mock_infer(user_message: str, peer_context: str | None = None, market_context: str | None = None) -> AgentDecision:
         received_contexts.append(peer_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 

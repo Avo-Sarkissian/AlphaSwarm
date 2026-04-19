@@ -43,6 +43,7 @@ async def _safe_agent_inference(
     model: str,
     user_message: str,
     peer_context: str | None,
+    market_context: str | None,
     jitter_min: float,
     jitter_max: float,
     state_store: StateStore | None = None,
@@ -65,7 +66,11 @@ async def _safe_agent_inference(
     try:
         await asyncio.sleep(random.uniform(jitter_min, jitter_max))
         async with agent_worker(persona, governor, client, model, state_store=state_store) as worker:
-            return await worker.infer(user_message=user_message, peer_context=peer_context)
+            return await worker.infer(
+                user_message=user_message,
+                peer_context=peer_context,
+                market_context=market_context,
+            )
     except (asyncio.CancelledError, KeyboardInterrupt, GovernorCrisisError):
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
     except Exception as e:
@@ -88,6 +93,7 @@ async def dispatch_wave(
     *,
     peer_context: str | None = None,
     peer_contexts: list[str | None] | None = None,
+    market_context: str | None = None,
     state_store: StateStore | None = None,
 ) -> list[AgentDecision]:
     """Dispatch a wave of agent inferences using asyncio.TaskGroup.
@@ -111,6 +117,9 @@ async def dispatch_wave(
         peer_contexts: Optional per-agent peer context list. When provided, must have
             same length as personas. Overrides peer_context scalar. Raises ValueError
             on length mismatch.
+        market_context: Optional grounded market context block. Applied to every
+            agent identically per Phase 40 D-07 (scalar, same block for all 100
+            agents). Round 1 only -- _dispatch_round does not accept this param.
         state_store: Optional StateStore for TPS metric collection (Phase 10, TUI-04).
             Threaded through to AgentWorker.infer() via agent_worker context manager.
 
@@ -142,6 +151,7 @@ async def dispatch_wave(
                     model,
                     user_message,
                     peer_contexts[i] if peer_contexts is not None else peer_context,
+                    market_context,
                     settings.jitter_min_seconds,
                     settings.jitter_max_seconds,
                     state_store=state_store,
