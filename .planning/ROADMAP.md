@@ -157,9 +157,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 41-01-PLAN.md -- AdvisoryItem type, synthesize() function, bracket consensus join logic, unit tests
-- [ ] 41-02-PLAN.md -- POST /api/advisory/{cycle_id} route, lifespan wiring, canary activation (ISOL-07 flip)
-- [ ] 41-03-PLAN.md -- AdvisoryPanel.vue, ControlBar Advisory button, App.vue wiring, human verification
+- [ ] 41-01-PLAN.md — AdvisoryItem + AdvisoryReport frozen pydantic types, synthesize() with asyncio.gather prefetch + orchestrator LLM call + D-07 ranking, 8 unit tests (ADVIS-01)
+- [ ] 41-02-PLAN.md — POST/GET /api/advisory/{cycle_id} route (202+polling+done_callback pattern), app.state.advisory_task wiring, importlinter whitelist, 12 route unit tests, ISOL-07 canary flip (ADVIS-02, ADVIS-03 canary)
+- [ ] 41-03-PLAN.md — AdvisoryPanel.vue full-screen modal with REVISION-1 dual-flag state machine, ControlBar Advisory button in isComplete block, App.vue wiring, 16-step human verification checkpoint (ADVIS-03)
 
 ## Progress
 
