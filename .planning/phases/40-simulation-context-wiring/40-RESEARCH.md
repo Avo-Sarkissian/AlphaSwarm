@@ -518,27 +518,31 @@ fake_news = FakeNewsProvider(fixtures={
 | A4 | FastAPI lifespan guarantees provider construction completes before `SimulationManager.start()` is callable [CITED: FastAPI docs — startup is awaited before serving requests] | Pitfall 6 | Low — standard FastAPI semantic, well-documented. |
 | A5 | The `^[A-Z]{1,5}$` regex from rss_provider.py:73 is the right classifier for "is this a US-listed ticker" [CITED: Phase 38 D-02, rss_provider.py:44-53 international notes] — explicitly excludes international tickers (VOD.L, 7203.T) per intentional scope | Pitfall 3 | Low — international ticker support is out of scope (Phase 38 discussion); any non-matcher gracefully routes to Google News for news and is skipped for market data. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **CONTEXT.md API naming mismatch (`fetch_batch` vs `get_prices`)**
    - What we know: CONTEXT.md D-01 and REQUIREMENTS.md INGEST-03 both say `fetch_batch` / `fetch_headlines`. Actual Protocol methods are `get_prices`, `get_fundamentals`, `get_volume`, `get_headlines`.
    - What's unclear: Was this intentional rename in Phase 38 (possible; Phase 37 drafted the Protocol names) or a documentation drift?
    - Recommendation: Planner corrects to the actual method names in plan. File a tiny follow-up doc-fix ticket if CONTEXT.md needs reconciliation (not blocking).
+   - **RESOLVED:** Plans use `market_provider.get_prices(tickers)` and `news_provider.get_headlines(entities)` throughout. Acceptance criteria in 40-01 and 40-02 assert `fetch_batch` never appears in source. CONTEXT.md D-01 naming is a documentation drift from Phase 37 — corrected in plans.
 
 2. **AppState extension vs SimulationManager constructor for providers**
    - What we know: CONTEXT.md discretion item 4 explicitly defers this — "whether providers are constructor args or read from `app_state` at `_run()` time."
    - What's unclear: Which is cleaner given the CLI path that does NOT have an AppState-centric provider-carrier. CLI would need inline construction regardless.
    - Recommendation: **Extend `AppState` dataclass** with `market_provider: MarketDataProvider | None = None` and `news_provider: NewsProvider | None = None`. CLI's `create_app_state(...)` can set these (new `with_providers: bool` kwarg or always-on). Web path's lifespan sets them post-construction. `SimulationManager._run` reads `self._app_state.market_provider` / `.news_provider` and forwards to `run_simulation`. Minimizes signature churn across both paths.
+   - **RESOLVED:** Plan 03 Task 1 extends `AppState` dataclass with `market_provider: MarketDataProvider | None = None` and `news_provider: NewsProvider | None = None`. `SimulationManager._run` reads from `app_state`. CLI constructs providers inline in `_run_pipeline` (D-11).
 
 3. **Should the entity tuple passed to ContextPacket be uppercased / normalized?**
    - What we know: `SeedEntity.name` comes from orchestrator LLM output (unconstrained case). Tickers in seed rumors may be "NVIDIA" or "nvidia" or "Nvidia" or the ticker symbol "NVDA".
    - What's unclear: Does the orchestrator already normalize? Probably not — its prompt says "extract named entities" (seed.py:24).
    - Recommendation: Do NOT normalize at Phase 40 layer. Pass entity names as-is. The `_TICKER_RE.match()` is case-sensitive (uppercase-only) — this is intentional per T-38-01 security: only strict ticker strings reach Yahoo Finance. Non-matching strings (like "NVIDIA") route through Google News via `get_headlines` only. If the orchestrator produces "NVIDIA" instead of "NVDA", no market slice; news slice only. Acceptable degradation until v7.0 if users notice.
+   - **RESOLVED:** Plans pass entity names as-is. `_TICKER_RE = re.compile(r"^[A-Z]{1,5}$")` filters for market only; all entities pass to `get_headlines`. No normalization at Phase 40 layer.
 
 4. **Does `_format_market_context` need a budget cap like `_format_peer_context`?**
    - What we know: `_format_peer_context` (simulation.py:314-361) caps at 4000 chars; top 10 posts. No such cap exists for market context in CONTEXT.md.
    - What's unclear: How long does a well-populated 5-entity × 5-headline block get? Rough estimate: 5 entities × (50 chars price + 60 chars fundamentals + 5 × 100 chars headline) ≈ 3000 chars. Should be fine for typical M1 model context windows but SHOCK_TEXT_MAX_LEN=4096 is the project's existing budget cap convention.
    - Recommendation: Add an optional `budget: int = 4000` param to `_format_market_context` matching the peer formatter's style. Greedy-fill with entity blocks; drop later entities if they would overflow. Keeps prompt budget predictable under unusual seeds (e.g., 20-entity geopolitical rumor).
+   - **RESOLVED:** Plan 02 Task 1 implements `format_market_context(packet, budget=4000)` with greedy-fill: entity blocks are appended while cumulative length stays under budget; the first block that would overflow is dropped along with all subsequent blocks.
 
 ## Environment Availability
 
