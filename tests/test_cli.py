@@ -1043,3 +1043,59 @@ def test_replay_subcommand_default_cycle() -> None:
     args = parser.parse_args(["replay"])
     assert args.command == "replay"
     assert args.cycle is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 40 Plan 03 Task 2: CLI provider construction (D-11)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_constructs_providers() -> None:
+    """Phase 40 D-11: CLI _run_pipeline constructs real YFinance+RSS providers
+    and forwards them to run_simulation as kwargs.
+
+    Patches `alphaswarm.simulation.run_simulation` (not `alphaswarm.cli`) because
+    _run_pipeline performs a function-local `from alphaswarm.simulation import
+    run_simulation` — the source module is the correct patch target. Mirrors the
+    established pattern in test_run_pipeline_calls_run_simulation_with_callback.
+    """
+    from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
+    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+
+    # Minimal AppState surface — _run_pipeline only reads these attributes.
+    mock_app = MagicMock()
+    mock_app.graph_manager = AsyncMock()
+    mock_app.ollama_client = MagicMock()
+    mock_app.model_manager = AsyncMock()
+    mock_app.governor = AsyncMock()
+
+    mock_settings = MagicMock()
+
+    # Minimal SimulationResult so the post-return _print_simulation_summary path
+    # (which accesses .round2_shifts, .round3_shifts, .round3_decisions, etc.)
+    # does not explode.
+    empty_shifts = ShiftMetrics(
+        signal_transitions=(), total_flips=0,
+        bracket_confidence_delta=(), agents_shifted=0,
+    )
+    mock_result = MagicMock(spec=SimulationResult)
+    mock_result.round2_shifts = empty_shifts
+    mock_result.round3_shifts = empty_shifts
+    mock_result.round3_decisions = ()
+    mock_result.round3_summaries = ()
+    mock_result.cycle_id = "test-cycle"
+
+    mock_sim = AsyncMock(return_value=mock_result)
+
+    with patch("alphaswarm.simulation.run_simulation", mock_sim):
+        from alphaswarm.cli import _run_pipeline
+
+        await _run_pipeline("test rumor", mock_settings, mock_app, _TEST_PERSONAS, _TEST_BRACKETS)
+
+    assert mock_sim.called
+    kwargs = mock_sim.call_args.kwargs
+    assert "market_provider" in kwargs
+    assert "news_provider" in kwargs
+    assert isinstance(kwargs["market_provider"], YFinanceMarketDataProvider)
+    assert isinstance(kwargs["news_provider"], RSSNewsProvider)

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 import structlog
 
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
@@ -498,6 +499,11 @@ async def _run_pipeline(
         # Create callback for progressive per-round output
         handler = _make_round_complete_handler(personas, brackets)
 
+        # Phase 40 D-11: CLI users get the same grounded context as web users.
+        # Stateless construction — no async init needed.
+        market_provider = YFinanceMarketDataProvider()
+        news_provider = RSSNewsProvider()
+
         result = await run_simulation(
             rumor=rumor,
             settings=settings,
@@ -509,6 +515,8 @@ async def _run_pipeline(
             brackets=brackets,
             on_round_complete=handler,
             state_store=app.state_store,
+            market_provider=market_provider,
+            news_provider=news_provider,
         )
 
         # Final summary (only this prints AFTER run_simulation returns)

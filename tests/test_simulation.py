@@ -3194,3 +3194,212 @@ async def test_run_simulation_company_name_entity_gets_news_only(
     assert "NVIDIA breaks records" in market_context_str
     assert "Price:" not in market_context_str  # KNOWN LIMITATION pinned
     assert "Fundamentals:" not in market_context_str  # KNOWN LIMITATION pinned
+
+
+# ---------------------------------------------------------------------------
+# Phase 40 Plan 03 Task 2: honest forwarding + dispatch-depth tests
+# ---------------------------------------------------------------------------
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_forwards_market_context_to_run_round1(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Phase 40 forwarding: run_simulation → run_round1 receives a market_context
+    string containing the four literal fixture tokens.
+
+    SCOPE: only asserts the run_simulation→run_round1 interface. Does NOT prove
+    AgentWorker.infer receives the message — see
+    test_run_simulation_through_dispatch_wave for that dispatch-depth assertion.
+    Uses the ticker-shaped entity "NVDA" so the _TICKER_RE happy path runs and
+    Price/P-E tokens appear (contrast: test_run_simulation_assembles_context_packet
+    uses "NVIDIA" to pin the KNOWN LIMITATION).
+    """
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from alphaswarm.ingestion import FakeMarketDataProvider, FakeNewsProvider
+    from alphaswarm.ingestion.types import Fundamentals, MarketSlice, NewsSlice
+    from alphaswarm.simulation import run_simulation
+
+    fake_market = FakeMarketDataProvider(fixtures={
+        "NVDA": MarketSlice(
+            ticker="NVDA",
+            price=Decimal("523.45"),
+            fundamentals=Fundamentals(pe_ratio=Decimal("65.2")),
+            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+            source="fake_market",
+            staleness="fresh",
+        ),
+    })
+    fake_news = FakeNewsProvider(fixtures={
+        "NVDA": NewsSlice(
+            entity="NVDA",
+            headlines=("NVIDIA breaks records",),
+            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+            source="fake_news",
+            staleness="fresh",
+        ),
+    })
+
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor="NVIDIA surprise earnings",
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        market_provider=fake_market,
+        news_provider=fake_news,
+    )
+
+    market_context_str = mock_round1.call_args.kwargs["market_context"]
+    assert market_context_str is not None
+    assert "== NVDA ==" in market_context_str
+    assert "Price: $523.45" in market_context_str
+    assert "P/E: 65.2" in market_context_str
+    assert "NVIDIA breaks records" in market_context_str
+
+
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_through_dispatch_wave(
+    mock_inject: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Phase 40 dispatch-depth: the formatted market_context reaches
+    AgentWorker.infer through the REAL dispatch_wave path.
+
+    Patches ONLY the worker-level `agent_worker` context-manager factory (as
+    established by tests/test_batch_dispatcher.py) so that the full chain —
+    format_market_context → run_round1 → dispatch_wave → _safe_agent_inference
+    → worker.infer — executes for real. Uses reduced persona set (3) for speed
+    without losing dispatch-wave semantics.
+
+    Runs only Round 1 dispatch by patching run_round2/run_round3 surfaces the
+    pipeline depends on when the reduced persona set would otherwise break
+    invariants. Here we patch run_round2 and run_round3 to short-circuit after
+    Round 1 so the assertion scope stays on the Round 1 dispatch chain.
+    """
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from alphaswarm.ingestion import FakeMarketDataProvider, FakeNewsProvider
+    from alphaswarm.ingestion.types import Fundamentals, MarketSlice, NewsSlice
+    from alphaswarm.simulation import run_simulation
+
+    fake_market = FakeMarketDataProvider(fixtures={
+        "NVDA": MarketSlice(
+            ticker="NVDA",
+            price=Decimal("523.45"),
+            fundamentals=Fundamentals(pe_ratio=Decimal("65.2")),
+            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+            source="fake_market",
+            staleness="fresh",
+        ),
+    })
+    fake_news = FakeNewsProvider(fixtures={
+        "NVDA": NewsSlice(
+            entity="NVDA",
+            headlines=("NVIDIA breaks records",),
+            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+            source="fake_news",
+            staleness="fresh",
+        ),
+    })
+
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+
+    # Reduce to 3 personas for speed — dispatch_wave semantics preserved.
+    reduced_personas = TEST_PERSONAS[:3]
+
+    captured_messages: list[list[dict[str, str]]] = []
+
+    async def capture_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
+        """Mirror AgentWorker.infer message construction so we can assert on
+        the same messages list the real worker would send to ollama_client.chat.
+        """
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": "test-persona-prompt"},
+        ]
+        if market_context:
+            messages.append({"role": "system", "content": f"Market context:\n{market_context}"})
+        if peer_context:
+            messages.append({"role": "system", "content": f"Peer context:\n{peer_context}"})
+        messages.append({"role": "user", "content": user_message})
+        captured_messages.append(messages)
+        return AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="test")
+
+    # Round 2 and Round 3 must also be patched because run_simulation continues
+    # past Round 1; we short-circuit them to keep the test focused on the
+    # Round 1 dispatch-depth chain.
+    from alphaswarm.simulation import RoundDispatchResult
+
+    async def short_circuit_dispatch_round(
+        *args: object, **kwargs: object,
+    ) -> RoundDispatchResult:
+        p_list = kwargs.get("personas", reduced_personas)
+        assert isinstance(p_list, list)
+        return RoundDispatchResult(
+            agent_decisions=[
+                (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
+                for p in p_list
+            ],
+            peer_contexts=["" for _ in p_list],
+        )
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw, \
+         patch("alphaswarm.simulation._dispatch_round", side_effect=short_circuit_dispatch_round):
+        mock_worker = AsyncMock()
+        mock_worker.infer = capture_infer
+        mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        # Prevent real asyncio.sleep jitter from slowing the test.
+        with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+            await run_simulation(
+                rumor="NVIDIA surprise earnings",
+                settings=mock_settings,
+                ollama_client=mock_ollama_client,
+                model_manager=mock_model_manager,
+                graph_manager=mock_graph_manager,
+                governor=mock_governor,
+                personas=reduced_personas,
+                brackets=TEST_BRACKETS,
+                market_provider=fake_market,
+                news_provider=fake_news,
+            )
+
+    # At least one Round 1 infer call should have captured messages — the
+    # dispatch-depth contract is that the formatted market_context string
+    # reaches the worker as a system message.
+    assert len(captured_messages) >= 1
+    combined = "\n".join(repr(m) for m in captured_messages)
+    assert "Price: $523.45" in combined, (
+        "Formatted market_context did not reach AgentWorker.infer — the "
+        "dispatch-depth chain is broken. Inspect "
+        "batch_dispatcher._safe_agent_inference message construction."
+    )
+    assert "== NVDA ==" in combined

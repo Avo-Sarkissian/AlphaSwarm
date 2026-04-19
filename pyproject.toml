@@ -70,6 +70,7 @@ source_modules = [
     "alphaswarm.batch_dispatcher",
     "alphaswarm.cli",
     "alphaswarm.config",
+    "alphaswarm.context_formatter",
     "alphaswarm.errors",
     "alphaswarm.governor",
     "alphaswarm.graph",
