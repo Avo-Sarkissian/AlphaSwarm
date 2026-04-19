@@ -17,6 +17,7 @@ from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
+from alphaswarm.web.routes.holdings import load_portfolio_snapshot, router as holdings_router
 from alphaswarm.web.routes.interview import router as interview_router
 from alphaswarm.web.routes.replay import router as replay_router
 from alphaswarm.web.routes.report import router as report_router
@@ -66,6 +67,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.replay_manager = replay_manager
     app.state.connection_manager = connection_manager
 
+    # Phase 39 D-07, D-08 + CLAUDE.md Hard Constraint 1: eager-load holdings
+    # snapshot off the event loop via asyncio.to_thread. The synchronous
+    # load_portfolio_snapshot uses csv.DictReader + Path.open (blocking I/O)
+    # and catches HoldingsLoadError internally, returning None on failure.
+    # Using asyncio.to_thread keeps the lifespan compliant with the "no
+    # blocking I/O on the main event loop" hard constraint (review closure:
+    # Codex MEDIUM). On None, GET /api/holdings surfaces 503 while the
+    # broadcaster below still starts (D-08 success criterion 4).
+    app.state.portfolio_snapshot = await asyncio.to_thread(
+        load_portfolio_snapshot, settings.holdings_csv_path,
+    )
+
     # Object identity: start_broadcaster receives the same `connection_manager` stored on
     # app.state.connection_manager above. ws_state reads websocket.app.state.connection_manager
     # at request time — both paths reference the same object, ensuring broadcasts reach clients.
@@ -103,6 +116,7 @@ def create_app() -> FastAPI:
     app.include_router(edges_router, prefix="/api")
     app.include_router(replay_router, prefix="/api")
     app.include_router(interview_router, prefix="/api")
+    app.include_router(holdings_router, prefix="/api")
     app.include_router(report_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
 
