@@ -128,4 +128,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-19 — Phase 39 complete (HoldingsLoader + GET /api/holdings). Phase 40 next: simulation-context-wiring.*
+*Last updated: 2026-04-19 — Phase 40 complete (simulation-context-wiring). YFinance + RSS providers wired into FastAPI lifespan and CLI; ContextPacket assembled via asyncio.gather and formatted into Round 1 system messages for all 100 agents. INGEST-03 and SIM-04 satisfied. Phase 41 next: advisory-pipeline.*
