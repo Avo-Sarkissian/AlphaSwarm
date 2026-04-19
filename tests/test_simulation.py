@@ -2739,3 +2739,458 @@ async def test_run_round1_market_context_default_none(
     )
 
     assert mock_dispatch.call_args.kwargs["market_context"] is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 40 Plan 02 Task 2 Tests: run_simulation ContextPacket assembly
+# ---------------------------------------------------------------------------
+
+
+def _phase40_mock_parsed_result(entity_names: list[str]) -> ParsedSeedResult:
+    """Build a ParsedSeedResult with the given entity names (all EntityType.COMPANY)."""
+    return ParsedSeedResult(
+        seed_event=SeedEvent(
+            raw_rumor=MOCK_RUMOR,
+            entities=[
+                SeedEntity(
+                    name=name,
+                    type=EntityType.COMPANY,
+                    relevance=0.95,
+                    sentiment=0.6,
+                )
+                for name in entity_names
+            ],
+            overall_sentiment=0.6,
+        ),
+        parse_tier=1,
+    )
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_assembles_context_packet(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Both providers present: run_round1 receives non-None market_context with
+    price literal and headline text."""
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from alphaswarm.ingestion import FakeMarketDataProvider, FakeNewsProvider
+    from alphaswarm.ingestion.types import MarketSlice, NewsSlice
+    from alphaswarm.simulation import run_simulation
+
+    fake_market = FakeMarketDataProvider(fixtures={
+        "NVDA": MarketSlice(
+            ticker="NVDA", price=Decimal("523.45"),
+            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+            source="fake", staleness="fresh",
+        ),
+    })
+    fake_news = FakeNewsProvider(fixtures={
+        "NVDA": NewsSlice(
+            entity="NVDA", headlines=("NVDA soars",),
+            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+            source="fake", staleness="fresh",
+        ),
+    })
+
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        market_provider=fake_market,
+        news_provider=fake_news,
+    )
+
+    market_context_str = mock_round1.call_args.kwargs["market_context"]
+    assert market_context_str is not None
+    assert "== NVDA ==" in market_context_str
+    assert "$523.45" in market_context_str
+    assert "NVDA soars" in market_context_str
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_skips_context_when_market_provider_missing(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """market_provider=None, news_provider supplied → market_context=None and
+    context_assembly_skipped warning emitted."""
+    from structlog.testing import capture_logs
+
+    from alphaswarm.ingestion import FakeNewsProvider
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    with capture_logs() as cap:
+        await run_simulation(
+            rumor=MOCK_RUMOR,
+            settings=mock_settings,
+            ollama_client=mock_ollama_client,
+            model_manager=mock_model_manager,
+            graph_manager=mock_graph_manager,
+            governor=mock_governor,
+            personas=TEST_PERSONAS,
+            brackets=TEST_BRACKETS,
+            market_provider=None,
+            news_provider=FakeNewsProvider(fixtures={}),
+        )
+
+    assert mock_round1.call_args.kwargs["market_context"] is None
+    skip_events = [
+        e for e in cap
+        if e.get("event") == "context_assembly_skipped"
+        and e.get("reason") == "no_providers_configured"
+    ]
+    assert len(skip_events) == 1
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_skips_context_when_news_provider_missing(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """news_provider=None, market_provider supplied → mirror case."""
+    from structlog.testing import capture_logs
+
+    from alphaswarm.ingestion import FakeMarketDataProvider
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    with capture_logs() as cap:
+        await run_simulation(
+            rumor=MOCK_RUMOR,
+            settings=mock_settings,
+            ollama_client=mock_ollama_client,
+            model_manager=mock_model_manager,
+            graph_manager=mock_graph_manager,
+            governor=mock_governor,
+            personas=TEST_PERSONAS,
+            brackets=TEST_BRACKETS,
+            market_provider=FakeMarketDataProvider(fixtures={}),
+            news_provider=None,
+        )
+
+    assert mock_round1.call_args.kwargs["market_context"] is None
+    skip_events = [
+        e for e in cap
+        if e.get("event") == "context_assembly_skipped"
+        and e.get("reason") == "no_providers_configured"
+    ]
+    assert len(skip_events) == 1
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_skips_context_when_both_providers_missing(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Both providers=None → warning emitted and market_context=None."""
+    from structlog.testing import capture_logs
+
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    with capture_logs() as cap:
+        await run_simulation(
+            rumor=MOCK_RUMOR,
+            settings=mock_settings,
+            ollama_client=mock_ollama_client,
+            model_manager=mock_model_manager,
+            graph_manager=mock_graph_manager,
+            governor=mock_governor,
+            personas=TEST_PERSONAS,
+            brackets=TEST_BRACKETS,
+            market_provider=None,
+            news_provider=None,
+        )
+
+    assert mock_round1.call_args.kwargs["market_context"] is None
+    skip_events = [
+        e for e in cap
+        if e.get("event") == "context_assembly_skipped"
+    ]
+    assert len(skip_events) == 1
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_backward_compatible(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """SIM-04 backward compat: omit both provider kwargs entirely → sim runs,
+    run_round1 receives market_context=None."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("cid", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+    )
+
+    assert mock_round1.call_args.kwargs["market_context"] is None
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_formatter_drops_all_fetch_failed(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Both providers return only fetch_failed slices → format_market_context
+    returns None; run_round1 receives market_context=None."""
+    from alphaswarm.ingestion import FakeMarketDataProvider, FakeNewsProvider
+    from alphaswarm.simulation import run_simulation
+
+    # Empty fixtures → FakeMarketDataProvider returns fetch_failed slices
+    # for every ticker lookup. Same for FakeNewsProvider.
+    fake_market = FakeMarketDataProvider(fixtures={})
+    fake_news = FakeNewsProvider(fixtures={})
+
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        market_provider=fake_market,
+        news_provider=fake_news,
+    )
+
+    assert mock_round1.call_args.kwargs["market_context"] is None
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_filters_non_ticker_entities_from_market_call(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """_TICKER_RE filters non-ticker entities from get_prices but keeps all
+    entities for get_headlines."""
+    from alphaswarm.ingestion import FakeMarketDataProvider, FakeNewsProvider
+    from alphaswarm.simulation import run_simulation
+
+    fake_market = FakeMarketDataProvider(fixtures={})
+    fake_news = FakeNewsProvider(fixtures={})
+
+    recorded_ticker_calls: list[list[str]] = []
+    recorded_entity_calls: list[list[str]] = []
+    orig_prices = fake_market.get_prices
+    orig_heads = fake_news.get_headlines
+
+    async def price_spy(tickers: list[str]) -> dict:  # type: ignore[type-arg]
+        recorded_ticker_calls.append(list(tickers))
+        return await orig_prices(tickers)
+
+    async def news_spy(
+        entities: list[str], *, max_age_hours: int = 72
+    ) -> dict:  # type: ignore[type-arg]
+        recorded_entity_calls.append(list(entities))
+        return await orig_heads(entities, max_age_hours=max_age_hours)
+
+    fake_market.get_prices = price_spy  # type: ignore[assignment]
+    fake_news.get_headlines = news_spy  # type: ignore[assignment]
+
+    mock_inject.return_value = (
+        "cid",
+        _phase40_mock_parsed_result(["NVDA", "Federal Reserve", "AAPL"]),
+        None,
+    )
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        market_provider=fake_market,
+        news_provider=fake_news,
+    )
+
+    # market_provider.get_prices received ONLY the ticker-shaped entities
+    assert recorded_ticker_calls == [["NVDA", "AAPL"]]
+    # news_provider.get_headlines received ALL entities
+    assert recorded_entity_calls == [["NVDA", "Federal Reserve", "AAPL"]]
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_company_name_entity_gets_news_only(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Phase 40 REVIEWS concern #2 pin: orchestrator emits 'NVIDIA' not 'NVDA',
+    so market lookup misses and only news attaches. Pins the known-limitation
+    behavior end-to-end through the simulation layer."""
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from alphaswarm.ingestion import FakeMarketDataProvider, FakeNewsProvider
+    from alphaswarm.ingestion.types import MarketSlice, NewsSlice
+    from alphaswarm.simulation import run_simulation
+
+    # MarketSlice keyed by TICKER shape — will not match entity "NVIDIA"
+    fake_market = FakeMarketDataProvider(fixtures={
+        "NVDA": MarketSlice(
+            ticker="NVDA", price=Decimal("523.45"),
+            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+            source="fake", staleness="fresh",
+        ),
+    })
+    # NewsSlice keyed by ENTITY-NAME shape — matches orchestrator output
+    fake_news = FakeNewsProvider(fixtures={
+        "NVIDIA": NewsSlice(
+            entity="NVIDIA", headlines=("NVIDIA breaks records",),
+            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+            source="fake", staleness="fresh",
+        ),
+    })
+
+    # Spy on provider call arguments
+    recorded_ticker_calls: list[list[str]] = []
+    recorded_entity_calls: list[list[str]] = []
+    orig_prices = fake_market.get_prices
+    orig_heads = fake_news.get_headlines
+
+    async def price_spy(tickers: list[str]) -> dict:  # type: ignore[type-arg]
+        recorded_ticker_calls.append(list(tickers))
+        return await orig_prices(tickers)
+
+    async def news_spy(
+        entities: list[str], *, max_age_hours: int = 72
+    ) -> dict:  # type: ignore[type-arg]
+        recorded_entity_calls.append(list(entities))
+        return await orig_heads(entities, max_age_hours=max_age_hours)
+
+    fake_market.get_prices = price_spy  # type: ignore[assignment]
+    fake_news.get_headlines = news_spy  # type: ignore[assignment]
+
+    # MOCK_PARSED_RESULT already has SeedEntity(name="NVIDIA", ...)
+    mock_inject.return_value = ("cid", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        market_provider=fake_market,
+        news_provider=fake_news,
+    )
+
+    # _TICKER_RE filters "NVIDIA" out → empty ticker list reaches get_prices
+    assert recorded_ticker_calls == [[]]
+    assert recorded_entity_calls == [["NVIDIA"]]
+    market_context_str = mock_round1.call_args.kwargs["market_context"]
+    assert market_context_str is not None
+    assert "== NVIDIA ==" in market_context_str
+    assert "NVIDIA breaks records" in market_context_str
+    assert "Price:" not in market_context_str  # KNOWN LIMITATION pinned
+    assert "Fundamentals:" not in market_context_str  # KNOWN LIMITATION pinned

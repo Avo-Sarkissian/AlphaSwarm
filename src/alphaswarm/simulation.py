@@ -11,13 +11,18 @@ callback after each round for progressive CLI output.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
+import re
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 import structlog
 
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
+from alphaswarm.context_formatter import format_market_context
+from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
@@ -28,12 +33,19 @@ if TYPE_CHECKING:
     from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
     from alphaswarm.governor import ResourceGovernor
     from alphaswarm.graph import GraphStateManager, PeerDecision, RankedPost
+    from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
     from alphaswarm.state import StateStore
     from alphaswarm.types import AgentDecision, AgentPersona, ParsedModifiersResult, ParsedSeedResult
 
 logger = structlog.get_logger(component="simulation")
+
+_TICKER_RE = re.compile(r"^[A-Z]{1,5}$")
+"""Same pattern as alphaswarm.ingestion.rss_provider._TICKER_RE (Phase 38 T-38-01).
+Defense-in-depth: re-applied here so non-ticker entities (company names like
+'NVIDIA', 'Federal Reserve') never reach MarketDataProvider.get_prices. All
+entities pass to NewsProvider.get_headlines (provider handles routing)."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -735,6 +747,8 @@ async def run_simulation(
     state_store: StateStore | None = None,
     generate_narratives: bool = True,
     consume_shock: Callable[[], str | None] | None = None,
+    market_provider: MarketDataProvider | None = None,
+    news_provider: NewsProvider | None = None,
 ) -> SimulationResult:
     """Execute the full 3-round simulation pipeline (D-04).
 
@@ -744,17 +758,28 @@ async def run_simulation(
     Progressive output (addresses Gemini/Codex review): fires on_round_complete
     callback after each round finishes, enabling CLI to print reports in real time.
 
+    Phase 40 context assembly (D-01, D-02, D-03, D-06):
+    When both market_provider and news_provider are supplied, run_simulation
+    assembles a ContextPacket AFTER inject_seed and BEFORE run_round1, formats
+    it via `format_market_context`, and forwards the result to run_round1 as
+    `market_context=...`. If either provider is None, a structlog warning
+    (`context_assembly_skipped`) is emitted and run_round1 receives
+    `market_context=None` (backward compatible). Rounds 2-3 are NOT affected
+    (D-06 keeps market context Round 1 only).
+
     Lifecycle:
     1. run_round1() handles SEEDING + ROUND_1 (owns its own governor session per D-06)
-    2. Compute influence edges after Round 1 (D-02: shapes Round 2 peer selection)
-    3. Compute Round 1 bracket summaries (D-08)
-    4. Fire on_round_complete for Round 1 (shift=None, no prior round to compare)
-    5. ensure_clean_state + reload worker (D-05: one cold load for modularity)
-    6. Fresh governor monitoring session for Rounds 2-3 block (D-06)
-    7. Round 2: _dispatch_round with dynamic weights if available (fallback to static) -> write -> callback
-    8. Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2)
-    9. Round 3: _dispatch_round with Round 2 weights -> write -> callback
-    10. Return SimulationResult with all bracket summaries (D-08)
+    2. Phase 40 context assembly: inject_seed -> asyncio.gather(get_prices + get_headlines)
+       -> format_market_context -> forward to run_round1 (D-01)
+    3. Compute influence edges after Round 1 (D-02: shapes Round 2 peer selection)
+    4. Compute Round 1 bracket summaries (D-08)
+    5. Fire on_round_complete for Round 1 (shift=None, no prior round to compare)
+    6. ensure_clean_state + reload worker (D-05: one cold load for modularity)
+    7. Fresh governor monitoring session for Rounds 2-3 block (D-06)
+    8. Round 2: _dispatch_round with dynamic weights if available (fallback to static) -> write -> callback
+    9. Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2)
+    10. Round 3: _dispatch_round with Round 2 weights -> write -> callback
+    11. Return SimulationResult with all bracket summaries (D-08)
     """
     phase = SimulationPhase.IDLE
     logger.info("simulation_start", phase=phase.value)
@@ -777,12 +802,59 @@ async def run_simulation(
         personas = generate_personas(brackets, modifiers=modifier_result.modifiers)
         logger.info("personas_regenerated_with_modifiers", parse_tier=modifier_result.parse_tier)
 
+    # Phase 40 context assembly (D-01, D-02, D-03).
+    # Happens AFTER inject_seed so we have entity names, BEFORE run_round1 so
+    # the market_context string reaches Round 1 prompts. D-06: Rounds 2-3 not
+    # affected. KNOWN LIMITATION: orchestrator emits human-readable entity
+    # names (e.g. "NVIDIA") per seed.py:24 prompt. `_TICKER_RE` filter means
+    # non-ticker entities do NOT reach the market provider — they receive
+    # news-only context. See context_formatter.py module docstring for
+    # full rationale.
+    market_context_str: str | None = None
+    if market_provider is None or news_provider is None:
+        logger.warning(
+            "context_assembly_skipped",
+            reason="no_providers_configured",
+            cycle_id=cycle_id,
+        )
+    else:
+        entity_names = [e.name for e in parsed_result.seed_event.entities]
+        tickers = [e for e in entity_names if _TICKER_RE.match(e)]
+        market_slices, news_slices = await asyncio.gather(
+            market_provider.get_prices(tickers),
+            news_provider.get_headlines(entity_names),
+        )
+        packet = ContextPacket(
+            cycle_id=cycle_id,
+            as_of=datetime.now(UTC),
+            entities=tuple(entity_names),
+            market=tuple(market_slices.values()),
+            news=tuple(news_slices.values()),
+        )
+        logger.info(
+            "context_packet_assembled",
+            cycle_id=cycle_id,
+            entity_count=len(entity_names),
+            ticker_count=len(tickers),
+            market_success=sum(
+                1 for s in packet.market if s.staleness != "fetch_failed"
+            ),
+            news_success=sum(
+                1 for s in packet.news if s.staleness != "fetch_failed"
+            ),
+            total_headlines=sum(
+                len(s.headlines) for s in packet.news if s.staleness != "fetch_failed"
+            ),
+        )
+        market_context_str = format_market_context(packet)
+
     # Round 1 dispatch (skip inject_seed since we already did it)
     round1_result = await run_round1(
         rumor, settings, ollama_client, model_manager,
         graph_manager, governor, personas,
         state_store=state_store,
         pre_injected=(cycle_id, parsed_result),
+        market_context=market_context_str,
     )
     cycle_id = round1_result.cycle_id
 
