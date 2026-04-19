@@ -75,9 +75,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # blocking I/O on the main event loop" hard constraint (review closure:
     # Codex MEDIUM). On None, GET /api/holdings surfaces 503 while the
     # broadcaster below still starts (D-08 success criterion 4).
-    app.state.portfolio_snapshot = await asyncio.to_thread(
-        load_portfolio_snapshot, settings.holdings_csv_path,
-    )
+    app.state.portfolio_snapshot = await asyncio.to_thread(load_portfolio_snapshot, settings.holdings_csv_path)  # noqa: E501
 
     # Object identity: start_broadcaster receives the same `connection_manager` stored on
     # app.state.connection_manager above. ws_state reads websocket.app.state.connection_manager
