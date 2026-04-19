@@ -70,6 +70,7 @@ class AgentWorker:
         self,
         user_message: str,
         peer_context: str | None = None,
+        market_context: str | None = None,
     ) -> AgentDecision:
         """Run inference for this agent and return a parsed AgentDecision.
 
@@ -80,6 +81,8 @@ class AgentWorker:
         Args:
             user_message: The prompt content (seed rumor + optional context).
             peer_context: Optional peer decision context for Rounds 2-3.
+            market_context: Optional grounded market data block (Round 1 only).
+                Injected as a system message before peer_context per Phase 40 D-04.
 
         Returns:
             AgentDecision -- always returns, never raises (parse fallback).
@@ -87,6 +90,8 @@ class AgentWorker:
         messages: list[dict[str, str]] = [
             {"role": "system", "content": self._persona["system_prompt"]},
         ]
+        if market_context:
+            messages.append({"role": "system", "content": f"Market context:\n{market_context}"})
         if peer_context:
             messages.append({"role": "system", "content": f"Peer context:\n{peer_context}"})
         messages.append({"role": "user", "content": user_message})
