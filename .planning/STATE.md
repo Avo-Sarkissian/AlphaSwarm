@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Real Data + Advisory
 status: executing
-stopped_at: "41.1-02 complete (Task 3 adaa938 + SUMMARY) — Wave 1 scaffold done; next: Plans 03/04 in parallel worktrees"
-last_updated: "2026-04-20T16:54:51Z"
+stopped_at: "41.1-03 + 41.1-04 merged to master (5c7c04d TweaksPanelLoader swap) — Wave 2 done; next: Wave 3 (Plan 05 UAT matrix + CLAUDE.md D-15)"
+last_updated: "2026-04-20T18:30:00Z"
 last_activity: 2026-04-20
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 20
-  completed_plans: 17
-  percent: 85
+  completed_plans: 19
+  percent: 90
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 ## Current Position
 
 Phase: 41.1 (ui-port-wire-replace-vue-frontend-with-claude-design-ui-reac) — EXECUTING
-Plan: 3 of 5 (Wave 1 complete — Plans 03/04 next in parallel worktrees)
-Status: Plan 02 complete (Task 3 adaa938 + SUMMARY)
+Plan: 5 of 5 (Wave 2 complete — Plan 05 Wave 3 next, non-autonomous checkpoint expected)
+Status: Plans 03 + 04 merged (5c7c04d TweaksPanelLoader swap landed)
 Last activity: 2026-04-20
 
-Progress: [████████▌░] 85% (5/7 phases, 17/20 plans)
+Progress: [█████████░] 90% (5/7 phases, 19/20 plans)
 
 ## Performance Metrics
 
@@ -46,6 +46,8 @@ Progress: [████████▌░] 85% (5/7 phases, 17/20 plans)
 |-------|------|----------|-------|-------|
 | 41.1  | 01   | 4m       | 3     | 17    |
 | 41.1  | 02   | ~90m     | 3     | 37    |
+| 41.1  | 03   | ~32m     | 3     | 8     |
+| 41.1  | 04   | ~48m     | 4     | 12    |
 
 ## Accumulated Context
 
@@ -87,6 +89,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-20T16:18:57.259Z
-Stopped at: 41.1-02 Task 2 committed (6daf397) — shared wiring infra complete; Task 3 (App.tsx provider tree) + SUMMARY pending
-Next action: /gsd:complete-milestone or /gsd:new-milestone for v3.0
+Last session: 2026-04-20T18:30:00Z
+Stopped at: 41.1-04 merged (11ad48f) + TweaksPanelLoader swap committed (5c7c04d) — Wave 2 done
+Next action: Execute Wave 3 (Plan 41.1-05) — 28-row UAT parity matrix + CLAUDE.md D-15 stack-line edit; non-autonomous checkpoint expected
