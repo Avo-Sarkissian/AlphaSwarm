@@ -154,3 +154,87 @@ def capture_jinja_renders() -> list[str]:
     At Phase 37 no worker prompt references holdings, so this stays empty.
     """
     return []
+
+
+# ------------------------------------------------------------------
+# Phase 41 D-20: canary Fakes used by the real-synthesize harness.
+# These replace the Phase 37 `_minimal_simulation_body` stub with a
+# load-bearing invariant: if `alphaswarm.advisory.synthesize` leaks
+# sentinel values into any of the four surface sinks, the canary fails.
+# ------------------------------------------------------------------
+import json as _json_for_canary  # local alias to avoid shadowing
+from typing import Any as _AnyForCanary
+
+
+class CanaryFakeOllamaClient:
+    """FakeOllamaClient that records every message into capture_jinja_renders.
+
+    Pitfall 5: the LLM prompt IS surface #4 of the canary. The fake appends
+    the full concatenated messages string so the canary can grep it for any
+    sentinel representation.
+    """
+
+    def __init__(self, *, prompt_sink: list[str], canned_content: str) -> None:
+        self._prompt_sink = prompt_sink
+        self._canned = canned_content
+
+    class _Msg:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    class _Resp:
+        def __init__(self, content: str) -> None:
+            self.message = CanaryFakeOllamaClient._Msg(content)
+
+    async def chat(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        format: str | dict[str, _AnyForCanary] | None = None,
+        **_: _AnyForCanary,
+    ) -> "CanaryFakeOllamaClient._Resp":
+        # Surface #4: record the rendered prompt for canary inspection.
+        rendered = "\n".join(m.get("content", "") for m in messages)
+        self._prompt_sink.append(rendered)
+        return CanaryFakeOllamaClient._Resp(self._canned)
+
+
+class CanaryFakeGraphManager:
+    """FakeGraphManager that routes every read cycle_id into capture_neo4j_writes.
+
+    Pitfall 5: surface #2 is the Neo4j layer. We treat the cycle_id the
+    engine forwards as the "write" content so the canary observes whatever
+    synthesize() decides to pass downstream. Returns empty payloads so the
+    engine proceeds normally through its LLM call.
+    """
+
+    def __init__(self, *, neo4j_sink: list[str]) -> None:
+        self._sink = neo4j_sink
+
+    async def read_consensus_summary(self, cycle_id: str) -> dict[str, _AnyForCanary]:
+        self._sink.append(f"read_consensus_summary cycle_id={cycle_id}")
+        return {"buy_count": 0, "sell_count": 0, "hold_count": 0, "total": 0}
+
+    async def read_round_timeline(self, cycle_id: str) -> list[dict[str, _AnyForCanary]]:
+        self._sink.append(f"read_round_timeline cycle_id={cycle_id}")
+        return []
+
+    async def read_bracket_narratives(self, cycle_id: str) -> list[dict[str, _AnyForCanary]]:
+        self._sink.append(f"read_bracket_narratives cycle_id={cycle_id}")
+        return []
+
+    async def read_entity_impact(self, cycle_id: str) -> list[dict[str, _AnyForCanary]]:
+        self._sink.append(f"read_entity_impact cycle_id={cycle_id}")
+        return []
+
+
+def canary_valid_advisory_json() -> str:
+    """A minimally valid AdvisoryReport JSON — no sentinel values inside."""
+    return _json_for_canary.dumps({
+        "cycle_id": "canary_cycle",
+        "generated_at": "2026-04-19T22:00:00+00:00",
+        "portfolio_outlook": "Canary outlook — no sentinels.",
+        "items": [],
+        "total_holdings": 1,
+        "affected_holdings": 0,
+    })
