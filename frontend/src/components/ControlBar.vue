@@ -17,6 +17,7 @@ const isComplete = computed(() => snapshot.value.phase === 'complete')
 const emit = defineEmits<{
   'open-cycle-picker': []
   'open-report-viewer': []
+  'open-advisory-panel': []
 }>()
 
 // Seed input
@@ -188,9 +189,15 @@ async function exitReplay() {
         </button>
       </template>
 
-      <!-- Complete phase: Report + Stop buttons (Phase 36 D-08) -->
+      <!-- Complete phase: Advisory + Report + Stop buttons (Phase 36 D-08, Phase 41 D-15) -->
       <template v-else-if="isComplete">
         <span class="control-bar__phase">{{ phaseLabel }}</span>
+        <button
+          class="control-bar__btn control-bar__btn--advisory"
+          @click="emit('open-advisory-panel')"
+        >
+          Advisory
+        </button>
         <button
           class="control-bar__btn control-bar__btn--report"
           @click="emit('open-report-viewer')"
@@ -365,6 +372,17 @@ async function exitReplay() {
   font-weight: var(--font-weight-semibold);
 }
 .control-bar__btn--report:hover {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+/* Phase 41 D-15: Advisory button — same visual treatment as Report */
+.control-bar__btn--advisory {
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+}
+.control-bar__btn--advisory:hover {
   background: rgba(59, 130, 246, 0.08);
 }
 </style>

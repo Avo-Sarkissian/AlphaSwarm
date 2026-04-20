@@ -9,6 +9,7 @@ import BracketPanel from './components/BracketPanel.vue'
 import RationaleFeed from './components/RationaleFeed.vue'
 import CyclePicker from './components/CyclePicker.vue'
 import ReportViewer from './components/ReportViewer.vue'
+import AdvisoryPanel from './components/AdvisoryPanel.vue'
 
 const { snapshot, connected, reconnectFailed, latestRationales, allRationales } = useWebSocket()
 
@@ -72,6 +73,16 @@ function onOpenReportViewer() {
 function onCloseReportViewer() {
   showReportViewer.value = false
 }
+
+// AdvisoryPanel modal state (Phase 41 D-14, D-15)
+const showAdvisoryPanel = ref(false)
+
+function onOpenAdvisoryPanel() {
+  showAdvisoryPanel.value = true
+}
+function onCloseAdvisoryPanel() {
+  showAdvisoryPanel.value = false
+}
 </script>
 
 <template>
@@ -80,6 +91,7 @@ function onCloseReportViewer() {
     <ControlBar
       @open-cycle-picker="onOpenCyclePicker"
       @open-report-viewer="onOpenReportViewer"
+      @open-advisory-panel="onOpenAdvisoryPanel"
     />
 
     <!-- Main content area: fills remaining space -->
@@ -125,6 +137,11 @@ function onCloseReportViewer() {
     <ReportViewer
       v-if="showReportViewer"
       @close="onCloseReportViewer"
+    />
+
+    <AdvisoryPanel
+      v-if="showAdvisoryPanel"
+      @close="onCloseAdvisoryPanel"
     />
 
     <div v-if="reconnectFailed" class="connection-error">
