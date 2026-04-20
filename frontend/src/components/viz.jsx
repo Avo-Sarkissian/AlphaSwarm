@@ -1,7 +1,10 @@
 // Visualization module — force / grid / radial layouts, all SVG-based.
-// WAVE-1-NOTE: edges read from EdgesContext — do NOT re-introduce local useEdges here.
-// Reviewer item 9: viz MUST NOT call useEdges directly and MUST NOT own any fetch of /api/edges.
+// WAVE-2-NOTE: wired to AgentsContext + EdgesContext (Plan 41.1-03). Do NOT
+// reintroduce local useEdges or snapshot.edges reads. Reviewer item 9: viz MUST
+// NOT call useEdges directly and MUST NOT own any fetch of /api/edges — the
+// EdgesProvider (Plan 02) owns the single useEdges call for the whole app.
 import { useMemo, useState, useEffect, useRef } from 'react';
+import { useAgents } from '../context/AgentsContext';
 import { useEdgesCtx } from '../context/EdgesContext';
 
 function layoutForce(agents, w, h) {
@@ -49,7 +52,7 @@ function layoutRadial(agents, w, h) {
   const rMax = Math.min(w, h) * 0.42;
   const positions = {};
   keys.forEach((k, i) => {
-    const ring = rMin + (i / (keys.length - 1)) * (rMax - rMin);
+    const ring = rMin + (i / Math.max(1, (keys.length - 1))) * (rMax - rMin);
     const group = bracketGroups[k];
     const offset = (i % 2 === 0 ? 0 : Math.PI / group.length);
     group.forEach((a, j) => {
@@ -69,11 +72,11 @@ function layoutGrid(agents, w, h) {
     bracketGroups[a.bracket].push(a);
   });
   const rows = bracketOrder.length;
-  const maxCols = Math.max(...bracketOrder.map(b => bracketGroups[b].length));
+  const maxCols = Math.max(1, ...bracketOrder.map(b => bracketGroups[b].length));
   const pad = 64;
   const innerW = w - pad * 2, innerH = h - pad * 2;
   const cellW = innerW / maxCols;
-  const cellH = innerH / rows;
+  const cellH = innerH / Math.max(1, rows);
   const positions = {};
   bracketOrder.forEach((b, r) => {
     bracketGroups[b].forEach((a, c) => {
@@ -87,11 +90,14 @@ function layoutGrid(agents, w, h) {
   return { positions, bracketOrder, cellW, cellH, pad, rows, maxCols };
 }
 
-export function Viz({ agents, layout, direction, onAgentHover, onAgentClick, highlightId, showEdges = true, round = 2 }) {
+export function Viz({ layout, direction, onAgentHover, onAgentClick, highlightId, showEdges = true }) {
   const wrapRef = useRef(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
-  // WAVE-1-NOTE: edges come from EdgesContext (populated by EdgesProvider which owns the single useEdges call).
+  // Live render path: agents + edges come from split contexts built in Plan 02.
+  const { agents } = useAgents();
   const { edges: ctxEdges } = useEdgesCtx();
+  const liveAgents = agents;
+  const liveEdges = ctxEdges;
 
   useEffect(() => {
     if (!wrapRef.current) return;
@@ -107,26 +113,41 @@ export function Viz({ agents, layout, direction, onAgentHover, onAgentClick, hig
 
   const sigColor = (s) => s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : 'var(--hold)';
 
-  const gridData = layout === 'grid' ? layoutGrid(agents, size.w, size.h) : null;
+  // All hooks must run unconditionally (Rules of Hooks); the empty-state
+  // guard below renders an empty SVG only after all useMemo calls are set up.
+  const gridData = layout === 'grid' ? layoutGrid(liveAgents, size.w, size.h) : null;
   const positions = useMemo(() => {
-    if (layout === 'force')  return layoutForce(agents, size.w, size.h);
-    if (layout === 'radial') return layoutRadial(agents, size.w, size.h);
-    if (layout === 'grid')   return gridData.positions;
+    if (layout === 'force')  return layoutForce(liveAgents, size.w, size.h);
+    if (layout === 'radial') return layoutRadial(liveAgents, size.w, size.h);
+    if (layout === 'grid')   return gridData ? gridData.positions : {};
     return {};
-  }, [agents, layout, size.w, size.h]);
+  }, [liveAgents, layout, size.w, size.h, gridData]);
 
   // Normalise CONTRACT [source, target] tuples into the design's {source, target, active} shape.
   const edges = useMemo(() => {
     if (layout === 'grid') return [];
-    const tuples = Array.isArray(ctxEdges) ? ctxEdges : [];
+    const tuples = Array.isArray(liveEdges) ? liveEdges : [];
     return tuples.map(([source, target], i) => ({ source, target, active: i < 14 }));
-  }, [ctxEdges, layout]);
+  }, [liveEdges, layout]);
 
   const bracketGroups = useMemo(() => {
     const g = {};
-    agents.forEach(a => { if (!g[a.bracket]) g[a.bracket] = { display: a.bracketDisplay, items: [] }; g[a.bracket].items.push(a); });
+    liveAgents.forEach(a => {
+      if (!g[a.bracket]) g[a.bracket] = { display: a.bracketDisplay || a.bracket, items: [] };
+      g[a.bracket].items.push(a);
+    });
     return g;
-  }, [agents]);
+  }, [liveAgents]);
+
+  // Null / pre-connection guard: empty SVG placeholder while the websocket
+  // has not yet delivered a frame (AgentsProvider hasn't mounted data).
+  if (liveAgents.length === 0) {
+    return (
+      <div ref={wrapRef} style={{ width:'100%', height:'100%', position:'relative' }}>
+        <svg className="viz-svg viz-empty" role="img" aria-label="force graph pending" viewBox={`0 0 ${size.w} ${size.h}`} preserveAspectRatio="none" />
+      </div>
+    );
+  }
 
   return (
     <div ref={wrapRef} style={{ width:'100%', height:'100%', position:'relative' }}>
@@ -144,7 +165,7 @@ export function Viz({ agents, layout, direction, onAgentHover, onAgentClick, hig
             {Object.values(bracketGroups).map((_, i, arr) => {
               const rMin = 70;
               const rMax = Math.min(size.w, size.h) * 0.42;
-              const ring = rMin + (i / (arr.length - 1)) * (rMax - rMin);
+              const ring = rMin + (i / Math.max(1, (arr.length - 1))) * (rMax - rMin);
               return <circle key={i} cx={size.w/2} cy={size.h/2} r={ring} fill="none" stroke="var(--border)" strokeDasharray="2 4" />;
             })}
           </g>
@@ -200,18 +221,18 @@ export function Viz({ agents, layout, direction, onAgentHover, onAgentClick, hig
 
         {/* Nodes */}
         <g>
-          {agents.map(a => {
+          {liveAgents.map(a => {
             const p = positions[a.id]; if (!p) return null;
             const color = sigColor(a.signal);
             const baseRadius = a.radius ?? 8;
             const r = baseRadius * 0.7 + (layout === 'grid' ? 6 : 0);
             const isHL = highlightId === a.id;
             if (layout === 'grid') {
-              const size = Math.min(gridData.cellW, gridData.cellH) * 0.72;
+              const cellSize = gridData ? Math.min(gridData.cellW, gridData.cellH) * 0.72 : 12;
               return (
-                <g key={a.id} transform={`translate(${p.x - size/2}, ${p.y - size/2})`}>
+                <g key={a.id} transform={`translate(${p.x - cellSize/2}, ${p.y - cellSize/2})`}>
                   <rect
-                    width={size} height={size} rx={2}
+                    width={cellSize} height={cellSize} rx={2}
                     className="grid-cell"
                     fill={color}
                     opacity={0.88}
@@ -219,7 +240,7 @@ export function Viz({ agents, layout, direction, onAgentHover, onAgentClick, hig
                     onMouseLeave={() => onAgentHover && onAgentHover(null)}
                     onClick={() => onAgentClick && onAgentClick(a)}
                   />
-                  {a.flipped && <circle cx={size - 4} cy={4} r={2.5} fill="var(--accent)" />}
+                  {a.flipped && <circle cx={cellSize - 4} cy={4} r={2.5} fill="var(--accent)" />}
                 </g>
               );
             }

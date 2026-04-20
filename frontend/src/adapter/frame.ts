@@ -1,4 +1,5 @@
 import type {
+  AgentSignal,
   AgentView,
   BracketKey,
   BracketSummaryView,
@@ -7,6 +8,27 @@ import type {
   TelemetrySlice,
 } from '../types';
 import { agentIdToBracket } from './agentId';
+
+// Backend BracketType.value → human display label (matches state.py BracketSummary.display_name).
+const BRACKET_DISPLAY: Record<BracketKey, string> = {
+  Quants: 'Quants',
+  Degens: 'Degens',
+  Sovereigns: 'Sovereigns',
+  Macro: 'Macro',
+  Suits: 'Suits',
+  Insiders: 'Insiders',
+  Agents: 'Agents',
+  DoomPosters: 'Doom-Posters',
+  Whales: 'Whales',
+  PolicyWonks: 'Policy Wonks',
+};
+
+function normaliseSignal(raw: unknown): AgentSignal {
+  if (typeof raw !== 'string') return 'hold';
+  const s = raw.toLowerCase();
+  if (s === 'buy' || s === 'sell' || s === 'hold') return s;
+  return 'hold';
+}
 
 // Defensive: every field access uses ?. + fallback. Backend shape:
 //   { phase, round_num, agent_count, agent_states, elapsed_seconds,
@@ -47,9 +69,12 @@ export function adaptSnapshot(raw: unknown): StateFrame {
       const s = (rawState ?? {}) as Record<string, unknown>;
       const confidence =
         typeof s.confidence === 'number' ? s.confidence : 0;
+      const bracket = agentIdToBracket(id);
       return {
         id,
-        bracket: agentIdToBracket(id),
+        bracket,
+        bracketDisplay: BRACKET_DISPLAY[bracket] ?? bracket,
+        signal: normaliseSignal(s.signal),
         confidence,
         flipped: 0, // KR-41.1-03
         roundLastSpoke: null, // KR-41.1-03
@@ -65,12 +90,30 @@ export function adaptSnapshot(raw: unknown): StateFrame {
     const bs = (b ?? {}) as Record<string, unknown>;
     const bracket =
       typeof bs.bracket === 'string' ? (bs.bracket as BracketKey) : 'Quants';
+    const buy = typeof bs.buy_count === 'number' ? bs.buy_count : 0;
+    const sell = typeof bs.sell_count === 'number' ? bs.sell_count : 0;
+    const hold = typeof bs.hold_count === 'number' ? bs.hold_count : 0;
+    const total =
+      typeof bs.total === 'number' ? bs.total : buy + sell + hold;
+    const avgConfidence =
+      typeof bs.avg_confidence === 'number' ? bs.avg_confidence : 0;
+    const display =
+      typeof bs.display_name === 'string'
+        ? bs.display_name
+        : (BRACKET_DISPLAY[bracket] ?? bracket);
+    // consensusSignal kept numeric for back-compat — derive as avg_sentiment if present, else 0.
+    const consensusSignal =
+      typeof bs.avg_sentiment === 'number' ? bs.avg_sentiment : 0;
     return {
       bracket,
-      consensusSignal:
-        typeof bs.consensus_signal === 'number' ? bs.consensus_signal : 0,
-      agentCount:
-        typeof bs.agent_count === 'number' ? bs.agent_count : 0,
+      display,
+      buy,
+      sell,
+      hold,
+      total,
+      avgConfidence,
+      consensusSignal,
+      agentCount: total,
     };
   });
 

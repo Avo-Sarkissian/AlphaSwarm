@@ -12,9 +12,15 @@ export type BracketKey =
   | 'Whales'
   | 'PolicyWonks';
 
+// Agent discrete signal — backend emits SignalType enum ('BUY'|'SELL'|'HOLD'),
+// adapter lowercases to match viz/panel css class conventions.
+export type AgentSignal = 'buy' | 'sell' | 'hold';
+
 export interface AgentView {
   id: string;
   bracket: BracketKey;
+  bracketDisplay: string; // human-readable bracket label (backend BracketSummary.display_name)
+  signal: AgentSignal; // derived from backend agent_states[id].signal (lowercased; default 'hold')
   confidence: number;
   flipped: 0 | 1; // KR-41.1-03: stubbed 0 until backend emits
   roundLastSpoke: number | null; // KR-41.1-03: stubbed null
@@ -23,6 +29,13 @@ export interface AgentView {
 
 export interface BracketSummaryView {
   bracket: BracketKey;
+  display: string; // BracketSummary.display_name
+  buy: number; // BracketSummary.buy_count
+  sell: number; // BracketSummary.sell_count
+  hold: number; // BracketSummary.hold_count
+  total: number; // BracketSummary.total
+  avgConfidence: number; // BracketSummary.avg_confidence (0..1)
+  // consensusSignal/agentCount kept for Wave 1 compat (read by tests/tools if any).
   consensusSignal: number;
   agentCount: number;
 }

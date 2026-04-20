@@ -9,6 +9,9 @@ import { SIGNAL_WIRE_SEED, DATA_SOURCES, SOURCE_GROUP_COLOR, SOURCE_STATS } from
 
 // ──────────────────────────────────────────────────────────────────────
 // SIGNAL WIRE — live ticker strip of agent → API activity
+// KR-41.1-02: SignalWire renders from mocks/wire.SIGNAL_WIRE_SEED until
+// the backend /api/wire endpoint lands. Known regression documented in
+// CONTEXT.md KR-41.1-02 and surfaces in Plan 05 UAT Row 14.
 // ──────────────────────────────────────────────────────────────────────
 export function SignalWire({ running, onInspect }) {
   const sourceById = useMemo(
@@ -74,6 +77,9 @@ export function SignalWire({ running, onInspect }) {
 
 // ──────────────────────────────────────────────────────────────────────
 // DATA SOURCES INSPECTOR MODAL
+// KR-41.1-02: DataSourcesModal renders from mocks/sources.DATA_SOURCES +
+// SOURCE_STATS until the backend /api/sources endpoint lands. Known
+// regression documented in CONTEXT.md KR-41.1-02 and surfaces in Plan 05 UAT.
 // ──────────────────────────────────────────────────────────────────────
 export function DataSourcesModal({ onClose }) {
   const statsById = useMemo(
