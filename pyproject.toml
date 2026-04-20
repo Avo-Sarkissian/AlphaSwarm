@@ -109,6 +109,7 @@ source_modules = [
     "alphaswarm.web.routes.interview",
     "alphaswarm.web.routes.replay",
     "alphaswarm.web.routes.report",
+    "alphaswarm.web.routes.advisory",
     "alphaswarm.web.routes.simulation",
     "alphaswarm.web.routes.websocket",
 ]
@@ -120,4 +121,11 @@ forbidden_modules = ["alphaswarm.holdings"]
 ignore_imports = [
     "alphaswarm.web.routes.holdings -> alphaswarm.holdings",
     "alphaswarm.web.routes.holdings -> alphaswarm.holdings.loader",
+    # Phase 41 D-20 (advisory wiring): the advisory route is in source_modules
+    # (so the FastAPI layer keeps its forbidden-import coverage), but it must
+    # be able to import the whitelisted alphaswarm.advisory package AND type-
+    # annotate PortfolioSnapshot via a TYPE_CHECKING import. Both are allowed
+    # because alphaswarm.advisory is itself on the D-04 whitelist.
+    "alphaswarm.web.routes.advisory -> alphaswarm.advisory",
+    "alphaswarm.web.routes.advisory -> alphaswarm.holdings.types",
 ]

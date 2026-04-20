@@ -21,6 +21,7 @@ from alphaswarm.web.routes.health import router as health_router
 from alphaswarm.web.routes.holdings import load_portfolio_snapshot, router as holdings_router
 from alphaswarm.web.routes.interview import router as interview_router
 from alphaswarm.web.routes.replay import router as replay_router
+from alphaswarm.web.routes.advisory import router as advisory_router
 from alphaswarm.web.routes.report import router as report_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
@@ -52,6 +53,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Keys are cycle_id strings; values are {"error": ..., "message": ...} dicts.
     # GET /api/report/{cycle_id} reads this to surface 500 so the frontend can stop polling.
     app.state.report_generation_error = {}
+    # Phase 41 D-08 / D-13: advisory task slot + per-cycle error capture,
+    # mirrors the report pattern so GET /api/advisory/{cycle_id} can surface
+    # 500 on failure without the frontend polling to the 10-minute cap.
+    app.state.advisory_task = None
+    app.state.advisory_generation_error = {}
     # ReplayManager must be constructed BEFORE SimulationManager so the latter
     # can hold a reference for the B4 replay-active guard in start().
     replay_manager = ReplayManager(app_state)
@@ -129,6 +135,7 @@ def create_app() -> FastAPI:
     app.include_router(interview_router, prefix="/api")
     app.include_router(holdings_router, prefix="/api")
     app.include_router(report_router, prefix="/api")
+    app.include_router(advisory_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
 
     # Serve Vue SPA production build as static files (D-02).
