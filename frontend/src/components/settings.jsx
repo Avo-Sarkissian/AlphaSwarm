@@ -1,4 +1,9 @@
 // Settings — full-screen takeover. Keys, model, thresholds, bracket weights.
+//
+// KR-41.1-11 coverage (settings persistence deferred): all settings are local
+// component state only. Save & close simply closes the modal without calling
+// any backend endpoint. A future phase can wire /api/settings or a client-side
+// IndexedDB store; Plan 04 scope is read-only/in-memory.
 import { useState } from 'react';
 import { Icon } from './icons';
 
