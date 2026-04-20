@@ -128,4 +128,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-19 — Phase 40 complete (simulation-context-wiring). YFinance + RSS providers wired into FastAPI lifespan and CLI; ContextPacket assembled via asyncio.gather and formatted into Round 1 system messages for all 100 agents. INGEST-03 and SIM-04 satisfied. Phase 41 next: advisory-pipeline.*
+*Last updated: 2026-04-20 — Phase 41 complete (advisory-pipeline). alphaswarm.advisory package with frozen pydantic types and synthesize() engine; POST/GET /api/advisory REST endpoints; Vue AdvisoryPanel modal with REVISION-1 state machine; ISOL-07 canary flipped ACTIVE. ADVIS-01, ADVIS-02, ADVIS-03 satisfied. Milestone v6.0 Real Data + Advisory complete.*
