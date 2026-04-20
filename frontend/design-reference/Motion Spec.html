@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AlphaSwarm — Motion Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0b0d10;
+  --bg-2: #101317;
+  --bg-3: #161a1f;
+  --border: #1f242b;
+  --border-2: #2a313a;
+  --text: #d8dde4;
+  --text-2: #8a93a0;
+  --text-3: #565f6c;
+  --accent: #ffb84d;
+  --accent-2: #6aa9ff;
+  --buy:  #42d690;
+  --sell: #ff5b6b;
+  --hold: #6b7480;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; -webkit-font-smoothing: antialiased; }
+.mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+.label { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3); }
+
+.page { max-width: 1180px; margin: 0 auto; padding: 56px 48px 96px; }
+
+.doc-head { border-bottom: 1px solid var(--border); padding-bottom: 36px; margin-bottom: 48px; }
+.doc-kicker { color: var(--accent); margin-bottom: 14px; }
+.doc-title { font-family: 'Newsreader', serif; font-size: 54px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.05; margin-bottom: 18px; color: var(--text); }
+.doc-lede { font-family: 'Newsreader', serif; font-size: 19px; font-style: italic; line-height: 1.55; color: var(--text-2); max-width: 720px; }
+.doc-meta { display: flex; gap: 24px; margin-top: 22px; }
+.doc-meta > div { display: flex; gap: 10px; align-items: baseline; }
+.doc-meta .mono { font-size: 12px; color: var(--text); }
+
+/* Principles list */
+.principles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); margin-bottom: 56px; }
+.principle { background: var(--bg-2); padding: 22px 22px 26px; }
+.principle-num { font-family: 'Newsreader', serif; font-size: 30px; color: var(--accent); font-style: italic; }
+.principle-title { font-size: 14px; font-weight: 600; color: var(--text); margin: 8px 0 6px; }
+.principle-body { font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+
+/* Section */
+.spec { padding-top: 40px; border-top: 1px solid var(--border); margin-top: 40px; }
+.spec:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+.spec-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px; }
+.spec-num { font-family: 'Newsreader', serif; font-size: 60px; font-weight: 400; color: var(--text-3); font-style: italic; line-height: 1; }
+.spec-title { font-family: 'Newsreader', serif; font-size: 34px; font-weight: 500; letter-spacing: -0.01em; margin-top: 4px; }
+.spec-right { text-align: right; }
+.spec-trigger { color: var(--accent); margin-bottom: 4px; }
+
+.spec-body { display: grid; grid-template-columns: 1fr 320px; gap: 32px; }
+.spec-stage {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  aspect-ratio: 16/9;
+  position: relative;
+  overflow: hidden;
+  background-image:
+    radial-gradient(circle at center, #0e1116 0%, #08090b 100%);
+}
+.spec-notes { padding-top: 6px; }
+.note-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.note-body { font-size: 12.5px; line-height: 1.6; color: var(--text-2); margin-bottom: 18px; }
+
+.spec-tokens {
+  margin-top: 18px;
+  border: 1px solid var(--border);
+}
+.tok { display: grid; grid-template-columns: 110px 1fr; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11.5px; background: var(--bg-2); }
+.tok:last-child { border-bottom: none; }
+.tok-k { color: var(--text-3); font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; }
+.tok-v { color: var(--text); font-family: 'JetBrains Mono', monospace; }
+
+.replay-btn {
+  position: absolute; top: 12px; right: 12px;
+  background: rgba(255,184,77,0.08);
+  border: 1px solid rgba(255,184,77,0.25);
+  color: var(--accent);
+  padding: 5px 10px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.replay-btn:hover { background: rgba(255,184,77,0.14); }
+
+.stage-label {
+  position: absolute; top: 12px; left: 12px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* ── Motion moment 1: NODE PULSE (thinking) ── */
+.m1-node {
+  position: absolute; left: 50%; top: 50%;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--buy);
+  transform: translate(-50%, -50%);
+  animation: m1-pulse 2.2s ease-in-out infinite;
+}
+.m1-node::after {
+  content: ''; position: absolute; inset: -4px;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  animation: m1-halo 2.2s ease-out infinite;
+}
+.m1-node::before {
+  content: ''; position: absolute; inset: -14px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  opacity: 0;
+  animation: m1-halo-2 2.2s ease-out infinite;
+}
+@keyframes m1-pulse {
+  0%, 70%, 100% { box-shadow: 0 0 0 0 rgba(255,184,77,0); }
+  35% { box-shadow: 0 0 16px 2px rgba(255,184,77,0.55); }
+}
+@keyframes m1-halo {
+  0% { transform: scale(1); opacity: 0.8; }
+  60% { transform: scale(1.8); opacity: 0; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@keyframes m1-halo-2 {
+  0% { transform: scale(1); opacity: 0; }
+  30% { opacity: 0.5; }
+  70% { transform: scale(2.6); opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+.m1-id { position: absolute; left: 50%; top: calc(50% + 28px); transform: translateX(-50%); font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--accent); letter-spacing: 0.1em; }
+
+/* ── Motion moment 2: CITATION ARROW ── */
+.m2-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.m2-source { position: absolute; left: 22%; top: 50%; width: 18px; height: 18px; border-radius: 50%; background: var(--buy); transform: translate(-50%, -50%); }
+.m2-target { position: absolute; left: 78%; top: 50%; width: 18px; height: 18px; border-radius: 50%; background: var(--sell); transform: translate(-50%, -50%); }
+.m2-target.flipping { animation: m2-flip 3s ease-in-out infinite; }
+@keyframes m2-flip {
+  0%, 65% { background: var(--sell); box-shadow: 0 0 0 0 transparent; }
+  75% { background: var(--buy); box-shadow: 0 0 14px 2px rgba(66,214,144,0.55); }
+  100% { background: var(--buy); }
+}
+.m2-path {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  fill: none;
+  stroke-dasharray: 120;
+  stroke-dashoffset: 120;
+  animation: m2-draw 3s ease-in-out infinite;
+  filter: drop-shadow(0 0 4px rgba(255,184,77,0.5));
+}
+@keyframes m2-draw {
+  0%, 10% { stroke-dashoffset: 120; opacity: 0; }
+  20% { opacity: 1; }
+  55% { stroke-dashoffset: 0; opacity: 1; }
+  85%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+.m2-label-s, .m2-label-t { position: absolute; top: calc(50% + 22px); transform: translateX(-50%); font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; }
+.m2-label-s { left: 22%; color: var(--buy); }
+.m2-label-t { left: 78%; color: var(--text-2); }
+
+/* ── Motion moment 3: SIGNAL FLIP FLASH ── */
+.m3-grid { position: absolute; inset: 20%; display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: repeat(4, 1fr); gap: 8px; }
+.m3-cell { border-radius: 50%; background: var(--buy); opacity: 0.8; }
+.m3-cell.flip { animation: m3-flash 3s ease-in-out infinite; }
+@keyframes m3-flash {
+  0%, 50% { background: var(--buy); transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+  55% { background: #fff; transform: scale(1.4); box-shadow: 0 0 16px 4px rgba(255,255,255,0.6); }
+  65% { background: var(--sell); transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+  100% { background: var(--sell); }
+}
+
+/* ── Motion moment 4: SHOCK WAVE ── */
+.m4-wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.m4-center { width: 14px; height: 14px; border-radius: 50%; background: var(--sell); box-shadow: 0 0 18px 2px rgba(255,91,107,0.7); z-index: 2; animation: m4-drop 4s ease-out infinite; }
+@keyframes m4-drop {
+  0% { transform: scale(0); }
+  5% { transform: scale(1.6); }
+  20% { transform: scale(1); }
+  100% { transform: scale(1); }
+}
+.m4-wave { position: absolute; width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--sell); opacity: 0; }
+.m4-wave.w1 { animation: m4-wave 4s ease-out infinite; animation-delay: 0.1s; }
+.m4-wave.w2 { animation: m4-wave 4s ease-out infinite; animation-delay: 0.5s; }
+.m4-wave.w3 { animation: m4-wave 4s ease-out infinite; animation-delay: 0.9s; }
+@keyframes m4-wave {
+  0% { transform: scale(1); opacity: 0.8; }
+  80%, 100% { transform: scale(28); opacity: 0; }
+}
+.m4-nodes { position: absolute; inset: 0; }
+.m4-node {
+  position: absolute;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--buy);
+  transform: translate(-50%, -50%);
+}
+.m4-node.reactive { animation: m4-react 4s ease-out infinite; }
+@keyframes m4-react {
+  0%, 15% { background: var(--buy); transform: translate(-50%, -50%) scale(1); }
+  30% { background: var(--accent); transform: translate(-50%, -50%) scale(1.3); }
+  60% { background: var(--sell); transform: translate(-50%, -50%) scale(1.1); }
+  100% { background: var(--sell); transform: translate(-50%, -50%) scale(1); }
+}
+
+/* Footer curation */
+.spec-foot { margin-top: 64px; padding-top: 28px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-2); line-height: 1.7; }
+.spec-foot b { color: var(--text); font-weight: 600; }
+
+a { color: var(--accent-2); text-decoration: none; border-bottom: 1px solid rgba(106,169,255,0.3); }
+a:hover { border-bottom-color: var(--accent-2); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="doc-head">
+    <div class="label doc-kicker">AlphaSwarm · Motion Spec v0.1</div>
+    <h1 class="doc-title">The swarm, in motion.</h1>
+    <p class="doc-lede">
+      Motion in a live UI is language, not decoration. This document codifies the four
+      animated moments that distinguish AlphaSwarm from a dashboard: what each one means,
+      when it fires, how long it lasts, and what it must never do.
+    </p>
+    <div class="doc-meta">
+      <div><span class="label">status</span><span class="mono">draft · review</span></div>
+      <div><span class="label">owners</span><span class="mono">design · front-end</span></div>
+      <div><span class="label">last updated</span><span class="mono">2026-04-18</span></div>
+    </div>
+  </header>
+
+  <div class="principles">
+    <div class="principle">
+      <div class="principle-num">i.</div>
+      <div class="principle-title">Motion = state</div>
+      <div class="principle-body">Every animation carries meaning. If it doesn't signal something the user needs to know, it doesn't ship.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">ii.</div>
+      <div class="principle-title">Short, not snappy</div>
+      <div class="principle-body">Target 180–320ms for transitions. Longer for narrative beats (shock waves). Never linear easing.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">iii.</div>
+      <div class="principle-title">One thing at a time</div>
+      <div class="principle-body">When the swarm re-organizes, only the delta animates. Unchanged nodes stay still — visual noise costs trust.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">iv.</div>
+      <div class="principle-title">Respect reduced-motion</div>
+      <div class="principle-body">All four moments collapse to a static state-change under <span class="mono">prefers-reduced-motion</span>. No ornamental fallback.</div>
+    </div>
+  </div>
+
+  <!-- MOMENT 1 -->
+  <section class="spec">
+    <div class="spec-head">
+      <div>
+        <div class="spec-num">01</div>
+        <div class="spec-title">Agent pulse on thinking</div>
+      </div>
+      <div class="spec-right">
+        <div class="label spec-trigger">Trigger · agent enters inference slot</div>
+        <div class="label">Duration · 2200ms loop while active</div>
+      </div>
+    </div>
+    <div class="spec-body">
+      <div class="spec-stage">
+        <span class="stage-label">M · 01 · pulse</span>
+        <div class="m1-node" />
+        <div class="m1-id">Q-03 · inferring</div>
+      </div>
+      <div class="spec-notes">
+        <div class="note-title">Why it exists</div>
+        <div class="note-body">
+          Inference is the expensive, invisible step. Without a visual cue, the canvas looks frozen
+          and users assume the sim is hung. The halo says <i>"this agent is working."</i>
+        </div>
+        <div class="note-title">Behavior</div>
+        <div class="note-body">
+          Two concentric rings expand outward from the node, ~2.2s cycle. Node itself gets a subtle
+          inner glow at mid-cycle. Only fires on the node that currently holds the inference slot —
+          at most 8 nodes animate at once (matches slot ceiling).
+        </div>
+        <div class="spec-tokens">
+          <div class="tok"><span class="tok-k">easing</span><span class="tok-v">ease-out</span></div>
+          <div class="tok"><span class="tok-k">duration</span><span class="tok-v">2200ms loop</span></div>
+          <div class="tok"><span class="tok-k">scale</span><span class="tok-v">1.0 → 2.6</span></div>
+          <div class="tok"><span class="tok-k">opacity</span><span class="tok-v">0.8 → 0</span></div>
+          <div class="tok"><span class="tok-k">color</span><span class="tok-v">--accent</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MOMENT 2 -->
+  <section class="spec">
+    <div class="spec-head">
+      <div>
+        <div class="spec-num">02</div>
+        <div class="spec-title">Citation arrow on peer read</div>
+      </div>
+      <div class="spec-right">
+        <div class="label spec-trigger">Trigger · agent cites a peer in rationale</div>
+        <div class="label">Duration · 800ms · fires once per citation</div>
+      </div>
+    </div>
+    <div class="spec-body">
+      <div class="spec-stage">
+        <span class="stage-label">M · 02 · citation</span>
+        <svg class="m2-svg" viewBox="0 0 100 56" preserveAspectRatio="none">
+          <path class="m2-path" d="M 22 28 Q 50 12, 78 28" />
+        </svg>
+        <div class="m2-source" /><div class="m2-label-s">Q-03 · cites</div>
+        <div class="m2-target flipping" /><div class="m2-label-t">I-04 · flips BUY</div>
+      </div>
+      <div class="spec-notes">
+        <div class="note-title">Why it exists</div>
+        <div class="note-body">
+          Influence is the most important invisible thing in the sim. A drawn-arrow makes
+          agent-to-agent influence palpable — users can <i>watch ideas propagate</i>.
+        </div>
+        <div class="note-title">Behavior</div>
+        <div class="note-body">
+          A curved path draws from source to target using a dash-offset technique. The target node
+          flashes on arrival (see 03). Arrow fades out over the final 250ms — it shouldn't linger
+          and clutter the graph. Max 4 arrows drawing at once; further citations queue by 80ms.
+        </div>
+        <div class="spec-tokens">
+          <div class="tok"><span class="tok-k">easing</span><span class="tok-v">ease-in-out</span></div>
+          <div class="tok"><span class="tok-k">duration</span><span class="tok-v">800ms</span></div>
+          <div class="tok"><span class="tok-k">stroke</span><span class="tok-v">--accent · 1.5px</span></div>
+          <div class="tok"><span class="tok-k">glow</span><span class="tok-v">drop-shadow 4px</span></div>
+          <div class="tok"><span class="tok-k">concurrent</span><span class="tok-v">max 4</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MOMENT 3 -->
+  <section class="spec">
+    <div class="spec-head">
+      <div>
+        <div class="spec-num">03</div>
+        <div class="spec-title">Signal flip flash</div>
+      </div>
+      <div class="spec-right">
+        <div class="label spec-trigger">Trigger · agent changes BUY ↔ SELL ↔ HOLD</div>
+        <div class="label">Duration · 320ms · fires once per flip</div>
+      </div>
+    </div>
+    <div class="spec-body">
+      <div class="spec-stage">
+        <span class="stage-label">M · 03 · flip</span>
+        <div class="m3-grid">
+          <div className="m3-cell" class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell flip"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell flip" style="animation-delay:0.4s"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell flip" style="animation-delay:0.7s"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell flip" style="animation-delay:1.2s"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell flip" style="animation-delay:1.6s"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+          <div class="m3-cell"></div>
+        </div>
+      </div>
+      <div class="spec-notes">
+        <div class="note-title">Why it exists</div>
+        <div class="note-body">
+          Changing your mind is the most consequential event in a deliberation. It must feel
+          discrete — a flicker, not a gradient. The brief white flash means: <i>a conviction just moved</i>.
+        </div>
+        <div class="note-title">Behavior</div>
+        <div class="note-body">
+          Node scales 1→1.4 and turns pure white for ~80ms, then snaps back to scale 1 in the new
+          signal color. Deliberate jank — smooth tweens would undersell the event. Batched per-round
+          so users never see more than ~12 flips flash simultaneously.
+        </div>
+        <div class="spec-tokens">
+          <div class="tok"><span class="tok-k">easing</span><span class="tok-v">ease-in-out (sharp)</span></div>
+          <div class="tok"><span class="tok-k">duration</span><span class="tok-v">320ms</span></div>
+          <div class="tok"><span class="tok-k">peak-scale</span><span class="tok-v">1.4×</span></div>
+          <div class="tok"><span class="tok-k">flash-color</span><span class="tok-v">#ffffff</span></div>
+          <div class="tok"><span class="tok-k">batch-window</span><span class="tok-v">250ms</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MOMENT 4 -->
+  <section class="spec">
+    <div class="spec-head">
+      <div>
+        <div class="spec-num">04</div>
+        <div class="spec-title">Shock-wave propagation</div>
+      </div>
+      <div class="spec-right">
+        <div class="label spec-trigger">Trigger · user injects disruptive event</div>
+        <div class="label">Duration · 1800ms · one-shot</div>
+      </div>
+    </div>
+    <div class="spec-body">
+      <div class="spec-stage">
+        <span class="stage-label">M · 04 · shock</span>
+        <div class="m4-wrap">
+          <div class="m4-wave w1"></div>
+          <div class="m4-wave w2"></div>
+          <div class="m4-wave w3"></div>
+          <div class="m4-center"></div>
+        </div>
+        <div class="m4-nodes">
+          <div class="m4-node reactive" style="left:20%; top:30%; animation-delay:0.4s"></div>
+          <div class="m4-node reactive" style="left:80%; top:30%; animation-delay:0.6s"></div>
+          <div class="m4-node reactive" style="left:28%; top:75%; animation-delay:0.5s"></div>
+          <div class="m4-node reactive" style="left:72%; top:75%; animation-delay:0.7s"></div>
+          <div class="m4-node reactive" style="left:15%; top:55%; animation-delay:0.3s"></div>
+          <div class="m4-node reactive" style="left:85%; top:55%; animation-delay:0.5s"></div>
+          <div class="m4-node reactive" style="left:50%; top:18%; animation-delay:0.4s"></div>
+          <div class="m4-node reactive" style="left:50%; top:85%; animation-delay:0.6s"></div>
+        </div>
+      </div>
+      <div class="spec-notes">
+        <div class="note-title">Why it exists</div>
+        <div class="note-body">
+          Injecting a shock is the most powerful interaction in the product. It deserves a
+          moment. The propagating ring tells the user <i>"your disruption is spreading through the swarm"</i>
+          and reveals which agents react first vs. last.
+        </div>
+        <div class="note-title">Behavior</div>
+        <div class="note-body">
+          Three concentric rings expand outward from the injection point, 400ms apart. Nodes
+          transition from BUY → thinking → SELL as the wave reaches them — delay is proportional to
+          distance from the center. Camera does NOT shake. One-shot, no loop.
+        </div>
+        <div class="spec-tokens">
+          <div class="tok"><span class="tok-k">easing</span><span class="tok-v">ease-out</span></div>
+          <div class="tok"><span class="tok-k">duration</span><span class="tok-v">1800ms</span></div>
+          <div class="tok"><span class="tok-k">waves</span><span class="tok-v">3 · stagger 400ms</span></div>
+          <div class="tok"><span class="tok-k">final-scale</span><span class="tok-v">28×</span></div>
+          <div class="tok"><span class="tok-k">camera</span><span class="tok-v">no shake</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="spec-foot">
+    <b>Open questions.</b>
+    Should node pulse slow down in replay mode (ghosted inference)?
+    Do we need a fifth moment for <i>memory pressure</i> — e.g. nodes dim when inference slots drop?
+    How does this system degrade on a 4K canvas with 500 agents? —
+    <a href="v2.html">← back to v2 dashboard</a>
+  </footer>
+</div>
+</body>
+</html>
