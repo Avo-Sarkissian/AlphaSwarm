@@ -76,7 +76,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 38: Market Data + News Providers** - Real `MarketDataProvider` (yfinance) and `NewsProvider` (RSS/newsapi) implementations with integration tests (completed 2026-04-18)
 - [x] **Phase 39: Holdings Loader** - `HoldingsLoader` reads Schwab CSV into `PortfolioSnapshot` with HOLD-02 account number hashing; `GET /api/holdings` REST endpoint (completed 2026-04-19)
 - [x] **Phase 40: Simulation Context Wiring** - Wire `ContextPacket` (entities + market + news) into simulation seed injection so agents receive grounded price/headline context (completed 2026-04-19)
-- [ ] **Phase 41: Advisory Pipeline** - `alphaswarm.advisory` synthesis: post-simulation advisory report joining holdings positions against consensus signals and market data; `GET /api/advisory/{cycle_id}` endpoint + Vue advisory panel
+- [x] **Phase 41: Advisory Pipeline** - `alphaswarm.advisory` synthesis: post-simulation advisory report joining holdings positions against consensus signals and market data; `GET /api/advisory/{cycle_id}` endpoint + Vue advisory panel (completed 2026-04-20)
 
 ## Phase Details
 
@@ -157,9 +157,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 41-01-PLAN.md — AdvisoryItem + AdvisoryReport frozen pydantic types, synthesize() with asyncio.gather prefetch + orchestrator LLM call + D-07 ranking, 8 unit tests (ADVIS-01)
-- [ ] 41-02-PLAN.md — POST/GET /api/advisory/{cycle_id} route (202+polling+done_callback pattern), app.state.advisory_task wiring, importlinter whitelist, 12 route unit tests, ISOL-07 canary flip (ADVIS-02, ADVIS-03 canary)
-- [ ] 41-03-PLAN.md — AdvisoryPanel.vue full-screen modal with REVISION-1 dual-flag state machine, ControlBar Advisory button in isComplete block, App.vue wiring, 16-step human verification checkpoint (ADVIS-03)
+- [x] 41-01-PLAN.md — AdvisoryItem + AdvisoryReport frozen pydantic types, synthesize() with asyncio.gather prefetch + orchestrator LLM call + D-07 ranking, 8 unit tests (ADVIS-01)
+- [x] 41-02-PLAN.md — POST/GET /api/advisory/{cycle_id} route (202+polling+done_callback pattern), app.state.advisory_task wiring, importlinter whitelist, 12 route unit tests, ISOL-07 canary flip (ADVIS-02, ADVIS-03 canary)
+- [x] 41-03-PLAN.md — AdvisoryPanel.vue full-screen modal with REVISION-1 dual-flag state machine, ControlBar Advisory button in isComplete block, App.vue wiring, 16-step human verification checkpoint (ADVIS-03)
 
 ## Progress
 
@@ -176,4 +176,4 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40 -> 41
 | 38. Market Data + News Providers | v6.0 | 3/3 | Complete    | 2026-04-18 |
 | 39. Holdings Loader | v6.0 | 2/2 | Complete    | 2026-04-19 |
 | 40. Simulation Context Wiring | v6.0 | 3/3 | Complete    | 2026-04-19 |
-| 41. Advisory Pipeline | v6.0 | 0/3 | Not started | — |
+| 41. Advisory Pipeline | v6.0 | 3/3 | Complete    | 2026-04-20 |
