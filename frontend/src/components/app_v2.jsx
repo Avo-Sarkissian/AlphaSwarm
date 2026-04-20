@@ -20,7 +20,7 @@ import {
   ReplayBar,
   CyclePickerModal,
 } from './modals';
-import { TweaksPanel } from './tweaks';
+import { TweaksPanelLoader } from './TweaksPanelLoader';
 import { SignalWire, DataSourcesModal, ReportModalV2 } from './v2';
 import { IdleState, SeedingState, MemoryPausedState, ErrorState } from './states';
 import { CycleHistory } from './history';
@@ -477,7 +477,7 @@ export function App() {
       )}
 
       {tweaksOpen && (
-        <TweaksPanel
+        <TweaksPanelLoader
           state={{ layout, density, seed, replayCycle, tweaksOpen, brackets }}
           setState={() => {}}
           onClose={() => setTweaksOpen(false)}

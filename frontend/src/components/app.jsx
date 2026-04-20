@@ -15,7 +15,7 @@ import { Icon } from './icons';
 import { Viz } from './viz';
 import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
 import { InterviewModal, ReportModal, ShockDrawer, AdvisoryModal, ReplayBar, CyclePickerModal } from './modals';
-import { TweaksPanel } from './tweaks';
+import { TweaksPanelLoader } from './TweaksPanelLoader';
 
 function BrandMark() {
   const nodes = [[8,2],[4,8],[12,8],[2,14],[8,14],[14,14],[6,11],[10,11]];
@@ -310,7 +310,7 @@ export function App() {
       )}
 
       {state.tweaksOpen && (
-        <TweaksPanel state={state} setState={setState} onClose={() => setState(s => ({...s, tweaksOpen: false}))} />
+        <TweaksPanelLoader state={state} setState={setState} onClose={() => setState(s => ({...s, tweaksOpen: false}))} />
       )}
     </div>
   );
