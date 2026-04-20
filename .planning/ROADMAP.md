@@ -177,3 +177,14 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40 -> 41
 | 39. Holdings Loader | v6.0 | 2/2 | Complete    | 2026-04-19 |
 | 40. Simulation Context Wiring | v6.0 | 3/3 | Complete    | 2026-04-19 |
 | 41. Advisory Pipeline | v6.0 | 3/3 | Complete    | 2026-04-20 |
+
+## Backlog
+
+### Phase 999.1: Auto-trigger advisory synthesis on phase=complete (BACKLOG)
+
+**Goal:** When simulation reaches phase=complete, automatically trigger advisory synthesis so users don't need to manually open the panel and click Analyze.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
