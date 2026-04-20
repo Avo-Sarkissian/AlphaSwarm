@@ -180,6 +180,20 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40 -> 41
 
 ## Backlog
 
+### Phase 41.1: UI port & wire — replace Vue frontend with Claude Design UI React assets and wire WebSocket live data (INSERTED)
+
+**Goal:** Swap the Vue 3 frontend at `frontend/` for a React + Vite + TypeScript port of the Claude Design UI export. Verbatim JSX drop, live-wire the existing FastAPI `/ws/state` + REST endpoints, preserve the 28-row parity matrix against `frontend-vue-archive/`. Update `CLAUDE.md` stack line per D-15. 8 known regressions (KR-41.1-01..08) accepted upfront; any 29th surprise is blocking.
+**Requirements**: N/A (implicit parity — no new requirement IDs)
+**Depends on:** Phase 41
+**Plans:** 1/5 plans executed
+
+Plans:
+- [x] 41.1-01-PLAN.md — Wave 0: archive Vue, scaffold React + Vite + TS at frontend/, human-verify scaffold boots
+- [ ] 41.1-02-PLAN.md — Wave 1: port 12 JSX verbatim, build adapter + WebSocket hook + three Contexts + REST client (interfaces everything downstream consumes)
+- [ ] 41.1-03-PLAN.md — Wave 2A: wire viz/panels/app_v2/v2 to live contexts (main dashboard surfaces; parity rows 1–16)
+- [ ] 41.1-04-PLAN.md — Wave 2B (parallel to 03): wire modals/history/states/settings/tweaks (modals + overlays + cycle picker; parity rows 17–28)
+- [ ] 41.1-05-PLAN.md — Wave 3: update CLAUDE.md stack line + run 28-row parity UAT with human sign-off
+
 ### Phase 999.1: Auto-trigger advisory synthesis on phase=complete (BACKLOG)
 
 **Goal:** When simulation reaches phase=complete, automatically trigger advisory synthesis so users don't need to manually open the panel and click Analyze.

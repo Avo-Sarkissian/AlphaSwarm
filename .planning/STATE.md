@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Real Data + Advisory
 status: executing
-stopped_at: Phase 41 context gathered
-last_updated: "2026-04-20T02:07:45.221Z"
+stopped_at: "Completed 41.1-01-PLAN.md (scaffold), next: 41.1-02-PLAN.md (verbatim JSX port + contexts/clients)"
+last_updated: "2026-04-20T16:18:57.262Z"
 last_activity: 2026-04-20
 progress:
-  total_phases: 5
+  total_phases: 7
   completed_phases: 5
-  total_plans: 15
-  completed_plans: 15
-  percent: 100
+  total_plans: 20
+  completed_plans: 16
+  percent: 80
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-18)
 
 **Core value:** The 3-round consensus cascade must produce believable, diverse market reactions from 100 agents with dynamic influence topology — grounded in real market data, the simulation engine is the product
-**Current focus:** Phase 41 — advisory-pipeline
+**Current focus:** Phase 41.1 — ui-port-wire-replace-vue-frontend-with-claude-design-ui-reac
 
 ## Current Position
 
-Phase: 41
-Plan: Not started
-Status: Executing Phase 41
+Phase: 41.1 (ui-port-wire-replace-vue-frontend-with-claude-design-ui-reac) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-04-20
 
-Progress: [██░░░░░░░░] 20% (1/5 phases, 4/14 plans)
+Progress: [████████░░] 80% (5/7 phases, 16/20 plans)
 
 ## Performance Metrics
 
@@ -40,12 +40,19 @@ Progress: [██░░░░░░░░] 20% (1/5 phases, 4/14 plans)
 - Total plans completed: 84
 - Total milestones shipped: 4 (v1.0, v2.0, v4.0, v5.0)
 
+**Per-plan:**
+
+| Phase | Plan | Duration | Tasks | Files |
+|-------|------|----------|-------|-------|
+| 41.1  | 01   | 4m       | 3     | 17    |
+
 ## Accumulated Context
 
 ### Roadmap Evolution
 
 - Phase 28 added: Simulation Replay (REPLAY-01 — re-render past cycle from Neo4j without re-inference)
 - Phase 35.1 inserted after Phase 35: Shock Injection Wiring (URGENT — unblocks Phase 36 report shock-impact; see BUGFIX-CONTEXT.md B1)
+- Phase 41.1 inserted after Phase 41: UI port & wire — replace Vue frontend with Claude Design UI React assets and wire WebSocket live data (URGENT)
 
 ### Decisions
 
@@ -58,6 +65,7 @@ Progress: [██░░░░░░░░] 20% (1/5 phases, 4/14 plans)
 - _collect_inter_round_shock uses nested try/finally: inner finally for close_shock_window, outer finally for governor.resume()
 - ShockInputScreen edge latch (_shock_window_was_open) prevents re-pushing on consecutive _poll_snapshot ticks
 - SHOCK_TEXT_MAX_LEN = 4096 caps prompt injection size across 100 agents (M1 memory constraint)
+- [Phase 41.1]: Pinned @vitejs/plugin-react ^5.2.0 instead of ^6.0.1 because plugin-react@6 requires Vite ^8; preserves Plan's Vite 6 mandate (41.1-01 deviation, Rule 3)
 
 ### Pending Todos
 
@@ -78,6 +86,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-19T22:18:28.356Z
-Stopped at: Phase 41 context gathered
+Last session: 2026-04-20T16:18:57.259Z
+Stopped at: Completed 41.1-01-PLAN.md (scaffold), next: 41.1-02-PLAN.md (verbatim JSX port + contexts/clients)
 Next action: /gsd:complete-milestone or /gsd:new-milestone for v3.0
