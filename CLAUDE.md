@@ -17,7 +17,7 @@
 - **Inference:** `ollama-python` (>=0.6.1). Local Ollama server only. Orchestrator + worker model pair.
 - **State / Memory:** Neo4j Community (Docker) via async `neo4j` driver.
 - **Web Backend:** FastAPI + `uvicorn`, native WebSocket support, `httpx` for outbound calls.
-- **Web Frontend:** Vue 3 + TypeScript, Vite build, D3 force-directed graph for the live agent "mirofish" view.
+- **Web Frontend:** React + TypeScript, Vite build, D3 (d3-scale/selection/transition) for visualization primitives; deterministic SVG layout for the 100-agent "mirofish" graph (see KR-41.1-01 for d3-force displacement rationale).
 - **Validation / Config:** `pydantic`, `pydantic-settings`.
 - **Logging:** `structlog`.
 
