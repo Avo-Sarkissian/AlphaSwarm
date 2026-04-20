@@ -1,39 +1,43 @@
-// WAVE-1-NOTE: Minimal stub so viz.jsx can import `useEdgesCtx` and compile.
-// Task 2 of this plan rewrites this file with the real EdgesProvider that
-// owns the single useEdges() fetch and broadcasts `[source, target]` tuples.
-// For Wave 1, the stub ships an empty tuple list so Viz renders the graph
-// without any edge overlays.
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
+import { useCurrentCycle } from '../hooks/useCurrentCycle';
+import { useEdges } from '../hooks/useEdges';
 
+// Viz consumes `edges` as [source, target] tuples — preserve that shape.
 export interface EdgesCtxValue {
   edges: Array<[string, string]>;
   cycleId: string | null;
   round: number | null;
-  status: 'idle' | 'loading' | 'ready' | 'error';
-  error: Error | null;
-  refresh: () => void;
+  loading: boolean;
 }
 
-const defaultValue: EdgesCtxValue = {
-  edges: [],
-  cycleId: null,
-  round: null,
-  status: 'idle',
-  error: null,
-  refresh: () => {},
-};
+const Ctx = createContext<EdgesCtxValue | null>(null);
 
-const EdgesContext = createContext<EdgesCtxValue>(defaultValue);
+export function EdgesProvider({
+  round,
+  children,
+}: {
+  round: number | null;
+  children: ReactNode;
+}) {
+  const { cycleId, loading: cycleLoading } = useCurrentCycle();
+  const { edges, loading: edgesLoading } = useEdges(cycleId, round);
 
-export function EdgesProvider({ children }: { children: ReactNode }) {
-  return (
-    <EdgesContext.Provider value={defaultValue}>
-      {children}
-    </EdgesContext.Provider>
+  const value = useMemo<EdgesCtxValue>(
+    () => ({
+      edges,
+      cycleId,
+      round,
+      loading: cycleLoading || edgesLoading,
+    }),
+    [edges, cycleId, round, cycleLoading, edgesLoading],
   );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useEdgesCtx(): EdgesCtxValue {
-  return useContext(EdgesContext);
+  const v = useContext(Ctx);
+  if (!v) throw new Error('useEdgesCtx outside provider');
+  return v;
 }
