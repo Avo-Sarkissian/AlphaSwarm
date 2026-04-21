@@ -1,0 +1,119 @@
+{
+  "version": "1.0",
+  "paused_at": "2026-04-21T01:52:49Z",
+  "milestone": "v6.0",
+  "milestone_name": "Real Data + Advisory",
+  "phase": "41.1",
+  "phase_slug": "ui-port-wire-replace-vue-frontend-with-claude-design-ui-reac",
+  "plan": 5,
+  "plan_total": 5,
+  "task": 3,
+  "task_total": 3,
+  "status": "paused",
+  "status_reason": "Plan 05 Task 3 is a checkpoint:human-verify gate (autonomous: false). Orchestrator cannot proceed until user completes the 28-row UAT parity matrix and returns with a resume signal.",
+  "current_position": {
+    "phase_dir": ".planning/phases/41.1-ui-port-wire-replace-vue-frontend-with-claude-design-ui-reac/",
+    "active_plan": "41.1-05-PLAN.md",
+    "active_task": "Task 3 — Human UAT (checkpoint:human-verify, blocking)",
+    "autonomous": false,
+    "checkpoint_type": "human-verify",
+    "resume_signals": ["approved", "approved with notes: <text>", "blocked: <description>"]
+  },
+  "completed_work": {
+    "plans_completed": 4,
+    "plans": [
+      {"plan": 1, "slug": "scaffolding-archive", "commits": ["(pre-session)"], "duration_min": 4, "tasks": 3, "files": 17},
+      {"plan": 2, "slug": "shared-infra", "commits": ["d70f60d"], "duration_min": 90, "tasks": 3, "files": 37},
+      {"plan": 3, "slug": "viz-panels-context", "commits": ["8ae4c7d", "bfcd8b6", "1b03b7f", "61eb890", "6607ee9 (merge)"], "duration_min": 32, "tasks": 3, "files": 8},
+      {"plan": 4, "slug": "modals-history-tweaks", "commits": ["d5b2b49", "338c3d9", "0bb7563", "11ad48f", "4739159 (merge)"], "duration_min": 48, "tasks": 4, "files": 12}
+    ],
+    "post_wave2_commits": [
+      {"sha": "5c7c04d", "subject": "fix(41.1): swap TweaksPanel → TweaksPanelLoader at mount sites", "files": ["frontend/src/components/app.jsx", "frontend/src/components/app_v2.jsx"]},
+      {"sha": "8e5bc03", "subject": "docs(41.1): mark Wave 2 complete — Plans 03 + 04 merged", "files": [".planning/STATE.md", ".planning/ROADMAP.md"]},
+      {"sha": "3e2b887", "subject": "feat(41.1-05): D-15 — CLAUDE.md Web Frontend Vue 3 → React + TypeScript", "files": ["CLAUDE.md"]},
+      {"sha": "a0cd41c", "subject": "docs(41.1-05): UAT template — 28-row parity matrix + 11-KR register", "files": [".planning/phases/41.1-ui-port-wire-replace-vue-frontend-with-claude-design-ui-reac/41.1-HUMAN-UAT.md"]}
+    ],
+    "plan_05_tasks_done": [
+      "Task 1 (auto) — CLAUDE.md D-15 single-line edit: 'Vue 3 + TypeScript' → 'React + TypeScript, Vite build, D3 (d3-scale/selection/transition) for visualization primitives; deterministic SVG layout for the 100-agent mirofish graph (see KR-41.1-01 for d3-force displacement rationale)'",
+      "Task 2 (auto) — Created 41.1-HUMAN-UAT.md template: 11-KR register + 28-row parity matrix + console/regressions sections + 7-box sign-off checklist"
+    ]
+  },
+  "remaining_work": {
+    "plan_05_task_3": {
+      "type": "checkpoint:human-verify",
+      "description": "User runs full side-by-side simulation on Vue :5174 vs React :5173 backed by FastAPI :8000, fills the 28-row parity matrix, documents any new regressions with disposition, and signs off.",
+      "preflight_verified": {
+        "npm_run_build": "exit 0",
+        "npm_run_check": "exit 0",
+        "bundle_tweaks_leak": "grep -cF TweaksPanel dist/assets/index-*.js → 0 (tree-shaken)",
+        "force_mem_pause_wired": "true",
+        "vue_archive_lockfile_preserved": "true"
+      }
+    },
+    "user_actions": [
+      "Open 41.1-HUMAN-UAT.md and fill frontmatter (ran, seed, environment)",
+      "Identical seed + duration across both UIs; walk 28 rows side-by-side; record ✅ / ✗ per row",
+      "For Row 26 memory-paused overlay: trigger via tweaks.jsx 'Force MemoryPaused' button (as:force-mem-pause custom event)",
+      "Paste browser console errors/warnings inline",
+      "Fill 11-KR encountered table with comments",
+      "List any new regressions with disposition (FIX / ACCEPT as KR-41.1-12+ / DEFER)",
+      "Check all 7 sign-off boxes; add signature + date",
+      "Return with resume signal: 'approved' OR 'approved with notes: <text>' OR 'blocked: <description>'"
+    ],
+    "orchestrator_next_session": [
+      "Commit filled 41.1-HUMAN-UAT.md",
+      "Create 41.1-05-SUMMARY.md aggregating Plan 05 outcomes",
+      "Update STATE.md: completed_plans 19 → 20, percent 90 → 100, status executing → complete",
+      "Update ROADMAP.md: Plan 05 box checked, Phase 41.1 marked complete",
+      "Spawn gsd-verifier for phase goal-backward verification",
+      "Close Phase 41.1; route per verification verdict"
+    ]
+  },
+  "decisions": [
+    {
+      "type": "fix",
+      "summary": "Origin-ref drift fix (local-only)",
+      "details": "Worktree isolation was creating worktrees from stale base c0848e6 because refs/remotes/origin/master + refs/remotes/origin/HEAD pointed to old README commit. Fixed via `git update-ref refs/remotes/origin/master d70f60d` + `git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master`. Local-only, no push. All fresh worktrees now inherit correct base."
+    },
+    {
+      "type": "fix",
+      "summary": "Backend spawn command correction",
+      "details": "Plan 05 template + CLAUDE.md earlier referenced `uv run alphaswarm web --reload` which fails with 'No such file or directory' because only `start = alphaswarm.cli:main_tui` is registered in pyproject.toml. Correct command confirmed working by user: `uv run uvicorn alphaswarm.web.app:app --reload --port 8000` (Uvicorn startup + 34-entry holdings snapshot + providers_wired + phase: idle)."
+    },
+    {
+      "type": "implementation",
+      "summary": "TweaksPanelLoader swap at mount sites",
+      "details": "Plan 04 shipped frontend/src/components/TweaksPanelLoader.tsx with React.lazy + import.meta.env.DEV gate but did not swap app.jsx + app_v2.jsx imports. Bundle leak preflight flagged TweaksPanel in prod build. Fixed by swapping import + JSX element in both files (commit 5c7c04d). Verified: grep -cF TweaksPanel dist/assets/index-*.js → 0."
+    },
+    {
+      "type": "verification",
+      "summary": "Wave 2 parallel execution succeeded",
+      "details": "Plan 03 (worktree ab05790d) + Plan 04 (worktree a3050bff) dispatched concurrently after origin-ref fix. Both completed clean. Merged via `git merge --no-ff --no-verify` — no conflicts despite overlapping types.ts/adapter changes."
+    }
+  ],
+  "blockers": [
+    {
+      "severity": "blocking",
+      "summary": "Human UAT required before phase completion",
+      "detail": "Plan 05 Task 3 is autonomous:false / checkpoint:human-verify. Phase cannot close until user returns with resume signal."
+    },
+    {
+      "severity": "informational",
+      "summary": "Backend spawn command — do not regress",
+      "detail": "Future UAT instructions must use `uv run uvicorn alphaswarm.web.app:app --reload --port 8000`, not `uv run alphaswarm web --reload`."
+    },
+    {
+      "severity": "informational",
+      "summary": "Agent-worktree cleanup deferred",
+      "detail": "Several .claude/worktrees/agent-* dirs locked by prior Claude Code agent pids. `git worktree remove` failed with lock errors. Leftover branches don't block anything (merged via `--no-ff`). Run `git worktree prune -f` after Claude sessions release locks."
+    }
+  ],
+  "uncommitted_files": [],
+  "infrastructure_state": {
+    "vue_dev_server": "http://localhost:5174 (VS Code Terminal 1, `cd frontend-vue-archive && npm run dev`)",
+    "react_dev_server": "http://localhost:5173 (VS Code Terminal 2, `cd frontend && npm run dev`)",
+    "fastapi_backend": "http://localhost:8000 (VS Code Terminal 3, `uv run uvicorn alphaswarm.web.app:app --reload --port 8000`)",
+    "note": "Dev servers may still be running in VS Code terminals. If killed, use the commands above to restart before UAT."
+  },
+  "next_action": "User completes 28-row UAT matrix in 41.1-HUMAN-UAT.md and returns in a fresh session with resume signal (approved / approved with notes: / blocked:)."
+}
