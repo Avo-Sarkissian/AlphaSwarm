@@ -18,11 +18,9 @@ import { AgentsProvider } from './context/AgentsContext';
 import { BracketProvider } from './context/BracketContext';
 import { RationalesProvider } from './context/RationalesContext';
 import { EdgesProvider } from './context/EdgesContext';
+import { App as DashboardShell } from './components/app_v2';
 
 if (import.meta.env.DEV) {
-  // Side-effect import: eagerly pulls every ported JSX component through the
-  // smoke harness so tsc + Vite type-check + bundle them even though the
-  // AppShell does not mount them yet.
   void import('./_smoke');
 }
 
@@ -37,7 +35,7 @@ export function App() {
         reconnectFailed={reconnectFailed}
         lastFrame={null}
       >
-        <AppShell placeholder />
+        <AwaitingFrame connected={connected} reconnectFailed={reconnectFailed} />
       </ConnectionProvider>
     );
   }
@@ -53,7 +51,7 @@ export function App() {
           <BracketProvider frame={lastFrame}>
             <RationalesProvider frame={lastFrame}>
               <EdgesProvider round={round}>
-                <AppShell />
+                <DashboardShell />
               </EdgesProvider>
             </RationalesProvider>
           </BracketProvider>
@@ -63,20 +61,35 @@ export function App() {
   );
 }
 
-function AppShell({ placeholder }: { placeholder?: boolean }) {
+function AwaitingFrame({
+  connected,
+  reconnectFailed,
+}: {
+  connected: boolean;
+  reconnectFailed: boolean;
+}) {
+  const msg = reconnectFailed
+    ? 'WebSocket disconnected — check backend on :8000'
+    : connected
+    ? 'Connected — waiting for first simulation frame…'
+    : 'Connecting to WebSocket…';
   return (
     <div
+      className="app"
       style={{
-        padding: 24,
-        fontFamily:
-          'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg)',
+        color: 'var(--text-2)',
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 12,
+        letterSpacing: '0.08em',
       }}
     >
-      <h1>
-        AlphaSwarm — Wave 1 scaffold
-        {placeholder ? ' (awaiting WebSocket)' : ''}
-      </h1>
-      <p>Providers mounted. Plans 03 and 04 wire dashboard surfaces.</p>
+      {msg}
     </div>
   );
 }
