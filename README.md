@@ -5,7 +5,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Ollama](https://img.shields.io/badge/inference-Ollama-orange.svg)](https://ollama.com/)
 [![Neo4j](https://img.shields.io/badge/graph-Neo4j-brightgreen.svg)](https://neo4j.com/)
-[![Vue 3](https://img.shields.io/badge/frontend-Vue%203-42b883.svg)](https://vuejs.org/)
+[![React](https://img.shields.io/badge/frontend-React%20%2B%20TS-61dafb.svg)](https://react.dev/)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![D3.js](https://img.shields.io/badge/viz-D3.js-f7931e.svg)](https://d3js.org/)
 [![Textual](https://img.shields.io/badge/TUI-Textual-purple.svg)](https://textual.textualize.io/)
@@ -14,12 +14,22 @@ Feed it a market rumor. Watch 100 AI agents — quants, degens, whales, policy w
 
 ---
 
+## Screenshots
+
+| Live simulation — Round 2 | Data Sources audit modal |
+|---|---|
+| ![Dashboard R2](docs/screenshots/dashboard-r2.png) | ![Data Sources Modal](docs/screenshots/data-sources-modal.png) |
+
+*Seed: "Apple acquiring Anthropic for $500B — compute commitments unclear". 100 agents across 10 brackets. Consensus BUY 47% at R2. Real-time yfinance + NewsAPI data visible in Signal Wire and Data Sources.*
+
+---
+
 ## Key Features
 
 - **100 autonomous agents** across 10 distinct market archetypes, each with unique risk profiles, biases, and decision heuristics
 - **3-round iterative consensus** — independent analysis, peer influence, final convergence — with measurable opinion shifts between rounds
 - **Dynamic influence topology** — agent-to-agent influence edges form organically from citation and agreement patterns (Neo4j graph), not static hierarchies
-- **Dual dashboards** — browser-based Vue 3 + D3 force graph UI *or* legacy Textual TUI, both driven by the same simulation engine
+- **React + FastAPI web dashboard** — D3 visualization, live WebSocket at 5Hz, 100-agent force graph, bracket panels, rationale feed, replay mode, advisory panel; legacy Textual TUI also available
 - **Live graph memory** — Neo4j persists every decision, rationale episode, signal flip, and INFLUENCED_BY edge as queryable state
 - **Post-simulation capabilities** — click-to-interview any agent (multi-turn Q&A), replay past cycles from Neo4j state without re-inference, ReACT-agent-generated market analysis report
 - **Dynamic persona generation** — orchestrator extracts entities from the seed rumor to inject situation-specific bracket modifiers
@@ -57,13 +67,16 @@ Seed Rumor ──► Orchestrator (35B) ──► Entity Extraction + Dynamic Pe
 
 ## Dashboards
 
-### Web UI (Vue 3 + FastAPI) — Primary Interface
+### Web UI (React + TypeScript + FastAPI) — Primary Interface
 
-Browser-based dashboard at `http://localhost:8000` after `uv run python -m alphaswarm web`:
+```bash
+uv run uvicorn alphaswarm.web.app:app --port 8000
+# Open http://localhost:8000
+```
 
 | Surface | Description |
 |---|---|
-| **Force Graph** | D3 force-directed layout of 100 agent nodes, color-coded by signal, clustered by bracket, with animated INFLUENCED_BY edges |
+| **Force Graph** | 100 agent nodes in deterministic SVG clusters, color-coded by signal (BUY/SELL/HOLD), with INFLUENCED_BY edges |
 | **Control Bar** | Seed input, Start/Stop buttons, live phase indicator, inject-shock drawer |
 | **Rationale Feed** | Real-time scrolling stream of agent reasoning with animated entry transitions |
 | **Bracket Panel** | Per-archetype sentiment bar charts (D3 SVG) updated after each round |
@@ -117,10 +130,10 @@ Degens      [████░░░░░░]  40%   ...
 │                         AlphaSwarm                              │
 │                                                                 │
 │  ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐   │
-│  │   Ollama     │   │  Simulation  │   │  Vue 3 SPA       │   │
-│  │   35B/9B     │◄─►│   Engine     │──►│  (D3 force       │   │
-│  │   Models     │   │  (asyncio)   │   │   graph, control │   │
-│  └──────────────┘   └──────┬───────┘   │   bar, replay)   │   │
+│  │   Ollama     │   │  Simulation  │   │  React + TS SPA  │   │
+│  │   35B/9B     │◄─►│   Engine     │──►│  (D3 viz, agent  │   │
+│  │   Models     │   │  (asyncio)   │   │   graph, replay) │   │
+│  └──────────────┘   └──────┬───────┘   │                  │   │
 │         ▲                  │           └────────▲─────────┘   │
 │         │                  ▼                    │ WebSocket + │
 │         │           ┌──────────────┐            │ REST        │
@@ -148,7 +161,7 @@ Degens      [████░░░░░░]  40%   ...
 | Inference | Ollama — `qwen3.5:35b` orchestrator, `qwen3.5:9b` workers |
 | Graph State | Neo4j Community — cycle-scoped edges, UNWIND batch writes, async driver |
 | Web Backend | FastAPI + `uvicorn`, WebSocket broadcaster @ ~5Hz, drop-oldest backpressure |
-| Web Frontend | Vue 3 + TypeScript + Vite, D3.js force graph, `marked` + DOMPurify for report render |
+| Web Frontend | React + TypeScript + Vite, D3 (d3-scale/selection/transition), `marked` + DOMPurify for report render |
 | Terminal UI | Textual — snapshot-based rendering at 200ms intervals |
 | Validation | Pydantic + pydantic-settings |
 | Logging | structlog (structured JSON with per-agent correlation IDs) |
@@ -199,7 +212,7 @@ docker run -d --name neo4j --restart unless-stopped \
 **Web UI (recommended):**
 
 ```bash
-uv run python -m alphaswarm web
+uv run uvicorn alphaswarm.web.app:app --port 8000
 # Open http://localhost:8000
 ```
 
@@ -255,7 +268,7 @@ ALPHASWARM_GOVERNOR__MEMORY_PAUSE_PERCENT=90.0    # pause inference queue
 
 **v4.0 Interactive Simulation & Analysis** — shock injection core (disruptive event injection between rounds), shock analysis and reporting, simulation replay from stored Neo4j state.
 
-**v5.0 Web UI** — FastAPI + WebSocket backend, Vue 3 SPA with D3 force-directed graph, REST simulation controls + ControlBar, web monitoring panels (rationale feed, bracket charts), replay mode UI, agent interview chat panel, shock injection drawer, browser-based report viewer.
+**v5.0 Web UI** — FastAPI + WebSocket backend, React + TypeScript SPA with D3 visualization primitives, REST simulation controls + ControlBar, web monitoring panels (rationale feed, bracket charts), replay mode UI, agent interview chat panel, shock injection drawer, browser-based report viewer.
 
 ---
 
