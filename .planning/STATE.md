@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Real Data + Advisory
-status: executing
-stopped_at: "41.1-03 + 41.1-04 merged to master (5c7c04d TweaksPanelLoader swap) — Wave 2 done; next: Wave 3 (Plan 05 UAT matrix + CLAUDE.md D-15)"
-last_updated: "2026-04-20T18:30:00Z"
-last_activity: 2026-04-20
+status: blocked
+stopped_at: "41.1 UAT BLOCKED — 7 new regressions (NR-1 WS URL, NR-2 signal colors, NR-4 rationale feed, NR-5 edges 422/500, NR-6 advisory auto-trigger, NR-7 sleep resilience, NR-8 long-task UX); README + screenshots + UAT committed (438ee1d) + pushed"
+last_updated: "2026-04-22T00:00:00Z"
+last_activity: 2026-04-22
 progress:
   total_phases: 7
   completed_phases: 5
