@@ -19,6 +19,7 @@ import { useCurrentCycle } from '../hooks/useCurrentCycle';
 import {
   hasAdvisoryBeenTriggered,
   markAdvisoryTriggered,
+  unmarkAdvisoryTriggered,
 } from '../hooks/useAdvisoryAutoTrigger';
 import { useTelemetry } from '../context/TelemetryContext';
 
@@ -451,8 +452,41 @@ export function AdvisoryModal({ cycleId: cycleIdProp, onClose }) {
             </div>
           )}
           {hadError && !data && (
-            <div className="advisory-card" style={{ color: 'var(--sell)' }}>
-              Advisory failed: {formatApiError(hadError)}
+            <div
+              className="advisory-card advisory-error"
+              role="alert"
+              style={{
+                padding: 16,
+                background: 'rgba(255, 91, 107, 0.10)',
+                border: '1px solid var(--sell)',
+                borderRadius: 4,
+                color: 'var(--text)',
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 12,
+              }}
+            >
+              <div style={{ marginBottom: 8, fontWeight: 700, color: 'var(--sell)' }}>
+                Advisory generation failed
+              </div>
+              <div style={{ marginBottom: 12, color: 'var(--text-2)' }}>
+                {formatApiError(hadError)}
+              </div>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => {
+                  // NR-7: clear errors and registry mark, then re-arm the kick
+                  // effect so it dispatches a fresh advisoryGenerate POST.
+                  // Backend pops any stale error entry on the new POST
+                  // (advisory.py errors.pop(cycle_id, None)) so polling will
+                  // resume cleanly.
+                  setKickError(null);
+                  if (cycleId) unmarkAdvisoryTriggered(cycleId);
+                  setKicked(false);
+                }}
+              >
+                Retry
+              </button>
             </div>
           )}
           {data && html && (

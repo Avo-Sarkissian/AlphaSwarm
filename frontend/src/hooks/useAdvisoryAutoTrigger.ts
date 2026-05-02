@@ -43,6 +43,14 @@ export function markAdvisoryTriggered(cycleId: string): void {
   advisoryAutoTriggered.add(cycleId);
 }
 
+// Plan 41.1-10 (NR-7/NR-8): allow callers (TaskBanner Retry button, modals
+// Retry button) to clear a registry entry so a fresh advisoryGenerate POST
+// can fire. Without this, a single backend failure would lock the cycleId
+// out for the rest of the browser session.
+export function unmarkAdvisoryTriggered(cycleId: string): void {
+  advisoryAutoTriggered.delete(cycleId);
+}
+
 export function useAdvisoryAutoTrigger(): void {
   const { lastFrame } = useConnection();
   const { cycleId } = useCurrentCycle();

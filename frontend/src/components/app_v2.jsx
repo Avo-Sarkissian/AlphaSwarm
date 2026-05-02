@@ -9,7 +9,7 @@
 //   • ShockDrawer remains state-toggled only — Plan 04 owns the shock POST
 //     (reviewer item 17).
 //   • Claude-Artifacts postMessage bridge stays removed.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from './icons';
 import { Viz } from './viz';
 import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
@@ -20,6 +20,7 @@ import {
   ReplayBar,
   CyclePickerModal,
 } from './modals';
+import { TaskBanner } from './TaskBanner';
 import { TweaksPanelLoader } from './TweaksPanelLoader';
 import { SignalWire, DataSourcesModal, ReportModalV2 } from './v2';
 import { IdleState, SeedingState, MemoryPausedState, ErrorState } from './states';
@@ -30,7 +31,13 @@ import { useAgents } from '../context/AgentsContext';
 import { useBrackets } from '../context/BracketContext';
 import { useEdgesCtx } from '../context/EdgesContext';
 import { useConnection } from '../context/ConnectionContext';
+import { useCurrentCycle } from '../hooks/useCurrentCycle';
+import {
+  hasAdvisoryBeenTriggered,
+  unmarkAdvisoryTriggered,
+} from '../hooks/useAdvisoryAutoTrigger';
 import { simStart, simStop } from '../api/simulation';
+import { advisoryGenerate } from '../api/advisory';
 import { ApiError } from '../api/client';
 
 function BrandMark() {
@@ -138,6 +145,11 @@ function apiErrorMessage(e, verb) {
   return `${verb} failed: network or unknown error`;
 }
 
+// NR-8: max time we keep showing "ADVISORY SYNTHESIZING" before auto-clearing
+// the banner. Backend advisory polling has its own internal cap (~10 min); we
+// add a 2-min buffer so the banner does not race the modal.
+const ADVISORY_SYNTH_MAX_MS = 12 * 60 * 1000;
+
 export function App() {
   // Live contexts (Plan 02)
   const { phase, running } = useTelemetry();
@@ -145,6 +157,7 @@ export function App() {
   const { brackets } = useBrackets();
   const { edges } = useEdgesCtx();
   const { reconnectFailed } = useConnection();
+  const { cycleId: currentCycleId } = useCurrentCycle();
 
   // Local UI state only — no duplicate simulation state
   const [layout, setLayout] = useState('force');
@@ -170,6 +183,38 @@ export function App() {
   // REST state
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+
+  // NR-8: track whether an advisory synthesis is in flight so the TaskBanner
+  // can render. We use phase=='complete' AND a known cycleId AND the registry
+  // mark from useAdvisoryAutoTrigger as the gate — these three together imply
+  // the auto-trigger fired and the orchestrator is working. A timeout caps
+  // the banner so it never sticks past the backend's own polling window.
+  const [advisorySynthesizing, setAdvisorySynthesizing] = useState(false);
+
+  useEffect(() => {
+    const isComplete = phase === 'complete' || phase === 'done';
+    if (!isComplete || !currentCycleId) {
+      setAdvisorySynthesizing(false);
+      return;
+    }
+    if (!hasAdvisoryBeenTriggered(currentCycleId)) return;
+    setAdvisorySynthesizing(true);
+    const t = window.setTimeout(
+      () => setAdvisorySynthesizing(false),
+      ADVISORY_SYNTH_MAX_MS,
+    );
+    return () => window.clearTimeout(t);
+  }, [phase, currentCycleId]);
+
+  function handleRetryAdvisory() {
+    if (!currentCycleId) return;
+    // Allow useAdvisoryAutoTrigger to re-fire if the new POST also fails;
+    // 409 is treated as success by the hook.
+    unmarkAdvisoryTriggered(currentCycleId);
+    advisoryGenerate(currentCycleId).catch(() => {
+      /* TaskBanner already surfaces health.connected=false; suppress here */
+    });
+  }
 
   async function onStart() {
     if (busy || running || !seed.trim()) return;
@@ -347,6 +392,15 @@ export function App() {
           Connection lost — reconnect retries exhausted. Refresh to retry.
         </div>
       )}
+
+      {/* NR-8: long-task visibility banner (sim or advisory). Renders nothing
+          when no task is active; switches to red on Ollama disconnection. */}
+      <TaskBanner
+        running={running}
+        advisorySynthesizing={advisorySynthesizing}
+        onCancelSim={onStop}
+        onRetryAdvisory={handleRetryAdvisory}
+      />
 
       {/* Signal Wire — live API activity ticker (KR-41.1-02 mocks) */}
       <SignalWire running={running} onInspect={() => setUi(u => ({...u, dataSourcesOpen: true}))} />
