@@ -185,7 +185,7 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40 -> 41
 **Goal:** Swap the Vue 3 frontend at `frontend/` for a React + Vite + TypeScript port of the Claude Design UI export. Verbatim JSX drop, live-wire the existing FastAPI `/ws/state` + REST endpoints, preserve the 28-row parity matrix against `frontend-vue-archive/`. Update `CLAUDE.md` stack line per D-15. 8 known regressions (KR-41.1-01..08) accepted upfront; any 29th surprise is blocking.
 **Requirements**: N/A (implicit parity — no new requirement IDs)
 **Depends on:** Phase 41
-**Plans:** 4/5 plans executed
+**Plans:** 9/10 plans executed
 
 Plans:
 - [x] 41.1-01-PLAN.md — Wave 0: archive Vue, scaffold React + Vite + TS at frontend/, human-verify scaffold boots

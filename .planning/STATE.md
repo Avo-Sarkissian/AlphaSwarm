@@ -4,8 +4,8 @@ milestone: v6.0
 milestone_name: Real Data + Advisory
 status: executing
 stopped_at: 41.1-04 merged (11ad48f) + TweaksPanelLoader swap committed (5c7c04d) — Wave 2 done
-last_updated: "2026-05-02T16:48:17.047Z"
-last_activity: 2026-05-02 -- Phase 41.1 planning complete
+last_updated: "2026-05-02T16:55:23.243Z"
+last_activity: 2026-05-02 -- Phase 41.1 execution started
 progress:
   total_phases: 7
   completed_phases: 5
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 ## Current Position
 
 Phase: 41.1 (ui-port-wire-replace-vue-frontend-with-claude-design-ui-reac) — EXECUTING
-Plan: 5 of 5 (Wave 2 complete — Plan 05 Wave 3 next, non-autonomous checkpoint expected)
-Status: Ready to execute
-Last activity: 2026-05-02 -- Phase 41.1 planning complete
+Plan: 1 of 10
+Status: Executing Phase 41.1
+Last activity: 2026-05-02 -- Phase 41.1 execution started
 
 Progress: [█████████░] 90% (5/7 phases, 19/20 plans)
 
