@@ -29,10 +29,12 @@ class EdgesResponse(BaseModel):
 async def get_edges(
     request: Request,
     cycle_id: str,
-    round: int = Query(..., alias="round", ge=1, le=3),
+    round: int = Query(..., alias="round", ge=0, le=3),
 ) -> EdgesResponse:
     """Return INFLUENCED_BY edges for a given cycle and round.
 
+    Round 0 returns 200 with empty list (pre-simulation; NR-5 fix).
+    Round 1..3 returns INFLUENCED_BY edges from Neo4j.
     Returns 503 if graph_manager is not available (Neo4j offline).
     """
     app_state = request.app.state.app_state

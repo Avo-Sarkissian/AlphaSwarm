@@ -1260,6 +1260,59 @@ class GraphStateManager:
         )
         return [dict(record) async for record in result]
 
+    async def read_influence_edges(
+        self, cycle_id: str, round_num: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Return INFLUENCED_BY edges for a (cycle_id, round) pair (NR-5 fix).
+
+        Distinguishes from read_influence_leaders (which aggregates by target).
+        Returns per-edge tuples so the frontend force layout can render
+        individual influence lines.
+
+        Args:
+            cycle_id: Simulation cycle ID.
+            round_num: Round 0..3. Round 0 returns [] (no edges exist yet).
+
+        Returns:
+            List of dicts: {source_id, target_id, weight}.
+        """
+        if round_num == 0:
+            return []
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_influence_edges_tx, cycle_id, round_num,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read influence edges for cycle {cycle_id} round {round_num}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "edges_read", cycle_id=cycle_id, round=round_num, count=len(records),
+        )
+        return records
+
+    @staticmethod
+    async def _read_influence_edges_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        round_num: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for per-edge influence tuples (NR-5)."""
+        result = await tx.run(
+            """
+            MATCH (src:Agent)-[infl:INFLUENCED_BY {cycle_id: $cycle_id, round: $round}]->(tgt:Agent)
+            RETURN
+                src.id AS source_id,
+                tgt.id AS target_id,
+                infl.weight AS weight
+            """,
+            cycle_id=cycle_id,
+            round=round_num,
+        )
+        return [dict(record) async for record in result]
+
     async def read_influence_leaders(
         self, cycle_id: str, limit: int = 10,
     ) -> list[dict]:  # type: ignore[type-arg]
