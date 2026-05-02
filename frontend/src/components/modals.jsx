@@ -16,6 +16,10 @@ import { simShock } from '../api/simulation';
 import { ApiError } from '../api/client';
 import { usePolling } from '../hooks/usePolling';
 import { useCurrentCycle } from '../hooks/useCurrentCycle';
+import {
+  hasAdvisoryBeenTriggered,
+  markAdvisoryTriggered,
+} from '../hooks/useAdvisoryAutoTrigger';
 import { useTelemetry } from '../context/TelemetryContext';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -354,6 +358,11 @@ export function AdvisoryModal({ cycleId: cycleIdProp, onClose }) {
   useEffect(() => {
     if (!cycleId || kicked) return;
     setKicked(true);
+    // NR-6: if useAdvisoryAutoTrigger already dispatched for this cycleId
+    // (auto-fired on phase=complete), this manual open is a no-op. Polling
+    // below picks up the in-flight or completed advisory result.
+    if (hasAdvisoryBeenTriggered(cycleId)) return;
+    markAdvisoryTriggered(cycleId);
     advisoryGenerate(cycleId).catch((e) => {
       // 409 = either report or advisory already in flight — poll anyway.
       if (e instanceof ApiError && e.status === 409) return;
