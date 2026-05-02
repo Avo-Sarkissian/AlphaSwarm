@@ -12,9 +12,12 @@ export type BracketKey =
   | 'Whales'
   | 'PolicyWonks';
 
-// Agent discrete signal — backend emits SignalType enum ('BUY'|'SELL'|'HOLD'),
-// adapter lowercases to match viz/panel css class conventions.
-export type AgentSignal = 'buy' | 'sell' | 'hold';
+// Agent discrete signal — backend emits SignalType enum
+// ('BUY'|'SELL'|'HOLD'|'PARSE_ERROR'), adapter lowercases to match
+// viz/panel css class conventions. PARSE_ERROR === unparseable model output
+// (NOT a vote of no-confidence — that's HOLD). Distinct color in the force
+// graph so the user can quantify model-output failures (NR-2 fix).
+export type AgentSignal = 'buy' | 'sell' | 'hold' | 'parse_error';
 
 export interface AgentView {
   id: string;

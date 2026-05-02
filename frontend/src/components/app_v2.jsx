@@ -52,7 +52,9 @@ function Tooltip({ info }) {
   return (
     <div className="tooltip" style={{ left: x + 14, top: y + 14 }}>
       <div className="t-head">{agent.id} <span style={{color:'var(--text-3)', fontSize:10}}>· {agent.bracketDisplay || agent.bracket}</span></div>
-      <div className="t-row"><span>Signal</span><strong className={`sig-${agent.signal}`} style={{padding:'1px 5px'}}>{(agent.signal || 'hold').toUpperCase()}</strong></div>
+      <div className="t-row"><span>Signal</span><strong className={`sig-${agent.signal}`} style={{padding:'1px 5px'}}>{
+        agent.signal === 'parse_error' ? 'PARSE ERROR' : (agent.signal || 'hold').toUpperCase()
+      }</strong></div>
       <div className="t-row"><span>Confidence</span><strong>{Math.round((agent.confidence ?? 0) * 100)}%</strong></div>
       <div className="t-row"><span>Flipped R1→R3</span><strong>{agent.flipped ? 'Yes' : 'No'}</strong></div>
       <div style={{marginTop:6, fontSize:10, color:'var(--text-3)'}}>Click to interview →</div>
@@ -61,11 +63,33 @@ function Tooltip({ info }) {
 }
 
 function Legend() {
+  // NR-2: 4th row distinguishes PARSE ERROR (model-output failure) from HOLD
+  // (genuine no-confidence vote). Same desaturated grey + X marker as nodes.
   return (
     <div className="legend">
       <div className="legend-row"><span className="chip" style={{background:'var(--buy)'}} /> BUY</div>
       <div className="legend-row"><span className="chip" style={{background:'var(--sell)'}} /> SELL</div>
       <div className="legend-row"><span className="chip" style={{background:'var(--hold)'}} /> HOLD</div>
+      <div className="legend-row">
+        <span
+          className="chip"
+          style={{
+            background: 'var(--text-3)',
+            position: 'relative',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <span style={{
+            fontSize: 8,
+            fontWeight: 700,
+            color: 'var(--text-2)',
+            lineHeight: 1,
+            pointerEvents: 'none',
+          }}>×</span>
+        </span> PARSE ERROR
+      </div>
       <div className="legend-divider" />
       <div className="legend-row"><span className="chip-ring" /> Flipped since R1</div>
       <div className="legend-row"><span className="chip-line" /> Influence edge</div>
