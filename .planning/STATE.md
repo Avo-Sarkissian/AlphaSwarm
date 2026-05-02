@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Real Data + Advisory
-status: blocked
-stopped_at: "41.1 UAT BLOCKED — 7 new regressions (NR-1 WS URL, NR-2 signal colors, NR-4 rationale feed, NR-5 edges 422/500, NR-6 advisory auto-trigger, NR-7 sleep resilience, NR-8 long-task UX); README + screenshots + UAT committed (438ee1d) + pushed"
-last_updated: "2026-04-22T00:00:00Z"
-last_activity: 2026-04-22
+status: executing
+stopped_at: 41.1-04 merged (11ad48f) + TweaksPanelLoader swap committed (5c7c04d) — Wave 2 done
+last_updated: "2026-05-02T16:48:17.047Z"
+last_activity: 2026-05-02 -- Phase 41.1 planning complete
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 20
+  total_plans: 25
   completed_plans: 19
-  percent: 90
+  percent: 76
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 
 Phase: 41.1 (ui-port-wire-replace-vue-frontend-with-claude-design-ui-reac) — EXECUTING
 Plan: 5 of 5 (Wave 2 complete — Plan 05 Wave 3 next, non-autonomous checkpoint expected)
-Status: Plans 03 + 04 merged (5c7c04d TweaksPanelLoader swap landed)
-Last activity: 2026-04-20
+Status: Ready to execute
+Last activity: 2026-05-02 -- Phase 41.1 planning complete
 
 Progress: [█████████░] 90% (5/7 phases, 19/20 plans)
 
