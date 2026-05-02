@@ -202,3 +202,12 @@ Plans:
 
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.2: Seeding phase progress UX (BACKLOG)
+
+**Goal:** Add live progress indicators during the agent seeding phase so users know what's happening before R1 starts. Currently "SEEDING..." shows with no detail. Ideas: agent-spawned count (e.g. "47/100 agents loaded"), model-load status, estimated time remaining, or a progress bar. The NR-8 TaskBanner covers simulation runtime but not pre-R1 initialization.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
