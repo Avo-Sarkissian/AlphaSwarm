@@ -5,7 +5,7 @@ milestone_name: Real Data + Advisory
 status: executing
 stopped_at: 41.1-04 merged (11ad48f) + TweaksPanelLoader swap committed (5c7c04d) — Wave 2 done
 last_updated: "2026-05-03T03:18:05.000Z"
-last_activity: 2026-05-03 -- Completed quick task 260502-wd2: Fix advisory auto-trigger 409 disambiguation bug
+last_activity: 2026-05-03 -- Completed quick task 260503-2zp: Fix NR-9 advisory auto-trigger 503 race (retry-with-backoff)
 progress:
   total_phases: 7
   completed_phases: 5
@@ -87,6 +87,7 @@ None.
 | 260416-m8x | Tier 1 surgical bug fixes (B4 replay/live guard, B7 writer leak, B8 phase race, B9 replay lock, B10 dupe COMPLETE) | 2026-04-16 | 73b7b9d | [260416-m8x-tier-1-surgical-bug-fixes-b4-replay-live](./quick/260416-m8x-tier-1-surgical-bug-fixes-b4-replay-live/) |
 | 260416-trw | Tier 0 cleanup: delete Finder duplicate files B2, add noEmit to tsconfig B5-B6, add useWebSocket teardown B11 | 2026-04-17 | 10d739e | [260416-trw-tier-0-cleanup-delete-finder-duplicate-f](./quick/260416-trw-tier-0-cleanup-delete-finder-duplicate-f/) |
 | 260502-wd2 | Fix advisory auto-trigger 409 disambiguation bug | 2026-05-03 | bd02208 | [260502-wd2-fix-advisory-auto-trigger-409-disambigua](./quick/260502-wd2-fix-advisory-auto-trigger-409-disambigua/) |
+| 260503-2zp | Fix NR-9: advisory auto-trigger 503 race — add retry-with-backoff in useAdvisoryAutoTrigger.ts | 2026-05-03 | dc40cd3 | [260503-2zp-fix-nr-9-advisory-auto-trigger-503-race-](./quick/260503-2zp-fix-nr-9-advisory-auto-trigger-503-race-/) |
 
 ## Session Continuity
 
