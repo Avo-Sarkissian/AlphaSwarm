@@ -203,9 +203,38 @@ Plans:
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
 
-### Phase 999.2: Seeding phase progress UX (BACKLOG)
+### Phase 999.2: Seeding phase progress UX
 
-**Goal:** Add live progress indicators during the agent seeding phase so users know what's happening before R1 starts. Currently "SEEDING..." shows with no detail. Ideas: agent-spawned count (e.g. "47/100 agents loaded"), model-load status, estimated time remaining, or a progress bar. The NR-8 TaskBanner covers simulation runtime but not pre-R1 initialization.
+**Goal:** Add live progress indicators during the agent seeding phase so users know what's happening before R1 starts. Replace the frozen `000/100` placeholder during inject_seed with an elapsed timer (mm:ss from `telemetry.elapsedSeconds`) + Ollama health chip (reuses `useOllamaHealth`), extend the SeedingState overlay into early ROUND_1 so the real 0→100 agent count climb is visible (D-04), and switch TaskBanner to `SEEDING · mm:ss` during the seeding window (D-06). Frontend-only — no backend changes (D-08).
+**Requirements:** N/A (UX fix — no new requirement IDs)
+**Depends on:** Phase 41.1 (TaskBanner + useOllamaHealth + SeedingState shipped in 41.1-04, 41.1-10)
+**Plans:** 2/2 plans complete
+
+Plans:
+- [x] 999.2-01-PLAN.md — Wave 1: SeedingState zero-agent branch (timer + Ollama chip) + TaskBanner phase prop
+- [x] 999.2-02-PLAN.md — Wave 2: app_v2.jsx phase-driven canvas branch + TaskBanner phase wiring + human-verify checkpoint
+
+### Phase 999.3: Wire live memory % telemetry (BACKLOG)
+
+**Goal:** Fix KR-41.1-04 — memory KPI currently shows 0% because `memMb` only updates under active governor throttling. Wire the governor's real-time memory percent to the WebSocket state frame so the dashboard always reflects current RAM utilization.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.5: Rolling SignalWire ticker (BACKLOG)
+
+**Goal:** Replace the frame-by-frame static SignalWire with a continuously scrolling ticker — new API call entries slide in from the right, older ones drift left, like a stock exchange feed. Currently the wire replaces its content on each 5Hz snapshot; the rolling approach gives a sense of live market data velocity.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.4: Wire live parallel slots telemetry (BACKLOG)
+
+**Goal:** Fix KR-41.1-05 — parallel slots KPI is stubbed at 0/8. Wire the live asyncio semaphore count to the WebSocket state frame so the dashboard shows actual concurrency utilization during simulation rounds.
 **Requirements:** TBD
 **Plans:** 0 plans
 
