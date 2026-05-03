@@ -253,9 +253,15 @@ export function ErrorState({ onRetry, error }) {
 }
 
 // ─── LIFECYCLE OVERLAY ────────────────────────────────────────────────
-// Single entry consumed by app roots. Decision table is inlined below
-// rather than living in a separate hook (per prompt <do_not>: no new
-// hooks in Plan 04 scope).
+// Single entry consumed by app roots. Decision table is inlined below.
+//
+// Decision table (matches RESEARCH §states.jsx wiring + 999.2 D-04):
+//   connection.reconnectFailed                              → 'error'    (highest priority)
+//   telemetry.phase === 'idle'                              → 'idle'
+//   telemetry.phase === 'seeding'                           → 'seeding'
+//   telemetry.phase === 'round_1' && agents.length < 100    → 'seeding'  (D-04: early-R1 0→100 climb)
+//   telemetry.memMb  >= memThresholdPct                     → 'mempause'
+//   else                                                    → null       (live graph shows)
 export function LifecycleOverlay({
   seed,
   onResume,
@@ -264,6 +270,7 @@ export function LifecycleOverlay({
 }) {
   const tel = useTelemetry();
   const conn = useConnection();
+  const { agents } = useAgents();   // NEW — needed for D-04 early-R1 branch
 
   if (conn.reconnectFailed) {
     return <ErrorState onRetry={onRetry} />;
@@ -271,6 +278,14 @@ export function LifecycleOverlay({
   const phase = tel.phase;
   if (phase === 'idle') return <IdleState seed={seed} />;
   if (phase === 'seeding') return <SeedingState />;
+  // 999.2 D-04: extend SeedingState into early ROUND_1 until all 100 agents
+  // have voted, so users see the 0→100 climb that inject_seed alone never
+  // exposes. SeedingState's internal isPreAgent gate (`n === 0 && phase ===
+  // 'seeding'`) ensures this branch shows the COUNTER (not the timer/chip),
+  // because phase==='round_1' on this branch.
+  if (phase === 'round_1' && agents.length < 100) {
+    return <SeedingState />;
+  }
   const memPct = tel.telemetry?.memMb ?? 0;
   if (memPct >= memThresholdPct) {
     return <MemoryPausedState memPct={memPct} onResume={onResume} />;
