@@ -57,6 +57,42 @@ export function unmarkAdvisoryTriggered(cycleId: string): void {
   advisoryAutoTriggered.delete(cycleId);
 }
 
+// NR-9 fix: backend returns 503 { error: 'holdings_unavailable' } when
+// app.state.portfolio_snapshot is transiently None (typically a backend
+// reload race; clears within 1-2s). Auto-trigger fires immediately on the
+// FINAL transition, so it can race with snapshot reload. Retry up to 3
+// times with 1.5s/3s/4.5s backoff before giving up.
+//
+// All non-503 errors (and 503s without holdings_unavailable code) are
+// rethrown so the hook's existing .catch() (409 disambiguation, mark
+// clearing) handles them unchanged.
+const MAX_503_RETRIES = 3;
+const RETRY_STEP_MS = 1500;
+
+async function dispatchAdvisory(cycleId: string, attempt = 1): Promise<void> {
+  try {
+    await advisoryGenerate(cycleId);
+  } catch (e: unknown) {
+    if (
+      e instanceof ApiError &&
+      e.status === 503 &&
+      attempt <= MAX_503_RETRIES
+    ) {
+      const code =
+        typeof e.body === 'object' && e.body !== null
+          ? (e.body as { error?: unknown }).error
+          : undefined;
+      if (code === 'holdings_unavailable') {
+        await new Promise<void>((res) =>
+          window.setTimeout(res, RETRY_STEP_MS * attempt),
+        );
+        return dispatchAdvisory(cycleId, attempt + 1);
+      }
+    }
+    throw e; // rethrow so caller's .catch() handles 409/other errors
+  }
+}
+
 export function useAdvisoryAutoTrigger(): void {
   const { lastFrame } = useConnection();
   const { cycleId } = useCurrentCycle();
@@ -77,7 +113,7 @@ export function useAdvisoryAutoTrigger(): void {
     // Mark BEFORE dispatch so a synchronous re-render can't double-fire.
     advisoryAutoTriggered.add(cycleId);
 
-    advisoryGenerate(cycleId).catch((e: unknown) => {
+    dispatchAdvisory(cycleId).catch((e: unknown) => {
       if (e instanceof ApiError && e.status === 409) {
         // Backend `POST /api/advisory/{cycle_id}` returns 409 for TWO distinct
         // cases (see backend/api/advisory.py). Disambiguate via body.error so a
