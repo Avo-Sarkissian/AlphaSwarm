@@ -19,6 +19,7 @@ import { useOllamaHealth } from '../hooks/useOllamaHealth';
 export interface TaskBannerProps {
   running: boolean;
   advisorySynthesizing: boolean;
+  phase?: string;          // NEW (D-07). Plan 02 will be the only caller; consider promoting to required after Wave 2 lands.
   onCancelSim: () => void;
   onRetryAdvisory?: () => void;
 }
@@ -33,6 +34,7 @@ function fmtElapsed(ms: number): string {
 export function TaskBanner({
   running,
   advisorySynthesizing,
+  phase,
   onCancelSim,
   onRetryAdvisory,
 }: TaskBannerProps): JSX.Element | null {
@@ -65,9 +67,13 @@ export function TaskBanner({
   if (!active) return null;
 
   const elapsedMs = startedAt !== null ? now - startedAt : 0;
+  // D-06: phase-aware label switch. SEEDING during inject_seed,
+  // SIMULATION RUNNING from round_1 onward. Advisory branch unchanged.
+  // The render JSX (`<span>{taskName}</span><span>· {fmtElapsed(elapsedMs)}</span>`)
+  // automatically produces 'SEEDING · mm:ss' on this branch — no additional wiring.
   const taskName = advisorySynthesizing
     ? 'ADVISORY SYNTHESIZING'
-    : 'SIMULATION RUNNING';
+    : phase === 'seeding' ? 'SEEDING' : 'SIMULATION RUNNING';
   const isOllamaDead =
     advisorySynthesizing && health !== null && !health.connected;
 
