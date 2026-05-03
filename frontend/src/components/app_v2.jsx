@@ -23,7 +23,7 @@ import {
 import { TaskBanner } from './TaskBanner';
 import { TweaksPanelLoader } from './TweaksPanelLoader';
 import { SignalWire, DataSourcesModal, ReportModalV2 } from './v2';
-import { IdleState, SeedingState, MemoryPausedState, ErrorState } from './states';
+import { LifecycleOverlay } from './states';
 import { CycleHistory } from './history';
 import { Settings } from './settings';
 import { useTelemetry } from '../context/TelemetryContext';
@@ -166,7 +166,6 @@ export function App() {
   const [replayCycle, setReplayCycle] = useState(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [hintsDismissed, setHintsDismissed] = useState(false);
-  const [demoState] = useState('live');
 
   const [ui, setUi] = useState({
     shockOpen: false,
@@ -398,6 +397,7 @@ export function App() {
       <TaskBanner
         running={running}
         advisorySynthesizing={advisorySynthesizing}
+        phase={phase}
         onCancelSim={onStop}
         onRetryAdvisory={handleRetryAdvisory}
       />
@@ -468,25 +468,21 @@ export function App() {
           </div>
 
           <div className="canvas-wrap">
-            {(() => {
-              const ds = demoState;
-              if (ds === 'idle')     return <IdleState seed={seed} />;
-              if (ds === 'seeding')  return <SeedingState />;
-              if (ds === 'mempause') return <MemoryPausedState />;
-              if (ds === 'error')    return <ErrorState />;
-              return <>
-                <Viz
-                  layout={layout}
-                  direction="a"
-                  highlightId={ui.tooltip?.agent?.id}
-                  onAgentHover={onAgentHover}
-                  onAgentClick={onAgentClick}
-                />
-                <ConsensusRing />
-                <Legend />
-                <Tooltip info={ui.tooltip} />
-              </>;
-            })()}
+            {/* 999.2 D-04, D-05: single overlay routing path. LifecycleOverlay returns
+                null when no overlay should show, allowing the live force graph to render.
+                The decision precedence (reconnectFailed → idle → seeding → early-R1 →
+                mempause) lives inside LifecycleOverlay (states.jsx) — DO NOT duplicate. */}
+            <LifecycleOverlay seed={seed} />
+            <Viz
+              layout={layout}
+              direction="a"
+              highlightId={ui.tooltip?.agent?.id}
+              onAgentHover={onAgentHover}
+              onAgentClick={onAgentClick}
+            />
+            <ConsensusRing />
+            <Legend />
+            <Tooltip info={ui.tooltip} />
 
             {!hintsDismissed && (
               <div className="first-hint">
