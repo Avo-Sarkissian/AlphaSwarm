@@ -14,6 +14,7 @@
 import { useTelemetry } from '../context/TelemetryContext';
 import { useAgents } from '../context/AgentsContext';
 import { useConnection } from '../context/ConnectionContext';
+import { useOllamaHealth } from '../hooks/useOllamaHealth';
 
 // ─── IDLE ─────────────────────────────────────────────────────────────
 // Pre-seed state: system ready, waiting for user to enter a seed + Run.
@@ -58,37 +59,79 @@ function SystemCheck({ label, value, ok }) {
 
 // ─── SEEDING ──────────────────────────────────────────────────────────
 // Spawning 100 agents: show cascade of agent IDs lighting up.
-// Plan 04: reads useAgents().agents directly — no setInterval fake counter.
+// Plan 04: reads useAgents().agents directly — no fake counter (timer-free).
+// Plan 999.2-01: adds zero-agent branch (timer + health chip) while
+// agents.length === 0 && phase === 'seeding' (inject_seed window).
+function fmtSeedingElapsed(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const mm = Math.floor(total / 60).toString().padStart(2, '0');
+  const ss = (total % 60).toString().padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+// D-03 + Codex chip-state-matrix fix: explicit four-state mapping.
+function ollamaChipLabel(health) {
+  if (health === null) return 'LOADING MODEL…';
+  if (!health.connected) return 'OLLAMA OFFLINE';
+  if (Array.isArray(health.models_loaded) && health.models_loaded.length >= 1) {
+    return 'ORCHESTRATOR LOADED';
+  }
+  return 'OLLAMA READY';
+}
+
 export function SeedingState() {
   const { agents } = useAgents();
+  const { phase, telemetry } = useTelemetry();
   const ids = agents.map((a) => a.id);
   const n = ids.length;
   const shown = ids.slice(-14).reverse();
+  // D-03: gate polling on phase==='seeding' so it stops once seeding ends.
+  const { health } = useOllamaHealth(phase === 'seeding');
+  const elapsedLabel = fmtSeedingElapsed(telemetry?.elapsedSeconds ?? 0);
+  const chipLabel = ollamaChipLabel(health);
+  // D-01 (Codex LOW fix): tighten gate to also require phase==='seeding'.
+  // Prevents the timer/chip path from rendering during the early-R1 window
+  // when LifecycleOverlay routes here for the 0→100 climb.
+  const isPreAgent = n === 0 && phase === 'seeding';
+
   return (
     <div className="state-overlay">
       <div className="state-center seeding-center">
         <div className="state-kicker label" style={{ color: 'var(--accent)' }}>
-          SEEDING · {String(n).padStart(3, '0')}/100
+          {isPreAgent
+            ? `SEEDING · ${elapsedLabel} · ${chipLabel}`
+            : `SEEDING · ${String(n).padStart(3, '0')}/100`}
         </div>
-        <div className="state-headline">Spawning agents…</div>
+        <div className="state-headline">
+          {isPreAgent ? 'Interpreting seed rumor…' : 'Spawning agents…'}
+        </div>
         <div className="seeding-bar">
-          <div className="seeding-bar-fill" style={{ width: `${Math.min(n, 100)}%` }} />
+          <div
+            className="seeding-bar-fill"
+            style={{ width: isPreAgent ? '0%' : `${Math.min(n, 100)}%` }}
+          />
         </div>
         <div className="seeding-stream mono">
-          {shown.map((id, i) => (
-            <div
-              key={id}
-              className="seeding-line"
-              style={{ opacity: 1 - i * 0.08 }}
-            >
-              <span style={{ color: 'var(--buy)' }}>+ spawn </span>
-              <span style={{ color: 'var(--accent)' }}>{id}</span>
+          {isPreAgent ? (
+            <div className="seeding-line" style={{ opacity: 0.7 }}>
               <span style={{ color: 'var(--text-3)' }}>
-                {' '}
-                · persona loaded · context primed
+                waiting for orchestrator entity extraction · agents not yet spawned
               </span>
             </div>
-          ))}
+          ) : (
+            shown.map((id, i) => (
+              <div
+                key={id}
+                className="seeding-line"
+                style={{ opacity: 1 - i * 0.08 }}
+              >
+                <span style={{ color: 'var(--buy)' }}>+ spawn </span>
+                <span style={{ color: 'var(--accent)' }}>{id}</span>
+                <span style={{ color: 'var(--text-3)' }}>
+                  {' '}· persona loaded · context primed
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
