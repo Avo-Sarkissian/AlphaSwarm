@@ -4,14 +4,14 @@ milestone: v6.0
 milestone_name: Real Data + Advisory
 status: executing
 stopped_at: 41.1-04 merged (11ad48f) + TweaksPanelLoader swap committed (5c7c04d) — Wave 2 done
-last_updated: "2026-05-02T16:55:23.243Z"
-last_activity: 2026-05-02 -- Phase 41.1 execution started
+last_updated: "2026-05-03T03:18:05.000Z"
+last_activity: 2026-05-03 -- Completed quick task 260502-wd2: Fix advisory auto-trigger 409 disambiguation bug
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 25
-  completed_plans: 19
-  percent: 76
+  completed_plans: 24
+  percent: 96
 ---
 
 # Project State
@@ -86,6 +86,7 @@ None.
 | 260416-lpb | Tier 0 steps 2-4: frontend noEmit, CLAUDE.md/AGENTS.md rewrite, ROADMAP Phase 36 fix | 2026-04-16 | 81c73db | [260416-lpb-tier-0-steps-2-4-frontend-noemit-claude-](./quick/260416-lpb-tier-0-steps-2-4-frontend-noemit-claude-/) |
 | 260416-m8x | Tier 1 surgical bug fixes (B4 replay/live guard, B7 writer leak, B8 phase race, B9 replay lock, B10 dupe COMPLETE) | 2026-04-16 | 73b7b9d | [260416-m8x-tier-1-surgical-bug-fixes-b4-replay-live](./quick/260416-m8x-tier-1-surgical-bug-fixes-b4-replay-live/) |
 | 260416-trw | Tier 0 cleanup: delete Finder duplicate files B2, add noEmit to tsconfig B5-B6, add useWebSocket teardown B11 | 2026-04-17 | 10d739e | [260416-trw-tier-0-cleanup-delete-finder-duplicate-f](./quick/260416-trw-tier-0-cleanup-delete-finder-duplicate-f/) |
+| 260502-wd2 | Fix advisory auto-trigger 409 disambiguation bug | 2026-05-03 | bd02208 | [260502-wd2-fix-advisory-auto-trigger-409-disambigua](./quick/260502-wd2-fix-advisory-auto-trigger-409-disambigua/) |
 
 ## Session Continuity
 
