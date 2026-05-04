@@ -14,7 +14,6 @@
 import { useTelemetry } from '../context/TelemetryContext';
 import { useAgents } from '../context/AgentsContext';
 import { useConnection } from '../context/ConnectionContext';
-import { useOllamaHealth } from '../hooks/useOllamaHealth';
 
 // ─── IDLE ─────────────────────────────────────────────────────────────
 // Pre-seed state: system ready, waiting for user to enter a seed + Run.
@@ -59,79 +58,37 @@ function SystemCheck({ label, value, ok }) {
 
 // ─── SEEDING ──────────────────────────────────────────────────────────
 // Spawning 100 agents: show cascade of agent IDs lighting up.
-// Plan 04: reads useAgents().agents directly — no fake counter (timer-free).
-// Plan 999.2-01: adds zero-agent branch (timer + health chip) while
-// agents.length === 0 && phase === 'seeding' (inject_seed window).
-function fmtSeedingElapsed(seconds) {
-  const total = Math.max(0, Math.floor(Number(seconds) || 0));
-  const mm = Math.floor(total / 60).toString().padStart(2, '0');
-  const ss = (total % 60).toString().padStart(2, '0');
-  return `${mm}:${ss}`;
-}
-// D-03 + Codex chip-state-matrix fix: explicit four-state mapping.
-function ollamaChipLabel(health) {
-  if (health === null) return 'LOADING MODEL…';
-  if (!health.connected) return 'OLLAMA OFFLINE';
-  if (Array.isArray(health.models_loaded) && health.models_loaded.length >= 1) {
-    return 'ORCHESTRATOR LOADED';
-  }
-  return 'OLLAMA READY';
-}
-
+// Plan 04: reads useAgents().agents directly — no setInterval fake counter.
 export function SeedingState() {
   const { agents } = useAgents();
-  const { phase, telemetry } = useTelemetry();
   const ids = agents.map((a) => a.id);
   const n = ids.length;
   const shown = ids.slice(-14).reverse();
-  // D-03: gate polling on phase==='seeding' so it stops once seeding ends.
-  const { health } = useOllamaHealth(phase === 'seeding');
-  const elapsedLabel = fmtSeedingElapsed(telemetry?.elapsedSeconds ?? 0);
-  const chipLabel = ollamaChipLabel(health);
-  // D-01 (Codex LOW fix): tighten gate to also require phase==='seeding'.
-  // Prevents the timer/chip path from rendering during the early-R1 window
-  // when LifecycleOverlay routes here for the 0→100 climb.
-  const isPreAgent = n === 0 && phase === 'seeding';
-
   return (
     <div className="state-overlay">
       <div className="state-center seeding-center">
         <div className="state-kicker label" style={{ color: 'var(--accent)' }}>
-          {isPreAgent
-            ? `SEEDING · ${elapsedLabel} · ${chipLabel}`
-            : `SEEDING · ${String(n).padStart(3, '0')}/100`}
+          SEEDING · {String(n).padStart(3, '0')}/100
         </div>
-        <div className="state-headline">
-          {isPreAgent ? 'Interpreting seed rumor…' : 'Spawning agents…'}
-        </div>
+        <div className="state-headline">Spawning agents…</div>
         <div className="seeding-bar">
-          <div
-            className="seeding-bar-fill"
-            style={{ width: isPreAgent ? '0%' : `${Math.min(n, 100)}%` }}
-          />
+          <div className="seeding-bar-fill" style={{ width: `${Math.min(n, 100)}%` }} />
         </div>
         <div className="seeding-stream mono">
-          {isPreAgent ? (
-            <div className="seeding-line" style={{ opacity: 0.7 }}>
+          {shown.map((id, i) => (
+            <div
+              key={id}
+              className="seeding-line"
+              style={{ opacity: 1 - i * 0.08 }}
+            >
+              <span style={{ color: 'var(--buy)' }}>+ spawn </span>
+              <span style={{ color: 'var(--accent)' }}>{id}</span>
               <span style={{ color: 'var(--text-3)' }}>
-                waiting for orchestrator entity extraction · agents not yet spawned
+                {' '}
+                · persona loaded · context primed
               </span>
             </div>
-          ) : (
-            shown.map((id, i) => (
-              <div
-                key={id}
-                className="seeding-line"
-                style={{ opacity: 1 - i * 0.08 }}
-              >
-                <span style={{ color: 'var(--buy)' }}>+ spawn </span>
-                <span style={{ color: 'var(--accent)' }}>{id}</span>
-                <span style={{ color: 'var(--text-3)' }}>
-                  {' '}· persona loaded · context primed
-                </span>
-              </div>
-            ))
-          )}
+          ))}
         </div>
       </div>
     </div>
@@ -253,15 +210,9 @@ export function ErrorState({ onRetry, error }) {
 }
 
 // ─── LIFECYCLE OVERLAY ────────────────────────────────────────────────
-// Single entry consumed by app roots. Decision table is inlined below.
-//
-// Decision table (matches RESEARCH §states.jsx wiring + 999.2 D-04):
-//   connection.reconnectFailed                              → 'error'    (highest priority)
-//   telemetry.phase === 'idle'                              → 'idle'
-//   telemetry.phase === 'seeding'                           → 'seeding'
-//   telemetry.phase === 'round_1' && agents.length < 100    → 'seeding'  (D-04: early-R1 0→100 climb)
-//   telemetry.memMb  >= memThresholdPct                     → 'mempause'
-//   else                                                    → null       (live graph shows)
+// Single entry consumed by app roots. Decision table is inlined below
+// rather than living in a separate hook (per prompt <do_not>: no new
+// hooks in Plan 04 scope).
 export function LifecycleOverlay({
   seed,
   onResume,
@@ -270,7 +221,6 @@ export function LifecycleOverlay({
 }) {
   const tel = useTelemetry();
   const conn = useConnection();
-  const { agents } = useAgents();   // NEW — needed for D-04 early-R1 branch
 
   if (conn.reconnectFailed) {
     return <ErrorState onRetry={onRetry} />;
@@ -278,14 +228,6 @@ export function LifecycleOverlay({
   const phase = tel.phase;
   if (phase === 'idle') return <IdleState seed={seed} />;
   if (phase === 'seeding') return <SeedingState />;
-  // 999.2 D-04: extend SeedingState into early ROUND_1 until all 100 agents
-  // have voted, so users see the 0→100 climb that inject_seed alone never
-  // exposes. SeedingState's internal isPreAgent gate (`n === 0 && phase ===
-  // 'seeding'`) ensures this branch shows the COUNTER (not the timer/chip),
-  // because phase==='round_1' on this branch.
-  if (phase === 'round_1' && agents.length < 100) {
-    return <SeedingState />;
-  }
   const memPct = tel.telemetry?.memMb ?? 0;
   if (memPct >= memThresholdPct) {
     return <MemoryPausedState memPct={memPct} onResume={onResume} />;

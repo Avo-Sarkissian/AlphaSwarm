@@ -12,7 +12,6 @@
 // continue to type-check every ported JSX file even though AppShell does not
 // mount them yet — Plans 03/04 will replace AppShell body.
 import { useWebSocket } from './hooks/useWebSocket';
-import { useAdvisoryAutoTrigger } from './hooks/useAdvisoryAutoTrigger';
 import { ConnectionProvider } from './context/ConnectionContext';
 import { TelemetryProvider } from './context/TelemetryContext';
 import { AgentsProvider } from './context/AgentsContext';
@@ -52,11 +51,6 @@ export function App() {
           <BracketProvider frame={lastFrame}>
             <RationalesProvider frame={lastFrame}>
               <EdgesProvider round={round}>
-                {/* NR-6: invisible mount — auto-dispatch advisoryGenerate on
-                    the frame where phase first transitions to 'complete'.
-                    Must live INSIDE the provider tree so the hook reads
-                    ConnectionContext.lastFrame and useCurrentCycle. */}
-                <AdvisoryAutoTriggerMount />
                 <DashboardShell />
               </EdgesProvider>
             </RationalesProvider>
@@ -65,11 +59,6 @@ export function App() {
       </TelemetryProvider>
     </ConnectionProvider>
   );
-}
-
-function AdvisoryAutoTriggerMount() {
-  useAdvisoryAutoTrigger();
-  return null;
 }
 
 function AwaitingFrame({

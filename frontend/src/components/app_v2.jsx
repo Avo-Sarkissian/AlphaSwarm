@@ -9,7 +9,7 @@
 //   • ShockDrawer remains state-toggled only — Plan 04 owns the shock POST
 //     (reviewer item 17).
 //   • Claude-Artifacts postMessage bridge stays removed.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Icon } from './icons';
 import { Viz } from './viz';
 import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
@@ -20,10 +20,9 @@ import {
   ReplayBar,
   CyclePickerModal,
 } from './modals';
-import { TaskBanner } from './TaskBanner';
 import { TweaksPanelLoader } from './TweaksPanelLoader';
 import { SignalWire, DataSourcesModal, ReportModalV2 } from './v2';
-import { LifecycleOverlay } from './states';
+import { IdleState, SeedingState, MemoryPausedState, ErrorState } from './states';
 import { CycleHistory } from './history';
 import { Settings } from './settings';
 import { useTelemetry } from '../context/TelemetryContext';
@@ -31,13 +30,7 @@ import { useAgents } from '../context/AgentsContext';
 import { useBrackets } from '../context/BracketContext';
 import { useEdgesCtx } from '../context/EdgesContext';
 import { useConnection } from '../context/ConnectionContext';
-import { useCurrentCycle } from '../hooks/useCurrentCycle';
-import {
-  hasAdvisoryBeenTriggered,
-  unmarkAdvisoryTriggered,
-} from '../hooks/useAdvisoryAutoTrigger';
 import { simStart, simStop } from '../api/simulation';
-import { advisoryGenerate } from '../api/advisory';
 import { ApiError } from '../api/client';
 
 function BrandMark() {
@@ -59,9 +52,7 @@ function Tooltip({ info }) {
   return (
     <div className="tooltip" style={{ left: x + 14, top: y + 14 }}>
       <div className="t-head">{agent.id} <span style={{color:'var(--text-3)', fontSize:10}}>· {agent.bracketDisplay || agent.bracket}</span></div>
-      <div className="t-row"><span>Signal</span><strong className={`sig-${agent.signal}`} style={{padding:'1px 5px'}}>{
-        agent.signal === 'parse_error' ? 'PARSE ERROR' : (agent.signal || 'hold').toUpperCase()
-      }</strong></div>
+      <div className="t-row"><span>Signal</span><strong className={`sig-${agent.signal}`} style={{padding:'1px 5px'}}>{(agent.signal || 'hold').toUpperCase()}</strong></div>
       <div className="t-row"><span>Confidence</span><strong>{Math.round((agent.confidence ?? 0) * 100)}%</strong></div>
       <div className="t-row"><span>Flipped R1→R3</span><strong>{agent.flipped ? 'Yes' : 'No'}</strong></div>
       <div style={{marginTop:6, fontSize:10, color:'var(--text-3)'}}>Click to interview →</div>
@@ -70,33 +61,11 @@ function Tooltip({ info }) {
 }
 
 function Legend() {
-  // NR-2: 4th row distinguishes PARSE ERROR (model-output failure) from HOLD
-  // (genuine no-confidence vote). Same desaturated grey + X marker as nodes.
   return (
     <div className="legend">
       <div className="legend-row"><span className="chip" style={{background:'var(--buy)'}} /> BUY</div>
       <div className="legend-row"><span className="chip" style={{background:'var(--sell)'}} /> SELL</div>
       <div className="legend-row"><span className="chip" style={{background:'var(--hold)'}} /> HOLD</div>
-      <div className="legend-row">
-        <span
-          className="chip"
-          style={{
-            background: 'var(--text-3)',
-            position: 'relative',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <span style={{
-            fontSize: 8,
-            fontWeight: 700,
-            color: 'var(--text-2)',
-            lineHeight: 1,
-            pointerEvents: 'none',
-          }}>×</span>
-        </span> PARSE ERROR
-      </div>
       <div className="legend-divider" />
       <div className="legend-row"><span className="chip-ring" /> Flipped since R1</div>
       <div className="legend-row"><span className="chip-line" /> Influence edge</div>
@@ -145,11 +114,6 @@ function apiErrorMessage(e, verb) {
   return `${verb} failed: network or unknown error`;
 }
 
-// NR-8: max time we keep showing "ADVISORY SYNTHESIZING" before auto-clearing
-// the banner. Backend advisory polling has its own internal cap (~10 min); we
-// add a 2-min buffer so the banner does not race the modal.
-const ADVISORY_SYNTH_MAX_MS = 12 * 60 * 1000;
-
 export function App() {
   // Live contexts (Plan 02)
   const { phase, running } = useTelemetry();
@@ -157,7 +121,6 @@ export function App() {
   const { brackets } = useBrackets();
   const { edges } = useEdgesCtx();
   const { reconnectFailed } = useConnection();
-  const { cycleId: currentCycleId } = useCurrentCycle();
 
   // Local UI state only — no duplicate simulation state
   const [layout, setLayout] = useState('force');
@@ -166,6 +129,7 @@ export function App() {
   const [replayCycle, setReplayCycle] = useState(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [hintsDismissed, setHintsDismissed] = useState(false);
+  const [demoState] = useState('live');
 
   const [ui, setUi] = useState({
     shockOpen: false,
@@ -182,38 +146,6 @@ export function App() {
   // REST state
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-
-  // NR-8: track whether an advisory synthesis is in flight so the TaskBanner
-  // can render. We use phase=='complete' AND a known cycleId AND the registry
-  // mark from useAdvisoryAutoTrigger as the gate — these three together imply
-  // the auto-trigger fired and the orchestrator is working. A timeout caps
-  // the banner so it never sticks past the backend's own polling window.
-  const [advisorySynthesizing, setAdvisorySynthesizing] = useState(false);
-
-  useEffect(() => {
-    const isComplete = phase === 'complete' || phase === 'done';
-    if (!isComplete || !currentCycleId) {
-      setAdvisorySynthesizing(false);
-      return;
-    }
-    if (!hasAdvisoryBeenTriggered(currentCycleId)) return;
-    setAdvisorySynthesizing(true);
-    const t = window.setTimeout(
-      () => setAdvisorySynthesizing(false),
-      ADVISORY_SYNTH_MAX_MS,
-    );
-    return () => window.clearTimeout(t);
-  }, [phase, currentCycleId]);
-
-  function handleRetryAdvisory() {
-    if (!currentCycleId) return;
-    // Allow useAdvisoryAutoTrigger to re-fire if the new POST also fails;
-    // 409 is treated as success by the hook.
-    unmarkAdvisoryTriggered(currentCycleId);
-    advisoryGenerate(currentCycleId).catch(() => {
-      /* TaskBanner already surfaces health.connected=false; suppress here */
-    });
-  }
 
   async function onStart() {
     if (busy || running || !seed.trim()) return;
@@ -392,16 +324,6 @@ export function App() {
         </div>
       )}
 
-      {/* NR-8: long-task visibility banner (sim or advisory). Renders nothing
-          when no task is active; switches to red on Ollama disconnection. */}
-      <TaskBanner
-        running={running}
-        advisorySynthesizing={advisorySynthesizing}
-        phase={phase}
-        onCancelSim={onStop}
-        onRetryAdvisory={handleRetryAdvisory}
-      />
-
       {/* Signal Wire — live API activity ticker (KR-41.1-02 mocks) */}
       <SignalWire running={running} onInspect={() => setUi(u => ({...u, dataSourcesOpen: true}))} />
 
@@ -468,21 +390,25 @@ export function App() {
           </div>
 
           <div className="canvas-wrap">
-            {/* 999.2 D-04, D-05: single overlay routing path. LifecycleOverlay returns
-                null when no overlay should show, allowing the live force graph to render.
-                The decision precedence (reconnectFailed → idle → seeding → early-R1 →
-                mempause) lives inside LifecycleOverlay (states.jsx) — DO NOT duplicate. */}
-            <LifecycleOverlay seed={seed} />
-            <Viz
-              layout={layout}
-              direction="a"
-              highlightId={ui.tooltip?.agent?.id}
-              onAgentHover={onAgentHover}
-              onAgentClick={onAgentClick}
-            />
-            <ConsensusRing />
-            <Legend />
-            <Tooltip info={ui.tooltip} />
+            {(() => {
+              const ds = demoState;
+              if (ds === 'idle')     return <IdleState seed={seed} />;
+              if (ds === 'seeding')  return <SeedingState />;
+              if (ds === 'mempause') return <MemoryPausedState />;
+              if (ds === 'error')    return <ErrorState />;
+              return <>
+                <Viz
+                  layout={layout}
+                  direction="a"
+                  highlightId={ui.tooltip?.agent?.id}
+                  onAgentHover={onAgentHover}
+                  onAgentClick={onAgentClick}
+                />
+                <ConsensusRing />
+                <Legend />
+                <Tooltip info={ui.tooltip} />
+              </>;
+            })()}
 
             {!hintsDismissed && (
               <div className="first-hint">

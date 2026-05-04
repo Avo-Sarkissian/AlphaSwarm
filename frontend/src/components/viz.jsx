@@ -111,16 +111,7 @@ export function Viz({ layout, direction, onAgentHover, onAgentClick, highlightId
     return () => ro.disconnect();
   }, []);
 
-  // NR-2: parse_error renders desaturated grey (var(--text-3)) — visually
-  // distinct from HOLD's yellow (var(--hold)). An X marker is overlaid on
-  // parse_error nodes (see <g> render below) so the user can count
-  // model-output failures at a glance.
-  const sigColor = (s) => {
-    if (s === 'buy') return 'var(--buy)';
-    if (s === 'sell') return 'var(--sell)';
-    if (s === 'hold') return 'var(--hold)';
-    return 'var(--text-3)'; // parse_error or any unknown
-  };
+  const sigColor = (s) => s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : 'var(--hold)';
 
   // All hooks must run unconditionally (Rules of Hooks); the empty-state
   // guard below renders an empty SVG only after all useMemo calls are set up.
@@ -236,11 +227,6 @@ export function Viz({ layout, direction, onAgentHover, onAgentClick, highlightId
             const baseRadius = a.radius ?? 8;
             const r = baseRadius * 0.7 + (layout === 'grid' ? 6 : 0);
             const isHL = highlightId === a.id;
-            // NR-2: parse_error nodes get an X marker so they're visually
-            // distinct from HOLD (yellow) — even before the user reads the
-            // tooltip. Marker is parented to the same <g> as the node so it
-            // translates with the node position.
-            const isParseError = a.signal === 'parse_error';
             if (layout === 'grid') {
               const cellSize = gridData ? Math.min(gridData.cellW, gridData.cellH) * 0.72 : 12;
               return (
@@ -254,19 +240,6 @@ export function Viz({ layout, direction, onAgentHover, onAgentClick, highlightId
                     onMouseLeave={() => onAgentHover && onAgentHover(null)}
                     onClick={() => onAgentClick && onAgentClick(a)}
                   />
-                  {isParseError && (
-                    <text
-                      className="parse-error-marker"
-                      x={cellSize / 2}
-                      y={cellSize / 2}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      fontSize={Math.max(9, cellSize * 0.55)}
-                      fontWeight={700}
-                      fill="var(--text-2)"
-                      pointerEvents="none"
-                    >×</text>
-                  )}
                   {a.flipped && <circle cx={cellSize - 4} cy={4} r={2.5} fill="var(--accent)" />}
                 </g>
               );
@@ -285,18 +258,6 @@ export function Viz({ layout, direction, onAgentHover, onAgentClick, highlightId
                   onMouseLeave={() => onAgentHover && onAgentHover(null)}
                   onClick={() => onAgentClick && onAgentClick(a)}
                 />
-                {isParseError && (
-                  <text
-                    className="parse-error-marker"
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    dy="0.05em"
-                    fontSize={Math.max(8, r * 1.4)}
-                    fontWeight={700}
-                    fill="var(--text-2)"
-                    pointerEvents="none"
-                  >×</text>
-                )}
                 {a.flipped && <circle r={r+3} fill="none" stroke="var(--accent)" strokeDasharray="2 2" />}
               </g>
             );

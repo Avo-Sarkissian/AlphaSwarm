@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from '../api/client';
 
 // GET /api/edges/{cycle_id}?round=N
-// Backend returns { edges: [{source_id, target_id, weight}, ...] } (NR-5).
-// Force layout consumes [source, target] tuples — weight ignored for now.
 // Only called inside EdgesContext's provider (single call for the app).
 // Returns tuples [source, target] to match viz.jsx's expected shape.
 export interface UseEdgesResult {
@@ -13,9 +11,8 @@ export interface UseEdgesResult {
 }
 
 interface BackendEdge {
-  source_id?: unknown;
-  target_id?: unknown;
-  weight?: unknown; // accepted but not consumed by force-layout
+  source?: unknown;
+  target?: unknown;
 }
 
 export function useEdges(
@@ -48,10 +45,9 @@ export function useEdges(
         const tuples: Array<[string, string]> = list
           .filter(
             (e) =>
-              typeof e?.source_id === 'string' &&
-              typeof e?.target_id === 'string',
+              typeof e?.source === 'string' && typeof e?.target === 'string',
           )
-          .map((e) => [e.source_id as string, e.target_id as string]);
+          .map((e) => [e.source as string, e.target as string]);
         setEdges(tuples);
         setLoading(false);
       })

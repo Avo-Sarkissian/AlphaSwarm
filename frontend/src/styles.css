@@ -210,8 +210,6 @@ body { background: var(--bg); }
 .sig-buy  { color: var(--buy); background: color-mix(in srgb, var(--buy) 14%, transparent); }
 .sig-sell { color: var(--sell); background: color-mix(in srgb, var(--sell) 14%, transparent); }
 .sig-hold { color: var(--hold); background: color-mix(in srgb, var(--hold) 14%, transparent); }
-/* NR-2: parse_error styled distinctly from HOLD — desaturated grey, no green/red/yellow tint. */
-.sig-parse_error { color: var(--text-2); background: color-mix(in srgb, var(--text-3) 22%, transparent); }
 .rationale-round { margin-left: auto; color: var(--text-3); font-size: 10px; }
 .rationale-body { font-size: 12.5px; line-height: 1.55; color: var(--text-2); }
 .rationale-body .highlight { color: var(--text); font-weight: 500; }

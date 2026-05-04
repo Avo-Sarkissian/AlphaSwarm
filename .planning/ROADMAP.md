@@ -185,57 +185,18 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40 -> 41
 **Goal:** Swap the Vue 3 frontend at `frontend/` for a React + Vite + TypeScript port of the Claude Design UI export. Verbatim JSX drop, live-wire the existing FastAPI `/ws/state` + REST endpoints, preserve the 28-row parity matrix against `frontend-vue-archive/`. Update `CLAUDE.md` stack line per D-15. 8 known regressions (KR-41.1-01..08) accepted upfront; any 29th surprise is blocking.
 **Requirements**: N/A (implicit parity — no new requirement IDs)
 **Depends on:** Phase 41
-**Plans:** 10/10 plans complete
+**Plans:** 4/5 plans executed
 
 Plans:
 - [x] 41.1-01-PLAN.md — Wave 0: archive Vue, scaffold React + Vite + TS at frontend/, human-verify scaffold boots
 - [x] 41.1-02-PLAN.md — Wave 1: port 12 JSX verbatim, build adapter + WebSocket hook + 6 Contexts + REST client (interfaces everything downstream consumes)
 - [x] 41.1-03-PLAN.md — Wave 2A: wire viz/panels/app_v2/v2 to live contexts (main dashboard surfaces; parity rows 1–16)
 - [x] 41.1-04-PLAN.md — Wave 2B (parallel to 03): wire modals/history/states/settings/tweaks (modals + overlays + cycle picker; parity rows 17–28)
-- [x] 41.1-05-PLAN.md — Wave 3: update CLAUDE.md stack line + run 28-row parity UAT with human sign-off
+- [ ] 41.1-05-PLAN.md — Wave 3: update CLAUDE.md stack line + run 28-row parity UAT with human sign-off
 
 ### Phase 999.1: Auto-trigger advisory synthesis on phase=complete (BACKLOG)
 
 **Goal:** When simulation reaches phase=complete, automatically trigger advisory synthesis so users don't need to manually open the panel and click Analyze.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
-
-### Phase 999.2: Seeding phase progress UX
-
-**Goal:** Add live progress indicators during the agent seeding phase so users know what's happening before R1 starts. Replace the frozen `000/100` placeholder during inject_seed with an elapsed timer (mm:ss from `telemetry.elapsedSeconds`) + Ollama health chip (reuses `useOllamaHealth`), extend the SeedingState overlay into early ROUND_1 so the real 0→100 agent count climb is visible (D-04), and switch TaskBanner to `SEEDING · mm:ss` during the seeding window (D-06). Frontend-only — no backend changes (D-08).
-**Requirements:** N/A (UX fix — no new requirement IDs)
-**Depends on:** Phase 41.1 (TaskBanner + useOllamaHealth + SeedingState shipped in 41.1-04, 41.1-10)
-**Plans:** 2/2 plans complete
-
-Plans:
-- [x] 999.2-01-PLAN.md — Wave 1: SeedingState zero-agent branch (timer + Ollama chip) + TaskBanner phase prop
-- [x] 999.2-02-PLAN.md — Wave 2: app_v2.jsx phase-driven canvas branch + TaskBanner phase wiring + human-verify checkpoint
-
-### Phase 999.3: Wire live memory % telemetry (BACKLOG)
-
-**Goal:** Fix KR-41.1-04 — memory KPI currently shows 0% because `memMb` only updates under active governor throttling. Wire the governor's real-time memory percent to the WebSocket state frame so the dashboard always reflects current RAM utilization.
-**Requirements:** TBD
-**Plans:** 2 plans
-
-Plans:
-- [ ] 999.3-01-PLAN.md — broadcaster psutil overlay (MEM-01/02/03) + TUI IDLE guard (D-02) + replay overlay (D-01)
-- [ ] 999.3-02-PLAN.md — human-verify UAT against live dashboard + Activity Monitor + TUI footer
-
-### Phase 999.5: Rolling SignalWire ticker (BACKLOG)
-
-**Goal:** Replace the frame-by-frame static SignalWire with a continuously scrolling ticker — new API call entries slide in from the right, older ones drift left, like a stock exchange feed. Currently the wire replaces its content on each 5Hz snapshot; the rolling approach gives a sense of live market data velocity.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
-
-### Phase 999.4: Wire live parallel slots telemetry (BACKLOG)
-
-**Goal:** Fix KR-41.1-05 — parallel slots KPI is stubbed at 0/8. Wire the live asyncio semaphore count to the WebSocket state frame so the dashboard shows actual concurrency utilization during simulation rounds.
 **Requirements:** TBD
 **Plans:** 0 plans
 

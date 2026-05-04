@@ -24,14 +24,10 @@ const BRACKET_DISPLAY: Record<BracketKey, string> = {
 };
 
 function normaliseSignal(raw: unknown): AgentSignal {
-  // NR-2 fix: previously returned 'hold' for null/unknown, silently relabeling
-  // model-output parse failures as genuine HOLD votes. Now returns 'parse_error'
-  // so the viz can render those nodes with a distinct color + X marker.
-  if (typeof raw !== 'string') return 'parse_error';
+  if (typeof raw !== 'string') return 'hold';
   const s = raw.toLowerCase();
   if (s === 'buy' || s === 'sell' || s === 'hold') return s;
-  if (s === 'parse_error') return 'parse_error';
-  return 'parse_error';
+  return 'hold';
 }
 
 // Defensive: every field access uses ?. + fallback. Backend shape:
@@ -78,13 +74,7 @@ export function adaptSnapshot(raw: unknown): StateFrame {
         id,
         bracket,
         bracketDisplay: BRACKET_DISPLAY[bracket] ?? bracket,
-        // NR-2 fix: prefer final_signal (dissent-resolved) when present, else
-        // signal. Defensive — backend AgentState doesn't currently emit
-        // final_signal, but the HUMAN-UAT directive specifies this read order;
-        // the `??` falls through safely if final_signal is undefined.
-        signal: normaliseSignal(
-          (s as Record<string, unknown>).final_signal ?? s.signal,
-        ),
+        signal: normaliseSignal(s.signal),
         confidence,
         flipped: 0, // KR-41.1-03
         roundLastSpoke: null, // KR-41.1-03
@@ -148,18 +138,6 @@ export function adaptSnapshot(raw: unknown): StateFrame {
       ? bracketSummaries.reduce((acc, b) => acc + b.consensusSignal, 0) /
         bracketSummaries.length
       : null;
-
-  // Dev-only: log parse_error count once per FINAL frame so the user can
-  // quantify model-output failures during UAT without DOM inspection (NR-2).
-  if (import.meta.env.DEV && phase === 'complete') {
-    const parseErrors = agents.filter((a) => a.signal === 'parse_error').length;
-    if (parseErrors > 0) {
-      // eslint-disable-next-line no-console
-      console.debug(
-        `[adapter] FINAL frame parse_error agents: ${parseErrors}/${agents.length}`,
-      );
-    }
-  }
 
   return {
     phase,

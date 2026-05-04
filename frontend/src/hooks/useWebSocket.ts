@@ -31,11 +31,8 @@ export function useWebSocket(path: string = '/ws/state'): UseWebSocketResult {
     const connect = () => {
       if (cancelledRef.current) return;
 
-      // NR-1 FIX: connect to FastAPI directly (absolute origin), NOT to whatever
-      // host happens to be serving the SPA (e.g. Vite dev server on :5173).
-      // Default 'ws://localhost:8000' keeps local-first dev working without env setup.
-      const base = (import.meta.env.VITE_BACKEND_WS as string | undefined) || 'ws://localhost:8000';
-      const url = `${base}${path}`;
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${proto}//${window.location.host}${path}`;
       let ws: WebSocket;
       try {
         ws = new window.WebSocket(url);

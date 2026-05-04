@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
-import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -242,12 +240,6 @@ async def _run_advisory_synthesis(
 
     D-08: orchestrator lifecycle in try/finally. Matches report pattern.
     Pitfall 1: log only scalar metadata — never the portfolio.
-
-    NR-7 (Plan 41.1-10): wraps the synthesize() call in a `caffeinate -i`
-    subprocess to prevent macOS idle-sleep from unloading the orchestrator
-    model mid-job. The handle is terminated in the finally block — no orphan
-    subprocess on success OR exception. On Linux/CI (no caffeinate binary)
-    we log a warning and continue; the wake-lock is best-effort.
     """
     orchestrator = app_state.settings.ollama.orchestrator_model_alias
     model_manager = app_state.model_manager
@@ -256,35 +248,6 @@ async def _run_advisory_synthesis(
     assert model_manager is not None
     assert gm is not None
     assert ollama_client is not None
-
-    # NR-7: macOS idle-sleep inhibitor. shutil.which gates the spawn so the
-    # synthesis path runs cleanly on Linux/CI where caffeinate is absent.
-    caffeinate_proc: subprocess.Popen[bytes] | None = None
-    if shutil.which("caffeinate") is not None:
-        try:
-            caffeinate_proc = subprocess.Popen(
-                ["caffeinate", "-i"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            log.info(
-                "advisory_caffeinate_started",
-                cycle_id=cycle_id,
-                pid=caffeinate_proc.pid,
-            )
-        except (FileNotFoundError, OSError) as exc:
-            log.warning(
-                "advisory_caffeinate_unavailable",
-                cycle_id=cycle_id,
-                error=str(exc),
-            )
-            caffeinate_proc = None
-    else:
-        log.warning(
-            "advisory_caffeinate_skipped",
-            cycle_id=cycle_id,
-            reason="binary_missing",
-        )
 
     try:
         await model_manager.load_model(orchestrator)
@@ -316,18 +279,3 @@ async def _run_advisory_synthesis(
             await model_manager.unload_model(orchestrator)
         except Exception:
             log.warning("orchestrator_unload_failed_after_advisory", cycle_id=cycle_id)
-        # NR-7: always terminate caffeinate handle (even on raise).
-        if caffeinate_proc is not None:
-            try:
-                caffeinate_proc.terminate()
-                try:
-                    caffeinate_proc.wait(timeout=2.0)
-                except subprocess.TimeoutExpired:
-                    caffeinate_proc.kill()
-                log.info("advisory_caffeinate_terminated", cycle_id=cycle_id)
-            except Exception as exc:
-                log.warning(
-                    "advisory_caffeinate_terminate_failed",
-                    cycle_id=cycle_id,
-                    error=str(exc),
-                )
