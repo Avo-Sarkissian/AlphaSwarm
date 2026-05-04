@@ -13,8 +13,10 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import time
 from typing import TYPE_CHECKING
 
+import psutil
 import structlog
 
 from alphaswarm.state import StateStore
@@ -41,10 +43,47 @@ def snapshot_to_json(
 
     Without the explicit override, rationale_entries is always [] in the
     wire format because the frozen snapshot never contains queue entries.
+
+    Memory overlay (MEM-01/02/03, Phase 999.3, D-01):
+    Every call reads live `psutil.virtual_memory().percent` and writes it
+    into `governor_metrics.memory_percent` for both live and replay branches.
+    When `snap.governor_metrics is None` (IDLE / pre-simulation / replay),
+    a minimal governor_metrics dict is synthesized so the frontend adapter
+    always finds a real number at this path. Other governor fields
+    (current_slots, active_count, pressure_level, governor_state) are
+    preserved unchanged when the governor has emitted them.
     """
+    # MEM-01/02: Always read live host RAM% per tick. Cheap macOS Mach syscall
+    # (sub-ms; same pattern as web/routes/health.py:54). psutil.virtual_memory()
+    # is documented as non-cached — every call re-reads.
+    try:
+        live_mem_pct = float(psutil.virtual_memory().percent)
+    except Exception:  # pragma: no cover -- macOS host_statistics64 does not raise
+        import structlog as _structlog
+        _structlog.get_logger(component="web.broadcaster").warning("psutil_read_failed")
+        live_mem_pct = 0.0
+
+    def _overlay_memory(d: dict) -> None:  # type: ignore[type-arg]
+        """MEM-01/MEM-03 + D-01: Synthesize governor_metrics if absent;
+        overlay memory_percent while preserving governor-authoritative fields."""
+        gm = d.get("governor_metrics")
+        if gm is None:
+            d["governor_metrics"] = {
+                "current_slots": 0,
+                "active_count": 0,
+                "pressure_level": "green",
+                "memory_percent": live_mem_pct,
+                "governor_state": "idle",
+                "timestamp": time.monotonic(),
+            }
+        else:
+            gm["memory_percent"] = live_mem_pct
+
     if replay_manager is not None and replay_manager.is_active:
         snap = replay_manager.store.snapshot()
-        return json.dumps(dataclasses.asdict(snap))
+        d = dataclasses.asdict(snap)
+        _overlay_memory(d)  # D-01: replay also gets live host RAM
+        return json.dumps(d)
 
     snap = state_store.snapshot()
     rationales = state_store.drain_rationales(5)
@@ -53,6 +92,7 @@ def snapshot_to_json(
     # drain_rationales() pops from the rationale queue. We must override the dict entry
     # produced by asdict(snap) or rationale data is silently dropped from the wire format.
     d["rationale_entries"] = [dataclasses.asdict(r) for r in rationales]
+    _overlay_memory(d)
     return json.dumps(d)
 
 
