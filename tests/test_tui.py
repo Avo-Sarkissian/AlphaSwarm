@@ -179,7 +179,12 @@ def test_rationale_sidebar_signal_colors() -> None:
 
 
 def _make_snapshot_with_governor(memory_percent: float, tps: float = 4.3) -> StateSnapshot:
-    """Helper: create StateSnapshot with GovernorMetrics."""
+    """Helper: create StateSnapshot with GovernorMetrics.
+
+    Uses SimulationPhase.ROUND_1 so that D-02 (TUI IDLE guard) does not
+    suppress the governor metrics display — these tests exercise the non-IDLE
+    rendering path.
+    """
     gm = GovernorMetrics(
         current_slots=8,
         active_count=6,
@@ -188,7 +193,7 @@ def _make_snapshot_with_governor(memory_percent: float, tps: float = 4.3) -> Sta
         governor_state="active",
         timestamp=0.0,
     )
-    return StateSnapshot(governor_metrics=gm, tps=tps)
+    return StateSnapshot(phase=SimulationPhase.ROUND_1, governor_metrics=gm, tps=tps)
 
 
 def _get_footer_text(footer: TelemetryFooter) -> str:
@@ -241,6 +246,29 @@ def test_telemetry_footer_ram_critical_90() -> None:
 
     text = _get_footer_text(footer)
     assert "#EF5350" in text
+
+
+def test_telemetry_footer_idle_phase_renders_placeholders() -> None:
+    """D-02: IDLE phase shows '--' placeholders even when governor_metrics is non-None.
+
+    Phase 999.3 broadcaster fix synthesizes a governor_metrics dict during IDLE,
+    but the TUI footer must NOT display RAM% during IDLE. Phase guard wins.
+    """
+    gm = GovernorMetrics(
+        current_slots=8,
+        active_count=0,
+        pressure_level="green",
+        memory_percent=80.0,
+        governor_state="idle",
+        timestamp=0.0,
+    )
+    snap = StateSnapshot(phase=SimulationPhase.IDLE, governor_metrics=gm)
+    footer = TelemetryFooter()
+    footer.update_from_snapshot(snap)
+    text = _get_footer_text(footer)
+    assert "RAM:" in text
+    assert "--" in text
+    assert "80%" not in text  # memory_percent value must NOT appear during IDLE
 
 
 # ---------- BracketPanel unit tests ----------

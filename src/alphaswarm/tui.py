@@ -298,7 +298,17 @@ class TelemetryFooter(Static):
             self.update(base)
 
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
-        """Update telemetry display from a StateSnapshot."""
+        """Update telemetry display from a StateSnapshot.
+
+        D-02 (Phase 999.3): During IDLE phase, always render placeholders —
+        even when governor_metrics is non-None. The TUI footer's memory%
+        is meaningful only during active simulation; IDLE state must not
+        display RAM% even if upstream synthesizes a governor_metrics dict.
+        """
+        # D-02: idle phase wins over any governor_metrics presence
+        if snapshot.phase == SimulationPhase.IDLE:
+            self._render_idle()
+            return
         gm = snapshot.governor_metrics
         if gm is None:
             self._render_idle()
