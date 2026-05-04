@@ -218,10 +218,11 @@ Plans:
 
 **Goal:** Fix KR-41.1-04 — memory KPI currently shows 0% because `memMb` only updates under active governor throttling. Wire the governor's real-time memory percent to the WebSocket state frame so the dashboard always reflects current RAM utilization.
 **Requirements:** TBD
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
+- [ ] 999.3-01-PLAN.md — broadcaster psutil overlay (MEM-01/02/03) + TUI IDLE guard (D-02) + replay overlay (D-01)
+- [ ] 999.3-02-PLAN.md — human-verify UAT against live dashboard + Activity Monitor + TUI footer
 
 ### Phase 999.5: Rolling SignalWire ticker (BACKLOG)
 
