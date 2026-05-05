@@ -197,8 +197,9 @@ Plans:
 ### Phase 999.1: Auto-trigger advisory synthesis on phase=complete (BACKLOG)
 
 **Goal:** When simulation reaches phase=complete, automatically trigger advisory synthesis so users don't need to manually open the panel and click Analyze.
-**Requirements:** TBD
-**Plans:** 0 plans
+**Requirements:** AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, AUTO-06
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
+- [ ] 999.1-01-PLAN.md — TDD: failing tests for cycle_id capture + _on_task_done scheduling + _auto_trigger_advisory POST behaviors; implement SimulationManager changes (Wave 1)
+- [ ] 999.1-02-PLAN.md — Wire on_complete callback in app.py lifespan(); human UAT sign-off (Wave 2)
