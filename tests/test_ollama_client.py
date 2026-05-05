@@ -133,3 +133,31 @@ async def test_format_json_passed(
     call_kwargs = mock_async_client.chat.call_args
     passed_format = call_kwargs.kwargs.get("format") or call_kwargs[1].get("format")
     assert passed_format == "json"
+
+
+# ---------------------------------------------------------------------------
+# Phase 41.2-03: D-03 — generate() must accept and forward `system` kwarg
+# ---------------------------------------------------------------------------
+
+
+async def test_generate_forwards_system_kwarg(
+    ollama_client: Any, mock_async_client: AsyncMock
+) -> None:
+    """OllamaClient.generate() must forward `system=...` to the underlying client.
+
+    Regression for D-03: simulation.py:1316 calls
+    `client.generate(model=..., prompt=..., system=...)` but the wrapper signature
+    omits `system`, so every call raises TypeError and is swallowed by the bare
+    `except Exception` in `_generate_decision_narratives` — producing zero
+    narratives. Symmetric with `chat()` which already supports system messages.
+    """
+    await ollama_client.generate(
+        model="m",
+        prompt="p",
+        system="you are X",
+    )
+    assert mock_async_client.generate.call_args is not None
+    kwargs = mock_async_client.generate.call_args.kwargs
+    assert kwargs.get("system") == "you are X", (
+        f"system kwarg not forwarded to underlying client: {kwargs}"
+    )

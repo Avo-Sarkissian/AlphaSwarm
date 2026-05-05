@@ -3403,3 +3403,82 @@ async def test_run_simulation_through_dispatch_wave(
         "batch_dispatcher._safe_agent_inference message construction."
     )
     assert "== NVDA ==" in combined
+
+
+# ---------------------------------------------------------------------------
+# Phase 41.2-03: D-03 — _generate_decision_narratives must produce ≥1 narrative
+# ---------------------------------------------------------------------------
+
+
+async def test_generate_decision_narratives_produces_output(
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Regression for D-03: `_generate_decision_narratives` must return ≥1
+    narrative dict for a happy-path single-agent fixture.
+
+    Pre-fix: simulation.py:1316 calls `client.generate(model=..., prompt=...,
+    system=...)` against a real `OllamaClient`. The wrapper signature does not
+    accept `system`, so every call raises TypeError, swallowed by the bare
+    `except Exception` at simulation.py:1325 — producing zero narratives.
+
+    Post-fix: the wrapper accepts and forwards `system`, so this test produces
+    exactly one narrative.
+
+    To exercise the REAL OllamaClient signature (not bypass it via a Mock on
+    .generate), we construct a real OllamaClient and only mock the underlying
+    `_client.generate` from the ollama package.
+
+    Helper signature (simulation.py:1250):
+        _generate_decision_narratives(personas, all_decisions, graph_manager,
+                                      governor, client, model)
+    """
+    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.simulation import _generate_decision_narratives
+
+    # Build a real OllamaClient and mock ONLY the underlying ollama AsyncClient.
+    real_client = OllamaClient(base_url="http://fake")
+    real_client._client = MagicMock()
+    real_client._client.generate = AsyncMock(return_value={"response": "test narrative"})
+
+    persona = AgentPersona(
+        id="quants_01",
+        name="Quants 1",
+        bracket=BracketType.QUANTS,
+        risk_profile=0.4,
+        temperature=0.3,
+        system_prompt="test prompt quants 1",
+        influence_weight_base=0.7,
+    )
+    # 3 rounds for one agent — exercises the flip-label branch (rn > 1)
+    all_decisions: dict[int, list[tuple[str, AgentDecision]]] = {
+        1: [("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.7, sentiment=0.4))],
+        2: [("quants_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, sentiment=-0.2))],
+        3: [("quants_01", AgentDecision(signal=SignalType.SELL, confidence=0.8, sentiment=-0.3))],
+    }
+
+    # mock_graph_manager.write_decision_narratives is a no-op AsyncMock per fixture.
+    # mock_governor is AsyncMock so `async with governor:` works out of the box.
+    result = await _generate_decision_narratives(
+        personas=[persona],
+        all_decisions=all_decisions,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        client=real_client,
+        model="alphaswarm-worker",
+    )
+
+    assert isinstance(result, list)
+    assert len(result) >= 1, (
+        f"_generate_decision_narratives produced 0 narratives — D-03 regression. "
+        f"Result: {result}"
+    )
+    first = result[0]
+    assert first.get("agent_id") == "quants_01"
+    assert first.get("narrative", "").strip() == "test narrative"
+    # Confirm the `system` kwarg reached the underlying ollama client.
+    real_client._client.generate.assert_awaited()
+    call_kwargs = real_client._client.generate.call_args.kwargs
+    assert call_kwargs.get("system"), (
+        f"system kwarg missing from underlying generate() call: {call_kwargs}"
+    )
