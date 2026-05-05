@@ -74,14 +74,15 @@ async def test_cycle_id_stored(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _fake_run_simulation(**kwargs: Any) -> SimpleNamespace:
         return fake_result
 
+    # run_simulation is imported locally inside _run(), so patch at source module
     monkeypatch.setattr(
-        "alphaswarm.web.simulation_manager.run_simulation",
+        "alphaswarm.simulation.run_simulation",
         _fake_run_simulation,
     )
 
     manager = _build_manager()
-    # Acquire the lock so _run() can release it without error
-    await manager._lock.acquire()
+    # _run() does not need the lock to be held — acquire just so release inside
+    # _on_task_done won't error if called; here we call _run() directly.
     await manager._run("seed-text")
 
     assert manager._last_cycle_id == "abc123"

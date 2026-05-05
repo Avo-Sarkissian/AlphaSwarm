@@ -3,17 +3,50 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
+import httpx
 import structlog
 
 if TYPE_CHECKING:
+    from fastapi import FastAPI
+
     from alphaswarm.app import AppState
     from alphaswarm.types import BracketConfig
     from alphaswarm.web.replay_manager import ReplayManager
 
 log = structlog.get_logger(component="web.simulation_manager")
+
+
+async def _auto_trigger_advisory(app: FastAPI, cycle_id: str) -> None:
+    """POST /api/advisory/{cycle_id} in-process after simulation completes.
+
+    Uses httpx.ASGITransport to call the FastAPI ASGI app directly — no
+    network socket, no port assumption. All route guards (409, 503) are
+    re-used. Non-202 responses are swallowed: 409 means another task is
+    already running (fine), 503 means portfolio unavailable (advisory
+    impossible — expected degraded mode). Any network-level exception is
+    logged and swallowed so it never surfaces as an unhandled exception.
+    """
+    try:
+        transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            resp = await client.post(f"/api/advisory/{cycle_id}")
+        if resp.status_code == 202:
+            log.info("auto_advisory_trigger_accepted", cycle_id=cycle_id)
+        elif resp.status_code == 409:
+            log.info("auto_advisory_trigger_skipped_conflict", cycle_id=cycle_id)
+        elif resp.status_code == 503:
+            log.warning("auto_advisory_trigger_skipped_unavailable", cycle_id=cycle_id)
+        else:
+            log.warning(
+                "auto_advisory_trigger_unexpected_status",
+                cycle_id=cycle_id,
+                status=resp.status_code,
+            )
+    except Exception:
+        log.exception("auto_advisory_trigger_failed", cycle_id=cycle_id)
 
 
 class SimulationAlreadyRunningError(Exception):
@@ -55,15 +88,18 @@ class SimulationManager:
         brackets: list[BracketConfig],
         on_start: Callable[[], None] | None = None,
         replay_manager: ReplayManager | None = None,
+        on_complete: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self._app_state = app_state
         self._brackets = brackets
         self._on_start = on_start
         self._replay_manager = replay_manager
+        self._on_complete = on_complete
         self._lock = asyncio.Lock()
         self._is_running: bool = False
         self._task: asyncio.Task[None] | None = None
         self._pending_shock: str | None = None
+        self._last_cycle_id: str | None = None
 
     @property
     def is_running(self) -> bool:
@@ -119,7 +155,7 @@ class SimulationManager:
         from alphaswarm.types import SimulationPhase
 
         try:
-            await run_simulation(
+            result = await run_simulation(
                 rumor=seed,
                 settings=self._app_state.settings,
                 ollama_client=self._app_state.ollama_client,
@@ -133,6 +169,7 @@ class SimulationManager:
                 market_provider=self._app_state.market_provider,
                 news_provider=self._app_state.news_provider,
             )
+            self._last_cycle_id = result.cycle_id
             # B10: do NOT set COMPLETE here — simulation.py:1109 is the single
             # source of truth and sets it before this await returns.
         except asyncio.CancelledError:
@@ -164,13 +201,20 @@ class SimulationManager:
         self._task = None
         self._pending_shock = None
         self._lock.release()
-        if task.cancelled():
+        if not task.cancelled() and task.exception() is None:
+            cycle_id = self._last_cycle_id
+            self._last_cycle_id = None  # reset for next run
+            if cycle_id is not None and self._on_complete is not None:
+                asyncio.create_task(
+                    self._on_complete(cycle_id),
+                    name=f"auto_advisory_{cycle_id}",
+                )
+            log.info("simulation_completed")
+        elif task.cancelled():
             log.info("simulation_cancelled")
-        elif task.exception() is not None:
+        else:
             exc = task.exception()
             log.error("simulation_failed", error=str(exc))
-        else:
-            log.info("simulation_completed")
 
     def stop(self) -> None:
         """Stop the running simulation by cancelling the background task.
