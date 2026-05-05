@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Real Data + Advisory
 status: executing
-stopped_at: Phase 999.2 context gathered
-last_updated: "2026-05-04T18:18:34.279Z"
-last_activity: 2026-05-04 -- Phase 999.3 execution started
+stopped_at: 41.1-04 merged (11ad48f) + TweaksPanelLoader swap committed (5c7c04d) — Wave 2 done
+last_updated: "2026-05-05T15:11:27.744Z"
+last_activity: 2026-05-05 -- Phase 999.1 planning complete
 progress:
-  total_phases: 11
-  completed_phases: 7
-  total_plans: 29
-  completed_plans: 27
-  percent: 93
+  total_phases: 7
+  completed_phases: 5
+  total_plans: 22
+  completed_plans: 19
+  percent: 86
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 
 Phase: 999.3 (wire-live-memory-telemetry-backlog) — EXECUTING
 Plan: 1 of 2
-Status: Executing Phase 999.3
-Last activity: 2026-05-04 -- Phase 999.3 execution started
+Status: Ready to execute
+Last activity: 2026-05-05 -- Phase 999.1 planning complete
 
 Progress: [█████████░] 90% (5/7 phases, 19/20 plans)
 
