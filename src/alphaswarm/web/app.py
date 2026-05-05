@@ -26,7 +26,7 @@ from alphaswarm.web.routes.report import router as report_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
 from alphaswarm.web.replay_manager import ReplayManager
-from alphaswarm.web.simulation_manager import SimulationManager
+from alphaswarm.web.simulation_manager import SimulationManager, _auto_trigger_advisory
 
 log = structlog.get_logger(component="web.app")
 
@@ -66,6 +66,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         brackets,
         on_start=lambda: app.state.interview_sessions.clear(),
         replay_manager=replay_manager,
+        on_complete=lambda cycle_id: _auto_trigger_advisory(app, cycle_id),
     )
     connection_manager = ConnectionManager()
 
