@@ -180,6 +180,20 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40 -> 41
 
 ## Backlog
 
+### Phase 41.2: audit-fix-report-advisory-data-plane-and-ui-contracts (INSERTED)
+
+**Goal:** Fix every confirmed bug from the 2026-05-05 Codex audit that corrupts the v6.0 Real-Data + Advisory deliverable: lowercase Cypher signal/round normalization across 6 read methods (D-01), ReACT tool-name unification across CLI + web + TOOL_TO_TEMPLATE registries (D-02), narrative `system=` parameter on OllamaClient.generate (D-03), ReportModalV2 mock → real ReportModal swap with cycle_id propagation (D-04), portfolio_outlook + items[] rendering in AdvisoryModal (D-05), historical-cycle regenerate flow with per-cycle lock (D-06), and Tier 3+4 test/cleanup (D-07..D-11). Bug-fix only — no new features, no schema changes.
+**Requirements**: N/A (bug-fix phase — no new requirement IDs; addresses defects on REPORT-* and ADVIS-* surfaces from prior phases)
+**Depends on:** Phase 41
+**Plans:** 5 plans
+
+Plans:
+- [ ] 41.2-01-PLAN.md — Wave 1: D-01 Cypher signal/round normalization (graph.py 6 read methods + regression test)
+- [ ] 41.2-02-PLAN.md — Wave 1: D-02 ReACT tool-name unification (cli.py + web/routes/report.py + report.py + invariant test)
+- [ ] 41.2-03-PLAN.md — Wave 1: D-03 narrative system= repair (OllamaClient.generate signature + simulation regression test)
+- [ ] 41.2-04-PLAN.md — Wave 2: D-04 + D-05 + D-06 frontend modal swap, AdvisoryModal portfolio_outlook/items rendering, historical-cycle 404 + per-cycle lock, polling timeout (autonomous=false; ends with human UAT)
+- [ ] 41.2-05-PLAN.md — Wave 2: D-07..D-11 cleanup (delete test_replay_red.py, prune assemble_html tests, opt-in integration marker, UV_CACHE_DIR, ReACT JSON parse hardening, model-tag reconciliation)
+
 ### Phase 41.1: UI port & wire — replace Vue frontend with Claude Design UI React assets and wire WebSocket live data (INSERTED)
 
 **Goal:** Swap the Vue 3 frontend at `frontend/` for a React + Vite + TypeScript port of the Claude Design UI export. Verbatim JSX drop, live-wire the existing FastAPI `/ws/state` + REST endpoints, preserve the 28-row parity matrix against `frontend-vue-archive/`. Update `CLAUDE.md` stack line per D-15. 8 known regressions (KR-41.1-01..08) accepted upfront; any 29th surprise is blocking.
