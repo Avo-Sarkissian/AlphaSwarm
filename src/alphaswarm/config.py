@@ -28,9 +28,9 @@ logger = structlog.get_logger(component="config")
 class OllamaSettings(BaseModel):
     """Ollama inference server configuration."""
 
-    orchestrator_model: str = "qwen3.5:32b"
-    worker_model: str = "qwen3.5:7b"
-    num_parallel: int = Field(default=16, ge=1, le=32)
+    orchestrator_model: str = "qwen3.6:27b-q4_K_M"
+    worker_model: str = "qwen3:8b"
+    num_parallel: int = Field(default=4, ge=1, le=32)
     max_loaded_models: int = Field(default=2, ge=1, le=4)
     base_url: str = "http://localhost:11434"
     orchestrator_model_alias: str = "alphaswarm-orchestrator"
@@ -226,7 +226,7 @@ async def generate_modifiers(
             {"role": "user", "content": user_message},
         ],
         format="json",
-        think=True,
+        think=False,
     )
 
     raw_content = response.message.content or ""

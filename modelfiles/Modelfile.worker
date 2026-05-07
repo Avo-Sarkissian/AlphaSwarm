@@ -1,6 +1,9 @@
 # AlphaSwarm Worker Agent Model
 # Register with: ollama create alphaswarm-worker -f modelfiles/Modelfile.worker
-# Base model tag: qwen3.5:7b (user-specified)
-FROM qwen3.5:9b
+# Base: qwen3:8b — qwen3moe arch supports parallel requests in ollama 0.21.2
+# (qwen3.5:9b was forced to Parallel=1 by the qwen35 arch limitation, see
+# 41.4-MODEL-DECISION-LOG.md and ollama issues #14510, #14621, #14879).
+FROM qwen3:8b
 PARAMETER num_ctx 4096
 PARAMETER temperature 0.7
+PARAMETER num_gpu 999
