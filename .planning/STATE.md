@@ -5,7 +5,7 @@ milestone_name: Real Data + Advisory
 status: executing
 stopped_at: 41.1-04 merged (11ad48f) + TweaksPanelLoader swap committed (5c7c04d) — Wave 2 done
 last_updated: "2026-05-06T23:15:00.000Z"
-last_activity: 2026-05-06 -- Completed quick task 260506-qmn: Bug A — Vite WS proxy missing changeOrigin
+last_activity: 2026-05-07 -- Completed quick task 260507-19f: Gate Personalized Report button + advisory portfolio_outlook schema fix
 progress:
   total_phases: 7
   completed_phases: 5
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 Phase: 999.3 (wire-live-memory-telemetry-backlog) — EXECUTING
 Plan: 1 of 2
 Status: Ready to execute
-Last activity: 2026-05-06 -- Completed quick task 260506-qmn: Bug A — Vite WS proxy missing changeOrigin
+Last activity: 2026-05-07 -- Completed quick task 260507-19f: Gate Personalized Report button + advisory portfolio_outlook schema fix
 
 Progress: [█████████░] 90% (5/7 phases, 19/20 plans)
 
@@ -87,9 +87,10 @@ None.
 | 260416-m8x | Tier 1 surgical bug fixes (B4 replay/live guard, B7 writer leak, B8 phase race, B9 replay lock, B10 dupe COMPLETE) | 2026-04-16 | 73b7b9d | [260416-m8x-tier-1-surgical-bug-fixes-b4-replay-live](./quick/260416-m8x-tier-1-surgical-bug-fixes-b4-replay-live/) |
 | 260416-trw | Tier 0 cleanup: delete Finder duplicate files B2, add noEmit to tsconfig B5-B6, add useWebSocket teardown B11 | 2026-04-17 | 10d739e | [260416-trw-tier-0-cleanup-delete-finder-duplicate-f](./quick/260416-trw-tier-0-cleanup-delete-finder-duplicate-f/) |
 | 260506-qmn | Bug A — Vite WS proxy missing changeOrigin (frontend/vite.config.ts) | 2026-05-06 | 45508dd | [260506-qmn-bug-a-vite-ws-proxy-missing-changeorigin](./quick/260506-qmn-bug-a-vite-ws-proxy-missing-changeorigin/) |
+| 260507-19f | Gate Personalized Report button — pure viewer mode + portfolio_outlook schema fix | 2026-05-07 | 09231ad+pending | [260507-19f-gate-personalized-report-button-auto-fir](./quick/260507-19f-gate-personalized-report-button-auto-fir/) |
 
 ## Session Continuity
 
-Last session: 2026-04-20T18:30:00Z
-Stopped at: 41.1-04 merged (11ad48f) + TweaksPanelLoader swap committed (5c7c04d) — Wave 2 done
-Next action: Execute Wave 3 (Plan 41.1-05) — 28-row UAT parity matrix + CLAUDE.md D-15 stack-line edit; non-autonomous checkpoint expected
+Last session: 2026-05-07T18:45:00Z
+Stopped at: 260507-19f closed — AdvisoryModal pure viewer + portfolio_outlook schema fix shipped
+Next action: Tackle follow-up #1 — sim async parallelism (42 min observed vs 6 min target); 0 edges rendered; empty Rationale Feed (see memory: project_phase_41.4_resume.md)

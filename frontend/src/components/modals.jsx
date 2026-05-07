@@ -385,6 +385,8 @@ export function AdvisoryModal({ cycleId: cycleIdProp, onClose }) {
           ? data.content
           : typeof data.narrative === 'string'
           ? data.narrative
+          : typeof data.portfolio_outlook === 'string'
+          ? data.portfolio_outlook
           : '')) || '';
     return renderMarkdown(content);
   }, [data]);
