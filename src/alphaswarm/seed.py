@@ -59,7 +59,10 @@ async def inject_seed(
     orchestrator_alias = settings.ollama.orchestrator_model_alias
     await model_manager.load_model(orchestrator_alias)
     try:
-        # 2. Chat with format="json" and think=True (per D-04, D-05)
+        # 2. Chat with format="json", think=False per Phase 41.4 decision
+        # (think=True added ~265s/call with marginal quality gain on this workload;
+        # see .planning/phases/41.4-r3-inference-and-ws-stall/41.4-MODEL-DECISION-LOG.md
+        # for revisit triggers and how to flip back).
         response = await ollama_client.chat(
             model=orchestrator_alias,
             messages=[
@@ -67,7 +70,7 @@ async def inject_seed(
                 {"role": "user", "content": rumor},
             ],
             format="json",
-            think=True,  # May be silently ignored per Pitfall 1; compensated by prompt
+            think=False,
         )
 
         # Log thinking output if present (may be None per Pitfall 1)

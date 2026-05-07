@@ -1,6 +1,10 @@
 # AlphaSwarm Orchestrator Model
 # Register with: ollama create alphaswarm-orchestrator -f modelfiles/Modelfile.orchestrator
-# Base model tag: qwen3.5:32b (user-specified)
-FROM qwen3.5:35b
+# Base: qwen3.6:27b-q4_K_M — Q4_K_M dodges the IQ4_XS Metal kernel regression
+# (~3.8x slowdown on Apple Silicon). num_ctx trimmed from qwen3.6's 262144
+# default to 8192 to keep KV cache manageable. Reasoning is default-on in
+# qwen3.6; call sites pass think=False per 41.4-MODEL-DECISION-LOG.md.
+FROM qwen3.6:27b-q4_K_M
 PARAMETER num_ctx 8192
 PARAMETER temperature 0.7
+PARAMETER num_gpu 999
