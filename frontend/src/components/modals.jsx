@@ -9,7 +9,7 @@ import { Icon } from './icons';
 
 import { askAgent } from '../api/interview';
 import { reportGenerate, reportFetch } from '../api/report';
-import { advisoryGenerate, advisoryFetch } from '../api/advisory';
+import { advisoryFetch } from '../api/advisory';
 import { listCycles, replayAdvance, replayStop } from '../api/replay';
 import { fetchHoldings } from '../api/holdings';
 import { simShock } from '../api/simulation';
@@ -347,19 +347,14 @@ export function AdvisoryModal({ cycleId: cycleIdProp, onClose }) {
   const fallback = useCurrentCycle();
   const cycleId = cycleIdProp ?? fallback.cycleId ?? null;
 
-  const [kicked, setKicked] = useState(false);
-  const [kickError, setKickError] = useState(null);
   const [holdings, setHoldings] = useState([]);
 
-  useEffect(() => {
-    if (!cycleId || kicked) return;
-    setKicked(true);
-    advisoryGenerate(cycleId).catch((e) => {
-      // 409 = either report or advisory already in flight — poll anyway.
-      if (e instanceof ApiError && e.status === 409) return;
-      setKickError(e);
-    });
-  }, [cycleId, kicked]);
+  // Pure viewer mode (quick task 260507-19f): the modal NEVER POSTs to
+  // /api/advisory/{cycle_id}. Synthesis is auto-fired by the backend on
+  // FINAL via SimulationManager.on_complete → _auto_trigger_advisory
+  // (web/simulation_manager.py:22-49). The polling block below picks up
+  // the resulting JSON file via GET. Manual click no longer risks a
+  // ~17 GB orchestrator load on the M1 Max.
 
   useEffect(() => {
     let cancelled = false;
@@ -394,7 +389,7 @@ export function AdvisoryModal({ cycleId: cycleIdProp, onClose }) {
     return renderMarkdown(content);
   }, [data]);
 
-  const hadError = kickError || error;
+  const hadError = error;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -438,7 +433,7 @@ export function AdvisoryModal({ cycleId: cycleIdProp, onClose }) {
           )}
           {cycleId && !data && !hadError && (
             <div className="advisory-card">
-              <div className="label">Synthesizing advisory…</div>
+              <div className="label">Waiting for advisory…</div>
             </div>
           )}
           {hadError && !data && (

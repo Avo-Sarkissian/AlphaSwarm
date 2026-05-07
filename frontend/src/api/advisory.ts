@@ -1,6 +1,10 @@
-// Advisory endpoints: POST /api/advisory/{cycle_id} + GET /api/advisory/{cycle_id}.
-// Mirrors report.ts: 404→null (pending), 500/503 propagate.
-import { apiFetch, apiPost, ApiError } from './client';
+// Advisory endpoints: GET /api/advisory/{cycle_id} only.
+// The POST path was removed in quick task 260507-19f — synthesis is now
+// auto-fired by the backend on FINAL round (SimulationManager.on_complete
+// → _auto_trigger_advisory). Frontend is a pure viewer; the manual brief
+// icon must NEVER cause a ~17 GB orchestrator load.
+// Mirrors report.ts on read: 404→null (pending), 500/503 propagate.
+import { apiFetch, ApiError } from './client';
 
 export interface AdvisoryContent {
   cycle_id: string;
@@ -12,22 +16,6 @@ export interface AdvisoryContent {
   // passed through as unknown[] to allow future rendering without breaking
   // this client.
   [key: string]: unknown;
-}
-
-export interface AdvisoryGenerateResponse {
-  status: string;
-  cycle_id: string;
-}
-
-// POST /api/advisory/{cycle_id} — 202 on accept, 409 when either a report OR
-// an advisory is in flight (backend serializes orchestrator model consumers).
-export async function advisoryGenerate(
-  cycleId: string,
-): Promise<AdvisoryGenerateResponse> {
-  return apiPost<AdvisoryGenerateResponse>(
-    `/api/advisory/${encodeURIComponent(cycleId)}`,
-    {},
-  );
 }
 
 // GET /api/advisory/{cycle_id} — 404 means still generating (returns null).
