@@ -982,6 +982,53 @@ class GraphStateManager:
             round_num=round_num,
         )
 
+    async def read_influence_edges(
+        self, cycle_id: str, round_num: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Return INFLUENCED_BY edges for a given cycle and round.
+
+        Args:
+            cycle_id: Simulation cycle ID.
+            round_num: Round number to filter on (1, 2, or 3).
+
+        Returns:
+            List of dicts with source_id, target_id, weight.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                records = await session.execute_read(
+                    self._read_influence_edges_tx, cycle_id, round_num,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read influence edges for cycle {cycle_id} round {round_num}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "influence_edges_read", cycle_id=cycle_id, round=round_num, count=len(records),
+        )
+        return records
+
+    @staticmethod
+    async def _read_influence_edges_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        round_num: int,
+    ) -> list[dict]:  # type: ignore[type-arg]
+        """Transaction function for INFLUENCED_BY edges in a given round."""
+        result = await tx.run(
+            """
+            MATCH (src:Agent)-[infl:INFLUENCED_BY {cycle_id: $cycle_id, round: $round_num}]->(tgt:Agent)
+            RETURN
+                src.id AS source_id,
+                tgt.id AS target_id,
+                infl.weight AS weight
+            """,
+            cycle_id=cycle_id,
+            round_num=round_num,
+        )
+        return [dict(record) async for record in result]
+
     # ------------------------------------------------------------------
     # Phase 14: Interview context reads
     # ------------------------------------------------------------------

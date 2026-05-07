@@ -24,7 +24,8 @@ export function useEdges(
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    if (!cycleId) {
+    // Skip fetch during SEEDING (round=0) — backend requires round ∈ [1,3] (422 otherwise).
+    if (!cycleId || round == null || round < 1) {
       setEdges([]);
       setLoading(false);
       setError(null);
@@ -35,8 +36,7 @@ export function useEdges(
     setLoading(true);
     setError(null);
 
-    const roundParam = round != null ? `?round=${round}` : '';
-    const path = `/api/edges/${encodeURIComponent(cycleId)}${roundParam}`;
+    const path = `/api/edges/${encodeURIComponent(cycleId)}?round=${round}`;
 
     apiFetch<{ edges: BackendEdge[] }>(path)
       .then((res) => {
