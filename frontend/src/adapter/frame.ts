@@ -124,8 +124,8 @@ export function adaptSnapshot(raw: unknown): StateFrame {
     const re = (e ?? {}) as Record<string, unknown>;
     return {
       agentId: typeof re.agent_id === 'string' ? re.agent_id : '',
-      round: typeof re.round === 'number' ? re.round : (roundNum ?? 0),
-      text: typeof re.text === 'string' ? re.text : '',
+      round: typeof re.round_num === 'number' ? re.round_num : (roundNum ?? 0),
+      text: typeof re.rationale === 'string' ? re.rationale : '',
       citations: [], // KR-41.1-10
       sources: [], // KR-41.1-10
       ts: typeof re.ts === 'number' ? re.ts : Date.now(),
