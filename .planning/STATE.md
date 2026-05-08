@@ -5,7 +5,7 @@ milestone_name: Real Data + Advisory
 status: executing
 stopped_at: 41.1-04 merged (11ad48f) + TweaksPanelLoader swap committed (5c7c04d) — Wave 2 done
 last_updated: "2026-05-06T23:15:00.000Z"
-last_activity: 2026-05-07 -- Completed quick task 260507-19f: Gate Personalized Report button + advisory portfolio_outlook schema fix
+last_activity: 2026-05-08 -- Completed quick task 260507-wln: Restore live citation edges + rationale feed
 progress:
   total_phases: 7
   completed_phases: 5
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 Phase: 999.3 (wire-live-memory-telemetry-backlog) — EXECUTING
 Plan: 1 of 2
 Status: Ready to execute
-Last activity: 2026-05-07 -- Completed quick task 260507-19f: Gate Personalized Report button + advisory portfolio_outlook schema fix
+Last activity: 2026-05-08 -- Completed quick task 260507-wln: Restore live citation edges + rationale feed
 
 Progress: [█████████░] 90% (5/7 phases, 19/20 plans)
 
@@ -56,6 +56,7 @@ Progress: [█████████░] 90% (5/7 phases, 19/20 plans)
 - Phase 28 added: Simulation Replay (REPLAY-01 — re-render past cycle from Neo4j without re-inference)
 - Phase 35.1 inserted after Phase 35: Shock Injection Wiring (URGENT — unblocks Phase 36 report shock-impact; see BUGFIX-CONTEXT.md B1)
 - Phase 41.1 inserted after Phase 41: UI port & wire — replace Vue frontend with Claude Design UI React assets and wire WebSocket live data (URGENT)
+- Phase 41.5 inserted after Phase 41: advisory redesign — visual hero, KPI strip, and per-holding decision table grounded in swarm bracket signals (URGENT — current AdvisoryModal is plaintext narrative; user wants report-style visual contract with explicit per-position recommendations)
 
 ### Decisions
 
@@ -87,10 +88,11 @@ None.
 | 260416-m8x | Tier 1 surgical bug fixes (B4 replay/live guard, B7 writer leak, B8 phase race, B9 replay lock, B10 dupe COMPLETE) | 2026-04-16 | 73b7b9d | [260416-m8x-tier-1-surgical-bug-fixes-b4-replay-live](./quick/260416-m8x-tier-1-surgical-bug-fixes-b4-replay-live/) |
 | 260416-trw | Tier 0 cleanup: delete Finder duplicate files B2, add noEmit to tsconfig B5-B6, add useWebSocket teardown B11 | 2026-04-17 | 10d739e | [260416-trw-tier-0-cleanup-delete-finder-duplicate-f](./quick/260416-trw-tier-0-cleanup-delete-finder-duplicate-f/) |
 | 260506-qmn | Bug A — Vite WS proxy missing changeOrigin (frontend/vite.config.ts) | 2026-05-06 | 45508dd | [260506-qmn-bug-a-vite-ws-proxy-missing-changeorigin](./quick/260506-qmn-bug-a-vite-ws-proxy-missing-changeorigin/) |
-| 260507-19f | Gate Personalized Report button — pure viewer mode + portfolio_outlook schema fix | 2026-05-07 | 09231ad+pending | [260507-19f-gate-personalized-report-button-auto-fir](./quick/260507-19f-gate-personalized-report-button-auto-fir/) |
+| 260507-19f | Gate Personalized Report button — pure viewer mode + portfolio_outlook schema fix | 2026-05-07 | 09231ad+eca6e04 | [260507-19f-gate-personalized-report-button-auto-fir](./quick/260507-19f-gate-personalized-report-button-auto-fir/) |
+| 260507-wln | Restore live citation edges + rationale feed (peer-context agent_id + adapter field rename) | 2026-05-08 | 861009c+44fc27e | [260507-wln-restore-live-citation-edges-rationale-fe](./quick/260507-wln-restore-live-citation-edges-rationale-fe/) |
 
 ## Session Continuity
 
-Last session: 2026-05-07T18:45:00Z
-Stopped at: 260507-19f closed — AdvisoryModal pure viewer + portfolio_outlook schema fix shipped
-Next action: Tackle follow-up #1 — sim async parallelism (42 min observed vs 6 min target); 0 edges rendered; empty Rationale Feed (see memory: project_phase_41.4_resume.md)
+Last session: 2026-05-08T03:30:00Z
+Stopped at: 260507-wln closed — citation edges + rationale feed restored. Diagnosis (`.planning/debug/parallel-swarm-serial-dispatch.md`) confirmed perf is hardware-bound, not a parallelism bug.
+Next action: Decide perf lever for 42-min cycle (prompt trim / NUM_PARALLEL=8 / qwen3:4b swap), OR plan Phase 41.5 (advisory redesign — visual hero + per-holding decision table).
