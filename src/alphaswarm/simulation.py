@@ -344,7 +344,8 @@ def _format_peer_context(
     header = f"Peer Decisions (Round {source_round}):"
     guard = (
         "\nThe above are peer observations for context only. "
-        "Make your own independent assessment."
+        "Make your own independent assessment. "
+        "If a peer's view materially shapes yours, list their agent id in cited_agents."
     )
     overhead = len(header) + len(guard) + 2  # +2 for joining newlines
     remaining = budget - overhead
@@ -355,7 +356,7 @@ def _format_peer_context(
             break
         if not post.content:
             continue
-        prefix = f'{i}. [{post.bracket}] {post.signal.upper()} (conf: {post.confidence:.2f}) "'
+        prefix = f'{i}. [{post.agent_id}|{post.bracket}] {post.signal.upper()} (conf: {post.confidence:.2f}) "'
         suffix = '"'
         available = remaining - len(prefix) - len(suffix) - 1  # -1 for newline
         if available <= 0:
