@@ -218,6 +218,16 @@ Plans:
 - [x] 41.1-04-PLAN.md — Wave 2B (parallel to 03): wire modals/history/states/settings/tweaks (modals + overlays + cycle picker; parity rows 17–28)
 - [ ] 41.1-05-PLAN.md — Wave 3: update CLAUDE.md stack line + run 28-row parity UAT with human sign-off
 
+### Phase 41.6: UI revamp — port AlphaSwarm-2 (Quant Terminal) over current React frontend and wire all surfaces to live data (INSERTED)
+
+**Goal:** Replace the current `frontend/` React UI (from Phase 41.1) with the AlphaSwarm-2 "Quant Terminal" Mission Control export. Port the canonical `v2.html` → `src/app_v2.jsx` entry (16 JSX files + `styles.css`, ~5,400 LOC, currently React-from-CDN + Babel-standalone) into the existing Vite + React 19 + TS pipeline as native ES modules. Wire **every** UI surface to live data via existing adapters (force graph, KPI strip, brackets panel, Signal Wire ticker, Rationale Feed, Interview modal, Cycle History, Report modal, Data Sources modal, Settings, lifecycle states idle/seeding/live/mempause/error/done, and `AdvisoryV2` modal in `v2.jsx:285` triggered from the overflow menu in `app_v2.jsx:378` — must reuse existing `frontend/src/api/advisory.ts` + `holdings.ts` plumbing). Reconcile contract drift between `AlphaSwarm-2/CONTRACT.md` and the current backend WS/REST shapes (recent commits show known drift around `cited_agents` and `agent_id`). Each surface must display accurate live data end-to-end with human UAT sign-off. Subsumes the empty Phase 41.5 (advisory hero/KPI/per-holding decision table — covered by AdvisoryV2 + KPI strip in this UI).
+**Requirements**: N/A (UI replacement — no new requirement IDs; all parity surfaces inherit from Phase 41.1 + Phase 41 advisory contract)
+**Depends on:** Phase 41.1 (current React frontend), Phase 41 (advisory pipeline), Phase 41.2 (cited_agents/agent_id adapter fixes)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 41.6 to break down)
+
 ### Phase 999.1: Auto-trigger advisory synthesis on phase=complete (BACKLOG)
 
 **Goal:** When simulation reaches phase=complete, automatically trigger advisory synthesis so users don't need to manually open the panel and click Analyze.
