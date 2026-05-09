@@ -1,0 +1,11 @@
+node_modules
+dist
+*.local
+
+# TSC emission artifacts (noEmit should prevent these, but guard anyway)
+*.tsbuildinfo
+tsconfig.*.tsbuildinfo
+
+# macOS Finder duplicates (space-2 suffix pattern)
+* 2.*
+* 2/
