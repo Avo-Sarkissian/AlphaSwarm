@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Real Data + Advisory
 status: executing
-stopped_at: 41.1-04 merged (11ad48f) + TweaksPanelLoader swap committed (5c7c04d) — Wave 2 done
-last_updated: "2026-05-06T23:15:00.000Z"
-last_activity: 2026-05-08 -- Completed quick task 260507-wln: Restore live citation edges + rationale feed
+stopped_at: Phase 41.6 context gathered
+last_updated: "2026-05-09T01:21:52.780Z"
+last_activity: "2026-05-08 -- Completed quick task 260507-wln: Restore live citation edges + rationale feed"
 progress:
-  total_phases: 7
+  total_phases: 10
   completed_phases: 5
-  total_plans: 22
-  completed_plans: 19
-  percent: 86
+  total_plans: 27
+  completed_plans: 21
+  percent: 78
 ---
 
 # Project State
@@ -93,6 +93,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-05-08T03:30:00Z
-Stopped at: 260507-wln closed — citation edges + rationale feed restored. Diagnosis (`.planning/debug/parallel-swarm-serial-dispatch.md`) confirmed perf is hardware-bound, not a parallelism bug.
+Last session: 2026-05-09T01:21:52.776Z
+Stopped at: Phase 41.6 context gathered
 Next action: Decide perf lever for 42-min cycle (prompt trim / NUM_PARALLEL=8 / qwen3:4b swap), OR plan Phase 41.5 (advisory redesign — visual hero + per-holding decision table).
