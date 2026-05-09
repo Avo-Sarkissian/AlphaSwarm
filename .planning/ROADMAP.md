@@ -223,10 +223,13 @@ Plans:
 **Goal:** Replace the current `frontend/` React UI (from Phase 41.1) with the AlphaSwarm-2 "Quant Terminal" Mission Control export. Port the canonical `v2.html` → `src/app_v2.jsx` entry (16 JSX files + `styles.css`, ~5,400 LOC, currently React-from-CDN + Babel-standalone) into the existing Vite + React 19 + TS pipeline as native ES modules. Wire **every** UI surface to live data via existing adapters (force graph, KPI strip, brackets panel, Signal Wire ticker, Rationale Feed, Interview modal, Cycle History, Report modal, Data Sources modal, Settings, lifecycle states idle/seeding/live/mempause/error/done, and `AdvisoryV2` modal in `v2.jsx:285` triggered from the overflow menu in `app_v2.jsx:378` — must reuse existing `frontend/src/api/advisory.ts` + `holdings.ts` plumbing). Reconcile contract drift between `AlphaSwarm-2/CONTRACT.md` and the current backend WS/REST shapes (recent commits show known drift around `cited_agents` and `agent_id`). Each surface must display accurate live data end-to-end with human UAT sign-off. Subsumes the empty Phase 41.5 (advisory hero/KPI/per-holding decision table — covered by AdvisoryV2 + KPI strip in this UI).
 **Requirements**: N/A (UI replacement — no new requirement IDs; all parity surfaces inherit from Phase 41.1 + Phase 41 advisory contract)
 **Depends on:** Phase 41.1 (current React frontend), Phase 41 (advisory pipeline), Phase 41.2 (cited_agents/agent_id adapter fixes)
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 41.6 to break down)
+- [ ] 41.6-01-PLAN.md — Wave 1: archive frontend → frontend-react-archive/; scaffold fresh Vite+React19+TS; lift wiring layer wholesale (api/context/hooks/adapter/mocks/types); App.tsx 6-context shell + onboarding gate skeleton (D-02, D-05, D-06, D-07, D-12, D-14)
+- [ ] 41.6-02-PLAN.md — Wave 2: port dashboard surfaces (icons + viz + panels + states + tweaks + app_v2 shell) wired to 6-context tree; CSS reconciliation; production grep gate (KR-41.1-01..05/08/09/10 carry; KR-41.6-08, KR-41.6-11 file)
+- [ ] 41.6-03-PLAN.md — Wave 3: D-19 usePolling timeout patch; lib/advisoryParse; v2.jsx (SignalWire/DataSources/ModelStatus/AdvisoryV2 with D-08/D-09/D-10/D-22) + ReportModal D-20 rich lift; modals (Shock/Replay/CyclePicker); history (D-21 conditional Compare); settings (D-23 localStorage tweaks); rewire app_v2 (KR-41.6-01/05/06/07/10/12 file)
+- [ ] 41.6-04-PLAN.md — Wave 4: 3 net-new files (interview_v2 D-11, onboarding D-12, bracket_deep D-13) + edges.ts; rewire App.tsx + app_v2; PARITY-MATRIX (D-16, ~30 rows) + KR-AUDIT (D-17, 11+13 KR register); final production grep gate; human UAT sign-off
 
 ### Phase 999.1: Auto-trigger advisory synthesis on phase=complete (BACKLOG)
 
