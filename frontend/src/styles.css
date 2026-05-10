@@ -534,3 +534,163 @@ body { background: var(--bg); }
 .spark span.hi { background: var(--accent); }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ═════════════════════════════════════════════════════════════════════════
+   LIVE-WIRING OVERRIDES — cherry-picked from frontend-react-archive/src/styles.css
+   per W2 Plan 41.6-02 task 4 (class-inventory diff, codex MEDIUM-5).
+   gemini #G3 token-conflict policy: NO :root overrides lifted; the AlphaSwarm-2
+   token set is canonical. All lifted rules consume tokens (--bg, --text, etc.)
+   that are already defined above.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* v2 STATES — used by frontend/src/components/states.jsx (IdleState,
+   SeedingState, MemoryPausedState, ErrorState). Lifted verbatim from
+   frontend-react-archive/src/styles.css:719-857. */
+.state-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px;
+  background: radial-gradient(ellipse at center, #0e1116 0%, #0b0d10 100%);
+  overflow: auto;
+}
+.state-overlay.dim { background: radial-gradient(ellipse at center, #12090a 0%, #0b0d10 100%); }
+.state-center { max-width: 620px; width: 100%; text-align: left; }
+.state-kicker { font-size: 10.5px; letter-spacing: 0.18em; color: var(--text-3); margin-bottom: 10px; }
+.state-headline {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 32px; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--text); margin-bottom: 10px;
+}
+.state-sub { font-size: 14px; line-height: 1.55; color: var(--text-2); max-width: 520px; margin-bottom: 22px; }
+.state-actions { display: flex; gap: 8px; margin-top: 22px; }
+.state-actions .btn { height: 34px; padding: 0 14px; font-size: 12.5px; }
+
+/* IDLE */
+.idle-center { display: flex; flex-direction: column; align-items: flex-start; }
+.idle-ring {
+  width: 64px; height: 64px;
+  border: 1px solid var(--border-2);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 22px;
+  position: relative;
+}
+.idle-ring::before {
+  content: ''; position: absolute; inset: -8px;
+  border: 1px solid var(--border); border-radius: 50%;
+  animation: ring-breathe 3.5s ease-in-out infinite;
+}
+.idle-ring-inner {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 16px var(--accent);
+  animation: pulse-slow 2.2s ease-in-out infinite;
+}
+@keyframes ring-breathe {
+  0%,100% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(1.15); opacity: 0.15; }
+}
+@keyframes pulse-slow {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.idle-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  width: 100%; margin-top: 6px;
+}
+.syscheck {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg-2);
+  padding: 11px 14px;
+  font-size: 12px;
+}
+.syscheck-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.syscheck-dot.ok  { background: var(--buy);  box-shadow: 0 0 6px var(--buy); }
+.syscheck-dot.err { background: var(--sell); box-shadow: 0 0 6px var(--sell); }
+.syscheck .label { width: 100px; flex-shrink: 0; }
+.syscheck-val { color: var(--text); font-size: 11.5px; }
+.idle-hint { margin-top: 18px; color: var(--text-3); font-size: 10.5px; }
+.idle-hint kbd {
+  font-family: 'JetBrains Mono', monospace;
+  background: var(--bg-3); border: 1px solid var(--border-2);
+  padding: 1px 5px; border-radius: 2px;
+  color: var(--text-2); font-size: 10px;
+  margin: 0 2px;
+}
+
+/* SEEDING */
+.seeding-center {}
+.seeding-bar {
+  width: 100%; height: 4px; background: var(--bg-3); border-radius: 2px;
+  overflow: hidden; margin-bottom: 18px;
+}
+.seeding-bar-fill {
+  height: 100%; background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  transition: width 0.1s linear;
+}
+.seeding-stream {
+  font-size: 11px; line-height: 1.7;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  padding: 12px 14px;
+  border-radius: 2px;
+  max-height: 280px; overflow: hidden;
+  mask-image: linear-gradient(180deg, black 50%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, black 50%, transparent 100%);
+}
+.seeding-line { white-space: nowrap; }
+
+/* MEMORY PAUSED */
+.mempaused-center {}
+.mempaused-icon { color: var(--sell); margin-bottom: 18px; }
+.mempaused-meter { margin-top: 8px; }
+.mempaused-bar {
+  position: relative;
+  width: 100%; height: 12px; background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 2px; overflow: hidden;
+}
+.mempaused-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--buy) 0%, var(--accent) 70%, var(--sell) 90%, var(--sell) 100%);
+}
+.mempaused-threshold {
+  position: absolute; top: -3px; bottom: -3px;
+  width: 1px; background: var(--sell);
+}
+.mempaused-threshold::after {
+  content: ''; position: absolute; top: -4px; left: -3px;
+  width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--sell);
+}
+.mempaused-legend { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--text-2); }
+
+/* ERROR */
+.error-center {}
+.error-glyph { color: var(--sell); margin-bottom: 18px; }
+.error-log {
+  font-size: 11px; line-height: 1.7;
+  background: #08090b;
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  border-radius: 2px;
+  color: var(--text-2);
+}
+.error-log .log-time { color: var(--text-3); margin-right: 8px; }
+.log-time { color: var(--text-3); margin-right: 8px; }
+
+.seg-wrap { flex-wrap: wrap; }
+
+/* NEW W2-only classes (used by ported components but absent from both
+   AlphaSwarm-2/styles.css AND the archive). Defined here so the inventory
+   diff is clean. */
+.bracket-chip { /* used by panels.jsx BracketList; styled inline via background prop */
+  width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0;
+}
+.model-status { /* used by app_v2.tsx ModelStatusStub; rendering driven by inline style */ }
+.signal-wire-stub { /* used by app_v2.tsx SignalWire stub; rendering driven by inline style */ }

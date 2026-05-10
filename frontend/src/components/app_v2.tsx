@@ -155,7 +155,7 @@ export function App() {
   const elapsedSeconds = tel.telemetry.elapsedSeconds;
 
   // Local UI state — chrome only (no live data here).
-  const [seed, setSeed] = useState<string>('Apple acquiring Anthropic for $500B — compute commitments unclear');
+  const [seed, setSeed] = useState<string>('');
   const [layout, setLayout] = useState<'force' | 'radial' | 'grid'>('force');
   const [hintsDismissed, setHintsDismissed] = useState(false);
   const [tweaksOpen, setTweaksOpen] = useState(false);
