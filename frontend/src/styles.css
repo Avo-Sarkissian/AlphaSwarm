@@ -694,3 +694,81 @@ body { background: var(--bg); }
 }
 .model-status { /* used by app_v2.tsx ModelStatusStub; rendering driven by inline style */ }
 .signal-wire-stub { /* used by app_v2.tsx SignalWire stub; rendering driven by inline style */ }
+
+/* ===== W2 hotfix: missing visual classes ported from frontend-react-archive ===== */
+/* Lifted to fix dashboard rendering — without these, SignalWire renders as a tall
+   left-side column instead of a 30px-tall horizontal ticker, and the Legend / Tooltip
+   / Top Influencers panels render unstyled. Per gemini #G3 namespace policy, no
+   AlphaSwarm-2 :root tokens are clobbered. */
+
+/* SignalWire: horizontal 30px ticker bar between topbar and main grid */
+.signal-wire {
+  display: flex; align-items: stretch;
+  height: 30px; flex-shrink: 0;
+  background: linear-gradient(180deg, #0c0f13 0%, #0a0c0f 100%);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+.signal-wire-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  color: var(--text-3); letter-spacing: 0.14em;
+}
+
+/* Legend (force-graph overlay, top-left) */
+.legend {
+  position: absolute; left: 18px; top: 18px;
+  background: color-mix(in srgb, var(--bg-2) 85%, transparent);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--border); border-radius: 5px;
+  padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 5px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+  color: var(--text-2); letter-spacing: 0.05em;
+  z-index: 5; white-space: nowrap; min-width: 160px;
+}
+.legend-row { display: flex; align-items: center; gap: 8px; }
+.legend .chip { width: 10px; height: 10px; border-radius: 50%; }
+.legend .chip-ring { width: 10px; height: 10px; border-radius: 50%; border: 1px dashed var(--accent); }
+.legend .chip-line { width: 12px; height: 1px; background: var(--accent); opacity: 0.8; }
+.legend-divider { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* Tooltip (hover on agent nodes) */
+.tooltip {
+  position: absolute; pointer-events: none;
+  background: var(--bg-3); border: 1px solid var(--border-2);
+  padding: 9px 11px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--text); border-radius: 4px;
+  z-index: 100; min-width: 200px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+}
+.tooltip .t-head { font-size: 12px; font-weight: 600; margin-bottom: 7px; }
+.tooltip .t-row { display: flex; justify-content: space-between; gap: 14px; color: var(--text-2); padding: 2px 0; }
+.tooltip .t-row strong { color: var(--text); font-weight: 600; }
+
+/* Top Influencers row (col-left panel) */
+.influencer-row {
+  display: grid; grid-template-columns: 50px 80px 1fr 32px;
+  gap: 8px; align-items: center; padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.influencer-row:last-child { border-bottom: none; }
+.infl-id { color: var(--text); cursor: pointer; font-weight: 500; }
+.infl-id:hover { color: var(--accent); }
+.infl-bracket { color: var(--text-3); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.infl-bar { height: 3px; background: var(--bg); border-radius: 2px; overflow: hidden; }
+.infl-bar > span { display: block; height: 100%; background: var(--accent); }
+.infl-num { color: var(--accent); text-align: right; }
+
+/* Empty-state placeholder used by panels with no live data yet */
+.panel-empty {
+  padding: 14px 12px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  color: var(--text-3); letter-spacing: 0.05em;
+  text-align: center;
+  font-style: italic;
+}

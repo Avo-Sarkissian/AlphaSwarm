@@ -4,6 +4,9 @@
 // before the conversion).
 
 export function BracketList({ summaries, onClick }) {
+  if (!summaries || summaries.length === 0) {
+    return <div className="panel-empty">no brackets yet — waiting for first frame</div>;
+  }
   return (
     <div>
       {summaries.map(s => {
@@ -36,6 +39,9 @@ export function RationaleFeed({ rationales, onAgentClick, onCiteClick }) {
         : frag
     );
   };
+  if (!rationales || rationales.length === 0) {
+    return <div className="panel-empty">no rationales yet — agents thinking…</div>;
+  }
   return (
     <div>
       {rationales.map((r, i) => (
@@ -67,7 +73,7 @@ export function KpiStrip({ agents, tps, mem, slots, elapsed, round }) {
   const buy = agents.filter(a => a.signal === 'buy').length;
   const sell = agents.filter(a => a.signal === 'sell').length;
   const hold = agents.filter(a => a.signal === 'hold').length;
-  const total = agents.length;
+  const total = Math.max(1, agents.length); // guard div-by-zero when frame has no agents yet
   const memCls = mem >= 90 ? 'crit' : mem >= 80 ? 'warn' : '';
   const fmt = (s) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
   return (
