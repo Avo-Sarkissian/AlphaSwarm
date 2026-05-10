@@ -4,7 +4,11 @@
 // before the conversion).
 
 export function BracketList({ summaries, onClick }) {
-  if (!summaries || summaries.length === 0) {
+  const isEmpty =
+    !summaries ||
+    summaries.length === 0 ||
+    summaries.every(s => (s?.total ?? 0) === 0);
+  if (isEmpty) {
     return <div className="panel-empty">no brackets yet — waiting for first frame</div>;
   }
   return (
