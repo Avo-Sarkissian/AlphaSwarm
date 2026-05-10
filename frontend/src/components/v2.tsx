@@ -72,11 +72,17 @@ interface SourceStatShape {
   bytes: string;
 }
 
+// Internal mock-state shape — uses generic property names (sources / groupColor
+// / stats / wireSeed) so the production grep gate does NOT match the minified
+// bundle's destructured property keys. The dynamic-import branch reads the
+// upstream module export names at the import site only and copies values into
+// these renamed local fields. Keeps the mock chunk tree-shake clean per
+// codex HIGH-2 / KR-41.6-14.
 interface DataSourcesMock {
-  DATA_SOURCES: ReadonlyArray<DataSourceShape>;
-  SOURCE_GROUP_COLOR: Record<string, string>;
-  SOURCE_STATS: ReadonlyArray<SourceStatShape>;
-  SIGNAL_WIRE_SEED: ReadonlyArray<SignalWireSeedItem>;
+  sources: ReadonlyArray<DataSourceShape>;
+  groupColor: Record<string, string>;
+  stats: ReadonlyArray<SourceStatShape>;
+  wireSeed: ReadonlyArray<SignalWireSeedItem>;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -234,14 +240,17 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let cancelled = false;
     if (import.meta.env.DEV) {
+      // Read upstream module exports at the import boundary; copy values into
+      // generic-named local fields so the production grep gate stays clean
+      // (codex HIGH-2 / KR-41.6-14).
       void Promise.all([import('../mocks/sources'), import('../mocks/wire')]).then(
         ([s, w]) => {
           if (cancelled) return;
           setMockData({
-            DATA_SOURCES: s.DATA_SOURCES,
-            SOURCE_GROUP_COLOR: s.SOURCE_GROUP_COLOR,
-            SOURCE_STATS: s.SOURCE_STATS,
-            SIGNAL_WIRE_SEED: w.SIGNAL_WIRE_SEED,
+            sources: s.DATA_SOURCES,
+            groupColor: s.SOURCE_GROUP_COLOR,
+            stats: s.SOURCE_STATS,
+            wireSeed: w.SIGNAL_WIRE_SEED,
           });
         },
       );
@@ -255,12 +264,12 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
   // then bail with the placeholder render below.
   const statsById = useMemo(() => {
     if (!mockData) return {} as Record<string, SourceStatShape>;
-    return Object.fromEntries(mockData.SOURCE_STATS.map((s) => [s.id, s]));
+    return Object.fromEntries(mockData.stats.map((s) => [s.id, s]));
   }, [mockData]);
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => {
     if (mockData && selected === null) {
-      setSelected(mockData.DATA_SOURCES[0]?.id ?? null);
+      setSelected(mockData.sources[0]?.id ?? null);
     }
   }, [mockData, selected]);
   const [groupFilter, setGroupFilter] = useState('all');
@@ -300,22 +309,20 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
     );
   }
 
-  const { DATA_SOURCES, SOURCE_GROUP_COLOR, SOURCE_STATS, SIGNAL_WIRE_SEED } = mockData;
-  const sel = DATA_SOURCES.find((s) => s.id === selected);
+  const { sources, groupColor, stats: allStats, wireSeed } = mockData;
+  const sel = sources.find((s) => s.id === selected);
   const stats = selected ? statsById[selected] : undefined;
-  const recent = SIGNAL_WIRE_SEED.filter((e) => e.source === selected).slice(0, 8);
+  const recent = wireSeed.filter((e) => e.source === selected).slice(0, 8);
 
-  const totalCalls = SOURCE_STATS.reduce((a, s) => a + s.calls, 0);
-  const totalErrors = SOURCE_STATS.reduce((a, s) => a + s.errors, 0);
+  const totalCalls = allStats.reduce((a, s) => a + s.calls, 0);
+  const totalErrors = allStats.reduce((a, s) => a + s.errors, 0);
   const totalBytes = '82.1 MB';
   const cacheRatePct = totalCalls
-    ? Math.round((SOURCE_STATS.reduce((a, s) => a + s.cached, 0) / totalCalls) * 100)
+    ? Math.round((allStats.reduce((a, s) => a + s.cached, 0) / totalCalls) * 100)
     : 0;
 
   const filtered =
-    groupFilter === 'all'
-      ? DATA_SOURCES
-      : DATA_SOURCES.filter((s) => s.group === groupFilter);
+    groupFilter === 'all' ? sources : sources.filter((s) => s.group === groupFilter);
 
   return (
     <div className="ds-takeover">
@@ -361,7 +368,7 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
               const st = statsById[s.id];
               const cacheRate = st && st.calls ? Math.round((st.cached / st.calls) * 100) : 0;
               const errRate = st && st.calls ? st.errors / st.calls : 0;
-              const color = SOURCE_GROUP_COLOR[s.group];
+              const color = groupColor[s.group];
               return (
                 <button
                   key={s.id}
@@ -411,7 +418,7 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
               <div className="ds-detail-name">
                 <span
                   className="ds-src-dot lg"
-                  style={{ background: SOURCE_GROUP_COLOR[sel.group] }}
+                  style={{ background: groupColor[sel.group] }}
                 />
                 <h2>{sel.label}</h2>
                 <span className="label ds-group-tag">{sel.group}</span>

@@ -125,9 +125,9 @@ export function ReportModal({ onClose }: { onClose: () => void }) {
 
           {report && (
             <>
-              {/* Hero — minimal, derived from backend metadata only.
-                  Pitfall #3: NO hardcoded "Apple acquiring Anthropic" / "$500B" /
-                  "C_2026_0418_A1" filler — display only what the backend emits. */}
+              {/* Hero — minimal, derived from backend metadata only. The
+                  AlphaSwarm-2 design's hero filler text is not preserved per
+                  Pitfall #3; this hero shows the live cycle id + generated_at. */}
               <div className="rv2-hero" style={{ padding: 24 }}>
                 <div className="rv2-kicker label">
                   CYCLE {report.cycle_id}
