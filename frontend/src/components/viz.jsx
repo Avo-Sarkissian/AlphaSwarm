@@ -2,7 +2,18 @@
 // Lifted from AlphaSwarm-2/src/viz.jsx (W2 Plan 41.6-02 task 1) and converted
 // to native ES modules per D-03 (was attached as a global before the conversion).
 // Deterministic SVG layout preserved per KR-41.1-01 (no d3-force).
+//
+// Live-data note (W2 hotfix): the AlphaSwarm-2 design's mock buildAgents()
+// attached `index` (array position) and `radius` (per-bracket size) to each
+// agent. Live agents from useAgents() (CONTRACT.md §2.1 shape) DON'T carry
+// those — they're presentation-derived. Without them, layoutForce's jitter
+// math becomes NaN ("M NaN NaN" path errors) and the per-circle r= becomes
+// NaN. The Viz component now enriches agents with both fields before passing
+// them downstream, restoring the deterministic layout.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { BRACKETS } from '../data';
+
+const BRACKET_RADIUS = Object.fromEntries(BRACKETS.map((b) => [b.value, b.radius]));
 
 function layoutForce(agents, w, h) {
   // Cheap circle-packed clustering — group agents by bracket, place clusters on a large ring.
@@ -99,7 +110,20 @@ function buildEdges(agents, max = 60) {
   return edges;
 }
 
-export function Viz({ agents, layout, direction, onAgentHover, onAgentClick, highlightId, showEdges = true, round = 2 }) {
+export function Viz({ agents: rawAgents, layout, direction, onAgentHover, onAgentClick, highlightId, showEdges = true, round = 2 }) {
+  // Enrich live agents with derived `index` (stable per-frame position) and
+  // `radius` (BRACKETS lookup, default 5). Mock buildAgents() set these in the
+  // AlphaSwarm-2 design; live useAgents() doesn't. Memoize so reference is
+  // stable across renders unless rawAgents changes.
+  const agents = useMemo(
+    () => rawAgents.map((a, i) => ({
+      ...a,
+      index: i,
+      radius: BRACKET_RADIUS[a.bracket] ?? 5,
+    })),
+    [rawAgents],
+  );
+
   const wrapRef = useRef(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
 
