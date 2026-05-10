@@ -626,11 +626,15 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   // codex HIGH-3: GET-only polling. No POST trigger — synthesis is
   // auto-fired by SimulationManager.on_complete (per quick task 260507-19f).
   // 404 → null (pending); 500 → polled.error (D-19 surfaces).
+  // Cap = 1200 attempts × 3000ms = 60min. Realistic on M1 Max where
+  // post-R3 narrative generation (~12-25min) + worker→orchestrator swap
+  // (~30-90s) + advisory synthesis (~2-5min) can exceed the prior 10min cap.
+  // See debug session ws-agent-states-not-emitted-mid-sim (symptom 2 UX).
   const polled = usePolling<AdvisoryContent | null>({
     key: `advisory:${cycleId ?? 'none'}`,
     fetchFn: () => (cycleId ? advisoryFetch(cycleId) : Promise.resolve(null)),
     intervalMs: 3000,
-    maxAttempts: 200,
+    maxAttempts: 1200,
   });
   const report = polled.data as AdvisoryReportPayload | null;
   const hadError = polled.error !== null;
