@@ -54,6 +54,12 @@ export function usePolling<T>(opts: UsePollingOpts<T>): UsePollingResult<T> {
     const id = setInterval(() => {
       if (typeof maxAttempts === 'number' && n >= maxAttempts) {
         clearInterval(id);
+        if (!cancelled) {
+          // D-19: surface polling timeout as Error so consumers can render hadError
+          // (closes Phase 41.2 D-06 intent that was never completed; verified in
+          // 41.6-RESEARCH.md Common Pitfall #5).
+          setError(new Error(`polling timed out after ${maxAttempts} attempts`));
+        }
         return;
       }
       void tick();
