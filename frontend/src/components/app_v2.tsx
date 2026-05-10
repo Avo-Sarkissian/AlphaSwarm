@@ -34,6 +34,13 @@ import { useTelemetry } from '../context/TelemetryContext';
 import { useRationales } from '../context/RationalesContext';
 import { useConnection } from '../context/ConnectionContext';
 import { simStart, simStop } from '../api/simulation';
+// Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
+// modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
+import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from './v2';
+import { ShockDrawer, ReplayBar, CyclePickerModal } from './modals';
+import { ReportModal } from './ReportModal';
+import { CycleHistory } from './history';
+import { Settings } from './settings';
 
 function BrandMark() {
   const nodes: [number, number][] = [[8,2],[4,8],[12,8],[2,14],[8,14],[14,14],[6,11],[10,11]];
@@ -81,10 +88,9 @@ function Legend() {
   );
 }
 
-// Stub overlays for surfaces that ship in W3/W4. They render minimal divs so
-// the Topbar overflow / bracket-row / agent-click handlers wire end-to-end
-// without crashing.
-function W3StubOverlay({ label, onClose }: { label: string; onClose: () => void }) {
+// W4 stub overlay: only InterviewV2 + BracketDeepDive remain stubbed in W3
+// (W4 Plan 04 ports them). All W3 modal/v2 stubs replaced by real ports above.
+function W4StubOverlay({ label, onClose }: { label: string; onClose: () => void }) {
   return (
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
@@ -93,31 +99,8 @@ function W3StubOverlay({ label, onClose }: { label: string; onClose: () => void 
       fontFamily: "'JetBrains Mono', monospace",
     }}>
       <div style={{ fontSize: 14, letterSpacing: '0.08em' }}>{label}</div>
-      <div style={{ fontSize: 11, color: 'var(--text-3)' }}>ports in Plan 41.6-03 (W3)</div>
+      <div style={{ fontSize: 11, color: 'var(--text-3)' }}>ports in Plan 41.6-04 (W4)</div>
       <button className="btn primary" onClick={onClose}>Close</button>
-    </div>
-  );
-}
-
-function ModelStatusStub({ phase, tps, slotsUsed, slotsMax }: {
-  phase: string; tps: number; slotsUsed: number; slotsMax: number;
-}) {
-  // KR-41.6-08: model name hardcoded — matches src/alphaswarm/config.py:32
-  // OllamaSettings.worker_model default. W3 Plan 03 task 3 swaps this for the
-  // ported ModelStatus chip from v2.jsx.
-  return (
-    <div className="model-status mono" style={{
-      display: 'flex', alignItems: 'center', gap: 8, fontSize: 10,
-      padding: '4px 10px', border: '1px solid var(--border)', borderRadius: 4,
-      color: 'var(--text-2)', whiteSpace: 'nowrap',
-    }}>
-      <span>{phase}</span>
-      <span style={{ color: 'var(--text-3)' }}>·</span>
-      <span>{tps.toFixed(1)} t/s</span>
-      <span style={{ color: 'var(--text-3)' }}>·</span>
-      <span>{slotsUsed}/{slotsMax}</span>
-      <span style={{ color: 'var(--text-3)' }}>·</span>
-      <span style={{ color: 'var(--accent)' }}>qwen3:8b</span>
     </div>
   );
 }
@@ -151,7 +134,7 @@ export function App() {
   const tps = tel.telemetry.tps;
   const memMb = tel.telemetry.memMb;
   const slotsUsed = tel.telemetry.slotsUsed;
-  const slotsMax = tel.telemetry.slotsMax;
+  // slotsMax read inside <ModelStatus /> (W2 stub used it directly here)
   const elapsedSeconds = tel.telemetry.elapsedSeconds;
 
   // Local UI state — chrome only (no live data here).
@@ -316,7 +299,7 @@ export function App() {
           <button className="btn primary" onClick={onRun}><Icon name="play" /> Run</button>
         )}
 
-        <ModelStatusStub phase={phase} tps={tps} slotsUsed={slotsUsed} slotsMax={slotsMax} />
+        <ModelStatus />
 
         <div className="topbar-divider" />
 
@@ -375,14 +358,8 @@ export function App() {
         </div>
       </div>
 
-      {/* Signal Wire ticker — W3 stub */}
-      <div className="signal-wire-stub mono" style={{
-        height: 28, padding: '0 16px', display: 'flex', alignItems: 'center',
-        borderBottom: '1px solid var(--border)', color: 'var(--text-3)',
-        fontSize: 10, letterSpacing: '0.08em',
-      }}>
-        SIGNAL WIRE · ports in Plan 41.6-03 (W3)
-      </div>
+      {/* Signal Wire ticker — real ported component (DEV-only mock per KR-41.6-14) */}
+      <SignalWire onInspect={() => setUi((u) => ({ ...u, dataSourcesOpen: true }))} />
 
       {/* Main */}
       <div className="main">
@@ -499,39 +476,64 @@ export function App() {
         </div>
       </div>
 
-      {/* W3/W4 stubs — render placeholders so handlers wire end-to-end */}
+      {/* W3 real-wired modal mounts (Plan 41.6-03 task 3). Only InterviewV2 +
+          BracketDeepDive remain stubbed — W4 ports those. */}
       {ui.interviewV2Agent && (
-        <W3StubOverlay label={`InterviewV2 · ${ui.interviewV2Agent.id}`} onClose={() => setUi(u => ({...u, interviewV2Agent: null}))} />
+        <W4StubOverlay
+          label={`InterviewV2 · ${ui.interviewV2Agent.id}`}
+          onClose={() => setUi((u) => ({ ...u, interviewV2Agent: null }))}
+        />
       )}
       {ui.interviewAgent && (
-        <W3StubOverlay label={`Interview · ${ui.interviewAgent.id}`} onClose={() => setUi(u => ({...u, interviewAgent: null}))} />
+        <W4StubOverlay
+          label={`Interview · ${ui.interviewAgent.id}`}
+          onClose={() => setUi((u) => ({ ...u, interviewAgent: null }))}
+        />
       )}
       {ui.bracketDeepDive && (
-        <W3StubOverlay label="BracketDeepDive (W4)" onClose={() => setUi(u => ({...u, bracketDeepDive: null}))} />
+        <W4StubOverlay
+          label="BracketDeepDive (W4)"
+          onClose={() => setUi((u) => ({ ...u, bracketDeepDive: null }))}
+        />
       )}
       {ui.shockOpen && (
-        <W3StubOverlay label="ShockDrawer" onClose={() => setUi(u => ({...u, shockOpen: false}))} />
+        <ShockDrawer onClose={() => setUi((u) => ({ ...u, shockOpen: false }))} />
       )}
       {ui.watchOpen && (
-        <W3StubOverlay label="ReplayBar / Watch" onClose={() => setUi(u => ({...u, watchOpen: false}))} />
+        <ReplayBar
+          cycle={null}
+          onExit={() => setUi((u) => ({ ...u, watchOpen: false }))}
+        />
       )}
       {ui.reportOpen && (
-        <W3StubOverlay label="ReportModal" onClose={() => setUi(u => ({...u, reportOpen: false}))} />
+        <ReportModal onClose={() => setUi((u) => ({ ...u, reportOpen: false }))} />
       )}
       {ui.advisoryOpen && (
-        <W3StubOverlay label="AdvisoryV2" onClose={() => setUi(u => ({...u, advisoryOpen: false}))} />
+        <AdvisoryV2 onClose={() => setUi((u) => ({ ...u, advisoryOpen: false }))} />
       )}
       {ui.dataSourcesOpen && (
-        <W3StubOverlay label="DataSourcesTakeover" onClose={() => setUi(u => ({...u, dataSourcesOpen: false}))} />
+        <DataSourcesTakeover
+          onClose={() => setUi((u) => ({ ...u, dataSourcesOpen: false }))}
+        />
       )}
       {ui.historyOpen && (
-        <W3StubOverlay label="CycleHistory" onClose={() => setUi(u => ({...u, historyOpen: false}))} />
+        <CycleHistory
+          onClose={() => setUi((u) => ({ ...u, historyOpen: false }))}
+          onOpenReport={() =>
+            setUi((u) => ({ ...u, historyOpen: false, reportOpen: true }))
+          }
+        />
       )}
       {ui.settingsOpen && (
-        <W3StubOverlay label="Settings" onClose={() => setUi(u => ({...u, settingsOpen: false}))} />
+        <Settings onClose={() => setUi((u) => ({ ...u, settingsOpen: false }))} />
       )}
       {ui.cyclePickerOpen && (
-        <W3StubOverlay label="CyclePicker" onClose={() => setUi(u => ({...u, cyclePickerOpen: false}))} />
+        <CyclePickerModal
+          onClose={() => setUi((u) => ({ ...u, cyclePickerOpen: false }))}
+          onPick={() =>
+            setUi((u) => ({ ...u, cyclePickerOpen: false, watchOpen: true }))
+          }
+        />
       )}
 
       {/* Dev-only TweaksPanel mount — gated to import.meta.env.DEV inside loader */}
