@@ -90,9 +90,10 @@ None.
 | 260506-qmn | Bug A — Vite WS proxy missing changeOrigin (frontend/vite.config.ts) | 2026-05-06 | 45508dd | [260506-qmn-bug-a-vite-ws-proxy-missing-changeorigin](./quick/260506-qmn-bug-a-vite-ws-proxy-missing-changeorigin/) |
 | 260507-19f | Gate Personalized Report button — pure viewer mode + portfolio_outlook schema fix | 2026-05-07 | 09231ad+eca6e04 | [260507-19f-gate-personalized-report-button-auto-fir](./quick/260507-19f-gate-personalized-report-button-auto-fir/) |
 | 260507-wln | Restore live citation edges + rationale feed (peer-context agent_id + adapter field rename) | 2026-05-08 | 861009c+44fc27e | [260507-wln-restore-live-citation-edges-rationale-fe](./quick/260507-wln-restore-live-citation-edges-rationale-fe/) |
+| 260510-fdo | Polish W2 visual gaps: BracketList all-zero empty state + AdvisoryV2 polling-exhausted error UI + useCurrentCycle dedupe (8x → 1x replay/cycles on mount) | 2026-05-10 | 1be286e+181b170+0a4f0b8 | [260510-fdo-polish-w2-visual-gaps-bracket-bars-empty](./quick/260510-fdo-polish-w2-visual-gaps-bracket-bars-empty/) |
 
 ## Session Continuity
 
-Last session: 2026-05-10T14:34:09.541Z
-Stopped at: Phase 41.6 paused mid-execution: W1+W2+W3 merged + 5 visual hotfixes applied. W4 not started. Backend agent_states emission blocking live UAT. See 41.6-HANDOFF.md.
-Next action: Decide perf lever for 42-min cycle (prompt trim / NUM_PARALLEL=8 / qwen3:4b swap), OR plan Phase 41.5 (advisory redesign — visual hero + per-holding decision table).
+Last session: 2026-05-10T15:11:00.000Z
+Stopped at: Phase 41.6 W2 polish complete (quick 260510-fdo); backend agent_states emission fixed (R1+R2 commits fe366ce, 1da741e, bd682df). Live UAT pending; W4 next.
+Next action: Execute Phase 41.6 Wave 4 — port interview_v2 + onboarding + bracket_deep, build edges.ts, 30-row parity matrix UAT, KR audit, VALIDATION.md flag flip.
