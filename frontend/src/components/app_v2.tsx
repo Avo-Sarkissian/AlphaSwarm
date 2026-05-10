@@ -41,6 +41,9 @@ import { ShockDrawer, ReplayBar, CyclePickerModal } from './modals';
 import { ReportModal } from './ReportModal';
 import { CycleHistory } from './history';
 import { Settings } from './settings';
+// Plan 41.6-04 task 2 (W4): real ported components replace W2/W3 stub overlays.
+import { InterviewV2 } from './interview_v2';
+import { BracketDeepDive } from './bracket_deep';
 
 function BrandMark() {
   const nodes: [number, number][] = [[8,2],[4,8],[12,8],[2,14],[8,14],[14,14],[6,11],[10,11]];
@@ -84,23 +87,6 @@ function Legend() {
       <div className="legend-divider" />
       <div className="legend-row"><span className="chip-ring" /> Flipped since R1</div>
       <div className="legend-row"><span className="chip-line" /> Influence edge</div>
-    </div>
-  );
-}
-
-// W4 stub overlay: only InterviewV2 + BracketDeepDive remain stubbed in W3
-// (W4 Plan 04 ports them). All W3 modal/v2 stubs replaced by real ports above.
-function W4StubOverlay({ label, onClose }: { label: string; onClose: () => void }) {
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', color: 'white', zIndex: 1000, gap: 16,
-      fontFamily: "'JetBrains Mono', monospace",
-    }}>
-      <div style={{ fontSize: 14, letterSpacing: '0.08em' }}>{label}</div>
-      <div style={{ fontSize: 11, color: 'var(--text-3)' }}>ports in Plan 41.6-04 (W4)</div>
-      <button className="btn primary" onClick={onClose}>Close</button>
     </div>
   );
 }
@@ -386,9 +372,6 @@ export function App() {
             </div>
             <div className="panel-body">
               <BracketList summaries={summaries} onClick={(s: any) => {
-                // BracketDeepDive lands in Plan 41.6-04 (W4). Log for now.
-                // eslint-disable-next-line no-console
-                console.log('BracketDeepDive opens in W4', s);
                 setUi(u => ({...u, bracketDeepDive: s}));
               }} />
             </div>
@@ -490,23 +473,25 @@ export function App() {
         </div>
       </div>
 
-      {/* W3 real-wired modal mounts (Plan 41.6-03 task 3). Only InterviewV2 +
-          BracketDeepDive remain stubbed — W4 ports those. */}
+      {/* W4 real-wired modal mounts (Plan 41.6-04 task 2). All stub overlays
+          replaced — InterviewV2 and BracketDeepDive now mount real components. */}
       {ui.interviewV2Agent && (
-        <W4StubOverlay
-          label={`InterviewV2 · ${ui.interviewV2Agent.id}`}
+        <InterviewV2
+          agent={ui.interviewV2Agent}
           onClose={() => setUi((u) => ({ ...u, interviewV2Agent: null }))}
         />
       )}
       {ui.interviewAgent && (
-        <W4StubOverlay
-          label={`Interview · ${ui.interviewAgent.id}`}
+        <InterviewV2
+          agent={ui.interviewAgent}
           onClose={() => setUi((u) => ({ ...u, interviewAgent: null }))}
         />
       )}
       {ui.bracketDeepDive && (
-        <W4StubOverlay
-          label="BracketDeepDive (W4)"
+        <BracketDeepDive
+          bracket={ui.bracketDeepDive}
+          agents={agents.filter((a) => a.bracket.toLowerCase() === ui.bracketDeepDive.bracket.toLowerCase())}
+          onAgentInterview={(a) => setUi((u) => ({ ...u, bracketDeepDive: null, interviewV2Agent: a }))}
           onClose={() => setUi((u) => ({ ...u, bracketDeepDive: null }))}
         />
       )}

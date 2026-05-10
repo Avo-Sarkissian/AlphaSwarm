@@ -14,6 +14,7 @@ import { BracketProvider } from './context/BracketContext';
 import { RationalesProvider } from './context/RationalesContext';
 import { EdgesProvider } from './context/EdgesContext';
 import { App as DashboardShell } from './components/app_v2';
+import { Onboarding } from './components/onboarding';
 
 const ONBOARDING_FLAG = 'as_onboarding_v1_complete';
 
@@ -32,29 +33,22 @@ export function App() {
     const persisted = localStorage.getItem(ONBOARDING_FLAG) === 'true';
     return devSkip || persisted;
   });
-  // W1 SHIM rationale: when VITE_SKIP_ONBOARDING=true is set in dev (typically via
-  // .env.local), the initializer above already sets onboardingDone=true so we fall
-  // straight through to the dashboard render. NO localStorage write happens during
-  // render — the dev-skip path is purely an in-memory bypass; the persisted flag
-  // is only set when the human clicks "Continue" below.
-  // W4 Plan 41.6-04 replaces this stub with `<Onboarding onComplete={...} />`.
+  // codex LOW-9 + gemini #6 (preserved from W1 patch): the onboardingDone
+  // initial state ALREADY honors VITE_SKIP_ONBOARDING=true via the useState
+  // initializer above; the dev-skip path falls through to the dashboard render
+  // automatically because onboardingDone === true at mount. We do NOT write
+  // localStorage during render — the localStorage.setItem below runs only inside
+  // the Onboarding onComplete event handler.
   if (!onboardingDone) {
     return (
-      <div className="onboarding-stub" style={{
-        padding: 24, fontFamily: 'monospace', color: 'var(--text-2)',
-        display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start'
-      }}>
-        <div>Onboarding flow lands in Plan 41.6-04 (W4).</div>
-        <button
-          onClick={() => {
-            localStorage.setItem(ONBOARDING_FLAG, 'true');
-            setOnboardingDone(true);
-          }}
-          style={{ padding: '6px 12px', cursor: 'pointer' }}
-        >
-          Continue (W1 stub)
-        </button>
-      </div>
+      <Onboarding
+        onComplete={(_seed: string, _model: string) => {
+          // simStart was already fired inside Onboarding's Run handler — do NOT
+          // re-fire here. We only persist the gate flag and unmount Onboarding.
+          localStorage.setItem(ONBOARDING_FLAG, 'true');
+          setOnboardingDone(true);
+        }}
+      />
     );
   }
 
