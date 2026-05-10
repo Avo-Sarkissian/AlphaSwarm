@@ -124,16 +124,29 @@ class StateStore:
             self._agent_states[agent_id] = AgentState(signal=signal, confidence=confidence)
 
     async def set_phase(self, phase: SimulationPhase) -> None:
-        """Update simulation phase. Resets agent states on round transitions (D-05)."""
+        """Update simulation phase. Resets agent signals to "thinking" on round transitions.
+
+        Per WS broadcaster contract: keys MUST persist across round entries so the
+        frontend renders dim/pulsing dots (signal=None) during the dispatch window
+        instead of an empty graph. Streaming per-agent writes from
+        batch_dispatcher._safe_agent_inference overwrite each placeholder as that
+        agent's inference resolves. Supersedes the original D-05 "clean visual
+        slate" intent which produced empty WS frames during 14-18min round
+        dispatch on M1 Max.
+        """
         async with self._lock:
             self._phase = phase
-            # Reset agent states to pending at each round start for clean visual slate
+            # Reset signals to "thinking" placeholder on round entry while preserving
+            # dict keys so broadcaster snapshots stay non-empty during dispatch.
             if phase in (
                 SimulationPhase.ROUND_1,
                 SimulationPhase.ROUND_2,
                 SimulationPhase.ROUND_3,
             ):
-                self._agent_states.clear()
+                self._agent_states = {
+                    aid: AgentState(signal=None, confidence=0.0)
+                    for aid in self._agent_states
+                }
             # Start elapsed timer on first non-IDLE phase
             if self._start_time is None and phase != SimulationPhase.IDLE:
                 self._start_time = time.monotonic()

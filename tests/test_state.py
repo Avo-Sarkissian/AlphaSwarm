@@ -57,14 +57,31 @@ async def test_state_snapshot_with_agents() -> None:
     assert "fake" not in snap2.agent_states
 
 
-async def test_set_phase_resets_agents() -> None:
-    """Setting phase to a round clears agent states (D-05 pending reset)."""
+async def test_set_phase_preserves_agent_keys_resets_signals() -> None:
+    """Setting phase to a round preserves agent dict keys but resets signals to None.
+
+    New contract (supersedes the original D-05 "clean visual slate"): the WS
+    broadcaster reads agent_states on every snapshot tick during the 14-18min
+    round dispatch. Clearing the dict produced empty WS frames for the entire
+    round. Now we keep the keys (so the frontend renders dim/pulsing "thinking"
+    dots) and let streaming per-agent writes overwrite them as inference
+    resolves.
+    """
     store = StateStore()
     await store.update_agent_state("quants_01", SignalType.BUY, 0.9)
-    assert len(store.snapshot().agent_states) == 1
+    await store.update_agent_state("degens_01", SignalType.SELL, 0.7)
+    assert len(store.snapshot().agent_states) == 2
+
     await store.set_phase(SimulationPhase.ROUND_2)
-    assert len(store.snapshot().agent_states) == 0
-    assert store.snapshot().phase == SimulationPhase.ROUND_2
+    snap = store.snapshot()
+    # Keys preserved
+    assert set(snap.agent_states.keys()) == {"quants_01", "degens_01"}
+    # Signals reset to "thinking" placeholder (signal=None, confidence=0.0)
+    assert snap.agent_states["quants_01"].signal is None
+    assert snap.agent_states["quants_01"].confidence == 0.0
+    assert snap.agent_states["degens_01"].signal is None
+    assert snap.agent_states["degens_01"].confidence == 0.0
+    assert snap.phase == SimulationPhase.ROUND_2
 
 
 async def test_set_phase_starts_timer() -> None:
