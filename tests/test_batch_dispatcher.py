@@ -707,3 +707,174 @@ async def test_dispatch_wave_market_context_default_none(
     assert len(results) == 4
     assert len(received_market_contexts) == 4
     assert all(c is None for c in received_market_contexts)
+
+
+# ---------------------------------------------------------------------------
+# Streaming per-agent state writes (debug session
+# ws-agent-states-not-emitted-mid-sim, R2 fix)
+# ---------------------------------------------------------------------------
+
+
+async def test_safe_agent_inference_streams_state_on_success(
+    governor: ResourceGovernor,
+) -> None:
+    """_safe_agent_inference writes agent state immediately upon success.
+
+    Regression for debug session ws-agent-states-not-emitted-mid-sim (R2):
+    per-agent state writes used to happen in a post-dispatch for-loop in
+    simulation.py, leaving the WS broadcaster's agent_states dict empty for
+    the entire 14-18min round window. The streaming write hook lives inside
+    _safe_agent_inference so each agent's state lands the instant its
+    inference resolves.
+    """
+    from alphaswarm.batch_dispatcher import _safe_agent_inference
+    from alphaswarm.state import StateStore
+
+    persona = WorkerPersonaConfig(
+        agent_id="quants_42", bracket="quants", influence_weight=0.7,
+        temperature=0.3, system_prompt="test", risk_profile="0.4",
+    )
+    store = StateStore()
+
+    async def mock_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
+        return AgentDecision(signal=SignalType.BUY, confidence=0.84)
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_worker = AsyncMock()
+        mock_worker.infer = mock_infer
+        mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        client = _make_mock_client()
+
+        with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+            decision = await _safe_agent_inference(
+                persona=persona,
+                governor=governor,
+                client=client,
+                model="test-model",
+                user_message="test",
+                peer_context=None,
+                market_context=None,
+                jitter_min=0.0,
+                jitter_max=0.0,
+                state_store=store,
+            )
+
+    # Decision returned correctly
+    assert decision.signal == SignalType.BUY
+    assert decision.confidence == 0.84
+
+    # State was streamed to the store DURING _safe_agent_inference, not
+    # after dispatch_wave returns.
+    snap = store.snapshot()
+    assert "quants_42" in snap.agent_states
+    assert snap.agent_states["quants_42"].signal == SignalType.BUY
+    assert snap.agent_states["quants_42"].confidence == 0.84
+
+
+async def test_safe_agent_inference_does_not_stream_on_parse_error(
+    governor: ResourceGovernor,
+) -> None:
+    """PARSE_ERROR results MUST NOT overwrite a prior signal in StateStore.
+
+    If an agent's inference fails, we keep whatever was there before (the
+    "thinking" placeholder from set_phase, or the prior round's signal) so
+    the WS frame doesn't flip a failed agent into a misleading state.
+    """
+    from alphaswarm.batch_dispatcher import _safe_agent_inference
+    from alphaswarm.state import StateStore
+
+    persona = WorkerPersonaConfig(
+        agent_id="degens_07", bracket="degens", influence_weight=0.3,
+        temperature=1.2, system_prompt="test", risk_profile="0.95",
+    )
+    store = StateStore()
+    # Pre-seed with a known prior-round signal
+    await store.update_agent_state("degens_07", SignalType.SELL, 0.6)
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_aw.return_value.__aenter__ = AsyncMock(
+            side_effect=OllamaInferenceError("boom", model="test")
+        )
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        client = _make_mock_client()
+
+        with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+            decision = await _safe_agent_inference(
+                persona=persona,
+                governor=governor,
+                client=client,
+                model="test-model",
+                user_message="test",
+                peer_context=None,
+                market_context=None,
+                jitter_min=0.0,
+                jitter_max=0.0,
+                state_store=store,
+            )
+
+    assert decision.signal == SignalType.PARSE_ERROR
+
+    # Prior-round signal must be preserved (not overwritten by PARSE_ERROR)
+    snap = store.snapshot()
+    assert snap.agent_states["degens_07"].signal == SignalType.SELL
+    assert snap.agent_states["degens_07"].confidence == 0.6
+
+
+async def test_dispatch_wave_streams_state_progressively(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """dispatch_wave (via _safe_agent_inference) writes per-agent state as
+    each inference resolves — not in a post-dispatch batch loop.
+
+    End-to-end check: after dispatch_wave returns, every successful agent's
+    state is in the StateStore, sourced from the streaming hook inside
+    _safe_agent_inference (the post-dispatch for-loop in simulation.py is
+    intentionally removed by this fix).
+    """
+    from alphaswarm.batch_dispatcher import dispatch_wave
+    from alphaswarm.state import StateStore
+
+    store = StateStore()
+
+    async def mock_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
+        return AgentDecision(signal=SignalType.BUY, confidence=0.8)
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_worker = AsyncMock()
+        mock_worker.infer = mock_infer
+        mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        client = _make_mock_client()
+        settings = GovernorSettings(baseline_parallel=16)
+
+        with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+            await dispatch_wave(
+                personas=sample_personas,
+                governor=governor,
+                client=client,
+                model="test-model",
+                user_message="test",
+                settings=settings,
+                state_store=store,
+            )
+
+    snap = store.snapshot()
+    # All 4 sample personas should have been streamed into the store
+    expected_ids = {p["agent_id"] for p in sample_personas}
+    assert set(snap.agent_states.keys()) == expected_ids
+    for aid in expected_ids:
+        assert snap.agent_states[aid].signal == SignalType.BUY
+        assert snap.agent_states[aid].confidence == 0.8

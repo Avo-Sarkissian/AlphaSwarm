@@ -535,10 +535,12 @@ async def run_round1(
                 for wc, dec in zip(worker_configs, decisions)
             ]
 
-            # Per-agent StateStore writes (D-02: immediate per-agent, not batch)
-            if state_store is not None:
-                for agent_id, dec in agent_decisions:
-                    await state_store.update_agent_state(agent_id, dec.signal, dec.confidence)
+            # Per-agent StateStore writes now happen INSIDE
+            # batch_dispatcher._safe_agent_inference the moment each inference
+            # resolves (streaming). The previous post-dispatch for-loop here
+            # caused the WS broadcaster to see an empty agent_states dict for
+            # the entire 14-18min round window — see debug session
+            # ws-agent-states-not-emitted-mid-sim.
 
             # 8. Persist to Neo4j (Phase 11: capture returned decision_ids)
             round1_decision_ids = await graph_manager.write_decisions(
@@ -714,10 +716,11 @@ async def _dispatch_round(
         for wc, dec in zip(worker_configs, decisions)
     ]
 
-    # Per-agent StateStore writes (D-02)
-    if state_store is not None:
-        for agent_id, dec in agent_decisions:
-            await state_store.update_agent_state(agent_id, dec.signal, dec.confidence)
+    # Per-agent StateStore writes happen inside
+    # batch_dispatcher._safe_agent_inference at inference-resolution time
+    # (streaming) — the previous post-dispatch for-loop is removed because it
+    # caused empty WS frames during round dispatch (see debug session
+    # ws-agent-states-not-emitted-mid-sim).
 
     # Phase 11: normalize peer_contexts (None -> "") and return with decisions
     normalized_peer_contexts: list[str] = [
@@ -993,10 +996,9 @@ async def run_simulation(
             round2_decisions: list[tuple[str, AgentDecision]] = [
                 (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round2_wave_decisions)
             ]
-            # Per-agent StateStore writes
-            if state_store is not None:
-                for agent_id, dec in round2_decisions:
-                    await state_store.update_agent_state(agent_id, dec.signal, dec.confidence)
+            # Per-agent StateStore writes are now streamed from inside
+            # batch_dispatcher._safe_agent_inference. See debug session
+            # ws-agent-states-not-emitted-mid-sim.
 
             # Normalize peer contexts for episode storage
             round2_peer_contexts_normalized: list[str] = [
@@ -1128,9 +1130,9 @@ async def run_simulation(
             round3_decisions: list[tuple[str, AgentDecision]] = [
                 (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round3_wave_decisions)
             ]
-            if state_store is not None:
-                for agent_id, dec in round3_decisions:
-                    await state_store.update_agent_state(agent_id, dec.signal, dec.confidence)
+            # Per-agent StateStore writes are now streamed from inside
+            # batch_dispatcher._safe_agent_inference. See debug session
+            # ws-agent-states-not-emitted-mid-sim.
 
             round3_peer_contexts_normalized: list[str] = [
                 ctx if ctx is not None else "" for ctx in round3_peer_contexts

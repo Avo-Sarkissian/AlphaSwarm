@@ -55,6 +55,14 @@ async def _safe_agent_inference(
     CancelledError and KeyboardInterrupt are NEVER caught -- they propagate
     to preserve TaskGroup cleanup and Ctrl+C handling (review concern #2).
 
+    Streams the resolved AgentDecision to state_store.update_agent_state
+    IMMEDIATELY upon successful inference so the WS broadcaster sees a
+    progressively-filling agent_states dict during the 14-18min round
+    dispatch (replaces the post-dispatch batch loop in simulation.py).
+    Skips the streaming write for PARSE_ERROR results so the broadcaster
+    keeps the prior round's signal (or "thinking" placeholder) instead of
+    flipping a failed agent into a misleading state.
+
     Returns:
         AgentDecision on success, or PARSE_ERROR AgentDecision on failure.
 
@@ -66,11 +74,19 @@ async def _safe_agent_inference(
     try:
         await asyncio.sleep(random.uniform(jitter_min, jitter_max))
         async with agent_worker(persona, governor, client, model, state_store=state_store) as worker:
-            return await worker.infer(
+            decision = await worker.infer(
                 user_message=user_message,
                 peer_context=peer_context,
                 market_context=market_context,
             )
+        # Stream per-agent state write the instant inference resolves so the
+        # broadcaster sees a progressively-filling agent_states dict instead of
+        # a 0->100 jump at end-of-round (the bug fixed by this hook).
+        if state_store is not None and decision.signal is not SignalType.PARSE_ERROR:
+            await state_store.update_agent_state(
+                persona["agent_id"], decision.signal, decision.confidence,
+            )
+        return decision
     except (asyncio.CancelledError, KeyboardInterrupt, GovernorCrisisError):
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
     except Exception as e:
