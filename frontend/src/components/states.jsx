@@ -10,10 +10,13 @@ import { BRACKETS } from '../data';
 
 // ─── IDLE ─────────────────────────────────────────────────────────────
 // Pre-seed state: system ready, waiting for user to enter a seed + Run.
-// SystemCheck rows (Ollama / Agents / Data sources / Storage) remain as
-// design copy — KR-41.6-11 (W4 Onboarding wires the real Ollama check via
-// /api/health; W2 leaves them static).
+// SystemCheck rows: Ollama RAM matches CLAUDE.md M1 Max 64GB target;
+// Agents/brackets derived from BRACKETS (CONTRACT §6 source of truth);
+// Data sources discloses mocked status (KR-41.1-02); Storage drops the
+// fabricated byte count. KR-41.6-11 partial closure — full live probes
+// (real Ollama health, disk usage) still pending W4 Onboarding wiring.
 export function IdleState({ seed, setSeed, onStart, ollamaOk = true }) {
+  const totalPersonas = BRACKETS.reduce((sum, b) => sum + b.count, 0);
   return (
     <div className="state-overlay">
       <div className="state-center idle-center">
@@ -51,10 +54,10 @@ export function IdleState({ seed, setSeed, onStart, ollamaOk = true }) {
           </div>
         )}
         <div className="idle-grid">
-          <SystemCheck label="Ollama" value="qwen3:8b · 48GB RAM" ok={ollamaOk} />
-          <SystemCheck label="Agents" value="100 ready · 10 brackets" ok />
-          <SystemCheck label="Data sources" value="10 online · 0 errors" ok />
-          <SystemCheck label="Storage" value="~/.alphaswarm · 2.1GB used" ok />
+          <SystemCheck label="Ollama" value="qwen3:8b · 64GB RAM" ok={ollamaOk} />
+          <SystemCheck label="Agents" value={`${totalPersonas} personas · ${BRACKETS.length} brackets`} ok />
+          <SystemCheck label="Data sources" value="mocked · pending live wire" ok />
+          <SystemCheck label="Storage" value="~/.alphaswarm" ok />
         </div>
         <div className="idle-hint label">
           TIP · press <kbd>R</kbd> to run · <kbd>S</kbd> to seed · <kbd>?</kbd> for shortcuts
