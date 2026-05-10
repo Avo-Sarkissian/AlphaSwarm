@@ -638,6 +638,9 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   });
   const report = polled.data as AdvisoryReportPayload | null;
   const hadError = polled.error !== null;
+  // Detect cap-hit specifically — usePolling sets this exact message at hooks/usePolling.ts:61.
+  const isExhausted =
+    polled.error !== null && /polling timed out/i.test(polled.error.message);
 
   // D-08 derive-or-stub: build holdingAnalysis array
   const holdingAnalysis = useMemo<HoldingAnalysis[]>(() => {
@@ -769,7 +772,18 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
             <div className="label">Loading advisory…</div>
           </div>
         )}
-        {hadError && !report && (
+        {cycleId && isExhausted && !report && (
+          <div className="advisory-card">
+            <div className="label" style={{ marginBottom: 8 }}>
+              Advisory not yet generated
+            </div>
+            <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
+              Synthesis can take 25–50 min on M1 Max (post-R3 narrative + worker→orchestrator
+              model swap + advisory pass). Check back later — backend auto-fires on cycle complete.
+            </div>
+          </div>
+        )}
+        {cycleId && hadError && !isExhausted && !report && (
           <div className="advisory-card" style={{ color: 'var(--sell)' }}>
             Advisory unavailable: {polled.error?.message ?? 'unknown error'}
           </div>
