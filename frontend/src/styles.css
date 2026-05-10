@@ -772,3 +772,73 @@ body { background: var(--bg); }
   text-align: center;
   font-style: italic;
 }
+
+/* SignalWire inner classes (the ported v2.tsx uses different names than archive's
+   sw-track/sw-tick — design redesign uses sw-scroll-wrap + sw-event flow). */
+.sw-label {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 12px; background: #0a0c0f;
+  border-right: 1px solid var(--border); flex-shrink: 0;
+}
+.sw-live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--buy);
+  box-shadow: 0 0 6px var(--buy);
+  animation: sw-pulse 1.4s ease-in-out infinite;
+}
+@keyframes sw-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.sw-scroll-wrap {
+  flex: 1; overflow: hidden; position: relative;
+  mask-image: linear-gradient(90deg, transparent 0, black 24px, black calc(100% - 60px), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, black 24px, black calc(100% - 60px), transparent 100%);
+}
+.sw-scroll-inner {
+  display: flex; align-items: center; gap: 22px;
+  padding: 0 16px;
+  white-space: nowrap;
+  animation: sw-scroll 80s linear infinite;
+}
+@keyframes sw-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.sw-event {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  flex-shrink: 0;
+}
+.sw-event[data-unused="true"] { opacity: 0.55; }
+.sw-agent { color: var(--accent); font-weight: 600; }
+.sw-sep   { font-weight: 600; }
+.sw-src   { font-weight: 600; }
+.sw-q     { color: var(--text-2); }
+.sw-r     { color: var(--text); }
+.sw-unused { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); margin-left: 2px; }
+.sw-divider { color: var(--text-3); margin: 0 6px; }
+.sw-inspect {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 12px; background: #0a0c0f;
+  border: none; border-left: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  cursor: pointer; flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.sw-inspect:hover { color: var(--accent); background: #0e1115; }
+
+/* Drop the dual-class width conflict: when placeholder is rendered alongside
+   .signal-wire, ensure the placeholder takes full width inside the 30px bar
+   instead of overlapping content. */
+.signal-wire.signal-wire-placeholder {
+  justify-content: center;
+}
+
+/* ModelStatus chip in topbar */
+.model-status { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; padding: 0 8px; }
+.ms-model { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.ms-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.ms-dot[data-running="true"] { background: var(--buy); box-shadow: 0 0 4px var(--buy); }
+.ms-name { color: var(--text); }
+.ms-ops { display: flex; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-3); }
+.ms-op { padding: 0 4px; }

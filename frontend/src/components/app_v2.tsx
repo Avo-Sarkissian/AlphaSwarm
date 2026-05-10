@@ -212,7 +212,21 @@ export function App() {
     [agents],
   );
 
-  const round = phase === 'done' ? 3 : (Number.isFinite(Number(phase)) ? Number(phase) : 2);
+  // Parse round from backend phase string. Backend emits phase as 'round_1' /
+  // 'round_2' / 'round_3' / 'complete' / 'idle' / 'initializing'. The original
+  // Number(phase) parse returned NaN for 'round_N' strings, falling back to 2
+  // even during round_1, causing the bracket panel header to show R2 while the
+  // topbar showed ROUND_1.
+  const round = (() => {
+    if (phase === 'done' || phase === 'complete') return 3;
+    if (typeof phase === 'string') {
+      const m = phase.match(/^round[_-]?(\d+)$/i);
+      if (m) return Number(m[1]);
+      const n = Number(phase);
+      if (Number.isFinite(n)) return n;
+    }
+    return 1;
+  })();
   const phaseLabel =
     phase === 'done' ? 'COMPLETE' :
     phase === 'idle' ? 'IDLE' :
