@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Real Data + Advisory
 status: executing
-stopped_at: "Phase 41.6 paused mid-execution: W1+W2+W3 merged + 5 visual hotfixes applied. W4 not started. Backend agent_states emission blocking live UAT. See 41.6-HANDOFF.md."
-last_updated: "2026-05-10T14:34:09.546Z"
-last_activity: 2026-05-09 -- Phase 41.6 execution started
+stopped_at: Phase 41.6 W2 polish complete (quick 260510-fdo); backend agent_states emission fixed (R1+R2 commits fe366ce, 1da741e, bd682df). Live UAT pending; W4 next.
+last_updated: "2026-05-10T15:36:09.102Z"
+last_activity: 2026-05-10
 progress:
   total_phases: 10
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 31
-  completed_plans: 24
-  percent: 77
+  completed_plans: 25
+  percent: 81
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 
 ## Current Position
 
-Phase: 41.6 (ui-revamp-alphaswarm-2-quant-terminal-port-and-wire) — EXECUTING
-Plan: 1 of 4
+Phase: 999.1
+Plan: Not started
 Status: Executing Phase 41.6
-Last activity: 2026-05-09 -- Phase 41.6 execution started
+Last activity: 2026-05-10
 
 Progress: [█████████░] 90% (5/7 phases, 19/20 plans)
 
@@ -37,7 +37,7 @@ Progress: [█████████░] 90% (5/7 phases, 19/20 plans)
 **All-time:**
 
 - Total phases completed: 27 (v1.0 + v2.0 + v4.0 + v5.0 + Phase 37)
-- Total plans completed: 85
+- Total plans completed: 89
 - Total milestones shipped: 4 (v1.0, v2.0, v4.0, v5.0)
 
 **Per-plan:**
