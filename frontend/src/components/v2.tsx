@@ -766,7 +766,15 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
         )}
         {cycleId && polled.loading && !report && !hadError && (
           <div className="advisory-card">
-            <div className="label">Loading advisory…</div>
+            <div className="label" style={{ marginBottom: 8 }}>
+              Generating advisory…
+            </div>
+            <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
+              The orchestrator is running post-R3 narrative generation, swapping
+              from worker → orchestrator model, then synthesizing your portfolio
+              advisory. Total wall-clock on M1 Max is ~25–50 min — leave this
+              tab open and the report will appear here automatically when ready.
+            </div>
           </div>
         )}
         {cycleId && isExhausted && !report && (
