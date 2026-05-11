@@ -80,13 +80,39 @@ async def generate_advisory(cycle_id: str, request: Request) -> GenerateAdvisory
         request.app.state, "portfolio_snapshot", None,
     )
     if portfolio is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": "holdings_unavailable",
-                "message": "Portfolio snapshot was not loaded — check holdings CSV path",
-            },
-        )
+        # Lazy reload: if the startup load failed (CSV missing at boot, race
+        # condition, transient FS error) AND the file is now readable, try
+        # loading it on the fly so a stale backend doesn't permanently block
+        # auto-advisory. This makes the auto-trigger path resilient across
+        # the "backend started before CSV existed" failure mode that produced
+        # consecutive cycles with no advisory file.
+        try:
+            from alphaswarm.config import Settings
+            from alphaswarm.web.routes.holdings import load_portfolio_snapshot
+
+            settings = Settings()
+            reloaded = await asyncio.to_thread(
+                load_portfolio_snapshot, settings.holdings_csv_path,
+            )
+            if reloaded is not None:
+                request.app.state.portfolio_snapshot = reloaded
+                app_state.portfolio_snapshot = reloaded
+                portfolio = reloaded
+                log.info(
+                    "portfolio_snapshot_lazy_reloaded",
+                    holdings_count=len(reloaded.holdings),
+                    cycle_id=cycle_id,
+                )
+        except Exception:
+            log.exception("portfolio_snapshot_lazy_reload_failed", cycle_id=cycle_id)
+        if portfolio is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "holdings_unavailable",
+                    "message": "Portfolio snapshot was not loaded — check holdings CSV path",
+                },
+            )
 
     snap = app_state.state_store.snapshot()
     if snap.phase != SimulationPhase.COMPLETE:
