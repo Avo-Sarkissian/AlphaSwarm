@@ -843,3 +843,219 @@ body { background: var(--bg); }
 .ms-name { color: var(--text); }
 .ms-ops { display: flex; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-3); }
 .ms-op { padding: 0 4px; }
+
+/* ===== AdvisoryV2 takeover (W3 port) =====
+   The component was ported in 41.6-03 but its CSS was never lifted from the
+   AlphaSwarm-2 reference (the reference HTML only ships .advisory-card; the
+   takeover/header/tab classes were invented at port time). Without these
+   rules the modal renders inline at the bottom of the page as a glitched
+   strip. Pattern mirrors .modal-backdrop / .modal-head from existing modals. */
+
+.adv-takeover {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  z-index: 200;
+  overflow: hidden;
+}
+.adv-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 18px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+.adv-head-left { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; }
+.adv-head-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.adv-title { color: var(--text); font-size: 16px; font-weight: 600; letter-spacing: 0.01em; }
+.adv-subtitle { color: var(--text-3); font-size: 10.5px; letter-spacing: 0.12em; margin-top: 2px; }
+.adv-isolation-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 12px;
+  color: var(--accent);
+  font-size: 10.5px; letter-spacing: 0.04em;
+}
+
+.adv-tabs { display: flex; gap: 4px; }
+.adv-tab {
+  background: transparent; border: 1px solid transparent;
+  color: var(--text-2); padding: 6px 14px; border-radius: 4px;
+  font-family: inherit; font-size: 12px;
+  cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.adv-tab:hover { color: var(--text); background: var(--bg-3); }
+.adv-tab[data-active="true"] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.adv-body {
+  flex: 1; overflow: auto;
+  padding: 22px 28px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+
+/* Generic advisory-card already exists in v2.html source (lines 498-503).
+   Add minimal style if not already covered. */
+.advisory-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 18px 20px;
+}
+
+/* Overview tab */
+.adv-overview { display: flex; flex-direction: column; gap: 22px; }
+.adv-primary-rec {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 20px 22px;
+}
+.adv-rec-tag {
+  color: var(--accent); font-size: 10px; letter-spacing: 0.18em;
+  margin-bottom: 8px;
+}
+.adv-rec-headline {
+  color: var(--text); font-size: 18px; font-weight: 600;
+  margin-bottom: 10px;
+}
+.adv-rec-body { color: var(--text-2); font-size: 13px; line-height: 1.65; }
+.adv-rec-body p { margin: 0 0 8px; }
+.adv-rec-body p:last-child { margin-bottom: 0; }
+
+.adv-summary-stats {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+}
+.adv-stat {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 14px 16px;
+}
+.adv-stat[data-tone="buy"]  { border-color: color-mix(in srgb, var(--buy) 45%, var(--border)); }
+.adv-stat[data-tone="sell"] { border-color: color-mix(in srgb, var(--sell) 45%, var(--border)); }
+.adv-stat[data-tone="hold"] { border-color: color-mix(in srgb, var(--hold) 45%, var(--border)); }
+.adv-stat .label { color: var(--text-3); font-size: 10px; letter-spacing: 0.14em; }
+.adv-stat-v { color: var(--text); font-size: 18px; font-weight: 600; margin-top: 6px; }
+.adv-stat-sub { color: var(--text-3); font-size: 11px; margin-top: 3px; }
+
+/* Quick-holdings overview rows */
+.adv-quick-holdings {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 16px 18px;
+}
+.adv-qh-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 80px 90px 70px 90px;
+  gap: 14px; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.adv-qh-row:last-child { border-bottom: 0; }
+.adv-qh-ticker { color: var(--text); font-weight: 600; font-size: 13px; }
+.adv-qh-weight, .adv-qh-shares, .adv-qh-val {
+  color: var(--text-2); font-size: 11px; font-family: 'JetBrains Mono', monospace;
+}
+.adv-qh-signal {
+  display: inline-block; padding: 2px 8px; border-radius: 3px;
+  font-size: 10.5px; font-weight: 600; text-align: center;
+}
+.adv-qh-rec {
+  font-size: 10.5px; font-weight: 600; color: var(--text-2);
+  text-align: right; letter-spacing: 0.06em;
+}
+.adv-qh-sent-bar {
+  height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden;
+  position: relative;
+}
+.adv-qs-pos { background: color-mix(in srgb, var(--buy) 70%, transparent); }
+.adv-qs-neg { background: color-mix(in srgb, var(--sell) 70%, transparent); }
+.adv-qs-mid { background: var(--hold); }
+
+/* Holdings tab */
+.adv-holdings-detail { display: flex; flex-direction: column; gap: 14px; }
+.adv-holding-card {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 16px 18px;
+}
+.adv-hc-head {
+  display: grid;
+  grid-template-columns: 80px 1fr 100px 130px;
+  gap: 14px; align-items: center;
+}
+.adv-hc-ticker { color: var(--text); font-size: 16px; font-weight: 600; }
+.adv-hc-value { display: flex; flex-direction: column; gap: 2px; }
+.adv-hc-val { color: var(--text); font-size: 13px; }
+.adv-hc-rec {
+  padding: 4px 10px; border-radius: 3px;
+  font-size: 10.5px; font-weight: 600;
+  text-align: center; letter-spacing: 0.06em;
+}
+.adv-rec-buy  { background: color-mix(in srgb, var(--buy) 18%, transparent); color: var(--buy); }
+.adv-rec-sell { background: color-mix(in srgb, var(--sell) 18%, transparent); color: var(--sell); }
+.adv-rec-hold { background: color-mix(in srgb, var(--hold) 22%, transparent); color: var(--hold); }
+.adv-hc-agents { text-align: right; color: var(--text-3); }
+.adv-hc-sentiment { margin-top: 12px; }
+.adv-sentiment-bar {
+  position: relative; height: 6px; background: var(--bg); border-radius: 3px;
+  overflow: hidden;
+}
+.adv-sent-fill {
+  position: absolute; top: 0; bottom: 0;
+  background: var(--accent);
+}
+.adv-sent-center {
+  position: absolute; left: 50%; top: 0; bottom: 0;
+  width: 1px; background: var(--border-2);
+}
+.adv-sent-label {
+  color: var(--text-3); font-size: 10px; letter-spacing: 0.08em;
+  margin-top: 4px;
+}
+
+/* Risk tab */
+.adv-risk-view { display: flex; flex-direction: column; gap: 16px; }
+.adv-risk-matrix {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 18px;
+}
+.adv-risk-text {
+  color: var(--text-2); font-size: 13px; line-height: 1.65;
+}
+
+/* Isolation tab — architecture diagram */
+.adv-isolation { display: flex; flex-direction: column; gap: 18px; }
+.adv-iso-hero {
+  background: var(--bg-2); border: 1px solid var(--border-2);
+  border-radius: 6px; padding: 22px;
+  text-align: center;
+}
+.adv-iso-arch {
+  display: flex; align-items: stretch; justify-content: center;
+  gap: 16px; flex-wrap: wrap;
+}
+.adv-iso-layer {
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 6px; padding: 16px 18px;
+  flex: 1; min-width: 220px;
+}
+.adv-iso-layer-title { color: var(--text); font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+.adv-iso-layer-desc { color: var(--text-2); font-size: 12px; line-height: 1.55; }
+.adv-iso-arrow { display: flex; align-items: center; color: var(--accent); font-size: 18px; }
+.adv-iso-explain { color: var(--text-2); font-size: 13px; line-height: 1.6; }
+.adv-iso-items { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.adv-iso-item {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 10px 12px;
+  color: var(--text-2); font-size: 12px;
+}
+.adv-iso-no { color: var(--sell); margin-right: 6px; font-weight: 600; }
+.adv-iso-audit {
+  font-family: 'JetBrains Mono', monospace; color: var(--text-3);
+  font-size: 10.5px; letter-spacing: 0.06em; margin-top: 6px;
+}
+.adv-up-text { color: var(--text-2); font-size: 12.5px; line-height: 1.55; }
+
