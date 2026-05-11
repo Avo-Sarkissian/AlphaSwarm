@@ -794,6 +794,7 @@ body { background: var(--bg); }
 }
 .sw-scroll-inner {
   display: flex; align-items: center; gap: 22px;
+  height: 100%;
   padding: 0 16px;
   white-space: nowrap;
   animation: sw-scroll 80s linear infinite;
