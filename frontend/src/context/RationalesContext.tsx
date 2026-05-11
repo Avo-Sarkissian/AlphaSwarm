@@ -26,7 +26,15 @@ export function RationalesProvider({
     }
     if (frame.rationales.length === 0) return;
     setAccumulated((prev) => {
-      const next = [...prev, ...frame.rationales];
+      // Dedupe by (agentId, round, text) so replay-mode frames (which re-emit
+      // the FULL list every tick) don't oscillate, and a re-broadcast of a
+      // drained entry doesn't double-count.
+      const seen = new Set(prev.map((r) => `${r.agentId}|${r.round}|${r.text}`));
+      const additions = frame.rationales.filter(
+        (r) => !seen.has(`${r.agentId}|${r.round}|${r.text}`),
+      );
+      if (additions.length === 0) return prev;
+      const next = [...prev, ...additions];
       return next.length > MAX_RATIONALES ? next.slice(-MAX_RATIONALES) : next;
     });
   }, [frame.rationales, frame.phase]);
