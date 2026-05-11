@@ -12,7 +12,7 @@
 // generator (202 on accept, 409 when another generation is in flight). GET
 // returns the report (404 → null/pending; 500/503 propagate). The trigger fires
 // once on mount; 409 is treated as "already in flight" (poll picks it up).
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { Icon } from './icons';
 import { useCurrentCycle } from '../hooks/useCurrentCycle';
 import { usePolling } from '../hooks/usePolling';
@@ -36,33 +36,42 @@ type ReportPayload = ReportContent & { report_markdown?: string };
 export function ReportModal({ onClose }: { onClose: () => void }) {
   const { cycleId } = useCurrentCycle();
 
-  // Trigger ONCE on mount when cycleId present; handle 409 "already in flight"
-  // by skipping (poll picks up the in-progress synthesis). Other errors surface.
+  // UX contract: the modal NEVER auto-kicks generation. On open, GET the report:
+  //   - 200 -> show it
+  //   - 404 -> render an explicit "no report yet" state with a Generate button
+  //   - 500 -> surface the recorded error
+  // Only after the user clicks Generate do we POST /api/report/{cycleId}/generate
+  // and start polling. (Previously the modal POSTed on mount, silently spawning
+  // a 25-50 min synthesis that the user did not request.)
   const [triggerError, setTriggerError] = useState<string | null>(null);
-  const [kicked, setKicked] = useState(false);
-  useEffect(() => {
-    if (!cycleId || kicked) return;
-    setKicked(true);
-    let cancelled = false;
-    void reportGenerate(cycleId).catch((e: unknown) => {
-      if (cancelled) return;
-      if (e instanceof ApiError && e.status === 409) return; // already in flight — OK
-      const msg = e instanceof Error ? e.message : String(e);
-      setTriggerError(msg);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [cycleId, kicked]);
+  const [generationKicked, setGenerationKicked] = useState(false);
 
   const polled = usePolling<ReportPayload | null>({
     key: `report:${cycleId ?? 'none'}`,
     fetchFn: () => (cycleId ? reportFetch(cycleId) : Promise.resolve(null)),
     intervalMs: 3000,
-    maxAttempts: 200,
+    // Don't poll forever when no generation is in flight; one-shot until the user
+    // explicitly kicks generation. Bumped to 1200 (60 min) once they do.
+    maxAttempts: generationKicked ? 1200 : 1,
   });
   const report = polled.data;
-  const hadError = polled.error !== null || triggerError !== null;
+  const fetchError = polled.error;
+  const isMissing =
+    fetchError instanceof ApiError && fetchError.status === 404;
+  const hadError =
+    triggerError !== null ||
+    (fetchError !== null && !isMissing);
+
+  const handleGenerate = () => {
+    if (!cycleId || generationKicked) return;
+    setGenerationKicked(true);
+    setTriggerError(null);
+    void reportGenerate(cycleId).catch((e: unknown) => {
+      if (e instanceof ApiError && e.status === 409) return; // already in flight — poll picks up
+      const msg = e instanceof Error ? e.message : String(e);
+      setTriggerError(msg);
+    });
+  };
 
   // Canonical markdown — pick whichever field the backend emitted.
   const canonicalMd = report?.content ?? report?.report_markdown ?? '';
@@ -112,14 +121,50 @@ export function ReportModal({ onClose }: { onClose: () => void }) {
               <div className="label">No completed cycle to report on.</div>
             </div>
           )}
-          {cycleId && polled.loading && !report && !hadError && (
+          {/* Initial fetch in flight (one shot) before we know if a report exists. */}
+          {cycleId && !generationKicked && polled.loading && !report && !hadError && !isMissing && (
             <div className="report-hero" style={{ padding: 24 }}>
-              <div className="label">Generating report…</div>
+              <div className="label">Checking for existing report…</div>
+            </div>
+          )}
+          {/* No report yet — explicit empty state with Generate button. */}
+          {cycleId && isMissing && !report && !generationKicked && (
+            <div className="report-hero" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'flex-start' }}>
+              <div style={{ color: 'var(--text)', fontSize: 14, fontWeight: 600 }}>
+                No report exists for this cycle yet.
+              </div>
+              <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6, maxWidth: 640 }}>
+                Reports are NOT auto-generated on cycle complete (unlike the advisory).
+                Click below to kick off generation — total wall-clock on M1 Max is
+                ~5–10 min for the canonical markdown pass plus subsection synthesis.
+                Leave this modal open and the report will appear here automatically
+                when ready.
+              </div>
+              <button
+                className="btn"
+                onClick={handleGenerate}
+                style={{ marginTop: 4 }}
+              >
+                <Icon name="bolt" size={12} /> Generate report
+              </button>
+            </div>
+          )}
+          {/* Generation in flight (user clicked the button). */}
+          {cycleId && generationKicked && polled.loading && !report && !hadError && (
+            <div className="report-hero" style={{ padding: 24 }}>
+              <div className="label" style={{ marginBottom: 8 }}>
+                Generating report…
+              </div>
+              <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
+                The ReACT agent + assembler is synthesizing the canonical markdown,
+                then the heading-gated subsections (Convergence, Moments, Dissent,
+                Influences, Followups). Modal will refresh automatically when ready.
+              </div>
             </div>
           )}
           {hadError && !report && (
             <div className="report-hero" style={{ padding: 24, color: 'var(--sell)' }}>
-              Report failed: {polled.error?.message ?? triggerError ?? 'unknown error'}
+              Report failed: {fetchError?.message ?? triggerError ?? 'unknown error'}
             </div>
           )}
 
