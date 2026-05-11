@@ -797,7 +797,7 @@ body { background: var(--bg); }
   height: 100%;
   padding: 0 16px;
   white-space: nowrap;
-  animation: sw-scroll 80s linear infinite;
+  animation: sw-scroll 35s linear infinite;
 }
 @keyframes sw-scroll {
   from { transform: translateX(0); }

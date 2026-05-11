@@ -33,6 +33,7 @@ import { useBrackets } from '../context/BracketContext';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useRationales } from '../context/RationalesContext';
 import { useConnection } from '../context/ConnectionContext';
+import { useEdgesCtx } from '../context/EdgesContext';
 import { simStart, simStop } from '../api/simulation';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
 // modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
@@ -115,6 +116,7 @@ export function App() {
   const { rationales } = useRationales();
   const { reconnectFailed } = useConnection();
   const tel = useTelemetry();
+  const { edges } = useEdgesCtx();
   const phase = tel.phase;
   const running = tel.running;
   const tps = tel.telemetry.tps;
@@ -185,18 +187,38 @@ export function App() {
     [rationales, agents],
   );
 
-  // Top Influencers: rank by confidence DESC during live (KR-41.1-09).
-  const topInfluencers = useMemo(
-    () => [...agents]
+  // Top Influencers: rank by OUT-DEGREE when edges are available (post-cycle),
+  // fall back to confidence rank for live/early frames (KR-41.1-09).
+  const outDegree = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const [source] of edges) out[source] = (out[source] ?? 0) + 1;
+    return out;
+  }, [edges]);
+  const hasEdges = edges.length > 0;
+  const topInfluencers = useMemo(() => {
+    if (hasEdges) {
+      const maxOut = Math.max(1, ...Object.values(outDegree));
+      return [...agents]
+        .map(a => ({ a, deg: outDegree[a.id] ?? 0 }))
+        .sort((x, y) => y.deg - x.deg)
+        .slice(0, 5)
+        .map(({ a, deg }) => ({
+          id: a.id,
+          bracket: a.bracketDisplay,
+          out: deg,
+          barPct: Math.round((deg / maxOut) * 100),
+        }));
+    }
+    return [...agents]
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, 5)
       .map(a => ({
         id: a.id,
         bracket: a.bracketDisplay,
         out: Math.round(a.confidence * 100),
-      })),
-    [agents],
-  );
+        barPct: Math.round(a.confidence * 100),
+      }));
+  }, [agents, outDegree, hasEdges]);
 
   // Parse round from backend phase string. Backend emits phase as 'round_1' /
   // 'round_2' / 'round_3' / 'complete' / 'idle' / 'initializing'. The original
@@ -380,7 +402,7 @@ export function App() {
           <div className="panel">
             <div className="panel-head">
               <span className="panel-title">Top Influencers</span>
-              <span className="label">CONFIDENCE</span>
+              <span className="label">{hasEdges ? 'OUT-DEGREE' : 'CONFIDENCE'}</span>
             </div>
             <div className="panel-body" style={{fontFamily:'JetBrains Mono', fontSize:11}}>
               {topInfluencers.length === 0 ? (
@@ -391,7 +413,7 @@ export function App() {
                 <div key={r.id} className="influencer-row">
                   <span className="infl-id" onClick={() => onCiteClick(r.id)}>{r.id}</span>
                   <span className="infl-bracket">{r.bracket}</span>
-                  <div className="infl-bar"><span style={{width: `${r.out}%`}} /></div>
+                  <div className="infl-bar"><span style={{width: `${r.barPct}%`}} /></div>
                   <span className="infl-num">{r.out}</span>
                 </div>
               ))}
@@ -408,7 +430,7 @@ export function App() {
               ))}
               <button className="round-tab" data-active={phase === 'done'}>FINAL</button>
             </div>
-            <span className="topstrip-meta">{agents.filter(a => a.flipped).length} flips since R1 · {agents.length} agents</span>
+            <span className="topstrip-meta">{agents.filter(a => a.flipped).length} flips since R1 · {hasEdges ? `${edges.length} active edges` : `${agents.length} agents`}</span>
             <div className="layout-tabs">
               <span className="label" style={{marginRight:6}}>LAYOUT</span>
               {[
