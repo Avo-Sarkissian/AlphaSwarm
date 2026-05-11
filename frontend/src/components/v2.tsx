@@ -155,10 +155,7 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
       </div>
 
       <div className="sw-scroll-wrap">
-        <div
-          className="sw-scroll-inner"
-          style={{ animationPlayState: running ? 'running' : 'paused' }}
-        >
+        <div className="sw-scroll-inner">
           {items.map((e, i) => {
             const src = sourceById[e.source];
             const color = mock.groupColor[src?.group ?? ''] || '#8a93a0';

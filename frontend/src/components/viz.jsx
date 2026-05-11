@@ -13,7 +13,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BRACKETS } from '../data';
 
-const BRACKET_RADIUS = Object.fromEntries(BRACKETS.map((b) => [b.value, b.radius]));
+// Backend BracketKey is PascalCase ('Quants', 'DoomPosters', 'PolicyWonks')
+// while BRACKETS const values are snake_case ('quants', 'doom_posters', 'policy_wonks').
+// Normalize on lookup so all agents get their proper per-bracket radius instead
+// of falling through to the default and rendering uniform tiny dots.
+const _BRACKET_RADIUS_BY_VALUE = Object.fromEntries(BRACKETS.map((b) => [b.value, b.radius]));
+const _normalizeBracketKey = (k) =>
+  typeof k === 'string' ? k.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase() : '';
+const BRACKET_RADIUS = new Proxy(_BRACKET_RADIUS_BY_VALUE, {
+  get(target, prop) {
+    if (typeof prop !== 'string') return undefined;
+    return target[prop] ?? target[_normalizeBracketKey(prop)];
+  },
+});
 
 function layoutForce(agents, w, h) {
   // Cheap circle-packed clustering — group agents by bracket, place clusters on a large ring.
