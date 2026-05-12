@@ -91,9 +91,10 @@ None.
 | 260507-19f | Gate Personalized Report button — pure viewer mode + portfolio_outlook schema fix | 2026-05-07 | 09231ad+eca6e04 | [260507-19f-gate-personalized-report-button-auto-fir](./quick/260507-19f-gate-personalized-report-button-auto-fir/) |
 | 260507-wln | Restore live citation edges + rationale feed (peer-context agent_id + adapter field rename) | 2026-05-08 | 861009c+44fc27e | [260507-wln-restore-live-citation-edges-rationale-fe](./quick/260507-wln-restore-live-citation-edges-rationale-fe/) |
 | 260510-fdo | Polish W2 visual gaps: BracketList all-zero empty state + AdvisoryV2 polling-exhausted error UI + useCurrentCycle dedupe (8x → 1x replay/cycles on mount) | 2026-05-10 | 1be286e+181b170+0a4f0b8 | [260510-fdo-polish-w2-visual-gaps-bracket-bars-empty](./quick/260510-fdo-polish-w2-visual-gaps-bracket-bars-empty/) |
+| 260512-jqn | 6 post-run follow-ups: InterviewV2/Onboarding/BracketDeepDive CSS + /api/edges Cypher fix + governor slots (KR-41.1-05) + rationale sliding window + live SignalWire audit + advisory items+sector enrichment | 2026-05-12 | 41d8d4c+890a220+de31313+0003375+fc7a568+4234035 | [260512-jqn-address-6-post-run-follow-ups-interviewv](./quick/260512-jqn-address-6-post-run-follow-ups-interviewv/) |
 
 ## Session Continuity
 
-Last session: 2026-05-10T15:11:00.000Z
-Stopped at: Phase 41.6 W2 polish complete (quick 260510-fdo); backend agent_states emission fixed (R1+R2 commits fe366ce, 1da741e, bd682df). Live UAT pending; W4 next.
-Next action: Execute Phase 41.6 Wave 4 — port interview_v2 + onboarding + bracket_deep, build edges.ts, 30-row parity matrix UAT, KR audit, VALIDATION.md flag flip.
+Last session: 2026-05-12T18:55:00.000Z
+Stopped at: 6 post-run follow-ups landed (quick 260512-jqn). All six tracked tasks closed: InterviewV2/Onboarding/BracketDeepDive CSS (41d8d4c), /api/edges (890a220), governor slots/KR-41.1-05 (de31313), rationale sliding window — closes tasks #4+#9 (0003375), live SignalWire audit — closes task #5 (fc7a568), advisory items+sector enrichment — closes task #10 (4234035). All gates green: 78 tests pass, frontend build clean, 5 production grep gates all 0.
+Next action: Restart uvicorn (Pane 2) to pick up backend changes; trigger fresh sim to UAT live rationale streaming + non-zero slots tile + per-holding advisory + live wire ticker + non-empty edges post-cycle.
