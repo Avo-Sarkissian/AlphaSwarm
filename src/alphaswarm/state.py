@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 from alphaswarm.types import SignalType, SimulationPhase
@@ -105,8 +106,13 @@ class StateStore:
         self._start_time: float | None = None
         self._final_elapsed: float | None = None
         self._latest_governor_metrics: GovernorMetrics | None = None
-        # Phase 10: TUI-03 rationale sidebar queue (maxsize=50, drops oldest on overflow)
-        self._rationale_queue: asyncio.Queue[RationaleEntry] = asyncio.Queue(maxsize=50)
+        # ITEM 4 of quick task 260512-jqn: rationale sliding window.
+        # Replaces the prior asyncio.Queue (drain semantics) with a
+        # bounded deque (peek semantics). Every snapshot() carries the
+        # full window so the frontend feed populates progressively
+        # during a round AND survives WS client reconnect (no drain,
+        # no per-consumer race).
+        self._rationale_window: deque[RationaleEntry] = deque(maxlen=50)
         # Phase 10: TUI-04 TPS accumulation from Ollama response metadata
         self._cumulative_tokens: int = 0
         self._cumulative_eval_ns: int = 0
@@ -160,19 +166,20 @@ class StateStore:
             self._round_num = round_num
 
     async def push_rationale(self, entry: RationaleEntry) -> None:
-        """Push rationale entry to queue. Drops oldest if full (non-blocking).
+        """Append rationale entry to the sliding window (maxlen=50).
 
-        Queue maxsize=50. When full, the oldest entry is discarded to make room
-        for the newest. Single-consumer pattern: TUI drains via snapshot().
+        ITEM 4 of quick task 260512-jqn: replaced drain semantics with peek
+        semantics. The deque silently drops the oldest entry when full, so
+        every snapshot() — and therefore every WS broadcast — carries the
+        most recent 50 entries. Multiple consumers (TUI, WS broadcaster,
+        reconnecting clients) all see the same window without racing each
+        other for queue items.
+
+        Method stays async to preserve the existing call-site signature in
+        simulation.py / batch_dispatcher.py; deque.append is O(1) and the
+        GIL keeps it consistent under the StateStore's single-loop usage.
         """
-        try:
-            self._rationale_queue.put_nowait(entry)
-        except asyncio.QueueFull:
-            try:
-                self._rationale_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            self._rationale_queue.put_nowait(entry)
+        self._rationale_window.append(entry)
 
     def update_tps(self, eval_count: int, eval_duration_ns: int) -> None:
         """Accumulate TPS from Ollama response metadata (D-05, TUI-04).
@@ -206,7 +213,9 @@ class StateStore:
 
         No lock needed for read -- dict copy is atomic enough at 200ms polling granularity.
 
-        No side effects. Queue entries are accessed only via drain_rationales().
+        ITEM 4 of quick task 260512-jqn: snapshot now carries the full
+        rationale sliding window (peek, no drain) so every WS frame
+        contains the latest 50 entries.
         """
         return StateSnapshot(
             phase=self._phase,
@@ -220,31 +229,29 @@ class StateStore:
             ),
             governor_metrics=self._latest_governor_metrics,
             tps=self._compute_tps(),
-            rationale_entries=(),
+            rationale_entries=tuple(self._rationale_window),
             bracket_summaries=self._bracket_summaries,
         )
 
-    def drain_rationales(self, limit: int = 5) -> tuple[RationaleEntry, ...]:
-        """Pop up to `limit` entries from the rationale queue.
+    def peek_rationales(self) -> tuple[RationaleEntry, ...]:
+        """Return the full rationale sliding window (peek, no drain).
 
-        This is the explicit destructive read path. Each consumer (TUI,
-        WebSocket broadcaster) calls this independently on its own tick cadence
-        without interfering with other consumers.
-
-        Args:
-            limit: Maximum number of entries to return. Defaults to 5 to match
-                   the original TUI batch size (Phase 10 decision D-04).
-
-        Returns:
-            Tuple of up to `limit` RationaleEntry objects, oldest-first.
+        ITEM 4 of 260512-jqn: replaces the prior drain_rationales(limit)
+        destructive read. Same data is also embedded directly in the
+        StateSnapshot returned by snapshot().
         """
-        entries: list[RationaleEntry] = []
-        for _ in range(limit):
-            try:
-                entries.append(self._rationale_queue.get_nowait())
-            except asyncio.QueueEmpty:
-                break
-        return tuple(entries)
+        return tuple(self._rationale_window)
+
+    def drain_rationales(self, limit: int = 5) -> tuple[RationaleEntry, ...]:
+        """Return up to `limit` oldest rationale entries WITHOUT draining.
+
+        ITEM 4 of 260512-jqn — kept as a thin wrapper over peek_rationales
+        for TUI back-compat. The TUI loop expects this method name but
+        no longer relies on the destructive semantics (snapshot already
+        carries the full window). The `limit` argument is honored to keep
+        the original tuple-length contract.
+        """
+        return tuple(self._rationale_window)[:limit]
 
     @property
     def governor_metrics(self) -> GovernorMetrics | None:

@@ -47,6 +47,7 @@ async def _safe_agent_inference(
     jitter_min: float,
     jitter_max: float,
     state_store: StateStore | None = None,
+    round_num: int = 0,
 ) -> AgentDecision:
     """Run a single agent inference with jitter and exception safety.
 
@@ -62,6 +63,12 @@ async def _safe_agent_inference(
     Skips the streaming write for PARSE_ERROR results so the broadcaster
     keeps the prior round's signal (or "thinking" placeholder) instead of
     flipping a failed agent into a misleading state.
+
+    Also (ITEM 4 of quick task 260512-jqn): after a successful inference,
+    streams one RationaleEntry into state_store so the WS rationale feed
+    populates progressively (1 → 100 over the round) instead of bulk-
+    arriving at end-of-round. PARSE_ERROR decisions skip the rationale
+    push as well so the feed stays clean.
 
     Returns:
         AgentDecision on success, or PARSE_ERROR AgentDecision on failure.
@@ -79,14 +86,6 @@ async def _safe_agent_inference(
                 peer_context=peer_context,
                 market_context=market_context,
             )
-        # Stream per-agent state write the instant inference resolves so the
-        # broadcaster sees a progressively-filling agent_states dict instead of
-        # a 0->100 jump at end-of-round (the bug fixed by this hook).
-        if state_store is not None and decision.signal is not SignalType.PARSE_ERROR:
-            await state_store.update_agent_state(
-                persona["agent_id"], decision.signal, decision.confidence,
-            )
-        return decision
     except (asyncio.CancelledError, KeyboardInterrupt, GovernorCrisisError):
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
     except Exception as e:
@@ -97,6 +96,36 @@ async def _safe_agent_inference(
             sentiment=0.0,
             rationale=f"Inference failed for {persona['agent_id']}: {e}",
         )
+
+    # Streaming writes (success path only): agent_state + rationale together
+    # so the WS broadcaster sees a progressively-filling agent_states dict
+    # AND rationale feed instead of a 0->100 jump at end-of-round.
+    if state_store is not None and decision.signal is not SignalType.PARSE_ERROR:
+        await state_store.update_agent_state(
+            persona["agent_id"], decision.signal, decision.confidence,
+        )
+        # ITEM 4 — streaming rationale push. Lazy imports keep batch_dispatcher
+        # import-time minimal.
+        from alphaswarm.state import RationaleEntry
+        from alphaswarm.utils import sanitize_rationale
+
+        try:
+            await state_store.push_rationale(
+                RationaleEntry(
+                    agent_id=persona["agent_id"],
+                    signal=decision.signal,
+                    rationale=sanitize_rationale(decision.rationale, max_len=50),
+                    round_num=round_num,
+                )
+            )
+        except Exception as push_err:  # noqa: BLE001 - never fail dispatch on telemetry error
+            log.warning(
+                "rationale push failed (non-fatal)",
+                agent_id=persona["agent_id"],
+                error=str(push_err),
+            )
+
+    return decision
 
 
 async def dispatch_wave(
@@ -111,6 +140,7 @@ async def dispatch_wave(
     peer_contexts: list[str | None] | None = None,
     market_context: str | None = None,
     state_store: StateStore | None = None,
+    round_num: int = 0,
 ) -> list[AgentDecision]:
     """Dispatch a wave of agent inferences using asyncio.TaskGroup.
 
@@ -171,6 +201,7 @@ async def dispatch_wave(
                     settings.jitter_min_seconds,
                     settings.jitter_max_seconds,
                     state_store=state_store,
+                    round_num=round_num,
                 )
             )
             for i, p in enumerate(personas)

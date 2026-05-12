@@ -86,12 +86,13 @@ def snapshot_to_json(
         return json.dumps(d)
 
     snap = state_store.snapshot()
-    rationales = state_store.drain_rationales(5)
     d = dataclasses.asdict(snap)
-    # EXPLICIT OVERRIDE: snap.rationale_entries is always an empty tuple from snapshot().
-    # drain_rationales() pops from the rationale queue. We must override the dict entry
-    # produced by asdict(snap) or rationale data is silently dropped from the wire format.
-    d["rationale_entries"] = [dataclasses.asdict(r) for r in rationales]
+    # ITEM 4 of quick task 260512-jqn: snapshot() now carries the full
+    # rationale sliding window (peek-only deque, maxlen=50). The prior
+    # drain_rationales(5) override has been removed — asdict already
+    # serializes snap.rationale_entries directly. Every WS frame now
+    # contains the latest 50 entries, so reconnecting clients see the
+    # existing window instead of an empty array.
     _overlay_memory(d)
     return json.dumps(d)
 

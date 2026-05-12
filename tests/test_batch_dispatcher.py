@@ -709,6 +709,7 @@ async def test_dispatch_wave_market_context_default_none(
     assert all(c is None for c in received_market_contexts)
 
 
+
 # ---------------------------------------------------------------------------
 # Streaming per-agent state writes (debug session
 # ws-agent-states-not-emitted-mid-sim, R2 fix)
@@ -878,3 +879,137 @@ async def test_dispatch_wave_streams_state_progressively(
     for aid in expected_ids:
         assert snap.agent_states[aid].signal == SignalType.BUY
         assert snap.agent_states[aid].confidence == 0.8
+
+
+# ITEM 4 of quick task 260512-jqn — streaming push_rationale per-agent
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_client_with_metadata() -> MagicMock:
+    """Like _make_mock_client but provides numeric eval_count/eval_duration so
+    the worker.infer TPS code path doesn't crash on MagicMock comparison.
+
+    ITEM 4 streams require state_store; worker.infer reads response.eval_count
+    and response.eval_duration when state_store is non-None.
+    """
+    client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.message.content = (
+        '{"signal": "buy", "confidence": 0.8, "rationale": "strong buy"}'
+    )
+    mock_response.eval_count = 50
+    mock_response.eval_duration = 1_000_000_000  # 1 second in ns
+    client.chat = AsyncMock(return_value=mock_response)
+    return client
+
+
+async def test_safe_agent_inference_streams_rationale_push_on_success(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """ITEM 4: after a successful inference, one RationaleEntry must land
+    in state_store.push_rationale BEFORE _safe_agent_inference returns.
+
+    Without this, the rationale feed only populates at end-of-round when
+    simulation.py used to call _push_top_rationales — the new streaming
+    path inside batch_dispatcher avoids that mid-round blackout.
+    """
+    from alphaswarm.batch_dispatcher import dispatch_wave
+    from alphaswarm.state import RationaleEntry, StateStore
+
+    store = StateStore()
+    client = _make_mock_client_with_metadata()
+    settings = GovernorSettings(baseline_parallel=16)
+
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        results = await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            client=client,
+            model="test-model",
+            user_message="seed",
+            settings=settings,
+            state_store=store,
+            round_num=2,
+        )
+
+    # One success per persona → one rationale per agent in the window.
+    successful = [r for r in results if r.signal is not SignalType.PARSE_ERROR]
+    rationales = store.peek_rationales()
+    assert len(rationales) == len(successful)
+
+    # All pushed entries must be RationaleEntry objects with round_num=2.
+    assert all(isinstance(e, RationaleEntry) for e in rationales)
+    assert all(e.round_num == 2 for e in rationales)
+
+    # Each successful agent has exactly one entry; no duplicates.
+    pushed_ids = sorted(e.agent_id for e in rationales)
+    expected_ids = sorted(p["agent_id"] for p in sample_personas)
+    assert pushed_ids == expected_ids
+
+
+async def test_safe_agent_inference_skips_rationale_on_parse_error(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """ITEM 4: PARSE_ERROR decisions must NOT push a rationale entry.
+
+    The error case is the fallback AgentDecision returned by the exception
+    handler — pushing its placeholder rationale would pollute the feed with
+    'Inference failed for…' noise. Streaming push is gated on
+    `decision.signal is not SignalType.PARSE_ERROR`.
+    """
+    from alphaswarm.batch_dispatcher import dispatch_wave
+    from alphaswarm.state import StateStore
+
+    store = StateStore()
+    settings = GovernorSettings(baseline_parallel=16)
+
+    # Build a client whose chat() always raises — _safe_agent_inference will
+    # catch and return PARSE_ERROR AgentDecisions for every persona.
+    failing_client = MagicMock()
+    failing_client.chat = AsyncMock(
+        side_effect=OllamaInferenceError("simulated failure", model="test-model")
+    )
+
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        results = await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            client=failing_client,
+            model="test-model",
+            user_message="seed",
+            settings=settings,
+            state_store=store,
+            round_num=1,
+        )
+
+    # All decisions failed.
+    assert all(r.signal is SignalType.PARSE_ERROR for r in results)
+    # ⇒ ZERO rationale entries pushed.
+    assert store.peek_rationales() == ()
+
+
+async def test_safe_agent_inference_no_push_when_state_store_none(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """When state_store is None, streaming is a silent no-op (no crash)."""
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    client = _make_mock_client()
+    settings = GovernorSettings(baseline_parallel=16)
+
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        results = await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            client=client,
+            model="test-model",
+            user_message="seed",
+            settings=settings,
+            state_store=None,
+            round_num=1,
+        )
+
+    assert len(results) == len(sample_personas)

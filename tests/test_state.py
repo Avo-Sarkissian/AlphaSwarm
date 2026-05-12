@@ -175,91 +175,92 @@ def test_rationale_entry_frozen() -> None:
         entry.agent_id = "A_99"  # type: ignore[misc]
 
 
-async def test_rationale_queue_drain() -> None:
-    """Push 7 entries; drain_rationales(5) returns 5 first call, 2 second call."""
+async def test_rationale_window_appends_and_caps_at_50() -> None:
+    """ITEM 4 of 260512-jqn — sliding window caps at 50, drops oldest on overflow."""
     store = StateStore()
-    for i in range(7):
+    for i in range(60):
         await store.push_rationale(
             RationaleEntry(agent_id=f"A_{i}", signal=SignalType.BUY, rationale="test", round_num=1)
         )
-    entries1 = store.drain_rationales(5)
-    assert len(entries1) == 5
-    entries2 = store.drain_rationales(5)
-    assert len(entries2) == 2
-
-
-async def test_rationale_queue_empty_drain() -> None:
-    """No entries pushed; snapshot rationale_entries is empty tuple."""
-    store = StateStore()
     snap = store.snapshot()
-    assert snap.rationale_entries == ()
+    # The deque keeps the most-recent 50 entries; oldest 10 are dropped.
+    assert len(snap.rationale_entries) == 50
+    assert snap.rationale_entries[0].agent_id == "A_10"   # A_0..A_9 dropped
+    assert snap.rationale_entries[-1].agent_id == "A_59"  # newest preserved
 
 
-async def test_snapshot_non_destructive() -> None:
-    """snapshot() can be called multiple times without losing rationale entries."""
+async def test_rationale_window_peek_non_destructive() -> None:
+    """Snapshot can be called repeatedly without losing rationale entries.
+
+    Previously drain_rationales drained the queue per consumer; the new
+    sliding window is peek-only so the WS broadcaster, TUI, and any
+    reconnecting client all see the same data.
+    """
     store = StateStore()
     await store.push_rationale(
         RationaleEntry(agent_id="A_0", signal=SignalType.BUY, rationale="test", round_num=1)
     )
     snap1 = store.snapshot()
     snap2 = store.snapshot()
-    # Both snapshots return empty tuple — queue is intact
-    assert snap1.rationale_entries == ()
-    assert snap2.rationale_entries == ()
-    # Entry is still in the queue
-    drained = store.drain_rationales(5)
-    assert len(drained) == 1
-    assert drained[0].agent_id == "A_0"
+    # Both snapshots carry the entry — no drain.
+    assert len(snap1.rationale_entries) == 1
+    assert len(snap2.rationale_entries) == 1
+    assert snap1.rationale_entries[0].agent_id == "A_0"
+    assert snap2.rationale_entries[0].agent_id == "A_0"
 
 
-async def test_drain_rationales() -> None:
-    """drain_rationales(5) pops up to 5 entries; subsequent call returns remainder."""
+async def test_rationale_window_empty_initially() -> None:
+    """No entries pushed; snapshot.rationale_entries is empty tuple."""
     store = StateStore()
-    for i in range(7):
-        await store.push_rationale(
-            RationaleEntry(agent_id=f"A_{i}", signal=SignalType.BUY, rationale="test", round_num=1)
-        )
-    first_batch = store.drain_rationales(5)
-    assert len(first_batch) == 5
-    second_batch = store.drain_rationales(5)
-    assert len(second_batch) == 2
-    third_batch = store.drain_rationales(5)
-    assert third_batch == ()
+    snap = store.snapshot()
+    assert snap.rationale_entries == ()
 
 
-async def test_drain_rationales_tui_compat() -> None:
-    """drain_rationales(5) returns fewer than limit when queue has fewer entries."""
+async def test_peek_rationales_returns_full_window() -> None:
+    """ITEM 4 — peek_rationales returns the full window without draining."""
     store = StateStore()
     for i in range(3):
         await store.push_rationale(
             RationaleEntry(agent_id=f"A_{i}", signal=SignalType.HOLD, rationale="hold", round_num=1)
         )
+    peeked = store.peek_rationales()
+    assert len(peeked) == 3
+    assert all(e.signal == SignalType.HOLD for e in peeked)
+    # Calling again returns the same data — peek is idempotent.
+    again = store.peek_rationales()
+    assert again == peeked
+
+
+async def test_drain_rationales_back_compat_shim() -> None:
+    """drain_rationales is now a thin peek wrapper kept for TUI back-compat."""
+    store = StateStore()
+    for i in range(3):
+        await store.push_rationale(
+            RationaleEntry(agent_id=f"A_{i}", signal=SignalType.HOLD, rationale="hold", round_num=1)
+        )
+    # First call returns the first 3 entries (limit=5 caps at len).
     entries = store.drain_rationales(5)
     assert len(entries) == 3
-    assert all(e.signal == SignalType.HOLD for e in entries)
+    # Crucially: the window is NOT drained — second call returns the same data.
+    entries2 = store.drain_rationales(5)
+    assert entries2 == entries
 
 
-async def test_rationale_queue_full_drops_oldest() -> None:
-    """Pushing 51 entries to maxsize=50 queue drops oldest; newest entry survives."""
+async def test_rationale_window_survives_round_transitions() -> None:
+    """ITEM 4: rationales must NOT be cleared when set_phase advances rounds.
+
+    Without this, a WS client that reconnects mid-R2 would see an empty
+    feed because set_phase(ROUND_2) used to clear agent_states (which is
+    still expected) but NOT the rationale window.
+    """
     store = StateStore()
-    # Push 50 entries (fills queue)
-    for i in range(50):
-        await store.push_rationale(
-            RationaleEntry(agent_id=f"OLD_{i}", signal=SignalType.SELL, rationale="old", round_num=1)
-        )
-    # Push one more (should drop oldest, keep this new one)
     await store.push_rationale(
-        RationaleEntry(agent_id="NEWEST", signal=SignalType.BUY, rationale="newest", round_num=2)
+        RationaleEntry(agent_id="R1_AGENT", signal=SignalType.BUY, rationale="r1", round_num=1)
     )
-    # Drain all entries (maxsize=50 so drain 5 per call, need 10 calls)
-    all_entries: list[RationaleEntry] = []
-    for _ in range(11):  # 10 * 5 = 50 entries
-        entries = store.drain_rationales(5)
-        all_entries.extend(entries)
-        if not entries:
-            break
-    agent_ids = [e.agent_id for e in all_entries]
-    assert "NEWEST" in agent_ids
+    await store.set_phase(SimulationPhase.ROUND_2)
+    snap = store.snapshot()
+    assert len(snap.rationale_entries) == 1
+    assert snap.rationale_entries[0].agent_id == "R1_AGENT"
 
 
 async def test_update_tps_single() -> None:
@@ -316,21 +317,29 @@ async def test_state_snapshot_new_defaults() -> None:
     assert snap.bracket_summaries == ()
 
 
-async def test_snapshot_drain_queue_twice() -> None:
-    """Calling snapshot() twice is non-destructive; drain_rationales() pops the entry once."""
+async def test_snapshot_peek_window_repeatable() -> None:
+    """ITEM 4: snapshot() is non-destructive AND carries the rationale window
+    so repeated snapshots return identical data (peek semantics).
+
+    Previously snapshot returned () and drain_rationales destructively
+    popped — this test asserts the new behavior where both snapshots
+    contain the entry and drain_rationales() is a peek wrapper.
+    """
     store = StateStore()
     await store.push_rationale(
         RationaleEntry(agent_id="A_0", signal=SignalType.HOLD, rationale="hold signal", round_num=3)
     )
     snap1 = store.snapshot()
-    assert snap1.rationale_entries == ()
-    # Second call is also empty -- snapshot never touches the queue
     snap2 = store.snapshot()
-    assert snap2.rationale_entries == ()
-    # Entry is still in queue; drain_rationales pops it
-    drained = store.drain_rationales(5)
-    assert len(drained) == 1
-    assert drained[0].agent_id == "A_0"
+    # Both snapshots carry the rationale — peek semantics.
+    assert len(snap1.rationale_entries) == 1
+    assert snap1.rationale_entries[0].agent_id == "A_0"
+    assert snap1.rationale_entries == snap2.rationale_entries
+    # drain_rationales back-compat shim is also peek-only — entry remains.
+    peeked = store.drain_rationales(5)
+    assert len(peeked) == 1
+    assert peeked[0].agent_id == "A_0"
+    assert len(store.snapshot().rationale_entries) == 1
 
 
 def test_bracket_summary_frozen() -> None:
@@ -364,7 +373,13 @@ async def test_tps_from_worker_path() -> None:
 
 
 async def test_push_top_rationales_sorts_by_influence() -> None:
-    """_push_top_rationales selects highest-influence agents first."""
+    """_push_top_rationales (legacy helper, no longer wired in simulation.py)
+    still sorts by influence weight when called directly.
+
+    ITEM 4 of 260512-jqn removed the end-of-round _push_top_rationales calls
+    from simulation.py (streaming now happens per-agent in batch_dispatcher).
+    The helper function itself is kept for any tooling / TUI use.
+    """
     from alphaswarm.simulation import _push_top_rationales
     from alphaswarm.types import AgentDecision, SignalType
 
@@ -377,7 +392,7 @@ async def test_push_top_rationales_sorts_by_influence() -> None:
     influence_weights = {"high_agent": 0.9, "mid_agent": 0.5, "low_agent": 0.1}
 
     await _push_top_rationales(decisions, 1, store, influence_weights=influence_weights, limit=2)
-    entries = store.drain_rationales(5)
+    entries = store.peek_rationales()
 
     # Should have pushed at most 2 entries (limit=2)
     assert len(entries) == 2
@@ -386,7 +401,7 @@ async def test_push_top_rationales_sorts_by_influence() -> None:
 
 
 async def test_push_top_rationales_skips_parse_errors() -> None:
-    """_push_top_rationales skips PARSE_ERROR agents."""
+    """_push_top_rationales skips PARSE_ERROR agents (peek semantics)."""
     from alphaswarm.simulation import _push_top_rationales
     from alphaswarm.types import AgentDecision, SignalType
 
@@ -397,9 +412,9 @@ async def test_push_top_rationales_skips_parse_errors() -> None:
     ]
 
     await _push_top_rationales(decisions, 2, store)
-    entries = store.drain_rationales(5)
+    entries = store.peek_rationales()
 
-    # Only good_agent should be in the queue
+    # Only good_agent should be in the window
     assert len(entries) == 1
     assert entries[0].agent_id == "good_agent"
 

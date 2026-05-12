@@ -521,6 +521,7 @@ async def run_round1(
                 peer_context=None,
                 market_context=market_context,
                 state_store=state_store,
+                round_num=1,
             )
 
             # 6. Positional alignment assertion (review concern #3)
@@ -703,6 +704,7 @@ async def _dispatch_round(
         settings=settings,
         peer_contexts=peer_contexts,
         state_store=state_store,
+        round_num=source_round + 1,
     )
 
     if len(decisions) != len(worker_configs):
@@ -903,12 +905,13 @@ async def run_simulation(
         round1_result.agent_decisions, personas, brackets,
     )
 
-    # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
+    # Push bracket summaries to StateStore (Phase 10: TUI-05).
+    # ITEM 4 of 260512-jqn: streaming `push_rationale` inside
+    # batch_dispatcher._safe_agent_inference now covers every agent
+    # per-inference, so the end-of-round `_push_top_rationales` call
+    # is no longer needed (it would duplicate entries in the deque).
     if state_store is not None:
         await state_store.set_bracket_summaries(round1_summaries)
-        await _push_top_rationales(
-            round1_result.agent_decisions, 1, state_store, influence_weights=round1_weights,
-        )
 
     # Fire callback for Round 1 (progressive output)
     round1_decisions_tuple = tuple(round1_result.agent_decisions)
@@ -992,6 +995,7 @@ async def run_simulation(
                 settings=settings.governor,
                 peer_contexts=round2_peer_contexts,
                 state_store=state_store,
+                round_num=2,
             )
             round2_decisions: list[tuple[str, AgentDecision]] = [
                 (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round2_wave_decisions)
@@ -1044,12 +1048,10 @@ async def run_simulation(
             # Compute Round 2 bracket summaries (D-08)
             round2_summaries = compute_bracket_summaries(round2_decisions, personas, brackets)
 
-            # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
+            # ITEM 4 of 260512-jqn: streaming push_rationale handles per-agent;
+            # end-of-round _push_top_rationales removed (would duplicate).
             if state_store is not None:
                 await state_store.set_bracket_summaries(round2_summaries)
-                await _push_top_rationales(
-                    round2_decisions, 2, state_store, influence_weights=round2_weights,
-                )
 
             # Compute Round 2 shifts in-memory (D-13)
             round2_shifts = _compute_shifts(
@@ -1126,6 +1128,7 @@ async def run_simulation(
                 settings=settings.governor,
                 peer_contexts=round3_peer_contexts,
                 state_store=state_store,
+                round_num=3,
             )
             round3_decisions: list[tuple[str, AgentDecision]] = [
                 (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round3_wave_decisions)
@@ -1184,12 +1187,13 @@ async def run_simulation(
             # Compute Round 3 bracket summaries (D-08)
             round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
 
-            # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
+            # ITEM 4 of 260512-jqn: streaming push_rationale handles per-agent;
+            # end-of-round _push_top_rationales removed (would duplicate).
+            # round3_weights is still computed above for the influence write
+            # (R3 INFLUENCED_BY edges — ITEM 2 of 260512-jqn).
             if state_store is not None:
                 await state_store.set_bracket_summaries(round3_summaries)
-                await _push_top_rationales(
-                    round3_decisions, 3, state_store, influence_weights=round3_weights,
-                )
+                _ = round3_weights  # retained for future use / explicit no-op marker
 
             # Compute Round 3 shifts in-memory (D-13)
             round3_shifts = _compute_shifts(
