@@ -15,7 +15,7 @@ import { BRACKETS } from '../data';
 // Data sources discloses mocked status (KR-41.1-02); Storage drops the
 // fabricated byte count. KR-41.6-11 partial closure — full live probes
 // (real Ollama health, disk usage) still pending W4 Onboarding wiring.
-export function IdleState({ seed, setSeed, onStart, ollamaOk = true }) {
+export function IdleState({ seed, setSeed, onStart, ollamaOk = true, onShowHistory }) {
   const totalPersonas = BRACKETS.reduce((sum, b) => sum + b.count, 0);
   return (
     <div className="state-overlay">
@@ -30,6 +30,15 @@ export function IdleState({ seed, setSeed, onStart, ollamaOk = true }) {
             ? `Seed staged: "${seed}". Press Run when ready.`
             : 'Enter a market-moving scenario as a seed. 100 agents will be spawned across 10 brackets and deliberate across 3 rounds.'}
         </div>
+        {onShowHistory && (
+          <button
+            className="btn ghost-btn idle-history-btn"
+            onClick={onShowHistory}
+            title="Browse and replay previous simulation cycles"
+          >
+            <Icon name="replay" /> Browse previous runs
+          </button>
+        )}
         {/* Optional inline seed editor + Run handler — used when the parent
             wants to mount IdleState as a true pre-run gate. The Topbar's
             seed input is the canonical entry; these props are no-ops if not

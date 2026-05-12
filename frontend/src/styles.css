@@ -611,6 +611,25 @@ body { background: var(--bg); }
 .syscheck-dot.err { background: var(--sell); box-shadow: 0 0 6px var(--sell); }
 .syscheck .label { width: 100px; flex-shrink: 0; }
 .syscheck-val { color: var(--text); font-size: 11.5px; }
+.idle-history-btn {
+  margin-top: 14px;
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.idle-history-btn:hover {
+  background: var(--bg-3);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-2));
+}
 .idle-hint { margin-top: 18px; color: var(--text-3); font-size: 10.5px; }
 .idle-hint kbd {
   font-family: 'JetBrains Mono', monospace;

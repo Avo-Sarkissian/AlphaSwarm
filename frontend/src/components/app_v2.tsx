@@ -389,7 +389,28 @@ export function App() {
     return <SeedingState seed={seed} />;
   }
   if (phase === 'idle' && !running) {
-    return <IdleState seed={seed} setSeed={setSeed} onStart={onRun} ollamaOk />;
+    return (
+      <>
+        <IdleState
+          seed={seed}
+          setSeed={setSeed}
+          onStart={onRun}
+          ollamaOk
+          onShowHistory={() => setUi((u) => ({ ...u, historyOpen: true }))}
+        />
+        {ui.historyOpen && (
+          <CycleHistory
+            onClose={() => setUi((u) => ({ ...u, historyOpen: false }))}
+            onOpenReport={() =>
+              setUi((u) => ({ ...u, historyOpen: false, reportOpen: true }))
+            }
+          />
+        )}
+        {ui.reportOpen && (
+          <ReportModal onClose={() => setUi((u) => ({ ...u, reportOpen: false }))} />
+        )}
+      </>
+    );
   }
 
   return (
