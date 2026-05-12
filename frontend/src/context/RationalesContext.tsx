@@ -1,8 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+// Rationale feed context — backend now ships the full sliding-window
+// deque (maxlen=50) on every WS frame as `rationale_entries` (see ITEM 4
+// of quick task 260512-jqn / state.py `_rationale_window`). The frontend
+// no longer needs the accumulator + dedup it used to keep alive between
+// drain ticks (commits 643f93a, 6dd2665 — now redundant).
+import { createContext, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import type { RationaleView, StateFrame } from '../types';
-
-const MAX_RATIONALES = 50;
 
 export interface RationalesCtxValue {
   rationales: RationaleView[];
@@ -17,31 +20,9 @@ export function RationalesProvider({
   frame: StateFrame;
   children: ReactNode;
 }) {
-  const [accumulated, setAccumulated] = useState<RationaleView[]>([]);
-
-  useEffect(() => {
-    if (frame.phase === 'idle') {
-      setAccumulated((prev) => (prev.length === 0 ? prev : []));
-      return;
-    }
-    if (frame.rationales.length === 0) return;
-    setAccumulated((prev) => {
-      // Dedupe by (agentId, round, text) so replay-mode frames (which re-emit
-      // the FULL list every tick) don't oscillate, and a re-broadcast of a
-      // drained entry doesn't double-count.
-      const seen = new Set(prev.map((r) => `${r.agentId}|${r.round}|${r.text}`));
-      const additions = frame.rationales.filter(
-        (r) => !seen.has(`${r.agentId}|${r.round}|${r.text}`),
-      );
-      if (additions.length === 0) return prev;
-      const next = [...prev, ...additions];
-      return next.length > MAX_RATIONALES ? next.slice(-MAX_RATIONALES) : next;
-    });
-  }, [frame.rationales, frame.phase]);
-
   const value = useMemo<RationalesCtxValue>(
-    () => ({ rationales: accumulated }),
-    [accumulated],
+    () => ({ rationales: frame.rationales ?? [] }),
+    [frame.rationales],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
