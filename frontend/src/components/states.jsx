@@ -32,11 +32,13 @@ export function IdleState({ seed, setSeed, onStart, ollamaOk = true, onShowHisto
         </div>
         {onShowHistory && (
           <button
-            className="btn ghost-btn idle-history-btn"
+            type="button"
+            className="idle-history-btn"
             onClick={onShowHistory}
             title="Browse and replay previous simulation cycles"
           >
-            <Icon name="replay" /> Browse previous runs
+            <Icon name="replay" size={13} />
+            <span>Browse previous runs</span>
           </button>
         )}
         {/* Optional inline seed editor + Run handler — used when the parent
