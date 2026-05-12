@@ -16,6 +16,21 @@ import { useEffect, useMemo, useState } from 'react';
 import { Icon } from './icons';
 import { listCycles, type CycleItem } from '../api/replay';
 
+// Render the backend's ISO `created_at` as a short local-time stamp so the
+// table is scannable. Falls back to the raw value on parse failure.
+function formatCycleDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export function CycleHistory({
   onClose,
   onOpenReport,
@@ -143,10 +158,10 @@ export function CycleHistory({
       {/* summary strip — em-dashes for fields the backend doesn't carry (KR-41.1-07) */}
       <div className="ch-summary">
         <ChStat label="TOTAL CYCLES" value={String(total)} />
-        <ChStat label="SELL CONSENSUS" value="—" sub="not on /api/replay/cycles" />
-        <ChStat label="BUY CONSENSUS" value="—" sub="not on /api/replay/cycles" />
-        <ChStat label="HOLD" value="—" sub="not on /api/replay/cycles" />
-        <ChStat label="AVG FLIPS" value="—" sub="not on /api/replay/cycles" />
+        <ChStat label="SELL CONSENSUS" value="—" />
+        <ChStat label="BUY CONSENSUS" value="—" />
+        <ChStat label="HOLD" value="—" />
+        <ChStat label="AVG FLIPS" value="—" />
         <div className="ch-compare-cta">
           {selected.size === 0 && (
             <span className="label" style={{ color: 'var(--text-3)' }}>
@@ -243,7 +258,7 @@ export function CycleHistory({
               <div className="ch-id mono" onClick={() => onOpenReport(c)}>
                 {c.cycle_id}
               </div>
-              <div className="ch-date mono">{c.created_at}</div>
+              <div className="ch-date mono" title={c.created_at}>{formatCycleDate(c.created_at)}</div>
               <div
                 className="ch-seed"
                 onClick={() => onOpenReport(c)}

@@ -2245,14 +2245,19 @@ body { background: var(--bg); }
 }
 .ch-row {
   display: grid;
-  grid-template-columns: 24px 1.6fr 200px 80px 60px 70px 60px 90px;
+  grid-template-columns: 24px 320px 170px 1fr 80px 60px 70px 60px 40px;
   gap: 14px; align-items: center;
-  padding: 10px 14px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border);
   font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
   cursor: pointer;
   transition: background 0.15s;
 }
+.ch-id { color: var(--text); font-size: 10.5px; }
+.ch-date { color: var(--text-2); font-size: 11px; }
+.ch-flips, .ch-dur { color: var(--text-2); text-align: right; }
+.ch-shocks { text-align: center; }
+.ch-consensus { text-align: center; }
 .ch-row:hover { background: var(--bg-2); }
 .ch-row[data-selected="true"] {
   background: color-mix(in srgb, var(--accent) 8%, var(--bg-2));
