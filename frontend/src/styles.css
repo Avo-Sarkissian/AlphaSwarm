@@ -1261,3 +1261,431 @@ body { background: var(--bg); }
 }
 
 
+/* ============================================================
+   InterviewV2 — full-screen agent takeover (ITEM 1, 260512-jqn)
+   Class targets enumerated from frontend/src/components/interview_v2.tsx
+   (W4 component). CSS lands ahead of the W4 port so the modal
+   renders correctly the moment the component is added.
+   ============================================================ */
+.iv-takeover {
+  position: fixed; inset: 0; z-index: 200;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  color: var(--text);
+}
+.iv-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.iv-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--bg-3);
+  border: 2px solid var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.iv-id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px; font-weight: 600;
+  color: var(--text);
+}
+.iv-bracket-pill {
+  padding: 2px 8px; border-radius: 10px;
+  background: var(--bg-3); border: 1px solid var(--border);
+  font-size: 11px; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.iv-signal-pill {
+  padding: 2px 8px; border-radius: 10px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  background: var(--hold); color: var(--bg);
+}
+.iv-signal-pill--buy  { background: var(--buy);  color: var(--bg); }
+.iv-signal-pill--sell { background: var(--sell); color: var(--bg); }
+.iv-signal-pill--hold { background: var(--hold); color: var(--bg); }
+.iv-confidence {
+  color: var(--text-2);
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+}
+.iv-close {
+  margin-left: auto;
+  background: transparent; border: none;
+  color: var(--text-3); cursor: pointer;
+  padding: 6px 10px;
+  font-size: 14px;
+}
+.iv-close:hover { color: var(--text); }
+
+.iv-body {
+  display: flex; flex: 1; min-height: 0; overflow: hidden;
+}
+.iv-sidebar {
+  width: 280px;
+  padding: 16px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-2);
+  overflow-y: auto;
+}
+.iv-stats-section { margin-bottom: 20px; }
+.iv-stats-section:last-child { margin-bottom: 0; }
+.iv-stat-label {
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  margin-bottom: 6px;
+}
+.iv-stat-value {
+  font-size: 18px;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+.iv-stat-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 4px 0;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+}
+.iv-stat-row > span:first-child { color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.iv-stat-row > span:last-child  { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.iv-chat {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  padding: 16px;
+}
+.iv-tabs {
+  display: flex; gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.iv-tab {
+  background: transparent; border: none;
+  padding: 8px 14px;
+  color: var(--text-3);
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.iv-tab:hover { color: var(--text-2); }
+.iv-tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.iv-messages {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.iv-message {
+  max-width: 70%;
+  padding: 8px 12px; border-radius: 8px;
+  font-size: 13px; line-height: 1.45;
+  background: var(--bg-2);
+  color: var(--text);
+}
+.iv-message--user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--bg);
+}
+.iv-message--agent {
+  align-self: flex-start;
+  background: var(--bg-2);
+}
+.iv-quick-replies {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 8px 0;
+}
+.iv-chip {
+  padding: 4px 10px; border-radius: 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  cursor: pointer;
+}
+.iv-chip:hover { background: var(--bg-3); border-color: var(--border-2); color: var(--text); }
+.iv-input-row {
+  display: flex; gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.iv-input {
+  flex: 1;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 10px;
+  font-family: inherit; font-size: 13px;
+  border-radius: 4px;
+}
+.iv-input:focus { outline: none; border-color: var(--accent); }
+.iv-send {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  padding: 8px 14px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.iv-send:hover { background: var(--accent-hover); }
+.iv-send[disabled] { background: var(--bg-3); color: var(--text-3); cursor: not-allowed; }
+
+.iv-rationale-list { display: flex; flex-direction: column; gap: 16px; padding: 8px 0; }
+.iv-rationale-round-header {
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-3);
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.iv-rationale-entry {
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border-left: 2px solid var(--border-2);
+  color: var(--text);
+  font-size: 12px; line-height: 1.5;
+}
+
+/* Generic agent-* classes used inside InterviewV2 (avatar/header decorations). */
+.agent-info { display: flex; align-items: center; gap: 10px; }
+.agent-name { font-family: 'JetBrains Mono', monospace; color: var(--text); font-size: 14px; }
+.agent-bracket { color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* Generic interview-* aliases (some W4 nodes may use longer prefix). */
+.interview-header  { /* alias of .iv-header */ }
+.interview-body    { /* alias of .iv-body */ }
+.interview-sidebar { /* alias of .iv-sidebar */ }
+.interview-chat    { /* alias of .iv-chat */ }
+
+/* ============================================================
+   Onboarding — 3-step takeover (ITEM 1, 260512-jqn)
+   ============================================================ */
+.ob-takeover {
+  position: fixed; inset: 0; z-index: 250;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text);
+  overflow-y: auto;
+}
+.ob-container {
+  max-width: 720px;
+  width: 100%;
+  margin: auto;
+  padding: 32px;
+}
+.ob-step { display: flex; flex-direction: column; gap: 20px; }
+.ob-step-header { display: flex; flex-direction: column; gap: 6px; }
+.ob-step-header h2,
+.ob-step-header .ob-title {
+  font-size: 22px;
+  color: var(--text);
+  margin: 0;
+}
+.ob-step-header .ob-subtitle {
+  color: var(--text-2);
+  font-size: 13px;
+}
+.ob-step-progress {
+  display: flex; gap: 8px;
+  padding: 8px 0 16px;
+}
+.ob-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+}
+.ob-dot--active { background: var(--accent); border-color: var(--accent); }
+.ob-health-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+}
+.ob-health-row .ob-status { color: var(--text-3); }
+.ob-health-row .ob-status[data-state="ok"]      { color: var(--buy); }
+.ob-health-row .ob-status[data-state="fail"]    { color: var(--sell); }
+.ob-health-row .ob-status[data-state="loading"] { color: var(--text-3); }
+.ob-model-list { display: flex; flex-direction: column; gap: 8px; }
+.ob-model-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ob-model-row:hover { border-color: var(--border-2); }
+.ob-model-row--selected { border-color: var(--accent); background: var(--bg-3); }
+.ob-model-recommended-badge {
+  padding: 2px 8px; border-radius: 10px;
+  background: var(--accent); color: var(--bg);
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.ob-seed-textarea {
+  width: 100%;
+  min-height: 140px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 12px 14px;
+  font-family: inherit; font-size: 13px; line-height: 1.5;
+  border-radius: 4px;
+  resize: vertical;
+}
+.ob-seed-textarea:focus { outline: none; border-color: var(--accent); }
+.ob-example-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ob-actions {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+.ob-btn-back,
+.ob-btn-next,
+.ob-btn-run {
+  padding: 10px 18px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ob-btn-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+.ob-btn-back:hover { color: var(--text); border-color: var(--border-2); }
+.ob-btn-next,
+.ob-btn-run {
+  background: var(--accent);
+  border: none;
+  color: var(--bg);
+}
+.ob-btn-next:hover,
+.ob-btn-run:hover { background: var(--accent-hover); }
+.ob-btn-disabled,
+.ob-btn-next[disabled],
+.ob-btn-run[disabled] {
+  background: var(--bg-3);
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+/* Aliases for any longer prefix nodes. */
+.onboarding-takeover { /* alias of .ob-takeover */ }
+.onboarding-step     { /* alias of .ob-step */ }
+
+/* ============================================================
+   BracketDeepDive — full-screen takeover (ITEM 1, 260512-jqn)
+   ============================================================ */
+.bdd-takeover {
+  position: fixed; inset: 0; z-index: 200;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  color: var(--text);
+}
+.bdd-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.bdd-header .bdd-title {
+  font-size: 16px;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+}
+.bdd-header .bdd-accent {
+  display: inline-block;
+  width: 4px; height: 22px;
+  background: var(--accent);
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.bdd-header .bdd-close {
+  margin-left: auto;
+  background: transparent; border: none;
+  color: var(--text-3); cursor: pointer;
+  padding: 6px 10px; font-size: 14px;
+}
+.bdd-header .bdd-close:hover { color: var(--text); }
+
+.bdd-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  flex: 1; min-height: 0;
+  overflow: hidden;
+}
+.bdd-member-list {
+  overflow-y: auto;
+  padding: 12px 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+.bdd-member-row {
+  display: grid;
+  grid-template-columns: 110px 70px 70px 1fr;
+  align-items: center; gap: 10px;
+  padding: 8px 16px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.bdd-member-row:hover { background: var(--bg-2); }
+.bdd-member-row .bdd-mr-id { color: var(--text); }
+.bdd-member-row .bdd-mr-conf { color: var(--text-2); text-align: right; }
+.bdd-member-row .bdd-mr-deg  { color: var(--text-3); text-align: right; }
+
+.bdd-stats {
+  padding: 16px;
+  background: var(--bg-2);
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.bdd-stat-card {
+  padding: 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.bdd-stat-card .bdd-stat-label {
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.bdd-stat-card .bdd-stat-value {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.bdd-no-edges {
+  color: var(--text-3);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 8px 0;
+}
+
+/* Alias for longer prefix. */
+.bracket-deep-takeover { /* alias of .bdd-takeover */ }
+.bracket-deep-header   { /* alias of .bdd-header */ }
+.bracket-deep-body     { /* alias of .bdd-body */ }
