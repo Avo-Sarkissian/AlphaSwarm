@@ -1169,13 +1169,27 @@ async def run_simulation(
             round3_flushed = await write_buffer.flush(graph_manager, entity_names)
             logger.info("write_buffer_flushed", round_num=3, flushed=round3_flushed)
 
+            # Compute influence edges after Round 3 so /api/edges/{cycle}?round=3
+            # returns a non-empty array (ITEM 2 of quick task 260512-jqn).
+            # Without this call, simulation.py only materializes INFLUENCED_BY
+            # relationships for round=1 and round=2 — the frontend "FINAL" tab
+            # then renders an empty influence graph despite 100 R3 decisions
+            # being written. up_to_round=3 is cumulative per D-04, but the
+            # write tx fixes round=3 on every new edge so the /api/edges
+            # round-filtered read picks them up.
+            round3_weights = await graph_manager.compute_influence_edges(
+                cycle_id, up_to_round=3, total_agents=len(round3_decisions),
+            )
+
             # Compute Round 3 bracket summaries (D-08)
             round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
 
             # Push bracket summaries and rationale entries to StateStore (Phase 10: TUI-05, TUI-03)
             if state_store is not None:
                 await state_store.set_bracket_summaries(round3_summaries)
-                await _push_top_rationales(round3_decisions, 3, state_store)
+                await _push_top_rationales(
+                    round3_decisions, 3, state_store, influence_weights=round3_weights,
+                )
 
             # Compute Round 3 shifts in-memory (D-13)
             round3_shifts = _compute_shifts(
