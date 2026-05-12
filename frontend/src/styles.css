@@ -2185,3 +2185,130 @@ body { background: var(--bg); }
   background: var(--bg-3);
 }
 .ob-next { /* uses .btn primary style */ }
+
+/* ============================================================
+   CycleHistory (ch-*) — full-screen takeover from idle/topbar
+   Same family fix as adv-/ds-/iv2-/bd-/ob-. The component was ported
+   in W3 (commit 270cd2a area) with 19 invented class names and zero
+   CSS to back them. Without these rules the modal renders as an
+   unstyled inline block below the IdleState overlay — invisible.
+   ============================================================ */
+.ch-takeover {
+  position: fixed; inset: 0; z-index: 250;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.ch-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 18px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+.ch-head-left  { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.ch-head-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.ch-title { color: var(--text); font-size: 16px; font-weight: 600; }
+.ch-count { color: var(--text-3); font-size: 11px; letter-spacing: 0.08em; }
+
+.ch-search {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 10px;
+  min-width: 240px;
+}
+.ch-search input {
+  flex: 1; background: transparent; border: 0;
+  color: var(--text); font: inherit; font-size: 12px;
+  outline: none;
+}
+
+.ch-summary {
+  display: flex; align-items: center; gap: 24px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.ch-stat { display: flex; flex-direction: column; gap: 2px; }
+.ch-stat .label { color: var(--text-3); font-size: 10.5px; letter-spacing: 0.08em; }
+.ch-stat-v { color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; }
+
+.ch-compare-cta {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 10px;
+}
+
+.ch-table-wrap {
+  flex: 1; overflow: auto;
+  padding: 8px 22px 22px;
+}
+.ch-row {
+  display: grid;
+  grid-template-columns: 24px 1.6fr 200px 80px 60px 70px 60px 90px;
+  gap: 14px; align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ch-row:hover { background: var(--bg-2); }
+.ch-row[data-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-2));
+  border-left: 2px solid var(--accent);
+}
+.ch-row.ch-row-head {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg);
+  color: var(--text-3); font-size: 10.5px; letter-spacing: 0.08em;
+  text-transform: uppercase; font-weight: 500;
+  cursor: default;
+  border-bottom: 1px solid var(--border-2);
+}
+.ch-row.ch-row-head:hover { background: var(--bg); }
+
+.ch-check {
+  width: 16px; height: 16px;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+}
+.ch-check[data-checked="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+.ch-seed { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-consensus { color: var(--text-2); }
+.ch-consensus[data-signal="buy"]  { color: var(--buy); }
+.ch-consensus[data-signal="sell"] { color: var(--sell); }
+.ch-consensus[data-signal="hold"] { color: var(--hold); }
+.ch-dash { color: var(--text-3); font-size: 14px; }
+.ch-shocks { color: var(--text-3); font-size: 10.5px; }
+
+.ch-open-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-2); padding: 3px 10px; border-radius: 3px;
+  font-family: inherit; font-size: 11px; cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.ch-open-btn:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.ch-compare-body {
+  padding: 22px;
+  display: flex; flex-direction: column; gap: 18px;
+  overflow: auto;
+}
+
+/* Empty state inside the table */
+.ch-empty {
+  padding: 60px 22px;
+  text-align: center;
+  color: var(--text-3); font-size: 12px;
+  font-style: italic;
+}
