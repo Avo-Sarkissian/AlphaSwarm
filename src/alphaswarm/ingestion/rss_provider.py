@@ -162,7 +162,30 @@ class RSSNewsProvider:
     consensus #2) so that connection + read phases are both bounded — a
     hanging upstream cannot stall the provider even though the D-19
     contract only catches raised exceptions.
+
+    ITEM 5 of quick task 260512-jqn: optional audit sink mirrors the
+    yfinance_provider pattern. attach_audit_sink() is lifecycle-injected
+    from alphaswarm.web.app after app_state is constructed.
     """
+
+    def __init__(self) -> None:
+        self._audit_sink: object | None = None
+
+    def attach_audit_sink(self, state_store: object) -> None:
+        """Attach a StateStore-shaped object (`record_data_source` callable)."""
+        self._audit_sink = state_store
+
+    def _audit(self, query: str, result: str, used: bool) -> None:
+        """Non-fatal audit shim — never raises into the fetch path."""
+        sink = self._audit_sink
+        if sink is None:
+            return
+        try:
+            sink.record_data_source(  # type: ignore[attr-defined]
+                source="rss", query=query, result=result, used=used,
+            )
+        except Exception:  # noqa: BLE001 — observability MUST NOT break fetch
+            pass
 
     async def get_headlines(
         self, entities: list[str], *, max_age_hours: int = 72
@@ -176,6 +199,13 @@ class RSSNewsProvider:
             slices = await asyncio.gather(
                 *(_fetch_one(client, e, max_age_hours) for e in entities),
                 return_exceptions=False,  # _fetch_one is contractually never-raise
+            )
+        for s in slices:
+            ok = s.staleness != "failed"
+            self._audit(
+                query=f"headlines:{s.entity}",
+                result="ok" if ok else "error: fetch_failed",
+                used=True,
             )
         # Duplicate entities collapse to single key (mirrors FakeNewsProvider semantics)
         return {s.entity: s for s in slices}

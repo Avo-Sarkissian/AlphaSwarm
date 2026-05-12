@@ -91,11 +91,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # app_state (subsystem convenience for SimulationManager) — same instance.
     market_provider = YFinanceMarketDataProvider()
     news_provider = RSSNewsProvider()
+    # ITEM 5 of quick task 260512-jqn: attach the state_store as the audit
+    # sink so each yfinance/RSS fetch surfaces on the WS SignalWire ticker.
+    # Providers swallow record_data_source failures (non-fatal).
+    market_provider.attach_audit_sink(app_state.state_store)
+    news_provider.attach_audit_sink(app_state.state_store)
     app.state.market_provider = market_provider
     app.state.news_provider = news_provider
     app_state.market_provider = market_provider
     app_state.news_provider = news_provider
-    log.info("providers_wired", market="yfinance", news="rss")
+    log.info("providers_wired", market="yfinance", news="rss", audit_sink="state_store")
 
     # Object identity: start_broadcaster receives the same `connection_manager` stored on
     # app.state.connection_manager above. ws_state reads websocket.app.state.connection_manager

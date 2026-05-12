@@ -3,6 +3,7 @@ import type {
   AgentView,
   BracketKey,
   BracketSummaryView,
+  DataSourceAuditView,
   RationaleView,
   StateFrame,
   TelemetrySlice,
@@ -147,6 +148,26 @@ export function adaptSnapshot(raw: unknown): StateFrame {
         bracketSummaries.length
       : null;
 
+  // ITEM 5 of quick task 260512-jqn — DataSource audit slice.
+  // Backend StateSnapshot.data_source_audit (snake_case wire) → frontend
+  // DataSourceAuditView (camelCase). SignalWire hook consumes this.
+  const auditRaw = Array.isArray(r.data_source_audit)
+    ? (r.data_source_audit as unknown[])
+    : [];
+  const dataSourceAudit: DataSourceAuditView[] = auditRaw
+    .map((e): DataSourceAuditView | null => {
+      if (!e || typeof e !== 'object') return null;
+      const ae = e as Record<string, unknown>;
+      return {
+        ts: typeof ae.ts === 'number' ? ae.ts : 0,
+        source: typeof ae.source === 'string' ? ae.source : 'unknown',
+        query: typeof ae.query === 'string' ? ae.query : '',
+        result: typeof ae.result === 'string' ? ae.result : '',
+        used: typeof ae.used === 'boolean' ? ae.used : false,
+      };
+    })
+    .filter((e): e is DataSourceAuditView => e !== null);
+
   return {
     phase,
     running,
@@ -157,5 +178,6 @@ export function adaptSnapshot(raw: unknown): StateFrame {
     rationales,
     telemetry,
     consensus,
+    dataSourceAudit,
   };
 }

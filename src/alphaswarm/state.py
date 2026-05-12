@@ -11,6 +11,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
+from alphaswarm.data_audit import DataSourceAuditBuffer, DataSourceAuditEntry
 from alphaswarm.types import SignalType, SimulationPhase
 
 
@@ -83,6 +84,11 @@ class StateSnapshot:
     tps: float = 0.0
     rationale_entries: tuple[RationaleEntry, ...] = ()
     bracket_summaries: tuple[BracketSummary, ...] = ()
+    # ITEM 5 of quick task 260512-jqn — DataSourceAudit buffer surface.
+    # Each entry is one provider call (yfinance / FRED / RSS / …). The
+    # frontend SignalWire ticker reads this slice instead of the prior
+    # DEV-only mock seed.
+    data_source_audit: tuple[DataSourceAuditEntry, ...] = ()
 
 
 class StateStore:
@@ -113,6 +119,11 @@ class StateStore:
         # during a round AND survives WS client reconnect (no drain,
         # no per-consumer race).
         self._rationale_window: deque[RationaleEntry] = deque(maxlen=50)
+        # ITEM 5 of quick task 260512-jqn: data-provider audit buffer.
+        # Replaces the SignalWire DEV mock seed with live provider calls.
+        self._data_source_audit: DataSourceAuditBuffer = DataSourceAuditBuffer(
+            max_entries=100,
+        )
         # Phase 10: TUI-04 TPS accumulation from Ollama response metadata
         self._cumulative_tokens: int = 0
         self._cumulative_eval_ns: int = 0
@@ -231,6 +242,7 @@ class StateStore:
             tps=self._compute_tps(),
             rationale_entries=tuple(self._rationale_window),
             bracket_summaries=self._bracket_summaries,
+            data_source_audit=self._data_source_audit.snapshot(),
         )
 
     def peek_rationales(self) -> tuple[RationaleEntry, ...]:
@@ -261,6 +273,31 @@ class StateStore:
     def update_governor_metrics(self, metrics: GovernorMetrics) -> None:
         """Store latest governor metrics."""
         self._latest_governor_metrics = metrics
+
+    # ------------------------------------------------------------------
+    # ITEM 5 of quick task 260512-jqn — data-provider audit pass-through
+    # ------------------------------------------------------------------
+
+    def record_data_source(
+        self,
+        source: str,
+        query: str,
+        result: str,
+        used: bool = False,
+    ) -> None:
+        """Record one data-provider call into the audit buffer.
+
+        Cheap O(1) call, safe from any context (sync or async). Provider
+        modules invoke this after each yfinance/FRED/RSS fetch so the WS
+        SignalWire ticker scrolls live activity.
+        """
+        self._data_source_audit.record(
+            source=source, query=query, result=result, used=used,
+        )
+
+    def peek_data_source_audit(self) -> tuple[DataSourceAuditEntry, ...]:
+        """Return the full audit buffer (peek, no drain)."""
+        return self._data_source_audit.snapshot()
 
 
 class ReplayStore:
@@ -311,4 +348,5 @@ class ReplayStore:
             tps=0.0,
             rationale_entries=self._rationale_entries,
             bracket_summaries=self._bracket_summaries,
+            data_source_audit=(),
         )

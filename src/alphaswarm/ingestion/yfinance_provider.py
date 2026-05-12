@@ -119,7 +119,39 @@ class YFinanceMarketDataProvider:
     All three Protocol methods share a single _fetch_batch_shared implementation
     because yfinance returns price, volume, and fundamentals in one scrape
     per ticker (see module docstring and Research Open Question 1).
+
+    ITEM 5 of quick task 260512-jqn: providers MAY accept an optional
+    state_store via attach_audit_sink() to surface each fetch on the WS
+    SignalWire ticker. The hook is dependency-free — passing None or never
+    calling attach keeps behavior identical to the prior contract.
     """
+
+    def __init__(self) -> None:
+        # Lazy-typed to avoid forcing alphaswarm.state import at module load.
+        # Set via attach_audit_sink() once StateStore is available on app.state.
+        self._audit_sink: object | None = None
+
+    def attach_audit_sink(self, state_store: object) -> None:
+        """Attach a StateStore-shaped object (`record_data_source` callable).
+
+        The provider only calls `state_store.record_data_source(source, query,
+        result, used)` — no other attribute. Decoupled this way so unit tests
+        can pass any duck-typed sink. Lifespan wires this from
+        alphaswarm.web.app after app_state is constructed.
+        """
+        self._audit_sink = state_store
+
+    def _audit(self, query: str, result: str, used: bool) -> None:
+        """Non-fatal audit shim — never raises into the fetch path."""
+        sink = self._audit_sink
+        if sink is None:
+            return
+        try:
+            sink.record_data_source(  # type: ignore[attr-defined]
+                source="yfinance", query=query, result=result, used=used,
+            )
+        except Exception:  # noqa: BLE001 — observability MUST NOT break fetch
+            pass
 
     async def _fetch_batch_shared(self, tickers: list[str]) -> dict[str, MarketSlice]:
         if not tickers:  # Pitfall 9 — empty input must not call gather
@@ -128,6 +160,14 @@ class YFinanceMarketDataProvider:
             *(asyncio.to_thread(_fetch_one_sync, t) for t in tickers),
             return_exceptions=False,  # _fetch_one_sync is contractually never-raise
         )
+        # Audit one entry per ticker so the SignalWire ticker matches batch shape.
+        for s in slices:
+            ok = s.staleness != "failed"
+            self._audit(
+                query=f"{s.ticker} OHLCV",
+                result="ok" if ok else "error: fetch_failed",
+                used=True,
+            )
         # Duplicate tickers collapse to single key (matches FakeMarketDataProvider)
         return {s.ticker: s for s in slices}
 

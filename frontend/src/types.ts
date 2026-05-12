@@ -58,6 +58,15 @@ export interface RationaleView {
   ts: number;
 }
 
+// ITEM 5 of quick task 260512-jqn — DataSource audit view (one provider call).
+export interface DataSourceAuditView {
+  ts: number;
+  source: string; // 'yfinance' | 'rss' | 'fred' | ...
+  query: string;
+  result: string; // 'ok' | 'cached' | 'error: <msg>'
+  used: boolean;
+}
+
 export interface StateFrame {
   phase: string;
   running: boolean;
@@ -68,6 +77,8 @@ export interface StateFrame {
   rationales: RationaleView[];
   telemetry: TelemetrySlice;
   consensus: number | null;
+  // ITEM 5 of 260512-jqn — live provider-call audit log for SignalWire.
+  dataSourceAudit: DataSourceAuditView[];
 }
 
 export interface EdgeView {

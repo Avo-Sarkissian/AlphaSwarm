@@ -29,6 +29,7 @@ import { useConnection } from '../context/ConnectionContext';
 import { useAgents } from '../context/AgentsContext';
 import { useCurrentCycle } from '../hooks/useCurrentCycle';
 import { usePolling } from '../hooks/usePolling';
+import { useDataSourceAudit } from '../hooks/useDataSourceAudit';
 import { advisoryFetch, type AdvisoryContent } from '../api/advisory';
 import { renderMarkdown } from '../lib/markdown';
 import {
@@ -87,12 +88,18 @@ interface DataSourcesMock {
 
 // ──────────────────────────────────────────────────────────────────────
 // SIGNAL WIRE — continuous CSS-scroll live wire
-// codex HIGH-2 / KR-41.6-14: top-level static import of '../mocks/wire' would
-// survive tree-shaking and fail the production grep gate. The DEV-only dynamic
-// import below makes Vite drop the entire mocks chunk from production builds.
+// ITEM 5 of quick task 260512-jqn: the CONSUMER is now useDataSourceAudit()
+// — a hook reading the WS frame's dataSourceAudit slice. The DEV-only mock
+// dynamic import is retained as a fallback when the live buffer is empty
+// (sim idle, or right after Start before any provider call lands).
+// KR-41.6-14: mocks/wire + mocks/sources stay on disk; production never
+// imports them when live data is present.
 // ──────────────────────────────────────────────────────────────────────
 export function SignalWire({ onInspect }: { onInspect?: () => void }) {
   const { running } = useTelemetry();
+  const liveAudit = useDataSourceAudit();
+  const hasLive = liveAudit.length > 0;
+
   const [mock, setMock] = useState<{
     seed: ReadonlyArray<SignalWireSeedItem>;
     sources: ReadonlyArray<DataSourceShape>;
@@ -101,7 +108,10 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
-    if (import.meta.env.DEV) {
+    // DEV-only fallback for when the sim hasn't made a call yet. Once
+    // liveAudit has entries, this branch is irrelevant — render switches
+    // to the live path below.
+    if (import.meta.env.DEV && !hasLive) {
       void Promise.all([import('../mocks/wire'), import('../mocks/sources')]).then(
         ([w, s]) => {
           if (cancelled) return;
@@ -116,25 +126,42 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [hasLive]);
 
-  const items = useMemo(() => {
+  // Live path: map dataSourceAudit entries onto the SignalWireSeedItem
+  // shape so the existing render block stays unchanged. Triplicate for
+  // seamless CSS scroll (mirrors the prior mock seed pattern).
+  const liveItems = useMemo<SignalWireSeedItem[]>(() => {
+    const mapped = liveAudit.map((e) => ({
+      agent: e.source.toUpperCase(),
+      source: e.source,
+      query: e.query,
+      result: e.result,
+      used: e.used,
+    }));
+    return [...mapped, ...mapped, ...mapped];
+  }, [liveAudit]);
+
+  // DEV-only mock path (only when no live data has arrived yet).
+  const mockItems = useMemo(() => {
     if (!mock) return [] as SignalWireSeedItem[];
     return [...mock.seed, ...mock.seed, ...mock.seed];
   }, [mock]);
-
-  const sourceById = useMemo(() => {
+  const mockSourceById = useMemo(() => {
     if (!mock) return {} as Record<string, DataSourceShape>;
     return Object.fromEntries(mock.sources.map((s) => [s.id, s]));
   }, [mock]);
 
-  if (mock === null) {
-    // Production OR DEV-still-loading. Production should never advance past
-    // this branch because the dynamic import never fires (KR-41.6-14).
+  // Render selection:
+  //   1. Live data present → render the audit-driven ticker (production
+  //      and DEV both take this branch once a call has been audited).
+  //   2. No live data + DEV mock loaded → render the mock seed.
+  //   3. No live data + production → render the WAITING placeholder.
+  if (!hasLive && mock === null) {
     if (!import.meta.env.DEV) {
       return (
         <div className="signal-wire signal-wire-placeholder">
-          <span className="label">WIRE · unavailable in production build (KR-41.6-14)</span>
+          <span className="label">WIRE · waiting for first provider call…</span>
         </div>
       );
     }
@@ -145,11 +172,14 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
     );
   }
 
+  const items = hasLive ? liveItems : mockItems;
+  const isMock = !hasLive;
+
   return (
     <div className="signal-wire">
       <div className="sw-label">
         <span className="label" style={{ color: 'var(--accent)' }}>
-          WIRE
+          WIRE{isMock ? ' · mock' : ''}
         </span>
         {running && <span className="sw-live-dot" />}
       </div>
@@ -157,8 +187,10 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
       <div className="sw-scroll-wrap">
         <div className="sw-scroll-inner">
           {items.map((e, i) => {
-            const src = sourceById[e.source];
-            const color = mock.groupColor[src?.group ?? ''] || '#8a93a0';
+            const src = isMock ? mockSourceById[e.source] : undefined;
+            const color = isMock
+              ? mock?.groupColor[src?.group ?? ''] || '#8a93a0'
+              : 'var(--accent)';
             return (
               <div key={i} className="sw-event" data-unused={!e.used}>
                 <span className="sw-agent">{e.agent}</span>
