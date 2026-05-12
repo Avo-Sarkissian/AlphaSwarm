@@ -21,6 +21,7 @@ import structlog
 from pydantic import ValidationError
 
 from alphaswarm.advisory.prompt import build_advisory_prompt
+from alphaswarm.advisory.sector_map import lookup as sector_lookup
 from alphaswarm.advisory.types import AdvisoryReport
 from alphaswarm.holdings.types import PortfolioSnapshot
 
@@ -29,6 +30,49 @@ if TYPE_CHECKING:
     from alphaswarm.ollama_client import OllamaClient
 
 log = structlog.get_logger(component="advisory")
+
+
+def _enrich_holdings(
+    holdings: list[dict[str, str]],
+    entity_impacts: dict[str, float],
+    seed_text: str,
+) -> list[dict[str, str]]:
+    """Add sector_map fields + relevance_score to each holding; sort DESC by relevance.
+
+    ITEM 6 of quick task 260512-jqn: produces the ordered list the prompt
+    consumes — top N goes through with full enrichment, the rest with
+    sector tag only.
+
+    Relevance score = |entity_impact| * |macro_beta| + 0.5 * seed_match.
+    seed_match is 1.0 when the ticker or its sector substring appears
+    in the seed text, else 0.0.
+    """
+    seed_lower = seed_text.lower()
+    enriched: list[dict[str, str]] = []
+    for h in holdings:
+        ticker = str(h.get("ticker", "")).upper()
+        sm = sector_lookup(ticker)
+        entity_impact = float(entity_impacts.get(ticker, 0.0))
+        seed_match = (
+            1.0
+            if (ticker and ticker.lower() in seed_lower)
+            or (sm["sector"] and sm["sector"] in seed_lower)
+            else 0.0
+        )
+        relevance = abs(entity_impact) * abs(sm["macro_beta"]) + 0.5 * seed_match
+        enriched.append(
+            {
+                **h,
+                # SectorInfo fields stringified for the JSON prompt payload.
+                "sector": sm["sector"],
+                "region_exposure": sm["region_exposure"],
+                "supply_chain_sensitivity": sm["supply_chain_sensitivity"],
+                "macro_beta": str(sm["macro_beta"]),
+                "relevance_score": f"{relevance:.4f}",
+            }
+        )
+    enriched.sort(key=lambda x: float(x["relevance_score"]), reverse=True)
+    return enriched
 
 
 async def synthesize(
@@ -84,6 +128,35 @@ async def synthesize(
         for h in portfolio.holdings
     ) or Decimal("1")  # D-07 guard against /0
 
+    # ITEM 6 of quick task 260512-jqn — enrich + split.
+    # entity_impact from Neo4j is a list[dict] where each entry has at least
+    # `entity` and a magnitude-like field. We collapse to {ticker: float}
+    # for the relevance scorer; missing tickers fall back to 0.0.
+    entity_impacts: dict[str, float] = {}
+    for entry in entities:
+        if not isinstance(entry, dict):
+            continue
+        ticker = str(entry.get("entity") or entry.get("ticker") or "").upper()
+        if not ticker:
+            continue
+        # Magnitude — try several known keys without over-specifying schema.
+        mag_raw = (
+            entry.get("magnitude")
+            or entry.get("impact")
+            or entry.get("score")
+            or 0.0
+        )
+        try:
+            entity_impacts[ticker] = float(mag_raw)
+        except (TypeError, ValueError):
+            entity_impacts[ticker] = 0.0
+
+    enriched = _enrich_holdings(holdings_context, entity_impacts, seed_rumor)
+    top_holdings = enriched[:15]
+    rest_holdings = [
+        {"ticker": h["ticker"], "sector": h["sector"]} for h in enriched[15:]
+    ]
+
     messages = build_advisory_prompt(
         cycle_id=cycle_id,
         seed_rumor=seed_rumor,
@@ -91,7 +164,8 @@ async def synthesize(
         timeline=timeline,
         narratives=narratives,
         entity_impact=entities,
-        holdings=holdings_context,
+        top_holdings=top_holdings,
+        rest_holdings=rest_holdings,
     )
 
     report = await _infer_with_retry(

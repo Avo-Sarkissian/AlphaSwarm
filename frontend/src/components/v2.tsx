@@ -885,7 +885,20 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {report && tab === 'holdings' && (
+        {report && tab === 'holdings' && holdingAnalysis.length === 0 && (
+          <div className="advisory-card">
+            <div className="label" style={{ marginBottom: 8 }}>
+              No per-holding signals returned by the orchestrator.
+            </div>
+            <div className="adv-rec-body" style={{ color: 'var(--text-3)' }}>
+              The advisory synthesis emitted an empty <code>items[]</code> array.
+              After ITEM 6 of 260512-jqn, the prompt instructs the orchestrator
+              to emit one entry per holding (HOLD@0.2-0.4 placeholder if no
+              strong signal), so a re-trigger should populate this view.
+            </div>
+          </div>
+        )}
+        {report && tab === 'holdings' && holdingAnalysis.length > 0 && (
           <div className="adv-holdings-detail">
             {holdingAnalysis.map((h) => (
               <div key={h.ticker} className="adv-holding-card">
