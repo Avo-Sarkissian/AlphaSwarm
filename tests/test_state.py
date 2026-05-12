@@ -118,6 +118,42 @@ async def test_governor_metrics_preserved() -> None:
     assert snap.governor_metrics.current_slots == 8
 
 
+def test_governor_metrics_includes_slots_for_ws_frame() -> None:
+    """ITEM 3 of quick task 260512-jqn — GovernorMetrics MUST carry
+    both `current_slots` (budget) and `active_count` (in-flight)
+    so the WS frame can surface PARALLEL SLOTS as numerator/denominator.
+
+    Closes KR-41.1-05: previously slotsMax was a frontend stub of 8.
+    Frontend frame.ts now reads governor_metrics.active_count and
+    governor_metrics.current_slots directly; this test fixes the
+    backend contract that the adapter depends on.
+    """
+    import dataclasses
+
+    store = StateStore()
+    metrics = GovernorMetrics(
+        current_slots=16,
+        active_count=12,
+        pressure_level="NORMAL",
+        memory_percent=45.0,
+        governor_state="RUNNING",
+        timestamp=1000.0,
+    )
+    store.update_governor_metrics(metrics)
+    snap = store.snapshot()
+
+    # Both fields surface on the snapshot for the broadcaster.
+    assert snap.governor_metrics is not None
+    assert snap.governor_metrics.current_slots == 16
+    assert snap.governor_metrics.active_count == 12
+
+    # dataclasses.asdict — the wire serializer used by broadcaster.py — preserves both.
+    d = dataclasses.asdict(snap)
+    gm = d["governor_metrics"]
+    assert gm["current_slots"] == 16
+    assert gm["active_count"] == 12
+
+
 # ---------------------------------------------------------------------------
 # Task 1 Tests: RationaleEntry, TPS accumulation, BracketSummary storage
 # ---------------------------------------------------------------------------

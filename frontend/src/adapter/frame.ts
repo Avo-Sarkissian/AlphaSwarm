@@ -50,13 +50,21 @@ export function adaptSnapshot(raw: unknown): StateFrame {
 
   const gov = (r.governor_metrics ?? {}) as Record<string, unknown>;
   const memPct = typeof gov.memory_percent === 'number' ? gov.memory_percent : 0;
+  // KR-41.1-05 (CLOSED by ITEM 3 of quick task 260512-jqn):
+  //   Backend GovernorMetrics already carries `active_count` (live slots in
+  //   use) and `current_slots` (governor budget — adjusted on memory pressure
+  //   transitions). Drop the {0, 8} stub and read both fields directly so the
+  //   PARALLEL SLOTS KPI tile shows live numerator/denominator during
+  //   dispatch (e.g. 12/16) instead of freezing at 0/8.
   const slotsUsed =
-    typeof gov.current_slots === 'number' ? gov.current_slots : 0; // KR-41.1-05
+    typeof gov.active_count === 'number' ? gov.active_count : 0;
+  const slotsMax =
+    typeof gov.current_slots === 'number' ? gov.current_slots : 0;
 
   const telemetry: TelemetrySlice = {
     memMb: memPct, // KR-41.1-04: percent, not MB
-    slotsUsed, // KR-41.1-05
-    slotsMax: 8, // KR-41.1-05: stubbed
+    slotsUsed,
+    slotsMax,
     tps: typeof r.tps === 'number' ? r.tps : 0,
     ts: Date.now(),
     elapsedSeconds:

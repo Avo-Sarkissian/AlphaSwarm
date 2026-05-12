@@ -42,8 +42,8 @@ export interface BracketSummaryView {
 
 export interface TelemetrySlice {
   memMb: number; // KR-41.1-04: governor_metrics.memory_percent (0-100); label reads "%"
-  slotsUsed: number; // KR-41.1-05: governor_metrics.current_slots ?? 0
-  slotsMax: number; // KR-41.1-05: stubbed 8
+  slotsUsed: number; // governor_metrics.active_count (KR-41.1-05 CLOSED by 260512-jqn ITEM 3)
+  slotsMax: number; // governor_metrics.current_slots (KR-41.1-05 CLOSED by 260512-jqn ITEM 3)
   tps: number;
   ts: number; // epoch ms of last frame
   elapsedSeconds: number;
