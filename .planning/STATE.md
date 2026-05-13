@@ -95,6 +95,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-05-12T18:55:00.000Z
-Stopped at: 6 post-run follow-ups landed (quick 260512-jqn). All six tracked tasks closed: InterviewV2/Onboarding/BracketDeepDive CSS (41d8d4c), /api/edges (890a220), governor slots/KR-41.1-05 (de31313), rationale sliding window — closes tasks #4+#9 (0003375), live SignalWire audit — closes task #5 (fc7a568), advisory items+sector enrichment — closes task #10 (4234035). All gates green: 78 tests pass, frontend build clean, 5 production grep gates all 0.
-Next action: Restart uvicorn (Pane 2) to pick up backend changes; trigger fresh sim to UAT live rationale streaming + non-zero slots tile + per-holding advisory + live wire ticker + non-empty edges post-cycle.
+Last session: 2026-05-12T22:30:00.000Z (session-end snapshot before /clear)
+Stopped at: All 7 tracked post-run follow-ups closed + 6 takeover CSS-gap patches + UX polish (idle "Browse previous runs", report probe-then-trigger, formatted cycle dates, settings takeover). Final commit on master: e14ba29. All gates green throughout (npm check + build green, pytest green for touched modules). Backend RESTART required to pick up Python-side changes (uvicorn doesn't hot-reload). Browser hard-refresh picks up frontend.
+Resume protocol: Read .planning/SESSION-2026-05-12-HANDOFF.md FIRST. It has the full commit ledger, file map, UAT checklist, and resume protocol. Then run the stack readiness check (curl /api/holdings + /api/health + /5173 + /11434, docker ps neo4j). If everything green, trigger a fresh sim to UAT the changes; if broken, check uvicorn cwd is project root (not frontend/).
+Next action: User will trigger next sim after /clear. Watch list per HANDOFF UAT table — top 5: (1) live mid-round rationale feed, (2) PARALLEL SLOTS non-zero, (3) advisory items[] non-empty with per-holding sector reasoning, (4) live WIRE ticker (real provider calls, not mock seed), (5) post-cycle OUT-DEGREE flip + active-edges count.
