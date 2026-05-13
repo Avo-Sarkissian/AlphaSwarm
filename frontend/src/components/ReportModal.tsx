@@ -12,7 +12,7 @@
 // generator (202 on accept, 409 when another generation is in flight). GET
 // returns the report (404 → null/pending; 500/503 propagate). The trigger fires
 // once on mount; 409 is treated as "already in flight" (poll picks it up).
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Icon } from './icons';
 import { useCurrentCycle } from '../hooks/useCurrentCycle';
 import { usePolling } from '../hooks/usePolling';
@@ -46,21 +46,58 @@ export function ReportModal({ onClose }: { onClose: () => void }) {
   const [triggerError, setTriggerError] = useState<string | null>(null);
   const [generationKicked, setGenerationKicked] = useState(false);
 
+  // ── Probe phase: one-shot fetch on mount, never via usePolling ─────────
+  // reportFetch returns null on 404 (no report yet). usePolling would
+  // misinterpret a 1-attempt cap as "polling timed out" — drop polling for
+  // the probe and use a plain useEffect instead.
+  const [probeState, setProbeState] = useState<{
+    loading: boolean;
+    data: ReportPayload | null;
+    error: Error | null;
+  }>({ loading: true, data: null, error: null });
+
+  useEffect(() => {
+    if (!cycleId) {
+      setProbeState({ loading: false, data: null, error: null });
+      return;
+    }
+    let cancelled = false;
+    setProbeState({ loading: true, data: null, error: null });
+    reportFetch(cycleId)
+      .then((data) => {
+        if (!cancelled) setProbeState({ loading: false, data, error: null });
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setProbeState({
+          loading: false,
+          data: null,
+          error: e instanceof Error ? e : new Error(String(e)),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cycleId]);
+
+  // ── Generation-phase polling (only active AFTER the user clicks Generate)
   const polled = usePolling<ReportPayload | null>({
-    key: `report:${cycleId ?? 'none'}`,
-    fetchFn: () => (cycleId ? reportFetch(cycleId) : Promise.resolve(null)),
+    key: `report-gen:${cycleId ?? 'none'}:${generationKicked ? 'on' : 'off'}`,
+    fetchFn: () =>
+      cycleId && generationKicked ? reportFetch(cycleId) : Promise.resolve(null),
     intervalMs: 3000,
-    // Don't poll forever when no generation is in flight; one-shot until the user
-    // explicitly kicks generation. Bumped to 1200 (60 min) once they do.
-    maxAttempts: generationKicked ? 1200 : 1,
+    maxAttempts: generationKicked ? 1200 : 0, // 0 = disabled until kicked
   });
-  const report = polled.data;
-  const fetchError = polled.error;
-  const isMissing =
-    fetchError instanceof ApiError && fetchError.status === 404;
+
+  // Effective report = probe data (if found on open) OR polled data (post-kick).
+  const report = probeState.data ?? polled.data;
+  const isMissing = !probeState.loading && probeState.data === null && !generationKicked;
+  const probeError = probeState.error;
+  const fetchError = generationKicked ? polled.error : null;
   const hadError =
     triggerError !== null ||
-    (fetchError !== null && !isMissing);
+    probeError !== null ||
+    fetchError !== null;
 
   const handleGenerate = () => {
     if (!cycleId || generationKicked) return;
@@ -121,8 +158,8 @@ export function ReportModal({ onClose }: { onClose: () => void }) {
               <div className="label">No completed cycle to report on.</div>
             </div>
           )}
-          {/* Initial fetch in flight (one shot) before we know if a report exists. */}
-          {cycleId && !generationKicked && polled.loading && !report && !hadError && !isMissing && (
+          {/* Initial probe in flight (one shot) before we know if a report exists. */}
+          {cycleId && !generationKicked && probeState.loading && !report && !hadError && (
             <div className="report-hero" style={{ padding: 24 }}>
               <div className="label">Checking for existing report…</div>
             </div>
@@ -164,7 +201,7 @@ export function ReportModal({ onClose }: { onClose: () => void }) {
           )}
           {hadError && !report && (
             <div className="report-hero" style={{ padding: 24, color: 'var(--sell)' }}>
-              Report failed: {fetchError?.message ?? triggerError ?? 'unknown error'}
+              Report failed: {probeError?.message ?? fetchError?.message ?? triggerError ?? 'unknown error'}
             </div>
           )}
 
