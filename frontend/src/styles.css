@@ -2317,3 +2317,134 @@ body { background: var(--bg); }
   color: var(--text-3); font-size: 12px;
   font-style: italic;
 }
+
+/* ============================================================
+   Settings (st-*) — full-screen settings takeover
+   Same family fix as adv-/ds-/iv2-/bd-/ob-/ch-. Component ports
+   used invented class names with no CSS — Settings rendered as an
+   unstyled inline block at the bottom of the page.
+   ============================================================ */
+.st-takeover {
+  position: fixed; inset: 0; z-index: 250;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.st-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 18px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+.st-head-left  { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.st-head-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.st-title { color: var(--text); font-size: 16px; font-weight: 600; }
+.st-body {
+  flex: 1; overflow: hidden;
+  display: grid; grid-template-columns: 200px 1fr;
+  gap: 1px; background: var(--border);
+}
+.st-nav {
+  background: var(--bg-2);
+  overflow: auto;
+  display: flex; flex-direction: column;
+  padding: 12px 8px;
+  gap: 2px;
+}
+.st-nav-btn {
+  background: transparent; border: 0;
+  color: var(--text-2); padding: 8px 12px; border-radius: 4px;
+  font-family: inherit; font-size: 12.5px;
+  cursor: pointer; text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+.st-nav-btn:hover { background: var(--bg-3); color: var(--text); }
+.st-nav-btn[data-active="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.st-nav-foot {
+  margin-top: auto;
+  padding: 12px 12px 4px;
+  color: var(--text-3); font-size: 10.5px;
+  letter-spacing: 0.06em;
+  border-top: 1px solid var(--border);
+}
+.st-content {
+  background: var(--bg);
+  overflow: auto;
+  padding: 22px 28px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.st-group {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 16px 18px;
+}
+.st-group-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.st-group-title { color: var(--text); font-size: 13px; font-weight: 600; }
+.st-group-desc { color: var(--text-2); font-size: 12px; line-height: 1.55; margin-bottom: 12px; }
+.st-group-body { display: flex; flex-direction: column; gap: 10px; }
+
+.st-seg {
+  display: inline-flex; gap: 4px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px;
+}
+.st-seg button {
+  background: transparent; border: 0;
+  color: var(--text-2); padding: 4px 12px; border-radius: 3px;
+  font-family: inherit; font-size: 11.5px; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.st-seg button:hover { color: var(--text); }
+.st-seg button[data-active="true"] {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+.st-check {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--text-2); font-size: 12.5px; cursor: pointer;
+}
+.st-check input[type="checkbox"] {
+  appearance: none; width: 14px; height: 14px;
+  border: 1px solid var(--border-2); border-radius: 3px;
+  background: var(--bg); cursor: pointer;
+  position: relative;
+}
+.st-check input[type="checkbox"]:checked {
+  background: var(--accent); border-color: var(--accent);
+}
+.st-check input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute; top: -2px; left: 1px;
+  color: var(--bg); font-size: 12px; font-weight: 700;
+}
+
+.st-privacy {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 18px 22px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.st-privacy-title { color: var(--text); font-size: 13px; font-weight: 600; }
+.st-privacy-desc { color: var(--text-2); font-size: 12.5px; line-height: 1.6; }
+
+.settings-note {
+  color: var(--text-3); font-size: 10.5px; letter-spacing: 0.04em;
+}
+
+/* Coming-in-v6.x pills inside settings rows */
+.st-group .label[data-stub="true"],
+.st-group [data-stub="true"] {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  color: var(--accent);
+  border-radius: 10px;
+  font-size: 10px; letter-spacing: 0.1em;
+}
