@@ -86,6 +86,93 @@ interface DataSourcesMock {
   wireSeed: ReadonlyArray<SignalWireSeedItem>;
 }
 
+// Compact, capitalized aliases for the raw provider IDs the backend audit
+// records (data_audit.DataSourceAuditEntry.source). Keeps the 30px ticker
+// readable without spelling out "Yahoo Finance" / "RSS Feed". Falls back
+// to the raw source string when no alias is registered.
+const SOURCE_LABEL: Record<string, string> = {
+  yfinance: 'YAHOO',
+  rss: 'RSS',
+  fred: 'FRED',
+  newsapi: 'NEWSAPI',
+  reddit: 'REDDIT',
+  edgar: 'EDGAR',
+  polygon: 'POLYGON',
+  reuters: 'REUTERS',
+  x_api: 'X',
+  fmp: 'FMP',
+  cryptopanic: 'CRYPTO',
+};
+
+// Per-source colors — same palette as mocks/sources.ts SOURCE_GROUP_COLOR
+// (market=amber, macro=blue, filings=purple, news=green, social=pink) so
+// the live wire matches the Data Sources inspector dots. Inlined here
+// instead of imported from mocks/* to keep the production grep gate clean
+// (KR-41.6-14: live render code may not pull from mocks/* even by ref).
+const SOURCE_COLOR: Record<string, string> = {
+  yfinance: '#f5a524',     // market
+  polygon: '#f5a524',      // market
+  fmp: '#f5a524',          // market
+  fred: '#8aa6ff',         // macro
+  edgar: '#b080ff',        // filings
+  newsapi: '#5be7b8',      // news
+  reuters: '#5be7b8',      // news
+  cryptopanic: '#5be7b8',  // news
+  rss: '#5be7b8',          // news (Yahoo Finance + Google News RSS)
+  reddit: '#ff7aa8',       // social
+  x_api: '#ff7aa8',        // social
+};
+
+// Pull the subject of a provider call out of the audit `query` string so
+// the ticker shows e.g. AAPL / MSFT / NVDA in the agent slot instead of
+// repeating the source name. Mirrors the two query shapes in
+// alphaswarm/ingestion/{yfinance,rss}_provider.py:
+//   "AAPL OHLCV"     → "AAPL"
+//   "headlines:AAPL" → "AAPL"
+function extractSubject(query: string, source: string): string {
+  const after = query.includes(':') ? query.slice(query.indexOf(':') + 1) : query;
+  const head = after.trim().split(/\s+/)[0] ?? '';
+  return head ? head.toUpperCase() : (SOURCE_LABEL[source] ?? source.toUpperCase());
+}
+
+// Drop the subject token from the query so the post-arrow `sw-q` slot
+// doesn't echo what's already in the agent slot. "AAPL OHLCV" → "OHLCV";
+// "headlines:AAPL" → "headlines".
+function stripSubject(query: string): string {
+  if (query.includes(':')) return query.slice(0, query.indexOf(':'));
+  const parts = query.trim().split(/\s+/);
+  return parts.length > 1 ? parts.slice(1).join(' ') : query;
+}
+
+// Round-robin entries across distinct sources so consecutive ticker items
+// alternate yfinance / rss / fred / … instead of all-yfinance-then-all-rss
+// (which made news-heavy seeds read as a wall of green RSS). Recency
+// within a source is preserved — only the cross-source ORDERING changes.
+// Insertion order of the Map drives the round-robin order, so the source
+// that appeared first in the chronological audit anchors the rotation.
+function interleaveBySource<T extends { source: string }>(entries: T[]): T[] {
+  const groups = new Map<string, T[]>();
+  for (const e of entries) {
+    const arr = groups.get(e.source);
+    if (arr) arr.push(e);
+    else groups.set(e.source, [e]);
+  }
+  const queues = Array.from(groups.values());
+  const result: T[] = [];
+  let added = true;
+  while (added) {
+    added = false;
+    for (const q of queues) {
+      const next = q.shift();
+      if (next !== undefined) {
+        result.push(next);
+        added = true;
+      }
+    }
+  }
+  return result;
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // SIGNAL WIRE — continuous CSS-scroll live wire
 // ITEM 5 of quick task 260512-jqn: the CONSUMER is now useDataSourceAudit()
@@ -129,23 +216,37 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
   }, [hasLive]);
 
   // Live path: map dataSourceAudit entries onto the SignalWireSeedItem
-  // shape so the existing render block stays unchanged. Triplicate for
-  // seamless CSS scroll (mirrors the prior mock seed pattern).
+  // shape so the existing render block stays unchanged.
+  //
+  // The backend audit (data_audit.DataSourceAuditEntry) has no requesting-
+  // agent field — only source/query/result/used. Echoing the source into
+  // both the agent slot AND the source slot reads as "everything is
+  // YFINANCE" because most provider calls in a cycle are yfinance ticker
+  // fetches. Instead, derive the call SUBJECT (ticker/entity) from the
+  // query string and put that in the agent slot — that gives the same
+  // visual variety the mock seed had (Q-03 / I-04 / M-06 …).
+  //
+  // Duplicate (not triplicate) so the CSS keyframe `translateX(0 → -50%)`
+  // lands on a copy boundary and the loop is seamless. Triplicate + -50%
+  // produced a 1.5-copy scroll then a hard snap = visible "skip" every
+  // 35s.
   const liveItems = useMemo<SignalWireSeedItem[]>(() => {
     const mapped = liveAudit.map((e) => ({
-      agent: e.source.toUpperCase(),
+      agent: extractSubject(e.query, e.source),
       source: e.source,
-      query: e.query,
+      query: stripSubject(e.query),
       result: e.result,
       used: e.used,
     }));
-    return [...mapped, ...mapped, ...mapped];
+    const interleaved = interleaveBySource(mapped);
+    return [...interleaved, ...interleaved];
   }, [liveAudit]);
 
   // DEV-only mock path (only when no live data has arrived yet).
+  // Same duplicate-not-triplicate fix for the -50% keyframe.
   const mockItems = useMemo(() => {
     if (!mock) return [] as SignalWireSeedItem[];
-    return [...mock.seed, ...mock.seed, ...mock.seed];
+    return [...mock.seed, ...mock.seed];
   }, [mock]);
   const mockSourceById = useMemo(() => {
     if (!mock) return {} as Record<string, DataSourceShape>;
@@ -190,7 +291,7 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
             const src = isMock ? mockSourceById[e.source] : undefined;
             const color = isMock
               ? mock?.groupColor[src?.group ?? ''] || '#8a93a0'
-              : 'var(--accent)';
+              : SOURCE_COLOR[e.source] || 'var(--accent)';
             return (
               <div key={i} className="sw-event" data-unused={!e.used}>
                 <span className="sw-agent">{e.agent}</span>
@@ -198,7 +299,7 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
                   →
                 </span>
                 <span className="sw-src" style={{ color }}>
-                  {src?.label || e.source}
+                  {src?.label || SOURCE_LABEL[e.source] || e.source}
                 </span>
                 <span className="sw-q">{e.query}</span>
                 <span className="sw-r">{e.result}</span>

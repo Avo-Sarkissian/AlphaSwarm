@@ -27,6 +27,7 @@ export const DATA_SOURCES: ReadonlyArray<DataSource> = [
   { id: 'edgar',       group: 'filings', label: 'SEC EDGAR',      desc: '10-K / 10-Q / 8-K filings',      rate: '10/s',     latency: 380 },
   { id: 'newsapi',     group: 'news',    label: 'NewsAPI',        desc: 'Headline aggregator',            rate: '500/day',  latency: 190 },
   { id: 'reuters',     group: 'news',    label: 'Reuters Conn.',  desc: 'Wire feed',                      rate: 'unlimited', latency: 90 },
+  { id: 'rss',         group: 'news',    label: 'RSS',            desc: 'Yahoo Finance + Google News RSS', rate: 'unlimited', latency: 180 },
   { id: 'reddit',      group: 'social',  label: 'reddit',         desc: '/r/wsb + /r/investing',          rate: '60/min',   latency: 240 },
   { id: 'x_api',       group: 'social',  label: 'x.com',          desc: 'Filtered cashtag stream',        rate: '300/15m',  latency: 170 },
   { id: 'fmp',         group: 'market',  label: 'FMP',            desc: 'Financial Modeling Prep',        rate: '300/min',  latency: 165 },
