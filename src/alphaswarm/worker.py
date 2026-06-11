@@ -102,6 +102,12 @@ class AgentWorker:
             format="json",
             think=False,  # Disable thinking for structured output reliability
             keep_alive="5m",
+            # Per-bracket sampling temperature (Degens 1.2 ... Agents 0.1).
+            # Sampling options are per-request safe — only num_ctx forces a
+            # model reload (which is why OllamaClient strips just num_ctx).
+            # Without this, every agent ran at the Modelfile's temperature
+            # and the bracket temperature design was dead config.
+            options={"temperature": self._persona["temperature"]},
         )
 
         # Extract TPS data from response metadata (Phase 10: TUI-04, D-05)

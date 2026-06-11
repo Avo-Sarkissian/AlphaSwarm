@@ -21,6 +21,23 @@
 - **Validation / Config:** `pydantic`, `pydantic-settings`.
 - **Logging:** `structlog`.
 
+## Swarm Composition (v2, 2026-06-10)
+
+The 100-agent swarm models the **active price-setting margin of the narrative
+ecosystem** — who forms and propagates opinions about a rumor — NOT raw AUM or
+dollar volume. Two exclusions are deliberate; do not "fix" them:
+
+- **Passive/index capital** is excluded: it never reacts to rumors by definition.
+- **Market makers / vol desks** are excluded: their honest reaction ("vol up,
+  quote both sides") doesn't fit the buy/sell/hold ontology.
+
+The 10 brackets (counts/weights in `config.py:DEFAULT_BRACKETS`, rationale in
+`types.py:BracketType` docstring): Institutions 18, Sell-Side 10, Event-Driven
+10, Quants 12, Degens 15, Narrators 8, Algos 8, Macro 7, Shorts 7, Allocators 5.
+`influence_weight_base` represents narrative REACH (peer visibility), not
+capital — Sell-Side and Narrators rank highest by design. Action-bias mix is
+deliberate: 4 hold-biased, 4 act-biased, 1 sell-biased, 1 second-order.
+
 ## Conventions
 
 Conventions not yet established. Will populate as patterns emerge during development.

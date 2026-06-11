@@ -9,18 +9,33 @@ from pydantic import BaseModel, Field
 
 
 class BracketType(str, Enum):
-    """The 10 market participant archetypes."""
+    """The 10 market participant archetypes (v2 composition, 2026-06-10).
 
+    Models the ACTIVE price-setting margin of the narrative ecosystem — who
+    forms and propagates opinions about a rumor — not raw AUM. Passive/index
+    capital and market makers are deliberately excluded: the former never
+    reacts to rumors by definition, the latter's honest reaction ("vol up,
+    quote both sides") doesn't fit a buy/sell/hold ontology.
+
+    v1→v2 mapping: SUITS split into INSTITUTIONS + SELL_SIDE; SOVEREIGNS and
+    WHALES merged into ALLOCATORS; AGENTS renamed ALGOS; DOOM_POSTERS folded
+    into SHORTS as a personality modifier; INSIDERS folded into EVENT_DRIVEN
+    modifiers (options-flow / channel-check archetypes); POLICY_WONKS folded
+    into EVENT_DRIVEN (antitrust handicapper) + MACRO (fiscal-policy watcher)
+    modifiers; NARRATORS added (media/FinTwit — the cascade's transmission
+    channel, high reach with no capital).
+    """
+
+    INSTITUTIONS = "institutions"
+    SELL_SIDE = "sell_side"
+    EVENT_DRIVEN = "event_driven"
     QUANTS = "quants"
     DEGENS = "degens"
-    SOVEREIGNS = "sovereigns"
+    NARRATORS = "narrators"
+    ALGOS = "algos"
     MACRO = "macro"
-    SUITS = "suits"
-    INSIDERS = "insiders"
-    AGENTS = "agents"
-    DOOM_POSTERS = "doom_posters"
-    POLICY_WONKS = "policy_wonks"
-    WHALES = "whales"
+    SHORTS = "shorts"
+    ALLOCATORS = "allocators"
 
 
 class BracketConfig(BaseModel, frozen=True):

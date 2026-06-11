@@ -38,16 +38,16 @@ def test_persona_bracket_distribution(all_personas: list[AgentPersona]) -> None:
     for p in all_personas:
         counts[p.bracket] = counts.get(p.bracket, 0) + 1
 
-    assert counts[BracketType.QUANTS] == 10
-    assert counts[BracketType.DEGENS] == 20
-    assert counts[BracketType.SOVEREIGNS] == 10
-    assert counts[BracketType.MACRO] == 10
-    assert counts[BracketType.SUITS] == 10
-    assert counts[BracketType.INSIDERS] == 10
-    assert counts[BracketType.AGENTS] == 15
-    assert counts[BracketType.DOOM_POSTERS] == 5
-    assert counts[BracketType.POLICY_WONKS] == 5
-    assert counts[BracketType.WHALES] == 5
+    assert counts[BracketType.INSTITUTIONS] == 18
+    assert counts[BracketType.SELL_SIDE] == 10
+    assert counts[BracketType.EVENT_DRIVEN] == 10
+    assert counts[BracketType.QUANTS] == 12
+    assert counts[BracketType.DEGENS] == 15
+    assert counts[BracketType.NARRATORS] == 8
+    assert counts[BracketType.ALGOS] == 8
+    assert counts[BracketType.MACRO] == 7
+    assert counts[BracketType.SHORTS] == 7
+    assert counts[BracketType.ALLOCATORS] == 5
 
 
 def test_persona_immutability(all_personas: list[AgentPersona]) -> None:
@@ -170,7 +170,9 @@ def test_generate_personas_with_modifiers_count() -> None:
 
 
 def test_generate_personas_with_modifiers_content() -> None:
-    """When modifiers provided, personas use generated modifier, not static."""
+    """When modifiers provided, the generated focus line is LAYERED ON TOP of
+    the static round-robin modifier (v2 behavior: replacement collapsed
+    intra-bracket variance — every agent in a bracket became identical)."""
     from alphaswarm.config import BRACKET_MODIFIERS, generate_personas, load_bracket_configs
     from alphaswarm.types import BracketType
 
@@ -180,12 +182,13 @@ def test_generate_personas_with_modifiers_content() -> None:
     quants = [p for p in personas if p.bracket == BracketType.QUANTS]
     for p in quants:
         assert "entity-aware quants specialist" in p.system_prompt
-        # Verify static modifier is NOT present
-        assert BRACKET_MODIFIERS[BracketType.QUANTS][0] not in p.system_prompt
+    # Static round-robin modifier is STILL present (first agent gets index 0)
+    assert BRACKET_MODIFIERS[BracketType.QUANTS][0] in quants[0].system_prompt
 
 
 def test_generate_personas_with_modifiers_same_bracket_same_modifier() -> None:
-    """Per D-02: all agents in same bracket share one entity-aware modifier."""
+    """All agents in a bracket share one entity-aware FOCUS line (layered on
+    their distinct static modifiers — v2 behavior)."""
     from alphaswarm.config import generate_personas, load_bracket_configs
     from alphaswarm.types import BracketType
 
@@ -193,9 +196,12 @@ def test_generate_personas_with_modifiers_same_bracket_same_modifier() -> None:
     modifiers = {bt: f"shared modifier for {bt.value}" for bt in BracketType}
     personas = generate_personas(brackets, modifiers=modifiers)
     quants = [p for p in personas if p.bracket == BracketType.QUANTS]
-    # All Quants should have the same modifier line
+    # All Quants share the same generated focus line...
     for p in quants:
-        assert "You are a shared modifier for quants." in p.system_prompt
+        assert "This cycle you are focused as a shared modifier for quants." in p.system_prompt
+    # ...but their static round-robin modifiers still differ across agents.
+    static_lines = {p.system_prompt.split("This cycle")[0] for p in quants}
+    assert len(static_lines) > 1
 
 
 def test_generate_personas_backward_compatible() -> None:
@@ -227,6 +233,6 @@ def test_generate_personas_partial_modifiers() -> None:
     quants = [p for p in personas if p.bracket == BracketType.QUANTS]
     for p in quants:
         assert "custom quants modifier" in p.system_prompt
-    # Sovereigns get static round-robin (no custom modifier)
-    sovereigns = [p for p in personas if p.bracket == BracketType.SOVEREIGNS]
-    assert BRACKET_MODIFIERS[BracketType.SOVEREIGNS][0] in sovereigns[0].system_prompt
+    # Allocators get static round-robin (no custom modifier)
+    allocators = [p for p in personas if p.bracket == BracketType.ALLOCATORS]
+    assert BRACKET_MODIFIERS[BracketType.ALLOCATORS][0] in allocators[0].system_prompt

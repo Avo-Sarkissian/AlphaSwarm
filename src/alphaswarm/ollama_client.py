@@ -38,8 +38,19 @@ class OllamaClient:
         response = await client.chat(model="alphaswarm-worker", messages=[...])
     """
 
-    def __init__(self, base_url: str = "http://localhost:11434") -> None:
-        self._client = AsyncClient(host=base_url)
+    def __init__(
+        self,
+        base_url: str = "http://localhost:11434",
+        request_timeout_seconds: float | None = 600.0,
+    ) -> None:
+        # request_timeout_seconds caps EVERY inference call. Without it the
+        # underlying httpx client waits forever, so a wedged Ollama server
+        # (e.g. after macOS sleep/wake) blocks the entire dispatch_wave
+        # TaskGroup with no recovery path — the governor's crisis timeout
+        # only covers memory pressure, not stuck inference. A timed-out
+        # agent surfaces as PARSE_ERROR via _safe_agent_inference instead
+        # of hanging the simulation. None disables the cap (tests only).
+        self._client = AsyncClient(host=base_url, timeout=request_timeout_seconds)
         self._base_url = base_url
 
     @property
@@ -89,6 +100,15 @@ class OllamaClient:
             # Non-retryable: wrap at public boundary per review feedback
             raise OllamaInferenceError(
                 message=f"Ollama request validation failed: {exc}",
+                model=model,
+                original_error=exc,
+            ) from exc
+        except httpx.TimeoutException as exc:
+            # Deliberately NOT retried: a request that exhausted the full
+            # timeout budget indicates a wedged/overloaded server — retrying
+            # would multiply the stall, not fix it.
+            raise OllamaInferenceError(
+                message=f"Ollama chat timed out: {exc}",
                 model=model,
                 original_error=exc,
             ) from exc
@@ -148,6 +168,13 @@ class OllamaClient:
         except RequestError as exc:
             raise OllamaInferenceError(
                 message=f"Ollama request validation failed: {exc}",
+                model=model,
+                original_error=exc,
+            ) from exc
+        except httpx.TimeoutException as exc:
+            # NOT retried — same rationale as chat().
+            raise OllamaInferenceError(
+                message=f"Ollama generate timed out: {exc}",
                 model=model,
                 original_error=exc,
             ) from exc

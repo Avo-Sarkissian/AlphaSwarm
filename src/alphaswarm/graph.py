@@ -110,6 +110,12 @@ class GraphStateManager:
         """Seed Agent nodes from persona config via UNWIND + MERGE.
 
         Per D-06: transforms AgentPersona list to flat dicts for Cypher parameters.
+
+        Also prunes STALE agents — nodes whose id is no longer in the
+        configured persona roster (e.g. after the v1→v2 bracket taxonomy
+        migration) — but ONLY when they carry no historical decisions:
+        agents referenced by old cycles are archival and must survive so
+        replay/authorship of past cycles stays intact.
         """
         agent_params = [
             {
@@ -122,10 +128,16 @@ class GraphStateManager:
             }
             for a in agents
         ]
+        current_ids = [a.id for a in agents]
 
         async with self._driver.session(database=self._database) as session:
             await session.execute_write(self._seed_agents_tx, agent_params)
+            pruned = await session.execute_write(
+                self._prune_stale_agents_tx, current_ids,
+            )
 
+        if pruned:
+            self._log.info("stale_agents_pruned", count=pruned)
         self._log.info("agents_seeded", count=len(agents))
 
     @staticmethod
@@ -146,6 +158,29 @@ class GraphStateManager:
             """,
             agents=agents,
         )
+
+    @staticmethod
+    async def _prune_stale_agents_tx(
+        tx: AsyncManagedTransaction,
+        current_ids: list[str],
+    ) -> int:
+        """Delete Agent nodes outside the configured roster with no decision history.
+
+        Agents that MADE decisions in past cycles are kept (archival) so old
+        cycles retain authorship and remain replayable.
+        """
+        result = await tx.run(
+            """
+            MATCH (a:Agent)
+            WHERE NOT a.id IN $current_ids
+              AND NOT (a)-[:MADE]->(:Decision)
+            DETACH DELETE a
+            RETURN count(*) AS pruned
+            """,
+            current_ids=current_ids,
+        )
+        record = await result.single()
+        return int(record["pruned"]) if record else 0
 
     async def create_cycle(self, seed_rumor: str) -> str:
         """Create a new Cycle node with a uuid4 cycle_id.
@@ -172,6 +207,41 @@ class GraphStateManager:
             cycle_id=cycle_id,
             seed_rumor=seed_rumor,
         )
+
+    async def read_cycle_seed(self, cycle_id: str) -> str | None:
+        """Return the seed_rumor text for a cycle, or None if not found.
+
+        Used by advisory.engine.synthesize (via getattr probe) so the
+        SEED_RUMOR prompt block and the relevance scorer's seed_match term
+        operate on the real rumor text instead of an empty string.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                result = await session.execute_read(
+                    self._read_cycle_seed_tx, cycle_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read seed rumor for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        return result
+
+    @staticmethod
+    async def _read_cycle_seed_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> str | None:
+        """Transaction function for reading a cycle's seed_rumor."""
+        result = await tx.run(
+            "MATCH (c:Cycle {cycle_id: $cycle_id}) RETURN c.seed_rumor AS seed_rumor",
+            cycle_id=cycle_id,
+        )
+        record = await result.single()
+        if record is None:
+            return None
+        value = record["seed_rumor"]
+        return str(value) if value is not None else None
 
     async def create_cycle_with_seed_event(
         self, seed_rumor: str, seed_event: SeedEvent,
@@ -507,7 +577,16 @@ class GraphStateManager:
         source_round: int,
         limit: int,
     ) -> list[RankedPost]:
-        """Transaction function for reading peer posts ranked by influence weight."""
+        """Transaction function for reading peer posts ranked by influence weight.
+
+        Ranking = influence_weight_base + citation boost. The two signals live
+        on different scales (base: 0.3-0.9 static credibility; INFLUENCED_BY
+        weight: citations/total_agents, typically 0.01-0.3), so the previous
+        `coalesce(infl.weight, base)` REPLACED the base with the much smaller
+        dynamic weight whenever the reader had cited the author — actively
+        demoting the very peers that influenced the reader. Additive boost
+        preserves base credibility while letting real citations raise rank.
+        """
         result = await tx.run(
             """
             MATCH (p:Post)
@@ -524,7 +603,7 @@ class GraphStateManager:
                    p.confidence AS confidence,
                    p.content AS content,
                    p.round_num AS round_num,
-                   coalesce(infl.weight, author.influence_weight_base) AS influence_weight
+                   author.influence_weight_base + coalesce(infl.weight, 0.0) AS influence_weight
             ORDER BY influence_weight DESC
             LIMIT $limit
             """,

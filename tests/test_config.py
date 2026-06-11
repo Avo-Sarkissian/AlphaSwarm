@@ -25,9 +25,13 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.app_name == "AlphaSwarm"
     assert settings.debug is False
     assert settings.log_level == "INFO"
-    assert settings.ollama.orchestrator_model == "qwen3.5:32b"
-    assert settings.ollama.worker_model == "qwen3.5:7b"
-    assert settings.ollama.num_parallel == 16
+    # Phase 41.4 model decision: orchestrator → qwen3.6:27b-q4_K_M (was qwen3.5:32b),
+    # worker → qwen3:8b (was qwen3.5:7b), num_parallel → 4 (was 16; 16 spills KV
+    # cache to CPU on M1 Max). See `.planning/phases/41.4-r3-inference-and-ws-stall/`
+    # and memory:project_phase_41.4_model_decision.md.
+    assert settings.ollama.orchestrator_model == "qwen3.6:27b-q4_K_M"
+    assert settings.ollama.worker_model == "qwen3:8b"
+    assert settings.ollama.num_parallel == 4
     assert settings.neo4j.uri == "bolt://localhost:7687"
     assert settings.governor.baseline_parallel == 8
     assert settings.governor.memory_throttle_percent == 80.0
@@ -90,16 +94,16 @@ def test_bracket_definitions(all_brackets: list[BracketConfig]) -> None:
 def test_bracket_specific_counts(all_brackets: list[BracketConfig]) -> None:
     """Each bracket has the exact expected agent count."""
     counts = {b.bracket_type: b.count for b in all_brackets}
-    assert counts[BracketType.QUANTS] == 10
-    assert counts[BracketType.DEGENS] == 20
-    assert counts[BracketType.SOVEREIGNS] == 10
-    assert counts[BracketType.MACRO] == 10
-    assert counts[BracketType.SUITS] == 10
-    assert counts[BracketType.INSIDERS] == 10
-    assert counts[BracketType.AGENTS] == 15
-    assert counts[BracketType.DOOM_POSTERS] == 5
-    assert counts[BracketType.POLICY_WONKS] == 5
-    assert counts[BracketType.WHALES] == 5
+    assert counts[BracketType.INSTITUTIONS] == 18
+    assert counts[BracketType.SELL_SIDE] == 10
+    assert counts[BracketType.EVENT_DRIVEN] == 10
+    assert counts[BracketType.QUANTS] == 12
+    assert counts[BracketType.DEGENS] == 15
+    assert counts[BracketType.NARRATORS] == 8
+    assert counts[BracketType.ALGOS] == 8
+    assert counts[BracketType.MACRO] == 7
+    assert counts[BracketType.SHORTS] == 7
+    assert counts[BracketType.ALLOCATORS] == 5
 
 
 def test_bracket_distinct_risk_profiles(all_brackets: list[BracketConfig]) -> None:

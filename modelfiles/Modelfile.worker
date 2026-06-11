@@ -7,3 +7,7 @@ FROM qwen3:8b
 PARAMETER num_ctx 4096
 PARAMETER temperature 0.7
 PARAMETER num_gpu 999
+# Decision JSON is ~100-150 tokens; 400 caps pathological repetition loops
+# (the 14-20 min/call tail observed in the 41.3 smoke) at zero quality cost.
+# Re-register after editing: ollama create alphaswarm-worker -f modelfiles/Modelfile.worker
+PARAMETER num_predict 400

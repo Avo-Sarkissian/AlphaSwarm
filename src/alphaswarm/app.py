@@ -82,7 +82,10 @@ def create_app_state(
     ollama_client: OllamaClient | None = None
     model_manager: OllamaModelManager | None = None
     if with_ollama:
-        ollama_client = OllamaClient(base_url=settings.ollama.base_url)
+        ollama_client = OllamaClient(
+            base_url=settings.ollama.base_url,
+            request_timeout_seconds=settings.ollama.request_timeout_seconds,
+        )
         model_manager = OllamaModelManager(
             client=ollama_client,
             configured_aliases={

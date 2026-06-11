@@ -535,8 +535,9 @@ def test_format_peer_context_structure() -> None:
     # 5 numbered lines
     for i in range(1, 6):
         assert f"{i}." in result
-    # Pattern check
-    assert "[quants]" in result
+    # Pattern check — format is [agent_id|bracket] per Phase 41.4 fix so
+    # workers can populate cited_agents with the agent identifier.
+    assert "[agent_00|quants]" in result
     assert "BUY" in result
     assert "(conf: 0.85)" in result
 
@@ -683,7 +684,7 @@ def test_format_peer_context_single_post_exceeds_budget() -> None:
     assert len(result) <= 4000
     # Post should still be present (truncated, not dropped)
     assert "1." in result
-    assert "[quants]" in result
+    assert "[agent_01|quants]" in result
 
 
 def test_format_peer_context_empty_posts_returns_empty() -> None:
@@ -711,7 +712,10 @@ def test_format_peer_context_prompt_guard_preserved() -> None:
     ]
 
     result = _format_peer_context(posts, source_round=1)
-    assert result.endswith("Make your own independent assessment.")
+    # Guard line ends with the cited_agents nudge per Phase 41.4 — the worker
+    # needs to know HOW to express that a peer shaped its view, not just THAT
+    # the peers are observations.
+    assert result.endswith("list their agent id in cited_agents.")
 
 
 def test_format_peer_context_header_format() -> None:
@@ -743,7 +747,7 @@ def test_format_peer_context_line_format() -> None:
     ]
 
     result = _format_peer_context(posts, source_round=1)
-    assert '1. [quants] BUY (conf: 0.85) "analysis here"' in result
+    assert '1. [a1|quants] BUY (conf: 0.85) "analysis here"' in result
 
 
 def test_format_peer_context_skip_empty_content() -> None:
@@ -1718,7 +1722,7 @@ def test_bracket_diverse_peer_selection() -> None:
     from alphaswarm.simulation import select_diverse_peers
 
     personas = []
-    for bt in [BracketType.QUANTS, BracketType.DEGENS, BracketType.MACRO, BracketType.WHALES]:
+    for bt in [BracketType.QUANTS, BracketType.DEGENS, BracketType.MACRO, BracketType.ALLOCATORS]:
         for j in range(3):
             personas.append(
                 AgentPersona(
@@ -1732,7 +1736,7 @@ def test_bracket_diverse_peer_selection() -> None:
                 )
             )
     weights = {
-        "quants_00": 0.5, "degens_00": 0.4, "macro_00": 0.3, "whales_00": 0.2,
+        "quants_00": 0.5, "degens_00": 0.4, "macro_00": 0.3, "allocators_00": 0.2,
         "quants_01": 0.15, "degens_01": 0.1,
     }
     result = select_diverse_peers("quants_02", weights, personas, limit=5, min_brackets=3)
@@ -1802,7 +1806,7 @@ def test_select_diverse_peers_fills_by_weight() -> None:
         "self_00",
         weights,
         personas + [
-            AgentPersona(id="self_00", name="Self", bracket=BracketType.WHALES, risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5),
+            AgentPersona(id="self_00", name="Self", bracket=BracketType.ALLOCATORS, risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5),
         ],
         limit=5,
         min_brackets=3,
