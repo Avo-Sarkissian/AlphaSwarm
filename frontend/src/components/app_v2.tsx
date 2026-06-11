@@ -21,7 +21,7 @@
 // SignalWire ticker, DataSources takeover, BracketDeepDive) are stubbed for
 // W2; W3 Plan 03 + W4 Plan 04 wire them.
 //
-// ModelStatus chip: hardcoded 'qwen3:8b' (KR-41.6-08, matches
+// ModelStatus chip: static label, kept in sync with config.py (matches
 // src/alphaswarm/config.py:32 OllamaSettings.worker_model default — Phase
 // 41.4 locked qwen3:8b worker + qwen3.6:27b orchestrator with think=OFF).
 import { useEffect, useMemo, useState } from 'react';

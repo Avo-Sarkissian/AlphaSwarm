@@ -338,6 +338,11 @@ class ResourceGovernor:
                 reading = await self._monitor.read_combined()
                 async with self._adjustment_lock:
                     await self._apply_state_transition(reading)
+                # Emit metrics EVERY check, not only on state transitions: a
+                # healthy run never transitions, which left the UI's PARALLEL
+                # SLOTS tile stuck at 0/16 for the whole simulation. Double
+                # emit on transition iterations is harmless (last write wins).
+                self._emit_metrics(reading)
                 await asyncio.sleep(self._settings.check_interval_seconds)
         except asyncio.CancelledError:
             return

@@ -65,7 +65,7 @@ export function IdleState({ seed, setSeed, onStart, ollamaOk = true, onShowHisto
           </div>
         )}
         <div className="idle-grid">
-          <SystemCheck label="Ollama" value="qwen3:8b · 64GB RAM" ok={ollamaOk} />
+          <SystemCheck label="Ollama" value="qwen3.6:35b-a3b-nvfp4 (MLX) · 64GB RAM" ok={ollamaOk} />
           <SystemCheck label="Agents" value={`${totalPersonas} personas · ${BRACKETS.length} brackets`} ok />
           <SystemCheck label="Data sources" value="mocked · pending live wire" ok />
           <SystemCheck label="Storage" value="~/.alphaswarm" ok />

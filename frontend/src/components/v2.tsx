@@ -327,9 +327,10 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
 
 // ──────────────────────────────────────────────────────────────────────
 // MODEL STATUS — topbar inline status chip
-// KR-41.6-08: model name hardcoded 'qwen3:8b' (matches
-// src/alphaswarm/config.py:32 OllamaSettings.worker_model — Phase 41.4
-// locked qwen3:8b worker + qwen3.6:27b orchestrator).
+// Model name matches src/alphaswarm/config.py OllamaSettings.worker_model
+// (2026-06-11 decision: qwen3.6:35b-a3b-nvfp4 MLX worker). Still a static
+// label — the snapshot doesn't carry the model name; keep in sync with
+// config.py until a /api/settings endpoint exists.
 // ──────────────────────────────────────────────────────────────────────
 export function ModelStatus() {
   const tel = useTelemetry();
@@ -359,7 +360,7 @@ export function ModelStatus() {
     <div className="model-status" data-running={running}>
       <div className="ms-model">
         <span className="ms-dot" data-running={running} />
-        <span className="mono ms-name">qwen3:8b</span>
+        <span className="mono ms-name">qwen3.6:35b-a3b</span>
       </div>
       <div className="ms-ops">
         {ops.map((o, i) => (
