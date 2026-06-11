@@ -90,6 +90,13 @@ class AppSettings(BaseSettings):
     debug: bool = False
     log_level: str = Field(default="INFO", pattern=r"^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
 
+    # Consensus cascade depth. 3 = R1 prior + two peer rounds (legacy default,
+    # full UI compat). 2 = R1 prior + one peer round — the A/B candidate that
+    # saves ~35-45 min/cycle on M1 Max; most opinion flips happen in R2.
+    # Flip via ALPHASWARM_NUM_ROUNDS=2. SimulationResult round3 fields are
+    # empty when only 2 rounds run.
+    num_rounds: int = Field(default=3, ge=2, le=3)
+
     ollama: OllamaSettings = OllamaSettings()
     neo4j: Neo4jSettings = Neo4jSettings()
     governor: GovernorSettings = GovernorSettings()

@@ -938,10 +938,10 @@ def _mock_round1_result() -> "Round1Result":
         cycle_id="test-cycle-id",
         parsed_result=MOCK_PARSED_RESULT,
         agent_decisions=[
-            ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8)),
-            ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.7)),
-            ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6)),
-            ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.5)),
+            ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="momentum confirms")),
+            ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.7, rationale="factors align")),
+            ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="fading the pump")),
+            ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.5, rationale="exit liquidity")),
         ],
         decision_ids=[],  # Phase 11: empty list OK -- no episodes pushed from empty zip
     )
@@ -1131,12 +1131,14 @@ async def test_run_simulation_round2_uses_round1_peers(
 
     # dispatch_wave called twice (Round 2 and Round 3)
     assert mock_dispatch_wave.await_count == 2
-    # read_ranked_posts called for Round 2 with source_round=1
-    r2_calls = [
-        c for c in mock_graph_manager.read_ranked_posts.await_args_list
-        if c.kwargs.get("source_round") == 1 or (len(c.args) >= 3 and c.args[2] == 1)
-    ]
-    assert len(r2_calls) == len(TEST_PERSONAS)
+    # Round 2 peer contexts are built IN MEMORY from Round 1 decisions
+    # (diverse-peer path) — one per persona, sourced from Round 1.
+    r2_kwargs = mock_dispatch_wave.await_args_list[0].kwargs
+    contexts = r2_kwargs["peer_contexts"]
+    assert len(contexts) == len(TEST_PERSONAS)
+    assert all(c is not None and "Peer Decisions (Round 1):" in c for c in contexts)
+    # The old Neo4j ranked-posts path is gone.
+    assert mock_graph_manager.read_ranked_posts.await_count == 0
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -1170,12 +1172,12 @@ async def test_run_simulation_round3_uses_round2_peers(
         brackets=TEST_BRACKETS,
     )
 
-    # read_ranked_posts called for Round 3 with source_round=2
-    r3_calls = [
-        c for c in mock_graph_manager.read_ranked_posts.await_args_list
-        if c.kwargs.get("source_round") == 2 or (len(c.args) >= 3 and c.args[2] == 2)
-    ]
-    assert len(r3_calls) == len(TEST_PERSONAS)
+    # Round 3 peer contexts are built IN MEMORY from Round 2 decisions.
+    r3_kwargs = mock_dispatch_wave.await_args_list[1].kwargs
+    contexts = r3_kwargs["peer_contexts"]
+    assert len(contexts) == len(TEST_PERSONAS)
+    assert all(c is not None and "Peer Decisions (Round 2):" in c for c in contexts)
+    assert mock_graph_manager.read_ranked_posts.await_count == 0
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -2273,7 +2275,7 @@ async def test_run_simulation_writes_posts_after_decisions(
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
-async def test_run_simulation_reads_ranked_posts_for_round2(
+async def test_run_simulation_peer_contexts_cite_round1_agents(
     mock_inject: AsyncMock,
     mock_round1: AsyncMock,
     mock_dispatch_wave: AsyncMock,
@@ -2283,20 +2285,12 @@ async def test_run_simulation_reads_ranked_posts_for_round2(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """read_ranked_posts called len(personas) times with source_round=1 for Round 2."""
-    from alphaswarm.graph import RankedPost
+    """Round 2 peer contexts carry real Round 1 agent ids and rationales (in-memory build)."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
-    mock_graph_manager.read_ranked_posts = AsyncMock(return_value=[
-        RankedPost(
-            post_id="p1", agent_id="other_agent", bracket="quants",
-            signal="buy", confidence=0.85, content="test rationale",
-            influence_weight=0.7, round_num=1,
-        )
-    ])
 
     await run_simulation(
         rumor=MOCK_RUMOR,
@@ -2310,19 +2304,23 @@ async def test_run_simulation_reads_ranked_posts_for_round2(
         generate_narratives=False,
     )
 
-    # read_ranked_posts called for Round 2 (source_round=1) + Round 3 (source_round=2)
-    # Each round: once per persona = len(TEST_PERSONAS)
-    r2_calls = [
-        c for c in mock_graph_manager.read_ranked_posts.await_args_list
-        if c.kwargs.get("source_round") == 1 or (len(c.args) >= 3 and c.args[2] == 1)
-    ]
-    assert len(r2_calls) == len(TEST_PERSONAS)
+    # Each agent's Round 2 context names peer agent ids from Round 1 (the
+    # [agent_id|bracket] prefix that lets workers populate cited_agents);
+    # self is always excluded.
+    r2_contexts = mock_dispatch_wave.await_args_list[0].kwargs["peer_contexts"]
+    assert len(r2_contexts) == len(TEST_PERSONAS)
+    for persona, ctx in zip(TEST_PERSONAS, r2_contexts):
+        assert ctx is not None
+        assert f"[{persona.id}|" not in ctx  # self-exclusion
+        assert "[quants_01|" in ctx or "[degens_01|" in ctx
+    # No Neo4j reads for peer building anymore.
+    assert mock_graph_manager.read_ranked_posts.await_count == 0
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
-async def test_run_simulation_writes_read_post_edges_round2(
+async def test_run_simulation_no_read_post_edges(
     mock_inject: AsyncMock,
     mock_round1: AsyncMock,
     mock_dispatch_wave: AsyncMock,
@@ -2332,13 +2330,14 @@ async def test_run_simulation_writes_read_post_edges_round2(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """write_read_post_edges called with round_num=2 and Round 1 post_ids."""
+    """READ_POST edges are no longer written (top-down sweep: ~10k edges/round
+    recording 'everyone read everything' had no analytical value). Post nodes
+    themselves are still written for report/interview reads."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
-    # write_posts returns post_ids that should be passed to write_read_post_edges
     mock_graph_manager.write_posts = AsyncMock(return_value=["p1", "p2", "p3"])
 
     await run_simulation(
@@ -2353,21 +2352,15 @@ async def test_run_simulation_writes_read_post_edges_round2(
         generate_narratives=False,
     )
 
-    # write_read_post_edges called at least once with round_num=2
-    r2_edge_calls = [
-        c for c in mock_graph_manager.write_read_post_edges.await_args_list
-        if c.kwargs.get("round_num") == 2
-    ]
-    assert len(r2_edge_calls) == 1
-    # Verify post_ids from Round 1 write_posts are passed
-    r2_call = r2_edge_calls[0]
-    assert r2_call.args[1] == ["p1", "p2", "p3"]  # post_ids
+    # READ_POST edge writes are gone entirely; posts still written per round.
+    assert mock_graph_manager.write_read_post_edges.await_count == 0
+    assert mock_graph_manager.write_posts.await_count == 3  # R1, R2, R3
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
-async def test_run_simulation_writes_read_post_edges_round3(
+async def test_run_simulation_two_rounds_skips_round3(
     mock_inject: AsyncMock,
     mock_round1: AsyncMock,
     mock_dispatch_wave: AsyncMock,
@@ -2377,24 +2370,19 @@ async def test_run_simulation_writes_read_post_edges_round3(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """write_read_post_edges called with round_num=3 and Round 2 post_ids."""
+    """ALPHASWARM_NUM_ROUNDS=2: Round 3 never dispatches, round3 result fields
+    are empty, and metrics record num_rounds=2 with the final distribution
+    taken from Round 2."""
     from alphaswarm.simulation import run_simulation
 
+    two_round_settings = mock_settings.model_copy(update={"num_rounds": 2})
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
-    # Track which post_ids are returned per call
-    post_id_sequences = [
-        ["r1_p1", "r1_p2"],  # Round 1 write_posts
-        ["r2_p1", "r2_p2"],  # Round 2 write_posts
-        ["r3_p1", "r3_p2"],  # Round 3 write_posts
-    ]
-    mock_graph_manager.write_posts = AsyncMock(side_effect=post_id_sequences)
-
-    await run_simulation(
+    result = await run_simulation(
         rumor=MOCK_RUMOR,
-        settings=mock_settings,
+        settings=two_round_settings,
         ollama_client=mock_ollama_client,
         model_manager=mock_model_manager,
         graph_manager=mock_graph_manager,
@@ -2404,14 +2392,24 @@ async def test_run_simulation_writes_read_post_edges_round3(
         generate_narratives=False,
     )
 
-    # write_read_post_edges called with round_num=3 and Round 2's post_ids
-    r3_edge_calls = [
-        c for c in mock_graph_manager.write_read_post_edges.await_args_list
-        if c.kwargs.get("round_num") == 3
+    # Only the Round 2 wave dispatched (Round 1 is mocked out via run_round1).
+    assert mock_dispatch_wave.await_count == 1
+    # Round 3 result fields are empty, Round 2 carries the final state.
+    assert result.round3_decisions == ()
+    assert result.round3_shifts.total_flips == 0
+    assert result.round3_summaries == ()
+    assert len(result.round2_decisions) == len(TEST_PERSONAS)
+    # No round-3 Neo4j writes.
+    r3_writes = [
+        c for c in mock_graph_manager.write_decisions.await_args_list
+        if c.kwargs.get("round_num") == 3 or (len(c.args) >= 3 and c.args[2] == 3)
     ]
-    assert len(r3_edge_calls) == 1
-    r3_call = r3_edge_calls[0]
-    assert r3_call.args[1] == ["r2_p1", "r2_p2"]  # Round 2 post_ids
+    assert r3_writes == []
+    # Metrics: num_rounds recorded, final distribution from Round 2 (all BUY).
+    _, metrics = mock_graph_manager.write_cycle_metrics.await_args.args
+    assert metrics["num_rounds"] == 2
+    assert metrics["r3_seconds"] == 0.0
+    assert metrics["final_buy"] == len(TEST_PERSONAS)
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -3523,9 +3521,9 @@ async def test_run_simulation_writes_cycle_metrics(
     cycle_id_arg, metrics = mock_graph_manager.write_cycle_metrics.await_args.args
     assert cycle_id_arg == "test-cycle-id"
     expected_keys = {
-        "metrics_version", "r1_seconds", "r2_seconds", "r3_seconds",
-        "narratives_seconds", "total_seconds", "r2_flips", "r3_flips",
-        "r1_parse_errors", "r2_parse_errors", "r3_parse_errors",
+        "metrics_version", "num_rounds", "r1_seconds", "r2_seconds",
+        "r3_seconds", "narratives_seconds", "total_seconds", "r2_flips",
+        "r3_flips", "r1_parse_errors", "r2_parse_errors", "r3_parse_errors",
         "final_buy", "final_sell", "final_hold", "agent_count",
     }
     assert set(metrics.keys()) == expected_keys

@@ -134,7 +134,9 @@ async def test_infer_uses_json_format(
         await worker.infer(user_message="test")
 
     call_kwargs = mock_ollama_client.chat.call_args.kwargs
-    assert call_kwargs.get("format") == "json"
+    # Structured outputs: the decision JSON schema, not bare "json"
+    from alphaswarm.worker import DECISION_JSON_SCHEMA
+    assert call_kwargs.get("format") == DECISION_JSON_SCHEMA
 
 
 async def test_infer_uses_think_false(

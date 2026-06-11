@@ -145,7 +145,7 @@ def compute_bracket_summaries(
     return tuple(result)
 
 
-def select_diverse_peers(  # noqa: ARG001  # UNUSED in current run_simulation
+def select_diverse_peers(
     agent_id: str,
     influence_weights: dict[str, float],
     personas: list[AgentPersona],
@@ -155,14 +155,10 @@ def select_diverse_peers(  # noqa: ARG001  # UNUSED in current run_simulation
 ) -> list[str]:
     """Select top-N peers with bracket diversity guarantee (D-06).
 
-    UNUSED IN PRODUCTION — candidate for sim-logic re-wire.
-    `run_simulation` currently bypasses `_dispatch_round` (which uses this
-    selector) and calls `dispatch_wave` directly with peer contexts built
-    from `read_ranked_posts` (global authority ranking). That means every
-    agent sees the same top-10 high-influence peers — Degens and Doom-Posters
-    are mathematically silenced. Wiring this selector back in is the proposed
-    fix for peer-context structural bias; see `.planning/SWEEP-260528.md` §3.3.
-    Kept here so it's ready to wire when that sim-logic decision is made.
+    PRODUCTION PATH since the SWEEP-260528 §3.3 fix: called per reader by
+    `_build_diverse_peer_contexts` with per-reader weights (base credibility
+    + global citation share + personal citation boost), guaranteeing at
+    least `min_brackets` distinct brackets in every agent's peer context.
 
     Algorithm:
     1. Exclude self from candidates.
@@ -382,6 +378,83 @@ def _format_peer_context(
 
     lines.append(guard)
     return "\n".join(lines)
+
+
+def _build_diverse_peer_contexts(
+    personas: list[AgentPersona],
+    prev_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
+    source_round: int,
+    *,
+    global_citation_weights: dict[str, float] | None = None,
+    limit: int = 10,
+    min_brackets: int = 4,
+) -> list[str | None]:
+    """Build per-agent peer contexts from the previous round IN MEMORY.
+
+    Replaces the `read_ranked_posts` path (SWEEP-260528 §3.3 fix). That path
+    ranked peers by static authority weight, so every one of the 100 agents
+    saw the same Sovereign/Whale/Suit top-10 — manufacturing convergence
+    toward the most HOLD-biased bloc. This builder:
+
+    1. Computes a PER-READER weight for each candidate author:
+       base credibility (influence_weight_base)
+       + global citation share (citations/total_agents, when available)
+       + 0.3 personal boost when the READER cited the author last round
+         (in-memory equivalent of the reader-specific INFLUENCED_BY edge).
+    2. Feeds those weights through `select_diverse_peers`, which guarantees
+       at least `min_brackets` distinct brackets per peer set — Degens and
+       Shorts can no longer be mathematically silenced.
+
+    Also eliminates 100 sequential Neo4j reads per round (the old per-agent
+    `read_ranked_posts` loop): everything needed is already in memory.
+
+    Returns one context string (or None when no peers available) per persona,
+    aligned by persona index.
+    """
+    from alphaswarm.graph import RankedPost
+
+    persona_lookup = {p.id: p for p in personas}
+    prev_dict: dict[str, AgentDecision] = {aid: dec for aid, dec in prev_decisions}
+    base_weights = {p.id: p.influence_weight_base for p in personas}
+    global_w = global_citation_weights or {}
+
+    contexts: list[str | None] = []
+    for persona in personas:
+        reader_prev = prev_dict.get(persona.id)
+        cited_by_reader: set[str] = (
+            set(reader_prev.cited_agents) if reader_prev is not None else set()
+        )
+        weights = {
+            pid: base_weights[pid]
+            + global_w.get(pid, 0.0)
+            + (0.3 if pid in cited_by_reader else 0.0)
+            for pid in base_weights
+        }
+        peer_ids = select_diverse_peers(
+            persona.id,
+            weights,
+            personas,
+            prev_decisions=prev_dict,
+            limit=limit,
+            min_brackets=min_brackets,
+        )
+        ranked_posts = [
+            RankedPost(
+                post_id="",
+                agent_id=pid,
+                bracket=persona_lookup[pid].bracket.value,
+                signal=prev_dict[pid].signal.value,
+                confidence=prev_dict[pid].confidence,
+                content=prev_dict[pid].rationale,
+                influence_weight=weights.get(pid, 0.0),
+                round_num=source_round,
+            )
+            for pid in peer_ids
+            if pid in prev_dict and pid in persona_lookup
+        ]
+        ctx = _format_peer_context(ranked_posts, source_round)
+        contexts.append(ctx if ctx else None)
+    return contexts
 
 
 def _compute_shifts(
@@ -979,29 +1052,22 @@ async def run_simulation(
                     shock_length=len(shock_text_r2),
                 )
 
-        # Phase 12: Build peer contexts from Round 1 posts (D-12 ordering)
-        round2_peer_contexts: list[str | None] = []
-        all_round1_post_ids = round1_post_ids  # For READ_POST edges
-        for persona in personas:
-            ranked_posts = await graph_manager.read_ranked_posts(
-                persona.id, cycle_id, source_round=1, limit=10,
-            )
-            ctx = _format_peer_context(ranked_posts, source_round=1)
-            round2_peer_contexts.append(ctx if ctx else None)
-
-        # Phase 12: Write READ_POST edges for Round 2 (D-09, D-10, D-11)
-        agent_ids = [p.id for p in personas]
-        if all_round1_post_ids:
-            await graph_manager.write_read_post_edges(
-                agent_ids, all_round1_post_ids, round_num=2, cycle_id=cycle_id,
-            )
+        # Build bracket-diverse peer contexts from Round 1 decisions in memory
+        # (SWEEP-260528 §3.3: replaces the global-authority read_ranked_posts
+        # path that showed every agent the same top-10). READ_POST edge writes
+        # removed with it: ~10k edges/round recording "everyone read
+        # everything" carried no analytical value.
+        round2_peer_contexts = _build_diverse_peer_contexts(
+            personas, round1_result.agent_decisions, source_round=1,
+        )
+        _ = round1_post_ids  # Posts still written for report/interview reads
 
         logger.info(
             "round_dispatch_start",
             round_num=2,
             agent_count=len(personas),
             peers_found=sum(1 for c in round2_peer_contexts if c),
-            peer_selection="ranked_posts",
+            peer_selection="diverse_in_memory",
         )
 
         # Load worker model immediately before dispatch — no idle gap
@@ -1096,150 +1162,157 @@ async def run_simulation(
 
             r2_seconds = time.monotonic() - r2_start
 
-            # Round 3 (D-09: peer context from Round 2)
-            phase = SimulationPhase.ROUND_3
-            r3_start = time.monotonic()
-            logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
-            if state_store is not None:
-                await state_store.set_phase(SimulationPhase.ROUND_3)
-                await state_store.set_round(3)
+            # Defaults for the 2-round configuration (ALPHASWARM_NUM_ROUNDS=2):
+            # round3 fields stay empty, FINAL state is Round 2's.
+            round3_decisions: list[tuple[str, AgentDecision]] = []
+            round3_decisions_tuple: tuple[tuple[str, AgentDecision], ...] = ()
+            round3_shifts = ShiftMetrics(
+                signal_transitions=(), total_flips=0,
+                bracket_confidence_delta=(), agents_shifted=0,
+            )
+            round3_summaries: tuple[BracketSummary, ...] = ()
+            r3_seconds = 0.0
 
-            # Phase 35.1: Shock gate — consume a pending shock BEFORE Round 3 dispatch.
-            # If Round 2 already consumed, consume_shock returns None and Round 3 runs clean.
-            effective_rumor_r3 = rumor
-            if consume_shock is not None:
-                shock_text_r3 = consume_shock()
-                if shock_text_r3:
-                    effective_rumor_r3 = f"{rumor}\n\n[MARKET SHOCK]: {shock_text_r3}"
-                    await graph_manager.write_shock_event(
-                        cycle_id, shock_text_r3, injected_before_round=3,
+            if settings.num_rounds >= 3:
+                # Round 3 (D-09: peer context from Round 2)
+                phase = SimulationPhase.ROUND_3
+                r3_start = time.monotonic()
+                logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
+                if state_store is not None:
+                    await state_store.set_phase(SimulationPhase.ROUND_3)
+                    await state_store.set_round(3)
+
+                # Phase 35.1: Shock gate — consume a pending shock BEFORE Round 3 dispatch.
+                # If Round 2 already consumed, consume_shock returns None and Round 3 runs clean.
+                effective_rumor_r3 = rumor
+                if consume_shock is not None:
+                    shock_text_r3 = consume_shock()
+                    if shock_text_r3:
+                        effective_rumor_r3 = f"{rumor}\n\n[MARKET SHOCK]: {shock_text_r3}"
+                        await graph_manager.write_shock_event(
+                            cycle_id, shock_text_r3, injected_before_round=3,
+                        )
+                        logger.info(
+                            "shock_injected",
+                            cycle_id=cycle_id,
+                            round_num=3,
+                            shock_length=len(shock_text_r3),
+                        )
+
+                # Bracket-diverse peer contexts from Round 2 decisions in memory.
+                # R3 weights are PER-READER: base + global citation share
+                # (round2_weights) + 0.3 boost for authors this reader cited in
+                # R2. READ_POST writes dropped (no analytical value).
+                round3_peer_contexts = _build_diverse_peer_contexts(
+                    personas, round2_decisions, source_round=2,
+                    global_citation_weights=round2_weights,
+                )
+                _ = round2_post_ids  # Posts still written for report/interview reads
+
+                logger.info(
+                    "round_dispatch_start",
+                    round_num=3,
+                    agent_count=len(personas),
+                    peers_found=sum(1 for c in round3_peer_contexts if c),
+                    peer_selection="diverse_in_memory",
+                )
+
+                # Dispatch Round 3 with pre-built peer contexts
+                round3_wave_decisions = await dispatch_wave(
+                    personas=worker_configs,
+                    governor=governor,
+                    client=ollama_client,
+                    model=worker_alias,
+                    user_message=effective_rumor_r3,
+                    settings=settings.governor,
+                    peer_contexts=round3_peer_contexts,
+                    state_store=state_store,
+                    round_num=3,
+                )
+                round3_decisions: list[tuple[str, AgentDecision]] = [
+                    (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round3_wave_decisions)
+                ]
+                # Per-agent StateStore writes are now streamed from inside
+                # batch_dispatcher._safe_agent_inference. See debug session
+                # ws-agent-states-not-emitted-mid-sim.
+
+                round3_peer_contexts_normalized: list[str] = [
+                    ctx if ctx is not None else "" for ctx in round3_peer_contexts
+                ]
+
+                round3_ids = await graph_manager.write_decisions(round3_decisions, cycle_id, round_num=3)
+
+                # Phase 12: Write Round 3 Post nodes
+                round3_post_ids = await graph_manager.write_posts(
+                    round3_decisions, round3_ids, cycle_id, round_num=3,
+                )
+
+                # Phase 11: Push Round 3 episodes to WriteBuffer
+                round2_map = {aid: dec for aid, dec in round2_decisions}
+                for did, (agent_id, decision) in zip(round3_ids, round3_decisions):
+                    prev_signal = round2_map.get(agent_id)
+                    prev_sig = prev_signal.signal if prev_signal else None
+                    persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
+                    peer_ctx = (
+                        round3_peer_contexts_normalized[persona_idx]
+                        if persona_idx is not None and persona_idx < len(round3_peer_contexts_normalized)
+                        else ""
                     )
-                    logger.info(
-                        "shock_injected",
-                        cycle_id=cycle_id,
+                    record = EpisodeRecord(
+                        decision_id=did,
+                        agent_id=agent_id,
+                        rationale=decision.rationale,
+                        peer_context_received=peer_ctx,
+                        flip_type=compute_flip_type(prev_sig, decision.signal).value,
                         round_num=3,
-                        shock_length=len(shock_text_r3),
+                        cycle_id=cycle_id,
                     )
+                    await write_buffer.push(record)
+                round3_flushed = await write_buffer.flush(graph_manager, entity_names)
+                logger.info("write_buffer_flushed", round_num=3, flushed=round3_flushed)
 
-            # Phase 12: Build peer contexts from Round 2 posts (D-12 ordering)
-            round3_peer_contexts: list[str | None] = []
-            for persona in personas:
-                ranked_posts = await graph_manager.read_ranked_posts(
-                    persona.id, cycle_id, source_round=2, limit=10,
+                # Compute influence edges after Round 3 so /api/edges/{cycle}?round=3
+                # returns a non-empty array (ITEM 2 of quick task 260512-jqn).
+                # Without this call, simulation.py only materializes INFLUENCED_BY
+                # relationships for round=1 and round=2 — the frontend "FINAL" tab
+                # then renders an empty influence graph despite 100 R3 decisions
+                # being written. up_to_round=3 is cumulative per D-04, but the
+                # write tx fixes round=3 on every new edge so the /api/edges
+                # round-filtered read picks them up.
+                round3_weights = await graph_manager.compute_influence_edges(
+                    cycle_id, up_to_round=3, total_agents=len(round3_decisions),
                 )
-                ctx = _format_peer_context(ranked_posts, source_round=2)
-                round3_peer_contexts.append(ctx if ctx else None)
 
-            # Phase 12: Write READ_POST edges for Round 3
-            if round2_post_ids:
-                await graph_manager.write_read_post_edges(
-                    agent_ids, round2_post_ids, round_num=3, cycle_id=cycle_id,
+                # Compute Round 3 bracket summaries (D-08)
+                round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
+
+                # ITEM 4 of 260512-jqn: streaming push_rationale handles per-agent;
+                # end-of-round _push_top_rationales removed (would duplicate).
+                # round3_weights is still computed above for the influence write
+                # (R3 INFLUENCED_BY edges — ITEM 2 of 260512-jqn).
+                if state_store is not None:
+                    await state_store.set_bracket_summaries(round3_summaries)
+                    _ = round3_weights  # retained for future use / explicit no-op marker
+
+                # Compute Round 3 shifts in-memory (D-13)
+                round3_shifts = _compute_shifts(
+                    round2_decisions, round3_decisions, personas,
                 )
 
-            logger.info(
-                "round_dispatch_start",
-                round_num=3,
-                agent_count=len(personas),
-                peers_found=sum(1 for c in round3_peer_contexts if c),
-                peer_selection="ranked_posts",
-            )
-
-            # Dispatch Round 3 with pre-built peer contexts
-            round3_wave_decisions = await dispatch_wave(
-                personas=worker_configs,
-                governor=governor,
-                client=ollama_client,
-                model=worker_alias,
-                user_message=effective_rumor_r3,
-                settings=settings.governor,
-                peer_contexts=round3_peer_contexts,
-                state_store=state_store,
-                round_num=3,
-            )
-            round3_decisions: list[tuple[str, AgentDecision]] = [
-                (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round3_wave_decisions)
-            ]
-            # Per-agent StateStore writes are now streamed from inside
-            # batch_dispatcher._safe_agent_inference. See debug session
-            # ws-agent-states-not-emitted-mid-sim.
-
-            round3_peer_contexts_normalized: list[str] = [
-                ctx if ctx is not None else "" for ctx in round3_peer_contexts
-            ]
-
-            round3_ids = await graph_manager.write_decisions(round3_decisions, cycle_id, round_num=3)
-
-            # Phase 12: Write Round 3 Post nodes
-            round3_post_ids = await graph_manager.write_posts(
-                round3_decisions, round3_ids, cycle_id, round_num=3,
-            )
-
-            # Phase 11: Push Round 3 episodes to WriteBuffer
-            round2_map = {aid: dec for aid, dec in round2_decisions}
-            for did, (agent_id, decision) in zip(round3_ids, round3_decisions):
-                prev_signal = round2_map.get(agent_id)
-                prev_sig = prev_signal.signal if prev_signal else None
-                persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
-                peer_ctx = (
-                    round3_peer_contexts_normalized[persona_idx]
-                    if persona_idx is not None and persona_idx < len(round3_peer_contexts_normalized)
-                    else ""
+                # Fire callback for Round 3 (progressive output)
+                round3_decisions_tuple = tuple(
+                    (aid, dec) for aid, dec in round3_decisions
                 )
-                record = EpisodeRecord(
-                    decision_id=did,
-                    agent_id=agent_id,
-                    rationale=decision.rationale,
-                    peer_context_received=peer_ctx,
-                    flip_type=compute_flip_type(prev_sig, decision.signal).value,
-                    round_num=3,
-                    cycle_id=cycle_id,
-                )
-                await write_buffer.push(record)
-            round3_flushed = await write_buffer.flush(graph_manager, entity_names)
-            logger.info("write_buffer_flushed", round_num=3, flushed=round3_flushed)
+                if on_round_complete is not None:
+                    await on_round_complete(RoundCompleteEvent(
+                        round_num=3,
+                        cycle_id=cycle_id,
+                        agent_decisions=round3_decisions_tuple,
+                        shift=round3_shifts,
+                        bracket_summaries=round3_summaries,
+                    ))
 
-            # Compute influence edges after Round 3 so /api/edges/{cycle}?round=3
-            # returns a non-empty array (ITEM 2 of quick task 260512-jqn).
-            # Without this call, simulation.py only materializes INFLUENCED_BY
-            # relationships for round=1 and round=2 — the frontend "FINAL" tab
-            # then renders an empty influence graph despite 100 R3 decisions
-            # being written. up_to_round=3 is cumulative per D-04, but the
-            # write tx fixes round=3 on every new edge so the /api/edges
-            # round-filtered read picks them up.
-            round3_weights = await graph_manager.compute_influence_edges(
-                cycle_id, up_to_round=3, total_agents=len(round3_decisions),
-            )
-
-            # Compute Round 3 bracket summaries (D-08)
-            round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
-
-            # ITEM 4 of 260512-jqn: streaming push_rationale handles per-agent;
-            # end-of-round _push_top_rationales removed (would duplicate).
-            # round3_weights is still computed above for the influence write
-            # (R3 INFLUENCED_BY edges — ITEM 2 of 260512-jqn).
-            if state_store is not None:
-                await state_store.set_bracket_summaries(round3_summaries)
-                _ = round3_weights  # retained for future use / explicit no-op marker
-
-            # Compute Round 3 shifts in-memory (D-13)
-            round3_shifts = _compute_shifts(
-                round2_decisions, round3_decisions, personas,
-            )
-
-            # Fire callback for Round 3 (progressive output)
-            round3_decisions_tuple = tuple(
-                (aid, dec) for aid, dec in round3_decisions
-            )
-            if on_round_complete is not None:
-                await on_round_complete(RoundCompleteEvent(
-                    round_num=3,
-                    cycle_id=cycle_id,
-                    agent_decisions=round3_decisions_tuple,
-                    shift=round3_shifts,
-                    bracket_summaries=round3_summaries,
-                ))
-
-            r3_seconds = time.monotonic() - r3_start
+                r3_seconds = time.monotonic() - r3_start
 
             # Phase 11: Post-simulation narrative generation (D-10, D-11)
             # Worker model is still loaded here -- generate before unload
@@ -1273,13 +1346,17 @@ async def run_simulation(
     def _parse_errors(decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]) -> int:
         return sum(1 for _, d in decisions if d.signal == SignalType.PARSE_ERROR)
 
+    final_round_decisions = (
+        round3_decisions if settings.num_rounds >= 3 else round2_decisions
+    )
     final_counts = {"buy": 0, "sell": 0, "hold": 0}
-    for _, dec in round3_decisions:
+    for _, dec in final_round_decisions:
         if dec.signal != SignalType.PARSE_ERROR:
             final_counts[dec.signal.value] += 1
 
     cycle_metrics: dict[str, float | int] = {
         "metrics_version": 1,
+        "num_rounds": settings.num_rounds,
         "r1_seconds": round(r1_seconds, 1),
         "r2_seconds": round(r2_seconds, 1),
         "r3_seconds": round(r3_seconds, 1),

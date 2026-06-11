@@ -88,7 +88,8 @@ async def test_single_agent_inference(
     # Verify OllamaClient was called correctly
     mock_client_success._client.chat.assert_called_once()
     call_kwargs = mock_client_success._client.chat.call_args.kwargs
-    assert call_kwargs.get("format") == "json"
+    from alphaswarm.worker import DECISION_JSON_SCHEMA
+    assert call_kwargs.get("format") == DECISION_JSON_SCHEMA
     assert call_kwargs.get("think") is False
     assert call_kwargs.get("model") == "alphaswarm-worker"
 

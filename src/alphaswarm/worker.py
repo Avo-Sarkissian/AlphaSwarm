@@ -26,6 +26,22 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(component="worker")
 
+# Ollama structured-outputs schema for agent decisions. Constraining the
+# decode to this schema (vs bare format="json") nearly eliminates tier-2/3
+# parse fallbacks and malformed-signal outputs from the 8B worker.
+# parse_agent_decision stays as the validation/fallback layer.
+DECISION_JSON_SCHEMA: dict = {  # type: ignore[type-arg]
+    "type": "object",
+    "properties": {
+        "signal": {"type": "string", "enum": ["buy", "sell", "hold"]},
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "sentiment": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+        "rationale": {"type": "string"},
+        "cited_agents": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["signal", "confidence", "sentiment", "rationale", "cited_agents"],
+}
+
 
 class WorkerPersonaConfig(TypedDict):
     """Lightweight runtime persona config for hot-path agent inference.
@@ -99,10 +115,10 @@ class AgentWorker:
         response = await self._client.chat(
             model=self._model,
             messages=messages,
-            format="json",
+            format=DECISION_JSON_SCHEMA,  # structured outputs: schema-constrained decode
             think=False,  # Disable thinking for structured output reliability
             keep_alive="5m",
-            # Per-bracket sampling temperature (Degens 1.2 ... Agents 0.1).
+            # Per-bracket sampling temperature (Degens 1.1 ... Algos 0.15).
             # Sampling options are per-request safe — only num_ctx forces a
             # model reload (which is why OllamaClient strips just num_ctx).
             # Without this, every agent ran at the Modelfile's temperature

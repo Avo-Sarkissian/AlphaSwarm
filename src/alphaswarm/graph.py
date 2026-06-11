@@ -2065,17 +2065,25 @@ class GraphStateManager:
         tx: "AsyncManagedTransaction",
         limit: int,
     ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction: return cycles that have at least one Round 3 decision."""
+        """Transaction: return completed cycles.
+
+        Completed = metrics were stamped at simulation end (covers 2-round
+        cycles under ALPHASWARM_NUM_ROUNDS=2), OR a Round 3 decision exists
+        (back-compat for cycles that predate metrics stamping).
+        round_count is surfaced so replay/UI can cap at the actual depth.
+        """
         result = await tx.run(
             """
             MATCH (c:Cycle)
-            WHERE EXISTS {
+            WHERE c.metrics_recorded_at IS NOT NULL
+               OR EXISTS {
                 MATCH (:Agent)-[:MADE]->(d:Decision {cycle_id: c.cycle_id, round: 3})
             }
             RETURN
                 c.cycle_id AS cycle_id,
                 c.created_at AS created_at,
-                c.seed_rumor AS seed_rumor
+                c.seed_rumor AS seed_rumor,
+                coalesce(c.num_rounds, 3) AS round_count
             ORDER BY c.created_at DESC
             LIMIT $limit
             """,

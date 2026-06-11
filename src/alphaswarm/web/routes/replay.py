@@ -87,7 +87,9 @@ async def replay_cycles(request: Request) -> ReplayCyclesResponse:
             cycle_id=c["cycle_id"],
             created_at=c["created_at"].isoformat() if isinstance(c["created_at"], datetime) else str(c["created_at"]),
             seed_rumor=c.get("seed_rumor", ""),
-            round_count=3,  # All completed cycles have exactly 3 rounds
+            # Actual cascade depth (2 under ALPHASWARM_NUM_ROUNDS=2);
+            # cycles predating metrics stamping default to 3.
+            round_count=c.get("round_count", 3),
         )
         for c in raw_cycles
     ]
