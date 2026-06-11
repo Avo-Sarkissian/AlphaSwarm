@@ -1,10 +1,21 @@
 # AlphaSwarm Orchestrator Model
 # Register with: ollama create alphaswarm-orchestrator -f modelfiles/Modelfile.orchestrator
-# Base: qwen3.6:27b-q4_K_M — Q4_K_M dodges the IQ4_XS Metal kernel regression
-# (~3.8x slowdown on Apple Silicon). num_ctx trimmed from qwen3.6's 262144
-# default to 8192 to keep KV cache manageable. Reasoning is default-on in
-# qwen3.6; call sites pass think=False per 41.4-MODEL-DECISION-LOG.md.
-FROM qwen3.6:27b-q4_K_M
+#
+# Base: qwen3.6:27b-nvfp4 (MLX format) — model decision 2026-06-11,
+# benchmarked on this M1 Max 64GB (ollama 0.30.7):
+#   qwen3.6:27b-q4_K_M (GGUF/llama.cpp): prefill  111 t/s, decode  9.0 t/s
+#   qwen3.6:27b-nvfp4 (MLX, THIS):       prefill 3395 t/s, decode 11.3 t/s
+# The advisory prompt is 5-8k tokens: MLX cuts its prefill from ~60s to ~2s
+# and the full advisory call from ~4 min to ~2.5 min. Same 27B weights —
+# still the strongest open model in the 64GB budget (beats Gemma 4 31B
+# aggregate and Qwen3.5-397B on coding per Apr-2026 benchmarks).
+#
+# Requirements: OLLAMA_USE_MLX=1 (configure script persists it via
+# LaunchAgent) and >=32GB unified memory; silent llama.cpp fallback
+# otherwise. nvfp4 is text-only (no vision). num_ctx kept at 8192 to
+# bound KV. Reasoning is default-on in qwen3.6; call sites pass
+# think=False per 41.4-MODEL-DECISION-LOG.md.
+FROM qwen3.6:27b-nvfp4
 PARAMETER num_ctx 8192
 PARAMETER temperature 0.7
 PARAMETER num_gpu 999

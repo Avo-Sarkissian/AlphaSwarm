@@ -25,12 +25,12 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.app_name == "AlphaSwarm"
     assert settings.debug is False
     assert settings.log_level == "INFO"
-    # Phase 41.4 model decision: orchestrator → qwen3.6:27b-q4_K_M (was qwen3.5:32b),
-    # worker → qwen3:8b (was qwen3.5:7b), num_parallel → 4 (was 16; 16 spills KV
-    # cache to CPU on M1 Max). See `.planning/phases/41.4-r3-inference-and-ws-stall/`
-    # and memory:project_phase_41.4_model_decision.md.
-    assert settings.ollama.orchestrator_model == "qwen3.6:27b-q4_K_M"
-    assert settings.ollama.worker_model == "qwen3:8b"
+    # Model decision 2026-06-11: MLX-format variants (OLLAMA_USE_MLX=1) —
+    # 2.8x worker prefill / 30x orchestrator prefill vs GGUF on M1 Max.
+    # Benchmarks + requirements in modelfiles/. num_parallel stays 4
+    # (16 spills KV cache to CPU on M1 Max, per the 41.4 decision log).
+    assert settings.ollama.orchestrator_model == "qwen3.6:27b-nvfp4"
+    assert settings.ollama.worker_model == "qwen3.6:35b-a3b-nvfp4"
     assert settings.ollama.num_parallel == 4
     assert settings.neo4j.uri == "bolt://localhost:7687"
     assert settings.governor.baseline_parallel == 8

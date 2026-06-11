@@ -28,8 +28,11 @@ logger = structlog.get_logger(component="config")
 class OllamaSettings(BaseModel):
     """Ollama inference server configuration."""
 
-    orchestrator_model: str = "qwen3.6:27b-q4_K_M"
-    worker_model: str = "qwen3:8b"
+    # Model decision 2026-06-11: MLX-format variants (OLLAMA_USE_MLX=1,
+    # >=32GB) — 2.8x worker prefill, 30x orchestrator prefill vs GGUF on
+    # M1 Max. See modelfiles/ for benchmarks and requirements.
+    orchestrator_model: str = "qwen3.6:27b-nvfp4"
+    worker_model: str = "qwen3.6:35b-a3b-nvfp4"
     num_parallel: int = Field(default=4, ge=1, le=32)
     max_loaded_models: int = Field(default=2, ge=1, le=4)
     base_url: str = "http://localhost:11434"

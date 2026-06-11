@@ -1,19 +1,23 @@
 # AlphaSwarm Worker Agent Model
 # Register with: ollama create alphaswarm-worker -f modelfiles/Modelfile.worker
 #
-# Base: qwen3.5:35b (36B MoE, ~3B active) — model decision 2026-06-11.
-# Benchmarked on this M1 Max 64GB (ollama 0.30.7, llama.cpp Metal path):
-#   qwen3:8b  (old worker): prefill 422 t/s, decode 43 t/s
-#   qwen3.5:35b (this):     prefill 833 t/s, decode 60 t/s — faster AND
-#   two model generations smarter. Dense-model parallel decode is memory-
-#   bandwidth-capped on M1 Max (4-way qwen3:8b aggregated only ~25-43 t/s),
-#   so a fast MoE single-stream beats a parallel dense 8B outright.
-# Known limitation: qwen35moe arch serializes decode under OLLAMA_NUM_PARALLEL
-# in 0.30.7 (same family as ollama issues #14510/#14621/#14879). Prefill
-# still overlaps; NUM_PARALLEL=4 stays set (harmless, helps other archs).
-# MLX upgrade path: rebase on qwen3.5:35b-a3b-nvfp4 (MLX backend, ~2x
-# prefill) once benchmarked — requires OLLAMA_USE_MLX=1 (configure script).
-FROM qwen3.5:35b
+# Base: qwen3.6:35b-a3b-nvfp4 (36B MoE ~3B active, MLX format) — model
+# decision 2026-06-11, benchmarked on this M1 Max 64GB (ollama 0.30.7):
+#   qwen3:8b (old, GGUF/llama.cpp):     prefill  422 t/s, decode 43 t/s
+#   qwen3.5:35b (GGUF/llama.cpp):       prefill  833 t/s, decode 60 t/s
+#   qwen3.6:35b-a3b-nvfp4 (MLX, THIS):  prefill 2361 t/s, decode 56 t/s
+# 2.8x prefill over the GGUF MoE path matters because persona prompts are
+# ~2.5k tokens vs ~150 output tokens. Newest-generation MoE on top.
+#
+# Requirements: OLLAMA_USE_MLX=1 (scripts/configure_ollama_app_env.sh sets
+# it + persists via LaunchAgent) and >=32GB unified memory — otherwise
+# ollama SILENTLY falls back to llama.cpp. Verify after a cold start:
+#   grep "MLX engine initialized" ~/.ollama/logs/server.log
+# Note: nvfp4 variants are text-only (no vision) — fine for the swarm.
+# Dense-parallel-decode is bandwidth-capped on M1 Max, so a fast-MoE
+# single stream beats parallel dense 8B; NUM_PARALLEL=4 stays for prefill
+# overlap on other archs.
+FROM qwen3.6:35b-a3b-nvfp4
 PARAMETER num_ctx 4096
 PARAMETER temperature 0.7
 PARAMETER num_gpu 999
