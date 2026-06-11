@@ -109,7 +109,7 @@ function ObStep0({ onNext }: { onNext: () => void }) {
         <div className="ob-kicker label">WELCOME TO</div>
         <h1 className="ob-title">AlphaSwarm</h1>
         <p className="ob-lede">
-          Feed it a market rumor. Watch 100 AI personas — quants, degens, whales,
+          Feed it a market rumor. Watch 100 AI personas — quants, degens, short-sellers,
           policy wonks — debate it across 3 rounds and converge toward consensus.
           All inference runs locally. No cloud. No API keys. No data leaves your machine.
         </p>

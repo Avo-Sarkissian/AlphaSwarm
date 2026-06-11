@@ -71,13 +71,19 @@ async def test_inject_seed_loads_orchestrator_model(
 
 
 @pytest.mark.asyncio()
-async def test_inject_seed_calls_chat_with_json_format_and_think(
+async def test_inject_seed_calls_chat_with_json_format_and_think_false(
     mock_settings: MagicMock,
     mock_ollama_client: AsyncMock,
     mock_model_manager: AsyncMock,
     mock_graph_manager: AsyncMock,
 ) -> None:
-    """inject_seed calls ollama_client.chat with format='json' and think=True."""
+    """inject_seed calls ollama_client.chat with format='json' and think=False.
+
+    Phase 41.4 model decision: think=False. think=True added ~265s/call with
+    marginal quality gain on this workload.
+    See .planning/phases/41.4-r3-inference-and-ws-stall/41.4-MODEL-DECISION-LOG.md
+    for revisit triggers and how to flip back.
+    """
     from alphaswarm.seed import inject_seed
 
     await inject_seed(
@@ -91,7 +97,7 @@ async def test_inject_seed_calls_chat_with_json_format_and_think(
     mock_ollama_client.chat.assert_awaited_once()
     call_kwargs = mock_ollama_client.chat.call_args[1]
     assert call_kwargs["format"] == "json"
-    assert call_kwargs["think"] is True
+    assert call_kwargs["think"] is False
 
 
 @pytest.mark.asyncio()

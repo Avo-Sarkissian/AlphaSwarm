@@ -334,152 +334,116 @@ _DISSENTERS_OBS = ToolObservation(
 )
 
 
-class TestHtmlAssembler:
-    """EXPORT-01: assemble_html() produces valid HTML with all sections."""
+class TestMarkdownAssembler:
+    """assemble() produces a valid markdown report with the expected sections.
 
-    def test_produces_html_document(self) -> None:
+    The HTML report path was removed (v4.0 → v6.0 migration): reports are now
+    markdown that the frontend renders via marked.js. These tests target the
+    surviving `ReportAssembler.assemble()` method (SWEEP-260528 B-1).
+    """
+
+    def test_produces_markdown_document(self) -> None:
         assembler = ReportAssembler()
-        html = assembler.assemble_html([_CONSENSUS_OBS], "test-cycle")
-        assert "<!DOCTYPE html>" in html
-        assert "<html" in html
-        assert "</html>" in html
+        md = assembler.assemble([_CONSENSUS_OBS], "test-cycle")
+        # Header is always emitted, even with no observations
+        assert md.startswith("# Post-Simulation Analysis Report")
+        # Section heading from 01_consensus_summary.j2
+        assert "## Consensus Summary" in md
 
     def test_contains_cycle_id(self) -> None:
         assembler = ReportAssembler()
-        html = assembler.assemble_html([_CONSENSUS_OBS], "abc-123")
-        assert "abc-123" in html
+        md = assembler.assemble([_CONSENSUS_OBS], "abc-123")
+        assert "abc-123" in md
 
     def test_contains_page_title(self) -> None:
         assembler = ReportAssembler()
-        html = assembler.assemble_html([], "test-cycle")
-        assert "AlphaSwarm Post-Simulation Report" in html
+        md = assembler.assemble([], "test-cycle")
+        assert "# Post-Simulation Analysis Report" in md
 
-    def test_contains_consensus_svg(self) -> None:
+    def test_contains_consensus_counts(self) -> None:
         assembler = ReportAssembler()
-        html = assembler.assemble_html([_CONSENSUS_OBS], "test-cycle")
-        assert "<svg" in html
+        md = assembler.assemble([_CONSENSUS_OBS], "test-cycle")
+        # Buy/sell/hold counts from _CONSENSUS_OBS render into the table
+        assert "50" in md  # buy_count
+        assert "30" in md  # sell_count
+        assert "20" in md  # hold_count
 
-    def test_contains_timeline_svg(self) -> None:
+    def test_contains_timeline_table(self) -> None:
         assembler = ReportAssembler()
-        html = assembler.assemble_html([_TIMELINE_OBS], "test-cycle")
-        assert "<svg" in html
+        md = assembler.assemble([_TIMELINE_OBS], "test-cycle")
+        assert "## Round Timeline" in md
+        # 3 rounds × BUY/SELL/HOLD header columns
+        assert "| Round |" in md
+        assert "BUY" in md
 
     def test_contains_bracket_table(self) -> None:
         assembler = ReportAssembler()
-        html = assembler.assemble_html([_BRACKET_OBS], "test-cycle")
-        assert "Quants" in html
-        assert "Bracket Analysis" in html
+        md = assembler.assemble([_BRACKET_OBS], "test-cycle")
+        assert "## Bracket Narratives" in md
+        assert "Quants" in md
 
     def test_contains_dissenters_table(self) -> None:
         assembler = ReportAssembler()
-        html = assembler.assemble_html([_DISSENTERS_OBS], "test-cycle")
-        assert "Key Dissenters" in html
+        md = assembler.assemble([_DISSENTERS_OBS], "test-cycle")
+        assert "## Key Dissenters" in md
+        # Dissenter row data
+        assert "a1" in md
 
-    def test_existing_markdown_assemble_still_works(self) -> None:
+    def test_empty_observations_produces_header_only(self) -> None:
         assembler = ReportAssembler()
-        md = assembler.assemble([_CONSENSUS_OBS], "test-cycle")
-        assert "## Consensus Summary" in md
-        assert "50" in md
+        md = assembler.assemble([], "test-cycle")
+        # Header still present, but no section headings since no observations
+        assert md.startswith("# Post-Simulation Analysis Report")
+        assert "## Consensus Summary" not in md
+        assert "## Round Timeline" not in md
 
-    def test_empty_observations_produces_valid_html(self) -> None:
+
+class TestMarkdownStructure:
+    """Markdown report sections are well-formed and appear in canonical order."""
+
+    def test_all_sections_render_in_canonical_order(self) -> None:
+        """When all four observations present, sections appear in SECTION_ORDER."""
         assembler = ReportAssembler()
-        html = assembler.assemble_html([], "test-cycle")
-        assert "<!DOCTYPE html>" in html
-        assert "Insufficient data to render chart." in html
-
-
-class TestHtmlSelfContained:
-    """EXPORT-01: HTML contains no external resource references."""
-
-    def test_no_external_http_refs(self) -> None:
-        """No external resource-loading URLs (CDN fonts, stylesheets, scripts).
-
-        SVG inline markup legitimately contains http://www.w3.org/2000/svg as
-        an XML namespace declaration and pygal comment URLs — neither causes a
-        network request.  We check for actual resource-loading patterns instead.
-        """
-        assembler = ReportAssembler()
-        html = assembler.assemble_html(
-            [_CONSENSUS_OBS, _TIMELINE_OBS, _BRACKET_OBS],
+        md = assembler.assemble(
+            [_DISSENTERS_OBS, _BRACKET_OBS, _TIMELINE_OBS, _CONSENSUS_OBS],
             "test-cycle",
-            market_context_data=[_FULL_MARKET_ROW],
         )
-        # No external stylesheet, font, or script URLs that would break offline
-        assert 'href="http' not in html
-        assert 'href="https' not in html
-        assert 'src="http' not in html
-        assert 'src="https' not in html
-        assert 'url(http' not in html
-        assert 'url(https' not in html
+        # SECTION_ORDER is consensus → timeline → bracket_narratives → dissenters
+        consensus_pos = md.index("## Consensus Summary")
+        timeline_pos = md.index("## Round Timeline")
+        bracket_pos = md.index("## Bracket Narratives")
+        dissenters_pos = md.index("## Key Dissenters")
+        assert consensus_pos < timeline_pos < bracket_pos < dissenters_pos
 
-    def test_no_external_link_tags(self) -> None:
+    def test_no_html_tags_in_output(self) -> None:
+        """Markdown output must NOT contain HTML markup — the frontend renders
+        via marked.js with HTML escaping enabled; raw HTML in the source would
+        either render as plain text or be sanitized away."""
         assembler = ReportAssembler()
-        html = assembler.assemble_html([_CONSENSUS_OBS], "test-cycle")
-        assert '<link ' not in html.lower()
+        md = assembler.assemble(
+            [_CONSENSUS_OBS, _TIMELINE_OBS, _BRACKET_OBS, _DISSENTERS_OBS],
+            "test-cycle",
+        )
+        # Common HTML structural tags must not appear in markdown source
+        assert "<!DOCTYPE" not in md
+        assert "<html" not in md
+        assert "<body" not in md
+        assert "<svg" not in md
+        assert "<script" not in md
 
-    def test_no_external_script_src(self) -> None:
-        assembler = ReportAssembler()
-        html = assembler.assemble_html([_CONSENSUS_OBS], "test-cycle")
-        assert '<script src=' not in html.lower()
-        assert 'kozea.github.io' not in html
 
+class TestMarkdownFileSize:
+    """Generated markdown stays small enough to round-trip through file I/O
+    and the frontend renderer without pagination."""
 
-class TestHtmlFileSize:
-    """EXPORT-01: Generated HTML under 1MB."""
-
-    def test_full_report_under_1mb(self) -> None:
+    def test_full_report_under_100kb(self) -> None:
         all_obs = [_CONSENSUS_OBS, _TIMELINE_OBS, _BRACKET_OBS, _DISSENTERS_OBS]
         assembler = ReportAssembler()
-        html = assembler.assemble_html(
-            all_obs, "test-cycle",
-            market_context_data=[_FULL_MARKET_ROW],
-        )
-        size_bytes = len(html.encode("utf-8"))
-        assert size_bytes < 1_000_000, f"HTML size {size_bytes} exceeds 1MB limit"
-
-
-class TestHtmlDarkTheme:
-    """EXPORT-03: HTML uses dark theme matching TUI aesthetic."""
-
-    def test_body_dark_background(self) -> None:
-        assembler = ReportAssembler()
-        html = assembler.assemble_html([], "test-cycle")
-        assert "background: #121212" in html
-
-    def test_accent_color_in_headings(self) -> None:
-        assembler = ReportAssembler()
-        html = assembler.assemble_html([], "test-cycle")
-        assert "color: #4FC3F7" in html
-
-    def test_foreground_text_color(self) -> None:
-        assembler = ReportAssembler()
-        html = assembler.assemble_html([], "test-cycle")
-        assert "color: #E0E0E0" in html
-
-    def test_signal_buy_color(self) -> None:
-        assembler = ReportAssembler()
-        html = assembler.assemble_html([], "test-cycle")
-        assert "color: #66BB6A" in html
-
-    def test_signal_sell_color(self) -> None:
-        assembler = ReportAssembler()
-        html = assembler.assemble_html([], "test-cycle")
-        assert "color: #EF5350" in html
-
-
-class TestChartStyleInSvg:
-    """EXPORT-03: SVG charts embed dark theme colors."""
-
-    def test_consensus_svg_dark_background(self) -> None:
-        assembler = ReportAssembler()
-        html = assembler.assemble_html([_CONSENSUS_OBS], "test-cycle")
-        assert "#121212" in html
-        assert "#1E1E1E" in html
-
-    def test_no_xml_declaration_in_output(self) -> None:
-        assembler = ReportAssembler()
-        html = assembler.assemble_html([_CONSENSUS_OBS], "test-cycle")
-        assert "<?xml" not in html
+        md = assembler.assemble(all_obs, "test-cycle")
+        size_bytes = len(md.encode("utf-8"))
+        # Markdown reports are ~1-10 KB in practice; 100 KB is the soft cap
+        # below which the frontend renderer is verified not to choke.
+        assert size_bytes < 100_000, f"Markdown size {size_bytes} exceeds 100KB"
 
 
 # ---------------------------------------------------------------------------

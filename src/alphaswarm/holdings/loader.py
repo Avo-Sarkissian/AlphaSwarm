@@ -119,13 +119,17 @@ class HoldingsLoader:
         # traceability (IRA vs taxable lots are tax-distinct).
         holdings_list: list[Holding] = []
         account_labels: set[str] = set()
-        for row in rows:
+        for row_num, row in enumerate(rows, start=2):  # row 1 is the header
             try:
                 qty = Decimal(row["shares"])
                 cost_per_share = Decimal(row["cost_basis_per_share"])
-            except InvalidOperation as exc:
+            except (InvalidOperation, TypeError) as exc:
+                # TypeError: ragged rows — DictReader fills missing cells with
+                # restval=None and Decimal(None) raises TypeError, not
+                # InvalidOperation. Pitfall 7: never embed the raw row in the
+                # message (it gets logged) — row NUMBER only.
                 raise HoldingsLoadError(
-                    f"Invalid numeric value in row {row!r}: {exc}"
+                    f"Invalid numeric value in CSV row {row_num}: {exc}"
                 ) from exc
             account_labels.add(row["account"])
             holdings_list.append(

@@ -73,42 +73,54 @@ async def interview_agent(
             },
         )
 
-    # sessions stores {agent_id: {"engine": InterviewEngine, "lock": asyncio.Lock}}
+    # sessions stores {agent_id: {"engine": InterviewEngine | None, "lock": asyncio.Lock}}
     sessions: dict = request.app.state.interview_sessions
 
-    if agent_id not in sessions:
-        cycles = await graph_manager.read_completed_cycles(limit=1)
-        if not cycles:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": "no_completed_cycle", "message": "No completed simulation cycle found"},
-            )
-        cycle_id = cycles[0]["cycle_id"]
-
-        context = await graph_manager.read_agent_interview_context(agent_id, cycle_id)
-
-        # 404 if context is missing or has no agent data (addresses Gemini/Codex agent validation concern)
-        if context is None or not getattr(context, "agent_name", None):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": "agent_not_found", "message": f"No interview context for agent {agent_id}"},
-            )
-
-        engine = InterviewEngine(
-            context=context,
-            ollama_client=ollama_client,
-            model=app_state.settings.ollama.worker_model_alias,
-        )
-        sessions[agent_id] = {"engine": engine, "lock": asyncio.Lock()}
-        log.info("interview_session_created", agent_id=agent_id, cycle_id=cycle_id)
-
-    entry = sessions[agent_id]
-    engine = entry["engine"]
+    # Insert the session entry (with its lock) BEFORE any await so two
+    # concurrent first-messages for the same agent share one lock instead of
+    # both building engines and silently discarding one conversation.
+    entry = sessions.get(agent_id)
+    if entry is None:
+        entry = {"engine": None, "lock": asyncio.Lock()}
+        sessions[agent_id] = entry
     lock: asyncio.Lock = entry["lock"]
 
-    # Per-agent lock — addresses Codex HIGH: concurrent _history mutation
+    # Per-agent lock — serializes lazy engine creation AND ask() so concurrent
+    # requests never mutate _history concurrently (Codex HIGH).
     async with lock:
-        response_text = await engine.ask(body.message)
+        if entry["engine"] is None:
+            try:
+                cycles = await graph_manager.read_completed_cycles(limit=1)
+                if not cycles:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail={"error": "no_completed_cycle", "message": "No completed simulation cycle found"},
+                    )
+                cycle_id = cycles[0]["cycle_id"]
+
+                context = await graph_manager.read_agent_interview_context(agent_id, cycle_id)
+
+                # 404 if context is missing or has no agent data (addresses Gemini/Codex agent validation concern)
+                if context is None or not getattr(context, "agent_name", None):
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail={"error": "agent_not_found", "message": f"No interview context for agent {agent_id}"},
+                    )
+
+                entry["engine"] = InterviewEngine(
+                    context=context,
+                    ollama_client=ollama_client,
+                    model=app_state.settings.ollama.worker_model_alias,
+                )
+                log.info("interview_session_created", agent_id=agent_id, cycle_id=cycle_id)
+            except BaseException:
+                # Creation failed — remove the placeholder (only if still ours)
+                # so a later retry re-attempts instead of finding engine=None.
+                if sessions.get(agent_id) is entry:
+                    sessions.pop(agent_id, None)
+                raise
+
+        response_text = await entry["engine"].ask(body.message)
 
     log.info("interview_turn", agent_id=agent_id, message_len=len(body.message))
     return InterviewResponse(response=response_text)

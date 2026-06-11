@@ -201,7 +201,7 @@ class RSSNewsProvider:
                 return_exceptions=False,  # _fetch_one is contractually never-raise
             )
         for s in slices:
-            ok = s.staleness != "failed"
+            ok = s.staleness != "fetch_failed"
             self._audit(
                 query=f"headlines:{s.entity}",
                 result="ok" if ok else "error: fetch_failed",

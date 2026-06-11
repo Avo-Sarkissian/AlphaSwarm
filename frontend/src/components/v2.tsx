@@ -338,9 +338,20 @@ export function ModelStatus() {
   const phase = tel.phase;
   const tps = tel.telemetry.tps ?? 0;
   const slots = tel.telemetry.slotsUsed ?? 0;
+  // Round comes from the frame's roundNum — phase is a string like 'round_1',
+  // so interpolating it directly rendered "round round_1/3".
+  const roundNum = conn.lastFrame?.roundNum ?? null;
 
   const ops = [
-    `${phase === 'done' ? 'complete' : phase === 'idle' ? 'idle' : `round ${phase}/3`}`,
+    `${
+      phase === 'complete'
+        ? 'complete'
+        : phase === 'idle'
+          ? 'idle'
+          : roundNum != null && roundNum >= 1
+            ? `round ${roundNum}/3`
+            : phase // 'seeding' / pre-round frames have no round yet
+    }`,
     `${slots} slots`,
     `${tps.toFixed(1)} t/s`,
   ];
@@ -765,6 +776,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
     fetchFn: () => (cycleId ? advisoryFetch(cycleId) : Promise.resolve(null)),
     intervalMs: 3000,
     maxAttempts: 1200,
+    stopWhenData: true, // report is immutable once generated — stop the 3s loop
   });
   const report = polled.data as AdvisoryReportPayload | null;
   const hadError = polled.error !== null;
@@ -900,7 +912,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
         {cycleId && polled.loading && !report && !hadError && (
           <div className="advisory-card">
             <div className="label" style={{ marginBottom: 8 }}>
-              Generating advisory…
+              Generating advisory…{polled.attempt > 0 ? ` (poll #${polled.attempt})` : ''}
             </div>
             <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
               The orchestrator is running post-R3 narrative generation, swapping

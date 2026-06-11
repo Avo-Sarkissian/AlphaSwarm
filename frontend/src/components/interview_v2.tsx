@@ -40,11 +40,11 @@ function SignalTrajectory({ agent, byRound }: SignalTrajectoryProps) {
       const list = byRound[round] ?? [];
       const r = list[list.length - 1]; // latest in round
       if (r) {
-        // RationaleView doesn't carry the discrete signal — fall back to the
-        // agent's current signal (final-round) and render confidence per round.
+        // RationaleView carries the per-entry wire signal — use it so each
+        // round shows what the agent said THEN, not its current signal.
         return {
           round,
-          signal: round === 3 ? agent.signal : agent.signal,
+          signal: r.signal,
           conf: agent.confidence, // per-round confidence not in RationaleView; show current
           present: true,
         };

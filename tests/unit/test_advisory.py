@@ -277,11 +277,21 @@ async def test_ticker_join_filters_unmatched() -> None:
         orchestrator_model="alphaswarm-orchestrator",
     )
 
+    # SWEEP-260528 B-7: the engine pads HOLD@0.30 items server-side for every
+    # holding the LLM didn't return, so the full portfolio is represented
+    # without spending LLM tokens on no-signal HOLD boilerplate.
     assert report.total_holdings == 5
+    # affected_holdings counts only LLM conviction items, NOT padded HOLDs.
     assert report.affected_holdings == 2
-    assert {i.ticker for i in report.items} == {"NVDA", "TSLA"}
+    # All 5 tickers present: 2 from the LLM + 3 padded by the engine.
+    assert {i.ticker for i in report.items} == {"AAPL", "NVDA", "TSLA", "AMZN", "MSFT"}
+    # Padded items are HOLD@0.30 with the canonical placeholder message.
+    padded = [i for i in report.items if i.ticker in {"AAPL", "AMZN", "MSFT"}]
+    assert all(i.consensus_signal == "HOLD" for i in padded)
+    assert all(abs(float(i.confidence) - 0.30) < 1e-9 for i in padded)
 
-    # All 5 tickers should appear in the prompt payload (prefetch fidelity)
+    # Top 15 enriched tickers reach the LLM prompt; with only 5 holdings here
+    # the whole portfolio is in the top-15 slice so all 5 still appear.
     prompt_text = "\n".join(m["content"] for m in fake_ollama.calls[0])
     for t in ["AAPL", "NVDA", "TSLA", "AMZN", "MSFT"]:
         assert t in prompt_text
@@ -363,6 +373,166 @@ async def test_synthesize_retry_then_fail() -> None:
             orchestrator_model="alphaswarm-orchestrator",
         )
     assert len(fake_ollama.calls) == 2  # retry budget is exactly 1
+
+
+# ---------------- Post-LLM reconciliation (audit fix #1) ------------------
+
+
+def _portfolio_with_lots(lots: list[tuple[str, str]]) -> PortfolioSnapshot:
+    """Portfolio built from (ticker, cost_basis) lots — duplicate tickers allowed."""
+    holdings = tuple(
+        Holding(ticker=t, qty=Decimal("10"), cost_basis=Decimal(cost)) for t, cost in lots
+    )
+    return PortfolioSnapshot(
+        holdings=holdings,
+        as_of=datetime.now(UTC),
+        account_number_hash="deadbeef",
+    )
+
+
+async def test_duplicate_lots_pad_once_with_aggregated_exposure() -> None:
+    """MRVL held in taxable AND Roth (two lots) yields ONE padded item with
+    the cost basis aggregated across lots; total_holdings counts unique tickers."""
+    portfolio = _portfolio_with_lots([("MRVL", "100"), ("MRVL", "50"), ("AAPL", "300")])
+    canned = _valid_advisory_payload(items=[], total=3)
+
+    report = await synthesize(
+        cycle_id="unit_cycle",
+        portfolio=portfolio,
+        graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
+        ollama_client=FakeOllamaClient(canned=[canned]),  # type: ignore[arg-type]
+        orchestrator_model="alphaswarm-orchestrator",
+    )
+
+    assert report.total_holdings == 2  # unique tickers, not lots
+    assert sorted(i.ticker for i in report.items) == ["AAPL", "MRVL"]
+    mrvl = next(i for i in report.items if i.ticker == "MRVL")
+    assert mrvl.position_exposure == Decimal("150")  # 100 + 50 aggregated
+
+
+async def test_hallucinated_tickers_filtered_and_exposure_overwritten() -> None:
+    """LLM items for unowned tickers are dropped; kept items get the actual
+    aggregated cost basis instead of the LLM-invented exposure."""
+    portfolio = _portfolio_with_lots([("AAPL", "100"), ("NVDA", "250"), ("NVDA", "150")])
+    canned = _valid_advisory_payload(
+        items=[
+            {
+                "ticker": "GME",  # not owned — hallucinated
+                "consensus_signal": "BUY",
+                "confidence": 0.9,
+                "rationale_summary": "hallucinated",
+                "position_exposure": "123456",
+            },
+            {
+                "ticker": "NVDA",
+                "consensus_signal": "BUY",
+                "confidence": 0.8,
+                "rationale_summary": "real",
+                "position_exposure": "999",  # LLM-invented — must be overwritten
+            },
+        ],
+        total=3,
+    )
+
+    report = await synthesize(
+        cycle_id="unit_cycle",
+        portfolio=portfolio,
+        graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
+        ollama_client=FakeOllamaClient(canned=[canned]),  # type: ignore[arg-type]
+        orchestrator_model="alphaswarm-orchestrator",
+    )
+
+    tickers = {i.ticker for i in report.items}
+    assert "GME" not in tickers
+    assert tickers == {"AAPL", "NVDA"}
+    nvda = next(i for i in report.items if i.ticker == "NVDA")
+    assert nvda.position_exposure == Decimal("400")  # 250 + 150 actual lots
+    assert report.affected_holdings == 1  # only the kept NVDA conviction item
+
+
+async def test_padded_items_sort_after_conviction_items() -> None:
+    """Padded HOLD@0.30 placeholders rank AFTER conviction items even when
+    their raw score (confidence × exposure share) is higher — sort key is
+    (is_padded, -score)."""
+    # SWYXX dominates exposure: padded score 0.30 × ~1.0 beats the tiny AAPL
+    # conviction score 0.35 × ~0.0001 — old ranking put SWYXX first.
+    portfolio = _portfolio_with_lots([("AAPL", "10"), ("SWYXX", "100000")])
+    canned = _valid_advisory_payload(
+        items=[
+            {
+                "ticker": "AAPL",
+                "consensus_signal": "BUY",
+                "confidence": 0.35,
+                "rationale_summary": "small but conviction",
+                "position_exposure": "10",
+            },
+        ],
+        total=2,
+    )
+
+    report = await synthesize(
+        cycle_id="unit_cycle",
+        portfolio=portfolio,
+        graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
+        ollama_client=FakeOllamaClient(canned=[canned]),  # type: ignore[arg-type]
+        orchestrator_model="alphaswarm-orchestrator",
+    )
+
+    assert [i.ticker for i in report.items] == ["AAPL", "SWYXX"]
+    assert report.items[1].consensus_signal == "HOLD"
+    assert abs(float(report.items[1].confidence) - 0.30) < 1e-9
+
+
+async def test_llm_duplicate_ticker_items_deduped_keep_highest_confidence() -> None:
+    """If the LLM emits the same ticker twice, keep the higher-confidence item."""
+    portfolio = _portfolio_with_lots([("NVDA", "400")])
+    canned = _valid_advisory_payload(
+        items=[
+            {
+                "ticker": "NVDA",
+                "consensus_signal": "HOLD",
+                "confidence": 0.5,
+                "rationale_summary": "weak",
+                "position_exposure": "400",
+            },
+            {
+                "ticker": "NVDA",
+                "consensus_signal": "BUY",
+                "confidence": 0.8,
+                "rationale_summary": "strong",
+                "position_exposure": "400",
+            },
+        ],
+        total=1,
+    )
+
+    report = await synthesize(
+        cycle_id="unit_cycle",
+        portfolio=portfolio,
+        graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
+        ollama_client=FakeOllamaClient(canned=[canned]),  # type: ignore[arg-type]
+        orchestrator_model="alphaswarm-orchestrator",
+    )
+
+    assert len(report.items) == 1
+    assert report.items[0].consensus_signal == "BUY"
+    assert report.items[0].confidence == 0.8
+
+
+async def test_cycle_id_overwritten_with_caller_value() -> None:
+    """The LLM-echoed cycle_id never persists — the caller's value wins."""
+    portfolio = _portfolio_with_lots([("AAPL", "100")])
+    canned = _valid_advisory_payload(items=[], total=1)  # echoes "unit_cycle"
+
+    report = await synthesize(
+        cycle_id="real_cycle_42",
+        portfolio=portfolio,
+        graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
+        ollama_client=FakeOllamaClient(canned=[canned]),  # type: ignore[arg-type]
+        orchestrator_model="alphaswarm-orchestrator",
+    )
+
+    assert report.cycle_id == "real_cycle_42"
 
 
 # ---------------- Isolation sanity (mini canary; full canary in 41-02) ---

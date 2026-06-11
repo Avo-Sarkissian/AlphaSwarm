@@ -12,22 +12,37 @@ import { agentIdToBracket } from './agentId';
 
 // Backend BracketType.value → human display label (matches state.py BracketSummary.display_name).
 const BRACKET_DISPLAY: Record<BracketKey, string> = {
+  Institutions: 'Institutions',
+  SellSide: 'Sell-Side',
+  EventDriven: 'Event-Driven',
   Quants: 'Quants',
   Degens: 'Degens',
-  Sovereigns: 'Sovereigns',
+  Narrators: 'Narrators',
+  Algos: 'Algos',
   Macro: 'Macro',
-  Suits: 'Suits',
-  Insiders: 'Insiders',
-  Agents: 'Agents',
-  DoomPosters: 'Doom-Posters',
-  Whales: 'Whales',
-  PolicyWonks: 'Policy Wonks',
+  Shorts: 'Shorts',
+  Allocators: 'Allocators',
+};
+
+// Wire bracket value (snake_case) → frontend BracketKey (PascalCase).
+const WIRE_TO_KEY: Record<string, BracketKey> = {
+  institutions: 'Institutions',
+  sell_side: 'SellSide',
+  event_driven: 'EventDriven',
+  quants: 'Quants',
+  degens: 'Degens',
+  narrators: 'Narrators',
+  algos: 'Algos',
+  macro: 'Macro',
+  shorts: 'Shorts',
+  allocators: 'Allocators',
 };
 
 function normaliseSignal(raw: unknown): AgentSignal {
   if (typeof raw !== 'string') return 'hold';
   const s = raw.toLowerCase();
-  if (s === 'buy' || s === 'sell' || s === 'hold') return s;
+  if (s === 'buy' || s === 'sell' || s === 'hold' || s === 'parse_error')
+    return s;
   return 'hold';
 }
 
@@ -61,11 +76,14 @@ export function adaptSnapshot(raw: unknown): StateFrame {
     typeof gov.active_count === 'number' ? gov.active_count : 0;
   const slotsMax =
     typeof gov.current_slots === 'number' ? gov.current_slots : 0;
+  const governorState =
+    typeof gov.governor_state === 'string' ? gov.governor_state : null;
 
   const telemetry: TelemetrySlice = {
     memMb: memPct, // KR-41.1-04: percent, not MB
     slotsUsed,
     slotsMax,
+    governorState,
     tps: typeof r.tps === 'number' ? r.tps : 0,
     ts: Date.now(),
     elapsedSeconds:
@@ -79,6 +97,9 @@ export function adaptSnapshot(raw: unknown): StateFrame {
       const confidence =
         typeof s.confidence === 'number' ? s.confidence : 0;
       const bracket = agentIdToBracket(id);
+      // Backend deliberately emits signal=null during dispatch — render the
+      // node as "thinking" (neutral hold visual, dimmed/pulsing in viz).
+      const thinking = s.signal === null || s.signal === undefined;
       return {
         id,
         bracket,
@@ -87,7 +108,7 @@ export function adaptSnapshot(raw: unknown): StateFrame {
         confidence,
         flipped: 0, // KR-41.1-03
         roundLastSpoke: null, // KR-41.1-03
-        thinking: false, // KR-41.1-03
+        thinking,
       };
     },
   );
@@ -98,7 +119,9 @@ export function adaptSnapshot(raw: unknown): StateFrame {
   const bracketSummaries: BracketSummaryView[] = bracketRaw.map((b) => {
     const bs = (b ?? {}) as Record<string, unknown>;
     const bracket =
-      typeof bs.bracket === 'string' ? (bs.bracket as BracketKey) : 'Quants';
+      typeof bs.bracket === 'string'
+        ? (WIRE_TO_KEY[bs.bracket] ?? (bs.bracket as BracketKey))
+        : 'Quants';
     const buy = typeof bs.buy_count === 'number' ? bs.buy_count : 0;
     const sell = typeof bs.sell_count === 'number' ? bs.sell_count : 0;
     const hold = typeof bs.hold_count === 'number' ? bs.hold_count : 0;
@@ -133,6 +156,7 @@ export function adaptSnapshot(raw: unknown): StateFrame {
     const re = (e ?? {}) as Record<string, unknown>;
     return {
       agentId: typeof re.agent_id === 'string' ? re.agent_id : '',
+      signal: normaliseSignal(re.signal), // per-entry wire signal, not current agent state
       round: typeof re.round_num === 'number' ? re.round_num : (roundNum ?? 0),
       text: typeof re.rationale === 'string' ? re.rationale : '',
       citations: [], // KR-41.1-10

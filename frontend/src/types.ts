@@ -1,20 +1,20 @@
 // CONTRACT-shaped frontend types. Backend snapshot -> adapter -> StateFrame.
 
 export type BracketKey =
+  | 'Institutions'
+  | 'SellSide'
+  | 'EventDriven'
   | 'Quants'
   | 'Degens'
-  | 'Sovereigns'
+  | 'Narrators'
+  | 'Algos'
   | 'Macro'
-  | 'Suits'
-  | 'Insiders'
-  | 'Agents'
-  | 'DoomPosters'
-  | 'Whales'
-  | 'PolicyWonks';
+  | 'Shorts'
+  | 'Allocators';
 
-// Agent discrete signal — backend emits SignalType enum ('BUY'|'SELL'|'HOLD'),
-// adapter lowercases to match viz/panel css class conventions.
-export type AgentSignal = 'buy' | 'sell' | 'hold';
+// Agent discrete signal — backend emits lowercase 'buy'|'sell'|'hold'|
+// 'parse_error' on the wire; 'parse_error' gets a distinct muted treatment.
+export type AgentSignal = 'buy' | 'sell' | 'hold' | 'parse_error';
 
 export interface AgentView {
   id: string;
@@ -24,7 +24,7 @@ export interface AgentView {
   confidence: number;
   flipped: 0 | 1; // KR-41.1-03: stubbed 0 until backend emits
   roundLastSpoke: number | null; // KR-41.1-03: stubbed null
-  thinking: boolean; // KR-41.1-03: stubbed false
+  thinking: boolean; // true when wire signal=null (mid-dispatch placeholder)
 }
 
 export interface BracketSummaryView {
@@ -44,6 +44,7 @@ export interface TelemetrySlice {
   memMb: number; // KR-41.1-04: governor_metrics.memory_percent (0-100); label reads "%"
   slotsUsed: number; // governor_metrics.active_count (KR-41.1-05 CLOSED by 260512-jqn ITEM 3)
   slotsMax: number; // governor_metrics.current_slots (KR-41.1-05 CLOSED by 260512-jqn ITEM 3)
+  governorState: string | null; // governor_metrics.governor_state ('normal'|'paused'|'crisis'|…)
   tps: number;
   ts: number; // epoch ms of last frame
   elapsedSeconds: number;
@@ -51,6 +52,7 @@ export interface TelemetrySlice {
 
 export interface RationaleView {
   agentId: string;
+  signal: AgentSignal; // per-entry wire signal (NOT the agent's current signal)
   round: number;
   text: string;
   citations: string[]; // KR-41.1-10: stubbed []

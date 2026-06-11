@@ -144,7 +144,7 @@ def compute_bracket_summaries(
     return tuple(result)
 
 
-def select_diverse_peers(
+def select_diverse_peers(  # noqa: ARG001  # UNUSED in current run_simulation
     agent_id: str,
     influence_weights: dict[str, float],
     personas: list[AgentPersona],
@@ -153,6 +153,15 @@ def select_diverse_peers(
     min_brackets: int = 3,
 ) -> list[str]:
     """Select top-N peers with bracket diversity guarantee (D-06).
+
+    UNUSED IN PRODUCTION — candidate for sim-logic re-wire.
+    `run_simulation` currently bypasses `_dispatch_round` (which uses this
+    selector) and calls `dispatch_wave` directly with peer contexts built
+    from `read_ranked_posts` (global authority ranking). That means every
+    agent sees the same top-10 high-influence peers — Degens and Doom-Posters
+    are mathematically silenced. Wiring this selector back in is the proposed
+    fix for peer-context structural bias; see `.planning/SWEEP-260528.md` §3.3.
+    Kept here so it's ready to wire when that sim-logic decision is made.
 
     Algorithm:
     1. Exclude self from candidates.
@@ -595,6 +604,11 @@ async def _dispatch_round(
 ) -> RoundDispatchResult:
     """Dispatch a round with per-agent peer context (D-09, D-10).
 
+    UNUSED IN PRODUCTION — see `select_diverse_peers` docstring. `run_simulation`
+    bypasses this helper and calls `dispatch_wave` directly with peer contexts
+    built from `read_ranked_posts`. Kept here together with `select_diverse_peers`
+    as the staging area for the proposed peer-bias fix (see SWEEP-260528 §3.3).
+
     When influence_weights is provided AND non-empty (and prev_decisions available):
     - Uses select_diverse_peers for bracket-diverse dynamic peer selection (D-06).
     - Builds PeerDecision objects from in-memory prev_decisions data.
@@ -894,11 +908,12 @@ async def run_simulation(
         round_num=1,
     )
 
-    # Compute influence edges after Round 1 (D-02: shapes Round 2 peer selection)
-    # Pass len(round1_result.agent_decisions) as total_agents (active agents, not global 100)
-    round1_weights = await graph_manager.compute_influence_edges(
-        cycle_id, up_to_round=1, total_agents=len(round1_result.agent_decisions),
-    )
+    # Skip Round 1 influence-edge computation: Round 1 agents see only the
+    # rumor (no peer context), so they can't populate `cited_agents`, so
+    # `compute_influence_edges(up_to_round=1)` always returns {} and the
+    # returned weights were never read anyway (Round 2 builds peer context
+    # from `read_ranked_posts` directly, not from these weights). One fewer
+    # Neo4j round-trip per cycle. See `.planning/SWEEP-260528.md` B-5.
 
     # Compute Round 1 bracket summaries (D-08)
     round1_summaries = compute_bracket_summaries(

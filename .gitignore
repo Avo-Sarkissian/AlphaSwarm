@@ -9,3 +9,12 @@ Schwab/
 /*.csv
 .alphaswarm/
 data/sec_tickers.json
+
+# Runtime cycle outputs — not source, regenerated every run.
+# Patterns are root-anchored: an unanchored `advisory/` would also match
+# src/alphaswarm/advisory/ (the actual source package).
+/advisory/
+/reports/
+/frontend/reports/
+# mypy stubs installed by `mypy --install-types`
+/typings/

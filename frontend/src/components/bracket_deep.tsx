@@ -16,19 +16,20 @@ import { useState, useEffect, useMemo } from 'react';
 import { Icon } from './icons';
 import { fetchEdges, type Edge } from '../api/edges';
 import { useCurrentCycle } from '../hooks/useCurrentCycle';
+import { normalizeBracketKey } from '../data';
 import type { AgentView } from '../types';
 
 const BRACKET_COLORS: Record<string, string> = {
+  institutions: '#ffb84d',
+  sell_side: '#42d690',
+  event_driven: '#ff9d5c',
   quants: '#6aa9ff',
   degens: '#ff5b6b',
-  sovereigns: '#b080ff',
+  narrators: '#b080ff',
+  algos: '#8a93a0',
   macro: '#5be7b8',
-  suits: '#ffb84d',
-  insiders: '#ff9d5c',
-  agents: '#8a93a0',
-  doom_posters: '#ff4d7a',
-  policy_wonks: '#42d690',
-  whales: '#d4a843',
+  shorts: '#ff4d7a',
+  allocators: '#d4a843',
 };
 
 interface BracketDescriptor {
@@ -56,8 +57,11 @@ export function BracketDeepDive({
   onAgentInterview,
 }: BracketDeepDiveProps) {
   // Defensive filter — caller is expected to have filtered already (D-13).
+  // normalizeBracketKey: descriptor.bracket is wire snake_case ('event_driven')
+  // while AgentView.bracket is PascalCase ('EventDriven') — bare toLowerCase()
+  // never matched multi-word brackets.
   const members = useMemo(
-    () => agents.filter((a) => a.bracket.toLowerCase() === bracket.bracket.toLowerCase()),
+    () => agents.filter((a) => normalizeBracketKey(a.bracket) === normalizeBracketKey(bracket.bracket)),
     [agents, bracket.bracket],
   );
   const [sortBy, setSortBy] = useState<SortKey>('confidence');

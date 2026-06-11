@@ -73,11 +73,14 @@ export function RationaleFeed({ rationales, onAgentClick, onCiteClick }) {
   );
 }
 
-export function KpiStrip({ agents, tps, mem, slots, elapsed, round }) {
+export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round }) {
   const buy = agents.filter(a => a.signal === 'buy').length;
   const sell = agents.filter(a => a.signal === 'sell').length;
   const hold = agents.filter(a => a.signal === 'hold').length;
   const total = Math.max(1, agents.length); // guard div-by-zero when frame has no agents yet
+  // Live governor slot budget (governor_metrics.current_slots) when present;
+  // fall back to the design default of 16 before the first real frame.
+  const slotCap = slotsMax > 0 ? slotsMax : 16;
   const memCls = mem >= 90 ? 'crit' : mem >= 80 ? 'warn' : '';
   const fmt = (s) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
   return (
@@ -111,8 +114,8 @@ export function KpiStrip({ agents, tps, mem, slots, elapsed, round }) {
       </div>
       <div className="kpi">
         <span className="kpi-label">Parallel slots</span>
-        <span className="kpi-value">{slots}<small>/16</small></span>
-        <div className="kpi-bar"><span style={{ width: `${slots/16*100}%` }} /></div>
+        <span className="kpi-value">{slots}<small>/{slotCap}</small></span>
+        <div className="kpi-bar"><span style={{ width: `${slots/slotCap*100}%` }} /></div>
       </div>
       <div className="kpi">
         <span className="kpi-label">Elapsed · R{round}/3</span>

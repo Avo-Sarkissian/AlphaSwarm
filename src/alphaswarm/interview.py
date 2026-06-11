@@ -72,6 +72,7 @@ class InterviewEngine:
     """
 
     WINDOW_SIZE = 10  # max user+agent message pairs
+    SUMMARY_MAX_CHARS = 1500  # cap on merged summary (~10 one-sentence summaries)
 
     def __init__(
         self,
@@ -174,11 +175,13 @@ class InterviewEngine:
         )
         new_summary = summary_response.message.content or ""
 
-        # Merge with existing summary
-        if self._summary is not None:
-            self._summary = f"{self._summary} {new_summary}"
-        else:
-            self._summary = new_summary
+        # Merge with existing summary, capped at SUMMARY_MAX_CHARS so the
+        # summary cannot grow unboundedly (one sentence per trimmed pair,
+        # forever). Keep the most recent tail when over budget.
+        merged = f"{self._summary} {new_summary}" if self._summary is not None else new_summary
+        if len(merged) > self.SUMMARY_MAX_CHARS:
+            merged = merged[-self.SUMMARY_MAX_CHARS :].lstrip()
+        self._summary = merged
 
         self._log.debug(
             "window_trimmed",

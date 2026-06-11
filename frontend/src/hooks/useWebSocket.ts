@@ -2,17 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { adaptSnapshot } from '../adapter/frame';
 import type { StateFrame } from '../types';
 
-// Connect to /ws/state. Parses JSON in try/catch; 3-retry exponential backoff
-// after initial (1s, 2s, 4s = 4 total attempts) before reconnectFailed=true.
+// Connect to /ws/state. Parses JSON in try/catch; exponential backoff
+// (1s, 2s, 4s, then capped at 5s) retrying INDEFINITELY — a transient backend
+// restart must not strand the UI on a terminal error. Consumers surface
+// `connected:false` subtly (LIVE badge → RECONNECTING) instead.
 export interface UseWebSocketResult {
   connected: boolean;
   lastFrame: StateFrame | null;
   lastRaw: unknown;
+  /** Kept for interface compat; no longer set (retries never give up). */
   reconnectFailed: boolean;
 }
 
-const MAX_RETRIES = 3;
-const BACKOFF_MS = [1000, 2000, 4000];
+const BACKOFF_MS = [1000, 2000, 4000, 5000];
 
 export function useWebSocket(path: string = '/ws/state'): UseWebSocketResult {
   const [connected, setConnected] = useState<boolean>(false);
@@ -77,11 +79,9 @@ export function useWebSocket(path: string = '/ws/state'): UseWebSocketResult {
 
     const scheduleRetry = () => {
       if (cancelledRef.current) return;
-      if (retryRef.current >= MAX_RETRIES) {
-        setReconnectFailed(true);
-        return;
-      }
-      const delay = BACKOFF_MS[retryRef.current] ?? 4000;
+      // Exponential backoff capped at 5s; never gives up.
+      const delay =
+        BACKOFF_MS[Math.min(retryRef.current, BACKOFF_MS.length - 1)];
       retryRef.current += 1;
       timerRef.current = setTimeout(connect, delay);
     };

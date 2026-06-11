@@ -153,6 +153,22 @@ class StateStore:
         """
         async with self._lock:
             self._phase = phase
+            # SEEDING marks the start of a NEW run: clear all run-scoped state
+            # so a second simulation starts from a clean slate. Without this,
+            # _final_elapsed from run 1 freezes the elapsed clock for every
+            # subsequent run, TPS averages across runs, and the rationale feed
+            # / bracket bars show stale run-1 data during run 2's first round.
+            if phase == SimulationPhase.SEEDING:
+                self._start_time = time.monotonic()
+                self._final_elapsed = None
+                self._cumulative_tokens = 0
+                self._cumulative_eval_ns = 0
+                self._bracket_summaries = ()
+                self._rationale_window.clear()
+                self._agent_states = {
+                    aid: AgentState(signal=None, confidence=0.0)
+                    for aid in self._agent_states
+                }
             # Reset signals to "thinking" placeholder on round entry while preserving
             # dict keys so broadcaster snapshots stay non-empty during dispatch.
             if phase in (
@@ -164,8 +180,12 @@ class StateStore:
                     aid: AgentState(signal=None, confidence=0.0)
                     for aid in self._agent_states
                 }
-            # Start elapsed timer on first non-IDLE phase
-            if self._start_time is None and phase != SimulationPhase.IDLE:
+            # Start elapsed timer on first live phase. REPLAY is excluded: merely
+            # viewing a replay must not start (or corrupt) the live-run clock.
+            if self._start_time is None and phase not in (
+                SimulationPhase.IDLE,
+                SimulationPhase.REPLAY,
+            ):
                 self._start_time = time.monotonic()
             # Freeze elapsed timer on COMPLETE
             if phase == SimulationPhase.COMPLETE and self._start_time is not None:

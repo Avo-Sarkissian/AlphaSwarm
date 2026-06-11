@@ -11,19 +11,18 @@
 // NaN. The Viz component now enriches agents with both fields before passing
 // them downstream, restoring the deterministic layout.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BRACKETS } from '../data';
+import { BRACKETS, normalizeBracketKey } from '../data';
 
-// Backend BracketKey is PascalCase ('Quants', 'DoomPosters', 'PolicyWonks')
-// while BRACKETS const values are snake_case ('quants', 'doom_posters', 'policy_wonks').
-// Normalize on lookup so all agents get their proper per-bracket radius instead
-// of falling through to the default and rendering uniform tiny dots.
+// Backend BracketKey is PascalCase ('Quants', 'SellSide', 'EventDriven')
+// while BRACKETS const values are snake_case ('quants', 'sell_side', 'event_driven').
+// Normalize on lookup (shared helper in ../data) so all agents get their proper
+// per-bracket radius instead of falling through to the default and rendering
+// uniform tiny dots.
 const _BRACKET_RADIUS_BY_VALUE = Object.fromEntries(BRACKETS.map((b) => [b.value, b.radius]));
-const _normalizeBracketKey = (k) =>
-  typeof k === 'string' ? k.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase() : '';
 const BRACKET_RADIUS = new Proxy(_BRACKET_RADIUS_BY_VALUE, {
   get(target, prop) {
     if (typeof prop !== 'string') return undefined;
-    return target[prop] ?? target[_normalizeBracketKey(prop)];
+    return target[prop] ?? target[normalizeBracketKey(prop)];
   },
 });
 
@@ -71,7 +70,8 @@ function layoutRadial(agents, w, h) {
   const rMax = Math.min(w, h) * 0.42;
   const positions = {};
   keys.forEach((k, i) => {
-    const ring = rMin + (i / (keys.length - 1)) * (rMax - rMin);
+    // Guard: single bracket group (early frames) → 0/0=NaN without the ternary.
+    const ring = rMin + (keys.length > 1 ? i / (keys.length - 1) : 0) * (rMax - rMin);
     const group = bracketGroups[k];
     const offset = (i % 2 === 0 ? 0 : Math.PI / group.length);
     group.forEach((a, j) => {
@@ -109,20 +109,7 @@ function layoutGrid(agents, w, h) {
   return { positions, bracketOrder, cellW, cellH, pad, rows, maxCols };
 }
 
-// Deterministic edges (citations) — used to show INFLUENCED_BY
-function buildEdges(agents, max = 60) {
-  const edges = [];
-  const rand = (i) => ((i * 9301 + 49297) % 233280) / 233280;
-  for (let i = 0; i < max; i++) {
-    const a = agents[Math.floor(rand(i * 2) * agents.length)];
-    const b = agents[Math.floor(rand(i * 2 + 1) * agents.length)];
-    if (!a || !b || a.id === b.id) continue;
-    edges.push({ source: a.id, target: b.id, weight: 0.3 + rand(i*3) * 0.7, active: i < 14 });
-  }
-  return edges;
-}
-
-export function Viz({ agents: rawAgents, layout, direction, onAgentHover, onAgentClick, highlightId, showEdges = true, round = 2 }) {
+export function Viz({ agents: rawAgents, edges: rawEdges = /** @type {Array<[string, string]>} */ ([]), layout, direction, onAgentHover, onAgentClick, highlightId, showEdges = true, round = 2 }) {
   // Enrich live agents with derived `index` (stable per-frame position) and
   // `radius` (BRACKETS lookup, default 5). Mock buildAgents() set these in the
   // AlphaSwarm-2 design; live useAgents() doesn't. Memoize so reference is
@@ -151,7 +138,8 @@ export function Viz({ agents: rawAgents, layout, direction, onAgentHover, onAgen
     return () => ro.disconnect();
   }, []);
 
-  const sigColor = (s) => s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : 'var(--hold)';
+  // parse_error gets a distinct muted treatment (not coerced to hold color).
+  const sigColor = (s) => s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : s === 'parse_error' ? 'var(--text-3)' : 'var(--hold)';
 
   const gridData = layout === 'grid' ? layoutGrid(agents, size.w, size.h) : null;
   const positions = useMemo(() => {
@@ -161,7 +149,15 @@ export function Viz({ agents: rawAgents, layout, direction, onAgentHover, onAgen
     return {};
   }, [agents, layout, size.w, size.h]);
 
-  const edges = useMemo(() => buildEdges(agents, layout === 'grid' ? 0 : 55), [agents, layout]);
+  // Real INFLUENCED_BY edges from EdgesContext — [source, target] tuples.
+  // Empty until the backend persists edges for the round (no fabricated edges).
+  const edges = useMemo(
+    () =>
+      layout === 'grid'
+        ? []
+        : rawEdges.map(([source, target]) => ({ source, target })),
+    [rawEdges, layout],
+  );
 
   const bracketGroups = useMemo(() => {
     const g = {};
@@ -185,7 +181,8 @@ export function Viz({ agents: rawAgents, layout, direction, onAgentHover, onAgen
             {Object.values(bracketGroups).map((_, i, arr) => {
               const rMin = 70;
               const rMax = Math.min(size.w, size.h) * 0.42;
-              const ring = rMin + (i / (arr.length - 1)) * (rMax - rMin);
+              // Guard: single bracket group (early frames) → 0/0=NaN without the ternary.
+              const ring = rMin + (arr.length > 1 ? i / (arr.length - 1) : 0) * (rMax - rMin);
               return <circle key={i} cx={size.w/2} cy={size.h/2} r={ring} fill="none" stroke="var(--border)" strokeDasharray="2 4" />;
             })}
           </g>
@@ -252,7 +249,7 @@ export function Viz({ agents: rawAgents, layout, direction, onAgentHover, onAgen
                 <g key={a.id} transform={`translate(${p.x - size/2}, ${p.y - size/2})`}>
                   <rect
                     width={size} height={size} rx={2}
-                    className="grid-cell"
+                    className={`grid-cell${a.thinking ? ' thinking' : ''}`}
                     fill={color}
                     opacity={0.88}
                     onMouseEnter={(e) => onAgentHover && onAgentHover(a, e)}
@@ -267,7 +264,7 @@ export function Viz({ agents: rawAgents, layout, direction, onAgentHover, onAgen
               <g key={a.id} transform={`translate(${p.x}, ${p.y})`}>
                 {direction === 'c' && <circle r={r*2.2} fill="url(#nodeGlow)" style={{ color }} />}
                 <circle
-                  className="node"
+                  className={`node${a.thinking ? ' thinking' : ''}`}
                   r={r}
                   fill={color}
                   stroke={isHL ? 'var(--accent)' : 'rgba(255,255,255,0.15)'}

@@ -87,12 +87,10 @@ async def generate_advisory(cycle_id: str, request: Request) -> GenerateAdvisory
         # the "backend started before CSV existed" failure mode that produced
         # consecutive cycles with no advisory file.
         try:
-            from alphaswarm.config import Settings
             from alphaswarm.web.routes.holdings import load_portfolio_snapshot
 
-            settings = Settings()
             reloaded = await asyncio.to_thread(
-                load_portfolio_snapshot, settings.holdings_csv_path,
+                load_portfolio_snapshot, app_state.settings.holdings_csv_path,
             )
             if reloaded is not None:
                 request.app.state.portfolio_snapshot = reloaded

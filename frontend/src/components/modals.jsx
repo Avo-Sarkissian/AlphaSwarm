@@ -12,7 +12,7 @@ import { Icon } from './icons';
 import { simShock } from '../api/simulation';
 import { listCycles, replayAdvance, replayStop } from '../api/replay';
 import { ApiError } from '../api/client';
-import { useTelemetry } from '../context/TelemetryContext';
+import { useConnection } from '../context/ConnectionContext';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -136,11 +136,17 @@ export function ShockDrawer({ onClose }) {
 // KR-41.1-06: Rewind disabled — backend exposes advance/stop only.
 
 export function ReplayBar({ cycle, onExit }) {
-  const tel = useTelemetry();
-  // useTelemetry().telemetry doesn't carry round; the Connection lastFrame
-  // does via roundNum, but for the replay UI a simple round derive from phase
-  // is fine — fall back to 1 when unknown.
-  const round = tel.phase === 'done' ? 3 : Number.isFinite(Number(tel.phase)) ? Number(tel.phase) : 1;
+  // Round comes from the frame's roundNum (Connection lastFrame) — phase is a
+  // string ('replay'/'round_N'/'complete'), so Number(phase) was always NaN
+  // and the progress track never moved. Fall back to 1 when unknown.
+  const { lastFrame } = useConnection();
+  const frameRound = lastFrame?.roundNum;
+  const round =
+    typeof frameRound === 'number' && frameRound >= 1
+      ? Math.min(frameRound, 3)
+      : lastFrame?.phase === 'complete'
+      ? 3
+      : 1;
   const [busy, setBusy] = useState(false);
 
   async function onForward() {
@@ -293,7 +299,19 @@ export function CyclePickerModal({ onPick, onClose }) {
                   gap: 18,
                   alignItems: 'center',
                 }}
-                onClick={() => onPick(c)}
+                onClick={async () => {
+                  try {
+                    // onPick may be async (app_v2 fires replayStart) — surface
+                    // failures (e.g. 409 replay already active) in the existing
+                    // err label instead of silently closing.
+                    await onPick(c);
+                  } catch (e) {
+                    // KR-41.1-08: errors console.logged + surfaced to UI label.
+                    // eslint-disable-next-line no-console
+                    console.error('replay start failed', e);
+                    setErr(e);
+                  }
+                }}
                 onMouseOver={(e) => (e.currentTarget.style.background = 'var(--bg-3)')}
                 onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
               >

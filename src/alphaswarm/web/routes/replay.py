@@ -8,7 +8,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
-from alphaswarm.web.replay_manager import ReplayAlreadyActiveError
+from alphaswarm.web.replay_manager import ReplayAlreadyActiveError, SimulationActiveError
 
 log = structlog.get_logger(component="web.replay")
 
@@ -149,6 +149,13 @@ async def replay_start(cycle_id: str, request: Request) -> ReplayStartResponse:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"error": "replay_already_active", "message": str(exc)},
+        ) from exc
+    except SimulationActiveError as exc:
+        # TOCTOU closure: a simulation may have started during the awaited
+        # read_full_cycle_signals call above, after the route-level check.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "simulation_in_progress", "message": str(exc)},
         ) from exc
 
     log.info("replay_started", cycle_id=cycle_id)

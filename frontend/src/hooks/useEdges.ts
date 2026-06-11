@@ -1,18 +1,15 @@
 import { useEffect, useState } from 'react';
-import { apiFetch } from '../api/client';
+import { fetchEdges } from '../api/edges';
 
 // GET /api/edges/{cycle_id}?round=N
 // Only called inside EdgesContext's provider (single call for the app).
 // Returns tuples [source, target] to match viz.jsx's expected shape.
+// Wire shape is { source_id, target_id, weight } (see api/edges.ts) —
+// fetchEdges handles the envelope + 404/503 → [] semantics.
 export interface UseEdgesResult {
   edges: Array<[string, string]>;
   loading: boolean;
   error: Error | null;
-}
-
-interface BackendEdge {
-  source?: unknown;
-  target?: unknown;
 }
 
 export function useEdges(
@@ -36,18 +33,16 @@ export function useEdges(
     setLoading(true);
     setError(null);
 
-    const path = `/api/edges/${encodeURIComponent(cycleId)}?round=${round}`;
-
-    apiFetch<{ edges: BackendEdge[] }>(path)
-      .then((res) => {
+    fetchEdges(cycleId, round)
+      .then((list) => {
         if (cancelled) return;
-        const list = Array.isArray(res?.edges) ? res.edges : [];
         const tuples: Array<[string, string]> = list
           .filter(
             (e) =>
-              typeof e?.source === 'string' && typeof e?.target === 'string',
+              typeof e?.source_id === 'string' &&
+              typeof e?.target_id === 'string',
           )
-          .map((e) => [e.source as string, e.target as string]);
+          .map((e) => [e.source_id, e.target_id]);
         setEdges(tuples);
         setLoading(false);
       })

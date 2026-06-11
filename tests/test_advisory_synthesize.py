@@ -40,10 +40,16 @@ def test_sector_map_covers_user_tickers() -> None:
 
 
 def test_sector_map_unknown_default() -> None:
-    """Unknown tickers fall back to the UNKNOWN_SECTOR default."""
+    """Unknown tickers fall back to the UNKNOWN_SECTOR default.
+
+    macro_beta=0.5 (not 0.0) so seed-text matches can still promote unknown
+    tickers via the `|impact| × |beta| + 0.5 × seed_match` formula —
+    SWEEP-260528 B-8 raised the default from 0.0 to 0.5 to keep relevance
+    scoring honest when the seed names a ticker outside SECTOR_MAP.
+    """
     assert lookup("NOTREAL") == UNKNOWN_SECTOR
     assert lookup("NOTREAL")["sector"] == "unknown"
-    assert lookup("NOTREAL")["macro_beta"] == 0.0
+    assert lookup("NOTREAL")["macro_beta"] == 0.5
 
 
 def test_sector_lookup_is_case_insensitive() -> None:
@@ -97,13 +103,36 @@ def test_enrich_holdings_seed_match_bonus() -> None:
     assert enriched[0]["ticker"] == "NVDA"
 
 
+def test_seed_match_no_false_positive_on_ticker_substring() -> None:
+    """'ARM' must NOT seed-match inside 'pharma' — ticker matching uses a
+    word-boundary regex, not a raw substring test."""
+    holdings = [{"ticker": "ARM"}]
+    enriched = engine._enrich_holdings(
+        holdings, entity_impacts={}, seed_text="big pharma layoffs announced",
+    )
+    # No entity impact and no legitimate seed match → relevance is 0.0.
+    assert float(enriched[0]["relevance_score"]) == 0.0
+
+
+def test_seed_match_multiword_sector_phrase() -> None:
+    """Sector 'consumer_tech' must match 'consumer tech' in the seed text —
+    underscores are replaced with spaces before comparison."""
+    holdings = [{"ticker": "AAPL"}]  # sector consumer_tech
+    enriched = engine._enrich_holdings(
+        holdings, entity_impacts={}, seed_text="consumer tech demand slumps",
+    )
+    # 0 impact + 0.5 × seed_match(1.0) = 0.5
+    assert float(enriched[0]["relevance_score"]) == 0.5
+
+
 def test_enrich_holdings_unknown_ticker_falls_back() -> None:
-    """Unknown ticker still appears in enriched output with UNKNOWN sector."""
+    """Unknown ticker still appears in enriched output with UNKNOWN sector
+    and the SWEEP-260528 B-8 default macro_beta of 0.5."""
     holdings = [{"ticker": "ZZZZZ"}]
     enriched = engine._enrich_holdings(holdings, entity_impacts={}, seed_text="")
     assert len(enriched) == 1
     assert enriched[0]["sector"] == "unknown"
-    assert float(enriched[0]["macro_beta"]) == 0.0
+    assert float(enriched[0]["macro_beta"]) == 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -111,9 +140,9 @@ def test_enrich_holdings_unknown_ticker_falls_back() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_prompt_instructs_one_item_per_holding() -> None:
-    """Prompt MUST contain the 'NEVER OMIT' or equivalent directive
-    so the LLM emits one items[] entry per holding."""
+def test_prompt_instructs_conviction_items_only() -> None:
+    """Prompt MUST instruct the LLM to emit conviction items only — engine
+    pads HOLD@0.30 server-side for no-signal holdings (SWEEP-260528 B-7)."""
     msgs = build_advisory_prompt(
         cycle_id="c1",
         seed_rumor="test seed",
@@ -122,17 +151,16 @@ def test_prompt_instructs_one_item_per_holding() -> None:
         narratives=[],
         entity_impact=[],
         top_holdings=[{"ticker": "AAPL", "sector": "consumer_tech", "macro_beta": "0.85"}],
-        rest_holdings=[],
     )
-    # Concatenate system + user content; the instruction must appear somewhere.
     full = " ".join(m["content"] for m in msgs)
-    assert "NEVER OMIT" in full or "one item per holding" in full.lower()
-    assert "HOLD" in full  # placeholder directive references HOLD
-    assert "ONE ITEM PER HOLDING" in full
+    assert "EMIT CONVICTION ITEMS ONLY" in full
+    assert "engine pads" in full.lower()
 
 
-def test_prompt_renders_top_and_rest_holdings() -> None:
-    """Both top_holdings and rest_holdings are rendered in the user message."""
+def test_prompt_renders_top_holdings_only() -> None:
+    """Only top_holdings is rendered to the LLM. rest_holdings is accepted
+    for back-compat but intentionally not included in the user message —
+    engine.py pads the unsent holdings server-side (SWEEP-260528 B-7)."""
     msgs = build_advisory_prompt(
         cycle_id="c1",
         seed_rumor="seed",
@@ -144,15 +172,15 @@ def test_prompt_renders_top_and_rest_holdings() -> None:
         rest_holdings=[{"ticker": "SWYXX", "sector": "money_market"}],
     )
     user = msgs[1]["content"]
-    assert "TOP HOLDINGS" in user
-    assert "OTHER HOLDINGS" in user
     assert "AAPL" in user
-    assert "SWYXX" in user
+    # rest_holdings must NOT leak into the prompt — saves ~1500 tokens.
+    assert "SWYXX" not in user
+    assert "OTHER HOLDINGS" not in user
 
 
 def test_prompt_legacy_holdings_kwarg_still_works() -> None:
     """Back-compat: callers passing only `holdings=[...]` get a valid prompt
-    (single TOP list, no rest section).
+    (treated as top_holdings).
     """
     msgs = build_advisory_prompt(
         cycle_id="c1",
@@ -164,9 +192,9 @@ def test_prompt_legacy_holdings_kwarg_still_works() -> None:
         holdings=[{"ticker": "AAPL", "qty": "10", "cost_basis": "1000"}],
     )
     user = msgs[1]["content"]
-    assert "TOP HOLDINGS" in user
-    assert "OTHER HOLDINGS" not in user  # no rest list
     assert "AAPL" in user
+    assert "OTHER HOLDINGS" not in user
+    assert "TOP HOLDINGS" not in user  # single-list framing now
 
 
 # ---------------------------------------------------------------------------

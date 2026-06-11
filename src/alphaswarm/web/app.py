@@ -68,6 +68,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         replay_manager=replay_manager,
         on_complete=lambda cycle_id: _auto_trigger_advisory(app, cycle_id),
     )
+    # Bidirectional replay/sim exclusion: ReplayManager.start() re-checks for a
+    # live simulation under its own lock (closes the TOCTOU window between the
+    # route-level is_running check and the awaited Neo4j loads in start()).
+    replay_manager.set_sim_running_check(lambda: sim_manager.is_running)
     connection_manager = ConnectionManager()
 
     app.state.app_state = app_state
@@ -120,6 +124,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await broadcaster_task
     except asyncio.CancelledError:
         pass
+
+    # Cancel and await any running simulation + report/advisory background
+    # tasks BEFORE closing graph_manager, so no orphaned task is left
+    # mid-Neo4j-write ("Task was destroyed but it is pending" at shutdown).
+    await sim_manager.shutdown()
+    for task_attr in ("report_task", "advisory_task"):
+        bg_task = getattr(app.state, task_attr, None)
+        if bg_task is not None and not bg_task.done():
+            bg_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await bg_task
 
     if app_state.graph_manager is not None:
         await app_state.graph_manager.close()

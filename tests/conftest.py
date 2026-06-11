@@ -123,15 +123,29 @@ def sample_seed_event():
 
 
 @pytest.fixture()
-def neo4j_driver():
+async def neo4j_driver():
     """AsyncDriver connected to local Neo4j. Requires Docker running.
 
     Skips test if Neo4j is not available or auth fails.
+
+    Async-fixture form so verify_connectivity runs on the same event loop as
+    the test that consumes the driver. The previous sync form used
+    `asyncio.get_event_loop().run_until_complete(...)` which created futures
+    on a different loop than pytest-asyncio's test loop, producing
+    "got Future attached to a different loop" runtime errors.
     """
-    import asyncio
+    import socket
 
     from neo4j import AsyncGraphDatabase
     from neo4j.exceptions import Neo4jError, ServiceUnavailable
+
+    # Cheap TCP-level preflight: avoids spinning up the AsyncDriver at all
+    # when the port is closed (typical local dev where Neo4j isn't running).
+    try:
+        with socket.create_connection(("localhost", 7687), timeout=0.5):
+            pass
+    except OSError:
+        pytest.skip("Neo4j not available (docker compose up -d)")
 
     driver = AsyncGraphDatabase.driver(
         "bolt://localhost:7687",
@@ -139,16 +153,27 @@ def neo4j_driver():
         max_connection_pool_size=5,
     )
     try:
-        asyncio.get_event_loop().run_until_complete(driver.verify_connectivity())
+        await driver.verify_connectivity()
     except (ServiceUnavailable, Neo4jError, OSError):
+        await driver.close()
         pytest.skip("Neo4j not available (docker compose up -d)")
-    yield driver
-    asyncio.get_event_loop().run_until_complete(driver.close())
+    try:
+        yield driver
+    finally:
+        await driver.close()
 
 
 @pytest.fixture()
 async def graph_manager(neo4j_driver, all_personas):
-    """GraphStateManager with schema applied and agents seeded. Cleans up after test."""
+    """GraphStateManager with schema applied and agents seeded. Cleans up after test.
+
+    DATA-SAFETY: tests share the live single-database Neo4j (Community edition
+    has no second database). The previous cleanup ran unscoped DETACH DELETE
+    over ALL Cycle/Decision/Post/Entity/RationaleEpisode nodes, destroying
+    every real simulation cycle on the machine each time pytest ran. Cleanup
+    is now scoped to cycles CREATED DURING THE TEST: cycle_ids present before
+    the test are preserved, and only orphaned Entity nodes are removed.
+    """
     from alphaswarm.graph import GraphStateManager
 
     manager = GraphStateManager(
@@ -157,11 +182,40 @@ async def graph_manager(neo4j_driver, all_personas):
         database="neo4j",
     )
     await manager.ensure_schema()
-    yield manager
-    # Clean all Decision, Cycle, Entity, RationaleEpisode, and Post nodes between tests (keep Agent nodes)
+    # Snapshot pre-existing cycles so real simulation data survives test runs.
     async with neo4j_driver.session(database="neo4j") as session:
-        await session.run("MATCH (d:Decision) DETACH DELETE d")
-        await session.run("MATCH (c:Cycle) DETACH DELETE c")
-        await session.run("MATCH (e:Entity) DETACH DELETE e")
-        await session.run("MATCH (re:RationaleEpisode) DETACH DELETE re")
-        await session.run("MATCH (p:Post) DETACH DELETE p")
+        result = await session.run("MATCH (c:Cycle) RETURN collect(c.cycle_id) AS ids")
+        record = await result.single()
+        preexisting: list[str] = list(record["ids"]) if record else []
+    yield manager
+    # Delete ONLY data belonging to cycles created during this test
+    # (keep Agent nodes; keep all pre-existing cycle data).
+    async with neo4j_driver.session(database="neo4j") as session:
+        await session.run(
+            "MATCH (d:Decision) WHERE NOT d.cycle_id IN $keep DETACH DELETE d",
+            keep=preexisting,
+        )
+        await session.run(
+            "MATCH (p:Post) WHERE NOT p.cycle_id IN $keep DETACH DELETE p",
+            keep=preexisting,
+        )
+        await session.run(
+            "MATCH (re:RationaleEpisode) WHERE NOT re.cycle_id IN $keep DETACH DELETE re",
+            keep=preexisting,
+        )
+        # INFLUENCED_BY edges connect Agent nodes, so DETACH DELETE on
+        # decisions never removes them — without this they accumulate
+        # forever (4k+ stale edges observed from past test runs).
+        await session.run(
+            "MATCH ()-[e:INFLUENCED_BY]->() WHERE NOT e.cycle_id IN $keep DELETE e",
+            keep=preexisting,
+        )
+        await session.run(
+            "MATCH (c:Cycle) WHERE NOT c.cycle_id IN $keep DETACH DELETE c",
+            keep=preexisting,
+        )
+        # Entities are MERGE'd by name and shared across cycles: only remove
+        # ones no longer referenced by any cycle.
+        await session.run(
+            "MATCH (e:Entity) WHERE NOT (e)<-[:MENTIONS]-() DETACH DELETE e"
+        )

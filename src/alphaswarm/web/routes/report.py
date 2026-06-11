@@ -201,6 +201,19 @@ async def generate_report(cycle_id: str, request: Request) -> GenerateResponse:
             },
         )
 
+    # Pitfall 4 (bidirectional): an in-flight advisory also owns the
+    # orchestrator model — running both would unload it out from under
+    # whichever task finishes second. Mirrors advisory.py's cross-guard.
+    existing_advisory = getattr(request.app.state, "advisory_task", None)
+    if existing_advisory is not None and not existing_advisory.done():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "advisory_generation_in_progress",
+                "message": "An advisory generation is already running — retry when it completes",
+            },
+        )
+
     # Ensure the error dict exists and clear any stale entry for this cycle so
     # prior failures do not poison the new run (T-36-15).
     if (

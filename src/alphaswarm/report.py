@@ -189,8 +189,23 @@ class ReportEngine:
                 messages.append({"role": "user", "content": f"OBSERVATION: {observation_text}"})
                 continue
 
-            parsed_input: dict[str, object] = json.loads(input_json or "{}")
-            result = await tool_fn(**parsed_input)
+            # Malformed INPUT (partially captured multiline JSON, a JSON list,
+            # unexpected kwargs) must not kill the whole report — feed an
+            # ERROR observation back into the loop, mirroring the
+            # unknown-tool branch above.
+            try:
+                parsed_input: dict[str, object] = json.loads(input_json or "{}")
+                result = await tool_fn(**parsed_input)
+            except (json.JSONDecodeError, TypeError) as exc:
+                observation_text = f"ERROR: invalid INPUT for tool '{action}': {exc}"
+                self._log.warning(
+                    "react_tool_input_error",
+                    action=action,
+                    iteration=iteration,
+                    error=str(exc),
+                )
+                messages.append({"role": "user", "content": f"OBSERVATION: {observation_text}"})
+                continue
             obs = ToolObservation(
                 tool_name=action,
                 tool_input=parsed_input,

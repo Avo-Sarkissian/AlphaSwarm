@@ -67,7 +67,12 @@ UNKNOWN_SECTOR: SectorInfo = {
     "sector": "unknown",
     "region_exposure": "global",
     "supply_chain_sensitivity": "med",
-    "macro_beta": 0.0,
+    # macro_beta=0.5 so unknown tickers still get a meaningful relevance score
+    # when the seed matches. With 0.0 (previous value) the relevance formula
+    # `|impact| × |beta| + 0.5 × seed_match` would zero out the entity-impact
+    # contribution and unknown tickers would always rank at the bottom even
+    # when the seed explicitly named them. See SWEEP-260528 B-8.
+    "macro_beta": 0.5,
 }
 
 

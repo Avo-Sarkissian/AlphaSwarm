@@ -33,8 +33,16 @@ import { ConvergenceFlow, InfluenceChart, Moment, Followup } from './v2';
 // alias if the wire field name shifts.
 type ReportPayload = ReportContent & { report_markdown?: string };
 
-export function ReportModal({ onClose }: { onClose: () => void }) {
-  const { cycleId } = useCurrentCycle();
+export function ReportModal({
+  cycleId: cycleIdProp,
+  onClose,
+}: {
+  /** Explicit cycle to report on (e.g. picked in CycleHistory). Defaults to the current/newest cycle. */
+  cycleId?: string | null;
+  onClose: () => void;
+}) {
+  const { cycleId: currentCycleId } = useCurrentCycle();
+  const cycleId = cycleIdProp ?? currentCycleId;
 
   // UX contract: the modal NEVER auto-kicks generation. On open, GET the report:
   //   - 200 -> show it

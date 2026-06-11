@@ -7,8 +7,10 @@ def test_replay_module_exists() -> None:
     """replay.py module exists and exports router."""
     from alphaswarm.web.routes.replay import router
     assert router is not None
-    # Router should have 3 routes
-    assert len(router.routes) == 3
+    # 4 routes: /replay/cycles, /replay/start/{cycle_id}, /replay/advance, /replay/stop.
+    # The original RED test expected 3; the `/replay/stop` route was added
+    # later (see web.routes.replay for the current set).
+    assert len(router.routes) == 4
 
 
 def test_replay_response_models_exist() -> None:

@@ -381,9 +381,17 @@ def test_parse_modifiers_case_insensitive() -> None:
 
 def test_parse_logs_tier_used() -> None:
     """Successful tier 1 parse produces structlog DEBUG log containing parse_tier key."""
+    import importlib
+
     import structlog
 
-    from alphaswarm.parsing import parse_agent_decision
+    import alphaswarm.parsing as parsing_module
+
+    # Reset BEFORE reload so a cached logger from a prior test doesn't keep
+    # using its frozen processor chain. Reload then reimports the module,
+    # rebinding `parsing_module.logger` to a logger that honors the new
+    # configuration set below.
+    structlog.reset_defaults()
 
     # Capture structlog output
     captured: list[dict[str, object]] = []
@@ -400,6 +408,14 @@ def test_parse_logs_tier_used() -> None:
         wrapper_class=structlog.BoundLogger,
         cache_logger_on_first_use=False,
     )
+    # Reload parsing so its module-level `logger = structlog.get_logger(...)`
+    # binds against the freshly-configured processor chain. Without the
+    # reload, the module's logger reference is from whatever config was
+    # active at first import (often another test's configuration), and our
+    # capture_log processor is bypassed.
+    importlib.reload(parsing_module)
+    parse_agent_decision = parsing_module.parse_agent_decision
+
     try:
         raw = '{"signal": "buy", "confidence": 0.85}'
         parse_agent_decision(raw)
@@ -409,5 +425,7 @@ def test_parse_logs_tier_used() -> None:
         assert len(tier_logs) > 0, f"No logs with parse_tier found. Captured: {captured}"
         assert tier_logs[0]["parse_tier"] == 1
     finally:
-        # Reset structlog to default
+        # Reset structlog to default and reload again so the module's logger
+        # is rebound to a normal logger for subsequent tests.
         structlog.reset_defaults()
+        importlib.reload(parsing_module)

@@ -16,15 +16,22 @@ export interface BracketSpec {
   radius: number;
 }
 
+// Shared bracket-key normalizer — backend wire values are snake_case
+// ('event_driven') while frontend BracketKey is PascalCase ('EventDriven').
+// Normalize EITHER form to snake_case before comparing/looking up.
+export const normalizeBracketKey = (k: unknown): string =>
+  typeof k === 'string' ? k.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase() : '';
+
 export const BRACKETS: BracketSpec[] = [
-  { value: 'quants',       display: 'Quants',       count: 10, radius: 5  },
-  { value: 'degens',       display: 'Degens',       count: 20, radius: 6  },
-  { value: 'sovereigns',   display: 'Sovereigns',   count: 10, radius: 7  },
-  { value: 'macro',        display: 'Macro',        count: 10, radius: 8  },
-  { value: 'suits',        display: 'Suits',        count: 10, radius: 9  },
-  { value: 'insiders',     display: 'Insiders',     count: 10, radius: 10 },
-  { value: 'agents',       display: 'Agents',       count: 15, radius: 11 },
-  { value: 'doom_posters', display: 'Doom-Posters', count: 5,  radius: 12 },
-  { value: 'policy_wonks', display: 'Policy Wonks', count: 5,  radius: 13 },
-  { value: 'whales',       display: 'Whales',       count: 5,  radius: 14 },
+  // v2 composition (2026-06-10) — mirrors DEFAULT_BRACKETS in config.py.
+  { value: 'institutions', display: 'Institutions', count: 18, radius: 5  },
+  { value: 'sell_side',    display: 'Sell-Side',    count: 10, radius: 6  },
+  { value: 'event_driven', display: 'Event-Driven', count: 10, radius: 7  },
+  { value: 'quants',       display: 'Quants',       count: 12, radius: 8  },
+  { value: 'degens',       display: 'Degens',       count: 15, radius: 9  },
+  { value: 'narrators',    display: 'Narrators',    count: 8,  radius: 10 },
+  { value: 'algos',        display: 'Algos',        count: 8,  radius: 11 },
+  { value: 'macro',        display: 'Macro',        count: 7,  radius: 12 },
+  { value: 'shorts',       display: 'Shorts',       count: 7,  radius: 13 },
+  { value: 'allocators',   display: 'Allocators',   count: 5,  radius: 14 },
 ];

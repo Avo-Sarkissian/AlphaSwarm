@@ -113,7 +113,7 @@ export function SeedingState({ seed }) {
         <div className="seeding-stream mono">
           {BRACKETS.flatMap(b => {
             const arr = [];
-            const prefix = { Quants:'Q', Degens:'D', Sovereigns:'S', Macro:'M', Suits:'U', Insiders:'I', Agents:'A', 'Doom-Posters':'X', 'Policy Wonks':'P', Whales:'W' }[b.display];
+            const prefix = { Institutions:'I', 'Sell-Side':'S', 'Event-Driven':'E', Quants:'Q', Degens:'D', Narrators:'N', Algos:'A', Macro:'M', Shorts:'X', Allocators:'L' }[b.display];
             for (let i = 1; i <= b.count; i++) arr.push(`${prefix}-${String(i).padStart(2,'0')}`);
             return arr;
           }).slice(0, n).reverse().slice(0, 14).map((id, i) => (

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import structlog
@@ -29,6 +30,15 @@ class NoReplayActiveError(Exception):
     """Raised when advance/stop called with no active replay."""
 
 
+class SimulationActiveError(Exception):
+    """Raised when start() is called while a live simulation is running.
+
+    Closes the TOCTOU window between the route-level sim_manager.is_running
+    check and the actual replay start: the route check happens before an
+    awaited Neo4j read, during which a simulation could start.
+    """
+
+
 class ReplayManager:
     """Thin wrapper enforcing single-replay concurrency via asyncio.Lock.
 
@@ -43,11 +53,23 @@ class ReplayManager:
         self._cycle_id: str | None = None
         self._round_num: int = 0
         self._seed_rumor: str = ""
+        self._starting: bool = False
+        # Set by app.py lifespan after SimulationManager exists (constructed
+        # later). Lets start() re-check for a live simulation under our lock.
+        self._sim_running_check: Callable[[], bool] | None = None
+
+    def set_sim_running_check(self, check: Callable[[], bool]) -> None:
+        """Wire the SimulationManager.is_running probe (called from lifespan)."""
+        self._sim_running_check = check
 
     @property
     def is_active(self) -> bool:
-        """True when a replay session is currently active."""
-        return self._store is not None
+        """True when a replay session is active OR mid-start.
+
+        _starting counts as active so SimulationManager's replay-active guard
+        blocks a live-sim start during the awaited Neo4j loads inside start().
+        """
+        return self._store is not None or self._starting
 
     @property
     def store(self) -> ReplayStore:
@@ -78,41 +100,59 @@ class ReplayManager:
         connection_manager: ConnectionManager,
         graph_manager: GraphStateManager,
     ) -> None:
-        """Start replay: construct ReplayStore, load round 1, broadcast (D-08)."""
+        """Start replay: construct ReplayStore, load round 1, broadcast (D-08).
+
+        Commit discipline: self._store/_cycle_id/_round_num are assigned ONLY
+        after every awaited Neo4j load succeeds. A failure mid-start therefore
+        leaves the manager fully inactive (no phantom replay that the
+        broadcaster would stream as a half-built snapshot). During the awaited
+        loads, _starting keeps is_active True so a live simulation cannot
+        start concurrently (TOCTOU closure, mirrored by the sim check below).
+        """
         async with self._lock:
             if self.is_active:
                 raise ReplayAlreadyActiveError("Replay already active")
-            self._store = ReplayStore(cycle_id, signals)
-            self._cycle_id = cycle_id
-            self._round_num = 1
-            self._store.set_round(1)
-            # Load bracket summaries and rationale entries for round 1
-            brackets = await graph_manager.read_bracket_narratives_for_round(cycle_id, 1)
-            bracket_summaries = tuple(
-                BracketSummary(
-                    bracket=b["bracket"],
-                    display_name=b.get("display_name", b["bracket"]),
-                    buy_count=b.get("buy_count", 0),
-                    sell_count=b.get("sell_count", 0),
-                    hold_count=b.get("hold_count", 0),
-                    total=b.get("total", 0),
-                    avg_confidence=b.get("avg_confidence", 0.0),
-                    avg_sentiment=b.get("avg_sentiment", 0.0),
+            if self._sim_running_check is not None and self._sim_running_check():
+                raise SimulationActiveError(
+                    "Cannot start replay while a simulation is running"
                 )
-                for b in brackets
-            )
-            self._store.set_bracket_summaries(bracket_summaries)
-            rationales_raw = await graph_manager.read_rationale_entries_for_round(cycle_id, 1)
-            rationale_entries = tuple(
-                RationaleEntry(
-                    agent_id=r["agent_id"],
-                    signal=r["signal"],
-                    rationale=r["rationale"],
-                    round_num=r["round_num"],
+            self._starting = True
+            try:
+                store = ReplayStore(cycle_id, signals)
+                store.set_round(1)
+                # Load bracket summaries and rationale entries for round 1
+                brackets = await graph_manager.read_bracket_narratives_for_round(cycle_id, 1)
+                bracket_summaries = tuple(
+                    BracketSummary(
+                        bracket=b["bracket"],
+                        display_name=b.get("display_name", b["bracket"]),
+                        buy_count=b.get("buy_count", 0),
+                        sell_count=b.get("sell_count", 0),
+                        hold_count=b.get("hold_count", 0),
+                        total=b.get("total", 0),
+                        avg_confidence=b.get("avg_confidence", 0.0),
+                        avg_sentiment=b.get("avg_sentiment", 0.0),
+                    )
+                    for b in brackets
                 )
-                for r in rationales_raw
-            )
-            self._store.set_rationale_entries(rationale_entries)
+                store.set_bracket_summaries(bracket_summaries)
+                rationales_raw = await graph_manager.read_rationale_entries_for_round(cycle_id, 1)
+                rationale_entries = tuple(
+                    RationaleEntry(
+                        agent_id=r["agent_id"],
+                        signal=r["signal"],
+                        rationale=r["rationale"],
+                        round_num=r["round_num"],
+                    )
+                    for r in rationales_raw
+                )
+                store.set_rationale_entries(rationale_entries)
+                # All loads succeeded — commit replay state atomically.
+                self._store = store
+                self._cycle_id = cycle_id
+                self._round_num = 1
+            finally:
+                self._starting = False
             # Set phase on state_store so broadcaster sees REPLAY
             await self._app_state.state_store.set_phase(SimulationPhase.REPLAY)
             # Broadcast round-1 snapshot immediately

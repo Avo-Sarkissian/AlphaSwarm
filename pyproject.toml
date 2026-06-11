@@ -71,6 +71,7 @@ source_modules = [
     "alphaswarm.cli",
     "alphaswarm.config",
     "alphaswarm.context_formatter",
+    "alphaswarm.data_audit",
     "alphaswarm.errors",
     "alphaswarm.governor",
     "alphaswarm.graph",

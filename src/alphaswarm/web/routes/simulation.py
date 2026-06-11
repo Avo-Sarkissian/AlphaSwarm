@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from alphaswarm.web.simulation_manager import (
     NoSimulationRunningError,
+    ReplayActiveError,
     ShockAlreadyQueuedError,
     SimulationAlreadyRunningError,
 )
@@ -69,6 +70,12 @@ async def simulate_start(body: SimulateStartRequest, request: Request) -> Simula
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"error": "simulation_already_running", "message": str(exc)},
+        ) from exc
+    except ReplayActiveError as exc:
+        log.warning("simulate_start_rejected", reason="replay_active")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "replay_active", "message": str(exc)},
         ) from exc
 
     log.info("simulate_start_accepted", seed_length=len(body.seed))

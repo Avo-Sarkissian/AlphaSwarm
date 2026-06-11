@@ -37,6 +37,39 @@ _CODE_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
+def _json_block_candidates(text: str) -> list[str]:
+    """Return candidate JSON-object substrings from `text`, best-first.
+
+    First candidate: the first balanced {...} object found by brace-depth
+    scanning from the first '{'. The greedy regex spans first '{' to LAST '}',
+    so two adjacent JSON objects or a stray trailing brace would force tier-3
+    even when a valid object exists. Depth counting (without string awareness
+    — sufficient here) finds the first balanced object instead.
+
+    Second candidate: the legacy greedy first-{..last-} span, kept as a
+    fallback so prior behavior is preserved when the balanced scan candidate
+    fails to parse.
+    """
+    candidates: list[str] = []
+    start = text.find("{")
+    if start == -1:
+        return candidates
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                candidates.append(text[start : i + 1])
+                break
+    greedy = _JSON_BLOCK_RE.search(text)
+    if greedy is not None and greedy.group() not in candidates:
+        candidates.append(greedy.group())
+    return candidates
+
+
 def _strip_code_fences(text: str) -> str:
     """Remove markdown code fences, returning the inner content.
 
@@ -86,11 +119,10 @@ def parse_agent_decision(raw: str) -> AgentDecision:
     except (ValidationError, ValueError):
         pass
 
-    # Regex extraction on cleaned text
-    match = _JSON_BLOCK_RE.search(cleaned)
-    if match:
+    # Brace extraction on cleaned text (balanced scan first, greedy fallback)
+    for candidate in _json_block_candidates(cleaned):
         try:
-            result = AgentDecision.model_validate_json(match.group())
+            result = AgentDecision.model_validate_json(candidate)
             logger.debug(
                 "parse succeeded via regex extraction",
                 parse_tier=2,
@@ -100,12 +132,11 @@ def parse_agent_decision(raw: str) -> AgentDecision:
         except (ValidationError, ValueError):
             pass
 
-    # Also try regex on original text (in case code fence stripping lost context)
+    # Also try extraction on original text (in case code fence stripping lost context)
     if cleaned != raw:
-        match = _JSON_BLOCK_RE.search(raw)
-        if match:
+        for candidate in _json_block_candidates(raw):
             try:
-                result = AgentDecision.model_validate_json(match.group())
+                result = AgentDecision.model_validate_json(candidate)
                 logger.debug(
                     "parse succeeded via regex on original",
                     parse_tier=2,
@@ -192,19 +223,17 @@ def parse_seed_event(raw: str, original_rumor: str) -> ParsedSeedResult:
         logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
         return ParsedSeedResult(seed_event=result, parse_tier=2)
 
-    # Regex extraction on cleaned text
-    match = _JSON_BLOCK_RE.search(cleaned)
-    if match:
-        result = _try_parse_seed_json(match.group(), original_rumor)
+    # Brace extraction on cleaned text (balanced scan first, greedy fallback)
+    for candidate in _json_block_candidates(cleaned):
+        result = _try_parse_seed_json(candidate, original_rumor)
         if result is not None:
             logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
             return ParsedSeedResult(seed_event=result, parse_tier=2)
 
-    # Regex on original text if different
+    # Extraction on original text if different
     if cleaned != raw:
-        match = _JSON_BLOCK_RE.search(raw)
-        if match:
-            result = _try_parse_seed_json(match.group(), original_rumor)
+        for candidate in _json_block_candidates(raw):
+            result = _try_parse_seed_json(candidate, original_rumor)
             if result is not None:
                 logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
                 return ParsedSeedResult(seed_event=result, parse_tier=2)
@@ -225,7 +254,7 @@ def parse_seed_event(raw: str, original_rumor: str) -> ParsedSeedResult:
 def parse_modifier_response(raw: str) -> ParsedModifiersResult:
     """Parse orchestrator modifier JSON with 3-tier fallback (D-05, D-07, D-08).
 
-    Expected JSON format: {"quants": "modifier string", ..., "whales": "modifier string"}
+    Expected JSON format: {"institutions": "modifier string", ..., "allocators": "modifier string"}
     Exactly 10 keys matching BracketType enum values.
 
     Tier 1: Direct JSON parse
@@ -280,10 +309,9 @@ def parse_modifier_response(raw: str) -> ParsedModifiersResult:
                 return ParsedModifiersResult(modifiers=modifiers, parse_tier=2)
         except (json.JSONDecodeError, ValueError):
             pass
-        match = _JSON_BLOCK_RE.search(text)
-        if match:
+        for candidate in _json_block_candidates(text):
             try:
-                data = json.loads(match.group())
+                data = json.loads(candidate)
                 modifiers = _validate_and_fill(data)
                 if modifiers is not None:
                     logger.debug("modifier_parse_succeeded", parse_tier=2)

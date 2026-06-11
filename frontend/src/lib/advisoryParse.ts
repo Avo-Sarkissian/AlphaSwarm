@@ -49,9 +49,11 @@ export function extractField(section: string, label: FieldLabel): string | null 
 }
 
 // -- citation count regex (D-08 `agents` field; KR-41.6-10 documents this is a heuristic) --
-// Agent IDs follow the pattern: 1 letter prefix + dash + 2-digit number, e.g. Q-03, D-12, X-01.
-// Prefixes (Q D S M U I A X P W) per AlphaSwarm-2/src/data.jsx PREFIX const.
-export const AGENT_ID_RE = /\b[QDSMUIAXPW]-\d{2}\b/g;
+// Real backend agent IDs are `{bracket}_{NN}` snake_case, e.g. quants_01,
+// event_driven_05 — NOT the design-era `Q-03` prefix grammar.
+const AGENT_ID_SRC =
+  '(?:institutions|sell_side|event_driven|quants|degens|narrators|algos|macro|shorts|allocators)_\\d{2}';
+export const AGENT_ID_RE = new RegExp(`\\b${AGENT_ID_SRC}\\b`, 'g');
 
 export function countAgentCitations(text: string): number {
   if (!text) return 0;
@@ -155,9 +157,11 @@ export function parseInfluences(md: string): InfluenceEntry[] | null {
     extractSectionByHeading(md, 'Influence Leaders');
   if (!section) return null;
   const out: InfluenceEntry[] = [];
-  // Match table rows OR list items: "| Q-03 | 0.42 |" or "- Q-03: 0.42"
-  const rowRe =
-    /(?:^\|\s*([QDSMUIAXPW]-\d{2})\s*\|\s*([\d.]+))|(?:^[-*]\s+([QDSMUIAXPW]-\d{2})\s*[:\-]\s*([\d.]+))/gm;
+  // Match table rows OR list items: "| quants_03 | 0.42 |" or "- quants_03: 0.42"
+  const rowRe = new RegExp(
+    `(?:^\\|\\s*(${AGENT_ID_SRC})\\s*\\|\\s*([\\d.]+))|(?:^[-*]\\s+(${AGENT_ID_SRC})\\s*[:\\-]\\s*([\\d.]+))`,
+    'gm',
+  );
   let m;
   while ((m = rowRe.exec(section)) !== null) {
     const id = m[1] || m[3];

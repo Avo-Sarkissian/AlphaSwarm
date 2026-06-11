@@ -11,9 +11,11 @@
 //   • useRationales() → rationale feed (replaces source's static fixture)
 //   • useConnection() → reconnectFailed gate for ErrorState
 //   • simStart(seed) / simStop() from api/simulation → Topbar Run/Stop
-//   • Lifecycle dispatch: ErrorState > MemoryPausedState (memMb>=90) >
-//     SeedingState (phase=='initializing') > IdleState (phase=='idle' && !running)
-//     > running dashboard (Viz + KpiStrip + ConsensusRing + BracketList + RationaleFeed)
+//   • Lifecycle dispatch: ErrorState > SeedingState (phase=='initializing'/'seeding')
+//     > IdleState (phase=='idle' && !running)
+//     > running dashboard (Viz + KpiStrip + ConsensusRing + BracketList + RationaleFeed).
+//     Governor paused/crisis renders as a dismissible banner over the dashboard
+//     (the backend governor resumes on its own — no takeover, no simStart).
 //
 // Modal mounts (Interview, Report, Shock, Replay, CyclePicker, AdvisoryV2,
 // SignalWire ticker, DataSources takeover, BracketDeepDive) are stubbed for
@@ -22,11 +24,11 @@
 // ModelStatus chip: hardcoded 'qwen3:8b' (KR-41.6-08, matches
 // src/alphaswarm/config.py:32 OllamaSettings.worker_model default — Phase
 // 41.4 locked qwen3:8b worker + qwen3.6:27b orchestrator with think=OFF).
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Icon } from './icons';
 import { Viz } from './viz';
 import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
-import { IdleState, SeedingState, MemoryPausedState, ErrorState } from './states';
+import { IdleState, SeedingState, ErrorState } from './states';
 import { TweaksPanelLoader } from './TweaksPanelLoader';
 import { useAgents } from '../context/AgentsContext';
 import { useBrackets } from '../context/BracketContext';
@@ -35,6 +37,8 @@ import { useRationales } from '../context/RationalesContext';
 import { useConnection } from '../context/ConnectionContext';
 import { useEdgesCtx } from '../context/EdgesContext';
 import { simStart, simStop } from '../api/simulation';
+import { replayStart } from '../api/replay';
+import { normalizeBracketKey } from '../data';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
 // modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
 import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from './v2';
@@ -116,7 +120,7 @@ const COMING_SOON_COPY: Record<ComingSoonKey, { title: string; subtitle: string;
     body:
       'Edit the 10 bracket archetypes (counts, risk profiles, persona prompts) before a run. ' +
       'Save and reload bracket presets to test how the swarm behaves with different ' +
-      'compositions (e.g. all degens, no whales).\n\n' +
+      'compositions (e.g. all degens, no allocators).\n\n' +
       'Requires a persona-edit UI and a per-cycle bracket-override channel through the ' +
       'config layer.',
   },
@@ -197,9 +201,11 @@ function Legend() {
 interface UiState {
   shockOpen: boolean;
   cyclePickerOpen: boolean;
+  replayCycle: any | null; // cycle picked in CyclePickerModal (shown in ReplayBar)
   interviewAgent: any | null;
   interviewV2Agent: any | null;
   reportOpen: boolean;
+  reportCycleId: string | null; // cycle picked in CycleHistory (null = current)
   advisoryOpen: boolean;
   dataSourcesOpen: boolean;
   watchOpen: boolean;
@@ -218,7 +224,7 @@ export function App() {
   const { agents } = useAgents();
   const { brackets } = useBrackets();
   const { rationales } = useRationales();
-  const { reconnectFailed } = useConnection();
+  const { reconnectFailed, connected } = useConnection();
   const tel = useTelemetry();
   const { edges } = useEdgesCtx();
   const phase = tel.phase;
@@ -226,8 +232,17 @@ export function App() {
   const tps = tel.telemetry.tps;
   const memMb = tel.telemetry.memMb;
   const slotsUsed = tel.telemetry.slotsUsed;
-  // slotsMax read inside <ModelStatus /> (W2 stub used it directly here)
+  const slotsMax = tel.telemetry.slotsMax;
   const elapsedSeconds = tel.telemetry.elapsedSeconds;
+  // Governor-driven paused/crisis warning (replaces the old memMb>=90 full
+  // takeover): the backend governor pauses + resumes on its own, so the UI
+  // only warns — it never restarts the simulation.
+  const governorState = tel.telemetry.governorState;
+  const governorPaused = governorState === 'paused' || governorState === 'crisis';
+  const [govBannerDismissed, setGovBannerDismissed] = useState(false);
+  useEffect(() => {
+    if (!governorPaused) setGovBannerDismissed(false); // re-arm after recovery
+  }, [governorPaused]);
 
   // Local UI state — chrome only (no live data here).
   const [seed, setSeed] = useState<string>('');
@@ -244,9 +259,11 @@ export function App() {
   const [ui, setUi] = useState<UiState>({
     shockOpen: false,
     cyclePickerOpen: false,
+    replayCycle: null,
     interviewAgent: null,
     interviewV2Agent: null,
     reportOpen: false,
+    reportCycleId: null,
     advisoryOpen: false,
     dataSourcesOpen: false,
     watchOpen: false,
@@ -274,7 +291,9 @@ export function App() {
     [brackets],
   );
   // RationaleFeed expects {agent, bracket, signal, round, text, cites}.
-  // RationaleView ships {agentId, round, text, citations, sources, ts}.
+  // RationaleView ships {agentId, signal, round, text, citations, sources, ts}.
+  // signal comes from the wire RationaleEntry itself — using the agent's
+  // CURRENT signal retagged old entries whenever the agent flipped.
   // KR-41.1-10: citations are stubbed [] in the adapter; render shows no cites
   // until backend RationaleEntry carries cited_agents.
   const feedRationales = useMemo(
@@ -283,7 +302,7 @@ export function App() {
       return {
         agent: r.agentId,
         bracket: a?.bracketDisplay ?? '',
-        signal: a?.signal ?? 'hold',
+        signal: r.signal,
         round: r.round,
         text: r.text,
         cites: r.citations ?? [],
@@ -331,7 +350,7 @@ export function App() {
   // even during round_1, causing the bracket panel header to show R2 while the
   // topbar showed ROUND_1.
   const round = (() => {
-    if (phase === 'done' || phase === 'complete') return 3;
+    if (phase === 'complete') return 3;
     if (typeof phase === 'string') {
       const m = phase.match(/^round[_-]?(\d+)$/i);
       if (m) return Number(m[1]);
@@ -341,12 +360,12 @@ export function App() {
     return 1;
   })();
   const phaseLabel =
-    phase === 'done' ? 'COMPLETE' :
+    phase === 'complete' ? 'COMPLETE' :
     phase === 'idle' ? 'IDLE' :
     phase === 'initializing' ? 'SEEDING' :
     typeof phase === 'string' && phase.startsWith('round') ? phase.toUpperCase() :
     `ROUND ${round}/3`;
-  const phaseState: 'live' | 'complete' = phase === 'done' ? 'complete' : 'live';
+  const phaseState: 'live' | 'complete' = phase === 'complete' ? 'complete' : 'live';
 
   const onAgentHover = (agent: any, e: any) => {
     if (!agent) { setUi(u => ({ ...u, tooltip: null })); return; }
@@ -378,12 +397,10 @@ export function App() {
   };
 
   // Lifecycle dispatch — gate the dashboard render based on phase + telemetry.
-  // Priority: error > paused > seeding > idle > running.
+  // Priority: error > seeding > idle > running. Governor paused/crisis renders
+  // as a dismissible banner OVER the dashboard (not a takeover) — see below.
   if (reconnectFailed) {
     return <ErrorState onRetry={() => window.location.reload()} />;
-  }
-  if (memMb >= 90) {
-    return <MemoryPausedState pct={Math.round(memMb)} onResume={onRun} />;
   }
   if (phase === 'initializing' || phase === 'seeding') {
     return <SeedingState seed={seed} />;
@@ -401,13 +418,23 @@ export function App() {
         {ui.historyOpen && (
           <CycleHistory
             onClose={() => setUi((u) => ({ ...u, historyOpen: false }))}
-            onOpenReport={() =>
-              setUi((u) => ({ ...u, historyOpen: false, reportOpen: true }))
+            onOpenReport={(c) =>
+              setUi((u) => ({
+                ...u,
+                historyOpen: false,
+                reportOpen: true,
+                reportCycleId: c.cycle_id,
+              }))
             }
           />
         )}
         {ui.reportOpen && (
-          <ReportModal onClose={() => setUi((u) => ({ ...u, reportOpen: false }))} />
+          <ReportModal
+            cycleId={ui.reportCycleId}
+            onClose={() =>
+              setUi((u) => ({ ...u, reportOpen: false, reportCycleId: null }))
+            }
+          />
         )}
       </>
     );
@@ -454,7 +481,7 @@ export function App() {
         <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, shockOpen: !u.shockOpen}))} title="Inject shock event">
           <Icon name="bolt" />
         </button>
-        <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, watchOpen: true}))} title="Watch / replay">
+        <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, cyclePickerOpen: true}))} title="Watch / replay">
           <Icon name="replay" />
         </button>
         <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, reportOpen: true}))} title="Simulation report">
@@ -513,6 +540,34 @@ export function App() {
       {/* Signal Wire ticker — real ported component (DEV-only mock per KR-41.6-14) */}
       <SignalWire onInspect={() => setUi((u) => ({ ...u, dataSourcesOpen: true }))} />
 
+      {/* Governor paused/crisis warning — dismissible banner, NOT a takeover.
+          The backend governor throttles + resumes on its own; no resume button. */}
+      {governorPaused && !govBannerDismissed && (
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px',
+            background: 'color-mix(in srgb, var(--sell) 10%, var(--bg-2))',
+            borderBottom: '1px solid color-mix(in srgb, var(--sell) 35%, transparent)',
+          }}
+        >
+          <span className="label" style={{ color: 'var(--sell)' }}>
+            GOVERNOR {governorState?.toUpperCase()} · MEMORY {Math.round(memMb)}%
+          </span>
+          <span style={{ color: 'var(--text-2)', fontSize: 11 }}>
+            Inference throttled under memory pressure — the governor resumes
+            automatically once pressure clears. No action needed.
+          </span>
+          <div style={{ flex: 1 }} />
+          <button
+            className="btn ghost"
+            style={{ height: 22, padding: '0 8px' }}
+            onClick={() => setGovBannerDismissed(true)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Main */}
       <div className="main">
         {/* Left */}
@@ -556,9 +611,9 @@ export function App() {
           <div className="canvas-topstrip">
             <div className="round-tabs">
               {[1,2,3].map(r => (
-                <button key={r} className="round-tab" data-active={round === r && phase !== 'done'}>R{r}</button>
+                <button key={r} className="round-tab" data-active={round === r && phase !== 'complete'}>R{r}</button>
               ))}
-              <button className="round-tab" data-active={phase === 'done'}>FINAL</button>
+              <button className="round-tab" data-active={phase === 'complete'}>FINAL</button>
             </div>
             <span className="topstrip-meta">{agents.filter(a => a.flipped).length} flips since R1 · {hasEdges ? `${edges.length} active edges` : `${agents.length} agents`}</span>
             <div className="layout-tabs">
@@ -577,6 +632,7 @@ export function App() {
           <div className="canvas-wrap">
             <Viz
               agents={agents}
+              edges={edges}
               layout={layout}
               direction="a"
               highlightId={ui.tooltip?.agent?.id}
@@ -602,6 +658,7 @@ export function App() {
             tps={tps}
             mem={Math.round(memMb)}
             slots={slotsUsed}
+            slotsMax={slotsMax}
             elapsed={Math.round(elapsedSeconds)}
             round={round}
           />
@@ -612,7 +669,11 @@ export function App() {
           <div className="panel">
             <div className="panel-head">
               <span className="panel-title">Rationale Feed</span>
-              <span className="label live-indicator"><span className="live-dot" /> LIVE · R{round}</span>
+              {connected ? (
+                <span className="label live-indicator"><span className="live-dot" /> LIVE · R{round}</span>
+              ) : (
+                <span className="label" style={{ color: 'var(--sell)' }}>RECONNECTING…</span>
+              )}
             </div>
             <div className="panel-body">
               <RationaleFeed
@@ -642,7 +703,7 @@ export function App() {
       {ui.bracketDeepDive && (
         <BracketDeepDive
           bracket={ui.bracketDeepDive}
-          agents={agents.filter((a) => a.bracket.toLowerCase() === ui.bracketDeepDive.bracket.toLowerCase())}
+          agents={agents.filter((a) => normalizeBracketKey(a.bracket) === normalizeBracketKey(ui.bracketDeepDive.bracket))}
           onAgentInterview={(a) => setUi((u) => ({ ...u, bracketDeepDive: null, interviewV2Agent: a }))}
           onClose={() => setUi((u) => ({ ...u, bracketDeepDive: null }))}
         />
@@ -652,12 +713,17 @@ export function App() {
       )}
       {ui.watchOpen && (
         <ReplayBar
-          cycle={null}
-          onExit={() => setUi((u) => ({ ...u, watchOpen: false }))}
+          cycle={ui.replayCycle}
+          onExit={() => setUi((u) => ({ ...u, watchOpen: false, replayCycle: null }))}
         />
       )}
       {ui.reportOpen && (
-        <ReportModal onClose={() => setUi((u) => ({ ...u, reportOpen: false }))} />
+        <ReportModal
+          cycleId={ui.reportCycleId}
+          onClose={() =>
+            setUi((u) => ({ ...u, reportOpen: false, reportCycleId: null }))
+          }
+        />
       )}
       {ui.advisoryOpen && (
         <AdvisoryV2 onClose={() => setUi((u) => ({ ...u, advisoryOpen: false }))} />
@@ -670,8 +736,13 @@ export function App() {
       {ui.historyOpen && (
         <CycleHistory
           onClose={() => setUi((u) => ({ ...u, historyOpen: false }))}
-          onOpenReport={() =>
-            setUi((u) => ({ ...u, historyOpen: false, reportOpen: true }))
+          onOpenReport={(c) =>
+            setUi((u) => ({
+              ...u,
+              historyOpen: false,
+              reportOpen: true,
+              reportCycleId: c.cycle_id,
+            }))
           }
         />
       )}
@@ -687,9 +758,18 @@ export function App() {
       {ui.cyclePickerOpen && (
         <CyclePickerModal
           onClose={() => setUi((u) => ({ ...u, cyclePickerOpen: false }))}
-          onPick={() =>
-            setUi((u) => ({ ...u, cyclePickerOpen: false, watchOpen: true }))
-          }
+          onPick={async (cycle: any) => {
+            // Start backend replay for the picked cycle, THEN show the bar.
+            // Errors (e.g. 409 replay already active) propagate back to the
+            // picker, which console.logs + surfaces them in its err label.
+            await replayStart(cycle.cycle_id);
+            setUi((u) => ({
+              ...u,
+              cyclePickerOpen: false,
+              watchOpen: true,
+              replayCycle: cycle,
+            }));
+          }}
         />
       )}
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -100,6 +101,10 @@ class SimulationManager:
         self._task: asyncio.Task[None] | None = None
         self._pending_shock: str | None = None
         self._last_cycle_id: str | None = None
+        # Strong references to fire-and-forget callback tasks (on_complete
+        # trigger). The event loop holds only weak refs to tasks; without
+        # this set the auto-advisory trigger can be GC'd before it runs.
+        self._bg_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def is_running(self) -> bool:
@@ -205,10 +210,12 @@ class SimulationManager:
             cycle_id = self._last_cycle_id
             self._last_cycle_id = None  # reset for next run
             if cycle_id is not None and self._on_complete is not None:
-                asyncio.create_task(
-                    self._on_complete(cycle_id),
+                trigger: asyncio.Task[None] = asyncio.create_task(
+                    self._run_on_complete(cycle_id),
                     name=f"auto_advisory_{cycle_id}",
                 )
+                self._bg_tasks.add(trigger)
+                trigger.add_done_callback(self._bg_tasks.discard)
             log.info("simulation_completed")
         elif task.cancelled():
             log.info("simulation_cancelled")
@@ -244,3 +251,25 @@ class SimulationManager:
         shock = self._pending_shock
         self._pending_shock = None
         return shock
+
+    async def _run_on_complete(self, cycle_id: str) -> None:
+        """Await the on_complete callback (typed coroutine wrapper for create_task)."""
+        assert self._on_complete is not None
+        await self._on_complete(cycle_id)
+
+    async def shutdown(self) -> None:
+        """Cancel any running simulation and pending trigger tasks (lifespan teardown).
+
+        Awaits cancellation so the graph manager can be closed safely afterward
+        without orphaned tasks mid-Neo4j-write.
+        """
+        task = self._task
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+        for bg in list(self._bg_tasks):
+            if not bg.done():
+                bg.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await bg

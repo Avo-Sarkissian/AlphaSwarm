@@ -93,7 +93,17 @@ def _fetch_one_sync(ticker: str) -> MarketSlice:
         yft = yf.Ticker(ticker)
         fi = yft.fast_info
         price = _decimal_or_none(fi.last_price)
-        volume = int(fi.last_volume) if fi.last_volume is not None else None
+        # last_volume can be float('nan') (e.g. pre-market) — int(nan) raises
+        # ValueError, which would downgrade the whole slice to fetch_failed
+        # even when price was valid. NaN/Inf → None (volume is int | None).
+        raw_volume = fi.last_volume
+        if raw_volume is None or (
+            isinstance(raw_volume, float)
+            and (math.isnan(raw_volume) or math.isinf(raw_volume))
+        ):
+            volume = None
+        else:
+            volume = int(raw_volume)
         info = yft.info  # sync HTTP — must be inside thread (Pitfall 6)
         fundamentals = Fundamentals(
             pe_ratio=_decimal_or_none(info.get("trailingPE")),
@@ -162,7 +172,7 @@ class YFinanceMarketDataProvider:
         )
         # Audit one entry per ticker so the SignalWire ticker matches batch shape.
         for s in slices:
-            ok = s.staleness != "failed"
+            ok = s.staleness != "fetch_failed"
             self._audit(
                 query=f"{s.ticker} OHLCV",
                 result="ok" if ok else "error: fetch_failed",

@@ -34,23 +34,16 @@ SCHEMA:
   "affected_holdings": integer
 }
 
-CRITICAL — ONE ITEM PER HOLDING. NEVER OMIT A HOLDING.
-For every holding in the USER PORTFOLIO list below you MUST emit one
-items[] entry. The user wants to see their FULL portfolio context, even
-where the swarm has no strong directional view.
+EMIT CONVICTION ITEMS ONLY.
+Emit one items[] entry for each holding where the swarm produced a CLEAR
+directional view — BUY/SELL signal, or HOLD with confidence > 0.4.
+Skip holdings the swarm had no strong view on; the engine pads those in
+after you return so the user still sees their full portfolio. This saves
+prompt tokens for the conviction cases you DO have something to say about.
 
-For holdings without a clear directional signal from the swarm, use:
-    consensus_signal = "HOLD"
-    confidence in the range 0.20..0.40 (placeholder for low-conviction)
-    rationale_summary = a brief note that no strong signal emerged.
-
-Strong-conviction items (BUY/SELL with confidence > 0.4 OR any non-HOLD
-signal) still drive the headline narrative in portfolio_outlook.
-
-`affected_holdings` is the COUNT of items where consensus_signal != "HOLD"
-OR confidence > 0.4 — i.e. items with a directional or high-conviction
-view. It is DISTINCT from total_holdings (which equals len(items) when
-the one-item-per-holding rule is honored).
+`affected_holdings` = count of items you actually emit.
+`total_holdings` will be overwritten by the engine to match the full
+portfolio count; emit whatever — it will be replaced.
 
 DO NOT output markdown, commentary, or fields outside this schema. Only return
 the JSON object."""
@@ -63,7 +56,7 @@ _WORKED_EXAMPLE = """EXAMPLE (shape only — use the real data below for the act
   "portfolio_outlook": "The swarm converged BUY on AI infrastructure... ...",
   "items": [
     {"ticker": "NVDA", "consensus_signal": "BUY", "confidence": 0.82,
-     "rationale_summary": "Data-center demand reiterated across Quants and Whales.",
+     "rationale_summary": "Data-center demand reiterated across Quants and Sell-Side.",
      "position_exposure": "12500.00"}
   ],
   "total_holdings": 7,
@@ -89,35 +82,24 @@ def build_advisory_prompt(
     (D-06, Pitfall 2). Neo4j payloads are serialized with default=str to
     absorb any Decimal in sentiment/confidence fields.
 
-    ITEM 6 of quick task 260512-jqn: callers may now split the portfolio
-    into top_holdings (full enrichment, sent to the LLM with sector fields)
-    and rest_holdings (sector tag only, sent to ensure the
-    one-item-per-holding rule is honored). The legacy `holdings` kwarg is
-    still accepted for callers that don't enrich — those holdings are
-    treated as top_holdings with no enrichment data.
+    Only `top_holdings` (or legacy `holdings`) is sent to the LLM — the rest
+    of the portfolio is padded server-side with HOLD@0.30 by `engine.py` so
+    the user still sees a full portfolio view without burning prompt tokens
+    on no-signal HOLD boilerplate (SWEEP-260528 B-7). `rest_holdings` is still
+    accepted for backward compatibility but is now ignored.
     """
-    # Resolve which holdings list(s) to render. Order of precedence:
-    #   1. Explicit top_holdings + rest_holdings (preferred — engine.py path).
-    #   2. Legacy `holdings` alone — treated as a single un-split list.
+    # Only the enriched conviction subset reaches the LLM. Anything outside
+    # this list is filled in by engine.py after the LLM returns.
     resolved_top = top_holdings if top_holdings is not None else (holdings or [])
-    resolved_rest = rest_holdings if rest_holdings is not None else []
-    total_count = len(resolved_top) + len(resolved_rest)
+    _ = rest_holdings  # accepted for back-compat, intentionally unused
 
     system = _SYSTEM_INSTRUCTIONS + "\n\n" + _WORKED_EXAMPLE
     portfolio_block_lines = [
-        f"USER PORTFOLIO — {total_count} holdings (one items[] entry per holding REQUIRED):",
+        f"USER PORTFOLIO — {len(resolved_top)} sector-enriched conviction "
+        "candidates (engine pads no-signal holdings server-side):",
         "",
-        "TOP HOLDINGS (sector-enriched — focus your conviction items here):",
         json.dumps(resolved_top, default=str),
     ]
-    if resolved_rest:
-        portfolio_block_lines.extend(
-            [
-                "",
-                "OTHER HOLDINGS (sector tag only — emit HOLD@0.20-0.40 if no strong view):",
-                json.dumps(resolved_rest, default=str),
-            ]
-        )
     user = "\n".join(
         [
             f"CYCLE_ID: {cycle_id}",
