@@ -1,3 +1,3 @@
 #!/bin/bash
 cd "$(dirname "$0")"
-uv run python -m alphaswarm tui
+uv run python -m alphaswarm web

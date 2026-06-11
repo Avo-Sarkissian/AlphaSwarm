@@ -34,7 +34,7 @@ dev = [
 ]
 
 [project.scripts]
-start = "alphaswarm.cli:main_tui"
+start = "alphaswarm.cli:main_web"
 
 [build-system]
 requires = ["hatchling"]
@@ -83,7 +83,6 @@ source_modules = [
     "alphaswarm.interview",
     "alphaswarm.logging",
     "alphaswarm.memory_monitor",
-    "alphaswarm.miro",
     "alphaswarm.ollama_client",
     "alphaswarm.ollama_models",
     "alphaswarm.parsing",
@@ -93,7 +92,6 @@ source_modules = [
     "alphaswarm.seed",
     "alphaswarm.simulation",
     "alphaswarm.state",
-    "alphaswarm.tui",
     "alphaswarm.types",
     "alphaswarm.utils",
     "alphaswarm.worker",

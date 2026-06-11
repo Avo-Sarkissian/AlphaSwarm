@@ -4,7 +4,6 @@ Usage:
     python -m alphaswarm                  # Print startup banner (legacy)
     python -m alphaswarm inject "rumor"   # Inject a seed rumor
     python -m alphaswarm run "rumor"      # Run full 3-round simulation
-    python -m alphaswarm tui "rumor"      # Launch TUI dashboard with live simulation
 """
 
 from __future__ import annotations
@@ -555,41 +554,6 @@ def _handle_run(rumor: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# TUI handler (creates AppState BEFORE Textual event loop)
-# ---------------------------------------------------------------------------
-
-
-def _handle_tui(rumor: str) -> None:
-    """Synchronous handler: create AppState BEFORE Textual event loop.
-
-    Per D-01: TUI-owned event loop. AppState (including Neo4j driver
-    verification via run_until_complete) must be created synchronously
-    BEFORE App.run() starts the Textual event loop.
-
-    Mirrors _handle_run pattern for startup safety.
-    """
-    from alphaswarm.app import create_app_state
-    from alphaswarm.tui import AlphaSwarmApp
-
-    settings = AppSettings()
-    brackets = load_bracket_configs()
-    personas = generate_personas(brackets)
-
-    # MUST happen BEFORE App.run() -- create_app_state uses run_until_complete
-    # for Neo4j connectivity check, which crashes inside a running event loop
-    app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
-
-    tui_app = AlphaSwarmApp(
-        rumor=rumor,
-        app_state=app_state,
-        personas=personas,
-        brackets=brackets,
-        settings=settings,
-    )
-    tui_app.run()
-
-
-# ---------------------------------------------------------------------------
 # Inject handler (existing, unchanged)
 # ---------------------------------------------------------------------------
 
@@ -772,59 +736,6 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Replay handler (Phase 28, D-01)
-# ---------------------------------------------------------------------------
-
-
-def _handle_replay(cycle_id: str | None) -> None:
-    """Synchronous handler: launch TUI in replay mode (per D-01).
-
-    Per D-01: CLI defaults --cycle to most recent completed cycle.
-    Per Review #4: Uses read_completed_cycles(limit=1), NOT read_latest_cycle_id().
-    Per RESEARCH.md Pattern 5: with_ollama=False -- replay needs no inference.
-    Per Review #12: graph_manager.close() in finally block.
-    """
-    import asyncio as _asyncio
-
-    from alphaswarm.app import create_app_state
-    from alphaswarm.tui import AlphaSwarmApp
-
-    settings = AppSettings()
-    brackets = load_bracket_configs()
-    personas = generate_personas(brackets)
-
-    # with_ollama=False: replay does no inference (Pitfall 6 mitigation)
-    app_state = create_app_state(settings, personas, with_ollama=False, with_neo4j=True)
-
-    assert app_state.graph_manager is not None
-    gm = app_state.graph_manager
-
-    try:
-        # Resolve cycle_id before TUI event loop starts
-        # Review #4: Use read_completed_cycles, NOT read_latest_cycle_id
-        if cycle_id is None:
-            completed = _asyncio.run(gm.read_completed_cycles(limit=1))
-            if not completed:
-                print("Error: No completed simulation cycles found in the database.", file=sys.stderr)
-                sys.exit(1)
-            cycle_id = str(completed[0]["cycle_id"])
-
-        tui_app = AlphaSwarmApp(
-            rumor="",
-            app_state=app_state,
-            personas=personas,
-            brackets=brackets,
-            settings=settings,
-        )
-        tui_app.replay_cycle_id = cycle_id  # Signal replay mode to on_mount
-        tui_app.replay_cli_mode = True       # Review #3: CLI exits app on Escape
-        tui_app.run()
-    finally:
-        # Review #12: Always close graph manager
-        _asyncio.run(gm.close())
-
-
-# ---------------------------------------------------------------------------
 # Web server handler
 # ---------------------------------------------------------------------------
 
@@ -862,12 +773,6 @@ def main() -> None:
     run_parser = subparsers.add_parser("run", help="Run full 3-round simulation")
     run_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
 
-    tui_parser = subparsers.add_parser("tui", help="Launch TUI dashboard with live simulation")
-    tui_parser.add_argument(
-        "rumor", type=str, nargs="?", default="",
-        help="Natural-language seed rumor text (optional — can be entered in the TUI)",
-    )
-
     report_parser = subparsers.add_parser("report", help="Generate post-simulation analysis report")
     report_parser.add_argument(
         "--cycle", type=str, default=None,
@@ -876,12 +781,6 @@ def main() -> None:
     report_parser.add_argument(
         "--output", type=str, default=None,
         help="Override output file path",
-    )
-
-    replay_parser = subparsers.add_parser("replay", help="Replay a completed simulation")
-    replay_parser.add_argument(
-        "--cycle", type=str, default=None,
-        help="Cycle ID to replay (defaults to most recent completed)",
     )
 
     web_parser = subparsers.add_parser("web", help="Start web UI server")
@@ -916,16 +815,6 @@ def main() -> None:
             logger.error("run_failed", error=str(e))
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
-    elif args.command == "tui":
-        try:
-            _handle_tui(args.rumor)
-        except KeyboardInterrupt:
-            print("\nAborted.", file=sys.stderr)
-            sys.exit(1)
-        except Exception as e:
-            logger.error("tui_failed", error=str(e))
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
     elif args.command == "report":
         try:
             asyncio.run(_handle_report(args.cycle, args.output))
@@ -934,16 +823,6 @@ def main() -> None:
             sys.exit(1)
         except Exception as e:
             logger.error("report_failed", error=str(e))
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
-    elif args.command == "replay":
-        try:
-            _handle_replay(args.cycle)
-        except KeyboardInterrupt:
-            print("\nAborted.", file=sys.stderr)
-            sys.exit(1)
-        except Exception as e:
-            logger.error("replay_failed", error=str(e))
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
     elif args.command == "web":
@@ -960,14 +839,17 @@ def main() -> None:
         _print_banner()
 
 
-def main_tui() -> None:
-    """Direct entry point for 'start' console script — launches TUI."""
+def main_web() -> None:
+    """Direct entry point for 'start' console script — launches the web UI.
+
+    Replaces main_tui: the TUI was retired by the v5.0 web-first decision.
+    """
     try:
-        _handle_tui("")
+        _handle_web("127.0.0.1", 8000)
     except KeyboardInterrupt:
         print("\nAborted.", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        logger.error("tui_failed", error=str(e))
+        logger.error("web_failed", error=str(e))
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
