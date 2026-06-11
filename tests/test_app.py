@@ -54,8 +54,14 @@ def test_main_entry_point(
 
     assert "AlphaSwarm v0.1.0" in captured.out
     assert "Agents: 100 across 10 brackets" in captured.out
-    assert "Orchestrator: qwen3.5:32b" in captured.out
-    assert "Workers: qwen3.5:7b" in captured.out
+    # Banner model names come from AppSettings (which may read a local .env);
+    # assert against the same source instead of hardcoding — a hardcoded
+    # model string passes/fails depending on the machine's .env.
+    from alphaswarm.config import AppSettings
+
+    expected = AppSettings()
+    assert f"Orchestrator: {expected.ollama.orchestrator_model}" in captured.out
+    assert f"Workers: {expected.ollama.worker_model}" in captured.out
 
 
 def test_main_invalid_config(monkeypatch: pytest.MonkeyPatch) -> None:
