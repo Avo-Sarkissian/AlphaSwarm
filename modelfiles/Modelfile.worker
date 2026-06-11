@@ -1,9 +1,19 @@
 # AlphaSwarm Worker Agent Model
 # Register with: ollama create alphaswarm-worker -f modelfiles/Modelfile.worker
-# Base: qwen3:8b — qwen3moe arch supports parallel requests in ollama 0.21.2
-# (qwen3.5:9b was forced to Parallel=1 by the qwen35 arch limitation, see
-# 41.4-MODEL-DECISION-LOG.md and ollama issues #14510, #14621, #14879).
-FROM qwen3:8b
+#
+# Base: qwen3.5:35b (36B MoE, ~3B active) — model decision 2026-06-11.
+# Benchmarked on this M1 Max 64GB (ollama 0.30.7, llama.cpp Metal path):
+#   qwen3:8b  (old worker): prefill 422 t/s, decode 43 t/s
+#   qwen3.5:35b (this):     prefill 833 t/s, decode 60 t/s — faster AND
+#   two model generations smarter. Dense-model parallel decode is memory-
+#   bandwidth-capped on M1 Max (4-way qwen3:8b aggregated only ~25-43 t/s),
+#   so a fast MoE single-stream beats a parallel dense 8B outright.
+# Known limitation: qwen35moe arch serializes decode under OLLAMA_NUM_PARALLEL
+# in 0.30.7 (same family as ollama issues #14510/#14621/#14879). Prefill
+# still overlaps; NUM_PARALLEL=4 stays set (harmless, helps other archs).
+# MLX upgrade path: rebase on qwen3.5:35b-a3b-nvfp4 (MLX backend, ~2x
+# prefill) once benchmarked — requires OLLAMA_USE_MLX=1 (configure script).
+FROM qwen3.5:35b
 PARAMETER num_ctx 4096
 PARAMETER temperature 0.7
 PARAMETER num_gpu 999
