@@ -1285,9 +1285,9 @@ class GraphStateManager:
             """
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
             RETURN
-                sum(CASE WHEN d.signal = 'BUY' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN d.signal = 'SELL' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN d.signal = 'HOLD' THEN 1 ELSE 0 END) AS hold_count,
+                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count,
                 count(d) AS total
             """,
             cycle_id=cycle_id,
@@ -1324,9 +1324,9 @@ class GraphStateManager:
             MATCH (d:Decision {cycle_id: $cycle_id})
             RETURN
                 d.round AS round_num,
-                sum(CASE WHEN d.signal = 'BUY' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN d.signal = 'SELL' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN d.signal = 'HOLD' THEN 1 ELSE 0 END) AS hold_count,
+                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count,
                 count(d) AS total
             ORDER BY d.round
             """,
@@ -1363,9 +1363,9 @@ class GraphStateManager:
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
             RETURN
                 a.bracket AS bracket,
-                sum(CASE WHEN d.signal = 'BUY' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN d.signal = 'SELL' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN d.signal = 'HOLD' THEN 1 ELSE 0 END) AS hold_count,
+                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count,
                 avg(d.confidence) AS avg_confidence,
                 avg(d.sentiment) AS avg_sentiment
             ORDER BY bracket
@@ -1403,9 +1403,9 @@ class GraphStateManager:
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
             WITH a.bracket AS bracket,
                  collect({agent_id: a.id, name: a.name, signal: d.signal}) AS agents,
-                 sum(CASE WHEN d.signal = 'BUY' THEN 1 ELSE 0 END) AS buy_count,
-                 sum(CASE WHEN d.signal = 'SELL' THEN 1 ELSE 0 END) AS sell_count,
-                 sum(CASE WHEN d.signal = 'HOLD' THEN 1 ELSE 0 END) AS hold_count
+                 sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                 sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                 sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count
             WITH bracket, agents,
                  CASE
                    WHEN buy_count >= sell_count AND buy_count >= hold_count THEN 'BUY'
@@ -1560,9 +1560,9 @@ class GraphStateManager:
                 e.type AS entity_type,
                 avg(d.sentiment) AS avg_sentiment,
                 count(d) AS mention_count,
-                sum(CASE WHEN d.signal = 'BUY' THEN 1 ELSE 0 END) AS buy_mentions,
-                sum(CASE WHEN d.signal = 'SELL' THEN 1 ELSE 0 END) AS sell_mentions,
-                sum(CASE WHEN d.signal = 'HOLD' THEN 1 ELSE 0 END) AS hold_mentions
+                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_mentions,
+                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_mentions,
+                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_mentions
             ORDER BY mention_count DESC
             """,
             cycle_id=cycle_id,
