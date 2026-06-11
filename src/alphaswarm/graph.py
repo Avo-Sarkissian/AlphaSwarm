@@ -208,6 +208,47 @@ class GraphStateManager:
             seed_rumor=seed_rumor,
         )
 
+    async def write_cycle_metrics(
+        self,
+        cycle_id: str,
+        metrics: dict[str, float | int],
+    ) -> None:
+        """Persist flat run metrics onto the Cycle node (measurement infra).
+
+        Written once at simulation end: round durations, flip counts,
+        parse-error counts, final signal distribution. Every A/B experiment
+        (round count, peer diversity, composition) reads these back with a
+        single Cypher query instead of scraping logs. Values must be flat
+        scalars (Neo4j property constraint).
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                await session.execute_write(
+                    self._write_cycle_metrics_tx, cycle_id, metrics,
+                )
+        except Neo4jError as exc:
+            raise Neo4jWriteError(
+                f"Failed to write cycle metrics for cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.info("cycle_metrics_written", cycle_id=cycle_id, keys=len(metrics))
+
+    @staticmethod
+    async def _write_cycle_metrics_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        metrics: dict[str, float | int],
+    ) -> None:
+        """SET metrics map onto the Cycle node."""
+        await tx.run(
+            """
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            SET c += $metrics, c.metrics_recorded_at = datetime()
+            """,
+            cycle_id=cycle_id,
+            metrics=metrics,
+        )
+
     async def read_cycle_seed(self, cycle_id: str) -> str | None:
         """Return the seed_rumor text for a cycle, or None if not found.
 

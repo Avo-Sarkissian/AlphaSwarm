@@ -3486,3 +3486,54 @@ async def test_generate_decision_narratives_produces_output(
     assert call_kwargs.get("system"), (
         f"system kwarg missing from underlying generate() call: {call_kwargs}"
     )
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_writes_cycle_metrics(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Measurement infra: run_simulation persists flat metrics to the Cycle node."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+    )
+
+    mock_graph_manager.write_cycle_metrics.assert_awaited_once()
+    cycle_id_arg, metrics = mock_graph_manager.write_cycle_metrics.await_args.args
+    assert cycle_id_arg == "test-cycle-id"
+    expected_keys = {
+        "metrics_version", "r1_seconds", "r2_seconds", "r3_seconds",
+        "narratives_seconds", "total_seconds", "r2_flips", "r3_flips",
+        "r1_parse_errors", "r2_parse_errors", "r3_parse_errors",
+        "final_buy", "final_sell", "final_hold", "agent_count",
+    }
+    assert set(metrics.keys()) == expected_keys
+    # All values are flat scalars (Neo4j property constraint)
+    assert all(isinstance(v, (int, float)) for v in metrics.values())
+    assert metrics["agent_count"] == len(TEST_PERSONAS)
+    # Final distribution covers all non-PARSE_ERROR round-3 decisions
+    assert (
+        metrics["final_buy"] + metrics["final_sell"] + metrics["final_hold"]
+        == len(TEST_PERSONAS) - metrics["r3_parse_errors"]
+    )

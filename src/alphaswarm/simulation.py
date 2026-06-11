@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import re
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Awaitable, Callable
 
@@ -868,7 +869,12 @@ async def run_simulation(
         )
         market_context_str = format_market_context(packet)
 
+    # Measurement infra: wall-clock per phase, persisted to the Cycle node at
+    # the end so A/B experiments read metrics with one Cypher query.
+    sim_start = time.monotonic()
+
     # Round 1 dispatch (skip inject_seed since we already did it)
+    r1_start = time.monotonic()
     round1_result = await run_round1(
         rumor, settings, ollama_client, model_manager,
         graph_manager, governor, personas,
@@ -876,6 +882,7 @@ async def run_simulation(
         pre_injected=(cycle_id, parsed_result),
         market_context=market_context_str,
     )
+    r1_seconds = time.monotonic() - r1_start
     cycle_id = round1_result.cycle_id
 
     phase = SimulationPhase.ROUND_1
@@ -949,6 +956,7 @@ async def run_simulation(
         # Round 2 (D-09: peer context from Round 1)
         # Build peer contexts BEFORE loading model to minimize idle keep_alive drain.
         phase = SimulationPhase.ROUND_2
+        r2_start = time.monotonic()
         logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
         if state_store is not None:
             await state_store.set_phase(SimulationPhase.ROUND_2)
@@ -1086,8 +1094,11 @@ async def run_simulation(
                     bracket_summaries=round2_summaries,
                 ))
 
+            r2_seconds = time.monotonic() - r2_start
+
             # Round 3 (D-09: peer context from Round 2)
             phase = SimulationPhase.ROUND_3
+            r3_start = time.monotonic()
             logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
             if state_store is not None:
                 await state_store.set_phase(SimulationPhase.ROUND_3)
@@ -1228,8 +1239,11 @@ async def run_simulation(
                     bracket_summaries=round3_summaries,
                 ))
 
+            r3_seconds = time.monotonic() - r3_start
+
             # Phase 11: Post-simulation narrative generation (D-10, D-11)
             # Worker model is still loaded here -- generate before unload
+            narratives_start = time.monotonic()
             if generate_narratives:
                 logger.info("narrative_generation_start", agent_count=len(personas))
                 narratives = await _generate_decision_narratives(
@@ -1245,6 +1259,7 @@ async def run_simulation(
                     model=worker_alias,
                 )
                 logger.info("narrative_generation_complete", count=len(narratives))
+            narratives_seconds = time.monotonic() - narratives_start
 
         finally:
             # Always unload worker (inner finally)
@@ -1252,6 +1267,38 @@ async def run_simulation(
     finally:
         # Always stop governor monitoring (outer finally)
         await governor.stop_monitoring()
+
+    # Persist run metrics onto the Cycle node (measurement infra). Failure is
+    # logged but never fails a completed simulation.
+    def _parse_errors(decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]) -> int:
+        return sum(1 for _, d in decisions if d.signal == SignalType.PARSE_ERROR)
+
+    final_counts = {"buy": 0, "sell": 0, "hold": 0}
+    for _, dec in round3_decisions:
+        if dec.signal != SignalType.PARSE_ERROR:
+            final_counts[dec.signal.value] += 1
+
+    cycle_metrics: dict[str, float | int] = {
+        "metrics_version": 1,
+        "r1_seconds": round(r1_seconds, 1),
+        "r2_seconds": round(r2_seconds, 1),
+        "r3_seconds": round(r3_seconds, 1),
+        "narratives_seconds": round(narratives_seconds, 1),
+        "total_seconds": round(time.monotonic() - sim_start, 1),
+        "r2_flips": round2_shifts.total_flips,
+        "r3_flips": round3_shifts.total_flips,
+        "r1_parse_errors": _parse_errors(round1_result.agent_decisions),
+        "r2_parse_errors": _parse_errors(round2_decisions),
+        "r3_parse_errors": _parse_errors(round3_decisions),
+        "final_buy": final_counts["buy"],
+        "final_sell": final_counts["sell"],
+        "final_hold": final_counts["hold"],
+        "agent_count": len(personas),
+    }
+    try:
+        await graph_manager.write_cycle_metrics(cycle_id, cycle_metrics)
+    except Exception:
+        logger.warning("cycle_metrics_write_failed", cycle_id=cycle_id, exc_info=True)
 
     phase = SimulationPhase.COMPLETE
     if state_store is not None:
