@@ -42,7 +42,7 @@ export function App() {
   if (!onboardingDone) {
     return (
       <Onboarding
-        onComplete={(_seed: string, _model: string) => {
+        onComplete={(_seed: string) => {
           // simStart was already fired inside Onboarding's Run handler — do NOT
           // re-fire here. We only persist the gate flag and unmount Onboarding.
           localStorage.setItem(ONBOARDING_FLAG, 'true');

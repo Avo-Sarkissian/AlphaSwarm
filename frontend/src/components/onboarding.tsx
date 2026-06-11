@@ -1,14 +1,12 @@
-// Onboarding — 3-step first-run flow (real-wired per D-12 / KR-41.6-04).
+// Onboarding — 2-step first-run flow (real-wired per D-12 / KR-41.6-04).
 //
-// Source: AlphaSwarm-2/src/onboarding.jsx (204 LOC, CDN-globals format).
-// Conversion notes per RESEARCH.md wiring map row 27:
-//   - ObStep1 ollamaOk = true mock REPLACED with /api/health fetch — KR-41.6-04
-//     coarse gate (status==='ok'); no per-model status from backend.
-//   - Model list rendered as design copy (no /api/settings to wire); cosmetic only.
-//   - ObStep2 (seed) Run button wired to simStart(seed) before invoking onComplete().
-//   - Source's CDN-globals export DELETED — module export only (no global pollution).
+// 2026-06-11: the old "Choose your model" step removed — it rendered a stale
+// hardcoded model list (qwen3:8b / llama3.3:70b era) and was render-only
+// anyway. Models are configured backend-side (src/alphaswarm/config.py /
+// .env / modelfiles) and DISPLAYED in Settings → Model. The /api/health
+// gate moved onto the seed step's Run button.
 //
-// onComplete signature: (seed: string, model: string) => void.
+// onComplete signature: (seed: string) => void.
 // App.tsx is responsible for setting the localStorage flag in its event handler
 // (codex LOW-9 — never write localStorage during render).
 
@@ -25,12 +23,11 @@ interface HealthResponse {
 }
 
 interface OnboardingProps {
-  onComplete: (seed: string, model: string) => void;
+  onComplete: (seed: string) => void;
 }
 
 export function Onboarding({ onComplete }: OnboardingProps) {
-  const [step, setStep] = useState<0 | 1 | 2>(0);
-  const [model, setModel] = useState<string>('qwen3:8b');
+  const [step, setStep] = useState<0 | 1>(0);
   const [seed, setSeed] = useState<string>('');
 
   const seeds = [
@@ -39,30 +36,27 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     'China announces rare-earth export restrictions',
   ];
 
-  const next = () => setStep((s) => (Math.min(2, s + 1) as 0 | 1 | 2));
-  const back = () => setStep((s) => (Math.max(0, s - 1) as 0 | 1 | 2));
+  const next = () => setStep(1);
+  const back = () => setStep(0);
 
   return (
     <div className="ob-backdrop">
       <div className="ob-card">
         {/* step dots */}
         <div className="ob-steps">
-          {[0, 1, 2].map((i) => (
+          {[0, 1].map((i) => (
             <div key={i} className="ob-dot" data-active={step === i} data-done={step > i} />
           ))}
         </div>
 
         {step === 0 && <ObStep0 onNext={next} />}
         {step === 1 && (
-          <ObStep1 model={model} setModel={setModel} onNext={next} onBack={back} />
-        )}
-        {step === 2 && (
-          <ObStep2
+          <ObSeedStep
             seed={seed}
             setSeed={setSeed}
             seeds={seeds}
             onBack={back}
-            onComplete={(finalSeed) => onComplete(finalSeed, model)}
+            onComplete={onComplete}
           />
         )}
       </div>
@@ -129,18 +123,22 @@ function ObStep0({ onNext }: { onNext: () => void }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Step 1 — Model + Ollama check (KR-41.6-04 coarse gate via /api/health)
+// Step 1 — Seed + Run (backend health gate + simStart)
+// Models are configured backend-side; see Settings → Model for the active stack.
 // ────────────────────────────────────────────────────────────────────────────
-interface ObStep1Props {
-  model: string;
-  setModel: (m: string) => void;
-  onNext: () => void;
+interface ObSeedStepProps {
+  seed: string;
+  setSeed: (s: string) => void;
+  seeds: string[];
   onBack: () => void;
+  onComplete: (seed: string) => void;
 }
 
-function ObStep1({ model, setModel, onNext, onBack }: ObStep1Props) {
-  // null = loading; true = backend reachable + simulation phase known; false = unreachable.
-  const [ollamaOk, setOllamaOk] = useState<boolean | null>(null);
+function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProps) {
+  const [runError, setRunError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<boolean>(false);
+  // null = loading; true = backend reachable; false = unreachable (KR-41.6-04 gate).
+  const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -148,12 +146,12 @@ function ObStep1({ model, setModel, onNext, onBack }: ObStep1Props) {
     apiFetch<HealthResponse>('/api/health')
       .then((h) => {
         if (cancelled) return;
-        setOllamaOk(h.status === 'ok');
+        setBackendOk(h.status === 'ok');
         setHealthError(null);
       })
       .catch((e) => {
         if (cancelled) return;
-        setOllamaOk(false);
+        setBackendOk(false);
         if (e instanceof ApiError) {
           setHealthError(`HTTP ${e.status}`);
         } else {
@@ -165,96 +163,16 @@ function ObStep1({ model, setModel, onNext, onBack }: ObStep1Props) {
     };
   }, []);
 
-  // Model list — design copy per RESEARCH.md row 27. NO /api/settings to wire;
-  // selection is purely cosmetic. Default = qwen3:8b (Phase 41.4 lock — matches
-  // src/alphaswarm/config.py:32 OllamaSettings.worker_model).
-  const models = [
-    { k: 'qwen3:8b', size: '5.2 GB', ram: '12 GB', quality: 'good', speed: 'fast', recommended: true },
-    { k: 'llama3.3:70b', size: '42 GB', ram: '48 GB', quality: 'excellent', speed: 'medium', recommended: false },
-    { k: 'mistral-small3', size: '14 GB', ram: '18 GB', quality: 'very good', speed: 'fast', recommended: false },
-    { k: 'qwen2.5:72b', size: '47 GB', ram: '52 GB', quality: 'excellent', speed: 'slow', recommended: false },
-  ];
-
   const statusLabel =
-    ollamaOk === null
+    backendOk === null
       ? 'Checking backend…'
-      : ollamaOk
+      : backendOk
       ? 'Backend OK · /api/health responded'
       : `Backend unreachable${healthError ? ` · ${healthError}` : ''}`;
 
-  return (
-    <div className="ob-step ob-step-model">
-      <div className="ob-content ob-content-wide">
-        <div className="ob-kicker label">STEP 2 OF 3</div>
-        <h2 className="ob-section-title">Choose your model</h2>
-        <p className="ob-sub">AlphaSwarm uses Ollama for local inference. Pick a model that fits your RAM.</p>
-
-        <div className="ob-ollama-status" data-ok={ollamaOk === true}>
-          <span className={`ob-status-dot ${ollamaOk === true ? 'ok' : ollamaOk === false ? 'err' : ''}`} />
-          <span className="mono" style={{ fontSize: 12 }}>{statusLabel}</span>
-        </div>
-
-        <div className="ob-model-list">
-          {models.map((m) => (
-            <button
-              key={m.k}
-              className="ob-model-row"
-              data-active={model === m.k}
-              onClick={() => setModel(m.k)}
-            >
-              <div className="ob-model-left">
-                <div className="ob-model-radio" data-active={model === m.k} />
-                <div>
-                  <div className="ob-model-name mono">
-                    {m.k}
-                    {m.recommended && <span className="ob-rec-badge">recommended</span>}
-                  </div>
-                  <div className="ob-model-meta">
-                    {m.size} · needs {m.ram} RAM · speed: {m.speed} · quality: {m.quality}
-                  </div>
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <div className="ob-model-foot label">
-          Model selection wires in v6.x (render-only here). Default matches the orchestrator's worker model.
-        </div>
-
-        <div className="ob-btns">
-          <button className="btn ghost" onClick={onBack}>← Back</button>
-          <button
-            className="btn primary"
-            onClick={onNext}
-            disabled={ollamaOk !== true}
-          >
-            {ollamaOk === true ? 'Continue →' : ollamaOk === null ? 'Checking…' : 'Start backend first'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Step 2 — First seed + Run (wires to simStart)
-// ────────────────────────────────────────────────────────────────────────────
-interface ObStep2Props {
-  seed: string;
-  setSeed: (s: string) => void;
-  seeds: string[];
-  onBack: () => void;
-  onComplete: (seed: string) => void;
-}
-
-function ObStep2({ seed, setSeed, seeds, onBack, onComplete }: ObStep2Props) {
-  const [runError, setRunError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<boolean>(false);
-
   const handleRun = async () => {
     const trimmed = seed.trim();
-    if (!trimmed || busy) return;
+    if (!trimmed || busy || backendOk !== true) return;
     setBusy(true);
     setRunError(null);
     try {
@@ -269,12 +187,17 @@ function ObStep2({ seed, setSeed, seeds, onBack, onComplete }: ObStep2Props) {
   return (
     <div className="ob-step ob-step-seed">
       <div className="ob-content ob-content-wide">
-        <div className="ob-kicker label">STEP 3 OF 3</div>
+        <div className="ob-kicker label">STEP 2 OF 2</div>
         <h2 className="ob-section-title">Enter a seed rumor</h2>
         <p className="ob-sub">
           A market-moving scenario for the swarm to debate. Be specific — the orchestrator
           extracts entities to shape each agent's context.
         </p>
+
+        <div className="ob-ollama-status" data-ok={backendOk === true}>
+          <span className={`ob-status-dot ${backendOk === true ? 'ok' : backendOk === false ? 'err' : ''}`} />
+          <span className="mono" style={{ fontSize: 12 }}>{statusLabel}</span>
+        </div>
 
         <div className="ob-seed-input">
           <span className="ob-seed-prefix label">SEED ⟶</span>
@@ -298,7 +221,11 @@ function ObStep2({ seed, setSeed, seeds, onBack, onComplete }: ObStep2Props) {
 
         <div className="ob-seed-hint">
           <Icon name="bolt" size={12} />
-          <span>The orchestrator will extract entities from your seed and inject situation-specific context into each agent's prompt.</span>
+          <span>
+            Models are pre-configured (Settings → Model). The orchestrator will extract
+            entities from your seed and inject situation-specific context into each
+            agent's prompt.
+          </span>
         </div>
 
         {runError && (
@@ -314,10 +241,15 @@ function ObStep2({ seed, setSeed, seeds, onBack, onComplete }: ObStep2Props) {
           <button className="btn ghost" onClick={onBack} disabled={busy}>← Back</button>
           <button
             className="btn primary"
-            disabled={!seed.trim() || busy}
+            disabled={!seed.trim() || busy || backendOk !== true}
             onClick={() => void handleRun()}
           >
-            <Icon name="play" /> {busy ? 'Starting…' : 'Run first cycle'}
+            <Icon name="play" />{' '}
+            {busy
+              ? 'Starting…'
+              : backendOk === false
+              ? 'Start backend first'
+              : 'Run first cycle'}
           </button>
         </div>
       </div>

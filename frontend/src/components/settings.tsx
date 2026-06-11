@@ -196,18 +196,18 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           {section === 'model' && (
             <SettingGroup
-              title="Active model"
-              desc="All agents share one Ollama model. Configured in src/alphaswarm/config.py."
+              title="Active models"
+              desc="Configured backend-side (src/alphaswarm/config.py, .env, modelfiles/). Model decision 2026-06-11 — MLX stack."
             >
               <BackendRow
-                label="Model"
-                value="qwen3:8b"
-                desc="Worker model — Phase 41.4 locked qwen3:8b. Coming in v6.x as a runtime setting."
+                label="Worker (swarm)"
+                value="qwen3.6:35b-a3b-nvfp4 (MLX)"
+                desc="36B MoE, ~3B active — 2,361 t/s prefill / 56 t/s decode on this M1 Max. All 100 personas run on this model with per-bracket temperatures."
               />
               <BackendRow
-                label="Orchestrator model"
-                value="qwen3.6:27b (think=OFF)"
-                desc="Synthesis model — Phase 41.4 locked. Coming in v6.x."
+                label="Orchestrator"
+                value="qwen3.6:27b-nvfp4 (MLX, think=OFF)"
+                desc="Dense 27B for entity extraction + advisory synthesis — 3,395 t/s prefill / 11 t/s decode. Runtime switching comes in v6.x."
               />
             </SettingGroup>
           )}
