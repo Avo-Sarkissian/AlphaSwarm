@@ -1,0 +1,29 @@
+{
+  "_doc": "Benchmark seeds for A/B experiments. Run the SAME seed across config variants (num_rounds, composition, NUM_PARALLEL, worker model) and compare Cycle metrics via scripts/compare_cycles.py. The 'expectation' field is a qualitative prior for sanity-checking direction — not a quantitative label (yet). Add historical rumors with known outcomes here as they're labeled.",
+  "seeds": [
+    {
+      "id": "apple-anthropic",
+      "rumor": "Apple is acquiring Anthropic for $500B",
+      "category": "mega-M&A / AI / antitrust-heavy",
+      "expectation": "Event-Driven should dominate citations; heavy antitrust skepticism should cap BUY consensus on the acquirer; AI-exposure holdings move most."
+    },
+    {
+      "id": "nvda-earnings-miss",
+      "rumor": "NVIDIA will miss Q3 earnings badly — hyperscaler capex freeze leaked in a supplier note",
+      "category": "single-name earnings / negative",
+      "expectation": "Sell-Side estimate-revision framing should lead; Shorts high conviction; semis/AI-adjacent holdings flagged."
+    },
+    {
+      "id": "fed-emergency-cut",
+      "rumor": "The Federal Reserve will announce an emergency 75bp rate cut this week in response to credit market stress",
+      "category": "macro / policy",
+      "expectation": "Macro and Allocators carry the signal; equity direction genuinely ambiguous (stimulus vs what-do-they-know fear) — a healthy swarm should NOT converge hard."
+    },
+    {
+      "id": "msft-dividend-elim",
+      "rumor": "Microsoft is eliminating its dividend to fund a $200B AI infrastructure buildout",
+      "category": "capital allocation / income-holder rotation",
+      "expectation": "Institutions/Allocators sell-tilted (mandate holders), growth-oriented brackets buy-tilted — disagreement BETWEEN brackets is the success signal."
+    }
+  ]
+}
