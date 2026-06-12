@@ -288,7 +288,9 @@ async def _infer_with_retry(
 
     Pitfall 3: bounded retry. On the second ValidationError we raise.
     """
-    response = await ollama_client.chat(model=model, messages=messages, format="json")
+    response = await ollama_client.chat(
+        model=model, messages=messages, format="json", think=False
+    )
     content = response.message.content or "{}"
 
     try:
@@ -310,7 +312,7 @@ async def _infer_with_retry(
             },
         ]
         retry_response = await ollama_client.chat(
-            model=model, messages=retry_messages, format="json"
+            model=model, messages=retry_messages, format="json", think=False
         )
         retry_content = retry_response.message.content or "{}"
         return AdvisoryReport.model_validate_json(retry_content)
