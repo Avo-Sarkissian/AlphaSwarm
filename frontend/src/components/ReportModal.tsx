@@ -179,11 +179,12 @@ export function ReportModal({
                 No report exists for this cycle yet.
               </div>
               <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6, maxWidth: 640 }}>
-                Reports are NOT auto-generated on cycle complete (unlike the advisory).
-                Click below to kick off generation — total wall-clock on M1 Max is
-                ~5–10 min for the canonical markdown pass plus subsection synthesis.
-                Leave this modal open and the report will appear here automatically
-                when ready.
+                Reports now auto-generate once the advisory completes for this cycle.
+                If auto-generation has not started yet — or you want a fresh pass —
+                use the manual button below as a fallback / regenerate path. Total
+                wall-clock on M1 Max is ~5–10 min for the canonical markdown pass
+                plus subsection synthesis. Leave this modal open and the report will
+                appear here automatically when ready.
               </div>
               <button
                 className="btn"
