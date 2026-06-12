@@ -8,13 +8,19 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import alphaswarm.web.routes.advisory as advisory_module
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.types import SimulationPhase
+from alphaswarm.web.routes.advisory import (
+    _on_advisory_task_done,
+    _report_chain_tasks,
+)
 from alphaswarm.web.routes.advisory import router as advisory_router
 
 
@@ -208,3 +214,74 @@ def test_get_advisory_400_bad_cycle_id() -> None:
     r = TestClient(app).get("/api/advisory/bad.id")
     assert r.status_code == 400
     assert r.json()["detail"]["error"] == "invalid_cycle_id"
+
+
+# ---------------- Report auto-trigger chain (quick-260611-rlx) -----------
+
+
+async def _drain_report_chain() -> None:
+    """Await + clear any chain tasks the done-callback scheduled."""
+    for task in list(_report_chain_tasks):
+        try:
+            await task
+        except Exception:  # pragma: no cover - defensive in teardown
+            pass
+    _report_chain_tasks.clear()
+
+
+async def test_advisory_done_success_schedules_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SUCCESS branch (not cancelled, no exception) schedules _auto_trigger_report
+    via asyncio.create_task with a strong module-level reference."""
+    app = _make_app(portfolio=_fake_portfolio())
+    fake_trigger = AsyncMock()
+    monkeypatch.setattr(advisory_module, "_auto_trigger_report", fake_trigger)
+
+    task = MagicMock(spec=asyncio.Task)
+    task.cancelled.return_value = False
+    task.exception.return_value = None
+
+    _on_advisory_task_done(task, "cycle_01", app)
+    # Let the scheduled chain task start + run to completion.
+    await asyncio.sleep(0)
+    await _drain_report_chain()
+
+    fake_trigger.assert_awaited_once_with(app, "cycle_01")
+
+
+async def test_advisory_done_failure_no_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILURE branch (exception present) does NOT schedule a report task."""
+    app = _make_app(portfolio=_fake_portfolio())
+    fake_trigger = AsyncMock()
+    monkeypatch.setattr(advisory_module, "_auto_trigger_report", fake_trigger)
+
+    task = MagicMock(spec=asyncio.Task)
+    task.cancelled.return_value = False
+    task.exception.return_value = RuntimeError("synthesis blew up")
+
+    _on_advisory_task_done(task, "cycle_01", app)
+    await asyncio.sleep(0)
+    await _drain_report_chain()
+
+    fake_trigger.assert_not_called()
+
+
+async def test_advisory_done_cancelled_no_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CANCEL branch does NOT schedule a report task."""
+    app = _make_app(portfolio=_fake_portfolio())
+    fake_trigger = AsyncMock()
+    monkeypatch.setattr(advisory_module, "_auto_trigger_report", fake_trigger)
+
+    task = MagicMock(spec=asyncio.Task)
+    task.cancelled.return_value = True
+
+    _on_advisory_task_done(task, "cycle_01", app)
+    await asyncio.sleep(0)
+    await _drain_report_chain()
+
+    fake_trigger.assert_not_called()

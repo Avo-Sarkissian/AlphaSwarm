@@ -38,15 +38,18 @@ class FakeOllamaClient:
     def __init__(self, canned: list[str]) -> None:
         self._canned = list(canned)
         self.calls: list[list[dict[str, str]]] = []
+        self.think_calls: list[bool | None] = []
 
     async def chat(
         self,
         model: str,
         messages: list[dict[str, str]],
         format: str | dict[str, Any] | None = None,
+        think: bool | None = None,
         **_: Any,
     ) -> _FakeChatResponse:
         self.calls.append(messages)
+        self.think_calls.append(think)
         if not self._canned:
             raise AssertionError("FakeOllamaClient exhausted")
         return _FakeChatResponse(self._canned.pop(0))
@@ -354,6 +357,33 @@ async def test_synthesize_retry_on_validation_error() -> None:
     assert any(
         "failed validation" in m["content"] for m in retry_messages if m["role"] == "user"
     )
+
+
+async def test_infer_with_retry_passes_think_false() -> None:
+    """Both the initial chat and the validation-retry chat must pass think=False.
+
+    qwen3.6 defaults thinking ON; the MLX orchestrator decodes at ~11.3 t/s, so
+    reasoning tokens push the single advisory chat past the 600s client timeout.
+    Driving the retry path (malformed -> valid) exercises BOTH chat calls in one
+    test, asserting think_calls == [False, False].
+    """
+    portfolio = _portfolio({"AAPL": "100"})
+    malformed = '{"cycle_id": "unit_cycle", "oops": true}'  # missing required fields
+    valid = _valid_advisory_payload(items=[], total=1)
+
+    fake_graph = FakeGraphManager()
+    fake_ollama = FakeOllamaClient(canned=[malformed, valid])
+
+    await synthesize(
+        cycle_id="unit_cycle",
+        portfolio=portfolio,
+        graph_manager=fake_graph,  # type: ignore[arg-type]
+        ollama_client=fake_ollama,  # type: ignore[arg-type]
+        orchestrator_model="alphaswarm-orchestrator",
+    )
+
+    # Both chat calls (initial + validation-retry) suppress reasoning tokens.
+    assert fake_ollama.think_calls == [False, False]
 
 
 async def test_synthesize_retry_then_fail() -> None:
