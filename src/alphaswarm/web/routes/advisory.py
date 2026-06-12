@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import aiofiles  # type: ignore[import-untyped]
 import aiofiles.os  # type: ignore[import-untyped]
+import httpx
 import structlog
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel
@@ -36,6 +37,48 @@ log = structlog.get_logger(component="web.advisory")
 router = APIRouter()
 
 ADVISORY_DIR = Path("advisory")
+
+# Strong references to chained report-generation tasks. The advisory done-callback
+# is SYNC and only receives (cycle_id, app) — no `self` — so the ref set cannot
+# live on an instance. The event loop holds only WEAK refs to bare tasks, so
+# without this set a chained task could be GC'd before it runs. Mirrors the
+# `_bg_tasks` rationale in SimulationManager.
+_report_chain_tasks: set[asyncio.Task[Any]] = set()
+
+
+async def _auto_trigger_report(app: FastAPI, cycle_id: str) -> None:
+    """POST /api/report/{cycle_id}/generate in-process after a successful advisory.
+
+    Mirrors _auto_trigger_advisory in simulation_manager.py: uses
+    httpx.ASGITransport to call the FastAPI ASGI app directly — no network
+    socket, no port assumption — so all report-route guards (409, 503) are
+    re-used. Non-202 responses are swallowed with scalar-only logs:
+      202 -> accepted; 409 -> skipped_conflict (the report route's bidirectional
+      orchestrator-serialization guard stays authoritative and is tolerated
+      here); 503 -> skipped_unavailable; else -> unexpected_status. Any
+      network-level exception is logged and swallowed so it never surfaces.
+
+    Loop-safety: report.py contains no advisory trigger, so report -> advisory
+    recursion is impossible; the only chain is advisory-success -> report.
+    """
+    try:
+        transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            resp = await client.post(f"/api/report/{cycle_id}/generate")
+        if resp.status_code == 202:
+            log.info("auto_report_trigger_accepted", cycle_id=cycle_id)
+        elif resp.status_code == 409:
+            log.info("auto_report_trigger_skipped_conflict", cycle_id=cycle_id)
+        elif resp.status_code == 503:
+            log.warning("auto_report_trigger_skipped_unavailable", cycle_id=cycle_id)
+        else:
+            log.warning(
+                "auto_report_trigger_unexpected_status",
+                cycle_id=cycle_id,
+                status=resp.status_code,
+            )
+    except Exception:
+        log.exception("auto_report_trigger_failed", cycle_id=cycle_id)
 
 
 class GenerateAdvisoryResponse(BaseModel):
@@ -234,6 +277,19 @@ def _on_advisory_task_done(
     exc = task.exception()
     if exc is None:
         log.info("advisory_task_completed", cycle_id=cycle_id)
+        # SUCCESS branch only: the orchestrator is warm and the cycle is COMPLETE,
+        # so chain report generation off the same cycle. Hold a strong ref (the
+        # loop keeps only weak refs to bare tasks). MUST NOT raise — the callback
+        # body is swallowed by the loop, so wrap defensively like the other branches.
+        try:
+            chain = asyncio.create_task(
+                _auto_trigger_report(app, cycle_id),
+                name=f"auto_report_{cycle_id}",
+            )
+            _report_chain_tasks.add(chain)
+            chain.add_done_callback(_report_chain_tasks.discard)
+        except Exception:  # defensive — never let the done-callback raise
+            log.error("auto_report_chain_schedule_failed", cycle_id=cycle_id)
         return
 
     try:
