@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 Phase: 999.1
 Plan: Not started
 Status: Executing Phase 41.6
-Last activity: 2026-05-10
+Last activity: 2026-06-11 - Completed quick task 260611-rlx: Fix advisory synthesis timeout (think=False) and chain report auto-generation after advisory
 
 Progress: [█████████░] 90% (5/7 phases, 19/20 plans)
 
@@ -92,6 +92,7 @@ None.
 | 260507-wln | Restore live citation edges + rationale feed (peer-context agent_id + adapter field rename) | 2026-05-08 | 861009c+44fc27e | [260507-wln-restore-live-citation-edges-rationale-fe](./quick/260507-wln-restore-live-citation-edges-rationale-fe/) |
 | 260510-fdo | Polish W2 visual gaps: BracketList all-zero empty state + AdvisoryV2 polling-exhausted error UI + useCurrentCycle dedupe (8x → 1x replay/cycles on mount) | 2026-05-10 | 1be286e+181b170+0a4f0b8 | [260510-fdo-polish-w2-visual-gaps-bracket-bars-empty](./quick/260510-fdo-polish-w2-visual-gaps-bracket-bars-empty/) |
 | 260512-jqn | 6 post-run follow-ups: InterviewV2/Onboarding/BracketDeepDive CSS + /api/edges Cypher fix + governor slots (KR-41.1-05) + rationale sliding window + live SignalWire audit + advisory items+sector enrichment | 2026-05-12 | 41d8d4c+890a220+de31313+0003375+fc7a568+4234035 | [260512-jqn-address-6-post-run-follow-ups-interviewv](./quick/260512-jqn-address-6-post-run-follow-ups-interviewv/) |
+| 260611-rlx | Fix advisory synthesis timeout (think=False in _infer_with_retry) + chain report auto-generation off advisory success + ReportModal copy update | 2026-06-11 | 2a87620+bbb12eb+a10ce09 | [260611-rlx-fix-advisory-synthesis-timeout-think-fal](./quick/260611-rlx-fix-advisory-synthesis-timeout-think-fal/) |
 
 ## Session Continuity
 
