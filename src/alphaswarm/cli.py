@@ -569,6 +569,8 @@ async def _handle_inject(rumor: str) -> None:
     5. Close Neo4j driver in finally block
     """
     from alphaswarm.app import create_app_state
+    from alphaswarm.inference.ollama_provider import OllamaProvider
+    from alphaswarm.inference.types import ProviderRole
     from alphaswarm.seed import inject_seed
 
     settings = AppSettings()
@@ -584,11 +586,16 @@ async def _handle_inject(rumor: str) -> None:
         # Ensure schema is applied (explicit in inject path)
         await app.graph_manager.ensure_schema()
 
+        orchestrator_provider = OllamaProvider(
+            ProviderRole.ORCHESTRATOR,
+            settings.ollama.orchestrator_model_alias,
+            app.ollama_client,
+            app.model_manager,
+        )
         cycle_id, parsed_result, _modifier_result = await inject_seed(
             rumor=rumor,
             settings=settings,
-            ollama_client=app.ollama_client,
-            model_manager=app.model_manager,
+            orchestrator=orchestrator_provider,
             graph_manager=app.graph_manager,
         )
         _print_injection_summary(cycle_id, parsed_result)

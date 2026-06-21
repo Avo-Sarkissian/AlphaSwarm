@@ -574,8 +574,14 @@ async def run_round1(
             await state_store.set_phase(SimulationPhase.SEEDING)
 
         # 1. Inject seed (orchestrator model lifecycle is self-contained)
+        orchestrator_provider = OllamaProvider(
+            ProviderRole.ORCHESTRATOR,
+            settings.ollama.orchestrator_model_alias,
+            ollama_client,
+            model_manager,
+        )
         cycle_id, parsed_result, _modifier_result = await inject_seed(
-            rumor, settings, ollama_client, model_manager, graph_manager,
+            rumor, settings, orchestrator_provider, graph_manager,
         )
 
     # StateStore: mark ROUND_1 phase after seed injection
@@ -895,8 +901,14 @@ async def run_simulation(
     if state_store is not None:
         await state_store.set_phase(SimulationPhase.SEEDING)
 
+    orchestrator_provider = OllamaProvider(
+        ProviderRole.ORCHESTRATOR,
+        settings.ollama.orchestrator_model_alias,
+        ollama_client,
+        model_manager,
+    )
     cycle_id, parsed_result, modifier_result = await inject_seed(
-        rumor, settings, ollama_client, model_manager, graph_manager,
+        rumor, settings, orchestrator_provider, graph_manager,
         modifier_generator=generate_modifiers,
     )
 
