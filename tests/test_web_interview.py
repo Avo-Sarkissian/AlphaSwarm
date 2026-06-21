@@ -265,7 +265,11 @@ def test_interview_multi_turn() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="TestAgent decided to BUY.",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good")],
+            decisions=[
+                RoundDecision(
+                    round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good"
+                )
+            ],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
@@ -277,13 +281,15 @@ def test_interview_multi_turn() -> None:
         mock_engine = MagicMock()
         mock_engine.ask = AsyncMock(return_value="response")
 
-        with patch("alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine) as MockCls:
+        with patch(
+            "alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine
+        ) as mock_cls:
             r1 = client.post("/api/interview/agent_1", json={"message": "Question 1"})
             r2 = client.post("/api/interview/agent_1", json={"message": "Question 2"})
             assert r1.status_code == 200
             assert r2.status_code == 200
             # Engine instantiated exactly once, ask called twice
-            assert MockCls.call_count == 1
+            assert mock_cls.call_count == 1
             assert mock_engine.ask.call_count == 2
 
 
@@ -306,7 +312,11 @@ def test_interview_session_reuse() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="Narrative.",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.8, sentiment=0.6, rationale="ok")],
+            decisions=[
+                RoundDecision(
+                    round_num=1, signal="buy", confidence=0.8, sentiment=0.6, rationale="ok"
+                )
+            ],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
@@ -344,7 +354,11 @@ async def test_interview_concurrent_same_agent_serializes() -> None:
         bracket="quants",
         interview_system_prompt="You are TestAgent.",
         decision_narrative="Narrative.",
-        decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
+        decisions=[
+            RoundDecision(
+                round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok"
+            )
+        ],
     )
     mock_gm = AsyncMock()
     mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
@@ -401,7 +415,7 @@ def test_interview_sessions_cleared_on_new_simulation() -> None:
     from unittest.mock import AsyncMock, patch
 
     app = _make_interview_test_app()
-    with TestClient(app) as client:
+    with TestClient(app):
         # Pre-populate interview_sessions
         app.state.interview_sessions["agent_1"] = object()
         app.state.interview_sessions["agent_2"] = object()
