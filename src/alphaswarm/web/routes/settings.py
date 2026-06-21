@@ -129,6 +129,10 @@ def _merge_role(
 ) -> RoleConfig:
     """Merge incoming role dict onto stored_role, preserving the stored API key
     if the incoming api_key field is missing, None, or empty string.
+
+    The returned RoleConfig is fully validated (provider coerced to ProviderType
+    enum) so downstream model_dump() calls never trigger pydantic serialization
+    warnings.
     """
     api_key_in = incoming.get("api_key")
     effective_key: str | None
@@ -136,15 +140,17 @@ def _merge_role(
     stripped = api_key_in.strip() if isinstance(api_key_in, str) else api_key_in
     effective_key = stored_role.api_key if stripped is None or stripped == "" else stripped
 
-    merged = stored_role.model_copy(
-        update={
+    raw = stored_role.model_dump()
+    raw.update(
+        {
             "provider": incoming.get("provider", stored_role.provider),
             "model": incoming.get("model", stored_role.model),
             "base_url": incoming.get("base_url", stored_role.base_url),
             "api_key": effective_key,
         }
     )
-    return merged
+    # model_validate coerces provider string → ProviderType enum via StrEnum
+    return RoleConfig.model_validate(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -203,33 +209,35 @@ async def put_settings(
         stored: InferenceConfig = await asyncio.to_thread(load_inference_config, app_state.settings)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"stored inference config is invalid: {exc}",
         ) from exc
 
-    # Merge role configs, preserving stored keys when incoming omits them
+    # Merge role configs, preserving stored keys when incoming omits them.
+    # ValidationError from _merge_role (invalid provider enum, etc.) is caught
+    # here together with InferenceConfig validation so both yield 400.
     incoming_orch: dict[str, Any] = body.get("orchestrator", {})
     incoming_worker: dict[str, Any] = body.get("worker", {})
 
-    merged_orch = _merge_role(stored.orchestrator, incoming_orch)
-    merged_worker = _merge_role(stored.worker, incoming_worker)
-
-    # Build the full merged config dict, letting pydantic validate it
-    merged_dict: dict[str, Any] = {
-        "orchestrator": merged_orch.model_dump(),
-        "worker": merged_worker.model_dump(),
-        "limits": body.get(
-            "limits",
-            {role.value: lim.model_dump() for role, lim in stored.limits.items()},
-        ),
-        "spend_cap_usd": body.get("spend_cap_usd", stored.spend_cap_usd),
-        "pricing_overrides": body.get(
-            "pricing_overrides",
-            {k: v.model_dump() for k, v in stored.pricing_overrides.items()},
-        ),
-    }
-
     try:
+        merged_orch = _merge_role(stored.orchestrator, incoming_orch)
+        merged_worker = _merge_role(stored.worker, incoming_worker)
+
+        # Build the full merged config dict, letting pydantic validate it
+        merged_dict: dict[str, Any] = {
+            "orchestrator": merged_orch.model_dump(),
+            "worker": merged_worker.model_dump(),
+            "limits": body.get(
+                "limits",
+                {role.value: lim.model_dump() for role, lim in stored.limits.items()},
+            ),
+            "spend_cap_usd": body.get("spend_cap_usd", stored.spend_cap_usd),
+            "pricing_overrides": body.get(
+                "pricing_overrides",
+                {k: v.model_dump() for k, v in stored.pricing_overrides.items()},
+            ),
+        }
+
         merged_cfg = InferenceConfig.model_validate(merged_dict)
     except ValidationError as exc:
         raise HTTPException(

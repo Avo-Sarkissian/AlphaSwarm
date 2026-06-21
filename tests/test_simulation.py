@@ -133,10 +133,16 @@ def mock_graph_manager() -> AsyncMock:
 
 @pytest.fixture()
 def mock_governor() -> AsyncMock:
-    """Mock ResourceGovernor with start_monitoring and stop_monitoring."""
+    """Mock ResourceGovernor with start_monitoring and stop_monitoring.
+
+    release() and report_wave_failures() are SYNC on the real ResourceGovernor,
+    so they are set as MagicMock (not AsyncMock) to avoid "coroutine never
+    awaited" RuntimeWarnings when the sim loop calls governor.release(...).
+    """
     gov = AsyncMock()
     gov.start_monitoring = AsyncMock()
     gov.stop_monitoring = AsyncMock()
+    gov.release = MagicMock()
     gov.report_wave_failures = MagicMock()
     return gov
 
