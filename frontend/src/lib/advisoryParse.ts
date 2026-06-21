@@ -162,12 +162,21 @@ export function parseInfluences(md: string): InfluenceEntry[] | null {
     `(?:^\\|\\s*(${AGENT_ID_SRC})\\s*\\|\\s*([\\d.]+))|(?:^[-*]\\s+(${AGENT_ID_SRC})\\s*[:\\-]\\s*([\\d.]+))`,
     'gm',
   );
+  // Dedup by agentId (keep the highest weight). The same agent can appear in
+  // both a table and a bullet, which would otherwise yield duplicate React keys
+  // in InfluenceChart and cause rows to be dropped/mis-reconciled (F-34).
+  const byId = new Map<string, number>();
   let m;
   while ((m = rowRe.exec(section)) !== null) {
     const id = m[1] || m[3];
     const w = m[2] || m[4];
-    if (id && w) out.push({ agentId: id, weight: Number(w) });
+    if (id && w) {
+      const weight = Number(w);
+      const prev = byId.get(id);
+      if (prev === undefined || weight > prev) byId.set(id, weight);
+    }
   }
+  for (const [agentId, weight] of byId) out.push({ agentId, weight });
   return out.length > 0 ? out : null;
 }
 

@@ -7,6 +7,7 @@ import {
   AGENT_ID_RE,
   countAgentCitations,
   countAgentCitationsAgainst,
+  parseInfluences,
 } from '../lib/advisoryParse';
 
 // AGENT_ID_RE carries the /g flag (stateful lastIndex), so use String.match()
@@ -54,5 +55,23 @@ describe('countAgentCitationsAgainst', () => {
     expect(
       countAgentCitationsAgainst('quants_01, macro_02 and degens_99', liveIds),
     ).toBe(2); // degens_99 matches the regex but is not live
+  });
+});
+
+describe('parseInfluences — dedup (F-34)', () => {
+  it('dedupes repeated agentIds, keeping the highest weight', () => {
+    const md = [
+      '## Influence Leaders',
+      '| quants_01 | 0.40 |',
+      '| macro_02 | 0.30 |',
+      '- quants_01: 0.55',
+    ].join('\n');
+    const rows = parseInfluences(md);
+    expect(rows).not.toBeNull();
+    const ids = rows!.map((r) => r.agentId);
+    // quants_01 appears twice in source but only once in output (no dup keys).
+    expect(ids.filter((id) => id === 'quants_01')).toEqual(['quants_01']);
+    const q = rows!.find((r) => r.agentId === 'quants_01');
+    expect(q!.weight).toBe(0.55); // highest of 0.40 / 0.55
   });
 });
