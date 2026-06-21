@@ -570,8 +570,8 @@ async def _handle_inject(rumor: str) -> None:
     5. Close Neo4j driver in finally block
     """
     from alphaswarm.app import create_app_state
-    from alphaswarm.inference.ollama_provider import OllamaProvider
-    from alphaswarm.inference.types import ProviderRole
+    from alphaswarm.config import load_inference_config
+    from alphaswarm.inference.factory import build_providers
     from alphaswarm.seed import inject_seed
 
     settings = AppSettings()
@@ -583,16 +583,18 @@ async def _handle_inject(rumor: str) -> None:
     assert app.model_manager is not None
     assert app.graph_manager is not None
 
+    cfg = await asyncio.to_thread(load_inference_config, settings)
+    built = build_providers(
+        cfg,
+        ollama_client=app.ollama_client,
+        ollama_model_manager=app.model_manager,
+    )
+    orchestrator_provider = built.orchestrator
+
     try:
         # Ensure schema is applied (explicit in inject path)
         await app.graph_manager.ensure_schema()
 
-        orchestrator_provider = OllamaProvider(
-            ProviderRole.ORCHESTRATOR,
-            settings.ollama.orchestrator_model_alias,
-            app.ollama_client,
-            app.model_manager,
-        )
         cycle_id, parsed_result, _modifier_result = await inject_seed(
             rumor=rumor,
             settings=settings,
@@ -601,7 +603,9 @@ async def _handle_inject(rumor: str) -> None:
         )
         _print_injection_summary(cycle_id, parsed_result)
     finally:
-        # Close Neo4j driver
+        # Close Neo4j driver and cloud provider if any
+        with contextlib.suppress(Exception):
+            await orchestrator_provider.aclose()
         await app.graph_manager.close()
 
 
@@ -656,8 +660,8 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     from pathlib import Path
 
     from alphaswarm.app import create_app_state
-    from alphaswarm.inference.ollama_provider import OllamaProvider
-    from alphaswarm.inference.types import ProviderRole
+    from alphaswarm.config import load_inference_config
+    from alphaswarm.inference.factory import build_providers
     from alphaswarm.report import (
         ReportAssembler,
         ReportEngine,
@@ -674,14 +678,14 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     assert app.model_manager is not None
     assert app.graph_manager is not None
 
-    # Build orchestrator provider before try/finally so teardown is always safe.
-    orchestrator = settings.ollama.orchestrator_model_alias
-    orch_provider = OllamaProvider(
-        role=ProviderRole.ORCHESTRATOR,
-        model_tag=orchestrator,
-        client=app.ollama_client,
-        model_manager=app.model_manager,
+    # Build orchestrator provider via factory so cloud configs are honoured.
+    cfg = await asyncio.to_thread(load_inference_config, settings)
+    built = build_providers(
+        cfg,
+        ollama_client=app.ollama_client,
+        ollama_model_manager=app.model_manager,
     )
+    orch_provider = built.orchestrator
 
     try:
         # Resolve cycle_id: default to most recent if not provided
@@ -745,9 +749,10 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
         print(f"Report generated: {output_path}")
 
     finally:
-        # Teardown orchestrator provider + close graph manager (follows seed.py pattern)
+        # Teardown + aclose orchestrator provider + close graph manager (follows seed.py pattern)
         with contextlib.suppress(Exception):
             await orch_provider.teardown()
+            await orch_provider.aclose()
         if app.graph_manager is not None:
             await app.graph_manager.close()
 
