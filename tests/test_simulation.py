@@ -3535,3 +3535,120 @@ async def test_run_simulation_writes_cycle_metrics(
         metrics["final_buy"] + metrics["final_sell"] + metrics["final_hold"]
         == len(TEST_PERSONAS) - metrics["r3_parse_errors"]
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 15a: Injected provider routing tests
+# ---------------------------------------------------------------------------
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_uses_injected_worker_provider(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """run_simulation routes waves through an injected worker_provider.
+
+    When worker_provider is supplied, dispatch_wave must receive that exact
+    provider object — NOT a freshly constructed OllamaProvider. prepare() and
+    teardown() must be called on the injected provider (not model_manager
+    load/unload directly).
+    """
+    from alphaswarm.simulation import run_simulation
+
+    # Build a minimal fake provider that satisfies the InferenceProvider protocol.
+    fake_worker = AsyncMock()
+    fake_worker.prepare = AsyncMock()
+    fake_worker.teardown = AsyncMock()
+    fake_worker.aclose = AsyncMock()
+    fake_worker.model = "fake-worker"
+    fake_worker.role = None  # not inspected by dispatch_wave
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        generate_narratives=False,
+        worker_provider=fake_worker,
+    )
+
+    # Every dispatch_wave call (Round 2 and Round 3) must use the injected provider.
+    assert mock_dispatch_wave.await_count == 2
+    for call in mock_dispatch_wave.await_args_list:
+        assert call.kwargs["provider"] is fake_worker, (
+            "dispatch_wave must receive the injected worker_provider, "
+            f"got: {call.kwargs.get('provider')!r}"
+        )
+
+    # prepare() and teardown() are called on the injected worker, not model_manager directly.
+    fake_worker.prepare.assert_awaited_once()
+    fake_worker.teardown.assert_awaited_once()
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_default_path_builds_ollama_providers(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Default path (no injected providers) builds OllamaProvider for each role.
+
+    When worker_provider and orchestrator_provider are both None, run_simulation
+    must build local OllamaProviders — and the model_manager lifecycle calls
+    (load/unload via prepare/teardown) must still happen exactly as before.
+    """
+    from alphaswarm.inference.ollama_provider import OllamaProvider
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        generate_narratives=False,
+        # No orchestrator_provider / worker_provider — default local path.
+    )
+
+    # dispatch_wave must receive an OllamaProvider (not some other type).
+    assert mock_dispatch_wave.await_count == 2
+    for call in mock_dispatch_wave.await_args_list:
+        provider = call.kwargs["provider"]
+        assert isinstance(provider, OllamaProvider), (
+            f"Default path must dispatch with OllamaProvider, got {type(provider)!r}"
+        )
+
+    # model_manager lifecycle: load_model and unload_model called via prepare/teardown.
+    mock_model_manager.load_model.assert_awaited_once()
+    mock_model_manager.unload_model.assert_awaited_once()

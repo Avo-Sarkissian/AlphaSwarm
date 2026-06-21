@@ -348,6 +348,15 @@ class RateLimitController:
             pass
         self._monitor_task = None
 
+    async def __aenter__(self) -> "RateLimitController":
+        """Acquire a concurrency slot (async context manager entry)."""
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        """Release the concurrency slot (async context manager exit)."""
+        self.release()
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

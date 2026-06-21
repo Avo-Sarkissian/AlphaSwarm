@@ -28,6 +28,7 @@ from alphaswarm.worker import agent_worker
 if TYPE_CHECKING:
     from alphaswarm.config import GovernorSettings
     from alphaswarm.governor import ResourceGovernor
+    from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.state import StateStore
     from alphaswarm.worker import WorkerPersonaConfig
@@ -37,7 +38,7 @@ log = structlog.get_logger(component="batch_dispatcher")
 
 async def _safe_agent_inference(
     persona: WorkerPersonaConfig,
-    governor: ResourceGovernor,
+    governor: ConcurrencyController,
     provider: InferenceProvider,
     user_message: str,
     peer_context: str | None,
@@ -138,7 +139,7 @@ async def _safe_agent_inference(
 
 async def dispatch_wave(
     personas: list[WorkerPersonaConfig],
-    governor: ResourceGovernor,
+    governor: ConcurrencyController,
     provider: InferenceProvider,
     user_message: str,
     settings: GovernorSettings,
