@@ -533,6 +533,7 @@ async def run_round1(
     state_store: StateStore | None = None,
     pre_injected: tuple[str, ParsedSeedResult] | None = None,
     market_context: str | None = None,
+    worker_provider: InferenceProvider | None = None,
 ) -> Round1Result:
     """Execute the Round 1 simulation pipeline.
 
@@ -540,7 +541,7 @@ async def run_round1(
     1. inject_seed (orchestrator model lifecycle is self-contained), or skip if pre_injected
     2. ensure_clean_state (defensive cleanup after orchestrator)
     3. start_monitoring (governor RAM monitoring)
-    4. load worker model
+    4. load worker model (or prepare injected worker_provider)
     5. dispatch_wave with peer_context=None (Round 1 = no peer influence)
     6. Positional assertion (dispatch results must match persona count)
     7. Pair agent IDs with decisions
@@ -562,6 +563,11 @@ async def run_round1(
             message in Round 1 agent prompts per Phase 40 D-04, D-06. Forwarded
             to dispatch_wave. When None, behavior is identical to pre-Phase-40
             (rumor-only prompts).
+        worker_provider: Optional pre-configured InferenceProvider for worker
+            inference. When supplied, provider.prepare()/teardown() replace
+            model_manager.load_model/unload_model and the provider is forwarded
+            to dispatch_wave. When None (default), preserves existing local
+            OllamaProvider + model_manager load/unload behavior exactly.
 
     Returns:
         Round1Result with cycle_id, parsed_result, and agent_decisions.
@@ -596,21 +602,36 @@ async def run_round1(
 
     worker_alias = settings.ollama.worker_model_alias
 
+    # Resolve the effective worker provider for Round 1.
+    # When worker_provider is injected (cloud path), use it directly.
+    # When None (default/local path), build the local OllamaProvider and manage
+    # the model lifecycle via model_manager.load_model/unload_model exactly as
+    # before — preserving the existing local behavior byte-for-byte.
+    _use_injected_worker = worker_provider is not None
+    _r1_worker_provider: InferenceProvider
+    if _use_injected_worker:
+        assert worker_provider is not None  # narrowing for mypy
+        _r1_worker_provider = worker_provider
+    else:
+        _r1_worker_provider = OllamaProvider(
+            ProviderRole.WORKER, worker_alias, ollama_client, model_manager
+        )
+
     # 3. Start governor monitoring (review concern #1 -- must happen before dispatch)
     await governor.start_monitoring()
     try:
-        # 4. Load worker model
-        await model_manager.load_model(worker_alias)
+        # 4. Load worker model (local: model_manager.load_model; cloud: provider.prepare no-op)
+        if _use_injected_worker:
+            await _r1_worker_provider.prepare()
+        else:
+            await model_manager.load_model(worker_alias)
         try:
             # 5. Convert personas and dispatch
             worker_configs = [persona_to_worker_config(p) for p in personas]
-            worker_provider = OllamaProvider(
-                ProviderRole.WORKER, worker_alias, ollama_client, model_manager
-            )
             decisions = await dispatch_wave(
                 personas=worker_configs,
                 governor=governor,
-                provider=worker_provider,
+                provider=_r1_worker_provider,
                 user_message=rumor,
                 settings=settings.governor,
                 peer_context=None,
@@ -644,7 +665,10 @@ async def run_round1(
             )
         finally:
             # 9a. Always unload worker model (inner finally)
-            await model_manager.unload_model(worker_alias)
+            if _use_injected_worker:
+                await _r1_worker_provider.teardown()
+            else:
+                await model_manager.unload_model(worker_alias)
     finally:
         # 9b. Always stop governor monitoring (outer finally)
         await governor.stop_monitoring()
@@ -989,6 +1013,7 @@ async def run_simulation(
         state_store=state_store,
         pre_injected=(cycle_id, parsed_result),
         market_context=market_context_str,
+        worker_provider=worker,
     )
     r1_seconds = time.monotonic() - r1_start
     cycle_id = round1_result.cycle_id
@@ -1362,8 +1387,7 @@ async def run_simulation(
                     },
                     graph_manager=graph_manager,
                     governor=governor,
-                    client=ollama_client,
-                    model=worker_alias,
+                    provider=worker,
                 )
                 logger.info("narrative_generation_complete", count=len(narratives))
             narratives_seconds = time.monotonic() - narratives_start
@@ -1446,16 +1470,27 @@ async def _generate_decision_narratives(
     all_decisions: dict[int, list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]],
     graph_manager: GraphStateManager,
     governor: ConcurrencyController,
-    client: OllamaClient,
-    model: str,
+    provider: InferenceProvider,
 ) -> list[dict]:
     """Generate natural-language decision narrative for each agent (D-10, D-11).
 
-    Uses worker model (already loaded) through governor for memory safety.
+    Uses the worker provider through governor for memory safety.
     Skip-and-log on per-agent failures (Pitfall 5 from research).
+
+    Args:
+        personas: Agent personas to generate narratives for.
+        all_decisions: Mapping of round_num -> list of (agent_id, AgentDecision).
+        graph_manager: Neo4j graph state manager for persisting narratives.
+        governor: Concurrency controller for throttling inference.
+        provider: Worker InferenceProvider to route narrative inference through.
+            For local path this is the OllamaProvider; for cloud path it is the
+            configured cloud provider. Behavior is identical for local (same
+            model, same prompt) — only the call site changes from client.generate
+            to provider.chat with equivalent messages.
 
     Returns list of {"agent_id": str, "narrative": str} dicts that were written.
     """
+    from alphaswarm.inference.types import InferenceMessage
     import asyncio as _asyncio
 
     # Build per-agent decision summaries
@@ -1505,14 +1540,18 @@ async def _generate_decision_narratives(
             + "\n".join(lines)
         )
 
+        messages: list[InferenceMessage] = [
+            {
+                "role": "system",
+                "content": "You are a concise financial analyst narrator. Summarize agent decision arcs in 2-3 sentences.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+
         try:
             async with governor:
-                response = await client.generate(
-                    model=model,
-                    prompt=prompt,
-                    system="You are a concise financial analyst narrator. Summarize agent decision arcs in 2-3 sentences.",
-                )
-                narrative_text = response.get("response", "").strip()
+                result = await provider.chat(messages)
+                narrative_text = result.content.strip()
                 if narrative_text:
                     return {"agent_id": agent_id, "narrative": narrative_text}
                 return None
