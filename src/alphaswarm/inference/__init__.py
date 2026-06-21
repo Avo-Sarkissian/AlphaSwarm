@@ -27,10 +27,16 @@ from alphaswarm.inference.budget import (
     RunEstimate,
     estimate_run,
 )
-from alphaswarm.inference.rate_limit import RateLimitController, TokenBucket
 from alphaswarm.inference.concurrency import ConcurrencyController
+from alphaswarm.inference.factory import (
+    BuiltProviders,
+    build_controller,
+    build_providers,
+    inference_mode,
+)
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.provider import InferenceProvider
+from alphaswarm.inference.rate_limit import RateLimitController, TokenBucket
 from alphaswarm.inference.schema import (
     extract_anthropic_tool_json,
     to_anthropic_tool,
@@ -41,6 +47,7 @@ from alphaswarm.inference.types import InferenceMessage, InferenceResult, Provid
 
 __all__ = [
     "AnthropicProvider",
+    "BuiltProviders",
     "BudgetMeter",
     "BudgetTrackingProvider",
     "ConcurrencyController",
@@ -53,8 +60,11 @@ __all__ = [
     "RateLimitController",
     "RunEstimate",
     "TokenBucket",
+    "build_controller",
+    "build_providers",
     "estimate_run",
     "extract_anthropic_tool_json",
+    "inference_mode",
     "to_anthropic_tool",
     "to_openai_json_object",
     "to_openai_response_format",
