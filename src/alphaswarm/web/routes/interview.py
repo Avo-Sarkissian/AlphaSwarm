@@ -129,6 +129,12 @@ async def interview_agent(
                     context=context,
                     provider=worker_provider,
                 )
+                # Store an explicit provider reference so the sim-start cleanup
+                # callback can call aclose() without reaching into the engine's
+                # private internals.  For OllamaProvider aclose is a no-op;
+                # for cloud providers (Anthropic/OpenAI) this releases the
+                # underlying httpx/SDK client.
+                entry["provider"] = worker_provider
                 log.info("interview_session_created", agent_id=agent_id, cycle_id=cycle_id)
             except BaseException:
                 # Creation failed — remove the placeholder (only if still ours)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 
 import structlog
@@ -32,6 +32,49 @@ from alphaswarm.web.routes.websocket import router as ws_router
 from alphaswarm.web.simulation_manager import SimulationManager, _auto_trigger_advisory
 
 log = structlog.get_logger(component="web.app")
+
+
+def make_session_clearer(app: FastAPI) -> Callable[[], None]:
+    """Return a synchronous on_start callback that closes interview providers before clearing.
+
+    Extracted as a module-level factory so tests can import and verify the
+    behaviour without standing up the full lifespan.  The returned callable is
+    safe to call from a sync context (SimulationManager.start does NOT await
+    on_start).  Each provider.aclose() is scheduled as a tracked
+    asyncio.create_task; strong references live on app.state._interview_close_tasks
+    so the GC cannot collect them before the event loop executes them.
+    OllamaProvider.aclose is a documented no-op — the close is harmless for the
+    local path.
+    """
+    def _clear_interview_sessions() -> None:
+        sessions: dict[str, object] = app.state.interview_sessions
+        close_tasks: set[asyncio.Task[None]] = getattr(
+            app.state, "_interview_close_tasks", set()
+        )
+        app.state._interview_close_tasks = close_tasks
+
+        async def _safe_close(provider: object) -> None:
+            try:
+                aclose = getattr(provider, "aclose", None)
+                if callable(aclose):
+                    await aclose()
+            except Exception:
+                log.warning("interview_provider_close_failed", provider=repr(provider))
+
+        for session in sessions.values():
+            provider = session.get("provider") if isinstance(session, dict) else None
+            if provider is not None:
+                task: asyncio.Task[None] = asyncio.create_task(
+                    _safe_close(provider),
+                    name="interview_provider_close",
+                )
+                close_tasks.add(task)
+                task.add_done_callback(close_tasks.discard)
+
+        sessions.clear()
+        log.info("interview_sessions_cleared")
+
+    return _clear_interview_sessions
 
 
 @asynccontextmanager
@@ -69,7 +112,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     sim_manager = SimulationManager(
         app_state,
         brackets,
-        on_start=lambda: app.state.interview_sessions.clear(),
+        on_start=make_session_clearer(app),
         replay_manager=replay_manager,
         on_complete=lambda cycle_id: _auto_trigger_advisory(app, cycle_id),
     )
