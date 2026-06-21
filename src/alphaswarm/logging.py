@@ -22,6 +22,14 @@ REVIEW REVISION (2026-04-18):
     prevents over-redaction of legitimate market prices (Codex)
   - MEDIUM: 'account_number_hash' is passed through unchanged — no double-hash
     destroying the correlation invariant (Codex)
+
+Phase 37 / Task 17 additions (API key redaction):
+  _LITERAL_NORMALIZED extended with API credential keys:
+    apikey, apikeys, authorization, bearertoken, accesstoken,
+    secretkey, orchestratorkey, workerkey.
+  Covers RoleConfig.api_key, HTTP Authorization headers, and the spec's
+  orchestrator_key/worker_key naming variants. Bare "token" is deliberately
+  excluded (too broad — would clobber unrelated fields like "next_page_token").
 """
 
 from __future__ import annotations
@@ -44,6 +52,7 @@ from alphaswarm.security.hashing import sha256_first8
 #   costBasis, cost_basis, Cost-Basis, COSTBASIS, "cost basis"
 _LITERAL_NORMALIZED: frozenset[str] = frozenset(
     {
+        # Portfolio / holdings PII (Phase 37)
         "holdings",
         "portfolio",
         "positions",
@@ -53,6 +62,23 @@ _LITERAL_NORMALIZED: frozenset[str] = frozenset(
         "positionsbyaccount",
         "holdingsbyaccount",
         "portfoliobyaccount",
+        # API credentials (Task 17) — normalized forms (lowercase, separators stripped)
+        # Covers: api_key, apiKey, API-KEY → "apikey"
+        #         Authorization, authorization → "authorization"
+        #         bearer_token, Bearer-Token → "bearertoken"
+        #         access_token, AccessToken → "accesstoken"
+        #         secret_key, SecretKey → "secretkey"
+        #         orchestrator_key, OrchestratorKey → "orchestratorkey"
+        #         worker_key, WorkerKey → "workerkey"
+        # Bare "token" is NOT included — too broad (would clobber next_page_token etc.)
+        "apikey",
+        "apikeys",
+        "authorization",
+        "bearertoken",
+        "accesstoken",
+        "secretkey",
+        "orchestratorkey",
+        "workerkey",
     }
 )
 _HASHED_NORMALIZED: frozenset[str] = frozenset(
