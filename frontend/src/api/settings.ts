@@ -73,7 +73,7 @@ export interface RunEstimate {
   calls: number;
   low_usd: string;
   high_usd: string;
-  mode: string;
+  mode: 'local' | 'cloud' | 'mixed';
 }
 
 /** POST /api/settings/test response. */

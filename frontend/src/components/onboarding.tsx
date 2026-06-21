@@ -179,14 +179,19 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
 
   const handleRun = async () => {
     const trimmed = seed.trim();
+    // Guard re-entry: also block when the run-gate modal is pending (cloud/mixed path).
     if (!trimmed || busy || backendOk !== true) return;
     setBusy(true);
     setRunError(null);
     try {
       await requestRun(trimmed);
+      // LOCAL path: requestRun resolves after simStart — reset busy so the
+      // button returns to normal state if the component stays mounted.
+      // CLOUD/MIXED path: requestRun resolves immediately after opening the
+      // modal; busy stays true to keep the Run button disabled while the
+      // confirm dialog is up. The modal's own busy tracks "Starting…".
     } catch (e) {
       setRunError(e instanceof Error ? e.message : String(e));
-    } finally {
       setBusy(false);
     }
   };

@@ -14,7 +14,7 @@
 //   • base_url input only shown when provider = openai_compatible.
 //   • api_key password input shown for cloud providers; masked hint when key set.
 //   • limits (rpm/tpm) and spend_cap shown for cloud providers.
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   getSettings,
   putSettings,
@@ -310,6 +310,14 @@ export function InferenceSettings() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState(false);
+  const saveOkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear saveOk timer on unmount to avoid setState-after-unmount.
+  useEffect(() => {
+    return () => {
+      if (saveOkTimer.current !== null) clearTimeout(saveOkTimer.current);
+    };
+  }, []);
 
   // Load on mount
   useEffect(() => {
@@ -357,6 +365,8 @@ export function InferenceSettings() {
       setOrch(roleViewToForm(result.config.orchestrator));
       setWorker(roleViewToForm(result.config.worker));
       setSaveOk(true);
+      if (saveOkTimer.current !== null) clearTimeout(saveOkTimer.current);
+      saveOkTimer.current = setTimeout(() => setSaveOk(false), 3000);
     } catch (e: unknown) {
       setSaveError(extractErrorDetail(e));
     } finally {

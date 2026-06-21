@@ -79,14 +79,14 @@ export function useRunGate(
   };
 
   const modal: ReactNode =
-    pending !== null
-      ? RunConfirmModal({
-          estimate: pending.estimate,
-          onConfirm: () => void handleConfirm(),
-          onCancel: handleCancel,
-          busy,
-        })
-      : null;
+    pending !== null ? (
+      <RunConfirmModal
+        estimate={pending.estimate}
+        onConfirm={() => void handleConfirm()}
+        onCancel={handleCancel}
+        busy={busy}
+      />
+    ) : null;
 
   return { requestRun, modal };
 }
