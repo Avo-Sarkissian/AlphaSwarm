@@ -136,7 +136,7 @@ class ResourceGovernorProtocol(Protocol):
     """Interface contract for ResourceGovernor."""
 
     async def acquire(self) -> None: ...
-    def release(self, *, success: bool = True) -> None: ...
+    def release(self, *, success: bool = True, result_tokens: int | None = None) -> None: ...
     async def start_monitoring(self) -> None: ...
     async def stop_monitoring(self) -> None: ...
 
@@ -218,12 +218,14 @@ class ResourceGovernor:
                 "Monitor task died — cannot acquire slot",
             ) from exc
 
-    def release(self, *, success: bool = True) -> None:
+    def release(self, *, success: bool = True, result_tokens: int | None = None) -> None:
         """Release a concurrency slot.
 
         Args:
             success: If True (default), updates _last_successful_inference
                      timestamp, resetting the crisis timeout clock (D-08).
+            result_tokens: Token count from the completed inference.  Currently
+                ignored here; reserved for the RateLimitController in Task 12.
         """
         self._pool.release()
         self._active_count = max(0, self._active_count - 1)
