@@ -330,7 +330,7 @@ class OpenAICompatProvider:
             if dt is not None:
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=UTC)
-                delay = (dt - datetime.now(UTC)).total_seconds()
+                delay: float = (dt - datetime.now(UTC)).total_seconds()
                 return max(0.0, min(delay, 60.0))  # clamp pathological values
         except (ValueError, TypeError):
             pass

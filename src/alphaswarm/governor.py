@@ -361,7 +361,8 @@ class ResourceGovernor:
             # deterministic abort so _check_monitor_alive fails fast instead.
             log.error("governor_monitor_loop_failed", exc_info=True)
             raise GovernorCrisisError(
-                f"Memory monitor loop terminated unexpectedly: {exc}"
+                f"Memory monitor loop terminated unexpectedly: {exc}",
+                duration_seconds=0.0,
             ) from exc
 
     async def _apply_state_transition(self, reading: MemoryReading) -> None:
