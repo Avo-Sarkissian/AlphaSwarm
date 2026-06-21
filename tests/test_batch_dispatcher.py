@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from alphaswarm.config import GovernorSettings
-from alphaswarm.errors import GovernorCrisisError, OllamaInferenceError
+from alphaswarm.errors import BudgetExceededError, GovernorCrisisError, OllamaInferenceError
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.types import AgentDecision, SignalType
@@ -1022,3 +1022,53 @@ async def test_safe_agent_inference_no_push_when_state_store_none(
         )
 
     assert len(results) == len(sample_personas)
+
+
+# ---------------------------------------------------------------------------
+# Task 14: BudgetExceededError propagation
+# ---------------------------------------------------------------------------
+
+
+async def test_budget_exceeded_error_propagates(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """BudgetExceededError is NOT caught by _safe_agent_inference -- propagates out.
+
+    When the spend cap trips, dispatch_wave must halt cleanly (completed rounds
+    already persisted) rather than silently converting agents into PARSE_ERRORs.
+    Matches the GovernorCrisisError propagation pattern: TaskGroup wraps
+    un-caught exceptions in ExceptionGroup.
+    """
+    from decimal import Decimal
+
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    provider = _fake_provider(n=len(sample_personas))
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_aw.return_value.__aenter__ = AsyncMock(
+            side_effect=BudgetExceededError(Decimal("5"), Decimal("4"))
+        )
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        settings = GovernorSettings(baseline_parallel=16)
+
+        with (
+            patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(ExceptionGroup) as exc_info,
+        ):
+            await dispatch_wave(
+                personas=sample_personas,
+                governor=governor,
+                provider=provider,
+                user_message="test",
+                settings=settings,
+            )
+
+    # BudgetExceededError must appear in the ExceptionGroup from TaskGroup
+    budget_errors = [
+        e for e in exc_info.value.exceptions
+        if isinstance(e, BudgetExceededError)
+    ]
+    assert len(budget_errors) > 0

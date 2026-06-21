@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.errors import GovernorCrisisError
+from alphaswarm.errors import BudgetExceededError, GovernorCrisisError
 from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import agent_worker
 
@@ -50,9 +50,13 @@ async def _safe_agent_inference(
     """Run a single agent inference with jitter and exception safety.
 
     Applies random jitter BEFORE acquiring the governor slot (D-14).
-    Catches only Exception subclasses (excluding GovernorCrisisError).
+    Catches only Exception subclasses (excluding GovernorCrisisError and
+    BudgetExceededError).
     CancelledError and KeyboardInterrupt are NEVER caught -- they propagate
     to preserve TaskGroup cleanup and Ctrl+C handling (review concern #2).
+    BudgetExceededError is NEVER caught -- when the spend cap trips, the wave
+    must halt cleanly (completed rounds already persisted) rather than
+    silently converting agents into PARSE_ERRORs.
 
     Streams the resolved AgentDecision to state_store.update_agent_state
     IMMEDIATELY upon successful inference so the WS broadcaster sees a
@@ -75,6 +79,7 @@ async def _safe_agent_inference(
         asyncio.CancelledError: Always re-raised for TaskGroup cleanup.
         KeyboardInterrupt: Always re-raised for Ctrl+C handling.
         GovernorCrisisError: Always re-raised (crisis must propagate).
+        BudgetExceededError: Always re-raised (spend cap must halt the wave).
     """
     try:
         await asyncio.sleep(random.uniform(jitter_min, jitter_max))
@@ -84,7 +89,7 @@ async def _safe_agent_inference(
                 peer_context=peer_context,
                 market_context=market_context,
             )
-    except (asyncio.CancelledError, KeyboardInterrupt, GovernorCrisisError):
+    except (asyncio.CancelledError, KeyboardInterrupt, GovernorCrisisError, BudgetExceededError):
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
     except Exception as e:
         log.warning("agent inference failed", agent_id=persona["agent_id"], error=str(e))
@@ -172,6 +177,8 @@ async def dispatch_wave(
     Raises:
         ValueError: If peer_contexts length does not match personas length.
         GovernorCrisisError: If any agent hits a governor crisis.
+        BudgetExceededError: If the spend cap is exceeded; halts the wave so
+            completed rounds remain persisted and no further spend occurs.
         ExceptionGroup: If CancelledError or other unrecoverable errors
             propagate from TaskGroup.
     """

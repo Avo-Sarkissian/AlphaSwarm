@@ -316,3 +316,115 @@ async def test_agent_worker_context_manager_with_provider(
     assert governor.active_count == 0
     assert isinstance(decision, AgentDecision)
     assert decision.signal == SignalType.HOLD
+
+
+# ---------------------------------------------------------------------------
+# Task 14: Token flow — last_total_tokens on AgentWorker
+# ---------------------------------------------------------------------------
+
+
+async def test_infer_sets_last_total_tokens_when_both_present(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    """After infer(), last_total_tokens == input_tokens + output_tokens."""
+    scripted_result = InferenceResult(
+        content=_VALID_BUY_JSON,
+        model="fake-model",
+        input_tokens=100,
+        output_tokens=50,
+    )
+
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[scripted_result],
+    )
+
+    worker = AgentWorker(sample_persona, provider)
+    assert worker.last_total_tokens is None  # initialized to None
+
+    await worker.infer(user_message="test")
+
+    assert worker.last_total_tokens == 150
+
+
+async def test_infer_sets_last_total_tokens_when_only_output_present(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    """last_total_tokens accounts for partial token fields (input=None, output=30)."""
+    scripted_result = InferenceResult(
+        content=_VALID_BUY_JSON,
+        model="fake-model",
+        input_tokens=None,
+        output_tokens=30,
+    )
+
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[scripted_result],
+    )
+
+    worker = AgentWorker(sample_persona, provider)
+    await worker.infer(user_message="test")
+
+    assert worker.last_total_tokens == 30
+
+
+async def test_infer_last_total_tokens_none_when_both_fields_none(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    """LOCAL path: both token fields None → last_total_tokens remains None.
+
+    This is the Ollama/local path where token counts are not billed and
+    release(result_tokens=None) → governor ignores → behavior unchanged.
+    """
+    scripted_result = InferenceResult(
+        content=_VALID_BUY_JSON,
+        model="fake-model",
+        input_tokens=None,
+        output_tokens=None,
+    )
+
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[scripted_result],
+    )
+
+    worker = AgentWorker(sample_persona, provider)
+    await worker.infer(user_message="test")
+
+    assert worker.last_total_tokens is None
+
+
+async def test_agent_worker_passes_last_total_tokens_to_release(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    """agent_worker context manager passes worker.last_total_tokens to governor.release().
+
+    After a successful infer() with input_tokens=100 and output_tokens=50,
+    the exit of agent_worker must call governor.release(success=True, result_tokens=150).
+    """
+    from unittest.mock import MagicMock, patch
+
+    scripted_result = InferenceResult(
+        content=_VALID_BUY_JSON,
+        model="fake-model",
+        input_tokens=100,
+        output_tokens=50,
+    )
+
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[scripted_result],
+    )
+
+    governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
+
+    with patch.object(governor, "release") as mock_release:
+        async with agent_worker(sample_persona, governor, provider) as worker:
+            await worker.infer(user_message="test")
+
+    mock_release.assert_called_once_with(success=True, result_tokens=150)

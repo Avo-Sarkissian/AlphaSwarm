@@ -79,6 +79,7 @@ class AgentWorker:
         self._persona = persona
         self._provider = provider
         self._state_store = state_store
+        self.last_total_tokens: int | None = None
 
     async def infer(
         self,
@@ -121,6 +122,16 @@ class AgentWorker:
             # Without this, every agent ran at the Modelfile's temperature
             # and the bracket temperature design was dead config.
         )
+
+        # Compute total billable tokens for this call. Used by agent_worker
+        # context manager to pass result_tokens to governor.release() so
+        # the RateLimitController can reconcile TPM usage. LOCAL providers
+        # (Ollama) return None for both fields → last_total_tokens stays None
+        # → release gets None → governor ignores (behavior unchanged).
+        if result.input_tokens is not None or result.output_tokens is not None:
+            self.last_total_tokens = (result.input_tokens or 0) + (result.output_tokens or 0)
+        else:
+            self.last_total_tokens = None
 
         # Extract TPS data from result metadata (Phase 10: TUI-04, D-05)
         if self._state_store is not None:
@@ -166,10 +177,11 @@ async def agent_worker(
     """
     await governor.acquire()
     _success = True
+    worker = AgentWorker(persona, provider, state_store=state_store)
     try:
-        yield AgentWorker(persona, provider, state_store=state_store)
+        yield worker
     except Exception:
         _success = False
         raise
     finally:
-        governor.release(success=_success)
+        governor.release(success=_success, result_tokens=worker.last_total_tokens)
