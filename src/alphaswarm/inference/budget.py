@@ -208,6 +208,7 @@ def estimate_run(
     rounds: int,
     avg_in: int,
     avg_out: int,
+    narrative_calls: int = 0,
     pricing: dict[str, ModelPrice] | None = None,
 ) -> RunEstimate:
     """Estimate cost of a full AlphaSwarm simulation run.
@@ -215,6 +216,8 @@ def estimate_run(
     Call breakdown
     --------------
     - ``agents * rounds`` worker inference calls.
+    - ``narrative_calls`` additional worker calls for post-sim narrative generation
+      (typically ``agents`` when narratives are enabled, which is the default).
     - 3 orchestrator calls (seed synthesis, advisory, report).
 
     Pricing resolution
@@ -235,7 +238,7 @@ def estimate_run(
 
     worker_calls = agents * rounds
     orch_calls = 3
-    total_calls = worker_calls + orch_calls
+    total_calls = worker_calls + narrative_calls + orch_calls
 
     worker_provider = cfg.worker.provider
     orch_provider = cfg.orchestrator.provider
@@ -256,8 +259,10 @@ def estimate_run(
         )
         return per_call * n
 
-    point = _call_cost(cfg.worker.model, worker_provider, worker_calls) + _call_cost(
-        cfg.orchestrator.model, orch_provider, orch_calls
+    point = (
+        _call_cost(cfg.worker.model, worker_provider, worker_calls)
+        + _call_cost(cfg.worker.model, worker_provider, narrative_calls)
+        + _call_cost(cfg.orchestrator.model, orch_provider, orch_calls)
     )
 
     low = (point * Decimal("0.7")).quantize(_CENTS)
