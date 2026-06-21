@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 
 from alphaswarm.types import SimulationPhase
 
-
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
@@ -221,7 +220,11 @@ def test_interview_endpoint_returns_response() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="TestAgent decided to BUY.",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good news")],
+            decisions=[
+                RoundDecision(
+                    round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good news"
+                )
+            ],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
@@ -233,12 +236,14 @@ def test_interview_endpoint_returns_response() -> None:
         mock_engine = MagicMock()
         mock_engine.ask = AsyncMock(return_value="mock response")
 
-        with patch("alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine) as MockCls:
+        with patch(
+            "alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine
+        ) as mock_cls:
             r = client.post("/api/interview/agent_1", json={"message": "Why did you buy?"})
             assert r.status_code == 200
             data = r.json()
             assert data["response"] == "mock response"
-            assert MockCls.call_count == 1
+            assert mock_cls.call_count == 1
 
 
 # ---------------------------------------------------------------------------
