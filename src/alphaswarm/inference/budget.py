@@ -91,6 +91,15 @@ DEFAULT_PRICING: dict[str, ModelPrice] = {
 _CENTS = Decimal("0.01")
 _MTOK = Decimal("1000000")
 
+# Conservative ceiling used for an unpriced model WHEN A CAP IS SET, so an
+# unknown/aliased model id can never silently make the spend cap unenforceable
+# (F-18). Matches the most expensive tier in DEFAULT_PRICING; only used as a
+# floor if the merged pricing table is somehow empty.
+_FALLBACK_UNKNOWN_PRICE = ModelPrice(
+    input_per_mtok=Decimal("15.00"),
+    output_per_mtok=Decimal("75.00"),
+)
+
 # ---------------------------------------------------------------------------
 # RunEstimate
 # ---------------------------------------------------------------------------
@@ -146,17 +155,36 @@ class BudgetMeter:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _conservative_price(self) -> ModelPrice:
+        """Highest input/output rates in the pricing table — a safe ceiling for
+        an unpriced model when a cap is set (F-18). Falls back to a fixed
+        opus-tier price only if the table is empty."""
+        if not self._pricing:
+            return _FALLBACK_UNKNOWN_PRICE
+        return ModelPrice(
+            input_per_mtok=max(p.input_per_mtok for p in self._pricing.values()),
+            output_per_mtok=max(p.output_per_mtok for p in self._pricing.values()),
+        )
+
     def _cost_of(self, model: str, in_tokens: int, out_tokens: int) -> Decimal:
         price = self._pricing.get(model)
         if price is None:
+            # Unknown model: $0 is only safe for uncapped runs. With a cap set,
+            # treating it as free would make the cap silently unenforceable
+            # (F-18), so price it at a conservative ceiling instead.
             if model not in self._warned_unknown:
                 logger.warning(
-                    "BudgetMeter: unknown model %r — treating as free (price = $0). "
+                    "BudgetMeter: unknown model %r — %s. "
                     "Add an entry to DEFAULT_PRICING or InferenceConfig.pricing_overrides.",
                     model,
+                    "pricing at a conservative ceiling for cap enforcement"
+                    if self._cap is not None
+                    else "treating as free (price = $0)",
                 )
                 self._warned_unknown.add(model)
-            return Decimal(0)
+            if self._cap is None:
+                return Decimal(0)
+            price = self._conservative_price()
         return (
             Decimal(in_tokens) / _MTOK * price.input_per_mtok
             + Decimal(out_tokens) / _MTOK * price.output_per_mtok
