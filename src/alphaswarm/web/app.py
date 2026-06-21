@@ -23,6 +23,7 @@ from alphaswarm.web.routes.interview import router as interview_router
 from alphaswarm.web.routes.replay import router as replay_router
 from alphaswarm.web.routes.advisory import router as advisory_router
 from alphaswarm.web.routes.report import router as report_router
+from alphaswarm.web.routes.settings import router as settings_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
 from alphaswarm.web.replay_manager import ReplayManager
@@ -157,6 +158,7 @@ def create_app() -> FastAPI:
     app.include_router(holdings_router, prefix="/api")
     app.include_router(report_router, prefix="/api")
     app.include_router(advisory_router, prefix="/api")
+    app.include_router(settings_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
 
     # Serve Vue SPA production build as static files (D-02).

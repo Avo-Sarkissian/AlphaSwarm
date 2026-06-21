@@ -123,6 +123,7 @@ source_modules = [
     "alphaswarm.web.routes.advisory",
     "alphaswarm.web.routes.simulation",
     "alphaswarm.web.routes.websocket",
+    "alphaswarm.web.routes.settings",
 ]
 forbidden_modules = ["alphaswarm.holdings"]
 # D-04 whitelist: alphaswarm.web.routes.holdings is the ONE permitted importer.
