@@ -24,6 +24,7 @@ from pydantic import ValidationError
 
 from alphaswarm.advisory.prompt import build_advisory_prompt
 from alphaswarm.advisory.sector_map import lookup as sector_lookup
+from alphaswarm.advisory.sector_map import resolve_ticker
 from alphaswarm.advisory.types import AdvisoryReport
 from alphaswarm.holdings.types import PortfolioSnapshot
 from alphaswarm.inference.types import InferenceMessage
@@ -145,27 +146,28 @@ async def synthesize(
     total_cost_basis = _total_cb if _total_cb > 0 else Decimal("1")
 
     # ITEM 6 of quick task 260512-jqn — enrich + split.
-    # entity_impact from Neo4j is a list[dict] where each entry has at least
-    # `entity` and a magnitude-like field. We collapse to {ticker: float}
-    # for the relevance scorer; missing tickers fall back to 0.0.
+    # read_entity_impact rows carry entity_name + avg_sentiment (graph.py); the
+    # previous keys (`entity`/`magnitude`) never existed, so entity_impacts was
+    # always {} and the relevance ranking was dead (F-07). Collapse to
+    # {ticker: impact} using avg_sentiment as the bounded [-1,1] directional
+    # magnitude (mention_count is unbounded and would dominate abs() in the
+    # relevance product). Free-form names ("NVIDIA") are resolved to tickers via
+    # resolve_ticker; unresolved entities are skipped so they can't score an
+    # unrelated holding. When two entities map to one ticker, keep the strongest.
     entity_impacts: dict[str, float] = {}
     for entry in entities:
         if not isinstance(entry, dict):
             continue
-        ticker = str(entry.get("entity") or entry.get("ticker") or "").upper()
-        if not ticker:
+        raw_name = str(entry.get("entity_name") or entry.get("entity") or "").strip()
+        ticker = resolve_ticker(raw_name) if raw_name else None
+        if ticker is None:
             continue
-        # Magnitude — try several known keys without over-specifying schema.
-        mag_raw = (
-            entry.get("magnitude")
-            or entry.get("impact")
-            or entry.get("score")
-            or 0.0
-        )
         try:
-            entity_impacts[ticker] = float(mag_raw)
+            impact = float(entry.get("avg_sentiment", 0.0))
         except (TypeError, ValueError):
-            entity_impacts[ticker] = 0.0
+            impact = 0.0
+        if ticker not in entity_impacts or abs(impact) > abs(entity_impacts[ticker]):
+            entity_impacts[ticker] = impact
 
     enriched = _enrich_holdings(holdings_context, entity_impacts, seed_rumor)
     top_holdings = enriched[:15]
