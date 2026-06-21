@@ -594,7 +594,7 @@ def test_replay_mode_memory_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
 
     replay_store = ReplayStore(cycle_id="test-cycle", signals={})
     replay_store.set_round(1)
-    replay_manager = SimpleNamespace(is_active=True, store=replay_store)
+    replay_manager = SimpleNamespace(is_active=True, has_store=True, store=replay_store)
     monkeypatch.setattr(
         "alphaswarm.web.broadcaster.psutil.virtual_memory",
         lambda: SimpleNamespace(percent=88.0),
