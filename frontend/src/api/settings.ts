@@ -27,6 +27,14 @@ export interface RoleView {
   api_key: MaskedKey;
 }
 
+/** One entry in the provider_presets list returned by GET /api/settings. */
+export interface ProviderPreset {
+  label: string;
+  provider: ProviderType;
+  base_url: string | null;
+  models: string[];
+}
+
 /** Full response from GET /api/settings. */
 export interface SettingsView {
   config: {
@@ -49,6 +57,8 @@ export interface SettingsView {
   mode: 'local' | 'cloud' | 'mixed';
   available_local_models: string[];
   known_api_models: string[];
+  /** Convenience presets for popular inference providers. */
+  provider_presets: ProviderPreset[];
 }
 
 /** PUT body: api_key is a raw string, or omit to keep stored key. */

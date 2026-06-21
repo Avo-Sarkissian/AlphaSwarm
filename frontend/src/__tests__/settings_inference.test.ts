@@ -4,12 +4,15 @@
 //   - roleViewToForm / formToRolePut (key sanitisation, base_url handling)
 //   - providerLabel
 //   - extractErrorDetail (ApiError 409 maps to the "stop simulation" message)
+//   - applyPreset (preset → form state, including OpenRouter and Anthropic cases)
 //
 // These tests exercise the policy contracts:
 //   • api_key is omitted in the PUT body when the form field is empty.
 //   • base_url is null in the PUT body unless provider=openai_compatible.
 //   • 409 response is translated to the human-readable message.
 //   • masked key hint contains the last4 fragment.
+//   • applyPreset sets provider + base_url + model-datalist (first model pre-fill
+//     only when model field is currently empty).
 import { describe, it, expect } from 'vitest';
 import { ApiError } from '../api/client';
 
@@ -19,6 +22,13 @@ import { ApiError } from '../api/client';
 // project's vitest setup).
 
 type ProviderType = 'ollama' | 'openai_compatible' | 'anthropic';
+
+interface ProviderPreset {
+  label: string;
+  provider: ProviderType;
+  base_url: string | null;
+  models: string[];
+}
 
 interface RoleFormState {
   provider: ProviderType;
@@ -78,6 +88,23 @@ function extractErrorDetail(e: unknown): string {
 function maskedKeyPlaceholder(set: boolean, last4: string | null): string {
   if (set) return `key set ••••${last4 ?? ''} — leave blank to keep`;
   return 'enter API key';
+}
+
+/**
+ * Mirror of applyPreset from settings_inference.tsx.
+ * Apply a provider preset to a role form: sets provider + base_url, and
+ * pre-fills the first preset model only when the model field is currently empty.
+ */
+function applyPreset(form: RoleFormState, preset: ProviderPreset): RoleFormState {
+  return {
+    ...form,
+    provider: preset.provider,
+    base_url: preset.base_url ?? '',
+    model:
+      form.model.trim() === '' && preset.models.length > 0
+        ? preset.models[0]!
+        : form.model,
+  };
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────
@@ -222,5 +249,157 @@ describe('maskedKeyPlaceholder', () => {
 
   it('prompts for key entry when not set', () => {
     expect(maskedKeyPlaceholder(false, null)).toBe('enter API key');
+  });
+});
+
+// ── preset_list helpers ────────────────────────────────────────────────────
+
+/** Minimal SettingsView-like shape containing only provider_presets. */
+interface SettingsViewStub {
+  provider_presets: ProviderPreset[];
+}
+
+function presetsFromView(view: SettingsViewStub): ProviderPreset[] {
+  return view.provider_presets;
+}
+
+describe('provider_presets — reading from SettingsView', () => {
+  it('returns an empty array when provider_presets is empty', () => {
+    const view: SettingsViewStub = { provider_presets: [] };
+    expect(presetsFromView(view)).toHaveLength(0);
+  });
+
+  it('surfaces preset labels from the settings view', () => {
+    const view: SettingsViewStub = {
+      provider_presets: [
+        {
+          label: 'OpenRouter',
+          provider: 'openai_compatible',
+          base_url: 'https://openrouter.ai/api/v1',
+          models: ['openrouter/auto', 'mistralai/mistral-7b-instruct'],
+        },
+        {
+          label: 'Anthropic',
+          provider: 'anthropic',
+          base_url: null,
+          models: ['claude-opus-4-5', 'claude-sonnet-4-5'],
+        },
+      ],
+    };
+    const presets = presetsFromView(view);
+    expect(presets).toHaveLength(2);
+    expect(presets[0]!.label).toBe('OpenRouter');
+    expect(presets[1]!.label).toBe('Anthropic');
+  });
+});
+
+// ── applyPreset ────────────────────────────────────────────────────────────
+
+const baseForm: RoleFormState = {
+  provider: 'ollama',
+  model: '',
+  base_url: '',
+  api_key: '',
+};
+
+describe('applyPreset — OpenRouter preset (openai_compatible + base_url)', () => {
+  const openRouterPreset: ProviderPreset = {
+    label: 'OpenRouter',
+    provider: 'openai_compatible',
+    base_url: 'https://openrouter.ai/api/v1',
+    models: ['openrouter/auto', 'mistralai/mistral-7b-instruct'],
+  };
+
+  it('sets provider to openai_compatible', () => {
+    const result = applyPreset(baseForm, openRouterPreset);
+    expect(result.provider).toBe('openai_compatible');
+  });
+
+  it('sets base_url to the OpenRouter endpoint', () => {
+    const result = applyPreset(baseForm, openRouterPreset);
+    expect(result.base_url).toBe('https://openrouter.ai/api/v1');
+  });
+
+  it('pre-fills model to first preset model when model field is empty', () => {
+    const result = applyPreset(baseForm, openRouterPreset);
+    expect(result.model).toBe('openrouter/auto');
+  });
+
+  it('does NOT overwrite model when model field is already filled', () => {
+    const filledForm: RoleFormState = { ...baseForm, model: 'my-custom-model' };
+    const result = applyPreset(filledForm, openRouterPreset);
+    expect(result.model).toBe('my-custom-model');
+  });
+
+  it('preserves api_key field unchanged', () => {
+    const formWithKey: RoleFormState = { ...baseForm, api_key: 'sk-or-abc' };
+    const result = applyPreset(formWithKey, openRouterPreset);
+    expect(result.api_key).toBe('sk-or-abc');
+  });
+
+  it('preset models are surfaced for datalist (models array)', () => {
+    expect(openRouterPreset.models).toContain('openrouter/auto');
+    expect(openRouterPreset.models).toContain('mistralai/mistral-7b-instruct');
+  });
+});
+
+describe('applyPreset — Anthropic-native preset (base_url null)', () => {
+  const anthropicPreset: ProviderPreset = {
+    label: 'Anthropic',
+    provider: 'anthropic',
+    base_url: null,
+    models: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
+  };
+
+  it('sets provider to anthropic', () => {
+    const result = applyPreset(baseForm, anthropicPreset);
+    expect(result.provider).toBe('anthropic');
+  });
+
+  it('sets base_url to empty string when preset base_url is null', () => {
+    const result = applyPreset(baseForm, anthropicPreset);
+    expect(result.base_url).toBe('');
+  });
+
+  it('pre-fills model to first preset model when model field is empty', () => {
+    const result = applyPreset(baseForm, anthropicPreset);
+    expect(result.model).toBe('claude-opus-4-5');
+  });
+
+  it('does NOT overwrite model when model field is already set', () => {
+    const filledForm: RoleFormState = {
+      ...baseForm,
+      model: 'claude-3-5-sonnet-20241022',
+    };
+    const result = applyPreset(filledForm, anthropicPreset);
+    expect(result.model).toBe('claude-3-5-sonnet-20241022');
+  });
+
+  it('preset models array contains expected Anthropic model ids', () => {
+    expect(anthropicPreset.models).toContain('claude-opus-4-5');
+    expect(anthropicPreset.models).toContain('claude-sonnet-4-5');
+  });
+});
+
+describe('applyPreset — whitespace-only model is treated as empty', () => {
+  const geminiPreset: ProviderPreset = {
+    label: 'Gemini',
+    provider: 'openai_compatible',
+    base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    models: ['gemini-2.0-flash', 'gemini-1.5-pro'],
+  };
+
+  it('pre-fills model when current model is whitespace-only', () => {
+    const whitespaceForm: RoleFormState = { ...baseForm, model: '   ' };
+    // form.model.trim() === '' is true for whitespace → first preset model wins
+    const result = applyPreset(whitespaceForm, geminiPreset);
+    expect(result.model).toBe('gemini-2.0-flash');
+  });
+
+  it('sets base_url to the Gemini endpoint', () => {
+    const result = applyPreset(baseForm, geminiPreset);
+    expect(result.base_url).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/openai',
+    );
   });
 });

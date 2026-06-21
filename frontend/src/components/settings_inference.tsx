@@ -20,6 +20,7 @@ import {
   putSettings,
   testConnection,
   type ProviderType,
+  type ProviderPreset,
   type RoleView,
   type SettingsView,
   type RolePut,
@@ -55,6 +56,25 @@ function formToRolePut(f: RoleFormState): RolePut {
         : null,
     // Omit api_key when empty (backend keeps stored key).
     api_key: f.api_key.trim() || undefined,
+  };
+}
+
+/**
+ * Apply a provider preset to a role form.
+ * Pre-fills provider, base_url, and — if the model field is empty — the first
+ * preset model. The caller may freely edit any field after applying.
+ */
+export function applyPreset(
+  form: RoleFormState,
+  preset: ProviderPreset,
+): RoleFormState {
+  return {
+    ...form,
+    provider: preset.provider,
+    base_url: preset.base_url ?? '',
+    model: form.model.trim() === '' && preset.models.length > 0
+      ? preset.models[0]!
+      : form.model,
   };
 }
 
@@ -97,7 +117,9 @@ interface RoleFormProps {
   originalView: RoleView;
   availableLocalModels: string[];
   knownApiModels: string[];
+  presets: ProviderPreset[];
   onChange: (patch: Partial<RoleFormState>) => void;
+  onReplace: (next: RoleFormState) => void;
 }
 
 function RoleForm({
@@ -107,7 +129,9 @@ function RoleForm({
   originalView,
   availableLocalModels,
   knownApiModels,
+  presets,
   onChange,
+  onReplace,
 }: RoleFormProps) {
   const [testState, setTestState] = useState<
     'idle' | 'loading' | 'ok' | 'error'
@@ -115,8 +139,12 @@ function RoleForm({
   const [testMsg, setTestMsg] = useState('');
 
   const isCloud = isCloudProvider(form.provider);
+  // After a preset is applied its models become the datalist suggestions;
+  // fall back to the standard lists when no preset is active.
+  const [presetModels, setPresetModels] = useState<string[] | null>(null);
   const modelSuggestions =
-    form.provider === 'ollama' ? availableLocalModels : knownApiModels;
+    presetModels ??
+    (form.provider === 'ollama' ? availableLocalModels : knownApiModels);
   const listId = `model-list-${roleKey}`;
   const keySet = originalView.api_key.set;
   const last4 = originalView.api_key.last4;
@@ -154,6 +182,45 @@ function RoleForm({
       >
         {roleLabel}
       </div>
+
+      {/* Preset picker — shortcut to populate provider + base_url + model */}
+      {presets.length > 0 && (
+        <div className="st-inf-row">
+          <label className="st-inf-label">Preset</label>
+          <select
+            className="st-inf-select"
+            defaultValue=""
+            onChange={(e) => {
+              const idx = e.target.value;
+              if (idx === '') return;
+              const preset = presets[Number(idx)];
+              if (!preset) return;
+              onReplace(applyPreset(form, preset));
+              setPresetModels(preset.models);
+              // Reset to "Custom" visually after applying so the user can
+              // re-select the same preset again if they want.
+              e.target.value = '';
+            }}
+            style={{
+              flex: 1,
+              padding: '6px 10px',
+              background: 'var(--bg-3)',
+              border: '1px solid var(--border)',
+              color: 'var(--text-1)',
+              fontSize: 12,
+              borderRadius: 3,
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            <option value="">— Custom —</option>
+            {presets.map((p, i) => (
+              <option key={i} value={i}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Provider select */}
       <div className="st-inf-row">
@@ -406,7 +473,9 @@ export function InferenceSettings() {
         originalView={view.config.orchestrator}
         availableLocalModels={view.available_local_models}
         knownApiModels={view.known_api_models}
+        presets={view.provider_presets ?? []}
         onChange={(patch) => setOrch((prev) => prev ? { ...prev, ...patch } : prev)}
+        onReplace={(next) => setOrch(next)}
       />
 
       <div
@@ -423,7 +492,9 @@ export function InferenceSettings() {
         originalView={view.config.worker}
         availableLocalModels={view.available_local_models}
         knownApiModels={view.known_api_models}
+        presets={view.provider_presets ?? []}
         onChange={(patch) => setWorker((prev) => prev ? { ...prev, ...patch } : prev)}
+        onReplace={(next) => setWorker(next)}
       />
 
       {/* Spend cap — shown when either role is cloud */}
