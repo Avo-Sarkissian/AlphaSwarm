@@ -116,6 +116,111 @@ def test_health_endpoint() -> None:
         assert isinstance(data["simulation_phase"], str)
         assert isinstance(data["memory_percent"], float)
         assert data["is_simulation_running"] is False
+        # New additive fields must also be present
+        assert "inference_mode" in data
+        assert "spent_usd" in data
+
+
+def test_health_inference_mode_default_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    """inference_mode defaults to 'local' when no config file is present."""
+    from alphaswarm.web.routes import health as health_module
+
+    # load_inference_config raises when config file absent (no .secrets/inference.json)
+    # by returning a default_inference_config with both providers OLLAMA.
+    # We just ensure the field exists and equals "local" in the default test env.
+    with TestClient(_make_test_app()) as client:
+        r = client.get("/api/health")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["inference_mode"] in ("local", "cloud", "mixed")
+
+
+def test_health_inference_mode_reflects_cloud_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """inference_mode returns 'cloud' when load_inference_config returns a cloud-only config."""
+    from decimal import Decimal
+    from unittest.mock import MagicMock
+
+    from alphaswarm.config import ProviderType, RoleConfig
+
+    def _fake_load(settings: object, path: object = None) -> MagicMock:  # type: ignore[return]
+        cfg = MagicMock()
+        cloud_role = RoleConfig(
+            provider=ProviderType.ANTHROPIC,
+            model="claude-sonnet-4-5",
+            api_key="sk-test",
+        )
+        cfg.orchestrator = cloud_role
+        cfg.worker = cloud_role
+        return cfg
+
+    monkeypatch.setattr("alphaswarm.web.routes.health.load_inference_config", _fake_load)
+    monkeypatch.setattr(
+        "alphaswarm.web.routes.health.inference_mode",
+        lambda cfg: "cloud",
+    )
+
+    with TestClient(_make_test_app()) as client:
+        r = client.get("/api/health")
+        assert r.status_code == 200
+        assert r.json()["inference_mode"] == "cloud"
+
+
+def test_health_inference_mode_degrades_to_local_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """inference_mode degrades to 'local' (not 500) when load_inference_config raises."""
+    monkeypatch.setattr(
+        "alphaswarm.web.routes.health.load_inference_config",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("bad config")),
+    )
+
+    with TestClient(_make_test_app()) as client:
+        r = client.get("/api/health")
+        assert r.status_code == 200
+        assert r.json()["inference_mode"] == "local"
+
+
+def test_health_spent_usd_null_when_no_budget_meter() -> None:
+    """spent_usd is null when app_state has no budget_meter attribute."""
+    with TestClient(_make_test_app()) as client:
+        # The test app_state created by _make_test_app does not set budget_meter
+        r = client.get("/api/health")
+        assert r.status_code == 200
+        assert r.json()["spent_usd"] is None
+
+
+def test_health_spent_usd_float_when_budget_meter_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """spent_usd is a float when app_state.budget_meter is set."""
+    from decimal import Decimal
+    from unittest.mock import MagicMock
+
+    app = _make_test_app()
+    with TestClient(app) as client:
+        fake_meter = MagicMock()
+        fake_meter.spent.return_value = Decimal("1.23")
+        # Set budget_meter on app_state (simulating what SimulationManager._run does)
+        app.state.app_state.budget_meter = fake_meter  # type: ignore[attr-defined]
+
+        r = client.get("/api/health")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["spent_usd"] == pytest.approx(1.23)
+        assert isinstance(data["spent_usd"], float)
+
+
+def test_health_spent_usd_zero_for_local_run() -> None:
+    """spent_usd is 0.0 (not null) when budget_meter exists but no cloud calls have been made."""
+    from decimal import Decimal
+    from unittest.mock import MagicMock
+
+    app = _make_test_app()
+    with TestClient(app) as client:
+        fake_meter = MagicMock()
+        fake_meter.spent.return_value = Decimal("0")
+        app.state.app_state.budget_meter = fake_meter  # type: ignore[attr-defined]
+
+        r = client.get("/api/health")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["spent_usd"] == 0.0
 
 
 # ---------------------------------------------------------------------------
