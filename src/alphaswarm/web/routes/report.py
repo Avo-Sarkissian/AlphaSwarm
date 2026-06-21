@@ -28,8 +28,8 @@ import structlog
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel
 
-from alphaswarm.inference.ollama_provider import OllamaProvider
-from alphaswarm.inference.types import ProviderRole
+from alphaswarm.config import load_inference_config
+from alphaswarm.inference.factory import build_providers
 from alphaswarm.report import (
     ReportAssembler,
     ReportEngine,
@@ -301,12 +301,17 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     """Background task — mirrors cli.py _handle_report sequence exactly (D-03).
 
     Sequence: provider.prepare -> ReportEngine.run -> ReportAssembler.assemble ->
-    write_report -> write_sentinel. provider.teardown happens in finally
-    even when generation raises (prevents leaked model lock).
+    write_report -> write_sentinel. provider.teardown/aclose happens in finally
+    even when generation raises (prevents leaked model lock / cloud client leak).
 
     Preconditions: the POST handler has already validated that graph_manager,
     ollama_client, and model_manager are non-None, so the narrowing asserts
     below are always safe when this coroutine is scheduled from the route.
+
+    Uses build_providers(load_inference_config(...)) so cloud configs are honoured
+    and the provider is budget-capped.  LOCAL mode returns a plain OllamaProvider
+    with identical behaviour to before.  The budget_meter is per-operation (fresh
+    per report run) which bounds each report generation to its own spend cap.
 
     Accepted risk (T-36-16, both reviewers LOW): write_report is not atomic.
     The window between open('w') truncation and write completion is milliseconds
@@ -314,7 +319,6 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     5-10 KB report size. If observed in practice, Phase 15's write_report can
     be enhanced with a .tmp + os.rename pattern in a follow-up quick task.
     """
-    orchestrator = app_state.settings.ollama.orchestrator_model_alias
     model_manager = app_state.model_manager
     gm = app_state.graph_manager
     ollama_client = app_state.ollama_client
@@ -322,12 +326,13 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     assert gm is not None, "graph_manager must be set (POST guard enforces this)"
     assert ollama_client is not None, "ollama_client must be set (POST guard enforces this)"
 
-    provider = OllamaProvider(
-        role=ProviderRole.ORCHESTRATOR,
-        model_tag=orchestrator,
-        client=ollama_client,
-        model_manager=model_manager,
+    cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
+    built = build_providers(
+        cfg,
+        ollama_client=ollama_client,
+        ollama_model_manager=model_manager,
     )
+    provider = built.orchestrator
 
     try:
         await provider.prepare()
@@ -399,5 +404,6 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     finally:
         try:
             await provider.teardown()
+            await provider.aclose()
         except Exception:
             log.warning("orchestrator_unload_failed", cycle_id=cycle_id)

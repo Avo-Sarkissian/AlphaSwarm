@@ -25,8 +25,8 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel
 
 from alphaswarm.advisory import synthesize
-from alphaswarm.inference.ollama_provider import OllamaProvider
-from alphaswarm.inference.types import ProviderRole
+from alphaswarm.config import load_inference_config
+from alphaswarm.inference.factory import build_providers
 from alphaswarm.types import SimulationPhase
 from alphaswarm.web.routes.report import _validate_cycle_id  # single-source-of-truth regex guard
 
@@ -322,8 +322,12 @@ async def _run_advisory_synthesis(
 
     D-08: orchestrator lifecycle in try/finally. Matches report pattern.
     Pitfall 1: log only scalar metadata — never the portfolio.
+
+    Uses build_providers(load_inference_config(...)) so cloud configs are honoured
+    and the provider is budget-capped.  LOCAL mode returns a plain OllamaProvider
+    with identical behaviour to before.  The budget_meter here is per-operation
+    (fresh per advisory run) which bounds each advisory to its own spend cap.
     """
-    orchestrator = app_state.settings.ollama.orchestrator_model_alias
     gm = app_state.graph_manager
     ollama_client = app_state.ollama_client
     model_manager = app_state.model_manager
@@ -331,12 +335,13 @@ async def _run_advisory_synthesis(
     assert ollama_client is not None
     assert model_manager is not None
 
-    provider = OllamaProvider(
-        role=ProviderRole.ORCHESTRATOR,
-        model_tag=orchestrator,
-        client=ollama_client,
-        model_manager=model_manager,
+    cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
+    built = build_providers(
+        cfg,
+        ollama_client=ollama_client,
+        ollama_model_manager=model_manager,
     )
+    provider = built.orchestrator
 
     try:
         await provider.prepare()
@@ -365,5 +370,6 @@ async def _run_advisory_synthesis(
     finally:
         try:
             await provider.teardown()
+            await provider.aclose()
         except Exception:
             log.warning("orchestrator_unload_failed_after_advisory", cycle_id=cycle_id)

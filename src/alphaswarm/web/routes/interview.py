@@ -8,8 +8,8 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from alphaswarm.inference.ollama_provider import OllamaProvider
-from alphaswarm.inference.types import ProviderRole
+from alphaswarm.config import load_inference_config
+from alphaswarm.inference.factory import build_providers
 from alphaswarm.interview import InterviewEngine
 from alphaswarm.types import SimulationPhase
 
@@ -116,11 +116,15 @@ async def interview_agent(
                         },
                     )
 
-                worker_provider = OllamaProvider(
-                    role=ProviderRole.WORKER,
-                    model_tag=app_state.settings.ollama.worker_model_alias,
-                    client=ollama_client,
+                cfg = await asyncio.to_thread(
+                    load_inference_config, app_state.settings,
                 )
+                built = build_providers(
+                    cfg,
+                    ollama_client=ollama_client,
+                    ollama_model_manager=app_state.model_manager,
+                )
+                worker_provider = built.worker
                 entry["engine"] = InterviewEngine(
                     context=context,
                     provider=worker_provider,
