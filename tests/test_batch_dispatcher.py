@@ -10,8 +10,51 @@ import pytest
 from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError, OllamaInferenceError
 from alphaswarm.governor import ResourceGovernor
+from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import WorkerPersonaConfig
+from tests.inference.fakes import FakeInferenceProvider
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_VALID_BUY_JSON = (
+    '{"signal": "buy", "confidence": 0.8, "sentiment": 0.4, '
+    '"rationale": "strong momentum", "cited_agents": []}'
+)
+
+
+def _fake_provider(content: str = _VALID_BUY_JSON, *, n: int = 1000) -> FakeInferenceProvider:
+    """Return a FakeInferenceProvider scripted with n identical results.
+
+    Default n=1000 is a generous upper bound for batch tests so the scripted
+    list is never exhausted by a 4-100 persona wave.
+    """
+    scripted = [
+        InferenceResult(
+            content=content,
+            model="fake-model",
+            eval_count=50,
+            eval_duration_ns=1_000_000_000,
+        )
+        for _ in range(n)
+    ]
+    return FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=scripted,
+    )
+
+
+def _fake_provider_with_metadata() -> FakeInferenceProvider:
+    """Like _fake_provider() but returns a full result with rationale for ITEM 4 tests."""
+    content = (
+        '{"signal": "buy", "confidence": 0.8, "sentiment": 0.4, '
+        '"rationale": "strong buy", "cited_agents": []}'
+    )
+    return _fake_provider(content=content)
 
 
 # ---------------------------------------------------------------------------
@@ -64,15 +107,6 @@ def sample_personas() -> list[WorkerPersonaConfig]:
     ]
 
 
-def _make_mock_client() -> MagicMock:
-    """Create a mock OllamaClient with a chat() that returns valid JSON."""
-    client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.message.content = '{"signal": "buy", "confidence": 0.8}'
-    client.chat = AsyncMock(return_value=mock_response)
-    return client
-
-
 # ---------------------------------------------------------------------------
 # dispatch_wave returns correct results
 # ---------------------------------------------------------------------------
@@ -85,17 +119,17 @@ async def test_dispatch_wave_returns_list_of_decisions(
     """dispatch_wave returns a list of AgentDecision, one per persona."""
     from alphaswarm.batch_dispatcher import dispatch_wave
 
-    client = _make_mock_client()
+    provider = _fake_provider(n=len(sample_personas))
     settings = GovernorSettings(baseline_parallel=16)
 
-    results = await dispatch_wave(
-        personas=sample_personas,
-        governor=governor,
-        client=client,
-        model="test-model",
-        user_message="AAPL rumor",
-        settings=settings,
-    )
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        results = await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            provider=provider,
+            user_message="AAPL rumor",
+            settings=settings,
+        )
 
     assert len(results) == len(sample_personas)
     assert all(isinstance(r, AgentDecision) for r in results)
@@ -108,17 +142,17 @@ async def test_dispatch_wave_accepts_persona_list_returns_decisions(
     """dispatch_wave accepts list[WorkerPersonaConfig] and returns list[AgentDecision]."""
     from alphaswarm.batch_dispatcher import dispatch_wave
 
-    client = _make_mock_client()
+    provider = _fake_provider(n=len(sample_personas))
     settings = GovernorSettings(baseline_parallel=16)
 
-    results = await dispatch_wave(
-        personas=sample_personas,
-        governor=governor,
-        client=client,
-        model="test-model",
-        user_message="test",
-        settings=settings,
-    )
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        results = await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            provider=provider,
+            user_message="test",
+            settings=settings,
+        )
 
     assert isinstance(results, list)
     for r in results:
@@ -137,22 +171,18 @@ async def test_jitter_applied_before_dispatch(
     """asyncio.sleep is called with jitter values in [0.5, 1.5] range."""
     from alphaswarm.batch_dispatcher import dispatch_wave
 
-    client = _make_mock_client()
+    provider = _fake_provider(n=len(sample_personas))
     settings = GovernorSettings(baseline_parallel=16)
     sleep_values: list[float] = []
 
-    original_sleep = asyncio.sleep
-
     async def capture_sleep(duration: float) -> None:
         sleep_values.append(duration)
-        # Don't actually sleep in tests
 
     with patch("alphaswarm.batch_dispatcher.asyncio.sleep", side_effect=capture_sleep):
         await dispatch_wave(
             personas=sample_personas,
             governor=governor,
-            client=client,
-            model="test-model",
+            provider=provider,
             user_message="test",
             settings=settings,
         )
@@ -169,7 +199,7 @@ async def test_jitter_within_settings_range(
     """Jitter values respect custom GovernorSettings jitter_min/max."""
     from alphaswarm.batch_dispatcher import dispatch_wave
 
-    client = _make_mock_client()
+    provider = _fake_provider(n=len(sample_personas))
     settings = GovernorSettings(baseline_parallel=16, jitter_min_seconds=0.5, jitter_max_seconds=0.8)
     sleep_values: list[float] = []
 
@@ -180,8 +210,7 @@ async def test_jitter_within_settings_range(
         await dispatch_wave(
             personas=sample_personas,
             governor=governor,
-            client=client,
-            model="test-model",
+            provider=provider,
             user_message="test",
             settings=settings,
         )
@@ -221,21 +250,21 @@ async def test_partial_failure_produces_parse_error(
             raise OllamaInferenceError("test error", model="test")
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
+    provider = _fake_provider(n=2)
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_worker = AsyncMock()
         mock_worker.infer = mock_infer
         mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        client = _make_mock_client()
         settings = GovernorSettings(baseline_parallel=16)
 
         with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
             results = await dispatch_wave(
                 personas=personas,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 settings=settings,
             )
@@ -275,6 +304,8 @@ async def test_high_failure_rate_calls_report_wave_failures(
             raise OllamaInferenceError("fail", model="test")
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
+    provider = _fake_provider(n=10)
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_worker = AsyncMock()
         mock_worker.infer = mock_infer
@@ -282,15 +313,13 @@ async def test_high_failure_rate_calls_report_wave_failures(
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with patch.object(governor, "report_wave_failures") as mock_report:
-            client = _make_mock_client()
             settings = GovernorSettings(baseline_parallel=16)
 
             with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
                 await dispatch_wave(
                     personas=personas,
                     governor=governor,
-                    client=client,
-                    model="test-model",
+                    provider=provider,
                     user_message="test",
                     settings=settings,
                 )
@@ -321,6 +350,8 @@ async def test_low_failure_rate_does_not_call_report(
             raise OllamaInferenceError("fail", model="test")
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
+    provider = _fake_provider(n=10)
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_worker = AsyncMock()
         mock_worker.infer = mock_infer
@@ -328,15 +359,13 @@ async def test_low_failure_rate_does_not_call_report(
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with patch.object(governor, "report_wave_failures") as mock_report:
-            client = _make_mock_client()
             settings = GovernorSettings(baseline_parallel=16)
 
             with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
                 await dispatch_wave(
                     personas=personas,
                     governor=governor,
-                    client=client,
-                    model="test-model",
+                    provider=provider,
                     user_message="test",
                     settings=settings,
                 )
@@ -355,16 +384,16 @@ async def test_zero_failures_does_not_call_report(
     """When all agents succeed, report_wave_failures is NOT called."""
     from alphaswarm.batch_dispatcher import dispatch_wave
 
+    provider = _fake_provider(n=len(sample_personas))
+
     with patch.object(governor, "report_wave_failures") as mock_report:
-        client = _make_mock_client()
         settings = GovernorSettings(baseline_parallel=16)
 
         with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
             await dispatch_wave(
                 personas=sample_personas,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 settings=settings,
             )
@@ -384,13 +413,14 @@ async def test_governor_crisis_error_propagates(
     """GovernorCrisisError is NOT caught by _safe_agent_inference -- propagates out."""
     from alphaswarm.batch_dispatcher import dispatch_wave
 
+    provider = _fake_provider(n=len(sample_personas))
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_aw.return_value.__aenter__ = AsyncMock(
             side_effect=GovernorCrisisError("crisis", duration_seconds=300.0)
         )
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        client = _make_mock_client()
         settings = GovernorSettings(baseline_parallel=16)
 
         with (
@@ -400,8 +430,7 @@ async def test_governor_crisis_error_propagates(
             await dispatch_wave(
                 personas=sample_personas,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 settings=settings,
             )
@@ -430,13 +459,13 @@ async def test_cancelled_error_propagates(
         temperature=0.3, system_prompt="test", risk_profile="0.4",
     )
 
+    provider = _fake_provider(n=1)
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_aw.return_value.__aenter__ = AsyncMock(
             side_effect=asyncio.CancelledError()
         )
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        client = _make_mock_client()
 
         with (
             patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
@@ -445,8 +474,7 @@ async def test_cancelled_error_propagates(
             await _safe_agent_inference(
                 persona=persona,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 peer_context=None,
                 market_context=None,
@@ -471,13 +499,13 @@ async def test_keyboard_interrupt_propagates(
         temperature=0.3, system_prompt="test", risk_profile="0.4",
     )
 
+    provider = _fake_provider(n=1)
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_aw.return_value.__aenter__ = AsyncMock(
             side_effect=KeyboardInterrupt()
         )
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        client = _make_mock_client()
 
         with (
             patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
@@ -486,8 +514,7 @@ async def test_keyboard_interrupt_propagates(
             await _safe_agent_inference(
                 persona=persona,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 peer_context=None,
                 market_context=None,
@@ -533,13 +560,14 @@ async def test_dispatch_wave_per_agent_peer_contexts(
         received_contexts.append(peer_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
+    provider = _fake_provider(n=len(sample_personas))
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_worker = AsyncMock()
         mock_worker.infer = mock_infer
         mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        client = _make_mock_client()
         settings = GovernorSettings(baseline_parallel=16)
         peer_contexts = ["ctx_0", "ctx_1", "ctx_2", "ctx_3"]
 
@@ -547,8 +575,7 @@ async def test_dispatch_wave_per_agent_peer_contexts(
             results = await dispatch_wave(
                 personas=sample_personas,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 settings=settings,
                 peer_contexts=peer_contexts,
@@ -566,7 +593,7 @@ async def test_dispatch_wave_peer_contexts_length_mismatch(
     """peer_contexts list with wrong length raises ValueError (not assert)."""
     from alphaswarm.batch_dispatcher import dispatch_wave
 
-    client = _make_mock_client()
+    provider = _fake_provider(n=2)
     settings = GovernorSettings(baseline_parallel=16)
     wrong_length_contexts = ["ctx_0", "ctx_1"]  # 2 != 4 personas
 
@@ -574,8 +601,7 @@ async def test_dispatch_wave_peer_contexts_length_mismatch(
         await dispatch_wave(
             personas=sample_personas,
             governor=governor,
-            client=client,
-            model="test-model",
+            provider=provider,
             user_message="test",
             settings=settings,
             peer_contexts=wrong_length_contexts,
@@ -595,21 +621,21 @@ async def test_dispatch_wave_peer_contexts_none_falls_back_to_scalar(
         received_contexts.append(peer_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
+    provider = _fake_provider(n=len(sample_personas))
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_worker = AsyncMock()
         mock_worker.infer = mock_infer
         mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        client = _make_mock_client()
         settings = GovernorSettings(baseline_parallel=16)
 
         with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
             results = await dispatch_wave(
                 personas=sample_personas,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 settings=settings,
                 peer_context="shared_context",
@@ -642,21 +668,21 @@ async def test_dispatch_wave_forwards_market_context(
         received_market_contexts.append(market_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
+    provider = _fake_provider(n=len(sample_personas))
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_worker = AsyncMock()
         mock_worker.infer = mock_infer
         mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        client = _make_mock_client()
         settings = GovernorSettings(baseline_parallel=16)
 
         with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
             results = await dispatch_wave(
                 personas=sample_personas,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 settings=settings,
                 market_context="SHARED_MKT",
@@ -685,21 +711,21 @@ async def test_dispatch_wave_market_context_default_none(
         received_market_contexts.append(market_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
+    provider = _fake_provider(n=len(sample_personas))
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_worker = AsyncMock()
         mock_worker.infer = mock_infer
         mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        client = _make_mock_client()
         settings = GovernorSettings(baseline_parallel=16)
 
         with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
             results = await dispatch_wave(
                 personas=sample_personas,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 settings=settings,
             )
@@ -707,7 +733,6 @@ async def test_dispatch_wave_market_context_default_none(
     assert len(results) == 4
     assert len(received_market_contexts) == 4
     assert all(c is None for c in received_market_contexts)
-
 
 
 # ---------------------------------------------------------------------------
@@ -736,6 +761,7 @@ async def test_safe_agent_inference_streams_state_on_success(
         temperature=0.3, system_prompt="test", risk_profile="0.4",
     )
     store = StateStore()
+    provider = _fake_provider(n=1)
 
     async def mock_infer(
         user_message: str,
@@ -750,14 +776,11 @@ async def test_safe_agent_inference_streams_state_on_success(
         mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        client = _make_mock_client()
-
         with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
             decision = await _safe_agent_inference(
                 persona=persona,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 peer_context=None,
                 market_context=None,
@@ -798,20 +821,19 @@ async def test_safe_agent_inference_does_not_stream_on_parse_error(
     # Pre-seed with a known prior-round signal
     await store.update_agent_state("degens_07", SignalType.SELL, 0.6)
 
+    provider = _fake_provider(n=1)
+
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_aw.return_value.__aenter__ = AsyncMock(
             side_effect=OllamaInferenceError("boom", model="test")
         )
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        client = _make_mock_client()
-
         with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
             decision = await _safe_agent_inference(
                 persona=persona,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 peer_context=None,
                 market_context=None,
@@ -844,6 +866,7 @@ async def test_dispatch_wave_streams_state_progressively(
     from alphaswarm.state import StateStore
 
     store = StateStore()
+    provider = _fake_provider(n=len(sample_personas))
 
     async def mock_infer(
         user_message: str,
@@ -858,15 +881,13 @@ async def test_dispatch_wave_streams_state_progressively(
         mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        client = _make_mock_client()
         settings = GovernorSettings(baseline_parallel=16)
 
         with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
             await dispatch_wave(
                 personas=sample_personas,
                 governor=governor,
-                client=client,
-                model="test-model",
+                provider=provider,
                 user_message="test",
                 settings=settings,
                 state_store=store,
@@ -885,24 +906,6 @@ async def test_dispatch_wave_streams_state_progressively(
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_client_with_metadata() -> MagicMock:
-    """Like _make_mock_client but provides numeric eval_count/eval_duration so
-    the worker.infer TPS code path doesn't crash on MagicMock comparison.
-
-    ITEM 4 streams require state_store; worker.infer reads response.eval_count
-    and response.eval_duration when state_store is non-None.
-    """
-    client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.message.content = (
-        '{"signal": "buy", "confidence": 0.8, "rationale": "strong buy"}'
-    )
-    mock_response.eval_count = 50
-    mock_response.eval_duration = 1_000_000_000  # 1 second in ns
-    client.chat = AsyncMock(return_value=mock_response)
-    return client
-
-
 async def test_safe_agent_inference_streams_rationale_push_on_success(
     governor: ResourceGovernor,
     sample_personas: list[WorkerPersonaConfig],
@@ -918,15 +921,14 @@ async def test_safe_agent_inference_streams_rationale_push_on_success(
     from alphaswarm.state import RationaleEntry, StateStore
 
     store = StateStore()
-    client = _make_mock_client_with_metadata()
+    provider = _fake_provider_with_metadata()
     settings = GovernorSettings(baseline_parallel=16)
 
     with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
         results = await dispatch_wave(
             personas=sample_personas,
             governor=governor,
-            client=client,
-            model="test-model",
+            provider=provider,
             user_message="seed",
             settings=settings,
             state_store=store,
@@ -965,24 +967,32 @@ async def test_safe_agent_inference_skips_rationale_on_parse_error(
     store = StateStore()
     settings = GovernorSettings(baseline_parallel=16)
 
-    # Build a client whose chat() always raises — _safe_agent_inference will
-    # catch and return PARSE_ERROR AgentDecisions for every persona.
-    failing_client = MagicMock()
-    failing_client.chat = AsyncMock(
-        side_effect=OllamaInferenceError("simulated failure", model="test-model")
+    # Build a provider whose chat() always raises via the scripted_fn approach.
+    # Use patch to make agent_worker raise OllamaInferenceError.
+    failing_provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=lambda **kwargs: (_ for _ in ()).throw(
+            OllamaInferenceError("simulated failure", model="fake-model")
+        ),
     )
 
-    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
-        results = await dispatch_wave(
-            personas=sample_personas,
-            governor=governor,
-            client=failing_client,
-            model="test-model",
-            user_message="seed",
-            settings=settings,
-            state_store=store,
-            round_num=1,
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_aw.return_value.__aenter__ = AsyncMock(
+            side_effect=OllamaInferenceError("simulated failure", model="fake-model")
         )
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+            results = await dispatch_wave(
+                personas=sample_personas,
+                governor=governor,
+                provider=_fake_provider(n=len(sample_personas)),
+                user_message="seed",
+                settings=settings,
+                state_store=store,
+                round_num=1,
+            )
 
     # All decisions failed.
     assert all(r.signal is SignalType.PARSE_ERROR for r in results)
@@ -997,15 +1007,14 @@ async def test_safe_agent_inference_no_push_when_state_store_none(
     """When state_store is None, streaming is a silent no-op (no crash)."""
     from alphaswarm.batch_dispatcher import dispatch_wave
 
-    client = _make_mock_client()
+    provider = _fake_provider(n=len(sample_personas))
     settings = GovernorSettings(baseline_parallel=16)
 
     with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
         results = await dispatch_wave(
             personas=sample_personas,
             governor=governor,
-            client=client,
-            model="test-model",
+            provider=provider,
             user_message="seed",
             settings=settings,
             state_store=None,

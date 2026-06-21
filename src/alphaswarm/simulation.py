@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
     from alphaswarm.governor import ResourceGovernor
     from alphaswarm.graph import GraphStateManager, PeerDecision, RankedPost
+    from alphaswarm.inference.types import ProviderRole
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
@@ -594,11 +595,15 @@ async def run_round1(
         try:
             # 5. Convert personas and dispatch
             worker_configs = [persona_to_worker_config(p) for p in personas]
+            from alphaswarm.inference.ollama_provider import OllamaProvider
+            from alphaswarm.inference.types import ProviderRole
+            worker_provider = OllamaProvider(
+                ProviderRole.WORKER, worker_alias, ollama_client, model_manager
+            )
             decisions = await dispatch_wave(
                 personas=worker_configs,
                 governor=governor,
-                client=ollama_client,
-                model=worker_alias,
+                provider=worker_provider,
                 user_message=rumor,
                 settings=settings.governor,
                 peer_context=None,
@@ -783,11 +788,19 @@ async def _dispatch_round(
             peer_selection="static",
         )
 
+    from alphaswarm.inference.ollama_provider import OllamaProvider
+    from alphaswarm.inference.types import ProviderRole
+
+    # _dispatch_round is unused in production — model loading/unloading is
+    # managed by the caller. OllamaProvider.prepare/teardown are never called
+    # here, so model_manager=None is safe for this legacy/test path.
+    _round_provider = OllamaProvider(
+        ProviderRole.WORKER, model, client, None  # type: ignore[arg-type]
+    )
     decisions = await dispatch_wave(
         personas=worker_configs,
         governor=governor,
-        client=client,
-        model=model,
+        provider=_round_provider,
         user_message=rumor,
         settings=settings,
         peer_contexts=peer_contexts,
@@ -1075,11 +1088,15 @@ async def run_simulation(
         try:
             # Dispatch Round 2 with pre-built peer contexts (bypass _dispatch_round)
             worker_configs = [persona_to_worker_config(p) for p in personas]
+            from alphaswarm.inference.ollama_provider import OllamaProvider
+            from alphaswarm.inference.types import ProviderRole
+            r2_provider = OllamaProvider(
+                ProviderRole.WORKER, worker_alias, ollama_client, model_manager
+            )
             round2_wave_decisions = await dispatch_wave(
                 personas=worker_configs,
                 governor=governor,
-                client=ollama_client,
-                model=worker_alias,
+                provider=r2_provider,
                 user_message=effective_rumor_r2,
                 settings=settings.governor,
                 peer_contexts=round2_peer_contexts,
@@ -1218,11 +1235,15 @@ async def run_simulation(
                 )
 
                 # Dispatch Round 3 with pre-built peer contexts
+                from alphaswarm.inference.ollama_provider import OllamaProvider
+                from alphaswarm.inference.types import ProviderRole
+                r3_provider = OllamaProvider(
+                    ProviderRole.WORKER, worker_alias, ollama_client, model_manager
+                )
                 round3_wave_decisions = await dispatch_wave(
                     personas=worker_configs,
                     governor=governor,
-                    client=ollama_client,
-                    model=worker_alias,
+                    provider=r3_provider,
                     user_message=effective_rumor_r3,
                     settings=settings.governor,
                     peer_contexts=round3_peer_contexts,

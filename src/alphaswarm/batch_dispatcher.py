@@ -7,8 +7,7 @@ Pattern:
     results = await dispatch_wave(
         personas=worker_configs,
         governor=governor,
-        client=ollama_client,
-        model="alphaswarm-worker",
+        provider=ollama_provider,
         user_message="Seed rumor text",
         settings=governor_settings,
     )
@@ -29,7 +28,7 @@ from alphaswarm.worker import agent_worker
 if TYPE_CHECKING:
     from alphaswarm.config import GovernorSettings
     from alphaswarm.governor import ResourceGovernor
-    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.state import StateStore
     from alphaswarm.worker import WorkerPersonaConfig
 
@@ -39,8 +38,7 @@ log = structlog.get_logger(component="batch_dispatcher")
 async def _safe_agent_inference(
     persona: WorkerPersonaConfig,
     governor: ResourceGovernor,
-    client: OllamaClient,
-    model: str,
+    provider: InferenceProvider,
     user_message: str,
     peer_context: str | None,
     market_context: str | None,
@@ -80,7 +78,7 @@ async def _safe_agent_inference(
     """
     try:
         await asyncio.sleep(random.uniform(jitter_min, jitter_max))
-        async with agent_worker(persona, governor, client, model, state_store=state_store) as worker:
+        async with agent_worker(persona, governor, provider, state_store=state_store) as worker:
             decision = await worker.infer(
                 user_message=user_message,
                 peer_context=peer_context,
@@ -131,8 +129,7 @@ async def _safe_agent_inference(
 async def dispatch_wave(
     personas: list[WorkerPersonaConfig],
     governor: ResourceGovernor,
-    client: OllamaClient,
-    model: str,
+    provider: InferenceProvider,
     user_message: str,
     settings: GovernorSettings,
     *,
@@ -155,8 +152,7 @@ async def dispatch_wave(
     Args:
         personas: List of agent persona configs to dispatch.
         governor: ResourceGovernor for concurrency slot management.
-        client: OllamaClient for inference calls.
-        model: Ollama model tag.
+        provider: InferenceProvider for LLM calls (local or cloud).
         user_message: The seed rumor or prompt.
         settings: GovernorSettings with jitter and threshold config.
         peer_context: Optional peer decision context for Rounds 2-3.
@@ -193,8 +189,7 @@ async def dispatch_wave(
                 _safe_agent_inference(
                     p,
                     governor,
-                    client,
-                    model,
+                    provider,
                     user_message,
                     peer_contexts[i] if peer_contexts is not None else peer_context,
                     market_context,
