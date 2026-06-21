@@ -7,8 +7,32 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from alphaswarm.inference.types import InferenceResult, ProviderRole
-from alphaswarm.report import MAX_ITERATIONS, _parse_action_input
+from alphaswarm.report import MAX_ITERATIONS, REACT_SYSTEM_PROMPT, _parse_action_input
 from tests.inference.fakes import FakeInferenceProvider
+
+# Canonical report tool registry keys (cli.py:_handle_report and
+# web/routes/report.py build the same set).
+_REPORT_TOOL_REGISTRY_KEYS = {
+    "bracket_summary",
+    "round_timeline",
+    "bracket_narratives",
+    "key_dissenters",
+    "influence_leaders",
+    "signal_flip_analysis",
+    "entity_impact",
+    "social_post_reach",
+}
+
+
+def test_react_prompt_tool_names_match_registry() -> None:
+    """F-06: every tool the ReAct prompt advertises must exist in the dispatch
+    registry, else the model emits ACTION names that always hit 'Unknown tool'
+    and the corresponding report sections silently never run."""
+    import re
+
+    advertised = set(re.findall(r"^- (\w+):", REACT_SYSTEM_PROMPT, flags=re.MULTILINE))
+    advertised.discard("FINAL_ANSWER")
+    assert advertised == _REPORT_TOOL_REGISTRY_KEYS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -36,11 +60,11 @@ class TestParseActionInput:
         """Standard ACTION/INPUT block returns correct tuple."""
         content = (
             "THOUGHT: I need consensus data.\n"
-            'ACTION: consensus_summary\n'
+            'ACTION: bracket_summary\n'
             'INPUT: {"cycle_id": "abc123"}'
         )
         action, input_json = _parse_action_input(content)
-        assert action == "consensus_summary"
+        assert action == "bracket_summary"
         assert input_json == '{"cycle_id": "abc123"}'
 
     def test_no_action_returns_none(self) -> None:
