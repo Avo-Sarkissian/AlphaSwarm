@@ -181,8 +181,11 @@ class TestCheck:
         with pytest.raises(BudgetExceededError) as exc_info:
             meter.check()
         err = exc_info.value
-        assert err.spent_usd >= 3.0
-        assert err.cap_usd == pytest.approx(2.0)
+        # M4: attributes must be Decimal, not float
+        assert isinstance(err.spent_usd, Decimal)
+        assert isinstance(err.cap_usd, Decimal)
+        assert err.spent_usd >= Decimal("3.00")
+        assert err.cap_usd == Decimal("2.00")
 
 
 # ---------------------------------------------------------------------------

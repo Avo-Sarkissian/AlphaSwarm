@@ -193,7 +193,7 @@ class BudgetMeter:
     def check(self) -> None:
         """Raise BudgetExceededError if cap is set and spent() >= cap."""
         if self._cap is not None and self._total >= self._cap:
-            raise BudgetExceededError(float(self._total), float(self._cap))
+            raise BudgetExceededError(self._total, self._cap)
 
 
 # ---------------------------------------------------------------------------
@@ -236,10 +236,6 @@ def estimate_run(
     worker_calls = agents * rounds
     orch_calls = 3
     total_calls = worker_calls + orch_calls
-
-    # Local models → $0
-    def _price(role_cfg: "InferenceConfig") -> Decimal:
-        return Decimal(0)  # fallback; overridden below
 
     worker_provider = cfg.worker.provider
     orch_provider = cfg.orchestrator.provider
@@ -345,6 +341,10 @@ class BudgetTrackingProvider:
         max_tokens: int | None = None,
     ) -> InferenceResult:
         """Run a guarded inference call.
+
+        Note: the spend cap is a hard ceiling enforced on the NEXT call, so
+        concurrent in-flight calls can overshoot by at most ``max_in_flight``
+        calls' cost — this is bounded and intentional.
 
         Raises
         ------

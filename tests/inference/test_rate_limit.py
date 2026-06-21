@@ -88,14 +88,54 @@ class TestTokenBucket:
         wait2 = bucket.reserve(0)
         assert wait2 == 0.0
 
-    def test_refund_capped_at_capacity(self) -> None:
+    def test_refund_does_not_clamp_when_concurrent_deficits_exist(self) -> None:
+        """I1: refund must NOT clamp to capacity when concurrent reservations
+        have driven the bucket into deficit.
+
+        Scenario:
+          - bucket capacity = 60, start full (60 tokens)
+          - caller A reserves 40 → level = 20
+          - caller B reserves 50 → level = -30 (deficit)
+          - caller A refunds 20 (used only 20 of its 40 reservation)
+          - post-refund level should be -10 (= -30 + 20), NOT clamped to 60.
+            Clamping to 60 would silently erase B's outstanding deficit.
+        """
         clock = FakeClock()
         bucket = TokenBucket(60, now=clock)
-        # Start full (60), refund 100 → should stay at 60 (capacity)
+
+        # Simulate caller A reserving 40 → level 20
+        bucket.reserve(40)
+        assert bucket._tokens == pytest.approx(20.0)
+
+        # Simulate caller B reserving 50 → level -30 (deficit)
+        bucket.reserve(50)
+        level_after_both = bucket._tokens  # should be -30
+        assert level_after_both == pytest.approx(-30.0)
+
+        # Caller A refunds 20 (only used 20 of its 40 reservation)
+        refunded_delta = 20
+        bucket.refund(refunded_delta)
+
+        # Expected: -30 + 20 = -10  (B's deficit preserved)
+        expected = level_after_both + refunded_delta
+        assert bucket._tokens == pytest.approx(expected, abs=1e-9), (
+            f"refund must not clamp: expected {expected}, got {bucket._tokens}"
+        )
+        # Crucially, the result must NOT be capacity (60), which would wipe B's deficit
+        assert bucket._tokens < bucket._capacity
+
+    def test_refund_does_not_clamp_past_capacity_when_all_positive(self) -> None:
+        """Refund on a non-deficit bucket can push level above capacity;
+        _refill will cap it on the next interaction (by design)."""
+        clock = FakeClock()
+        bucket = TokenBucket(60, now=clock)
+        # Start full (60), refund 100 → level becomes 160 (above capacity)
         bucket.refund(100)
-        # Next reserve of 60 should return 0 (still full)
-        wait = bucket.reserve(60)
-        assert wait == 0.0
+        assert bucket._tokens == pytest.approx(160.0)
+        # _refill caps it back to capacity on the next call
+        clock.advance(1.0)  # trigger a refill
+        bucket.reserve(0)   # calls _refill internally
+        assert bucket._tokens <= bucket._capacity
 
     def test_none_rate_refund_is_noop(self) -> None:
         bucket = TokenBucket(None)

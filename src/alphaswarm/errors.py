@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 
 # ---------------------------------------------------------------------------
 # Provider-agnostic inference errors
@@ -82,7 +84,7 @@ class BudgetExceededError(Exception):
         cap_usd: The configured budget cap in USD.
     """
 
-    def __init__(self, spent_usd: float, cap_usd: float) -> None:
+    def __init__(self, spent_usd: Decimal, cap_usd: Decimal) -> None:
         super().__init__(
             f"Budget cap exceeded: spent ${spent_usd:.4f} > cap ${cap_usd:.4f}"
         )

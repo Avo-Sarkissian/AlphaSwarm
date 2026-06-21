@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.errors import BudgetExceededError, GovernorCrisisError
+from alphaswarm.errors import AuthError, BudgetExceededError, GovernorCrisisError
 from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import agent_worker
 
@@ -50,13 +50,17 @@ async def _safe_agent_inference(
     """Run a single agent inference with jitter and exception safety.
 
     Applies random jitter BEFORE acquiring the governor slot (D-14).
-    Catches only Exception subclasses (excluding GovernorCrisisError and
-    BudgetExceededError).
+    Catches only Exception subclasses (excluding GovernorCrisisError,
+    BudgetExceededError, and AuthError).
     CancelledError and KeyboardInterrupt are NEVER caught -- they propagate
     to preserve TaskGroup cleanup and Ctrl+C handling (review concern #2).
     BudgetExceededError is NEVER caught -- when the spend cap trips, the wave
     must halt cleanly (completed rounds already persisted) rather than
     silently converting agents into PARSE_ERRORs.
+    AuthError is NEVER caught -- a 401/403 is a deterministic config error
+    (bad API key), not a transient per-agent failure.  Propagating it halts
+    the wave immediately so all 100 agents do not silently become PARSE_ERRORs
+    burning 3 waves of failed calls before the operator notices.
 
     Streams the resolved AgentDecision to state_store.update_agent_state
     IMMEDIATELY upon successful inference so the WS broadcaster sees a
@@ -80,6 +84,7 @@ async def _safe_agent_inference(
         KeyboardInterrupt: Always re-raised for Ctrl+C handling.
         GovernorCrisisError: Always re-raised (crisis must propagate).
         BudgetExceededError: Always re-raised (spend cap must halt the wave).
+        AuthError: Always re-raised (bad API key is a config error, not transient).
     """
     try:
         await asyncio.sleep(random.uniform(jitter_min, jitter_max))
@@ -89,7 +94,7 @@ async def _safe_agent_inference(
                 peer_context=peer_context,
                 market_context=market_context,
             )
-    except (asyncio.CancelledError, KeyboardInterrupt, GovernorCrisisError, BudgetExceededError):
+    except (asyncio.CancelledError, KeyboardInterrupt, GovernorCrisisError, BudgetExceededError, AuthError):
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
     except Exception as e:
         log.warning("agent inference failed", agent_id=persona["agent_id"], error=str(e))
@@ -179,6 +184,8 @@ async def dispatch_wave(
         GovernorCrisisError: If any agent hits a governor crisis.
         BudgetExceededError: If the spend cap is exceeded; halts the wave so
             completed rounds remain persisted and no further spend occurs.
+        AuthError: If the API key is invalid (401/403); deterministic config
+            error that halts the wave immediately.
         ExceptionGroup: If CancelledError or other unrecoverable errors
             propagate from TaskGroup.
     """

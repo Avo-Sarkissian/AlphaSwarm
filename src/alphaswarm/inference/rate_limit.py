@@ -122,7 +122,7 @@ class TokenBucket:
         return wait
 
     def refund(self, delta: int) -> None:
-        """Return *delta* tokens to the bucket (capped at capacity).
+        """Return *delta* tokens to the bucket WITHOUT clamping to capacity.
 
         Used by RateLimitController.release() to reconcile the estimated vs
         actual token cost.  A positive delta means we over-reserved; a
@@ -133,12 +133,23 @@ class TokenBucket:
         delta:
             Signed delta to add back (positive = over-reserved, negative =
             under-reserved).
+
+        Notes
+        -----
+        Refund intentionally does NOT clamp at capacity.  Under concurrency,
+        multiple callers may have already driven the bucket into deficit via
+        their own reservations.  Clamping here would silently erase those
+        in-flight deficits and loosen TPM pacing.  The capacity ceiling is
+        enforced by ``_refill``, which caps its own additions at capacity
+        on every subsequent call.  Conservation: reserve(n) then refund(n)
+        returns the bucket to its prior logical level regardless of
+        intervening concurrent reservations.
         """
         if self._rate_per_min is None:
             return
 
         self._refill()
-        self._tokens = min(self._capacity, self._tokens + delta)
+        self._tokens += delta  # NO clamp — _refill enforces capacity ceiling
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from alphaswarm.config import GovernorSettings
-from alphaswarm.errors import BudgetExceededError, GovernorCrisisError, OllamaInferenceError
+from alphaswarm.errors import AuthError, BudgetExceededError, GovernorCrisisError, OllamaInferenceError, InferenceError
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.types import AgentDecision, SignalType
@@ -1072,3 +1072,64 @@ async def test_budget_exceeded_error_propagates(
         if isinstance(e, BudgetExceededError)
     ]
     assert len(budget_errors) > 0
+
+
+# ---------------------------------------------------------------------------
+# AuthError fail-fast propagation
+# ---------------------------------------------------------------------------
+
+
+async def test_auth_error_is_inference_error_subclass() -> None:
+    """Confirm AuthError IS-A InferenceError so the bug (being swallowed) is
+    reproducible pre-fix and the fix is non-trivial."""
+    assert issubclass(AuthError, InferenceError)
+
+
+async def test_auth_error_propagates_not_parse_error(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """AuthError raised by an InferenceProvider must propagate out of
+    dispatch_wave as an ExceptionGroup (via TaskGroup), NOT be silently
+    swallowed into PARSE_ERROR decisions.
+
+    Pre-fix: AuthError was caught by `except Exception` (it IS-A InferenceError
+    IS-A Exception) and all agents became PARSE_ERROR, burning every wave.
+    Post-fix: AuthError is in the never-catch tuple and propagates immediately.
+    """
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    provider = _fake_provider(n=len(sample_personas))
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_aw.return_value.__aenter__ = AsyncMock(
+            side_effect=AuthError(
+                "Invalid API key — 401 Unauthorized",
+                provider="openai",
+                model="gpt-4o",
+            )
+        )
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        settings = GovernorSettings(baseline_parallel=16)
+
+        with (
+            patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(ExceptionGroup) as exc_info,
+        ):
+            await dispatch_wave(
+                personas=sample_personas,
+                governor=governor,
+                provider=provider,
+                user_message="test",
+                settings=settings,
+            )
+
+    # AuthError must appear in the ExceptionGroup — not swallowed as PARSE_ERROR
+    auth_errors = [
+        e for e in exc_info.value.exceptions
+        if isinstance(e, AuthError)
+    ]
+    assert len(auth_errors) > 0, (
+        "AuthError was swallowed — it must propagate so the wave halts immediately"
+    )
