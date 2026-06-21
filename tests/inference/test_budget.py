@@ -1,4 +1,4 @@
-"""Tests for BudgetMeter, DEFAULT_PRICING, and estimate_run."""
+"""Tests for BudgetMeter, BudgetTrackingProvider, DEFAULT_PRICING, and estimate_run."""
 
 from decimal import Decimal
 
@@ -15,9 +15,13 @@ from alphaswarm.errors import BudgetExceededError
 from alphaswarm.inference.budget import (
     DEFAULT_PRICING,
     BudgetMeter,
+    BudgetTrackingProvider,
     RunEstimate,
     estimate_run,
 )
+from alphaswarm.inference.provider import InferenceProvider
+from alphaswarm.inference.types import InferenceResult, ProviderRole
+from tests.inference.fakes import FakeInferenceProvider
 
 
 # ---------------------------------------------------------------------------
@@ -262,3 +266,128 @@ class TestDefaultPricing:
         for k, v in DEFAULT_PRICING.items():
             assert isinstance(v.input_per_mtok, Decimal)
             assert isinstance(v.output_per_mtok, Decimal)
+
+
+# ---------------------------------------------------------------------------
+# BudgetTrackingProvider tests
+# ---------------------------------------------------------------------------
+
+_PRICING = {
+    "test-model": ModelPrice(
+        input_per_mtok=Decimal("1.00"),
+        output_per_mtok=Decimal("2.00"),
+    )
+}
+
+_RESULT = InferenceResult(
+    content="hello",
+    model="test-model",
+    input_tokens=1_000_000,
+    output_tokens=1_000_000,
+)  # cost = $3.00
+
+
+def _make_wrapped(
+    cap: Decimal | None = None,
+    scripted: list[InferenceResult] | None = None,
+) -> tuple[BudgetTrackingProvider, BudgetMeter, FakeInferenceProvider]:
+    meter = BudgetMeter(cap_usd=cap, pricing=_PRICING)
+    inner = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="test-model",
+        scripted=scripted or [_RESULT],
+        is_local=False,
+    )
+    wrapper = BudgetTrackingProvider(inner=inner, meter=meter)
+    return wrapper, meter, inner
+
+
+class TestBudgetTrackingProviderDelegation:
+    def test_role_delegated(self) -> None:
+        wrapper, _, _ = _make_wrapped()
+        assert wrapper.role == ProviderRole.WORKER
+
+    def test_model_delegated(self) -> None:
+        wrapper, _, _ = _make_wrapped()
+        assert wrapper.model == "test-model"
+
+    def test_is_local_delegated(self) -> None:
+        wrapper, _, _ = _make_wrapped()
+        assert wrapper.is_local() is False
+
+    @pytest.mark.asyncio
+    async def test_prepare_delegated(self) -> None:
+        wrapper, _, inner = _make_wrapped()
+        await wrapper.prepare()  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_teardown_delegated(self) -> None:
+        wrapper, _, inner = _make_wrapped()
+        await wrapper.teardown()  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_aclose_delegated(self) -> None:
+        wrapper, _, inner = _make_wrapped()
+        await wrapper.aclose()  # should not raise
+
+    def test_satisfies_inference_provider_protocol(self) -> None:
+        wrapper, _, _ = _make_wrapped()
+        assert isinstance(wrapper, InferenceProvider)
+
+
+class TestBudgetTrackingProviderChat:
+    @pytest.mark.asyncio
+    async def test_chat_records_cost(self) -> None:
+        wrapper, meter, _ = _make_wrapped()
+        assert meter.spent() == Decimal("0")
+        result = await wrapper.chat([{"role": "user", "content": "hi"}])
+        assert result.content == "hello"
+        # 1M input @ $1/MTok + 1M output @ $2/MTok = $3
+        assert meter.spent() == Decimal("3.00")
+
+    @pytest.mark.asyncio
+    async def test_chat_delegates_to_inner(self) -> None:
+        wrapper, _, inner = _make_wrapped()
+        await wrapper.chat([{"role": "user", "content": "test"}])
+        assert len(inner.calls) == 1
+        assert inner.calls[0]["messages"] == [{"role": "user", "content": "test"}]
+
+    @pytest.mark.asyncio
+    async def test_check_raises_before_second_call_when_at_cap(self) -> None:
+        # Cap = $3, first call costs $3, second should raise before dispatch
+        wrapper, meter, inner = _make_wrapped(
+            cap=Decimal("3.00"),
+            scripted=[_RESULT, _RESULT],
+        )
+        await wrapper.chat([{"role": "user", "content": "first"}])
+        # spent == $3 == cap → next check() raises
+        with pytest.raises(BudgetExceededError):
+            await wrapper.chat([{"role": "user", "content": "second"}])
+        # Inner should only have been called once
+        assert len(inner.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_check_raises_when_over_cap_from_start(self) -> None:
+        # Meter already over cap before any chat
+        meter = BudgetMeter(cap_usd=Decimal("1.00"), pricing=_PRICING)
+        meter.record("test-model", 1_000_000, 1_000_000)  # $3 > $1
+        inner = FakeInferenceProvider(
+            role=ProviderRole.WORKER,
+            model="test-model",
+            scripted=[_RESULT],
+            is_local=False,
+        )
+        wrapper = BudgetTrackingProvider(inner=inner, meter=meter)
+        with pytest.raises(BudgetExceededError):
+            await wrapper.chat([{"role": "user", "content": "blocked"}])
+        assert len(inner.calls) == 0  # inner never called
+
+    @pytest.mark.asyncio
+    async def test_no_cap_never_raises(self) -> None:
+        wrapper, meter, _ = _make_wrapped(
+            cap=None,
+            scripted=[_RESULT, _RESULT, _RESULT],
+        )
+        for _ in range(3):
+            await wrapper.chat([{"role": "user", "content": "x"}])
+        assert meter.spent() == Decimal("9.00")

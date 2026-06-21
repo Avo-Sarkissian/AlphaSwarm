@@ -3,6 +3,12 @@
 All monetary values are Python ``Decimal`` to avoid floating-point drift.
 Prices in DEFAULT_PRICING are approximate public USD-per-1M-token values as of
 mid-2025; they are best-effort and user-overridable via InferenceConfig.pricing_overrides.
+
+Also provides ``BudgetTrackingProvider``: a thin InferenceProvider wrapper that
+records every call's token cost in a shared BudgetMeter and enforces the USD cap
+BEFORE dispatching.  Because it wraps the inner provider, ALL cloud calls
+(worker waves, seed, advisory, report) are counted and capped uniformly —
+even those that bypass the RateLimitController.
 """
 
 from __future__ import annotations
@@ -10,13 +16,14 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from alphaswarm.config import InferenceConfig, ModelPrice, ProviderType
 from alphaswarm.errors import BudgetExceededError
+from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
 
 if TYPE_CHECKING:
-    pass
+    from alphaswarm.inference.provider import InferenceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -261,3 +268,101 @@ def estimate_run(
     high = (point * Decimal("1.3")).quantize(_CENTS)
 
     return RunEstimate(calls=total_calls, low_usd=low, high_usd=high)
+
+
+# ---------------------------------------------------------------------------
+# BudgetTrackingProvider
+# ---------------------------------------------------------------------------
+
+
+class BudgetTrackingProvider:
+    """Provider wrapper that enforces a USD budget cap on every inference call.
+
+    Wraps any ``InferenceProvider`` and a shared ``BudgetMeter``.  On every
+    ``chat`` call it:
+
+    1. Calls ``meter.check()`` before dispatching — raises ``BudgetExceededError``
+       immediately if the cap is already met or exceeded.
+    2. Awaits the inner provider's ``chat``.
+    3. Records the actual token cost with ``meter.record``.
+
+    Because this wraps the provider (not the concurrency controller), ALL calls —
+    worker waves, seed synthesis, advisory, report — are counted and capped,
+    regardless of whether they went through ``RateLimitController``.
+
+    Parameters
+    ----------
+    inner:
+        The actual inference backend to delegate to.
+    meter:
+        Shared ``BudgetMeter`` instance (typically one per simulation run).
+
+    Notes
+    -----
+    ``role``, ``model``, and ``is_local()`` are forwarded to the inner provider.
+    Lifecycle methods (``prepare``, ``teardown``, ``aclose``) are also delegated.
+    """
+
+    def __init__(self, inner: "InferenceProvider", meter: BudgetMeter) -> None:
+        self._inner = inner
+        self._meter = meter
+
+    # ------------------------------------------------------------------
+    # InferenceProvider protocol — delegated attributes
+    # ------------------------------------------------------------------
+
+    @property
+    def role(self) -> ProviderRole:
+        return self._inner.role
+
+    @property
+    def model(self) -> str:
+        return self._inner.model
+
+    def is_local(self) -> bool:
+        return self._inner.is_local()
+
+    async def prepare(self) -> None:
+        await self._inner.prepare()
+
+    async def teardown(self) -> None:
+        await self._inner.teardown()
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
+
+    # ------------------------------------------------------------------
+    # Core: budget-guarded chat
+    # ------------------------------------------------------------------
+
+    async def chat(
+        self,
+        messages: list[InferenceMessage],
+        *,
+        response_schema: dict[str, Any] | None = None,
+        json_mode: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> InferenceResult:
+        """Run a guarded inference call.
+
+        Raises
+        ------
+        BudgetExceededError
+            If the meter's cumulative spend is already >= the configured cap
+            before the call is dispatched.  This is a hard pre-call guard;
+            the inner provider is never called.
+        """
+        # Pre-call guard — raises BudgetExceededError if already at/over cap
+        self._meter.check()
+
+        result = await self._inner.chat(
+            messages,
+            response_schema=response_schema,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        self._meter.record(result.model, result.input_tokens, result.output_tokens)
+        return result
