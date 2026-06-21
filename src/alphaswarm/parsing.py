@@ -43,8 +43,10 @@ def _json_block_candidates(text: str) -> list[str]:
     First candidate: the first balanced {...} object found by brace-depth
     scanning from the first '{'. The greedy regex spans first '{' to LAST '}',
     so two adjacent JSON objects or a stray trailing brace would force tier-3
-    even when a valid object exists. Depth counting (without string awareness
-    — sufficient here) finds the first balanced object instead.
+    even when a valid object exists. The depth scan is string-aware (braces
+    inside JSON string values are ignored, honoring backslash escapes), so a
+    rationale value containing '}' plus any later '}' no longer truncates the
+    candidate mid-string and silently drops the agent's vote (F-09).
 
     Second candidate: the legacy greedy first-{..last-} span, kept as a
     fallback so prior behavior is preserved when the balanced scan candidate
@@ -55,9 +57,21 @@ def _json_block_candidates(text: str) -> list[str]:
     if start == -1:
         return candidates
     depth = 0
+    in_string = False
+    escape = False
     for i in range(start, len(text)):
         ch = text[i]
-        if ch == "{":
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
             depth += 1
         elif ch == "}":
             depth -= 1
