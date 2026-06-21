@@ -25,6 +25,8 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel
 
 from alphaswarm.advisory import synthesize
+from alphaswarm.inference.ollama_provider import OllamaProvider
+from alphaswarm.inference.types import ProviderRole
 from alphaswarm.types import SimulationPhase
 from alphaswarm.web.routes.report import _validate_cycle_id  # single-source-of-truth regex guard
 
@@ -316,28 +318,34 @@ async def _run_advisory_synthesis(
     cycle_id: str,
     portfolio: PortfolioSnapshot,
 ) -> None:
-    """Background task: load orchestrator -> synthesize -> write file -> unload in finally.
+    """Background task: prepare provider -> synthesize -> write file -> teardown in finally.
 
     D-08: orchestrator lifecycle in try/finally. Matches report pattern.
     Pitfall 1: log only scalar metadata — never the portfolio.
     """
     orchestrator = app_state.settings.ollama.orchestrator_model_alias
-    model_manager = app_state.model_manager
     gm = app_state.graph_manager
     ollama_client = app_state.ollama_client
-    assert model_manager is not None
+    model_manager = app_state.model_manager
     assert gm is not None
     assert ollama_client is not None
+    assert model_manager is not None
+
+    provider = OllamaProvider(
+        role=ProviderRole.ORCHESTRATOR,
+        model_tag=orchestrator,
+        client=ollama_client,
+        model_manager=model_manager,
+    )
 
     try:
-        await model_manager.load_model(orchestrator)
+        await provider.prepare()
 
         report_obj = await synthesize(
             cycle_id=cycle_id,
             portfolio=portfolio,
             graph_manager=gm,
-            ollama_client=ollama_client,
-            orchestrator_model=orchestrator,
+            provider=provider,
         )
 
         await aiofiles.os.makedirs(ADVISORY_DIR, exist_ok=True)
@@ -356,6 +364,6 @@ async def _run_advisory_synthesis(
         raise
     finally:
         try:
-            await model_manager.unload_model(orchestrator)
+            await provider.teardown()
         except Exception:
             log.warning("orchestrator_unload_failed_after_advisory", cycle_id=cycle_id)
