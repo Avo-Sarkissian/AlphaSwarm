@@ -23,6 +23,7 @@
 //   • ReportModalV2 NOT exported — its rich layout folds into ./ReportModal.tsx
 //     per D-20 (canonical-first, heading-gated subsections, codex HIGH-4).
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { getHealth } from '../api/settings';
 import { Icon } from './icons';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useConnection } from '../context/ConnectionContext';
@@ -327,10 +328,8 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
 
 // ──────────────────────────────────────────────────────────────────────
 // MODEL STATUS — topbar inline status chip
-// Model name matches src/alphaswarm/config.py OllamaSettings.worker_model
-// (2026-06-11 decision: qwen3.6:35b-a3b-nvfp4 MLX worker). Still a static
-// label — the snapshot doesn't carry the model name; keep in sync with
-// config.py until a /api/settings endpoint exists.
+// Now live: polls GET /api/health at 10s intervals for inference_mode and
+// spent_usd. Falls back gracefully when the backend is offline.
 // ──────────────────────────────────────────────────────────────────────
 export function ModelStatus() {
   const tel = useTelemetry();
@@ -342,6 +341,23 @@ export function ModelStatus() {
   // Round comes from the frame's roundNum — phase is a string like 'round_1',
   // so interpolating it directly rendered "round round_1/3".
   const roundNum = conn.lastFrame?.roundNum ?? null;
+
+  // Live inference mode from /api/health — poll every 10 s.
+  const { data: healthData } = usePolling({
+    key: 'health-inference-mode',
+    fetchFn: getHealth,
+    intervalMs: 10_000,
+  });
+  const inferenceMode = healthData?.inference_mode ?? null;
+  const spentUsd = healthData?.spent_usd ?? null;
+
+  // Derive a human-readable mode label from the inference_mode field.
+  function modeLabel(mode: 'local' | 'cloud' | 'mixed' | null): string {
+    if (mode === 'local') return 'Local';
+    if (mode === 'cloud') return 'Cloud';
+    if (mode === 'mixed') return 'Mixed';
+    return 'Local'; // graceful fallback while loading
+  }
 
   const ops = [
     `${
@@ -356,11 +372,17 @@ export function ModelStatus() {
     `${slots} slots`,
     `${tps.toFixed(1)} t/s`,
   ];
+
+  const modeParts = [modeLabel(inferenceMode)];
+  if (spentUsd !== null && spentUsd > 0) {
+    modeParts.push(`$${spentUsd.toFixed(2)}`);
+  }
+
   return (
     <div className="model-status" data-running={running}>
       <div className="ms-model">
         <span className="ms-dot" data-running={running} />
-        <span className="mono ms-name">qwen3.6:35b-a3b</span>
+        <span className="mono ms-name">{modeParts.join(' · ')}</span>
       </div>
       <div className="ms-ops">
         {ops.map((o, i) => (

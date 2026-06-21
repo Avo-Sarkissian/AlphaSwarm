@@ -29,7 +29,6 @@ from fastapi.testclient import TestClient
 
 from alphaswarm.types import SimulationPhase
 
-
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
@@ -280,37 +279,55 @@ def test_generate_report_400_invalid_cycle_id() -> None:
 async def test_report_generation_pipeline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_run_report_generation runs the exact CLI sequence:
-    load_model -> engine.run -> assembler.assemble -> write_report -> write_sentinel
-    -> unload_model. Mirrors cli.py _handle_report (D-03).
+    """_run_report_generation runs the exact sequence:
+    provider.prepare -> engine.run -> assembler.assemble ->
+    write_report -> write_sentinel -> provider.teardown.
+    Mirrors cli.py _handle_report (D-03).
+
+    Uses build_providers seam: monkeypatches build_providers in the report module
+    to return a fake provider so the test exercises the prepare/teardown lifecycle
+    without touching Ollama or cloud credentials.
     """
     monkeypatch.chdir(tmp_path)
     from alphaswarm.web.routes import report as report_module
 
     call_order: list[str] = []
 
-    mock_model_manager = AsyncMock()
+    class _FakeProvider:
+        role = "orchestrator"
+        model = "fake-orch"
 
-    async def _load(_m: str) -> None:
-        call_order.append("load_model")
+        async def prepare(self) -> None:
+            call_order.append("load_model")
 
-    async def _unload(_m: str) -> None:
-        call_order.append("unload_model")
+        async def teardown(self) -> None:
+            call_order.append("unload_model")
 
-    mock_model_manager.load_model = _load
-    mock_model_manager.unload_model = _unload
+        async def aclose(self) -> None:
+            pass
+
+        async def chat(self, *args: object, **kwargs: object) -> object:  # type: ignore[override]
+            return MagicMock()
+
+    fake_provider = _FakeProvider()
+
+    from alphaswarm.inference.budget import BudgetMeter
+    from alphaswarm.inference.factory import BuiltProviders
+
+    fake_built = BuiltProviders(
+        orchestrator=fake_provider,  # type: ignore[arg-type]
+        worker=fake_provider,  # type: ignore[arg-type]
+        budget_meter=BudgetMeter(None, {}),
+    )
 
     mock_gm = AsyncMock()
     mock_gm.read_shock_event = AsyncMock(return_value=None)
 
-    mock_ollama = MagicMock()
-
     mock_app_state = MagicMock()
-    mock_app_state.model_manager = mock_model_manager
+    mock_app_state.model_manager = AsyncMock()
     mock_app_state.graph_manager = mock_gm
-    mock_app_state.ollama_client = mock_ollama
+    mock_app_state.ollama_client = MagicMock()
     mock_app_state.settings = MagicMock()
-    mock_app_state.settings.ollama.orchestrator_model_alias = "alphaswarm-orchestrator"
 
     async def _fake_run(_cid: str) -> list:
         call_order.append("engine_run")
@@ -326,16 +343,18 @@ async def test_report_generation_pipeline(
     async def _fake_write_sentinel(_cid: str, _path: str) -> None:
         call_order.append("write_sentinel")
 
-    with patch.object(report_module, "ReportEngine") as MockEngine, \
-            patch.object(report_module, "ReportAssembler") as MockAssembler, \
+    with patch.object(report_module, "build_providers", return_value=fake_built), \
+            patch.object(report_module, "load_inference_config", return_value=MagicMock()), \
+            patch.object(report_module, "ReportEngine") as mock_engine, \
+            patch.object(report_module, "ReportAssembler") as mock_assembler, \
             patch.object(report_module, "write_report", side_effect=_fake_write_report), \
             patch.object(report_module, "write_sentinel", side_effect=_fake_write_sentinel):
         engine_instance = MagicMock()
         engine_instance.run = _fake_run
-        MockEngine.return_value = engine_instance
+        mock_engine.return_value = engine_instance
         assembler_instance = MagicMock()
         assembler_instance.assemble = _fake_assemble
-        MockAssembler.return_value = assembler_instance
+        mock_assembler.return_value = assembler_instance
 
         await report_module._run_report_generation(mock_app_state, "abc-123")
 
@@ -353,39 +372,64 @@ async def test_report_generation_pipeline(
 async def test_report_generation_unloads_on_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Orchestrator unload runs in finally even when engine.run raises."""
+    """Orchestrator teardown runs in finally even when engine.run raises.
+
+    Uses build_providers seam: monkeypatches build_providers in the report module
+    so that the fake provider's teardown tracking confirms finally-block execution.
+    """
     monkeypatch.chdir(tmp_path)
     from alphaswarm.web.routes import report as report_module
 
-    unload_called: list[bool] = []
-    mock_model_manager = AsyncMock()
-    mock_model_manager.load_model = AsyncMock()
+    teardown_called: list[bool] = []
 
-    async def _unload(_m: str) -> None:
-        unload_called.append(True)
+    class _FakeProvider:
+        role = "orchestrator"
+        model = "fake-orch"
 
-    mock_model_manager.unload_model = _unload
+        async def prepare(self) -> None:
+            pass
+
+        async def teardown(self) -> None:
+            teardown_called.append(True)
+
+        async def aclose(self) -> None:
+            pass
+
+        async def chat(self, *args: object, **kwargs: object) -> object:  # type: ignore[override]
+            return MagicMock()
+
+    fake_provider = _FakeProvider()
+
+    from alphaswarm.inference.budget import BudgetMeter
+    from alphaswarm.inference.factory import BuiltProviders
+
+    fake_built = BuiltProviders(
+        orchestrator=fake_provider,  # type: ignore[arg-type]
+        worker=fake_provider,  # type: ignore[arg-type]
+        budget_meter=BudgetMeter(None, {}),
+    )
 
     mock_app_state = MagicMock()
-    mock_app_state.model_manager = mock_model_manager
+    mock_app_state.model_manager = AsyncMock()
     mock_app_state.graph_manager = AsyncMock()
     mock_app_state.graph_manager.read_shock_event = AsyncMock(return_value=None)
     mock_app_state.ollama_client = MagicMock()
     mock_app_state.settings = MagicMock()
-    mock_app_state.settings.ollama.orchestrator_model_alias = "alphaswarm-orchestrator"
 
     async def _raise(_cid: str) -> list:
         raise RuntimeError("boom")
 
-    with patch.object(report_module, "ReportEngine") as MockEngine:
+    with patch.object(report_module, "build_providers", return_value=fake_built), \
+            patch.object(report_module, "load_inference_config", return_value=MagicMock()), \
+            patch.object(report_module, "ReportEngine") as mock_engine:
         engine_instance = MagicMock()
         engine_instance.run = _raise
-        MockEngine.return_value = engine_instance
+        mock_engine.return_value = engine_instance
 
         with pytest.raises(RuntimeError, match="boom"):
             await report_module._run_report_generation(mock_app_state, "abc-123")
 
-    assert unload_called == [True], "unload_model must be called in finally"
+    assert teardown_called == [True], "provider.teardown() must be called in finally"
 
 
 @pytest.mark.asyncio

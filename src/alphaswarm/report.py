@@ -5,16 +5,18 @@ from __future__ import annotations
 import datetime
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import aiofiles
 import structlog
 from jinja2 import Environment, FileSystemLoader
 
 if TYPE_CHECKING:
-    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.inference.provider import InferenceProvider
+    from alphaswarm.inference.types import InferenceMessage
 
 log = structlog.get_logger(component="report")
 
@@ -120,14 +122,12 @@ class ReportEngine:
 
     def __init__(
         self,
-        ollama_client: OllamaClient,
-        model: str,
+        provider: InferenceProvider,
         tools: dict[str, Callable],  # type: ignore[type-arg]
         *,
         pre_seeded_observations: list[ToolObservation] | None = None,
     ) -> None:
-        self._client = ollama_client
-        self._model = model
+        self._provider = provider
         self._tools = tools
         self._pre_seeded: list[ToolObservation] = list(pre_seeded_observations or [])
         self._log = structlog.get_logger(component="report")
@@ -144,7 +144,7 @@ class ReportEngine:
         observations: list[ToolObservation] = list(self._pre_seeded)
         seen_calls: set[tuple[str, str]] = set()
 
-        messages: list[dict[str, str]] = [
+        messages: list[InferenceMessage] = [
             {"role": "system", "content": REACT_SYSTEM_PROMPT},
             {
                 "role": "user",
@@ -156,10 +156,8 @@ class ReportEngine:
         ]
 
         for iteration in range(MAX_ITERATIONS):
-            response = await self._client.chat(
-                model=self._model, messages=messages, think=False,
-            )
-            content = response.message.content or ""
+            result = await self._provider.chat(messages)
+            content = result.content or ""
             messages.append({"role": "assistant", "content": content})
 
             # Parse ACTION/INPUT block (D-01)
@@ -309,7 +307,7 @@ class ReportAssembler:
         # Index observations by tool_name for fast lookup
         obs_by_tool: dict[str, ToolObservation] = {obs.tool_name: obs for obs in observations}
 
-        now_iso = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+        now_iso = datetime.datetime.now(tz=datetime.UTC).isoformat()
         header = (
             f"# Post-Simulation Analysis Report\n\n"
             f"**Cycle:** {cycle_id}\n"
@@ -367,7 +365,7 @@ async def write_sentinel(
     payload = {
         "cycle_id": cycle_id,
         "path": report_path,
-        "generated_at": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+        "generated_at": datetime.datetime.now(tz=datetime.UTC).isoformat(),
     }
     async with aiofiles.open(sentinel_file, "w", encoding="utf-8") as f:
         await f.write(json.dumps(payload))

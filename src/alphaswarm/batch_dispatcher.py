@@ -7,8 +7,7 @@ Pattern:
     results = await dispatch_wave(
         personas=worker_configs,
         governor=governor,
-        client=ollama_client,
-        model="alphaswarm-worker",
+        provider=ollama_provider,
         user_message="Seed rumor text",
         settings=governor_settings,
     )
@@ -22,14 +21,14 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.errors import GovernorCrisisError
+from alphaswarm.errors import AuthError, BudgetExceededError, GovernorCrisisError
 from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import agent_worker
 
 if TYPE_CHECKING:
     from alphaswarm.config import GovernorSettings
-    from alphaswarm.governor import ResourceGovernor
-    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.inference.concurrency import ConcurrencyController
+    from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.state import StateStore
     from alphaswarm.worker import WorkerPersonaConfig
 
@@ -38,9 +37,8 @@ log = structlog.get_logger(component="batch_dispatcher")
 
 async def _safe_agent_inference(
     persona: WorkerPersonaConfig,
-    governor: ResourceGovernor,
-    client: OllamaClient,
-    model: str,
+    governor: ConcurrencyController,
+    provider: InferenceProvider,
     user_message: str,
     peer_context: str | None,
     market_context: str | None,
@@ -52,9 +50,17 @@ async def _safe_agent_inference(
     """Run a single agent inference with jitter and exception safety.
 
     Applies random jitter BEFORE acquiring the governor slot (D-14).
-    Catches only Exception subclasses (excluding GovernorCrisisError).
+    Catches only Exception subclasses (excluding GovernorCrisisError,
+    BudgetExceededError, and AuthError).
     CancelledError and KeyboardInterrupt are NEVER caught -- they propagate
     to preserve TaskGroup cleanup and Ctrl+C handling (review concern #2).
+    BudgetExceededError is NEVER caught -- when the spend cap trips, the wave
+    must halt cleanly (completed rounds already persisted) rather than
+    silently converting agents into PARSE_ERRORs.
+    AuthError is NEVER caught -- a 401/403 is a deterministic config error
+    (bad API key), not a transient per-agent failure.  Propagating it halts
+    the wave immediately so all 100 agents do not silently become PARSE_ERRORs
+    burning 3 waves of failed calls before the operator notices.
 
     Streams the resolved AgentDecision to state_store.update_agent_state
     IMMEDIATELY upon successful inference so the WS broadcaster sees a
@@ -77,16 +83,19 @@ async def _safe_agent_inference(
         asyncio.CancelledError: Always re-raised for TaskGroup cleanup.
         KeyboardInterrupt: Always re-raised for Ctrl+C handling.
         GovernorCrisisError: Always re-raised (crisis must propagate).
+        BudgetExceededError: Always re-raised (spend cap must halt the wave).
+        AuthError: Always re-raised (bad API key is a config error, not transient).
     """
     try:
         await asyncio.sleep(random.uniform(jitter_min, jitter_max))
-        async with agent_worker(persona, governor, client, model, state_store=state_store) as worker:
+        async with agent_worker(persona, governor, provider, state_store=state_store) as worker:
             decision = await worker.infer(
                 user_message=user_message,
                 peer_context=peer_context,
                 market_context=market_context,
             )
-    except (asyncio.CancelledError, KeyboardInterrupt, GovernorCrisisError):
+    except (asyncio.CancelledError, KeyboardInterrupt,
+            GovernorCrisisError, BudgetExceededError, AuthError):
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
     except Exception as e:
         log.warning("agent inference failed", agent_id=persona["agent_id"], error=str(e))
@@ -130,9 +139,8 @@ async def _safe_agent_inference(
 
 async def dispatch_wave(
     personas: list[WorkerPersonaConfig],
-    governor: ResourceGovernor,
-    client: OllamaClient,
-    model: str,
+    governor: ConcurrencyController,
+    provider: InferenceProvider,
     user_message: str,
     settings: GovernorSettings,
     *,
@@ -155,8 +163,7 @@ async def dispatch_wave(
     Args:
         personas: List of agent persona configs to dispatch.
         governor: ResourceGovernor for concurrency slot management.
-        client: OllamaClient for inference calls.
-        model: Ollama model tag.
+        provider: InferenceProvider for LLM calls (local or cloud).
         user_message: The seed rumor or prompt.
         settings: GovernorSettings with jitter and threshold config.
         peer_context: Optional peer decision context for Rounds 2-3.
@@ -176,14 +183,17 @@ async def dispatch_wave(
     Raises:
         ValueError: If peer_contexts length does not match personas length.
         GovernorCrisisError: If any agent hits a governor crisis.
+        BudgetExceededError: If the spend cap is exceeded; halts the wave so
+            completed rounds remain persisted and no further spend occurs.
+        AuthError: If the API key is invalid (401/403); deterministic config
+            error that halts the wave immediately.
         ExceptionGroup: If CancelledError or other unrecoverable errors
             propagate from TaskGroup.
     """
-    if peer_contexts is not None:
-        if len(peer_contexts) != len(personas):
-            raise ValueError(
-                f"peer_contexts length {len(peer_contexts)} != personas length {len(personas)}"
-            )
+    if peer_contexts is not None and len(peer_contexts) != len(personas):
+        raise ValueError(
+            f"peer_contexts length {len(peer_contexts)} != personas length {len(personas)}"
+        )
 
     tasks: list[asyncio.Task[AgentDecision]] = []
 
@@ -193,8 +203,7 @@ async def dispatch_wave(
                 _safe_agent_inference(
                     p,
                     governor,
-                    client,
-                    model,
+                    provider,
                     user_message,
                     peer_contexts[i] if peer_contexts is not None else peer_context,
                     market_context,

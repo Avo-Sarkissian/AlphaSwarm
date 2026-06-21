@@ -15,6 +15,7 @@ import {
   normalizeSettingsUiState,
   type SettingsUiState,
 } from '../lib/settingsState';
+import { InferenceSettings } from './settings_inference';
 
 const SETTINGS_KEY = 'as_settings_ui_v1';
 
@@ -196,19 +197,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           {section === 'model' && (
             <SettingGroup
-              title="Active models"
-              desc="Configured backend-side (src/alphaswarm/config.py, .env, modelfiles/). Model decision 2026-06-11 — MLX stack."
+              title="Inference / Models"
+              desc="Provider, model, and API key for orchestrator and worker roles. Changes take effect on the next simulation run. Settings are backend-owned — never stored in localStorage."
             >
-              <BackendRow
-                label="Worker (swarm)"
-                value="qwen3.6:35b-a3b-nvfp4 (MLX)"
-                desc="36B MoE, ~3B active — 2,361 t/s prefill / 56 t/s decode on this M1 Max. All 100 personas run on this model with per-bracket temperatures."
-              />
-              <BackendRow
-                label="Orchestrator"
-                value="qwen3.6:27b-nvfp4 (MLX, think=OFF)"
-                desc="Dense 27B for entity extraction + advisory synthesis — 3,395 t/s prefill / 11 t/s decode. Runtime switching comes in v6.x."
-              />
+              <InferenceSettings />
             </SettingGroup>
           )}
 

@@ -166,7 +166,7 @@ Degens      [####......]  40%   ...
 |---|---|
 | Language | Python 3.11+ with strict typing |
 | Concurrency | `asyncio`, 100% non-blocking, `TaskGroup`-based dispatch |
-| Inference | Ollama: `qwen3.5:35b` orchestrator, `qwen3.5:9b` workers |
+| Inference | Ollama (default): `qwen3.6:27b-nvfp4` orchestrator, `qwen3.6:35b-a3b-nvfp4` workers; optional cloud via OpenAI-compatible or Anthropic provider |
 | Graph State | Neo4j Community: cycle-scoped edges, UNWIND batch writes, async driver |
 | Web Backend | FastAPI + `uvicorn`, WebSocket broadcaster @ ~5Hz, drop-oldest backpressure |
 | Web Frontend | React + TypeScript + Vite, D3 (d3-scale/selection/transition), `marked` + DOMPurify for report render |
@@ -248,6 +248,46 @@ npm run build  # production build to frontend/dist/
 ```
 
 ---
+
+## Cloud inference (optional)
+
+Local Ollama is the default — no cloud credentials are needed.
+
+To use an API-backed model for the orchestrator, the swarm (worker), or both, open **Settings** in the web UI and choose a provider for each role:
+
+| Provider | When to use |
+|---|---|
+| **Local (Ollama)** | Default; zero cost, runs entirely on-device |
+| **OpenAI-compatible** | OpenAI, OpenRouter, Together, Groq, or any self-hosted vLLM endpoint — set `base_url` + API key |
+| **Anthropic** | Native Claude API — set API key only |
+
+The orchestrator and worker roles are configured independently, so you can mix (e.g. local orchestrator + cloud swarm).
+
+Configuration is persisted in `.secrets/inference.json` (gitignored, never logged). The file is created automatically when you save from the Settings UI. You can also edit it by hand:
+
+```json
+{
+  "orchestrator": {
+    "provider": "ollama",
+    "model": "alphaswarm-orchestrator",
+    "base_url": "http://localhost:11434",
+    "api_key": null
+  },
+  "worker": {
+    "provider": "openai_compatible",
+    "model": "gpt-4o-mini",
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "sk-..."
+  },
+  "limits": {
+    "openai_compatible": { "requests_per_min": 60, "tokens_per_min": 100000 }
+  },
+  "spend_cap_usd": "5.00",
+  "pricing_overrides": {}
+}
+```
+
+Cloud runs are paced to your provider's RPM/TPM limits via token-bucket rate limiting. A **hard spend cap** (USD) aborts the run gracefully when reached. Before each cloud or mixed run the UI shows a pre-run cost estimate (low / high) and requires confirmation. API keys are redacted from all logs and never returned raw by the API.
 
 ## Configuration
 

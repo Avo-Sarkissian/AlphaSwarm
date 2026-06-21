@@ -8,6 +8,8 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from alphaswarm.config import load_inference_config
+from alphaswarm.inference.factory import build_providers
 from alphaswarm.interview import InterviewEngine
 from alphaswarm.types import SimulationPhase
 
@@ -94,24 +96,45 @@ async def interview_agent(
                 if not cycles:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail={"error": "no_completed_cycle", "message": "No completed simulation cycle found"},
+                        detail={
+                            "error": "no_completed_cycle",
+                            "message": "No completed simulation cycle found",
+                        },
                     )
                 cycle_id = cycles[0]["cycle_id"]
 
                 context = await graph_manager.read_agent_interview_context(agent_id, cycle_id)
 
-                # 404 if context is missing or has no agent data (addresses Gemini/Codex agent validation concern)
+                # 404 if context is missing or has no agent data
+                # (addresses Gemini/Codex agent validation concern)
                 if context is None or not getattr(context, "agent_name", None):
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail={"error": "agent_not_found", "message": f"No interview context for agent {agent_id}"},
+                        detail={
+                            "error": "agent_not_found",
+                            "message": f"No interview context for agent {agent_id}",
+                        },
                     )
 
+                cfg = await asyncio.to_thread(
+                    load_inference_config, app_state.settings,
+                )
+                built = build_providers(
+                    cfg,
+                    ollama_client=ollama_client,
+                    ollama_model_manager=app_state.model_manager,
+                )
+                worker_provider = built.worker
                 entry["engine"] = InterviewEngine(
                     context=context,
-                    ollama_client=ollama_client,
-                    model=app_state.settings.ollama.worker_model_alias,
+                    provider=worker_provider,
                 )
+                # Store an explicit provider reference so the sim-start cleanup
+                # callback can call aclose() without reaching into the engine's
+                # private internals.  For OllamaProvider aclose is a no-op;
+                # for cloud providers (Anthropic/OpenAI) this releases the
+                # underlying httpx/SDK client.
+                entry["provider"] = worker_provider
                 log.info("interview_session_created", agent_id=agent_id, cycle_id=cycle_id)
             except BaseException:
                 # Creation failed — remove the placeholder (only if still ours)

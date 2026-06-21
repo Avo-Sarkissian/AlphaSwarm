@@ -4,7 +4,7 @@ Every LLM call that goes through a worker MUST be wrapped in agent_worker().
 No raw OllamaClient.chat() calls outside this context manager.
 
 Pattern (per CONTEXT.md locked decision):
-    async with agent_worker(persona, governor, ollama_client) as worker:
+    async with agent_worker(persona, governor, provider) as worker:
         decision = await worker.infer(user_message="What is your reaction?")
 """
 
@@ -20,8 +20,8 @@ from alphaswarm.parsing import parse_agent_decision
 from alphaswarm.types import AgentDecision
 
 if TYPE_CHECKING:
-    from alphaswarm.governor import ResourceGovernor
-    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.inference.concurrency import ConcurrencyController
+    from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.state import StateStore
 
 logger = structlog.get_logger(component="worker")
@@ -66,21 +66,20 @@ class AgentWorker:
     the context manager ensures semaphore acquisition before any inference.
 
     Usage:
-        async with agent_worker(persona, governor, client) as worker:
+        async with agent_worker(persona, governor, provider) as worker:
             decision = await worker.infer(user_message="...")
     """
 
     def __init__(
         self,
         persona: WorkerPersonaConfig,
-        ollama_client: OllamaClient,
-        model: str,
+        provider: InferenceProvider,
         state_store: StateStore | None = None,
     ) -> None:
         self._persona = persona
-        self._client = ollama_client
-        self._model = model
+        self._provider = provider
         self._state_store = state_store
+        self.last_total_tokens: int | None = None
 
     async def infer(
         self,
@@ -91,8 +90,9 @@ class AgentWorker:
         """Run inference for this agent and return a parsed AgentDecision.
 
         Constructs the message list from persona system_prompt + user message,
-        calls OllamaClient.chat() with format="json" and think=False,
-        then pipes the response through parse_agent_decision().
+        calls InferenceProvider.chat() with response_schema=DECISION_JSON_SCHEMA
+        and temperature from persona config, then pipes the response through
+        parse_agent_decision().
 
         Args:
             user_message: The prompt content (seed rumor + optional context).
@@ -103,7 +103,9 @@ class AgentWorker:
         Returns:
             AgentDecision -- always returns, never raises (parse fallback).
         """
-        messages: list[dict[str, str]] = [
+        from alphaswarm.inference.types import InferenceMessage
+
+        messages: list[InferenceMessage] = [
             {"role": "system", "content": self._persona["system_prompt"]},
         ]
         if market_context:
@@ -112,29 +114,33 @@ class AgentWorker:
             messages.append({"role": "system", "content": f"Peer context:\n{peer_context}"})
         messages.append({"role": "user", "content": user_message})
 
-        response = await self._client.chat(
-            model=self._model,
-            messages=messages,
-            format=DECISION_JSON_SCHEMA,  # structured outputs: schema-constrained decode
-            think=False,  # Disable thinking for structured output reliability
-            keep_alive="5m",
+        result = await self._provider.chat(
+            messages,
+            response_schema=DECISION_JSON_SCHEMA,  # structured outputs: schema-constrained decode
+            temperature=self._persona["temperature"],
             # Per-bracket sampling temperature (Degens 1.1 ... Algos 0.15).
-            # Sampling options are per-request safe — only num_ctx forces a
-            # model reload (which is why OllamaClient strips just num_ctx).
             # Without this, every agent ran at the Modelfile's temperature
             # and the bracket temperature design was dead config.
-            options={"temperature": self._persona["temperature"]},
         )
 
-        # Extract TPS data from response metadata (Phase 10: TUI-04, D-05)
-        if self._state_store is not None:
-            eval_count = response.eval_count
-            eval_duration = response.eval_duration
-            if eval_count is not None and eval_duration is not None and eval_duration > 0:
-                self._state_store.update_tps(eval_count, eval_duration)
+        # Compute total billable tokens for this call. Used by agent_worker
+        # context manager to pass result_tokens to governor.release() so
+        # the RateLimitController can reconcile TPM usage. LOCAL providers
+        # (Ollama) return None for both fields → last_total_tokens stays None
+        # → release gets None → governor ignores (behavior unchanged).
+        if result.input_tokens is not None or result.output_tokens is not None:
+            self.last_total_tokens = (result.input_tokens or 0) + (result.output_tokens or 0)
+        else:
+            self.last_total_tokens = None
 
-        raw_content = response.message.content or ""
-        decision = parse_agent_decision(raw_content)
+        # Extract TPS data from result metadata (Phase 10: TUI-04, D-05)
+        if self._state_store is not None:
+            eval_count = result.eval_count
+            eval_duration_ns = result.eval_duration_ns
+            if eval_count is not None and eval_duration_ns is not None and eval_duration_ns > 0:
+                self._state_store.update_tps(eval_count, eval_duration_ns)
+
+        decision = parse_agent_decision(result.content)
 
         logger.debug(
             "agent inference complete",
@@ -150,9 +156,8 @@ class AgentWorker:
 @asynccontextmanager
 async def agent_worker(
     persona: WorkerPersonaConfig,
-    governor: ResourceGovernor,
-    ollama_client: OllamaClient,
-    model: str | None = None,
+    governor: ConcurrencyController,
+    provider: InferenceProvider,
     state_store: StateStore | None = None,
 ) -> AsyncGenerator[AgentWorker, None]:
     """Async context manager for agent inference with semaphore guarding.
@@ -164,21 +169,19 @@ async def agent_worker(
     Args:
         persona: Runtime persona config (WorkerPersonaConfig TypedDict).
         governor: ResourceGovernor for concurrency slot management.
-        ollama_client: OllamaClient wrapper for Ollama calls.
-        model: Ollama model tag. If None, defaults to "alphaswarm-worker".
-               In production, use settings.ollama.worker_model_alias.
+        provider: InferenceProvider for LLM calls (local or cloud).
         state_store: Optional StateStore for TPS metric collection (Phase 10, TUI-04).
 
     Yields:
         AgentWorker -- call worker.infer() to run inference.
     """
-    effective_model = model or "alphaswarm-worker"
     await governor.acquire()
     _success = True
+    worker = AgentWorker(persona, provider, state_store=state_store)
     try:
-        yield AgentWorker(persona, ollama_client, effective_model, state_store=state_store)
+        yield worker
     except Exception:
         _success = False
         raise
     finally:
-        governor.release(success=_success)
+        governor.release(success=_success, result_tokens=worker.last_total_tokens)

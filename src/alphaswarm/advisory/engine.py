@@ -1,7 +1,8 @@
 """ADVIS-01 synthesis engine — single orchestrator LLM call over prefetched swarm data.
 
 Lifecycle note: this module does NOT load or unload the orchestrator model.
-The model load/unload is handled by the caller (alphaswarm.web.routes.advisory._run_advisory_synthesis)
+The model load/unload is handled by the caller
+(alphaswarm.web.routes.advisory._run_advisory_synthesis)
 per D-08 so the library stays infrastructure-free and unit-testable with Fakes.
 
 Pitfall 1: NEVER pass the PortfolioSnapshot or Holding objects into a structlog
@@ -25,10 +26,11 @@ from alphaswarm.advisory.prompt import build_advisory_prompt
 from alphaswarm.advisory.sector_map import lookup as sector_lookup
 from alphaswarm.advisory.types import AdvisoryReport
 from alphaswarm.holdings.types import PortfolioSnapshot
+from alphaswarm.inference.types import InferenceMessage
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
-    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.inference.provider import InferenceProvider
 
 log = structlog.get_logger(component="advisory")
 
@@ -85,9 +87,8 @@ async def synthesize(
     *,
     cycle_id: str,
     portfolio: PortfolioSnapshot,
-    graph_manager: "GraphStateManager",
-    ollama_client: "OllamaClient",
-    orchestrator_model: str,
+    graph_manager: GraphStateManager,
+    provider: InferenceProvider,
 ) -> AdvisoryReport:
     """Prefetch swarm data, call orchestrator once, parse + rank.
 
@@ -174,8 +175,7 @@ async def synthesize(
     )
 
     report = await _infer_with_retry(
-        ollama_client=ollama_client,
-        model=orchestrator_model,
+        provider=provider,
         messages=messages,
     )
 
@@ -280,18 +280,15 @@ async def synthesize(
 
 async def _infer_with_retry(
     *,
-    ollama_client: "OllamaClient",
-    model: str,
-    messages: list[dict[str, str]],
+    provider: InferenceProvider,
+    messages: list[InferenceMessage],
 ) -> AdvisoryReport:
-    """Call the orchestrator with format='json'; retry once on ValidationError.
+    """Call the orchestrator with json_mode=True; retry once on ValidationError.
 
     Pitfall 3: bounded retry. On the second ValidationError we raise.
     """
-    response = await ollama_client.chat(
-        model=model, messages=messages, format="json", think=False
-    )
-    content = response.message.content or "{}"
+    result = await provider.chat(messages, json_mode=True)
+    content = result.content or "{}"
 
     try:
         return AdvisoryReport.model_validate_json(content)
@@ -301,7 +298,7 @@ async def _infer_with_retry(
             cycle_id_hint="present_in_messages",
             error=str(first_err),
         )
-        retry_messages: list[dict[str, str]] = [
+        retry_messages: list[InferenceMessage] = [
             *messages,
             {
                 "role": "user",
@@ -311,8 +308,6 @@ async def _infer_with_retry(
                 ),
             },
         ]
-        retry_response = await ollama_client.chat(
-            model=model, messages=retry_messages, format="json", think=False
-        )
-        retry_content = retry_response.message.content or "{}"
+        retry_result = await provider.chat(retry_messages, json_mode=True)
+        retry_content = retry_result.content or "{}"
         return AdvisoryReport.model_validate_json(retry_content)

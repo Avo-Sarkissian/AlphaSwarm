@@ -14,9 +14,11 @@ REVIEW REVISION (2026-04-18):
 from __future__ import annotations
 
 import io
+import json as _json_for_canary  # local alias to avoid shadowing
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
+from typing import Any as _AnyForCanary
 
 import pytest
 import structlog
@@ -162,41 +164,49 @@ def capture_jinja_renders() -> list[str]:
 # load-bearing invariant: if `alphaswarm.advisory.synthesize` leaks
 # sentinel values into any of the four surface sinks, the canary fails.
 # ------------------------------------------------------------------
-import json as _json_for_canary  # local alias to avoid shadowing
-from typing import Any as _AnyForCanary
-
-
 class CanaryFakeOllamaClient:
-    """FakeOllamaClient that records every message into capture_jinja_renders.
+    """InferenceProvider fake that records every message into capture_jinja_renders.
 
     Pitfall 5: the LLM prompt IS surface #4 of the canary. The fake appends
     the full concatenated messages string so the canary can grep it for any
     sentinel representation.
+
+    Conforms to the InferenceProvider protocol so it can be passed as `provider=`
+    to synthesize() after the Task 5B migration.
     """
 
     def __init__(self, *, prompt_sink: list[str], canned_content: str) -> None:
         self._prompt_sink = prompt_sink
         self._canned = canned_content
 
-    class _Msg:
-        def __init__(self, content: str) -> None:
-            self.content = content
+    def is_local(self) -> bool:
+        return True
 
-    class _Resp:
-        def __init__(self, content: str) -> None:
-            self.message = CanaryFakeOllamaClient._Msg(content)
+    async def prepare(self) -> None:
+        pass
+
+    async def teardown(self) -> None:
+        pass
+
+    async def aclose(self) -> None:
+        pass
 
     async def chat(
         self,
-        model: str,
         messages: list[dict[str, str]],
-        format: str | dict[str, _AnyForCanary] | None = None,
-        **_: _AnyForCanary,
-    ) -> "CanaryFakeOllamaClient._Resp":
+        *,
+        response_schema: dict[str, _AnyForCanary] | None = None,
+        json_mode: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> _AnyForCanary:
+        """Record the rendered prompt and return a canned InferenceResult."""
+        from alphaswarm.inference.types import InferenceResult
+
         # Surface #4: record the rendered prompt for canary inspection.
         rendered = "\n".join(m.get("content", "") for m in messages)
         self._prompt_sink.append(rendered)
-        return CanaryFakeOllamaClient._Resp(self._canned)
+        return InferenceResult(content=self._canned, model="canary-fake")
 
 
 class CanaryFakeGraphManager:

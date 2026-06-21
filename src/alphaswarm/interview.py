@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import structlog
 
 from alphaswarm.config import JSON_OUTPUT_INSTRUCTIONS
-from alphaswarm.ollama_client import OllamaClient
+from alphaswarm.inference.types import InferenceMessage
+
+if TYPE_CHECKING:
+    from alphaswarm.inference.provider import InferenceProvider
 
 log = structlog.get_logger(component="interview")
 
@@ -77,13 +81,11 @@ class InterviewEngine:
     def __init__(
         self,
         context: InterviewContext,
-        ollama_client: OllamaClient,
-        model: str,
+        provider: InferenceProvider,
     ) -> None:
         self._context = context
-        self._client = ollama_client
-        self._model = model
-        self._history: list[dict[str, str]] = []
+        self._provider = provider
+        self._history: list[InferenceMessage] = []
         self._summary: str | None = None
         self._log = structlog.get_logger(component="interview")
 
@@ -109,8 +111,8 @@ class InterviewEngine:
             lines.append(f"Rationale: {d.rationale}")
         return "\n".join(lines)
 
-    def _build_messages(self) -> list[dict[str, str]]:
-        """Assemble the full message list for OllamaClient.chat().
+    def _build_messages(self) -> list[InferenceMessage]:
+        """Assemble the full message list for provider.chat().
 
         Structure:
         1. System prompt (persona identity)
@@ -118,7 +120,7 @@ class InterviewEngine:
         3. Summary of earlier conversation (if any)
         4. Conversation history
         """
-        messages: list[dict[str, str]] = [
+        messages: list[InferenceMessage] = [
             {"role": "system", "content": self._build_system_prompt()},
             {"role": "system", "content": self._build_context_block()},
         ]
@@ -136,10 +138,8 @@ class InterviewEngine:
         """
         self._history.append({"role": "user", "content": user_message})
         messages = self._build_messages()
-        response = await self._client.chat(
-            model=self._model, messages=messages, think=False,
-        )
-        assistant_content = response.message.content or ""
+        result = await self._provider.chat(messages)
+        assistant_content = result.content or ""
         self._history.append({"role": "assistant", "content": assistant_content})
         await self._trim_window()
         return assistant_content
@@ -158,7 +158,7 @@ class InterviewEngine:
         self._history = self._history[2:]
 
         # Generate summary of dropped pair via worker model
-        summary_prompt = [
+        summary_prompt: list[InferenceMessage] = [
             {
                 "role": "system",
                 "content": (
@@ -170,10 +170,8 @@ class InterviewEngine:
             {"role": "assistant", "content": dropped_assistant["content"]},
             {"role": "user", "content": "Summarize the above exchange in one sentence."},
         ]
-        summary_response = await self._client.chat(
-            model=self._model, messages=summary_prompt, think=False,
-        )
-        new_summary = summary_response.message.content or ""
+        summary_result = await self._provider.chat(summary_prompt)
+        new_summary = summary_result.content or ""
 
         # Merge with existing summary, capped at SUMMARY_MAX_CHARS so the
         # summary cannot grow unboundedly (one sentence per trimmed pair,

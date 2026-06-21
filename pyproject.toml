@@ -19,6 +19,7 @@ dependencies = [
     "httpx>=0.28.0",
     "yfinance>=1.2.2,<2.0",
     "feedparser>=6.0.12,<7.0",
+    "anthropic>=0.40",
 ]
 
 [dependency-groups]
@@ -75,6 +76,17 @@ source_modules = [
     "alphaswarm.errors",
     "alphaswarm.governor",
     "alphaswarm.graph",
+    "alphaswarm.inference",
+    "alphaswarm.inference.anthropic_provider",
+    "alphaswarm.inference.budget",
+    "alphaswarm.inference.concurrency",
+    "alphaswarm.inference.factory",
+    "alphaswarm.inference.ollama_provider",
+    "alphaswarm.inference.openai_provider",
+    "alphaswarm.inference.provider",
+    "alphaswarm.inference.rate_limit",
+    "alphaswarm.inference.schema",
+    "alphaswarm.inference.types",
     "alphaswarm.ingestion",
     "alphaswarm.ingestion.providers",
     "alphaswarm.ingestion.types",
@@ -111,6 +123,7 @@ source_modules = [
     "alphaswarm.web.routes.advisory",
     "alphaswarm.web.routes.simulation",
     "alphaswarm.web.routes.websocket",
+    "alphaswarm.web.routes.settings",
 ]
 forbidden_modules = ["alphaswarm.holdings"]
 # D-04 whitelist: alphaswarm.web.routes.holdings is the ONE permitted importer.

@@ -9,14 +9,16 @@ Phase 3: Dynamic TokenPool with debt tracking, 5-state machine, dual-signal
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import enum
 import time
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 import structlog
 
 from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError
+from alphaswarm.inference.concurrency import ConcurrencyController
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReading
 
 if TYPE_CHECKING:
@@ -128,26 +130,14 @@ class TokenPool:
 
 
 # ---------------------------------------------------------------------------
-# ResourceGovernorProtocol (extended for Phase 3)
+# ResourceGovernorProtocol — backward-compat alias for ConcurrencyController
 # ---------------------------------------------------------------------------
 
-
-class ResourceGovernorProtocol(Protocol):
-    """Interface contract for ResourceGovernor."""
-
-    async def acquire(self) -> None: ...
-    def release(self, *, success: bool = True) -> None: ...
-    async def start_monitoring(self) -> None: ...
-    async def stop_monitoring(self) -> None: ...
-
-    @property
-    def current_limit(self) -> int: ...
-
-    @property
-    def active_count(self) -> int: ...
-
-    @property
-    def is_paused(self) -> bool: ...
+# The canonical protocol now lives in alphaswarm.inference.concurrency so the
+# factory layer can return either ResourceGovernor (local) or a future cloud
+# RateLimitController behind the same type.  The alias is kept here so any
+# existing internal references continue to resolve without churn.
+ResourceGovernorProtocol = ConcurrencyController
 
 
 # ---------------------------------------------------------------------------
@@ -218,12 +208,14 @@ class ResourceGovernor:
                 "Monitor task died — cannot acquire slot",
             ) from exc
 
-    def release(self, *, success: bool = True) -> None:
+    def release(self, *, success: bool = True, result_tokens: int | None = None) -> None:
         """Release a concurrency slot.
 
         Args:
             success: If True (default), updates _last_successful_inference
                      timestamp, resetting the crisis timeout clock (D-08).
+            result_tokens: Token count from the completed inference.  Currently
+                ignored here; reserved for the RateLimitController in Task 12.
         """
         self._pool.release()
         self._active_count = max(0, self._active_count - 1)
@@ -254,10 +246,8 @@ class ResourceGovernor:
         """
         if self._monitor_task is not None and not self._monitor_task.done():
             self._monitor_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._monitor_task
-            except asyncio.CancelledError:
-                pass
             self._monitor_task = None
 
         # Bug 1 fix: reset state machine so stale PAUSED/CRISIS doesn't bleed

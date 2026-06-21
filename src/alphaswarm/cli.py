@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import sys
-from typing import TYPE_CHECKING, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -23,8 +25,8 @@ if TYPE_CHECKING:
     from alphaswarm.app import AppState
     from alphaswarm.simulation import (
         BracketSummary,
-        RoundCompleteEvent,
         Round1Result,
+        RoundCompleteEvent,
         ShiftMetrics,
         SimulationResult,
     )
@@ -64,7 +66,6 @@ def _print_banner() -> None:
 
 def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> None:
     """Print a formatted summary of the seed injection result."""
-    from alphaswarm.types import ParsedSeedResult as _ParsedSeedResult  # noqa: F811
 
     seed_event = parsed_result.seed_event
     tier_labels = {1: "direct JSON", 2: "extracted/cleaned", 3: "FALLBACK (parse failed)"}
@@ -215,7 +216,7 @@ def _print_round1_report(
         if d.signal != SignalType.PARSE_ERROR
     ]
     top5 = sorted(valid, key=lambda x: x[1].confidence, reverse=True)[:5]
-    print(f"\n  Notable Decisions (Top 5 by Confidence)")
+    print("\n  Notable Decisions (Top 5 by Confidence)")
     print(f"  {'-'*55}")
     for agent_id, decision in top5:
         snippet = _sanitize_rationale(decision.rationale, max_len=80)
@@ -309,7 +310,7 @@ def _print_round_report(
         if d.signal != SignalType.PARSE_ERROR
     ]
     top5 = sorted(valid, key=lambda x: x[1].confidence, reverse=True)[:5]
-    print(f"\n  Notable Decisions (Top 5 by Confidence)")
+    print("\n  Notable Decisions (Top 5 by Confidence)")
     print(f"  {'-'*55}")
     for agent_id, decision in top5:
         snippet = _sanitize_rationale(decision.rationale, max_len=80)
@@ -360,7 +361,7 @@ def _print_shift_analysis(
 
     bracket_deltas = dict(shift.bracket_confidence_delta)
     if bracket_deltas:
-        print(f"\n  Confidence Drift by Bracket")
+        print("\n  Confidence Drift by Bracket")
         print(f"  {'-'*40}")
         for bracket, delta in bracket_deltas.items():
             sign = "+" if delta >= 0 else ""
@@ -404,12 +405,12 @@ def _print_simulation_summary(
     print("  Simulation Complete")
     print(f"{'='*60}")
     print(f"  Cycle ID:       {result.cycle_id}")
-    print(f"  Total Rounds:   3")
+    print("  Total Rounds:   3")
     print(f"  Signal Flips:   {r2_flips} (R1->R2) + {r3_flips} (R2->R3) = {total_flips} total")
     print(f"  Convergence:    {convergence_label} ({convergence_detail})")
 
     # Final Consensus Distribution (Round 3 decisions)
-    print(f"\n  Final Consensus Distribution")
+    print("\n  Final Consensus Distribution")
     print(f"  {'-'*40}")
     # Use promoted BracketSummary from SimulationResult (D-08)
     if result.round3_summaries:
@@ -569,6 +570,8 @@ async def _handle_inject(rumor: str) -> None:
     5. Close Neo4j driver in finally block
     """
     from alphaswarm.app import create_app_state
+    from alphaswarm.config import load_inference_config
+    from alphaswarm.inference.factory import build_providers
     from alphaswarm.seed import inject_seed
 
     settings = AppSettings()
@@ -580,6 +583,14 @@ async def _handle_inject(rumor: str) -> None:
     assert app.model_manager is not None
     assert app.graph_manager is not None
 
+    cfg = await asyncio.to_thread(load_inference_config, settings)
+    built = build_providers(
+        cfg,
+        ollama_client=app.ollama_client,
+        ollama_model_manager=app.model_manager,
+    )
+    orchestrator_provider = built.orchestrator
+
     try:
         # Ensure schema is applied (explicit in inject path)
         await app.graph_manager.ensure_schema()
@@ -587,13 +598,14 @@ async def _handle_inject(rumor: str) -> None:
         cycle_id, parsed_result, _modifier_result = await inject_seed(
             rumor=rumor,
             settings=settings,
-            ollama_client=app.ollama_client,
-            model_manager=app.model_manager,
+            orchestrator=orchestrator_provider,
             graph_manager=app.graph_manager,
         )
         _print_injection_summary(cycle_id, parsed_result)
     finally:
-        # Close Neo4j driver
+        # Close Neo4j driver and cloud provider if any
+        with contextlib.suppress(Exception):
+            await orchestrator_provider.aclose()
         await app.graph_manager.close()
 
 
@@ -648,11 +660,11 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     from pathlib import Path
 
     from alphaswarm.app import create_app_state
+    from alphaswarm.config import load_inference_config
+    from alphaswarm.inference.factory import build_providers
     from alphaswarm.report import (
         ReportAssembler,
         ReportEngine,
-        SECTION_ORDER,
-        TOOL_TO_TEMPLATE,
         write_report,
         write_sentinel,
     )
@@ -665,6 +677,15 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     assert app.ollama_client is not None
     assert app.model_manager is not None
     assert app.graph_manager is not None
+
+    # Build orchestrator provider via factory so cloud configs are honoured.
+    cfg = await asyncio.to_thread(load_inference_config, settings)
+    built = build_providers(
+        cfg,
+        ollama_client=app.ollama_client,
+        ollama_model_manager=app.model_manager,
+    )
+    orch_provider = built.orchestrator
 
     try:
         # Resolve cycle_id: default to most recent if not provided
@@ -679,21 +700,23 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
             "Do not run concurrently with simulations or interviews."
         )
 
-        # Load orchestrator model (per D-12, follows seed.py pattern)
-        orchestrator = settings.ollama.orchestrator_model_alias
-        await app.model_manager.load_model(orchestrator)
+        # Prepare (load) orchestrator model (per D-12, follows seed.py pattern)
+        await orch_provider.prepare()
 
         # Build tool registry: map 8 tool names -> bound graph_manager methods
         gm = app.graph_manager
         tools: dict[str, object] = {
             "bracket_summary": lambda **kw: gm.read_consensus_summary(kw.get("cycle_id", cycle_id)),
             "round_timeline": lambda **kw: gm.read_round_timeline(kw.get("cycle_id", cycle_id)),
-            "bracket_narratives": lambda **kw: gm.read_bracket_narratives(kw.get("cycle_id", cycle_id)),
+            "bracket_narratives": lambda **kw: gm.read_bracket_narratives(
+                kw.get("cycle_id", cycle_id)),
             "key_dissenters": lambda **kw: gm.read_key_dissenters(kw.get("cycle_id", cycle_id)),
-            "influence_leaders": lambda **kw: gm.read_influence_leaders(kw.get("cycle_id", cycle_id)),
+            "influence_leaders": lambda **kw: gm.read_influence_leaders(
+                kw.get("cycle_id", cycle_id)),
             "signal_flip_analysis": lambda **kw: gm.read_signal_flips(kw.get("cycle_id", cycle_id)),
             "entity_impact": lambda **kw: gm.read_entity_impact(kw.get("cycle_id", cycle_id)),
-            "social_post_reach": lambda **kw: gm.read_social_post_reach(kw.get("cycle_id", cycle_id)),
+            "social_post_reach": lambda **kw: gm.read_social_post_reach(
+                kw.get("cycle_id", cycle_id)),
         }
 
         # Phase 27: Pre-seed shock_impact observation when a ShockEvent exists
@@ -704,8 +727,7 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
         # Run ReACT engine
         engine = ReportEngine(
-            ollama_client=app.ollama_client,
-            model=orchestrator,
+            provider=orch_provider,
             tools=tools,  # type: ignore[arg-type]
             pre_seeded_observations=pre_seeded or None,
         )
@@ -716,7 +738,9 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
         content = assembler.assemble(observations, cycle_id)
 
         # Determine output path
-        output_path = Path(output) if output is not None else Path("reports") / f"{cycle_id}_report.md"
+        output_path = (
+            Path(output) if output is not None else Path("reports") / f"{cycle_id}_report.md"
+        )
 
         # Write report and sentinel (per D-10, D-05)
         await write_report(output_path, content)
@@ -725,12 +749,10 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
         print(f"Report generated: {output_path}")
 
     finally:
-        # Unload orchestrator model + close graph manager (follows seed.py pattern)
-        if app.model_manager is not None:
-            try:
-                await app.model_manager.unload_model(settings.ollama.orchestrator_model_alias)
-            except Exception:
-                pass
+        # Teardown + aclose orchestrator provider + close graph manager (follows seed.py pattern)
+        with contextlib.suppress(Exception):
+            await orch_provider.teardown()
+            await orch_provider.aclose()
         if app.graph_manager is not None:
             await app.graph_manager.close()
 

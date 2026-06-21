@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 
 from alphaswarm.types import SimulationPhase
 
-
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
@@ -25,9 +24,12 @@ def _make_interview_test_app() -> FastAPI:
     Adds:
     - app.state.interview_sessions = {} in lifespan
     - interview_router registered at prefix="/api"
+    Uses make_session_clearer() (the production on_start factory) so that
+    provider-close behaviour is exercised by the same code path as production.
     """
     from alphaswarm.app import create_app_state
     from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+    from alphaswarm.web.app import make_session_clearer
     from alphaswarm.web.connection_manager import ConnectionManager
     from alphaswarm.web.replay_manager import ReplayManager
     from alphaswarm.web.routes.interview import router as interview_router
@@ -39,12 +41,13 @@ def _make_interview_test_app() -> FastAPI:
         brackets = load_bracket_configs()
         personas = generate_personas(brackets)
         app_state = create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
-        # Initialize interview_sessions before SimulationManager so on_start lambda can reference it
+        # Initialize interview_sessions before SimulationManager so on_start callback can
+        # reference app.state.interview_sessions.
         app.state.interview_sessions = {}
         sim_manager = SimulationManager(
             app_state,
             brackets,
-            on_start=lambda: app.state.interview_sessions.clear(),
+            on_start=make_session_clearer(app),
         )
         replay_manager = ReplayManager(app_state)
         connection_manager = ConnectionManager()
@@ -217,7 +220,11 @@ def test_interview_endpoint_returns_response() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="TestAgent decided to BUY.",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good news")],
+            decisions=[
+                RoundDecision(
+                    round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good news"
+                )
+            ],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
@@ -229,12 +236,14 @@ def test_interview_endpoint_returns_response() -> None:
         mock_engine = MagicMock()
         mock_engine.ask = AsyncMock(return_value="mock response")
 
-        with patch("alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine) as MockCls:
+        with patch(
+            "alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine
+        ) as mock_cls:
             r = client.post("/api/interview/agent_1", json={"message": "Why did you buy?"})
             assert r.status_code == 200
             data = r.json()
             assert data["response"] == "mock response"
-            assert MockCls.call_count == 1
+            assert mock_cls.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +265,11 @@ def test_interview_multi_turn() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="TestAgent decided to BUY.",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good")],
+            decisions=[
+                RoundDecision(
+                    round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good"
+                )
+            ],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
@@ -268,13 +281,15 @@ def test_interview_multi_turn() -> None:
         mock_engine = MagicMock()
         mock_engine.ask = AsyncMock(return_value="response")
 
-        with patch("alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine) as MockCls:
+        with patch(
+            "alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine
+        ) as mock_cls:
             r1 = client.post("/api/interview/agent_1", json={"message": "Question 1"})
             r2 = client.post("/api/interview/agent_1", json={"message": "Question 2"})
             assert r1.status_code == 200
             assert r2.status_code == 200
             # Engine instantiated exactly once, ask called twice
-            assert MockCls.call_count == 1
+            assert mock_cls.call_count == 1
             assert mock_engine.ask.call_count == 2
 
 
@@ -297,7 +312,11 @@ def test_interview_session_reuse() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="Narrative.",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.8, sentiment=0.6, rationale="ok")],
+            decisions=[
+                RoundDecision(
+                    round_num=1, signal="buy", confidence=0.8, sentiment=0.6, rationale="ok"
+                )
+            ],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
@@ -335,7 +354,11 @@ async def test_interview_concurrent_same_agent_serializes() -> None:
         bracket="quants",
         interview_system_prompt="You are TestAgent.",
         decision_narrative="Narrative.",
-        decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
+        decisions=[
+            RoundDecision(
+                round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok"
+            )
+        ],
     )
     mock_gm = AsyncMock()
     mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
@@ -392,7 +415,7 @@ def test_interview_sessions_cleared_on_new_simulation() -> None:
     from unittest.mock import AsyncMock, patch
 
     app = _make_interview_test_app()
-    with TestClient(app) as client:
+    with TestClient(app):
         # Pre-populate interview_sessions
         app.state.interview_sessions["agent_1"] = object()
         app.state.interview_sessions["agent_2"] = object()
@@ -404,6 +427,101 @@ def test_interview_sessions_cleared_on_new_simulation() -> None:
                 app.state.sim_manager.start("new seed")
             )
 
+        assert app.state.interview_sessions == {}
+
+
+# ---------------------------------------------------------------------------
+# Test 12b: Provider aclose() called on session clear (cloud leak fix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_interview_provider_aclose_called_on_session_clear() -> None:
+    """on_start clears sessions AND calls aclose() on each session's provider.
+
+    A cloud provider (Anthropic/OpenAI) exposes an async aclose().  Verifies:
+    - aclose() is awaited for each session that has a 'provider' key.
+    - sessions dict is empty after the callback runs.
+    - A session without a 'provider' key clears without error (local/no-op path).
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    app = _make_interview_test_app()
+
+    # Build a fake provider with an async aclose
+    fake_provider = MagicMock()
+    fake_provider.aclose = AsyncMock()
+
+    with TestClient(app) as client:  # noqa: F841 — triggers lifespan, sets interview_sessions
+        # Pre-populate one session with a provider (cloud path) and one without (local path)
+        app.state.interview_sessions["agent_cloud"] = {
+            "engine": MagicMock(),
+            "lock": asyncio.Lock(),
+            "provider": fake_provider,
+        }
+        app.state.interview_sessions["agent_local"] = {
+            "engine": MagicMock(),
+            "lock": asyncio.Lock(),
+            # No "provider" key — simulates a session created before this fix or local provider
+        }
+
+        # Trigger the on_start callback synchronously (as SimulationManager.start does)
+        with patch.object(app.state.sim_manager, "_run", AsyncMock(return_value=None)):
+            await app.state.sim_manager.start("new seed")
+
+        # Drain any background tasks scheduled by _clear_interview_sessions
+        # (asyncio.create_task schedules them; give the loop a turn to run them).
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # Cloud provider's aclose must have been called
+        fake_provider.aclose.assert_awaited_once()
+
+        # Sessions dict must be empty
+        assert app.state.interview_sessions == {}
+
+
+# ---------------------------------------------------------------------------
+# Test 12c: aclose failure on one provider does not prevent others from closing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_interview_provider_aclose_failure_isolated() -> None:
+    """A failing aclose() on one provider does not prevent the sessions dict from clearing."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    app = _make_interview_test_app()
+
+    bad_provider = MagicMock()
+    bad_provider.aclose = AsyncMock(side_effect=RuntimeError("connection reset"))
+
+    good_provider = MagicMock()
+    good_provider.aclose = AsyncMock()
+
+    with TestClient(app) as client:  # noqa: F841 — triggers lifespan, sets interview_sessions
+        app.state.interview_sessions["agent_bad"] = {
+            "engine": MagicMock(),
+            "lock": asyncio.Lock(),
+            "provider": bad_provider,
+        }
+        app.state.interview_sessions["agent_good"] = {
+            "engine": MagicMock(),
+            "lock": asyncio.Lock(),
+            "provider": good_provider,
+        }
+
+        with patch.object(app.state.sim_manager, "_run", AsyncMock(return_value=None)):
+            await app.state.sim_manager.start("new seed")
+
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # Both closes attempted; good one succeeded
+        bad_provider.aclose.assert_awaited_once()
+        good_provider.aclose.assert_awaited_once()
+
+        # Sessions still cleared despite the bad provider's failure
         assert app.state.interview_sessions == {}
 
 

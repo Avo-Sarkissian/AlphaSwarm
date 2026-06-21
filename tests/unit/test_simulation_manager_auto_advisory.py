@@ -17,7 +17,6 @@ import pytest
 
 from alphaswarm.web.simulation_manager import SimulationManager
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -31,7 +30,8 @@ def _make_app_state() -> Any:
     )
     return SimpleNamespace(
         settings=SimpleNamespace(
-            ollama=SimpleNamespace(orchestrator_model_alias="test-model")
+            ollama=SimpleNamespace(orchestrator_model_alias="test-model"),
+            governor=MagicMock(),  # Task 15a: build_controller receives settings.governor
         ),
         state_store=state_store,
         ollama_client=object(),
@@ -52,7 +52,9 @@ def _make_task(*, cancelled: bool = False, exception: BaseException | None = Non
     return t
 
 
-def _build_manager(on_complete: Callable[[str], Awaitable[None]] | None = None) -> SimulationManager:
+def _build_manager(
+    on_complete: Callable[[str], Awaitable[None]] | None = None,
+) -> SimulationManager:
     """Construct a SimulationManager with a minimal stub app_state."""
     return SimulationManager(
         app_state=_make_app_state(),
@@ -74,11 +76,27 @@ async def test_cycle_id_stored(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _fake_run_simulation(**kwargs: Any) -> SimpleNamespace:
         return fake_result
 
-    # run_simulation is imported locally inside _run(), so patch at source module
+    # run_simulation is imported locally inside _run(), so patch at source module.
     monkeypatch.setattr(
         "alphaswarm.simulation.run_simulation",
         _fake_run_simulation,
     )
+
+    # Task 15a: _run now calls load_inference_config + build_providers/build_controller
+    # before run_simulation. Patch these so the test works with the SimpleNamespace stub.
+    fake_built = SimpleNamespace(
+        orchestrator=SimpleNamespace(aclose=AsyncMock()),
+        worker=SimpleNamespace(aclose=AsyncMock()),
+        budget_meter=object(),
+    )
+    monkeypatch.setattr(
+        "alphaswarm.config.load_inference_config", lambda *a, **kw: SimpleNamespace()
+    )
+    monkeypatch.setattr("alphaswarm.inference.factory.build_providers", lambda *a, **kw: fake_built)
+    monkeypatch.setattr(
+        "alphaswarm.inference.factory.build_controller", lambda *a, **kw: MagicMock()
+    )
+    monkeypatch.setattr("alphaswarm.inference.factory.inference_mode", lambda *a, **kw: "local")
 
     manager = _build_manager()
     # _run() does not need the lock to be held — acquire just so release inside

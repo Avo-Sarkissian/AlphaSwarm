@@ -17,42 +17,15 @@ from pydantic import ValidationError
 
 from alphaswarm.advisory import AdvisoryItem, AdvisoryReport, synthesize
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
-
+from alphaswarm.inference.types import InferenceResult, ProviderRole
+from tests.inference.fakes import FakeInferenceProvider
 
 # ---------------- Fakes ----------------------------------------------------
 
 
-class _FakeMessage:
-    def __init__(self, content: str) -> None:
-        self.content = content
-
-
-class _FakeChatResponse:
-    def __init__(self, content: str) -> None:
-        self.message = _FakeMessage(content)
-
-
-class FakeOllamaClient:
-    """Returns canned responses in order; tracks call count + sent messages."""
-
-    def __init__(self, canned: list[str]) -> None:
-        self._canned = list(canned)
-        self.calls: list[list[dict[str, str]]] = []
-        self.think_calls: list[bool | None] = []
-
-    async def chat(
-        self,
-        model: str,
-        messages: list[dict[str, str]],
-        format: str | dict[str, Any] | None = None,
-        think: bool | None = None,
-        **_: Any,
-    ) -> _FakeChatResponse:
-        self.calls.append(messages)
-        self.think_calls.append(think)
-        if not self._canned:
-            raise AssertionError("FakeOllamaClient exhausted")
-        return _FakeChatResponse(self._canned.pop(0))
+def _make_result(content: str) -> InferenceResult:
+    """Build an InferenceResult with the given content string."""
+    return InferenceResult(content=content, model="test-orch")
 
 
 class FakeGraphManager:
@@ -220,14 +193,16 @@ async def test_synthesize_returns_ranked_list() -> None:
         total=3,
     )
     fake_graph = FakeGraphManager()
-    fake_ollama = FakeOllamaClient(canned=[canned])
+    fake_provider = FakeInferenceProvider(
+        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        scripted=[_make_result(canned)],
+    )
 
     report = await synthesize(
         cycle_id="unit_cycle",
         portfolio=portfolio,
         graph_manager=fake_graph,  # type: ignore[arg-type]
-        ollama_client=fake_ollama,  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=fake_provider,
     )
 
     tickers_in_order = [i.ticker for i in report.items]
@@ -270,14 +245,16 @@ async def test_ticker_join_filters_unmatched() -> None:
         total=5,
     )
     fake_graph = FakeGraphManager()
-    fake_ollama = FakeOllamaClient(canned=[canned])
+    fake_provider = FakeInferenceProvider(
+        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        scripted=[_make_result(canned)],
+    )
 
     report = await synthesize(
         cycle_id="unit_cycle",
         portfolio=portfolio,
         graph_manager=fake_graph,  # type: ignore[arg-type]
-        ollama_client=fake_ollama,  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=fake_provider,
     )
 
     # SWEEP-260528 B-7: the engine pads HOLD@0.30 items server-side for every
@@ -295,7 +272,7 @@ async def test_ticker_join_filters_unmatched() -> None:
 
     # Top 15 enriched tickers reach the LLM prompt; with only 5 holdings here
     # the whole portfolio is in the top-15 slice so all 5 still appear.
-    prompt_text = "\n".join(m["content"] for m in fake_ollama.calls[0])
+    prompt_text = "\n".join(m["content"] for m in fake_provider.calls[0]["messages"])
     for t in ["AAPL", "NVDA", "TSLA", "AMZN", "MSFT"]:
         assert t in prompt_text
 
@@ -307,14 +284,16 @@ async def test_prefetch_order() -> None:
     portfolio = _portfolio({"AAPL": "100"})
     canned = _valid_advisory_payload(items=[], total=1)
     fake_graph = FakeGraphManager()
-    fake_ollama = FakeOllamaClient(canned=[canned])
+    fake_provider = FakeInferenceProvider(
+        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        scripted=[_make_result(canned)],
+    )
 
     await synthesize(
         cycle_id="unit_cycle",
         portfolio=portfolio,
         graph_manager=fake_graph,  # type: ignore[arg-type]
-        ollama_client=fake_ollama,  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=fake_provider,
     )
 
     read_calls = [
@@ -326,8 +305,8 @@ async def test_prefetch_order() -> None:
         "read_bracket_narratives",
         "read_entity_impact",
     }
-    # LLM called exactly once (no retry needed for valid payload)
-    assert len(fake_ollama.calls) == 1
+    # Provider called exactly once (no retry needed for valid payload)
+    assert len(fake_provider.calls) == 1
 
 
 # ---------------- Retry on ValidationError (41-01-04) --------------------
@@ -339,51 +318,55 @@ async def test_synthesize_retry_on_validation_error() -> None:
     valid = _valid_advisory_payload(items=[], total=1)
 
     fake_graph = FakeGraphManager()
-    fake_ollama = FakeOllamaClient(canned=[malformed, valid])
+    fake_provider = FakeInferenceProvider(
+        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        scripted=[_make_result(malformed), _make_result(valid)],
+    )
 
     report = await synthesize(
         cycle_id="unit_cycle",
         portfolio=portfolio,
         graph_manager=fake_graph,  # type: ignore[arg-type]
-        ollama_client=fake_ollama,  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=fake_provider,
     )
 
     assert report.affected_holdings == 0
-    assert len(fake_ollama.calls) == 2  # initial + retry
+    assert len(fake_provider.calls) == 2  # initial + retry
 
     # The retry message carries the validation error text for the model to correct
-    retry_messages = fake_ollama.calls[1]
+    retry_messages = fake_provider.calls[1]["messages"]
     assert any(
         "failed validation" in m["content"] for m in retry_messages if m["role"] == "user"
     )
 
 
-async def test_infer_with_retry_passes_think_false() -> None:
-    """Both the initial chat and the validation-retry chat must pass think=False.
+async def test_infer_with_retry_passes_json_mode() -> None:
+    """Both the initial chat and the validation-retry chat must pass json_mode=True.
 
-    qwen3.6 defaults thinking ON; the MLX orchestrator decodes at ~11.3 t/s, so
-    reasoning tokens push the single advisory chat past the 600s client timeout.
-    Driving the retry path (malformed -> valid) exercises BOTH chat calls in one
-    test, asserting think_calls == [False, False].
+    The provider interface replaced OllamaClient.chat(format='json', think=False)
+    with provider.chat(messages, json_mode=True). OllamaProvider forwards
+    think=False internally; the synthesize() boundary contracts on json_mode=True
+    for both calls.
     """
     portfolio = _portfolio({"AAPL": "100"})
     malformed = '{"cycle_id": "unit_cycle", "oops": true}'  # missing required fields
     valid = _valid_advisory_payload(items=[], total=1)
 
     fake_graph = FakeGraphManager()
-    fake_ollama = FakeOllamaClient(canned=[malformed, valid])
+    fake_provider = FakeInferenceProvider(
+        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        scripted=[_make_result(malformed), _make_result(valid)],
+    )
 
     await synthesize(
         cycle_id="unit_cycle",
         portfolio=portfolio,
         graph_manager=fake_graph,  # type: ignore[arg-type]
-        ollama_client=fake_ollama,  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=fake_provider,
     )
 
-    # Both chat calls (initial + validation-retry) suppress reasoning tokens.
-    assert fake_ollama.think_calls == [False, False]
+    # Both chat calls (initial + validation-retry) request JSON output.
+    assert all(call["json_mode"] is True for call in fake_provider.calls)
 
 
 async def test_synthesize_retry_then_fail() -> None:
@@ -392,17 +375,19 @@ async def test_synthesize_retry_then_fail() -> None:
     bad2 = '{"still": "broken"}'
 
     fake_graph = FakeGraphManager()
-    fake_ollama = FakeOllamaClient(canned=[bad1, bad2])
+    fake_provider = FakeInferenceProvider(
+        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        scripted=[_make_result(bad1), _make_result(bad2)],
+    )
 
     with pytest.raises(ValidationError):
         await synthesize(
             cycle_id="unit_cycle",
             portfolio=portfolio,
             graph_manager=fake_graph,  # type: ignore[arg-type]
-            ollama_client=fake_ollama,  # type: ignore[arg-type]
-            orchestrator_model="alphaswarm-orchestrator",
+            provider=fake_provider,
         )
-    assert len(fake_ollama.calls) == 2  # retry budget is exactly 1
+    assert len(fake_provider.calls) == 2  # retry budget is exactly 1
 
 
 # ---------------- Post-LLM reconciliation (audit fix #1) ------------------
@@ -430,8 +415,10 @@ async def test_duplicate_lots_pad_once_with_aggregated_exposure() -> None:
         cycle_id="unit_cycle",
         portfolio=portfolio,
         graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
-        ollama_client=FakeOllamaClient(canned=[canned]),  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=FakeInferenceProvider(
+            role=ProviderRole.ORCHESTRATOR, model="test-orch",
+            scripted=[_make_result(canned)],
+        ),
     )
 
     assert report.total_holdings == 2  # unique tickers, not lots
@@ -468,8 +455,10 @@ async def test_hallucinated_tickers_filtered_and_exposure_overwritten() -> None:
         cycle_id="unit_cycle",
         portfolio=portfolio,
         graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
-        ollama_client=FakeOllamaClient(canned=[canned]),  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=FakeInferenceProvider(
+            role=ProviderRole.ORCHESTRATOR, model="test-orch",
+            scripted=[_make_result(canned)],
+        ),
     )
 
     tickers = {i.ticker for i in report.items}
@@ -504,8 +493,10 @@ async def test_padded_items_sort_after_conviction_items() -> None:
         cycle_id="unit_cycle",
         portfolio=portfolio,
         graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
-        ollama_client=FakeOllamaClient(canned=[canned]),  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=FakeInferenceProvider(
+            role=ProviderRole.ORCHESTRATOR, model="test-orch",
+            scripted=[_make_result(canned)],
+        ),
     )
 
     assert [i.ticker for i in report.items] == ["AAPL", "SWYXX"]
@@ -540,8 +531,10 @@ async def test_llm_duplicate_ticker_items_deduped_keep_highest_confidence() -> N
         cycle_id="unit_cycle",
         portfolio=portfolio,
         graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
-        ollama_client=FakeOllamaClient(canned=[canned]),  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=FakeInferenceProvider(
+            role=ProviderRole.ORCHESTRATOR, model="test-orch",
+            scripted=[_make_result(canned)],
+        ),
     )
 
     assert len(report.items) == 1
@@ -558,8 +551,10 @@ async def test_cycle_id_overwritten_with_caller_value() -> None:
         cycle_id="real_cycle_42",
         portfolio=portfolio,
         graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
-        ollama_client=FakeOllamaClient(canned=[canned]),  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=FakeInferenceProvider(
+            role=ProviderRole.ORCHESTRATOR, model="test-orch",
+            scripted=[_make_result(canned)],
+        ),
     )
 
     assert report.cycle_id == "real_cycle_42"
@@ -595,14 +590,16 @@ async def test_synthesize_never_logs_portfolio_fields(
 
     canned = _valid_advisory_payload(items=[], total=1)
     fake_graph = FakeGraphManager()
-    fake_ollama = FakeOllamaClient(canned=[canned])
+    fake_provider = FakeInferenceProvider(
+        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        scripted=[_make_result(canned)],
+    )
 
     await synthesize(
         cycle_id="unit_cycle",
         portfolio=portfolio,
         graph_manager=fake_graph,  # type: ignore[arg-type]
-        ollama_client=fake_ollama,  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=fake_provider,
     )
     # Reset structlog so other tests are unaffected
     structlog.reset_defaults()

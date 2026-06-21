@@ -15,14 +15,17 @@ import asyncio
 import dataclasses
 import re
 import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import structlog
 
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
 from alphaswarm.context_formatter import format_market_context
+from alphaswarm.inference.ollama_provider import OllamaProvider
+from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
@@ -32,13 +35,19 @@ from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_typ
 
 if TYPE_CHECKING:
     from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
-    from alphaswarm.governor import ResourceGovernor
     from alphaswarm.graph import GraphStateManager, PeerDecision, RankedPost
+    from alphaswarm.inference.concurrency import ConcurrencyController
+    from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
     from alphaswarm.state import StateStore
-    from alphaswarm.types import AgentDecision, AgentPersona, ParsedModifiersResult, ParsedSeedResult
+    from alphaswarm.types import (
+        AgentDecision,
+        AgentPersona,
+        ParsedModifiersResult,
+        ParsedSeedResult,
+    )
 
 logger = structlog.get_logger(component="simulation")
 
@@ -362,7 +371,10 @@ def _format_peer_context(
             break
         if not post.content:
             continue
-        prefix = f'{i}. [{post.agent_id}|{post.bracket}] {post.signal.upper()} (conf: {post.confidence:.2f}) "'
+        prefix = (
+            f'{i}. [{post.agent_id}|{post.bracket}] {post.signal.upper()}'
+            f' (conf: {post.confidence:.2f}) "'
+        )
         suffix = '"'
         available = remaining - len(prefix) - len(suffix) - 1  # -1 for newline
         if available <= 0:
@@ -523,12 +535,13 @@ async def run_round1(
     ollama_client: OllamaClient,
     model_manager: OllamaModelManager,
     graph_manager: GraphStateManager,
-    governor: ResourceGovernor,
+    governor: ConcurrencyController,
     personas: list[AgentPersona],
     *,
     state_store: StateStore | None = None,
     pre_injected: tuple[str, ParsedSeedResult] | None = None,
     market_context: str | None = None,
+    worker_provider: InferenceProvider | None = None,
 ) -> Round1Result:
     """Execute the Round 1 simulation pipeline.
 
@@ -536,7 +549,7 @@ async def run_round1(
     1. inject_seed (orchestrator model lifecycle is self-contained), or skip if pre_injected
     2. ensure_clean_state (defensive cleanup after orchestrator)
     3. start_monitoring (governor RAM monitoring)
-    4. load worker model
+    4. load worker model (or prepare injected worker_provider)
     5. dispatch_wave with peer_context=None (Round 1 = no peer influence)
     6. Positional assertion (dispatch results must match persona count)
     7. Pair agent IDs with decisions
@@ -558,6 +571,11 @@ async def run_round1(
             message in Round 1 agent prompts per Phase 40 D-04, D-06. Forwarded
             to dispatch_wave. When None, behavior is identical to pre-Phase-40
             (rumor-only prompts).
+        worker_provider: Optional pre-configured InferenceProvider for worker
+            inference. When supplied, provider.prepare()/teardown() replace
+            model_manager.load_model/unload_model and the provider is forwarded
+            to dispatch_wave. When None (default), preserves existing local
+            OllamaProvider + model_manager load/unload behavior exactly.
 
     Returns:
         Round1Result with cycle_id, parsed_result, and agent_decisions.
@@ -572,8 +590,14 @@ async def run_round1(
             await state_store.set_phase(SimulationPhase.SEEDING)
 
         # 1. Inject seed (orchestrator model lifecycle is self-contained)
+        orchestrator_provider = OllamaProvider(
+            ProviderRole.ORCHESTRATOR,
+            settings.ollama.orchestrator_model_alias,
+            ollama_client,
+            model_manager,
+        )
         cycle_id, parsed_result, _modifier_result = await inject_seed(
-            rumor, settings, ollama_client, model_manager, graph_manager,
+            rumor, settings, orchestrator_provider, graph_manager,
         )
 
     # StateStore: mark ROUND_1 phase after seed injection
@@ -586,19 +610,36 @@ async def run_round1(
 
     worker_alias = settings.ollama.worker_model_alias
 
+    # Resolve the effective worker provider for Round 1.
+    # When worker_provider is injected (cloud path), use it directly.
+    # When None (default/local path), build the local OllamaProvider and manage
+    # the model lifecycle via model_manager.load_model/unload_model exactly as
+    # before — preserving the existing local behavior byte-for-byte.
+    _use_injected_worker = worker_provider is not None
+    _r1_worker_provider: InferenceProvider
+    if _use_injected_worker:
+        assert worker_provider is not None  # narrowing for mypy
+        _r1_worker_provider = worker_provider
+    else:
+        _r1_worker_provider = OllamaProvider(
+            ProviderRole.WORKER, worker_alias, ollama_client, model_manager
+        )
+
     # 3. Start governor monitoring (review concern #1 -- must happen before dispatch)
     await governor.start_monitoring()
     try:
-        # 4. Load worker model
-        await model_manager.load_model(worker_alias)
+        # 4. Load worker model (local: model_manager.load_model; cloud: provider.prepare no-op)
+        if _use_injected_worker:
+            await _r1_worker_provider.prepare()
+        else:
+            await model_manager.load_model(worker_alias)
         try:
             # 5. Convert personas and dispatch
             worker_configs = [persona_to_worker_config(p) for p in personas]
             decisions = await dispatch_wave(
                 personas=worker_configs,
                 governor=governor,
-                client=ollama_client,
-                model=worker_alias,
+                provider=_r1_worker_provider,
                 user_message=rumor,
                 settings=settings.governor,
                 peer_context=None,
@@ -616,7 +657,7 @@ async def run_round1(
             # 7. Pair agent IDs with decisions
             agent_decisions: list[tuple[str, AgentDecision]] = [
                 (wc["agent_id"], dec)
-                for wc, dec in zip(worker_configs, decisions)
+                for wc, dec in zip(worker_configs, decisions, strict=False)
             ]
 
             # Per-agent StateStore writes now happen INSIDE
@@ -632,7 +673,10 @@ async def run_round1(
             )
         finally:
             # 9a. Always unload worker model (inner finally)
-            await model_manager.unload_model(worker_alias)
+            if _use_injected_worker:
+                await _r1_worker_provider.teardown()
+            else:
+                await model_manager.unload_model(worker_alias)
     finally:
         # 9b. Always stop governor monitoring (outer finally)
         await governor.stop_monitoring()
@@ -666,14 +710,16 @@ async def _dispatch_round(
     cycle_id: str,
     source_round: int,
     graph_manager: GraphStateManager,
-    governor: ResourceGovernor,
+    governor: ConcurrencyController,
     client: OllamaClient,
     model: str,
     rumor: str,
     settings: GovernorSettings,
     *,
     influence_weights: dict[str, float] | None = None,
-    prev_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...] | None = None,
+    prev_decisions: (
+        list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...] | None
+    ) = None,
     state_store: StateStore | None = None,
 ) -> RoundDispatchResult:
     """Dispatch a round with per-agent peer context (D-09, D-10).
@@ -693,7 +739,7 @@ async def _dispatch_round(
 
     Uses ValueError for runtime contract checks (Codex review: assert disappears under -O).
     """
-    from alphaswarm.graph import PeerDecision, RankedPost
+    from alphaswarm.graph import RankedPost
 
     worker_configs = [persona_to_worker_config(p) for p in personas]
 
@@ -783,11 +829,16 @@ async def _dispatch_round(
             peer_selection="static",
         )
 
+    # _dispatch_round is unused in production — model loading/unloading is
+    # managed by the caller. OllamaProvider.prepare/teardown are never called
+    # here, so model_manager=None is safe for this legacy/test path.
+    _round_provider = OllamaProvider(
+        ProviderRole.WORKER, model, client, None
+    )
     decisions = await dispatch_wave(
         personas=worker_configs,
         governor=governor,
-        client=client,
-        model=model,
+        provider=_round_provider,
         user_message=rumor,
         settings=settings,
         peer_contexts=peer_contexts,
@@ -803,7 +854,7 @@ async def _dispatch_round(
 
     agent_decisions: list[tuple[str, AgentDecision]] = [
         (wc["agent_id"], dec)
-        for wc, dec in zip(worker_configs, decisions)
+        for wc, dec in zip(worker_configs, decisions, strict=False)
     ]
 
     # Per-agent StateStore writes happen inside
@@ -833,7 +884,7 @@ async def run_simulation(
     ollama_client: OllamaClient,
     model_manager: OllamaModelManager,
     graph_manager: GraphStateManager,
-    governor: ResourceGovernor,
+    governor: ConcurrencyController,
     personas: list[AgentPersona],
     brackets: list[BracketConfig],
     *,
@@ -843,6 +894,8 @@ async def run_simulation(
     consume_shock: Callable[[], str | None] | None = None,
     market_provider: MarketDataProvider | None = None,
     news_provider: NewsProvider | None = None,
+    orchestrator_provider: InferenceProvider | None = None,
+    worker_provider: InferenceProvider | None = None,
 ) -> SimulationResult:
     """Execute the full 3-round simulation pipeline (D-04).
 
@@ -870,7 +923,8 @@ async def run_simulation(
     5. Fire on_round_complete for Round 1 (shift=None, no prior round to compare)
     6. ensure_clean_state + reload worker (D-05: one cold load for modularity)
     7. Fresh governor monitoring session for Rounds 2-3 block (D-06)
-    8. Round 2: _dispatch_round with dynamic weights if available (fallback to static) -> write -> callback
+    8. Round 2: _dispatch_round with dynamic weights if available (fallback to static)
+       -> write -> callback
     9. Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2)
     10. Round 3: _dispatch_round with Round 2 weights -> write -> callback
     11. Return SimulationResult with all bracket summaries (D-08)
@@ -880,6 +934,22 @@ async def run_simulation(
     if state_store is not None:
         await state_store.set_phase(SimulationPhase.IDLE)
 
+    # Compute effective providers: use injected providers when supplied, else build local defaults.
+    # DEFAULT PATH INVARIANT: when both are None (all existing callers), builds the same
+    # OllamaProvider instances as before — byte-for-byte equivalent behavior.
+    orch = orchestrator_provider or OllamaProvider(
+        ProviderRole.ORCHESTRATOR,
+        settings.ollama.orchestrator_model_alias,
+        ollama_client,
+        model_manager,
+    )
+    worker = worker_provider or OllamaProvider(
+        ProviderRole.WORKER,
+        settings.ollama.worker_model_alias,
+        ollama_client,
+        model_manager,
+    )
+
     # Phase 13: Seed injection with modifier generation (D-06: same orchestrator session)
     phase = SimulationPhase.SEEDING
     logger.info("simulation_phase_transition", phase=phase.value)
@@ -887,7 +957,7 @@ async def run_simulation(
         await state_store.set_phase(SimulationPhase.SEEDING)
 
     cycle_id, parsed_result, modifier_result = await inject_seed(
-        rumor, settings, ollama_client, model_manager, graph_manager,
+        rumor, settings, orch, graph_manager,
         modifier_generator=generate_modifiers,
     )
 
@@ -954,6 +1024,7 @@ async def run_simulation(
         state_store=state_store,
         pre_injected=(cycle_id, parsed_result),
         market_context=market_context_str,
+        worker_provider=worker,
     )
     r1_seconds = time.monotonic() - r1_start
     cycle_id = round1_result.cycle_id
@@ -965,8 +1036,11 @@ async def run_simulation(
     write_buffer = WriteBuffer(maxsize=200)
     entity_names = await graph_manager.read_cycle_entities(cycle_id)
 
-    # Phase 11: Push Round 1 episodes to WriteBuffer (retroactive -- run_round1 already wrote decisions)
-    for did, (agent_id, decision) in zip(round1_result.decision_ids, round1_result.agent_decisions):
+    # Phase 11: Push Round 1 episodes to WriteBuffer
+    # (retroactive -- run_round1 already wrote decisions)
+    for did, (agent_id, decision) in zip(
+        round1_result.decision_ids, round1_result.agent_decisions, strict=False
+    ):
         record = EpisodeRecord(
             decision_id=did,
             agent_id=agent_id,
@@ -1021,7 +1095,6 @@ async def run_simulation(
 
     # Reload worker for Rounds 2-3 (D-05)
     await model_manager.ensure_clean_state()
-    worker_alias = settings.ollama.worker_model_alias
 
     # Fresh governor monitoring for Rounds 2-3 block (D-06)
     await governor.start_monitoring()
@@ -1070,16 +1143,16 @@ async def run_simulation(
             peer_selection="diverse_in_memory",
         )
 
-        # Load worker model immediately before dispatch — no idle gap
-        await model_manager.load_model(worker_alias)
+        # Prepare worker (load model for local OllamaProvider; no-op for cloud providers)
+        # immediately before dispatch — no idle gap.
+        await worker.prepare()
         try:
             # Dispatch Round 2 with pre-built peer contexts (bypass _dispatch_round)
             worker_configs = [persona_to_worker_config(p) for p in personas]
             round2_wave_decisions = await dispatch_wave(
                 personas=worker_configs,
                 governor=governor,
-                client=ollama_client,
-                model=worker_alias,
+                provider=worker,
                 user_message=effective_rumor_r2,
                 settings=settings.governor,
                 peer_contexts=round2_peer_contexts,
@@ -1087,7 +1160,8 @@ async def run_simulation(
                 round_num=2,
             )
             round2_decisions: list[tuple[str, AgentDecision]] = [
-                (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round2_wave_decisions)
+                (wc["agent_id"], dec)
+                for wc, dec in zip(worker_configs, round2_wave_decisions, strict=False)
             ]
             # Per-agent StateStore writes are now streamed from inside
             # batch_dispatcher._safe_agent_inference. See debug session
@@ -1098,7 +1172,9 @@ async def run_simulation(
                 ctx if ctx is not None else "" for ctx in round2_peer_contexts
             ]
 
-            round2_ids = await graph_manager.write_decisions(round2_decisions, cycle_id, round_num=2)
+            round2_ids = await graph_manager.write_decisions(
+                round2_decisions, cycle_id, round_num=2
+            )
 
             # Phase 12: Write Round 2 Post nodes (D-12 step 2)
             round2_post_ids = await graph_manager.write_posts(
@@ -1107,13 +1183,14 @@ async def run_simulation(
 
             # Phase 11: Push Round 2 episodes to WriteBuffer
             round1_map = {aid: dec for aid, dec in round1_result.agent_decisions}
-            for did, (agent_id, decision) in zip(round2_ids, round2_decisions):
+            for did, (agent_id, decision) in zip(round2_ids, round2_decisions, strict=False):
                 prev_signal = round1_map.get(agent_id)
                 prev_sig = prev_signal.signal if prev_signal else None
                 persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
                 peer_ctx = (
                     round2_peer_contexts_normalized[persona_idx]
-                    if persona_idx is not None and persona_idx < len(round2_peer_contexts_normalized)
+                    if persona_idx is not None
+                    and persona_idx < len(round2_peer_contexts_normalized)
                     else ""
                 )
                 record = EpisodeRecord(
@@ -1221,8 +1298,7 @@ async def run_simulation(
                 round3_wave_decisions = await dispatch_wave(
                     personas=worker_configs,
                     governor=governor,
-                    client=ollama_client,
-                    model=worker_alias,
+                    provider=worker,
                     user_message=effective_rumor_r3,
                     settings=settings.governor,
                     peer_contexts=round3_peer_contexts,
@@ -1230,7 +1306,8 @@ async def run_simulation(
                     round_num=3,
                 )
                 round3_decisions: list[tuple[str, AgentDecision]] = [
-                    (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round3_wave_decisions)
+                    (wc["agent_id"], dec)
+                    for wc, dec in zip(worker_configs, round3_wave_decisions, strict=False)
                 ]
                 # Per-agent StateStore writes are now streamed from inside
                 # batch_dispatcher._safe_agent_inference. See debug session
@@ -1240,22 +1317,27 @@ async def run_simulation(
                     ctx if ctx is not None else "" for ctx in round3_peer_contexts
                 ]
 
-                round3_ids = await graph_manager.write_decisions(round3_decisions, cycle_id, round_num=3)
+                round3_ids = await graph_manager.write_decisions(
+                    round3_decisions, cycle_id, round_num=3
+                )
 
                 # Phase 12: Write Round 3 Post nodes
-                round3_post_ids = await graph_manager.write_posts(
+                await graph_manager.write_posts(
                     round3_decisions, round3_ids, cycle_id, round_num=3,
                 )
 
                 # Phase 11: Push Round 3 episodes to WriteBuffer
                 round2_map = {aid: dec for aid, dec in round2_decisions}
-                for did, (agent_id, decision) in zip(round3_ids, round3_decisions):
+                for did, (agent_id, decision) in zip(round3_ids, round3_decisions, strict=False):
                     prev_signal = round2_map.get(agent_id)
                     prev_sig = prev_signal.signal if prev_signal else None
-                    persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
+                    persona_idx = next(
+                        (i for i, p in enumerate(personas) if p.id == agent_id), None
+                    )
                     peer_ctx = (
                         round3_peer_contexts_normalized[persona_idx]
-                        if persona_idx is not None and persona_idx < len(round3_peer_contexts_normalized)
+                        if persona_idx is not None
+                        and persona_idx < len(round3_peer_contexts_normalized)
                         else ""
                     )
                     record = EpisodeRecord(
@@ -1328,22 +1410,23 @@ async def run_simulation(
                     },
                     graph_manager=graph_manager,
                     governor=governor,
-                    client=ollama_client,
-                    model=worker_alias,
+                    provider=worker,
                 )
                 logger.info("narrative_generation_complete", count=len(narratives))
             narratives_seconds = time.monotonic() - narratives_start
 
         finally:
-            # Always unload worker (inner finally)
-            await model_manager.unload_model(worker_alias)
+            # Teardown worker (unload model for local OllamaProvider; no-op for cloud providers)
+            await worker.teardown()
     finally:
         # Always stop governor monitoring (outer finally)
         await governor.stop_monitoring()
 
     # Persist run metrics onto the Cycle node (measurement infra). Failure is
     # logged but never fails a completed simulation.
-    def _parse_errors(decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]) -> int:
+    def _parse_errors(
+        decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
+    ) -> int:
         return sum(1 for _, d in decisions if d.signal == SignalType.PARSE_ERROR)
 
     final_round_decisions = (
@@ -1409,20 +1492,34 @@ async def run_simulation(
 
 async def _generate_decision_narratives(
     personas: list[AgentPersona],
-    all_decisions: dict[int, list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]],
+    all_decisions: dict[
+        int, list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]
+    ],
     graph_manager: GraphStateManager,
-    governor: ResourceGovernor,
-    client: OllamaClient,
-    model: str,
+    governor: ConcurrencyController,
+    provider: InferenceProvider,
 ) -> list[dict]:
     """Generate natural-language decision narrative for each agent (D-10, D-11).
 
-    Uses worker model (already loaded) through governor for memory safety.
+    Uses the worker provider through governor for memory safety.
     Skip-and-log on per-agent failures (Pitfall 5 from research).
+
+    Args:
+        personas: Agent personas to generate narratives for.
+        all_decisions: Mapping of round_num -> list of (agent_id, AgentDecision).
+        graph_manager: Neo4j graph state manager for persisting narratives.
+        governor: Concurrency controller for throttling inference.
+        provider: Worker InferenceProvider to route narrative inference through.
+            For local path this is the OllamaProvider; for cloud path it is the
+            configured cloud provider. Behavior is identical for local (same
+            model, same prompt) — only the call site changes from client.generate
+            to provider.chat with equivalent messages.
 
     Returns list of {"agent_id": str, "narrative": str} dicts that were written.
     """
     import asyncio as _asyncio
+
+    from alphaswarm.inference.types import InferenceMessage
 
     # Build per-agent decision summaries
     agent_decisions_by_id: dict[str, dict[int, AgentDecision]] = {}
@@ -1471,14 +1568,21 @@ async def _generate_decision_narratives(
             + "\n".join(lines)
         )
 
+        messages: list[InferenceMessage] = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a concise financial analyst narrator."
+                    " Summarize agent decision arcs in 2-3 sentences."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+
         try:
             async with governor:
-                response = await client.generate(
-                    model=model,
-                    prompt=prompt,
-                    system="You are a concise financial analyst narrator. Summarize agent decision arcs in 2-3 sentences.",
-                )
-                narrative_text = response.get("response", "").strip()
+                result = await provider.chat(messages)
+                narrative_text = result.content.strip()
                 if narrative_text:
                     return {"agent_id": agent_id, "narrative": narrative_text}
                 return None

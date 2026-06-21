@@ -1,4 +1,8 @@
-"""Unit tests for the seed injection pipeline (inject_seed)."""
+"""Unit tests for the seed injection pipeline (inject_seed).
+
+Updated for Task 5A: inject_seed now accepts an InferenceProvider (orchestrator)
+instead of OllamaClient + OllamaModelManager. FakeInferenceProvider is used here.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphaswarm.types import EntityType, ParsedSeedResult, SeedEntity, SeedEvent
+from alphaswarm.inference.types import InferenceResult, ProviderRole
+from alphaswarm.types import EntityType, ParsedSeedResult, SeedEvent
+from tests.inference.fakes import FakeInferenceProvider
+
+VALID_SEED_JSON = json.dumps(
+    {
+        "entities": [
+            {"name": "NVIDIA", "type": "company", "relevance": 0.95, "sentiment": 0.8},
+            {"name": "Semiconductors", "type": "sector", "relevance": 0.7, "sentiment": 0.5},
+        ],
+        "overall_sentiment": 0.6,
+    }
+)
 
 
 @pytest.fixture()
@@ -19,26 +35,15 @@ def mock_settings() -> MagicMock:
 
 
 @pytest.fixture()
-def mock_ollama_client() -> AsyncMock:
-    """Mock OllamaClient returning valid seed JSON from chat()."""
-    client = AsyncMock()
-    response = MagicMock()
-    response.message.content = json.dumps({
-        "entities": [
-            {"name": "NVIDIA", "type": "company", "relevance": 0.95, "sentiment": 0.8},
-            {"name": "Semiconductors", "type": "sector", "relevance": 0.7, "sentiment": 0.5},
+def fake_provider() -> FakeInferenceProvider:
+    """FakeInferenceProvider scripted with valid seed JSON."""
+    return FakeInferenceProvider(
+        ProviderRole.ORCHESTRATOR,
+        "alphaswarm-orchestrator",
+        scripted=[
+            InferenceResult(content=VALID_SEED_JSON, model="alphaswarm-orchestrator")
         ],
-        "overall_sentiment": 0.6,
-    })
-    response.message.thinking = None
-    client.chat.return_value = response
-    return client
-
-
-@pytest.fixture()
-def mock_model_manager() -> AsyncMock:
-    """Mock OllamaModelManager with load/unload."""
-    return AsyncMock()
+    )
 
 
 @pytest.fixture()
@@ -52,32 +57,36 @@ def mock_graph_manager() -> AsyncMock:
 @pytest.mark.asyncio()
 async def test_inject_seed_loads_orchestrator_model(
     mock_settings: MagicMock,
-    mock_ollama_client: AsyncMock,
-    mock_model_manager: AsyncMock,
+    fake_provider: FakeInferenceProvider,
     mock_graph_manager: AsyncMock,
 ) -> None:
-    """inject_seed calls model_manager.load_model with the orchestrator alias."""
+    """inject_seed calls provider.prepare() (equivalent to model load) with the orchestrator."""
     from alphaswarm.seed import inject_seed
+
+    prepare_calls: list[str] = []
+
+    async def _prepare() -> None:
+        prepare_calls.append("prepare")
+
+    fake_provider.prepare = _prepare  # type: ignore[method-assign]
 
     await inject_seed(
         rumor="NVIDIA announces breakthrough",
         settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
+        orchestrator=fake_provider,
         graph_manager=mock_graph_manager,
     )
 
-    mock_model_manager.load_model.assert_awaited_once_with("alphaswarm-orchestrator")
+    assert prepare_calls == ["prepare"]
 
 
 @pytest.mark.asyncio()
-async def test_inject_seed_calls_chat_with_json_format_and_think_false(
+async def test_inject_seed_calls_chat_with_json_mode(
     mock_settings: MagicMock,
-    mock_ollama_client: AsyncMock,
-    mock_model_manager: AsyncMock,
+    fake_provider: FakeInferenceProvider,
     mock_graph_manager: AsyncMock,
 ) -> None:
-    """inject_seed calls ollama_client.chat with format='json' and think=False.
+    """inject_seed calls provider.chat() with json_mode=True.
 
     Phase 41.4 model decision: think=False. think=True added ~265s/call with
     marginal quality gain on this workload.
@@ -89,22 +98,19 @@ async def test_inject_seed_calls_chat_with_json_format_and_think_false(
     await inject_seed(
         rumor="NVIDIA announces breakthrough",
         settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
+        orchestrator=fake_provider,
         graph_manager=mock_graph_manager,
     )
 
-    mock_ollama_client.chat.assert_awaited_once()
-    call_kwargs = mock_ollama_client.chat.call_args[1]
-    assert call_kwargs["format"] == "json"
-    assert call_kwargs["think"] is False
+    assert len(fake_provider.calls) == 1
+    call = fake_provider.calls[0]
+    assert call["json_mode"] is True
 
 
 @pytest.mark.asyncio()
 async def test_inject_seed_calls_create_cycle_with_seed_event(
     mock_settings: MagicMock,
-    mock_ollama_client: AsyncMock,
-    mock_model_manager: AsyncMock,
+    fake_provider: FakeInferenceProvider,
     mock_graph_manager: AsyncMock,
 ) -> None:
     """inject_seed calls graph_manager.create_cycle_with_seed_event (not separate ops)."""
@@ -113,8 +119,7 @@ async def test_inject_seed_calls_create_cycle_with_seed_event(
     await inject_seed(
         rumor="NVIDIA announces breakthrough",
         settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
+        orchestrator=fake_provider,
         graph_manager=mock_graph_manager,
     )
 
@@ -128,45 +133,48 @@ async def test_inject_seed_calls_create_cycle_with_seed_event(
 @pytest.mark.asyncio()
 async def test_inject_seed_unloads_model_on_error(
     mock_settings: MagicMock,
-    mock_ollama_client: AsyncMock,
-    mock_model_manager: AsyncMock,
     mock_graph_manager: AsyncMock,
 ) -> None:
-    """inject_seed calls unload_model even when chat raises an error (finally block)."""
-    from alphaswarm.errors import OllamaInferenceError
+    """inject_seed calls provider.teardown() even when chat raises an error (finally block)."""
     from alphaswarm.seed import inject_seed
 
-    mock_ollama_client.chat.side_effect = OllamaInferenceError(
-        message="test error", model="test"
+    teardown_calls: list[str] = []
+
+    error_provider = FakeInferenceProvider(
+        ProviderRole.ORCHESTRATOR,
+        "alphaswarm-orchestrator",
+        scripted=lambda **_: (_ for _ in ()).throw(RuntimeError("test error")),
     )
 
-    with pytest.raises(OllamaInferenceError):
+    async def _teardown() -> None:
+        teardown_calls.append("teardown")
+
+    error_provider.teardown = _teardown  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="test error"):
         await inject_seed(
             rumor="NVIDIA announces breakthrough",
             settings=mock_settings,
-            ollama_client=mock_ollama_client,
-            model_manager=mock_model_manager,
+            orchestrator=error_provider,
             graph_manager=mock_graph_manager,
         )
 
-    mock_model_manager.unload_model.assert_awaited_once_with("alphaswarm-orchestrator")
+    assert teardown_calls == ["teardown"]
 
 
 @pytest.mark.asyncio()
 async def test_inject_seed_returns_cycle_id_and_parsed_result(
     mock_settings: MagicMock,
-    mock_ollama_client: AsyncMock,
-    mock_model_manager: AsyncMock,
+    fake_provider: FakeInferenceProvider,
     mock_graph_manager: AsyncMock,
 ) -> None:
-    """inject_seed returns a (cycle_id, ParsedSeedResult) tuple."""
+    """inject_seed returns a (cycle_id, ParsedSeedResult, None) tuple."""
     from alphaswarm.seed import inject_seed
 
     cycle_id, parsed_result, _modifier_result = await inject_seed(
         rumor="NVIDIA announces breakthrough",
         settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
+        orchestrator=fake_provider,
         graph_manager=mock_graph_manager,
     )
 
@@ -178,8 +186,7 @@ async def test_inject_seed_returns_cycle_id_and_parsed_result(
 @pytest.mark.asyncio()
 async def test_inject_seed_parsed_result_has_correct_entities(
     mock_settings: MagicMock,
-    mock_ollama_client: AsyncMock,
-    mock_model_manager: AsyncMock,
+    fake_provider: FakeInferenceProvider,
     mock_graph_manager: AsyncMock,
 ) -> None:
     """With valid mock response, ParsedSeedResult.seed_event has correct entities."""
@@ -188,8 +195,7 @@ async def test_inject_seed_parsed_result_has_correct_entities(
     _, parsed_result, _modifier_result = await inject_seed(
         rumor="NVIDIA announces breakthrough",
         settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
+        orchestrator=fake_provider,
         graph_manager=mock_graph_manager,
     )
 
@@ -203,25 +209,27 @@ async def test_inject_seed_parsed_result_has_correct_entities(
 @pytest.mark.asyncio()
 async def test_inject_seed_logs_warning_on_parse_tier_3(
     mock_settings: MagicMock,
-    mock_ollama_client: AsyncMock,
-    mock_model_manager: AsyncMock,
     mock_graph_manager: AsyncMock,
 ) -> None:
     """inject_seed logs a warning when parse_tier=3 (fallback used)."""
     from alphaswarm.seed import inject_seed
 
-    # Return unparseable content to trigger tier 3 fallback
-    response = MagicMock()
-    response.message.content = "This is not valid JSON at all"
-    response.message.thinking = None
-    mock_ollama_client.chat.return_value = response
+    bad_provider = FakeInferenceProvider(
+        ProviderRole.ORCHESTRATOR,
+        "alphaswarm-orchestrator",
+        scripted=[
+            InferenceResult(
+                content="This is not valid JSON at all",
+                model="alphaswarm-orchestrator",
+            )
+        ],
+    )
 
     with patch("alphaswarm.seed.logger") as mock_logger:
         await inject_seed(
             rumor="NVIDIA announces breakthrough",
             settings=mock_settings,
-            ollama_client=mock_ollama_client,
-            model_manager=mock_model_manager,
+            orchestrator=bad_provider,
             graph_manager=mock_graph_manager,
         )
 
@@ -243,23 +251,27 @@ async def test_inject_seed_orchestrator_system_prompt_exists() -> None:
 @pytest.mark.asyncio()
 async def test_inject_seed_passes_rumor_as_user_message(
     mock_settings: MagicMock,
-    mock_ollama_client: AsyncMock,
-    mock_model_manager: AsyncMock,
     mock_graph_manager: AsyncMock,
 ) -> None:
-    """inject_seed passes the rumor as the user message to ollama_client.chat."""
+    """inject_seed passes the rumor as the user message to provider.chat()."""
     from alphaswarm.seed import inject_seed
+
+    provider = FakeInferenceProvider(
+        ProviderRole.ORCHESTRATOR,
+        "alphaswarm-orchestrator",
+        scripted=[
+            InferenceResult(content=VALID_SEED_JSON, model="alphaswarm-orchestrator")
+        ],
+    )
 
     await inject_seed(
         rumor="Tesla CEO steps down unexpectedly",
         settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
+        orchestrator=provider,
         graph_manager=mock_graph_manager,
     )
 
-    call_kwargs = mock_ollama_client.chat.call_args[1]
-    messages = call_kwargs["messages"]
+    messages = provider.calls[0]["messages"]
     assert len(messages) == 2
     assert messages[0]["role"] == "system"
     assert messages[1]["role"] == "user"

@@ -1,9 +1,42 @@
-"""Domain exceptions for AlphaSwarm Ollama integration."""
+"""Domain exceptions for AlphaSwarm inference and orchestration."""
 
 from __future__ import annotations
 
+from decimal import Decimal
 
-class OllamaInferenceError(Exception):
+# ---------------------------------------------------------------------------
+# Provider-agnostic inference errors
+# ---------------------------------------------------------------------------
+
+
+class InferenceError(Exception):
+    """Provider-agnostic base for all inference failures.
+
+    Use this as the catch-all type when downstream code should handle errors
+    from any backend (Ollama, OpenAI-compatible, Anthropic, etc.) uniformly.
+
+    Attributes:
+        provider: Short identifier for the backend that raised (e.g., "ollama",
+            "openai", "anthropic").
+        model: The model identifier that was being called.
+        original_error: The underlying exception, if available.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str,
+        model: str,
+        original_error: Exception | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.model = model
+        self.original_error = original_error
+
+
+class OllamaInferenceError(InferenceError):
     """Raised when all backoff retries are exhausted for an Ollama call.
 
     Also wraps non-retryable errors (e.g., RequestError) at the public API
@@ -20,14 +53,42 @@ class OllamaInferenceError(Exception):
         message: str,
         model: str,
         original_error: Exception | None = None,
+        *,
+        provider: str = "ollama",
     ) -> None:
-        super().__init__(message)
-        self.model = model
-        self.original_error = original_error
+        super().__init__(message, provider=provider, model=model, original_error=original_error)
 
 
 class ModelLoadError(OllamaInferenceError):
     """Raised when a model fails to load or unload."""
+
+
+class AuthError(InferenceError):
+    """Raised on 401/403 authentication or authorization failures.
+
+    Signals that the API key or credentials are invalid/missing.  Should not
+    be retried without correcting the credential.
+    """
+
+
+class BudgetExceededError(Exception):
+    """Raised when cumulative spend would exceed the configured cap.
+
+    This is a standalone exception (not a subclass of InferenceError) so that
+    budget enforcement can be treated as a hard stop that propagates past any
+    generic inference error handlers.
+
+    Attributes:
+        spent_usd: Cumulative spend in USD at the moment of the violation.
+        cap_usd: The configured budget cap in USD.
+    """
+
+    def __init__(self, spent_usd: Decimal, cap_usd: Decimal) -> None:
+        super().__init__(
+            f"Budget cap exceeded: spent ${spent_usd:.4f} > cap ${cap_usd:.4f}"
+        )
+        self.spent_usd = spent_usd
+        self.cap_usd = cap_usd
 
 
 class GovernorCrisisError(Exception):

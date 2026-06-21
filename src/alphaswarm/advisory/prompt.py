@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from alphaswarm.inference.types import InferenceMessage
+
 _SYSTEM_INSTRUCTIONS = """You are the orchestrator of a 100-agent AI trading swarm.
 A simulation cycle has just completed. Using the prefetched swarm data and the
 user's portfolio, produce a JSON advisory with the EXACT schema below.
@@ -75,7 +77,7 @@ def build_advisory_prompt(
     holdings: list[dict[str, Any]] | None = None,
     top_holdings: list[dict[str, Any]] | None = None,
     rest_holdings: list[dict[str, Any]] | None = None,
-) -> list[dict[str, str]]:
+) -> list[InferenceMessage]:
     """Build the advisory synthesis messages list (system + user).
 
     All Decimal values in `holdings` are already stringified by the caller

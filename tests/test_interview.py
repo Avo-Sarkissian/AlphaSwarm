@@ -11,7 +11,6 @@ from alphaswarm.errors import Neo4jConnectionError
 from alphaswarm.interview import InterviewContext
 from alphaswarm.types import AgentPersona, BracketType
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -39,7 +38,9 @@ def sample_personas_for_interview() -> list[AgentPersona]:
             bracket=BracketType.QUANTS,
             risk_profile=0.4,
             temperature=0.3,
-            system_prompt=f"You are a quantitative analyst in the Quants bracket.{JSON_OUTPUT_INSTRUCTIONS}",
+            system_prompt=(
+                f"You are a quantitative analyst in the Quants bracket.{JSON_OUTPUT_INSTRUCTIONS}"
+            ),
             influence_weight_base=0.7,
         ),
         AgentPersona(
@@ -48,7 +49,9 @@ def sample_personas_for_interview() -> list[AgentPersona]:
             bracket=BracketType.DEGENS,
             risk_profile=0.95,
             temperature=1.2,
-            system_prompt=f"You are a high-risk speculator in the Degens bracket.{JSON_OUTPUT_INSTRUCTIONS}",
+            system_prompt=(
+                f"You are a high-risk speculator in the Degens bracket.{JSON_OUTPUT_INSTRUCTIONS}"
+            ),
             influence_weight_base=0.3,
         ),
     ]
@@ -64,7 +67,8 @@ class TestRoundDecision:
         from alphaswarm.interview import RoundDecision
 
         rd = RoundDecision(
-            round_num=1, signal="buy", confidence=0.85, sentiment=0.6, rationale="Strong fundamentals"
+            round_num=1, signal="buy", confidence=0.85, sentiment=0.6,
+            rationale="Strong fundamentals",
         )
         assert rd.round_num == 1
         assert rd.signal == "buy"
@@ -85,8 +89,12 @@ class TestInterviewContext:
         from alphaswarm.interview import InterviewContext, RoundDecision
 
         decisions = [
-            RoundDecision(round_num=1, signal="buy", confidence=0.8, sentiment=0.5, rationale="r1"),
-            RoundDecision(round_num=2, signal="hold", confidence=0.6, sentiment=0.2, rationale="r2"),
+            RoundDecision(
+                round_num=1, signal="buy", confidence=0.8, sentiment=0.5, rationale="r1",
+            ),
+            RoundDecision(
+                round_num=2, signal="hold", confidence=0.6, sentiment=0.2, rationale="r2",
+            ),
         ]
         ctx = InterviewContext(
             agent_id="quants_01",
@@ -147,17 +155,20 @@ class TestReadAgentInterviewContext:
             {
                 "agent_id": "quants_01", "name": "Quants 1", "bracket": "quants",
                 "decision_narrative": "Went bullish then cautious.",
-                "round_num": 1, "signal": "buy", "confidence": 0.85, "sentiment": 0.6, "rationale": "Strong data",
+                "round_num": 1, "signal": "buy", "confidence": 0.85,
+                "sentiment": 0.6, "rationale": "Strong data",
             },
             {
                 "agent_id": "quants_01", "name": "Quants 1", "bracket": "quants",
                 "decision_narrative": "Went bullish then cautious.",
-                "round_num": 2, "signal": "hold", "confidence": 0.6, "sentiment": 0.2, "rationale": "Mixed signals",
+                "round_num": 2, "signal": "hold", "confidence": 0.6,
+                "sentiment": 0.2, "rationale": "Mixed signals",
             },
             {
                 "agent_id": "quants_01", "name": "Quants 1", "bracket": "quants",
                 "decision_narrative": "Went bullish then cautious.",
-                "round_num": 3, "signal": "sell", "confidence": 0.7, "sentiment": -0.3, "rationale": "Risk off",
+                "round_num": 3, "signal": "sell", "confidence": 0.7,
+                "sentiment": -0.3, "rationale": "Risk off",
             },
         ])
 
@@ -184,7 +195,8 @@ class TestReadAgentInterviewContext:
             {
                 "agent_id": "quants_01", "name": "Quants 1", "bracket": "quants",
                 "decision_narrative": None,
-                "round_num": 1, "signal": "buy", "confidence": 0.8, "sentiment": 0.5, "rationale": "test",
+                "round_num": 1, "signal": "buy", "confidence": 0.8,
+                "sentiment": 0.5, "rationale": "test",
             },
         ])
 
@@ -204,7 +216,8 @@ class TestReadAgentInterviewContext:
             {
                 "agent_id": "quants_01", "name": "Quants 1", "bracket": "quants",
                 "decision_narrative": "Narrative text.",
-                "round_num": 1, "signal": "buy", "confidence": 0.8, "sentiment": 0.5, "rationale": "test",
+                "round_num": 1, "signal": "buy", "confidence": 0.8,
+                "sentiment": 0.5, "rationale": "test",
             },
         ])
 
@@ -246,33 +259,44 @@ def _make_context() -> InterviewContext:
         interview_system_prompt="You are a quantitative analyst in the Quants bracket.",
         decision_narrative="Agent went from BUY to HOLD to SELL across 3 rounds.",
         decisions=[
-            RoundDecision(round_num=1, signal="buy", confidence=0.85, sentiment=0.6, rationale="Strong fundamentals"),
-            RoundDecision(round_num=2, signal="hold", confidence=0.6, sentiment=0.2, rationale="Mixed signals"),
-            RoundDecision(round_num=3, signal="sell", confidence=0.7, sentiment=-0.3, rationale="Risk off mode"),
+            RoundDecision(
+                round_num=1, signal="buy", confidence=0.85, sentiment=0.6,
+                rationale="Strong fundamentals",
+            ),
+            RoundDecision(
+                round_num=2, signal="hold", confidence=0.6, sentiment=0.2,
+                rationale="Mixed signals",
+            ),
+            RoundDecision(
+                round_num=3, signal="sell", confidence=0.7, sentiment=-0.3,
+                rationale="Risk off mode",
+            ),
         ],
     )
 
 
-def _make_mock_ollama_client(response_text: str = "I chose BUY because of strong fundamentals.") -> AsyncMock:
-    """Create a mock OllamaClient with a chat() that returns a predictable response."""
-    client = AsyncMock()
-    mock_response = MagicMock()
-    mock_response.message.content = response_text
-    client.chat = AsyncMock(return_value=mock_response)
-    return client
+def _make_fake_provider(
+    response_text: str = "I chose BUY because of strong fundamentals.",
+    count: int = 1,
+):
+    """Create a FakeInferenceProvider scripted with identical responses."""
+    from alphaswarm.inference.types import InferenceResult, ProviderRole
+    from tests.inference.fakes import FakeInferenceProvider
+
+    scripted = [InferenceResult(content=response_text, model="test-worker") for _ in range(count)]
+    return FakeInferenceProvider(role=ProviderRole.WORKER, model="test-worker", scripted=scripted)
 
 
 class TestInterviewEngineInit:
-    def test_init_accepts_context_client_model(self) -> None:
+    def test_init_accepts_context_and_provider(self) -> None:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client()
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="alphaswarm-worker")
+        provider = _make_fake_provider()
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         assert engine._context is ctx
-        assert engine._client is client
-        assert engine._model == "alphaswarm-worker"
+        assert engine._provider is provider
         assert engine._history == []
         assert engine._summary is None
 
@@ -288,29 +312,30 @@ class TestInterviewEngineAsk:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client("I bought because data was strong.")
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        provider = _make_fake_provider("I bought because data was strong.")
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         result = await engine.ask("Why did you buy in round 1?")
 
         assert result == "I bought because data was strong."
         assert len(engine._history) == 2  # 1 user + 1 assistant
         assert engine._history[0] == {"role": "user", "content": "Why did you buy in round 1?"}
-        assert engine._history[1] == {"role": "assistant", "content": "I bought because data was strong."}
+        assert engine._history[1] == {
+            "role": "assistant", "content": "I bought because data was strong.",
+        }
 
     @pytest.mark.asyncio()
-    async def test_ask_calls_ollama_chat_with_assembled_messages(self) -> None:
+    async def test_ask_calls_provider_chat_with_assembled_messages(self) -> None:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client()
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        provider = _make_fake_provider()
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         await engine.ask("Hello")
 
-        client.chat.assert_called_once()
-        call_kwargs = client.chat.call_args
-        messages = call_kwargs.kwargs["messages"]
+        assert len(provider.calls) == 1
+        messages = provider.calls[0]["messages"]
         # System prompt is first, context block is second, then user message
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] == "system"
@@ -323,8 +348,8 @@ class TestBuildMessages:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client()
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        provider = _make_fake_provider()
+        engine = InterviewEngine(context=ctx, provider=provider)
         engine._history = [
             {"role": "user", "content": "Hi"},
             {"role": "assistant", "content": "Hello"},
@@ -342,8 +367,8 @@ class TestBuildMessages:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client()
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        provider = _make_fake_provider()
+        engine = InterviewEngine(context=ctx, provider=provider)
         engine._summary = "User asked about round 1, agent explained buying rationale."
         engine._history = [
             {"role": "user", "content": "What about round 2?"},
@@ -361,11 +386,15 @@ class TestBuildMessages:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client()
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        provider = _make_fake_provider()
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         block = engine._build_context_block()
-        assert "Narrative Summary" in block or "decision_narrative" in block.lower() or ctx.decision_narrative in block
+        assert (
+            "Narrative Summary" in block
+            or "decision_narrative" in block.lower()
+            or ctx.decision_narrative in block
+        )
         assert "Round 1" in block
         assert "Round 2" in block
         assert "Round 3" in block
@@ -379,8 +408,9 @@ class TestSlidingWindow:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client("Response")
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        # 11 ask responses + 1 summary generation = 12 total
+        provider = _make_fake_provider("Response", count=12)
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         for i in range(11):
             await engine.ask(f"Question {i}")
@@ -395,11 +425,12 @@ class TestSlidingWindow:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client("Response")
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        # 11 ask responses + 1 summary generation = 12 total
+        provider = _make_fake_provider("Response", count=12)
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         for i in range(11):
             await engine.ask(f"Question {i}")
 
-        # 11 ask calls + 1 summary generation = 12 chat calls
-        assert client.chat.call_count == 12
+        # 11 ask calls + 1 summary generation = 12 provider calls
+        assert len(provider.calls) == 12

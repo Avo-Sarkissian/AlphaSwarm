@@ -37,6 +37,7 @@ import { useRationales } from '../context/RationalesContext';
 import { useConnection } from '../context/ConnectionContext';
 import { useEdgesCtx } from '../context/EdgesContext';
 import { simStart, simStop } from '../api/simulation';
+import { useRunGate } from '../hooks/useRunGate';
 import { replayStart } from '../api/replay';
 import { normalizeBracketKey } from '../data';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
@@ -378,10 +379,13 @@ export function App() {
     if (a) setUi(u => ({ ...u, interviewAgent: a }));
   };
 
-  // Topbar Run/Stop handlers wire to api/simulation.
+  // Run gate: cost confirmation for cloud/mixed runs before simStart.
+  const { requestRun, modal: runConfirmModal } = useRunGate(simStart);
+
+  // Topbar Run/Stop handlers wire to api/simulation via the gate.
   const onRun = async () => {
     try {
-      await simStart(seed);
+      await requestRun(seed);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('simStart failed', err);
@@ -436,6 +440,7 @@ export function App() {
             }
           />
         )}
+        {runConfirmModal}
       </>
     );
   }
@@ -772,6 +777,9 @@ export function App() {
           }}
         />
       )}
+
+      {/* Pre-run cost confirmation modal (cloud/mixed mode only). */}
+      {runConfirmModal}
 
       {/* Dev-only TweaksPanel mount — gated to import.meta.env.DEV inside loader */}
       {tweaksOpen && (

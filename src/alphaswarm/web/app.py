@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 
 import structlog
@@ -16,19 +17,64 @@ from alphaswarm.config import AppSettings, generate_personas, load_bracket_confi
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
+from alphaswarm.web.replay_manager import ReplayManager
+from alphaswarm.web.routes.advisory import router as advisory_router
 from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
-from alphaswarm.web.routes.holdings import load_portfolio_snapshot, router as holdings_router
+from alphaswarm.web.routes.holdings import load_portfolio_snapshot
+from alphaswarm.web.routes.holdings import router as holdings_router
 from alphaswarm.web.routes.interview import router as interview_router
 from alphaswarm.web.routes.replay import router as replay_router
-from alphaswarm.web.routes.advisory import router as advisory_router
 from alphaswarm.web.routes.report import router as report_router
+from alphaswarm.web.routes.settings import router as settings_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
-from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.simulation_manager import SimulationManager, _auto_trigger_advisory
 
 log = structlog.get_logger(component="web.app")
+
+
+def make_session_clearer(app: FastAPI) -> Callable[[], None]:
+    """Return a synchronous on_start callback that closes interview providers before clearing.
+
+    Extracted as a module-level factory so tests can import and verify the
+    behaviour without standing up the full lifespan.  The returned callable is
+    safe to call from a sync context (SimulationManager.start does NOT await
+    on_start).  Each provider.aclose() is scheduled as a tracked
+    asyncio.create_task; strong references live on app.state._interview_close_tasks
+    so the GC cannot collect them before the event loop executes them.
+    OllamaProvider.aclose is a documented no-op — the close is harmless for the
+    local path.
+    """
+    def _clear_interview_sessions() -> None:
+        sessions: dict[str, object] = app.state.interview_sessions
+        close_tasks: set[asyncio.Task[None]] = getattr(
+            app.state, "_interview_close_tasks", set()
+        )
+        app.state._interview_close_tasks = close_tasks
+
+        async def _safe_close(provider: object) -> None:
+            try:
+                aclose = getattr(provider, "aclose", None)
+                if callable(aclose):
+                    await aclose()
+            except Exception:
+                log.warning("interview_provider_close_failed", provider=repr(provider))
+
+        for session in sessions.values():
+            provider = session.get("provider") if isinstance(session, dict) else None
+            if provider is not None:
+                task: asyncio.Task[None] = asyncio.create_task(
+                    _safe_close(provider),
+                    name="interview_provider_close",
+                )
+                close_tasks.add(task)
+                task.add_done_callback(close_tasks.discard)
+
+        sessions.clear()
+        log.info("interview_sessions_cleared")
+
+    return _clear_interview_sessions
 
 
 @asynccontextmanager
@@ -44,8 +90,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
-    # Per D-06 and review consensus: sessions stored as {agent_id: {"engine": InterviewEngine, "lock": asyncio.Lock}}
-    # Initialized before SimulationManager so the on_start lambda can reference app.state.interview_sessions.
+    # Per D-06 and review consensus: sessions stored as
+    # {agent_id: {"engine": InterviewEngine, "lock": asyncio.Lock}}
+    # Initialized before SimulationManager so the on_start lambda can reference
+    # app.state.interview_sessions.
     app.state.interview_sessions = {}
     # Phase 36 D-02: single task handle for in-progress report generation detection.
     app.state.report_task = None
@@ -64,7 +112,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     sim_manager = SimulationManager(
         app_state,
         brackets,
-        on_start=lambda: app.state.interview_sessions.clear(),
+        on_start=make_session_clearer(app),
         replay_manager=replay_manager,
         on_complete=lambda cycle_id: _auto_trigger_advisory(app, cycle_id),
     )
@@ -120,10 +168,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # loop calls state_store.snapshot() which may reference state that graph_manager
     # teardown would invalidate.
     broadcaster_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await broadcaster_task
-    except asyncio.CancelledError:
-        pass
 
     # Cancel and await any running simulation + report/advisory background
     # tasks BEFORE closing graph_manager, so no orphaned task is left
@@ -157,6 +203,7 @@ def create_app() -> FastAPI:
     app.include_router(holdings_router, prefix="/api")
     app.include_router(report_router, prefix="/api")
     app.include_router(advisory_router, prefix="/api")
+    app.include_router(settings_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
 
     # Serve Vue SPA production build as static files (D-02).

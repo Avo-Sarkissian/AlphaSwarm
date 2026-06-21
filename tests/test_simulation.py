@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
+from alphaswarm.config import AppSettings, BracketConfig
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -18,7 +18,6 @@ from alphaswarm.types import (
     SeedEvent,
     SignalType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -134,10 +133,16 @@ def mock_graph_manager() -> AsyncMock:
 
 @pytest.fixture()
 def mock_governor() -> AsyncMock:
-    """Mock ResourceGovernor with start_monitoring and stop_monitoring."""
+    """Mock ResourceGovernor with start_monitoring and stop_monitoring.
+
+    release() and report_wave_failures() are SYNC on the real ResourceGovernor,
+    so they are set as MagicMock (not AsyncMock) to avoid "coroutine never
+    awaited" RuntimeWarnings when the sim loop calls governor.release(...).
+    """
     gov = AsyncMock()
     gov.start_monitoring = AsyncMock()
     gov.stop_monitoring = AsyncMock()
+    gov.release = MagicMock()
     gov.report_wave_failures = MagicMock()
     return gov
 
@@ -294,8 +299,9 @@ async def test_run_round1_calls_ensure_clean_state_before_worker_load(
 
     # Track call order
     call_order: list[str] = []
-    mock_model_manager.ensure_clean_state.side_effect = lambda: call_order.append("ensure_clean_state")
-    original_load = mock_model_manager.load_model.side_effect
+    mock_model_manager.ensure_clean_state.side_effect = lambda: call_order.append(
+        "ensure_clean_state"
+    )
 
     async def track_load(model: str) -> None:
         call_order.append("load_model")
@@ -471,6 +477,201 @@ async def test_run_round1_result_agent_decisions_count_matches_personas(
     assert len(result.agent_decisions) == len(TEST_PERSONAS)
 
 
+# ---------------------------------------------------------------------------
+# Provider-injection tests for run_round1 and narrative generation (T15a)
+# ---------------------------------------------------------------------------
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_round1_routes_through_injected_worker_provider(
+    mock_inject: AsyncMock,
+    mock_dispatch: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """When worker_provider is injected, run_round1 routes Round 1 through it.
+
+    Verifies:
+    - provider.prepare() is called before dispatch_wave
+    - dispatch_wave receives the injected provider (not a locally-built OllamaProvider)
+    - provider.teardown() is called in the inner finally
+    - model_manager.load_model / unload_model are NOT called (cloud path)
+    """
+    from alphaswarm.inference.types import InferenceResult, ProviderRole
+    from alphaswarm.simulation import run_round1
+
+    call_log: list[str] = []
+
+    class FakeWorkerProvider:
+        role = ProviderRole.WORKER
+        model = "fake-cloud-worker"
+
+        def is_local(self) -> bool:
+            return False
+
+        async def prepare(self) -> None:
+            call_log.append("prepare")
+
+        async def teardown(self) -> None:
+            call_log.append("teardown")
+
+        async def chat(self, messages, **kwargs) -> InferenceResult:  # type: ignore[override]
+            return InferenceResult(content="{}", model="fake-cloud-worker")
+
+        async def aclose(self) -> None:
+            pass
+
+    fake_provider = FakeWorkerProvider()
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_round1(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        worker_provider=fake_provider,
+    )
+
+    # Injected provider lifecycle was called
+    assert call_log == ["prepare", "teardown"], (
+        f"Expected ['prepare', 'teardown'], got {call_log}"
+    )
+    # dispatch_wave received the injected provider
+    dispatch_call_provider = mock_dispatch.call_args.kwargs["provider"]
+    assert dispatch_call_provider is fake_provider, (
+        "dispatch_wave did not receive the injected worker_provider"
+    )
+    # model_manager load/unload NOT called (cloud provider manages its own lifecycle)
+    mock_model_manager.load_model.assert_not_awaited()
+    mock_model_manager.unload_model.assert_not_awaited()
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_round1_default_path_uses_model_manager(
+    mock_inject: AsyncMock,
+    mock_dispatch: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """When worker_provider=None (default), run_round1 uses model_manager load/unload.
+
+    This is the local path invariant: no change from pre-fix behavior.
+    """
+    from alphaswarm.simulation import run_round1
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_round1(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        # worker_provider not passed — default None (local path)
+    )
+
+    mock_model_manager.load_model.assert_awaited_with(
+        mock_settings.ollama.worker_model_alias
+    )
+    mock_model_manager.unload_model.assert_awaited_with(
+        mock_settings.ollama.worker_model_alias
+    )
+
+
+async def test_generate_decision_narratives_uses_injected_provider(
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """_generate_decision_narratives calls provider.chat(), not a hardcoded client.
+
+    Verifies that the narrative generation path routes through the injected
+    InferenceProvider and that the provider.chat() call receives messages
+    containing both the system prompt and user content.
+    """
+    from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
+    from alphaswarm.simulation import _generate_decision_narratives
+
+    chat_calls: list[list[InferenceMessage]] = []
+
+    class TrackingProvider:
+        role = ProviderRole.WORKER
+        model = "tracking-worker"
+
+        def is_local(self) -> bool:
+            return False
+
+        async def prepare(self) -> None:
+            pass
+
+        async def teardown(self) -> None:
+            pass
+
+        async def chat(self, messages: list[InferenceMessage], **kwargs) -> InferenceResult:  # type: ignore[override]
+            chat_calls.append(list(messages))
+            return InferenceResult(content="cloud narrative", model="tracking-worker")
+
+        async def aclose(self) -> None:
+            pass
+
+    persona = AgentPersona(
+        id="institutions_01",
+        name="Institutions 1",
+        bracket=BracketType.QUANTS,
+        risk_profile=0.3,
+        temperature=0.2,
+        system_prompt="test",
+        influence_weight_base=0.9,
+    )
+    all_decisions: dict[int, list[tuple[str, AgentDecision]]] = {
+        1: [
+            ("institutions_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, sentiment=0.5))
+        ],
+        2: [
+            ("institutions_01", AgentDecision(
+                signal=SignalType.BUY, confidence=0.85, sentiment=0.6
+            ))
+        ],
+        3: [
+            ("institutions_01", AgentDecision(
+                signal=SignalType.HOLD, confidence=0.6, sentiment=0.1
+            ))
+        ],
+    }
+
+    result = await _generate_decision_narratives(
+        personas=[persona],
+        all_decisions=all_decisions,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        provider=TrackingProvider(),
+    )
+
+    assert len(result) == 1
+    assert result[0]["agent_id"] == "institutions_01"
+    assert result[0]["narrative"] == "cloud narrative"
+    # provider.chat() was called with a messages list
+    assert len(chat_calls) == 1
+    messages = chat_calls[0]
+    roles = [m["role"] for m in messages]
+    assert "system" in roles, "System message missing from provider.chat() call"
+    assert "user" in roles, "User message missing from provider.chat() call"
+
+
 def test_round1_result_is_frozen() -> None:
     """Round1Result is a frozen dataclass with no redundant decisions field."""
     from alphaswarm.simulation import Round1Result
@@ -478,7 +679,9 @@ def test_round1_result_is_frozen() -> None:
     assert dataclasses.is_dataclass(Round1Result)
     field_names = {f.name for f in dataclasses.fields(Round1Result)}
     assert "agent_decisions" in field_names
-    assert "decisions" not in field_names, "Round1Result should not have a redundant 'decisions' field"
+    assert "decisions" not in field_names, (
+        "Round1Result should not have a redundant 'decisions' field"
+    )
 
     # Verify frozen
     result = Round1Result(
@@ -932,16 +1135,24 @@ def test_simulation_result_is_frozen() -> None:
 
 # Helper to build a Round1Result for mocking run_round1
 
-def _mock_round1_result() -> "Round1Result":
+def _mock_round1_result():
     from alphaswarm.simulation import Round1Result
     return Round1Result(
         cycle_id="test-cycle-id",
         parsed_result=MOCK_PARSED_RESULT,
         agent_decisions=[
-            ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="momentum confirms")),
-            ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.7, rationale="factors align")),
-            ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="fading the pump")),
-            ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.5, rationale="exit liquidity")),
+            ("quants_01", AgentDecision(
+                signal=SignalType.BUY, confidence=0.8, rationale="momentum confirms"
+            )),
+            ("quants_02", AgentDecision(
+                signal=SignalType.BUY, confidence=0.7, rationale="factors align"
+            )),
+            ("degens_01", AgentDecision(
+                signal=SignalType.SELL, confidence=0.6, rationale="fading the pump"
+            )),
+            ("degens_02", AgentDecision(
+                signal=SignalType.SELL, confidence=0.5, rationale="exit liquidity"
+            )),
         ],
         decision_ids=[],  # Phase 11: empty list OK -- no episodes pushed from empty zip
     )
@@ -949,7 +1160,7 @@ def _mock_round1_result() -> "Round1Result":
 
 # Helper to build a RoundDispatchResult for mocking _dispatch_round (Phase 11)
 
-def _mock_dispatch_result(personas: list | None = None) -> "RoundDispatchResult":
+def _mock_dispatch_result(personas: list | None = None):
     from alphaswarm.simulation import RoundDispatchResult
     p_list = personas if personas is not None else TEST_PERSONAS
     return RoundDispatchResult(
@@ -1351,7 +1562,6 @@ async def test_simulation_phase_transitions(
     mock_governor: AsyncMock,
 ) -> None:
     """Phase transitions are logged in correct order."""
-    import structlog
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -1359,7 +1569,6 @@ async def test_simulation_phase_transitions(
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     logged_phases: list[str] = []
-    original_logger = structlog.get_logger
 
     with patch("alphaswarm.simulation.logger") as mock_logger:
         # Capture phase transitions from structlog info calls
@@ -1638,11 +1847,13 @@ def test_compute_bracket_summaries_signal_counts() -> None:
     brackets = [
         BracketConfig(
             bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-            risk_profile=0.4, temperature=0.3, system_prompt_template="t", influence_weight_base=0.7,
+            risk_profile=0.4, temperature=0.3, system_prompt_template="t",
+            influence_weight_base=0.7,
         ),
         BracketConfig(
             bracket_type=BracketType.DEGENS, display_name="Degens", count=1,
-            risk_profile=0.9, temperature=1.2, system_prompt_template="t", influence_weight_base=0.3,
+            risk_profile=0.9, temperature=1.2, system_prompt_template="t",
+            influence_weight_base=0.3,
         ),
     ]
     result = compute_bracket_summaries(decisions, personas, brackets)
@@ -1676,7 +1887,8 @@ def test_compute_bracket_summaries_excludes_parse_error() -> None:
     brackets = [
         BracketConfig(
             bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-            risk_profile=0.4, temperature=0.3, system_prompt_template="t", influence_weight_base=0.7,
+            risk_profile=0.4, temperature=0.3, system_prompt_template="t",
+            influence_weight_base=0.7,
         ),
     ]
     result = compute_bracket_summaries(decisions, personas, brackets)
@@ -1706,7 +1918,8 @@ def test_compute_bracket_summaries_avg_confidence() -> None:
     brackets = [
         BracketConfig(
             bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-            risk_profile=0.4, temperature=0.3, system_prompt_template="t", influence_weight_base=0.7,
+            risk_profile=0.4, temperature=0.3, system_prompt_template="t",
+            influence_weight_base=0.7,
         ),
     ]
     result = compute_bracket_summaries(decisions, personas, brackets)
@@ -1792,12 +2005,30 @@ def test_select_diverse_peers_fills_by_weight() -> None:
     from alphaswarm.simulation import select_diverse_peers
 
     personas = [
-        AgentPersona(id="quants_00", name="Q0", bracket=BracketType.QUANTS, risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7),
-        AgentPersona(id="degens_00", name="D0", bracket=BracketType.DEGENS, risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3),
-        AgentPersona(id="macro_00", name="M0", bracket=BracketType.MACRO, risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5),
-        AgentPersona(id="quants_01", name="Q1", bracket=BracketType.QUANTS, risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7),
-        AgentPersona(id="quants_02", name="Q2", bracket=BracketType.QUANTS, risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7),
-        AgentPersona(id="degens_01", name="D1", bracket=BracketType.DEGENS, risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3),
+        AgentPersona(
+            id="quants_00", name="Q0", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="degens_00", name="D0", bracket=BracketType.DEGENS,
+            risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3,
+        ),
+        AgentPersona(
+            id="macro_00", name="M0", bracket=BracketType.MACRO,
+            risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5,
+        ),
+        AgentPersona(
+            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="degens_01", name="D1", bracket=BracketType.DEGENS,
+            risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3,
+        ),
     ]
     # quants_01 has very high weight, should be picked in Phase 2
     weights = {
@@ -1808,7 +2039,10 @@ def test_select_diverse_peers_fills_by_weight() -> None:
         "self_00",
         weights,
         personas + [
-            AgentPersona(id="self_00", name="Self", bracket=BracketType.ALLOCATORS, risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5),
+            AgentPersona(
+            id="self_00", name="Self", bracket=BracketType.ALLOCATORS,
+            risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5,
+        ),
         ],
         limit=5,
         min_brackets=3,
@@ -1912,6 +2146,7 @@ async def test_dispatch_round_uses_dynamic_peers(
 ) -> None:
     """_dispatch_round calls select_diverse_peers when influence_weights is non-empty."""
     from unittest.mock import patch as mock_patch
+
     from alphaswarm.simulation import _dispatch_round
 
     mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
@@ -2030,6 +2265,7 @@ async def test_run_simulation_flushes_write_buffer(
 ) -> None:
     """WriteBuffer.flush is called 3 times during run_simulation (once per round)."""
     from unittest.mock import patch as mock_patch
+
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -2078,7 +2314,8 @@ async def test_run_simulation_pushes_episode_records(
     mock_governor: AsyncMock,
 ) -> None:
     """EpisodeRecord objects pushed to WriteBuffer have round_num set correctly."""
-    from unittest.mock import call, patch as mock_patch
+    from unittest.mock import patch as mock_patch
+
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -2138,6 +2375,7 @@ async def test_run_simulation_pushes_episode_records(
     assert all(r.flip_type == "none" for r in r1_records)
 
 
+@patch("alphaswarm.simulation._generate_decision_narratives", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
@@ -2145,21 +2383,27 @@ async def test_run_simulation_narrative_generation_gated(
     mock_inject: AsyncMock,
     mock_round1: AsyncMock,
     mock_dispatch_wave: AsyncMock,
+    mock_narratives: AsyncMock,
     mock_settings: AppSettings,
     mock_ollama_client: MagicMock,
     mock_model_manager: AsyncMock,
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """Narrative generation is called when generate_narratives=True and skipped when False."""
-    from unittest.mock import patch as mock_patch
+    """Narrative generation is called when generate_narratives=True and skipped when False.
+
+    _generate_decision_narratives is patched to isolate the gating logic from
+    the provider abstraction (that path is covered by
+    test_generate_decision_narratives_produces_output).
+    """
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+    mock_narratives.return_value = []
 
-    # Test generate_narratives=False: write_decision_narratives NOT called
+    # Test generate_narratives=False: _generate_decision_narratives NOT called
     await run_simulation(
         rumor=MOCK_RUMOR,
         settings=mock_settings,
@@ -2171,13 +2415,12 @@ async def test_run_simulation_narrative_generation_gated(
         brackets=TEST_BRACKETS,
         generate_narratives=False,
     )
-    mock_graph_manager.write_decision_narratives.assert_not_awaited()
+    mock_narratives.assert_not_awaited()
 
     # Reset mock
-    mock_graph_manager.write_decision_narratives.reset_mock()
+    mock_narratives.reset_mock()
 
     # Test generate_narratives=True: _generate_decision_narratives IS called
-    # (mock_ollama_client.generate returns {"response": "test narrative"})
     await run_simulation(
         rumor=MOCK_RUMOR,
         settings=mock_settings,
@@ -2189,8 +2432,7 @@ async def test_run_simulation_narrative_generation_gated(
         brackets=TEST_BRACKETS,
         generate_narratives=True,
     )
-    # write_decision_narratives should be called (4 agents, all return narratives)
-    mock_graph_manager.write_decision_narratives.assert_awaited_once()
+    mock_narratives.assert_awaited_once()
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -2309,7 +2551,7 @@ async def test_run_simulation_peer_contexts_cite_round1_agents(
     # self is always excluded.
     r2_contexts = mock_dispatch_wave.await_args_list[0].kwargs["peer_contexts"]
     assert len(r2_contexts) == len(TEST_PERSONAS)
-    for persona, ctx in zip(TEST_PERSONAS, r2_contexts):
+    for persona, ctx in zip(TEST_PERSONAS, r2_contexts, strict=False):
         assert ctx is not None
         assert f"[{persona.id}|" not in ctx  # self-exclusion
         assert "[quants_01|" in ctx or "[degens_01|" in ctx
@@ -2468,7 +2710,8 @@ async def test_run_simulation_injects_shock_into_round2(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """consume_shock returning text before Round 2 augments that round's user_message and writes a ShockEvent."""
+    """consume_shock returning text before Round 2 augments that round's user_message
+    and writes a ShockEvent."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -2569,7 +2812,8 @@ async def test_run_simulation_no_shock_passthrough(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """consume_shock returning None for both rounds leaves user_message == rumor and skips write_shock_event."""
+    """consume_shock returning None for both rounds leaves user_message == rumor
+    and skips write_shock_event."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -2651,7 +2895,8 @@ async def test_run_simulation_default_consume_shock_is_none(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """Omitting consume_shock (default None) preserves legacy behavior: no shock, no write_shock_event."""
+    """Omitting consume_shock (default None) preserves legacy behavior:
+    no shock, no write_shock_event."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -2724,7 +2969,8 @@ async def test_run_round1_market_context_default_none(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """Calling run_round1 without market_context kwarg passes None to dispatch_wave (backward compat)."""
+    """Calling run_round1 without market_context kwarg passes None to dispatch_wave
+    (backward compat)."""
     from alphaswarm.simulation import run_round1
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -3419,29 +3665,45 @@ async def test_generate_decision_narratives_produces_output(
     """Regression for D-03: `_generate_decision_narratives` must return ≥1
     narrative dict for a happy-path single-agent fixture.
 
-    Pre-fix: simulation.py:1316 calls `client.generate(model=..., prompt=...,
-    system=...)` against a real `OllamaClient`. The wrapper signature does not
-    accept `system`, so every call raises TypeError, swallowed by the bare
-    `except Exception` at simulation.py:1325 — producing zero narratives.
+    Updated for provider abstraction: the function now accepts
+    `provider: InferenceProvider` instead of `client`/`model`. The test uses
+    a FakeInferenceProvider that returns a fixed InferenceResult so the test
+    does not require a real Ollama connection.
 
-    Post-fix: the wrapper accepts and forwards `system`, so this test produces
-    exactly one narrative.
-
-    To exercise the REAL OllamaClient signature (not bypass it via a Mock on
-    .generate), we construct a real OllamaClient and only mock the underlying
-    `_client.generate` from the ollama package.
-
-    Helper signature (simulation.py:1250):
+    Helper signature (simulation.py):
         _generate_decision_narratives(personas, all_decisions, graph_manager,
-                                      governor, client, model)
+                                      governor, provider)
     """
-    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
     from alphaswarm.simulation import _generate_decision_narratives
 
-    # Build a real OllamaClient and mock ONLY the underlying ollama AsyncClient.
-    real_client = OllamaClient(base_url="http://fake")
-    real_client._client = MagicMock()
-    real_client._client.generate = AsyncMock(return_value={"response": "test narrative"})
+    class FakeNarrativeProvider:
+        """Minimal InferenceProvider stub for narrative generation tests."""
+        role = ProviderRole.WORKER
+        model = "alphaswarm-worker"
+
+        def is_local(self) -> bool:
+            return True
+
+        async def prepare(self) -> None:
+            pass
+
+        async def teardown(self) -> None:
+            pass
+
+        async def chat(
+            self,
+            messages: list[InferenceMessage],
+            *,
+            response_schema: object = None,
+            json_mode: bool = False,
+            temperature: float | None = None,
+            max_tokens: int | None = None,
+        ) -> InferenceResult:
+            return InferenceResult(content="test narrative", model="alphaswarm-worker")
+
+        async def aclose(self) -> None:
+            pass
 
     persona = AgentPersona(
         id="quants_01",
@@ -3466,8 +3728,7 @@ async def test_generate_decision_narratives_produces_output(
         all_decisions=all_decisions,
         graph_manager=mock_graph_manager,
         governor=mock_governor,
-        client=real_client,
-        model="alphaswarm-worker",
+        provider=FakeNarrativeProvider(),
     )
 
     assert isinstance(result, list)
@@ -3478,12 +3739,6 @@ async def test_generate_decision_narratives_produces_output(
     first = result[0]
     assert first.get("agent_id") == "quants_01"
     assert first.get("narrative", "").strip() == "test narrative"
-    # Confirm the `system` kwarg reached the underlying ollama client.
-    real_client._client.generate.assert_awaited()
-    call_kwargs = real_client._client.generate.call_args.kwargs
-    assert call_kwargs.get("system"), (
-        f"system kwarg missing from underlying generate() call: {call_kwargs}"
-    )
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -3535,3 +3790,120 @@ async def test_run_simulation_writes_cycle_metrics(
         metrics["final_buy"] + metrics["final_sell"] + metrics["final_hold"]
         == len(TEST_PERSONAS) - metrics["r3_parse_errors"]
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 15a: Injected provider routing tests
+# ---------------------------------------------------------------------------
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_uses_injected_worker_provider(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """run_simulation routes waves through an injected worker_provider.
+
+    When worker_provider is supplied, dispatch_wave must receive that exact
+    provider object — NOT a freshly constructed OllamaProvider. prepare() and
+    teardown() must be called on the injected provider (not model_manager
+    load/unload directly).
+    """
+    from alphaswarm.simulation import run_simulation
+
+    # Build a minimal fake provider that satisfies the InferenceProvider protocol.
+    fake_worker = AsyncMock()
+    fake_worker.prepare = AsyncMock()
+    fake_worker.teardown = AsyncMock()
+    fake_worker.aclose = AsyncMock()
+    fake_worker.model = "fake-worker"
+    fake_worker.role = None  # not inspected by dispatch_wave
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        generate_narratives=False,
+        worker_provider=fake_worker,
+    )
+
+    # Every dispatch_wave call (Round 2 and Round 3) must use the injected provider.
+    assert mock_dispatch_wave.await_count == 2
+    for call in mock_dispatch_wave.await_args_list:
+        assert call.kwargs["provider"] is fake_worker, (
+            "dispatch_wave must receive the injected worker_provider, "
+            f"got: {call.kwargs.get('provider')!r}"
+        )
+
+    # prepare() and teardown() are called on the injected worker, not model_manager directly.
+    fake_worker.prepare.assert_awaited_once()
+    fake_worker.teardown.assert_awaited_once()
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_default_path_builds_ollama_providers(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Default path (no injected providers) builds OllamaProvider for each role.
+
+    When worker_provider and orchestrator_provider are both None, run_simulation
+    must build local OllamaProviders — and the model_manager lifecycle calls
+    (load/unload via prepare/teardown) must still happen exactly as before.
+    """
+    from alphaswarm.inference.ollama_provider import OllamaProvider
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        generate_narratives=False,
+        # No orchestrator_provider / worker_provider — default local path.
+    )
+
+    # dispatch_wave must receive an OllamaProvider (not some other type).
+    assert mock_dispatch_wave.await_count == 2
+    for call in mock_dispatch_wave.await_args_list:
+        provider = call.kwargs["provider"]
+        assert isinstance(provider, OllamaProvider), (
+            f"Default path must dispatch with OllamaProvider, got {type(provider)!r}"
+        )
+
+    # model_manager lifecycle: load_model and unload_model called via prepare/teardown.
+    mock_model_manager.load_model.assert_awaited_once()
+    mock_model_manager.unload_model.assert_awaited_once()
