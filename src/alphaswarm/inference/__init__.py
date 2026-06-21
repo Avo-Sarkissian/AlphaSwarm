@@ -13,10 +13,12 @@ Public surface:
 
 from __future__ import annotations
 
+from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
 
 __all__ = [
     "InferenceMessage",
+    "InferenceProvider",
     "InferenceResult",
     "ProviderRole",
 ]

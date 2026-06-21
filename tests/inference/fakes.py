@@ -41,7 +41,12 @@ class FakeInferenceProvider:
     ) -> None:
         self.role = role
         self.model = model
-        self._scripted = list(scripted) if isinstance(scripted, list) else scripted
+        if isinstance(scripted, list):
+            self._scripted_list: list[InferenceResult] | None = list(scripted)
+            self._scripted_fn: Callable[..., InferenceResult] | None = None
+        else:
+            self._scripted_list = None
+            self._scripted_fn = scripted
         self._is_local = is_local
         self.calls: list[dict[str, Any]] = []
 
@@ -85,8 +90,8 @@ class FakeInferenceProvider:
             }
         )
 
-        if callable(self._scripted):
-            return self._scripted(
+        if self._scripted_fn is not None:
+            return self._scripted_fn(
                 messages=messages,
                 response_schema=response_schema,
                 json_mode=json_mode,
@@ -94,11 +99,11 @@ class FakeInferenceProvider:
                 max_tokens=max_tokens,
             )
 
-        # List path — scripted is a list at this point
-        scripted_list: list[InferenceResult] = self._scripted  # type: ignore[assignment]
-        if not scripted_list:
+        # List path
+        assert self._scripted_list is not None  # guaranteed by __init__
+        if not self._scripted_list:
             raise AssertionError(
                 f"FakeInferenceProvider({self.model!r}) scripted results exhausted "
                 f"on call #{len(self.calls)}"
             )
-        return scripted_list.pop(0)
+        return self._scripted_list.pop(0)
