@@ -19,6 +19,7 @@ Public surface:
 
 from __future__ import annotations
 
+from alphaswarm.inference.anthropic_provider import AnthropicProvider
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.schema import (
@@ -30,6 +31,7 @@ from alphaswarm.inference.schema import (
 from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
 
 __all__ = [
+    "AnthropicProvider",
     "InferenceMessage",
     "InferenceProvider",
     "InferenceResult",
