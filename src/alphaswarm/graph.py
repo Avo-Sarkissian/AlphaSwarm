@@ -1414,7 +1414,7 @@ class GraphStateManager:
                  END AS bracket_majority
             UNWIND agents AS ag
             WITH bracket, bracket_majority, ag
-            WHERE ag.signal <> bracket_majority
+            WHERE toUpper(ag.signal) <> bracket_majority
             RETURN
                 ag.agent_id AS agent_id,
                 ag.name AS name,
@@ -1510,15 +1510,15 @@ class GraphStateManager:
             """
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
             MATCH (d)-[:HAS_EPISODE]->(re:RationaleEpisode)
-            WHERE re.flip_type <> 'NONE'
+            WHERE re.flip_type <> 'none'
             RETURN
                 a.id AS agent_id,
                 a.name AS name,
                 a.bracket AS bracket,
-                re.round_num AS round_num,
+                re.round AS round_num,
                 re.flip_type AS flip_type,
                 d.signal AS final_signal
-            ORDER BY re.round_num, a.bracket
+            ORDER BY re.round, a.bracket
             """,
             cycle_id=cycle_id,
         )
@@ -1810,13 +1810,17 @@ class GraphStateManager:
             if r["pivoted"]
         ]
 
-        # Per-bracket signal counters for pre and post rounds
+        # Per-bracket signal counters for pre and post rounds.
+        # Signals are stored lowercase ('buy'/'sell'/'hold'); normalize to
+        # uppercase here so the uppercase comparison keys in _majority and the
+        # pre_c/post_c[...] lookups below match. pivot_agents above intentionally
+        # keeps the raw r["pre_signal"]/r["post_signal"] for display.
         pre_by_bracket: dict[str, list[str]] = defaultdict(list)
         post_by_bracket: dict[str, list[str]] = defaultdict(list)
         for r in rows:
             bracket = r["bracket"]
-            pre_by_bracket[bracket].append(r["pre_signal"])
-            post_by_bracket[bracket].append(r["post_signal"])
+            pre_by_bracket[bracket].append((r["pre_signal"] or "").upper())
+            post_by_bracket[bracket].append((r["post_signal"] or "").upper())
 
         def _majority(signals: list[str]) -> str:
             """Tie-break: BUY > SELL > HOLD."""
