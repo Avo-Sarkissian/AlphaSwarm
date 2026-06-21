@@ -323,14 +323,14 @@ class OpenAICompatProvider:
         except (ValueError, TypeError):
             pass
         try:
-            from datetime import datetime, timezone
+            from datetime import UTC, datetime
             from email.utils import parsedate_to_datetime
 
             dt = parsedate_to_datetime(raw)
             if dt is not None:
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                delay = (dt - datetime.now(timezone.utc)).total_seconds()
+                    dt = dt.replace(tzinfo=UTC)
+                delay = (dt - datetime.now(UTC)).total_seconds()
                 return max(0.0, min(delay, 60.0))  # clamp pathological values
         except (ValueError, TypeError):
             pass
