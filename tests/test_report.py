@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.report import MAX_ITERATIONS, _parse_action_input
+from tests.inference.fakes import FakeInferenceProvider
 
 
 # ---------------------------------------------------------------------------
@@ -14,11 +16,15 @@ from alphaswarm.report import MAX_ITERATIONS, _parse_action_input
 # ---------------------------------------------------------------------------
 
 
-def _mock_ollama_response(content: str) -> MagicMock:
-    """Create a mock OllamaClient response with the given message content."""
-    mock_resp = MagicMock()
-    mock_resp.message.content = content
-    return mock_resp
+def _make_provider(content: str | list[str]) -> FakeInferenceProvider:
+    """Create a FakeInferenceProvider scripted with one or more responses."""
+    if isinstance(content, str):
+        scripted = [InferenceResult(content=content, model="test")]
+    else:
+        scripted = [InferenceResult(content=c, model="test") for c in content]
+    return FakeInferenceProvider(
+        role=ProviderRole.ORCHESTRATOR, model="test", scripted=scripted,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -76,62 +82,63 @@ class TestReportEngine:
         from alphaswarm.report import ReportEngine
 
         mock_tool = AsyncMock(return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100})
-        mock_client = AsyncMock()
-        mock_client.chat = AsyncMock(return_value=_mock_ollama_response(
-            "THOUGHT: Done\nACTION: FINAL_ANSWER\nINPUT: {}"
-        ))
+        provider = _make_provider("THOUGHT: Done\nACTION: FINAL_ANSWER\nINPUT: {}")
 
         engine = ReportEngine(
-            ollama_client=mock_client,
-            model="test",
+            provider=provider,
             tools={"bracket_summary": mock_tool},
         )
         result = await engine.run("cycle1")
 
         # FINAL_ANSWER produces no observation
         assert result == []
-        # Chat called once
-        assert mock_client.chat.call_count == 1
+        # Provider called once
+        assert len(provider.calls) == 1
 
     async def test_hard_cap_termination(self) -> None:
         """Engine exits at MAX_ITERATIONS when no FINAL_ANSWER."""
         from alphaswarm.report import ReportEngine
 
         mock_tool = AsyncMock(return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100})
-        mock_client = AsyncMock()
 
         # Return incrementing inputs to avoid duplicate detection
-        def make_response(i: int) -> MagicMock:
-            return _mock_ollama_response(
-                f'ACTION: bracket_summary\nINPUT: {{"cycle_id": "abc", "n": {i}}}'
+        scripted = [
+            InferenceResult(
+                content=f'ACTION: bracket_summary\nINPUT: {{"cycle_id": "abc", "n": {i}}}',
+                model="test",
             )
-
-        mock_client.chat = AsyncMock(side_effect=[make_response(i) for i in range(MAX_ITERATIONS + 5)])
+            for i in range(MAX_ITERATIONS + 5)
+        ]
+        provider = FakeInferenceProvider(
+            role=ProviderRole.ORCHESTRATOR, model="test", scripted=scripted,
+        )
 
         engine = ReportEngine(
-            ollama_client=mock_client,
-            model="test",
+            provider=provider,
             tools={"bracket_summary": mock_tool},
         )
         result = await engine.run("cycle1")
 
         assert len(result) == MAX_ITERATIONS
-        assert mock_client.chat.call_count == MAX_ITERATIONS
+        assert len(provider.calls) == MAX_ITERATIONS
 
     async def test_duplicate_call_terminates(self) -> None:
         """Engine exits on duplicate (tool, input) pair after 1 successful call."""
         from alphaswarm.report import ReportEngine
 
         mock_tool = AsyncMock(return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100})
-        mock_client = AsyncMock()
-        # Always return the same response -> duplicate on second call
-        mock_client.chat = AsyncMock(return_value=_mock_ollama_response(
-            'ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}'
-        ))
+
+        # Scripted with the same response twice to trigger duplicate detection
+        scripted = [
+            InferenceResult(content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}', model="test"),
+            InferenceResult(content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}', model="test"),
+        ]
+        provider = FakeInferenceProvider(
+            role=ProviderRole.ORCHESTRATOR, model="test", scripted=scripted,
+        )
 
         engine = ReportEngine(
-            ollama_client=mock_client,
-            model="test",
+            provider=provider,
             tools={"bracket_summary": mock_tool},
         )
         result = await engine.run("cycle1")
@@ -139,7 +146,7 @@ class TestReportEngine:
         # First call succeeds, second is duplicate -> exit
         assert len(result) == 1
         # First call dispatched, second detected as duplicate
-        assert mock_client.chat.call_count == 2
+        assert len(provider.calls) == 2
 
 
 # ---------------------------------------------------------------------------

@@ -28,6 +28,8 @@ import structlog
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel
 
+from alphaswarm.inference.ollama_provider import OllamaProvider
+from alphaswarm.inference.types import ProviderRole
 from alphaswarm.report import (
     ReportAssembler,
     ReportEngine,
@@ -298,8 +300,8 @@ def _on_report_task_done(
 async def _run_report_generation(app_state: "AppState", cycle_id: str) -> None:
     """Background task — mirrors cli.py _handle_report sequence exactly (D-03).
 
-    Sequence: load_model -> ReportEngine.run -> ReportAssembler.assemble ->
-    write_report -> write_sentinel. Orchestrator unload happens in finally
+    Sequence: provider.prepare -> ReportEngine.run -> ReportAssembler.assemble ->
+    write_report -> write_sentinel. provider.teardown happens in finally
     even when generation raises (prevents leaked model lock).
 
     Preconditions: the POST handler has already validated that graph_manager,
@@ -320,8 +322,15 @@ async def _run_report_generation(app_state: "AppState", cycle_id: str) -> None:
     assert gm is not None, "graph_manager must be set (POST guard enforces this)"
     assert ollama_client is not None, "ollama_client must be set (POST guard enforces this)"
 
+    provider = OllamaProvider(
+        role=ProviderRole.ORCHESTRATOR,
+        model_tag=orchestrator,
+        client=ollama_client,
+        model_manager=model_manager,
+    )
+
     try:
-        await model_manager.load_model(orchestrator)
+        await provider.prepare()
 
         # Exact tool registry from cli.py:716-725 (D-03: mirror CLI behavior).
         tools: dict[str, object] = {
@@ -366,8 +375,7 @@ async def _run_report_generation(app_state: "AppState", cycle_id: str) -> None:
             ]
 
         engine = ReportEngine(
-            ollama_client=ollama_client,
-            model=orchestrator,
+            provider=provider,
             tools=tools,  # type: ignore[arg-type]
             pre_seeded_observations=pre_seeded,
         )
@@ -390,6 +398,6 @@ async def _run_report_generation(app_state: "AppState", cycle_id: str) -> None:
         raise
     finally:
         try:
-            await model_manager.unload_model(orchestrator)
+            await provider.teardown()
         except Exception:
             log.warning("orchestrator_unload_failed", cycle_id=cycle_id)

@@ -655,6 +655,8 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     from pathlib import Path
 
     from alphaswarm.app import create_app_state
+    from alphaswarm.inference.ollama_provider import OllamaProvider
+    from alphaswarm.inference.types import ProviderRole
     from alphaswarm.report import (
         ReportAssembler,
         ReportEngine,
@@ -673,6 +675,15 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     assert app.model_manager is not None
     assert app.graph_manager is not None
 
+    # Build orchestrator provider before try/finally so teardown is always safe.
+    orchestrator = settings.ollama.orchestrator_model_alias
+    orch_provider = OllamaProvider(
+        role=ProviderRole.ORCHESTRATOR,
+        model_tag=orchestrator,
+        client=app.ollama_client,
+        model_manager=app.model_manager,
+    )
+
     try:
         # Resolve cycle_id: default to most recent if not provided
         if cycle_id is None:
@@ -686,9 +697,8 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
             "Do not run concurrently with simulations or interviews."
         )
 
-        # Load orchestrator model (per D-12, follows seed.py pattern)
-        orchestrator = settings.ollama.orchestrator_model_alias
-        await app.model_manager.load_model(orchestrator)
+        # Prepare (load) orchestrator model (per D-12, follows seed.py pattern)
+        await orch_provider.prepare()
 
         # Build tool registry: map 8 tool names -> bound graph_manager methods
         gm = app.graph_manager
@@ -711,8 +721,7 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
         # Run ReACT engine
         engine = ReportEngine(
-            ollama_client=app.ollama_client,
-            model=orchestrator,
+            provider=orch_provider,
             tools=tools,  # type: ignore[arg-type]
             pre_seeded_observations=pre_seeded or None,
         )
@@ -732,12 +741,11 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
         print(f"Report generated: {output_path}")
 
     finally:
-        # Unload orchestrator model + close graph manager (follows seed.py pattern)
-        if app.model_manager is not None:
-            try:
-                await app.model_manager.unload_model(settings.ollama.orchestrator_model_alias)
-            except Exception:
-                pass
+        # Teardown orchestrator provider + close graph manager (follows seed.py pattern)
+        try:
+            await orch_provider.teardown()
+        except Exception:
+            pass
         if app.graph_manager is not None:
             await app.graph_manager.close()
 

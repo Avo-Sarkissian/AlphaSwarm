@@ -14,7 +14,8 @@ import structlog
 from jinja2 import Environment, FileSystemLoader
 
 if TYPE_CHECKING:
-    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.inference.provider import InferenceProvider
+    from alphaswarm.inference.types import InferenceMessage
 
 log = structlog.get_logger(component="report")
 
@@ -120,14 +121,12 @@ class ReportEngine:
 
     def __init__(
         self,
-        ollama_client: OllamaClient,
-        model: str,
+        provider: "InferenceProvider",
         tools: dict[str, Callable],  # type: ignore[type-arg]
         *,
         pre_seeded_observations: list[ToolObservation] | None = None,
     ) -> None:
-        self._client = ollama_client
-        self._model = model
+        self._provider = provider
         self._tools = tools
         self._pre_seeded: list[ToolObservation] = list(pre_seeded_observations or [])
         self._log = structlog.get_logger(component="report")
@@ -144,7 +143,7 @@ class ReportEngine:
         observations: list[ToolObservation] = list(self._pre_seeded)
         seen_calls: set[tuple[str, str]] = set()
 
-        messages: list[dict[str, str]] = [
+        messages: list["InferenceMessage"] = [
             {"role": "system", "content": REACT_SYSTEM_PROMPT},
             {
                 "role": "user",
@@ -156,10 +155,8 @@ class ReportEngine:
         ]
 
         for iteration in range(MAX_ITERATIONS):
-            response = await self._client.chat(
-                model=self._model, messages=messages, think=False,
-            )
-            content = response.message.content or ""
+            result = await self._provider.chat(messages)
+            content = result.content or ""
             messages.append({"role": "assistant", "content": content})
 
             # Parse ACTION/INPUT block (D-01)

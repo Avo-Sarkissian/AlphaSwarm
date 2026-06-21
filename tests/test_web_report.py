@@ -280,9 +280,9 @@ def test_generate_report_400_invalid_cycle_id() -> None:
 async def test_report_generation_pipeline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_run_report_generation runs the exact CLI sequence:
-    load_model -> engine.run -> assembler.assemble -> write_report -> write_sentinel
-    -> unload_model. Mirrors cli.py _handle_report (D-03).
+    """_run_report_generation runs the exact sequence:
+    provider.prepare (load_model) -> engine.run -> assembler.assemble ->
+    write_report -> write_sentinel -> provider.teardown (unload_model). Mirrors cli.py _handle_report (D-03).
     """
     monkeypatch.chdir(tmp_path)
     from alphaswarm.web.routes import report as report_module
