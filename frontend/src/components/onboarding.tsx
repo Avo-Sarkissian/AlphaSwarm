@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { Icon } from './icons';
 import { apiFetch, ApiError } from '../api/client';
 import { simStart } from '../api/simulation';
+import { useRunGate } from '../hooks/useRunGate';
 
 interface HealthResponse {
   status: string;
@@ -141,6 +142,12 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
 
+  // Run gate: handles cost confirmation for cloud/mixed runs before simStart.
+  const { requestRun, modal: runConfirmModal } = useRunGate(async (s: string) => {
+    await simStart(s);
+    onComplete(s);
+  });
+
   useEffect(() => {
     let cancelled = false;
     apiFetch<HealthResponse>('/api/health')
@@ -176,10 +183,10 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
     setBusy(true);
     setRunError(null);
     try {
-      await simStart(trimmed);
-      onComplete(trimmed);
+      await requestRun(trimmed);
     } catch (e) {
       setRunError(e instanceof Error ? e.message : String(e));
+    } finally {
       setBusy(false);
     }
   };
@@ -253,6 +260,7 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
           </button>
         </div>
       </div>
+      {runConfirmModal}
     </div>
   );
 }
