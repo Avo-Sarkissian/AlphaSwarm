@@ -265,7 +265,6 @@ class OpenAICompatProvider:
                 )
 
             if resp.status_code >= 500:
-                last_error = None
                 if attempt < self._max_retries:
                     await asyncio.sleep(2**attempt)
                     continue

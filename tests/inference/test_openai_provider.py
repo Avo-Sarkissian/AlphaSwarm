@@ -103,9 +103,20 @@ async def test_teardown_noop() -> None:
 
 @pytest.mark.asyncio
 async def test_aclose_does_not_raise_for_injected_client() -> None:
-    """aclose() must not raise when using an injected client."""
-    p = _make_provider(lambda req: _200("hi"))
-    await p.aclose()  # must not raise
+    """aclose() must not raise or close an injected client.
+
+    Lifecycle ownership stays with the caller — the provider must leave the
+    injected httpx.AsyncClient open after aclose().
+    """
+    injected_client = httpx.AsyncClient(transport=httpx.MockTransport(lambda req: _200("hi")))
+    p = OpenAICompatProvider(
+        ProviderRole.ORCHESTRATOR,
+        "gpt-4o",
+        **_PROVIDER_KWARGS,
+        client=injected_client,
+    )
+    await p.aclose()
+    assert not injected_client.is_closed, "injected client must not be closed by aclose()"
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +335,71 @@ async def test_400_not_schema_related_raises_inference_error() -> None:
     )
     with pytest.raises(InferenceError):
         await p.chat(_MSG, response_schema=_SCHEMA)
+
+
+@pytest.mark.asyncio
+async def test_strict_downgrade_inner_retry_transport_error_raises_inference_error() -> None:
+    """Strict-downgrade inner retry hitting a transport error → InferenceError (not raw httpx).
+
+    Scenario:
+      - First POST returns 400 indicating json_schema/response_format unsupported.
+      - Second POST (json_object fallback) raises httpx.ConnectError (a TransportError).
+    Expected: InferenceError is raised — not a bare httpx exception, not an infinite loop.
+    """
+    call_count: list[int] = [0]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return httpx.Response(
+                400,
+                json={"error": {"message": "response_format json_schema not supported"}},
+            )
+        # Second call — raise a transport-level error instead of returning a response
+        raise httpx.ConnectError("Connection refused")
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport)
+    p = OpenAICompatProvider(
+        ProviderRole.ORCHESTRATOR,
+        "gpt-4o",
+        **_PROVIDER_KWARGS,
+        max_retries=3,
+        client=client,
+    )
+
+    with pytest.raises(InferenceError):
+        await p.chat(_MSG, response_schema=_SCHEMA)
+
+    # Exactly 2 calls: the 400 and the transport-error retry
+    assert call_count[0] == 2
+
+
+# ---------------------------------------------------------------------------
+# response_format precedence: response_schema + json_mode=True → json_schema wins
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_response_schema_wins_over_json_mode_when_strict_enabled() -> None:
+    """When both response_schema and json_mode=True are passed (and _no_strict=False),
+    the strict json_schema response_format takes precedence — json_mode is ignored.
+    """
+    captured: list[dict[str, Any]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(req.content))
+        return _200('{"signal":"sell"}')
+
+    p = _make_provider(handler)
+    # Both flags set; _no_strict is False by default
+    await p.chat(_MSG, response_schema=_SCHEMA, json_mode=True)
+
+    assert captured, "no request captured"
+    rf = captured[0].get("response_format", {})
+    assert rf.get("type") == "json_schema", (
+        f"expected json_schema (strict wins), got {rf.get('type')!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
