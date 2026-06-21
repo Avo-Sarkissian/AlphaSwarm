@@ -19,6 +19,7 @@ Public surface:
 
 from __future__ import annotations
 
+from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.schema import (
     extract_anthropic_tool_json,
@@ -32,6 +33,7 @@ __all__ = [
     "InferenceMessage",
     "InferenceProvider",
     "InferenceResult",
+    "OpenAICompatProvider",
     "ProviderRole",
     "extract_anthropic_tool_json",
     "to_anthropic_tool",
