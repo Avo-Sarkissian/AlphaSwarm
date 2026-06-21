@@ -70,6 +70,29 @@ class TestTokenPool:
         assert pool.current_limit == 6
         assert pool.available == 6
 
+    async def test_grow_pays_down_debt_no_over_permit(self) -> None:
+        """F-04: crisis-recovery grow must cancel outstanding debt before adding
+        free tokens, so in-flight inferences can never exceed current_limit."""
+        pool = TokenPool(8)
+        for _ in range(8):  # all 8 checked out (memory crisis regime)
+            await pool.acquire()
+        pool.shrink(7)  # crisis shrink to 1; 7 tokens still checked out -> debt
+        assert pool.debt == 7
+        assert pool.current_limit == 1
+
+        pool.grow(7)  # recovery back to baseline
+        # Debt is fully repaid and NO phantom free tokens were added while the
+        # original 8 inferences are still running.
+        assert pool.debt == 0
+        assert pool.available == 0
+        assert pool.current_limit == 8
+
+        # When the 8 originals release, capacity returns to exactly 8 — never more.
+        for _ in range(8):
+            pool.release()
+        assert pool.available == 8
+        assert pool.debt == 0
+
     async def test_shrink_removes_free_tokens(self) -> None:
         pool = TokenPool(4)
         removed = pool.shrink(2)

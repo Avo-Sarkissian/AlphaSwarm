@@ -79,8 +79,19 @@ class TokenPool:
             self._pool.put_nowait(True)
 
     def grow(self, amount: int) -> None:
-        """Add tokens to the pool, increasing current_limit."""
-        for _ in range(amount):
+        """Add tokens to the pool, increasing current_limit.
+
+        Outstanding debt (recorded by shrink() while tokens were checked out)
+        is paid down FIRST: each unit of ``amount`` that cancels debt restores
+        capacity already backed by a still-running checked-out inference, so
+        only the remainder becomes new free tokens. Without this, a grow during
+        crisis recovery would add ``amount`` free tokens on top of ``debt``
+        still-checked-out tokens, letting in-flight inferences exceed
+        current_limit and defeating the memory throttle at the worst moment (F-04).
+        """
+        to_pay = min(amount, self._debt)
+        self._debt -= to_pay
+        for _ in range(amount - to_pay):
             self._pool.put_nowait(True)
         self._current_limit += amount
 
@@ -332,12 +343,26 @@ class ResourceGovernor:
                 # healthy run never transitions, which left the UI's PARALLEL
                 # SLOTS tile stuck at 0/16 for the whole simulation. Double
                 # emit on transition iterations is harmless (last write wins).
-                self._emit_metrics(reading)
+                # An observability failure must NEVER kill monitoring (F-21).
+                try:
+                    self._emit_metrics(reading)
+                except Exception:
+                    log.warning("governor_emit_metrics_failed", exc_info=True)
                 await asyncio.sleep(self._settings.check_interval_seconds)
         except asyncio.CancelledError:
             return
         except GovernorCrisisError:
             raise
+        except Exception as exc:
+            # An unexpected failure (e.g. in read_combined or the state machine)
+            # would otherwise silently terminate the monitor task, freezing the
+            # pool limit and disabling all further throttling for the round
+            # while in-flight agents keep running (F-21). Convert it into a
+            # deterministic abort so _check_monitor_alive fails fast instead.
+            log.error("governor_monitor_loop_failed", exc_info=True)
+            raise GovernorCrisisError(
+                f"Memory monitor loop terminated unexpectedly: {exc}"
+            ) from exc
 
     async def _apply_state_transition(self, reading: MemoryReading) -> None:
         """State machine transition logic.
