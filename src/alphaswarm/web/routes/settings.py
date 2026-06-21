@@ -18,6 +18,7 @@ from pydantic import BaseModel, ValidationError
 
 from alphaswarm.config import (
     InferenceConfig,
+    ProviderType,
     RoleConfig,
     load_inference_config,
     masked_config,
@@ -56,6 +57,105 @@ _KNOWN_API_MODELS: list[str] = list(
     dict.fromkeys(list(DEFAULT_PRICING.keys()) + _EXTRA_KNOWN_API_MODELS)
 )
 
+# ---------------------------------------------------------------------------
+# Provider presets
+# ---------------------------------------------------------------------------
+
+# One-click provider configurations for the settings UI.
+#
+# IMPORTANT: model IDs listed here are EXAMPLES only — provider catalogs
+# change frequently.  Users can type any model ID that the provider supports;
+# these lists are illustrative starting points, not authoritative catalogs.
+#
+# Each entry:
+#   label    — human-readable name shown in the UI dropdown
+#   provider — must be a valid ProviderType value
+#   base_url — API root URL (None for providers that don't need one, e.g. Anthropic)
+#   models   — representative model IDs for that provider
+
+
+class ProviderPreset(BaseModel):
+    """A single provider preset for the settings UI."""
+
+    label: str
+    provider: str  # ProviderType value string
+    base_url: str | None
+    models: list[str]
+
+
+PROVIDER_PRESETS: list[ProviderPreset] = [
+    ProviderPreset(
+        label="OpenRouter",
+        provider=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://openrouter.ai/api/v1",
+        models=[
+            "google/gemini-2.5-flash",
+            "google/gemini-2.5-pro",
+            "nvidia/llama-3.1-nemotron-70b-instruct",
+            "anthropic/claude-3.5-sonnet",
+            "meta-llama/llama-3.3-70b-instruct",
+        ],
+    ),
+    ProviderPreset(
+        label="Google Gemini",
+        provider=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        models=[
+            "gemini-2.0-flash",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+        ],
+    ),
+    ProviderPreset(
+        label="NVIDIA NIM",
+        provider=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://integrate.api.nvidia.com/v1",
+        models=[
+            "nvidia/llama-3.1-nemotron-70b-instruct",
+        ],
+    ),
+    ProviderPreset(
+        label="Groq",
+        provider=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://api.groq.com/openai/v1",
+        models=[
+            "llama-3.3-70b-versatile",
+        ],
+    ),
+    ProviderPreset(
+        label="Together AI",
+        provider=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://api.together.xyz/v1",
+        models=[
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        ],
+    ),
+    ProviderPreset(
+        label="OpenAI",
+        provider=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://api.openai.com/v1",
+        models=[
+            "gpt-4o",
+            "gpt-4o-mini",
+        ],
+    ),
+    ProviderPreset(
+        label="Anthropic",
+        provider=ProviderType.ANTHROPIC,
+        base_url=None,
+        models=[
+            "claude-3-5-sonnet-latest",
+            "claude-3-5-haiku-latest",
+        ],
+    ),
+    ProviderPreset(
+        label="Local (Ollama)",
+        provider=ProviderType.OLLAMA,
+        base_url="http://localhost:11434",
+        models=[],
+    ),
+]
+
 
 # ---------------------------------------------------------------------------
 # Response models
@@ -69,6 +169,7 @@ class SettingsResponse(BaseModel):
     mode: Literal["local", "cloud", "mixed"]
     available_local_models: list[str]
     known_api_models: list[str]
+    provider_presets: list[ProviderPreset]
 
 
 class SettingsUpdateResponse(BaseModel):
@@ -174,6 +275,7 @@ async def get_settings(request: Request) -> SettingsResponse:
         mode=inference_mode(cfg),
         available_local_models=available,
         known_api_models=_KNOWN_API_MODELS,
+        provider_presets=PROVIDER_PRESETS,
     )
 
 
