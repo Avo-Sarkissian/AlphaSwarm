@@ -3,6 +3,7 @@ __pycache__/
 .env
 results/
 .DS_Store
+.secrets/
 *.vue.js
 frontend/tsconfig.*.tsbuildinfo
 Schwab/

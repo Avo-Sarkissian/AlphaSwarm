@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import unicodedata
+from decimal import Decimal
+from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from pydantic import BaseModel, Field
@@ -71,6 +73,160 @@ class GovernorSettings(BaseModel):
     batch_failure_threshold_percent: float = Field(default=20.0, ge=5.0, le=50.0)
     jitter_min_seconds: float = Field(default=0.5, ge=0.0, le=2.0)
     jitter_max_seconds: float = Field(default=1.5, ge=0.5, le=5.0)
+
+
+# ---------------------------------------------------------------------------
+# Inference provider configuration (runtime-mutable, persisted as JSON)
+# ---------------------------------------------------------------------------
+
+
+class ProviderType(str, Enum):
+    """Which inference backend to use for a role.
+
+    Distinct from ProviderRole (which slot — orchestrator/worker).
+    This is a config-layer concept: which backend implementation to use.
+    """
+
+    OLLAMA = "ollama"
+    OPENAI_COMPATIBLE = "openai_compatible"
+    ANTHROPIC = "anthropic"
+
+
+class RoleConfig(BaseModel):
+    """Per-role inference backend configuration."""
+
+    provider: ProviderType
+    model: str
+    base_url: str | None = None
+    api_key: str | None = None
+
+
+class ProviderLimits(BaseModel):
+    """Rate and concurrency limits for a provider backend."""
+
+    requests_per_min: int | None = None
+    tokens_per_min: int | None = None
+    max_in_flight: int = 24  # concurrency cap for the cloud path
+
+
+class ModelPrice(BaseModel):
+    """USD pricing for a specific model (cost-accounting / budget enforcement)."""
+
+    input_per_mtok: Decimal  # USD per 1M input tokens
+    output_per_mtok: Decimal  # USD per 1M output tokens
+
+
+class InferenceConfig(BaseModel):
+    """Runtime-mutable inference configuration.
+
+    Persisted at INFERENCE_CONFIG_PATH as JSON (pydantic v2 model_dump_json /
+    model_validate_json). The file is gitignored via .secrets/.
+
+    Note: spec originally mentioned TOML; JSON was chosen for robust Decimal
+    round-trip support via pydantic v2 without an extra dependency.
+    """
+
+    orchestrator: RoleConfig
+    worker: RoleConfig
+    limits: dict[ProviderType, ProviderLimits] = Field(default_factory=dict)
+    spend_cap_usd: Decimal | None = None
+    pricing_overrides: dict[str, ModelPrice] = Field(default_factory=dict)
+
+
+# Path constant: .secrets/ is gitignored; the file is created on first save.
+INFERENCE_CONFIG_PATH: Path = Path(".secrets/inference.json")
+
+
+def default_inference_config(app_settings: AppSettings) -> "InferenceConfig":
+    """Return a local-only default InferenceConfig from OllamaSettings.
+
+    Both roles are OLLAMA backed, using the alias model names and base_url
+    from app_settings.ollama. No API keys, no limits, no spend cap.
+    The file at INFERENCE_CONFIG_PATH need not exist for this function.
+    """
+    role = RoleConfig(
+        provider=ProviderType.OLLAMA,
+        model="",  # placeholder; overwritten below per role
+        base_url=app_settings.ollama.base_url,
+        api_key=None,
+    )
+    orchestrator = role.model_copy(
+        update={"model": app_settings.ollama.orchestrator_model_alias}
+    )
+    worker = role.model_copy(
+        update={"model": app_settings.ollama.worker_model_alias}
+    )
+    return InferenceConfig(
+        orchestrator=orchestrator,
+        worker=worker,
+        limits={},
+        spend_cap_usd=None,
+        pricing_overrides={},
+    )
+
+
+def load_inference_config(
+    app_settings: AppSettings,
+    path: Path = INFERENCE_CONFIG_PATH,
+) -> InferenceConfig:
+    """Load InferenceConfig from *path*, falling back to local defaults.
+
+    - If *path* does not exist: returns ``default_inference_config(app_settings)``.
+    - If *path* exists but contains malformed/schema-invalid JSON: raises
+      ``ValueError`` with a clear message (silent downgrade to local would
+      surprise users who intentionally configured a cloud key).
+
+    This is a plain sync function; callers that need async should offload via
+    ``asyncio.to_thread`` at their discretion.
+    """
+    if not path.exists():
+        return default_inference_config(app_settings)
+    raw = path.read_text(encoding="utf-8")
+    try:
+        return InferenceConfig.model_validate_json(raw)
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to parse inference config at {path}: {exc}"
+        ) from exc
+
+
+def save_inference_config(
+    cfg: InferenceConfig,
+    path: Path = INFERENCE_CONFIG_PATH,
+) -> None:
+    """Persist *cfg* as pretty-printed JSON at *path*.
+
+    Creates intermediate directories if they do not exist.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
+
+
+def masked_config(cfg: InferenceConfig) -> dict[str, Any]:
+    """Return a JSON-serialisable dict with API keys replaced by mask objects.
+
+    Each role's ``api_key`` is replaced by::
+
+        {"set": bool(key), "last4": key[-4:] if key else None}
+
+    The raw key NEVER appears in the output. All other fields (provider,
+    model, base_url, limits, spend_cap_usd, pricing_overrides) are included
+    as-is, with Decimal values serialised as strings for JSON safety.
+    """
+    # Serialise via pydantic (handles Decimal → str, enums → values, etc.)
+    raw: dict[str, Any] = cfg.model_dump(mode="json")
+
+    def _mask_role(role_dict: dict[str, Any]) -> dict[str, Any]:
+        key: str | None = role_dict.get("api_key")
+        role_dict["api_key"] = {
+            "set": bool(key),
+            "last4": key[-4:] if key else None,
+        }
+        return role_dict
+
+    raw["orchestrator"] = _mask_role(raw["orchestrator"])
+    raw["worker"] = _mask_role(raw["worker"])
+    return raw
 
 
 # ---------------------------------------------------------------------------
