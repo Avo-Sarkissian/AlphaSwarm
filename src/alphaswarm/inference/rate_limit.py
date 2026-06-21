@@ -364,24 +364,15 @@ class RateLimitController:
     # ------------------------------------------------------------------
 
     async def _monitoring_loop(self) -> None:
-        """Emit metrics to state_store every ~2 s if present."""
+        """Keep-alive loop while the controller is running.
+
+        Live RPM/TPM WebSocket telemetry is a future enhancement — mode and
+        running spend are already surfaced via GET /api/health.  StateStore has
+        no ``set()`` method, so we do not attempt to emit here; that call was
+        removed to stop the silent AttributeError that fired every ~2 s.
+        """
         while True:
             await asyncio.sleep(2.0)
-            if self._state_store is not None:
-                try:
-                    self._state_store.set(
-                        "rate_limit",
-                        {
-                            "in_flight": self._in_flight,
-                            "max_in_flight": self._target_slots,
-                            "requests_per_min": self._requests_per_min,
-                            "tokens_per_min": self._tokens_per_min,
-                        },
-                    )
-                except Exception:
-                    logger.debug(
-                        "RateLimitController: state_store.set failed", exc_info=True
-                    )
 
 
 # Runtime-checkable protocol compliance assertion (fails fast at import if

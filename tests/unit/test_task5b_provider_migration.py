@@ -344,18 +344,21 @@ class TestInterviewEngineAcceptsProvider:
 
 
 # ---------------------------------------------------------------------------
-# RED-4: _run_advisory_synthesis builds OllamaProvider
+# RED-4: _run_advisory_synthesis uses build_providers
 # ---------------------------------------------------------------------------
 
 
 class TestAdvisoryRouteBuildsProvider:
-    """_run_advisory_synthesis must build an OllamaProvider and call provider.prepare/teardown."""
+    """_run_advisory_synthesis must use build_providers and call provider.prepare/teardown."""
 
     @pytest.mark.asyncio
     async def test_run_advisory_calls_provider_prepare_and_teardown(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """_run_advisory_synthesis must call provider.prepare() and provider.teardown()."""
+        """_run_advisory_synthesis must call provider.prepare() and provider.teardown()
+        via the build_providers seam (honours InferenceConfig, not hardcoded Ollama)."""
+        from unittest.mock import patch
+
         import alphaswarm.web.routes.advisory as advisory_module
 
         prepare_called: list[bool] = []
@@ -371,12 +374,21 @@ class TestAdvisoryRouteBuildsProvider:
             async def teardown(self) -> None:
                 teardown_called.append(True)
 
+            async def aclose(self) -> None:
+                pass
+
             async def chat(self, messages: Any, **kwargs: Any) -> InferenceResult:
                 return _make_result(_valid_advisory_json())
 
-        class _FakeOllamaProvider:
-            def __call__(self, *args: Any, **kwargs: Any) -> _FakeProvider:
-                return _FakeProvider()
+        from alphaswarm.inference.budget import BudgetMeter
+        from alphaswarm.inference.factory import BuiltProviders
+
+        fake_provider = _FakeProvider()
+        fake_built = BuiltProviders(
+            orchestrator=fake_provider,  # type: ignore[arg-type]
+            worker=fake_provider,  # type: ignore[arg-type]
+            budget_meter=BudgetMeter(None, {}),
+        )
 
         from datetime import UTC, datetime
         from decimal import Decimal
@@ -391,41 +403,35 @@ class TestAdvisoryRouteBuildsProvider:
         )
 
         app_state = SimpleNamespace(
-            settings=SimpleNamespace(
-                ollama=SimpleNamespace(orchestrator_model_alias="alphaswarm-orchestrator")
-            ),
+            settings=MagicMock(),
             graph_manager=_FakeGraphManager(),
             ollama_client=MagicMock(),
             model_manager=AsyncMock(),
         )
 
-        # Patch OllamaProvider in the advisory route module
-        monkeypatch.setattr(
-            "alphaswarm.web.routes.advisory.OllamaProvider",
-            _FakeOllamaProvider(),
-            raising=False,
-        )
-
-        # This will fail until _run_advisory_synthesis builds + uses a provider
-        await advisory_module._run_advisory_synthesis(app_state, "c1", portfolio)  # type: ignore[arg-type]
+        with patch.object(advisory_module, "build_providers", return_value=fake_built), \
+                patch.object(advisory_module, "load_inference_config", return_value=MagicMock()):
+            await advisory_module._run_advisory_synthesis(app_state, "c1", portfolio)  # type: ignore[arg-type]
 
         assert prepare_called == [True], "provider.prepare() not called"
         assert teardown_called == [True], "provider.teardown() not called in finally"
 
 
 # ---------------------------------------------------------------------------
-# RED-5: _run_report_generation builds OllamaProvider
+# RED-5: _run_report_generation uses build_providers
 # ---------------------------------------------------------------------------
 
 
 class TestReportRouteBuildsProvider:
-    """_run_report_generation must build an OllamaProvider and call provider.prepare/teardown."""
+    """_run_report_generation must use build_providers and call provider.prepare/teardown."""
 
     @pytest.mark.asyncio
     async def test_run_report_calls_provider_prepare_and_teardown(
         self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """_run_report_generation must call provider.prepare() and provider.teardown()."""
+        """_run_report_generation must call provider.prepare() and provider.teardown()
+        via the build_providers seam (honours InferenceConfig, not hardcoded Ollama)."""
+        from unittest.mock import patch
 
         import alphaswarm.web.routes.report as report_module
 
@@ -444,31 +450,34 @@ class TestReportRouteBuildsProvider:
             async def teardown(self) -> None:
                 teardown_called.append(True)
 
+            async def aclose(self) -> None:
+                pass
+
             async def chat(self, messages: Any, **kwargs: Any) -> InferenceResult:
                 return _make_result("THOUGHT: Done\nACTION: FINAL_ANSWER\nINPUT: {}")
 
-        class _FakeOllamaProvider:
-            def __call__(self, *args: Any, **kwargs: Any) -> _FakeProvider:
-                return _FakeProvider()
+        from alphaswarm.inference.budget import BudgetMeter
+        from alphaswarm.inference.factory import BuiltProviders
+
+        fake_provider = _FakeProvider()
+        fake_built = BuiltProviders(
+            orchestrator=fake_provider,  # type: ignore[arg-type]
+            worker=fake_provider,  # type: ignore[arg-type]
+            budget_meter=BudgetMeter(None, {}),
+        )
 
         from types import SimpleNamespace
         app_state = SimpleNamespace(
-            settings=SimpleNamespace(
-                ollama=SimpleNamespace(orchestrator_model_alias="alphaswarm-orchestrator")
-            ),
+            settings=MagicMock(),
             graph_manager=AsyncMock(),
             ollama_client=MagicMock(),
             model_manager=AsyncMock(),
         )
         app_state.graph_manager.read_shock_event = AsyncMock(return_value=None)
 
-        monkeypatch.setattr(
-            "alphaswarm.web.routes.report.OllamaProvider",
-            _FakeOllamaProvider(),
-            raising=False,
-        )
-
-        await report_module._run_report_generation(app_state, "c1")  # type: ignore[arg-type]
+        with patch.object(report_module, "build_providers", return_value=fake_built), \
+                patch.object(report_module, "load_inference_config", return_value=MagicMock()):
+            await report_module._run_report_generation(app_state, "c1")  # type: ignore[arg-type]
 
         assert prepare_called == [True], "provider.prepare() not called"
         assert teardown_called == [True], "provider.teardown() not called in finally"
