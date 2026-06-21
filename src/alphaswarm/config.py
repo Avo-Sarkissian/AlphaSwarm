@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import unicodedata
 from decimal import Decimal
 from enum import StrEnum
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from alphaswarm.types import AgentPersona, BracketConfig, BracketType
@@ -73,6 +74,34 @@ class GovernorSettings(BaseModel):
     batch_failure_threshold_percent: float = Field(default=20.0, ge=5.0, le=50.0)
     jitter_min_seconds: float = Field(default=0.5, ge=0.0, le=2.0)
     jitter_max_seconds: float = Field(default=1.5, ge=0.5, le=5.0)
+
+    @model_validator(mode="after")
+    def _check_threshold_ordering(self) -> GovernorSettings:
+        """Enforce the ordering the governor's throttle ladder depends on (F-31).
+
+        Each Field bound is validated independently, so env vars could set e.g.
+        PAUSE < THROTTLE or SCALE_UP > THROTTLE — individually valid but
+        semantically inverted, causing the governor to pause before throttling
+        or scale up while already memory-pressured. Fail fast at startup instead.
+        """
+        if not (
+            self.scale_up_threshold_percent
+            < self.memory_throttle_percent
+            < self.memory_pause_percent
+        ):
+            raise ValueError(
+                "GovernorSettings ordering invariant violated: require "
+                "scale_up_threshold_percent < memory_throttle_percent < "
+                "memory_pause_percent, got "
+                f"{self.scale_up_threshold_percent} / "
+                f"{self.memory_throttle_percent} / {self.memory_pause_percent}"
+            )
+        if self.jitter_min_seconds > self.jitter_max_seconds:
+            raise ValueError(
+                "GovernorSettings: jitter_min_seconds must be <= jitter_max_seconds, "
+                f"got {self.jitter_min_seconds} > {self.jitter_max_seconds}"
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +226,21 @@ def save_inference_config(
     """Persist *cfg* as pretty-printed JSON at *path*.
 
     Creates intermediate directories if they do not exist.
+
+    Writes atomically (temp file in the same directory + os.replace) so an
+    interrupted write (crash / full disk) leaves the existing valid config
+    untouched rather than a truncated file that breaks every subsequent load
+    (F-25).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
+    tmp = path.with_name(f"{path.name}.tmp")
+    try:
+        tmp.write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
+        os.replace(tmp, path)  # atomic on the same filesystem
+    finally:
+        # Clean up the temp file if the replace never happened.
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
 
 
 def masked_config(cfg: InferenceConfig) -> dict[str, Any]:

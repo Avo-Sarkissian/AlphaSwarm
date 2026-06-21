@@ -150,12 +150,13 @@ class InterviewEngine:
         if pair_count <= self.WINDOW_SIZE:
             return
 
-        # Extract oldest pair
+        # Read (do NOT yet remove) the oldest pair. We must not mutate
+        # self._history until the summary chat succeeds: if it raises (transient
+        # backend error, timeout, cloud rate-limit), an early splice would
+        # permanently discard a turn of context AND fail the current ask() whose
+        # answer was already produced (F-15). Trimming simply retries next turn.
         dropped_user = self._history[0]
         dropped_assistant = self._history[1]
-
-        # Remove oldest pair
-        self._history = self._history[2:]
 
         # Generate summary of dropped pair via worker model
         summary_prompt: list[InferenceMessage] = [
@@ -179,7 +180,10 @@ class InterviewEngine:
         merged = f"{self._summary} {new_summary}" if self._summary is not None else new_summary
         if len(merged) > self.SUMMARY_MAX_CHARS:
             merged = merged[-self.SUMMARY_MAX_CHARS :].lstrip()
+
+        # Commit both mutations only after the summary succeeded.
         self._summary = merged
+        self._history = self._history[2:]
 
         self._log.debug(
             "window_trimmed",
