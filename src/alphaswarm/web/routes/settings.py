@@ -10,7 +10,6 @@ Keys are NEVER returned raw; masked_config() replaces them with
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any, Literal
 
 import structlog
@@ -32,7 +31,6 @@ from alphaswarm.inference.factory import _build_single_provider, inference_mode
 from alphaswarm.inference.types import ProviderRole
 
 log = structlog.get_logger(component="web.settings")
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -45,25 +43,14 @@ router = APIRouter()
 _AVG_IN_TOKENS: int = 1500   # typical prompt (persona + rumor + context)
 _AVG_OUT_TOKENS: int = 250   # typical structured-JSON completion
 
-# Curated list of well-known cloud model IDs surfaced to the settings UI.
-# Keys from DEFAULT_PRICING are always included; this constant adds a few
-# additional aliases (e.g., "latest" variants) for discoverability.
+# Non-authoritative convenience list of well-known cloud model IDs for the
+# settings UI dropdown. Users can type any id — these are illustrative only.
+# Keys from DEFAULT_PRICING are always included; this adds a few extras.
 _EXTRA_KNOWN_API_MODELS: list[str] = [
-    # Anthropic additional aliases
     "claude-opus-4-5",
     "claude-sonnet-4-5",
-    "claude-haiku-4-5",
-    "claude-3-5-sonnet-20241022",
-    "claude-3-5-haiku-20241022",
-    # OpenAI
     "gpt-4o",
-    "gpt-4o-mini",
-    "o1",
-    "o3-mini",
-    # OpenRouter community models
-    "meta-llama/llama-3.3-70b-instruct",
-    "mistralai/mistral-large-2411",
-    "google/gemini-2.0-flash-001",
+    "openrouter/meta-llama/llama-3.3-70b-instruct",
 ]
 
 # Deduplicated ordered list: DEFAULT_PRICING keys first, then any extras
@@ -147,10 +134,12 @@ def _merge_role(
     """
     api_key_in = incoming.get("api_key")
     effective_key: str | None
-    if api_key_in is None or api_key_in == "":
+    # Strip before the empty check so whitespace-only ("   ") is treated as absent
+    stripped = api_key_in.strip() if isinstance(api_key_in, str) else api_key_in
+    if stripped is None or stripped == "":
         effective_key = stored_role.api_key  # keep current stored value
     else:
-        effective_key = api_key_in
+        effective_key = stripped
 
     merged = stored_role.model_copy(
         update={
@@ -212,7 +201,13 @@ async def put_settings(
             detail={"error": "simulation_running", "message": "Cannot update settings while a simulation is running."},
         )
 
-    stored: InferenceConfig = await asyncio.to_thread(load_inference_config, app_state.settings)
+    try:
+        stored: InferenceConfig = await asyncio.to_thread(load_inference_config, app_state.settings)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"stored inference config is invalid: {exc}",
+        ) from exc
 
     # Merge role configs, preserving stored keys when incoming omits them
     incoming_orch: dict[str, Any] = body.get("orchestrator", {})
@@ -238,7 +233,13 @@ async def put_settings(
             detail={"error": "validation_error", "message": str(exc)},
         ) from exc
 
-    await asyncio.to_thread(save_inference_config, merged_cfg)
+    try:
+        await asyncio.to_thread(save_inference_config, merged_cfg)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"failed to persist settings: {exc}",
+        ) from exc
 
     log.info("settings_updated", mode=inference_mode(merged_cfg))
 

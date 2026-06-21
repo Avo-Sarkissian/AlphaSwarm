@@ -313,6 +313,84 @@ class TestPutSettings:
         assert "stored-key-12345" not in raw
         assert "stored-worker-key" not in raw
 
+    def test_422_when_load_raises_value_error(self) -> None:
+        """PUT → 422 when load_inference_config raises ValueError (corrupt stored config)."""
+        with patch(
+            "alphaswarm.web.routes.settings.load_inference_config",
+            side_effect=ValueError("corrupt: missing required field"),
+        ):
+            with TestClient(_make_settings_test_app()) as client:
+                r = client.put(
+                    "/api/settings",
+                    json={
+                        "orchestrator": {"provider": "ollama", "model": "test"},
+                        "worker": {"provider": "ollama", "model": "test"},
+                    },
+                )
+        assert r.status_code == 422
+        assert "stored inference config is invalid" in r.json()["detail"]
+
+    def test_500_when_save_raises_oserror(self) -> None:
+        """PUT → 500 when save_inference_config raises OSError (write failure)."""
+        with _mock_load_cfg(_LOCAL_CFG):
+            with patch(
+                "alphaswarm.web.routes.settings.save_inference_config",
+                side_effect=OSError("disk full"),
+            ):
+                with TestClient(_make_settings_test_app()) as client:
+                    r = client.put(
+                        "/api/settings",
+                        json={
+                            "orchestrator": {"provider": "ollama", "model": "test"},
+                            "worker": {"provider": "ollama", "model": "test"},
+                        },
+                    )
+        assert r.status_code == 500
+        assert "failed to persist settings" in r.json()["detail"]
+
+    def test_whitespace_only_api_key_preserves_stored(self) -> None:
+        """Whitespace-only api_key (e.g. '   ') is treated as absent → stored key preserved."""
+        stored_cfg = InferenceConfig(
+            orchestrator=RoleConfig(
+                provider=ProviderType.ANTHROPIC,
+                model="claude-3-5-haiku-20241022",
+                api_key="stored-key-abc",
+            ),
+            worker=RoleConfig(
+                provider=ProviderType.ANTHROPIC,
+                model="claude-3-5-haiku-20241022",
+                api_key="stored-worker-abc",
+            ),
+        )
+
+        saved_calls: list[InferenceConfig] = []
+
+        def _fake_save(cfg: InferenceConfig, path: Path = INFERENCE_CONFIG_PATH) -> None:
+            saved_calls.append(cfg)
+
+        with _mock_load_cfg(stored_cfg):
+            with patch("alphaswarm.web.routes.settings.save_inference_config", side_effect=_fake_save):
+                with TestClient(_make_settings_test_app()) as client:
+                    r = client.put(
+                        "/api/settings",
+                        json={
+                            "orchestrator": {
+                                "provider": "anthropic",
+                                "model": "claude-3-5-haiku-20241022",
+                                "api_key": "   ",  # whitespace-only → treat as empty
+                            },
+                            "worker": {
+                                "provider": "anthropic",
+                                "model": "claude-3-5-haiku-20241022",
+                            },
+                        },
+                    )
+
+        assert r.status_code == 200
+        assert len(saved_calls) == 1
+        assert saved_calls[0].orchestrator.api_key == "stored-key-abc"
+        assert saved_calls[0].worker.api_key == "stored-worker-abc"
+
     def test_new_api_key_replaces_stored(self) -> None:
         """When a non-empty api_key is provided it replaces the stored key."""
         stored_cfg = InferenceConfig(

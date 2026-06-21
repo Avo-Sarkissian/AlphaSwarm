@@ -239,6 +239,64 @@ class TestEstimateRun:
         if result.low_usd > Decimal("0"):
             assert result.low_usd < result.high_usd
 
+    def test_narrative_calls_total_count(self) -> None:
+        """(a) total calls == agents*rounds + narrative_calls + 3."""
+        cfg = _cloud_cfg()
+        result = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200, narrative_calls=10)
+        assert result.calls == 10 * 3 + 10 + 3  # 43
+
+    def test_narrative_calls_priced_at_worker_rate(self) -> None:
+        """(b) narrative_calls are priced at the WORKER model rate, not orchestrator rate."""
+        # Use distinguishable prices so we can tell which model was charged.
+        # Worker: $10/MTok in — deliberately expensive.
+        # Orchestrator: $1/MTok in — deliberately cheap.
+        worker_model = "worker-model"
+        orch_model = "orch-model"
+        cfg = InferenceConfig(
+            orchestrator=RoleConfig(provider=ProviderType.ANTHROPIC, model=orch_model),
+            worker=RoleConfig(provider=ProviderType.OPENAI_COMPATIBLE, model=worker_model),
+            pricing_overrides={
+                worker_model: ModelPrice(
+                    input_per_mtok=Decimal("10.00"),
+                    output_per_mtok=Decimal("0.00"),
+                ),
+                orch_model: ModelPrice(
+                    input_per_mtok=Decimal("1.00"),
+                    output_per_mtok=Decimal("0.00"),
+                ),
+            },
+        )
+        # 0 regular worker rounds, 1 narrative call, 0 orch calls (override via pricing=custom)
+        # We want to isolate the narrative cost; set agents=0 rounds=0 and check narrative_calls=1
+        # But orch_calls is always 3 — use large avg_in=0 to zero orch cost via avg_out:
+        # To isolate: set avg_in=1_000_000, avg_out=0; orch cost = 3 * $1 = $3
+        # narrative cost (1 call, worker) = 1 * $10 = $10; total point = $13
+        result = estimate_run(
+            cfg,
+            agents=0,
+            rounds=0,
+            avg_in=1_000_000,
+            avg_out=0,
+            narrative_calls=1,
+        )
+        # total point = orch(3 * $1) + narrative_worker(1 * $10) = $13
+        expected_low = (Decimal("13.00") * Decimal("0.7")).quantize(Decimal("0.01"))
+        expected_high = (Decimal("13.00") * Decimal("1.3")).quantize(Decimal("0.01"))
+        assert result.low_usd == expected_low, (
+            "narrative_calls must be priced at worker rate ($10), not orch rate ($1)"
+        )
+        assert result.high_usd == expected_high
+
+    def test_narrative_calls_default_zero_regression(self) -> None:
+        """(c) narrative_calls=0 (default) reproduces the prior cost — regression guard."""
+        cfg = _cloud_cfg()
+        # Explicit zero and omitted should produce identical results
+        result_explicit = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200, narrative_calls=0)
+        result_default = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200)
+        assert result_explicit.calls == result_default.calls
+        assert result_explicit.low_usd == result_default.low_usd
+        assert result_explicit.high_usd == result_default.high_usd
+
     def test_custom_pricing_passed_in(self) -> None:
         cfg = _cloud_cfg()
         custom = {
