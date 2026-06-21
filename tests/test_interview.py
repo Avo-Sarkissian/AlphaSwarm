@@ -253,26 +253,28 @@ def _make_context() -> InterviewContext:
     )
 
 
-def _make_mock_ollama_client(response_text: str = "I chose BUY because of strong fundamentals.") -> AsyncMock:
-    """Create a mock OllamaClient with a chat() that returns a predictable response."""
-    client = AsyncMock()
-    mock_response = MagicMock()
-    mock_response.message.content = response_text
-    client.chat = AsyncMock(return_value=mock_response)
-    return client
+def _make_fake_provider(
+    response_text: str = "I chose BUY because of strong fundamentals.",
+    count: int = 1,
+) -> "FakeInferenceProvider":
+    """Create a FakeInferenceProvider scripted with identical responses."""
+    from alphaswarm.inference.types import InferenceResult, ProviderRole
+    from tests.inference.fakes import FakeInferenceProvider
+
+    scripted = [InferenceResult(content=response_text, model="test-worker") for _ in range(count)]
+    return FakeInferenceProvider(role=ProviderRole.WORKER, model="test-worker", scripted=scripted)
 
 
 class TestInterviewEngineInit:
-    def test_init_accepts_context_client_model(self) -> None:
+    def test_init_accepts_context_and_provider(self) -> None:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client()
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="alphaswarm-worker")
+        provider = _make_fake_provider()
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         assert engine._context is ctx
-        assert engine._client is client
-        assert engine._model == "alphaswarm-worker"
+        assert engine._provider is provider
         assert engine._history == []
         assert engine._summary is None
 
@@ -288,8 +290,8 @@ class TestInterviewEngineAsk:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client("I bought because data was strong.")
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        provider = _make_fake_provider("I bought because data was strong.")
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         result = await engine.ask("Why did you buy in round 1?")
 
@@ -299,18 +301,17 @@ class TestInterviewEngineAsk:
         assert engine._history[1] == {"role": "assistant", "content": "I bought because data was strong."}
 
     @pytest.mark.asyncio()
-    async def test_ask_calls_ollama_chat_with_assembled_messages(self) -> None:
+    async def test_ask_calls_provider_chat_with_assembled_messages(self) -> None:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client()
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        provider = _make_fake_provider()
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         await engine.ask("Hello")
 
-        client.chat.assert_called_once()
-        call_kwargs = client.chat.call_args
-        messages = call_kwargs.kwargs["messages"]
+        assert len(provider.calls) == 1
+        messages = provider.calls[0]["messages"]
         # System prompt is first, context block is second, then user message
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] == "system"
@@ -323,8 +324,8 @@ class TestBuildMessages:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client()
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        provider = _make_fake_provider()
+        engine = InterviewEngine(context=ctx, provider=provider)
         engine._history = [
             {"role": "user", "content": "Hi"},
             {"role": "assistant", "content": "Hello"},
@@ -342,8 +343,8 @@ class TestBuildMessages:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client()
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        provider = _make_fake_provider()
+        engine = InterviewEngine(context=ctx, provider=provider)
         engine._summary = "User asked about round 1, agent explained buying rationale."
         engine._history = [
             {"role": "user", "content": "What about round 2?"},
@@ -361,8 +362,8 @@ class TestBuildMessages:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client()
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        provider = _make_fake_provider()
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         block = engine._build_context_block()
         assert "Narrative Summary" in block or "decision_narrative" in block.lower() or ctx.decision_narrative in block
@@ -379,8 +380,9 @@ class TestSlidingWindow:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client("Response")
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        # 11 ask responses + 1 summary generation = 12 total
+        provider = _make_fake_provider("Response", count=12)
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         for i in range(11):
             await engine.ask(f"Question {i}")
@@ -395,11 +397,12 @@ class TestSlidingWindow:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        client = _make_mock_ollama_client("Response")
-        engine = InterviewEngine(context=ctx, ollama_client=client, model="worker")
+        # 11 ask responses + 1 summary generation = 12 total
+        provider = _make_fake_provider("Response", count=12)
+        engine = InterviewEngine(context=ctx, provider=provider)
 
         for i in range(11):
             await engine.ask(f"Question {i}")
 
-        # 11 ask calls + 1 summary generation = 12 chat calls
-        assert client.chat.call_count == 12
+        # 11 ask calls + 1 summary generation = 12 provider calls
+        assert len(provider.calls) == 12

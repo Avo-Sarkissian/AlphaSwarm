@@ -8,6 +8,8 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from alphaswarm.inference.ollama_provider import OllamaProvider
+from alphaswarm.inference.types import ProviderRole
 from alphaswarm.interview import InterviewEngine
 from alphaswarm.types import SimulationPhase
 
@@ -107,10 +109,14 @@ async def interview_agent(
                         detail={"error": "agent_not_found", "message": f"No interview context for agent {agent_id}"},
                     )
 
+                worker_provider = OllamaProvider(
+                    role=ProviderRole.WORKER,
+                    model_tag=app_state.settings.ollama.worker_model_alias,
+                    client=ollama_client,
+                )
                 entry["engine"] = InterviewEngine(
                     context=context,
-                    ollama_client=ollama_client,
-                    model=app_state.settings.ollama.worker_model_alias,
+                    provider=worker_provider,
                 )
                 log.info("interview_session_created", agent_id=agent_id, cycle_id=cycle_id)
             except BaseException:
