@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from alphaswarm.types import AgentPersona, BracketConfig, BracketType
 
 if TYPE_CHECKING:
-    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.types import ParsedModifiersResult, SeedEvent
     from alphaswarm.worker import WorkerPersonaConfig
 
@@ -216,8 +216,7 @@ def _build_modifier_user_message(seed_event: SeedEvent) -> str:
 
 async def generate_modifiers(
     seed_event: SeedEvent,
-    ollama_client: OllamaClient,
-    model_alias: str,
+    orchestrator: InferenceProvider,
 ) -> ParsedModifiersResult:
     """Generate entity-aware bracket modifiers via orchestrator LLM (D-04, D-05, D-06).
 
@@ -226,8 +225,8 @@ async def generate_modifiers(
 
     Args:
         seed_event: Parsed seed event with entities and raw_rumor.
-        ollama_client: Active Ollama client for inference.
-        model_alias: Orchestrator model alias (must be loaded).
+        orchestrator: Active InferenceProvider for the orchestrator role.
+            The model must already be loaded (prepare() must have been called).
 
     Returns:
         ParsedModifiersResult with modifiers dict and parse_tier.
@@ -238,17 +237,15 @@ async def generate_modifiers(
 
     logger.info("modifier_generation_start", entity_count=len(seed_event.entities))
 
-    response = await ollama_client.chat(
-        model=model_alias,
+    inference_result = await orchestrator.chat(
         messages=[
             {"role": "system", "content": MODIFIER_GENERATION_PROMPT},
             {"role": "user", "content": user_message},
         ],
-        format="json",
-        think=False,
+        json_mode=True,
     )
 
-    raw_content = response.message.content or ""
+    raw_content = inference_result.content
     result = parse_modifier_response(raw_content)
 
     if result.parse_tier == 3:

@@ -1,6 +1,6 @@
 """Seed injection pipeline for AlphaSwarm.
 
-Orchestrates: load orchestrator model -> parse seed rumor -> persist to Neo4j -> unload model.
+Orchestrates: prepare orchestrator provider -> parse seed rumor -> persist to Neo4j -> teardown provider.
 Called by CLI inject subcommand. Self-contained model lifecycle per D-07.
 """
 
@@ -15,8 +15,7 @@ from alphaswarm.parsing import parse_seed_event
 if TYPE_CHECKING:
     from alphaswarm.config import AppSettings
     from alphaswarm.graph import GraphStateManager
-    from alphaswarm.ollama_client import OllamaClient
-    from alphaswarm.ollama_models import OllamaModelManager
+    from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.types import ParsedModifiersResult, ParsedSeedResult, SeedEvent
 
 logger = structlog.get_logger(component="seed")
@@ -39,16 +38,15 @@ Respond with JSON: {"entities": [...], "overall_sentiment": float}"""
 async def inject_seed(
     rumor: str,
     settings: AppSettings,
-    ollama_client: OllamaClient,
-    model_manager: OllamaModelManager,
+    orchestrator: InferenceProvider,
     graph_manager: GraphStateManager,
     *,
-    modifier_generator: Callable[[SeedEvent, OllamaClient, str], Awaitable[ParsedModifiersResult]] | None = None,
+    modifier_generator: Callable[[SeedEvent, InferenceProvider], Awaitable[ParsedModifiersResult]] | None = None,
 ) -> tuple[str, ParsedSeedResult, ParsedModifiersResult | None]:
     """End-to-end seed injection pipeline. Returns (cycle_id, parsed_result, modifier_result).
 
     When modifier_generator is provided (Phase 13), calls it after seed parsing
-    completes but before the orchestrator model is unloaded (D-06: same session).
+    completes but before the orchestrator provider is torn down (D-06: same session).
     modifier_result is None when no callback is provided.
 
     Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence.
@@ -56,31 +54,22 @@ async def inject_seed(
     logger.info("seed_injection_start", rumor_preview=rumor[:100])
 
     # 1. Load orchestrator model (per D-07)
-    orchestrator_alias = settings.ollama.orchestrator_model_alias
-    await model_manager.load_model(orchestrator_alias)
+    await orchestrator.prepare()
     try:
-        # 2. Chat with format="json", think=False per Phase 41.4 decision
+        # 2. Chat with json_mode=True, think=False per Phase 41.4 decision
         # (think=True added ~265s/call with marginal quality gain on this workload;
         # see .planning/phases/41.4-r3-inference-and-ws-stall/41.4-MODEL-DECISION-LOG.md
         # for revisit triggers and how to flip back).
-        response = await ollama_client.chat(
-            model=orchestrator_alias,
+        inference_result = await orchestrator.chat(
             messages=[
                 {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT},
                 {"role": "user", "content": rumor},
             ],
-            format="json",
-            think=False,
+            json_mode=True,
         )
 
-        # Log thinking output if present (may be None per Pitfall 1)
-        if response.message.thinking:
-            logger.debug("orchestrator_thinking", thinking_preview=response.message.thinking[:200])
-        else:
-            logger.debug("orchestrator_thinking_suppressed", note="format=json may suppress think tokens")
-
         # 3. Parse with 3-tier fallback (per D-06), returns ParsedSeedResult
-        raw_content = response.message.content or ""
+        raw_content = inference_result.content
         parsed_result = parse_seed_event(raw_content, rumor)
 
         # Log warning on fallback (addresses review concern #1: silent parse failure)
@@ -101,8 +90,7 @@ async def inject_seed(
         if modifier_generator is not None:
             modifier_result = await modifier_generator(
                 parsed_result.seed_event,
-                ollama_client,
-                orchestrator_alias,
+                orchestrator,
             )
 
         logger.info(
@@ -117,4 +105,4 @@ async def inject_seed(
 
     finally:
         # 6. Always unload orchestrator model (per D-07)
-        await model_manager.unload_model(orchestrator_alias)
+        await orchestrator.teardown()
