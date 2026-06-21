@@ -83,7 +83,7 @@ async def _advisory_harness_body(
     here, which is the invariant.
     """
     fake_graph = CanaryFakeGraphManager(neo4j_sink=neo4j_writes)
-    fake_ollama = CanaryFakeOllamaClient(
+    fake_provider = CanaryFakeOllamaClient(
         prompt_sink=jinja_renders,
         canned_content=canary_valid_advisory_json(),
     )
@@ -94,8 +94,7 @@ async def _advisory_harness_body(
         cycle_id="canary_cycle",
         portfolio=snapshot,
         graph_manager=fake_graph,  # type: ignore[arg-type]
-        ollama_client=fake_ollama,  # type: ignore[arg-type]
-        orchestrator_model="alphaswarm-orchestrator",
+        provider=fake_provider,  # type: ignore[arg-type]
     )
 
 
