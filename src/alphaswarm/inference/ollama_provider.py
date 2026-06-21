@@ -19,10 +19,14 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
+
 from alphaswarm.inference.provider import InferenceProvider  # noqa: F401  (Protocol)
 from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
+
+logger = structlog.get_logger(component="ollama_provider")
 
 
 class OllamaProvider:
@@ -50,14 +54,14 @@ class OllamaProvider:
         role: ProviderRole,
         model_tag: str,
         client: OllamaClient,
-        model_manager: OllamaModelManager,
+        model_manager: OllamaModelManager | None = None,
         *,
         keep_alive: str = "5m",
     ) -> None:
         self.role: ProviderRole = role
         self.model: str = model_tag
         self._client: OllamaClient = client
-        self._model_manager: OllamaModelManager = model_manager
+        self._model_manager: OllamaModelManager | None = model_manager
         self._keep_alive: str = keep_alive
 
     # ------------------------------------------------------------------
@@ -69,11 +73,25 @@ class OllamaProvider:
         return True
 
     async def prepare(self) -> None:
-        """Load the model into Ollama memory via the model manager."""
+        """Load the model into Ollama memory via the model manager.
+
+        When ``model_manager`` is ``None`` (e.g. the legacy ``_dispatch_round``
+        fallback path), this is a safe no-op: model lifecycle is the caller's
+        responsibility.
+        """
+        if self._model_manager is None:
+            logger.debug("prepare_skipped_no_manager", model=self.model)
+            return
         await self._model_manager.load_model(self.model)
 
     async def teardown(self) -> None:
-        """Unload the model from Ollama memory via the model manager."""
+        """Unload the model from Ollama memory via the model manager.
+
+        When ``model_manager`` is ``None``, this is a safe no-op.
+        """
+        if self._model_manager is None:
+            logger.debug("teardown_skipped_no_manager", model=self.model)
+            return
         await self._model_manager.unload_model(self.model)
 
     async def aclose(self) -> None:

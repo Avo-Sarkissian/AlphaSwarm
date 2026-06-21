@@ -331,6 +331,39 @@ async def test_aclose_is_noop() -> None:
 
 
 # ---------------------------------------------------------------------------
+# prepare / teardown are safe no-ops when model_manager is None
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_prepare_is_noop_when_manager_is_none() -> None:
+    """prepare() must not raise and must not call any manager when model_manager=None."""
+    fc = _FakeOllama()
+    p = OllamaProvider(
+        ProviderRole.WORKER,
+        "alphaswarm-worker",
+        fc,  # type: ignore[arg-type]
+        None,
+    )
+    # Must not raise; no manager to verify calls on.
+    await p.prepare()
+
+
+@pytest.mark.asyncio
+async def test_teardown_is_noop_when_manager_is_none() -> None:
+    """teardown() must not raise and must not call any manager when model_manager=None."""
+    fc = _FakeOllama()
+    p = OllamaProvider(
+        ProviderRole.WORKER,
+        "alphaswarm-worker",
+        fc,  # type: ignore[arg-type]
+        None,
+    )
+    # Must not raise; no manager to verify calls on.
+    await p.teardown()
+
+
+# ---------------------------------------------------------------------------
 # model kwarg forwarded to OllamaClient
 # ---------------------------------------------------------------------------
 
