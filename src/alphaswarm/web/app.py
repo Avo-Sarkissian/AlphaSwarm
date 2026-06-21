@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -16,17 +17,18 @@ from alphaswarm.config import AppSettings, generate_personas, load_bracket_confi
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
+from alphaswarm.web.replay_manager import ReplayManager
+from alphaswarm.web.routes.advisory import router as advisory_router
 from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
-from alphaswarm.web.routes.holdings import load_portfolio_snapshot, router as holdings_router
+from alphaswarm.web.routes.holdings import load_portfolio_snapshot
+from alphaswarm.web.routes.holdings import router as holdings_router
 from alphaswarm.web.routes.interview import router as interview_router
 from alphaswarm.web.routes.replay import router as replay_router
-from alphaswarm.web.routes.advisory import router as advisory_router
 from alphaswarm.web.routes.report import router as report_router
 from alphaswarm.web.routes.settings import router as settings_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
-from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.simulation_manager import SimulationManager, _auto_trigger_advisory
 
 log = structlog.get_logger(component="web.app")
@@ -45,8 +47,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
-    # Per D-06 and review consensus: sessions stored as {agent_id: {"engine": InterviewEngine, "lock": asyncio.Lock}}
-    # Initialized before SimulationManager so the on_start lambda can reference app.state.interview_sessions.
+    # Per D-06 and review consensus: sessions stored as
+    # {agent_id: {"engine": InterviewEngine, "lock": asyncio.Lock}}
+    # Initialized before SimulationManager so the on_start lambda can reference
+    # app.state.interview_sessions.
     app.state.interview_sessions = {}
     # Phase 36 D-02: single task handle for in-progress report generation detection.
     app.state.report_task = None
@@ -121,10 +125,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # loop calls state_store.snapshot() which may reference state that graph_manager
     # teardown would invalidate.
     broadcaster_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await broadcaster_task
-    except asyncio.CancelledError:
-        pass
 
     # Cancel and await any running simulation + report/advisory background
     # tasks BEFORE closing graph_manager, so no orphaned task is left

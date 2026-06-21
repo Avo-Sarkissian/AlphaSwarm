@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from alphaswarm.inference.types import InferenceResult, ProviderRole
-from alphaswarm.types import EntityType, ParsedSeedResult, SeedEntity, SeedEvent
+from alphaswarm.types import EntityType, ParsedSeedResult, SeedEvent
 from tests.inference.fakes import FakeInferenceProvider
 
 VALID_SEED_JSON = json.dumps(
@@ -218,7 +218,10 @@ async def test_inject_seed_logs_warning_on_parse_tier_3(
         ProviderRole.ORCHESTRATOR,
         "alphaswarm-orchestrator",
         scripted=[
-            InferenceResult(content="This is not valid JSON at all", model="alphaswarm-orchestrator")
+            InferenceResult(
+                content="This is not valid JSON at all",
+                model="alphaswarm-orchestrator",
+            )
         ],
     )
 

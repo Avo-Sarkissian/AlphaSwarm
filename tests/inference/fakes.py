@@ -6,7 +6,8 @@ and must never be imported by production code.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
 

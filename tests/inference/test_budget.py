@@ -7,7 +7,6 @@ import pytest
 from alphaswarm.config import (
     InferenceConfig,
     ModelPrice,
-    ProviderLimits,
     ProviderType,
     RoleConfig,
 )
@@ -22,7 +21,6 @@ from alphaswarm.inference.budget import (
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from tests.inference.fakes import FakeInferenceProvider
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -291,7 +289,9 @@ class TestEstimateRun:
         """(c) narrative_calls=0 (default) reproduces the prior cost — regression guard."""
         cfg = _cloud_cfg()
         # Explicit zero and omitted should produce identical results
-        result_explicit = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200, narrative_calls=0)
+        result_explicit = estimate_run(
+            cfg, agents=10, rounds=3, avg_in=500, avg_out=200, narrative_calls=0
+        )
         result_default = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200)
         assert result_explicit.calls == result_default.calls
         assert result_explicit.low_usd == result_default.low_usd
@@ -305,7 +305,9 @@ class TestEstimateRun:
                 output_per_mtok=Decimal("0.00"),
             )
         }
-        result = estimate_run(cfg, agents=10, rounds=3, avg_in=1_000_000, avg_out=1_000_000, pricing=custom)
+        result = estimate_run(
+            cfg, agents=10, rounds=3, avg_in=1_000_000, avg_out=1_000_000, pricing=custom
+        )
         assert result.low_usd == Decimal("0.00")
         assert result.high_usd == Decimal("0.00")
 
@@ -324,7 +326,7 @@ class TestDefaultPricing:
             assert isinstance(v, ModelPrice), f"Bad entry for {k}"
 
     def test_values_are_decimal(self) -> None:
-        for k, v in DEFAULT_PRICING.items():
+        for _k, v in DEFAULT_PRICING.items():
             assert isinstance(v.input_per_mtok, Decimal)
             assert isinstance(v.output_per_mtok, Decimal)
 

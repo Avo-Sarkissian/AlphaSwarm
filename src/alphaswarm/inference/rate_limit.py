@@ -13,9 +13,11 @@ of whether they go through the concurrency controller.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from alphaswarm.inference.concurrency import ConcurrencyController
 
@@ -316,18 +318,20 @@ class RateLimitController:
             return
 
         failure_rate = failure_count / total
-        if failure_rate >= self._failure_shrink_threshold:
-            if self._target_slots > self._min_in_flight:
-                self._target_slots -= 1
-                self._shrink_pending += 1
-                logger.info(
-                    "RateLimitController: failure rate %.1f%% >= threshold %.1f%% — "
-                    "shrinking effective max_in_flight to %d (pending drain: %d)",
-                    failure_rate * 100,
-                    self._failure_shrink_threshold * 100,
-                    self._target_slots,
-                    self._shrink_pending,
-                )
+        if (
+            failure_rate >= self._failure_shrink_threshold
+            and self._target_slots > self._min_in_flight
+        ):
+            self._target_slots -= 1
+            self._shrink_pending += 1
+            logger.info(
+                "RateLimitController: failure rate %.1f%% >= threshold %.1f%% — "
+                "shrinking effective max_in_flight to %d (pending drain: %d)",
+                failure_rate * 100,
+                self._failure_shrink_threshold * 100,
+                self._target_slots,
+                self._shrink_pending,
+            )
 
     async def start_monitoring(self) -> None:
         """Launch background metrics emitter task (~2 s cadence)."""
@@ -342,13 +346,11 @@ class RateLimitController:
         if self._monitor_task is None:
             return
         self._monitor_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await self._monitor_task
-        except asyncio.CancelledError:
-            pass
         self._monitor_task = None
 
-    async def __aenter__(self) -> "RateLimitController":
+    async def __aenter__(self) -> RateLimitController:
         """Acquire a concurrency slot (async context manager entry)."""
         await self.acquire()
         return self

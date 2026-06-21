@@ -1,7 +1,8 @@
 """ADVIS-01 synthesis engine — single orchestrator LLM call over prefetched swarm data.
 
 Lifecycle note: this module does NOT load or unload the orchestrator model.
-The model load/unload is handled by the caller (alphaswarm.web.routes.advisory._run_advisory_synthesis)
+The model load/unload is handled by the caller
+(alphaswarm.web.routes.advisory._run_advisory_synthesis)
 per D-08 so the library stays infrastructure-free and unit-testable with Fakes.
 
 Pitfall 1: NEVER pass the PortfolioSnapshot or Holding objects into a structlog
@@ -16,7 +17,7 @@ import asyncio
 import re
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 from pydantic import ValidationError
@@ -86,8 +87,8 @@ async def synthesize(
     *,
     cycle_id: str,
     portfolio: PortfolioSnapshot,
-    graph_manager: "GraphStateManager",
-    provider: "InferenceProvider",
+    graph_manager: GraphStateManager,
+    provider: InferenceProvider,
 ) -> AdvisoryReport:
     """Prefetch swarm data, call orchestrator once, parse + rank.
 
@@ -279,7 +280,7 @@ async def synthesize(
 
 async def _infer_with_retry(
     *,
-    provider: "InferenceProvider",
+    provider: InferenceProvider,
     messages: list[InferenceMessage],
 ) -> AdvisoryReport:
     """Call the orchestrator with json_mode=True; retry once on ValidationError.

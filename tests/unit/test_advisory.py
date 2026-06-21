@@ -20,7 +20,6 @@ from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from tests.inference.fakes import FakeInferenceProvider
 
-
 # ---------------- Fakes ----------------------------------------------------
 
 

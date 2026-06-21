@@ -246,7 +246,7 @@ async def get_advisory(cycle_id: str, request: Request) -> dict[str, Any]:
             },
         )
 
-    async with aiofiles.open(path, "r", encoding="utf-8") as f:
+    async with aiofiles.open(path, encoding="utf-8") as f:
         content = await f.read()
 
     payload: dict[str, Any] = json.loads(content)

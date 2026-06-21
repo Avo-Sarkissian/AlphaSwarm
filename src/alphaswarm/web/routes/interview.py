@@ -96,17 +96,24 @@ async def interview_agent(
                 if not cycles:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail={"error": "no_completed_cycle", "message": "No completed simulation cycle found"},
+                        detail={
+                            "error": "no_completed_cycle",
+                            "message": "No completed simulation cycle found",
+                        },
                     )
                 cycle_id = cycles[0]["cycle_id"]
 
                 context = await graph_manager.read_agent_interview_context(agent_id, cycle_id)
 
-                # 404 if context is missing or has no agent data (addresses Gemini/Codex agent validation concern)
+                # 404 if context is missing or has no agent data
+                # (addresses Gemini/Codex agent validation concern)
                 if context is None or not getattr(context, "agent_name", None):
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail={"error": "agent_not_found", "message": f"No interview context for agent {agent_id}"},
+                        detail={
+                            "error": "agent_not_found",
+                            "message": f"No interview context for agent {agent_id}",
+                        },
                     )
 
                 worker_provider = OllamaProvider(

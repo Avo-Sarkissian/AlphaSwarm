@@ -16,7 +16,6 @@ import pytest
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
 
-
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------

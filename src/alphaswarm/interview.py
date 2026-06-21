@@ -81,7 +81,7 @@ class InterviewEngine:
     def __init__(
         self,
         context: InterviewContext,
-        provider: "InferenceProvider",
+        provider: InferenceProvider,
     ) -> None:
         self._context = context
         self._provider = provider

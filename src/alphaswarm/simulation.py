@@ -15,8 +15,9 @@ import asyncio
 import dataclasses
 import re
 import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -34,7 +35,6 @@ from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_typ
 
 if TYPE_CHECKING:
     from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
-    from alphaswarm.governor import ResourceGovernor
     from alphaswarm.graph import GraphStateManager, PeerDecision, RankedPost
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
@@ -42,7 +42,12 @@ if TYPE_CHECKING:
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
     from alphaswarm.state import StateStore
-    from alphaswarm.types import AgentDecision, AgentPersona, ParsedModifiersResult, ParsedSeedResult
+    from alphaswarm.types import (
+        AgentDecision,
+        AgentPersona,
+        ParsedModifiersResult,
+        ParsedSeedResult,
+    )
 
 logger = structlog.get_logger(component="simulation")
 
@@ -366,7 +371,10 @@ def _format_peer_context(
             break
         if not post.content:
             continue
-        prefix = f'{i}. [{post.agent_id}|{post.bracket}] {post.signal.upper()} (conf: {post.confidence:.2f}) "'
+        prefix = (
+            f'{i}. [{post.agent_id}|{post.bracket}] {post.signal.upper()}'
+            f' (conf: {post.confidence:.2f}) "'
+        )
         suffix = '"'
         available = remaining - len(prefix) - len(suffix) - 1  # -1 for newline
         if available <= 0:
@@ -649,7 +657,7 @@ async def run_round1(
             # 7. Pair agent IDs with decisions
             agent_decisions: list[tuple[str, AgentDecision]] = [
                 (wc["agent_id"], dec)
-                for wc, dec in zip(worker_configs, decisions)
+                for wc, dec in zip(worker_configs, decisions, strict=False)
             ]
 
             # Per-agent StateStore writes now happen INSIDE
@@ -709,7 +717,9 @@ async def _dispatch_round(
     settings: GovernorSettings,
     *,
     influence_weights: dict[str, float] | None = None,
-    prev_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...] | None = None,
+    prev_decisions: (
+        list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...] | None
+    ) = None,
     state_store: StateStore | None = None,
 ) -> RoundDispatchResult:
     """Dispatch a round with per-agent peer context (D-09, D-10).
@@ -729,7 +739,7 @@ async def _dispatch_round(
 
     Uses ValueError for runtime contract checks (Codex review: assert disappears under -O).
     """
-    from alphaswarm.graph import PeerDecision, RankedPost
+    from alphaswarm.graph import RankedPost
 
     worker_configs = [persona_to_worker_config(p) for p in personas]
 
@@ -844,7 +854,7 @@ async def _dispatch_round(
 
     agent_decisions: list[tuple[str, AgentDecision]] = [
         (wc["agent_id"], dec)
-        for wc, dec in zip(worker_configs, decisions)
+        for wc, dec in zip(worker_configs, decisions, strict=False)
     ]
 
     # Per-agent StateStore writes happen inside
@@ -913,7 +923,8 @@ async def run_simulation(
     5. Fire on_round_complete for Round 1 (shift=None, no prior round to compare)
     6. ensure_clean_state + reload worker (D-05: one cold load for modularity)
     7. Fresh governor monitoring session for Rounds 2-3 block (D-06)
-    8. Round 2: _dispatch_round with dynamic weights if available (fallback to static) -> write -> callback
+    8. Round 2: _dispatch_round with dynamic weights if available (fallback to static)
+       -> write -> callback
     9. Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2)
     10. Round 3: _dispatch_round with Round 2 weights -> write -> callback
     11. Return SimulationResult with all bracket summaries (D-08)
@@ -1025,8 +1036,11 @@ async def run_simulation(
     write_buffer = WriteBuffer(maxsize=200)
     entity_names = await graph_manager.read_cycle_entities(cycle_id)
 
-    # Phase 11: Push Round 1 episodes to WriteBuffer (retroactive -- run_round1 already wrote decisions)
-    for did, (agent_id, decision) in zip(round1_result.decision_ids, round1_result.agent_decisions):
+    # Phase 11: Push Round 1 episodes to WriteBuffer
+    # (retroactive -- run_round1 already wrote decisions)
+    for did, (agent_id, decision) in zip(
+        round1_result.decision_ids, round1_result.agent_decisions, strict=False
+    ):
         record = EpisodeRecord(
             decision_id=did,
             agent_id=agent_id,
@@ -1081,7 +1095,6 @@ async def run_simulation(
 
     # Reload worker for Rounds 2-3 (D-05)
     await model_manager.ensure_clean_state()
-    worker_alias = settings.ollama.worker_model_alias
 
     # Fresh governor monitoring for Rounds 2-3 block (D-06)
     await governor.start_monitoring()
@@ -1147,7 +1160,8 @@ async def run_simulation(
                 round_num=2,
             )
             round2_decisions: list[tuple[str, AgentDecision]] = [
-                (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round2_wave_decisions)
+                (wc["agent_id"], dec)
+                for wc, dec in zip(worker_configs, round2_wave_decisions, strict=False)
             ]
             # Per-agent StateStore writes are now streamed from inside
             # batch_dispatcher._safe_agent_inference. See debug session
@@ -1158,7 +1172,9 @@ async def run_simulation(
                 ctx if ctx is not None else "" for ctx in round2_peer_contexts
             ]
 
-            round2_ids = await graph_manager.write_decisions(round2_decisions, cycle_id, round_num=2)
+            round2_ids = await graph_manager.write_decisions(
+                round2_decisions, cycle_id, round_num=2
+            )
 
             # Phase 12: Write Round 2 Post nodes (D-12 step 2)
             round2_post_ids = await graph_manager.write_posts(
@@ -1167,13 +1183,14 @@ async def run_simulation(
 
             # Phase 11: Push Round 2 episodes to WriteBuffer
             round1_map = {aid: dec for aid, dec in round1_result.agent_decisions}
-            for did, (agent_id, decision) in zip(round2_ids, round2_decisions):
+            for did, (agent_id, decision) in zip(round2_ids, round2_decisions, strict=False):
                 prev_signal = round1_map.get(agent_id)
                 prev_sig = prev_signal.signal if prev_signal else None
                 persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
                 peer_ctx = (
                     round2_peer_contexts_normalized[persona_idx]
-                    if persona_idx is not None and persona_idx < len(round2_peer_contexts_normalized)
+                    if persona_idx is not None
+                    and persona_idx < len(round2_peer_contexts_normalized)
                     else ""
                 )
                 record = EpisodeRecord(
@@ -1289,7 +1306,8 @@ async def run_simulation(
                     round_num=3,
                 )
                 round3_decisions: list[tuple[str, AgentDecision]] = [
-                    (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round3_wave_decisions)
+                    (wc["agent_id"], dec)
+                    for wc, dec in zip(worker_configs, round3_wave_decisions, strict=False)
                 ]
                 # Per-agent StateStore writes are now streamed from inside
                 # batch_dispatcher._safe_agent_inference. See debug session
@@ -1299,22 +1317,27 @@ async def run_simulation(
                     ctx if ctx is not None else "" for ctx in round3_peer_contexts
                 ]
 
-                round3_ids = await graph_manager.write_decisions(round3_decisions, cycle_id, round_num=3)
+                round3_ids = await graph_manager.write_decisions(
+                    round3_decisions, cycle_id, round_num=3
+                )
 
                 # Phase 12: Write Round 3 Post nodes
-                round3_post_ids = await graph_manager.write_posts(
+                await graph_manager.write_posts(
                     round3_decisions, round3_ids, cycle_id, round_num=3,
                 )
 
                 # Phase 11: Push Round 3 episodes to WriteBuffer
                 round2_map = {aid: dec for aid, dec in round2_decisions}
-                for did, (agent_id, decision) in zip(round3_ids, round3_decisions):
+                for did, (agent_id, decision) in zip(round3_ids, round3_decisions, strict=False):
                     prev_signal = round2_map.get(agent_id)
                     prev_sig = prev_signal.signal if prev_signal else None
-                    persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
+                    persona_idx = next(
+                        (i for i, p in enumerate(personas) if p.id == agent_id), None
+                    )
                     peer_ctx = (
                         round3_peer_contexts_normalized[persona_idx]
-                        if persona_idx is not None and persona_idx < len(round3_peer_contexts_normalized)
+                        if persona_idx is not None
+                        and persona_idx < len(round3_peer_contexts_normalized)
                         else ""
                     )
                     record = EpisodeRecord(
@@ -1401,7 +1424,9 @@ async def run_simulation(
 
     # Persist run metrics onto the Cycle node (measurement infra). Failure is
     # logged but never fails a completed simulation.
-    def _parse_errors(decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]) -> int:
+    def _parse_errors(
+        decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
+    ) -> int:
         return sum(1 for _, d in decisions if d.signal == SignalType.PARSE_ERROR)
 
     final_round_decisions = (
@@ -1467,7 +1492,9 @@ async def run_simulation(
 
 async def _generate_decision_narratives(
     personas: list[AgentPersona],
-    all_decisions: dict[int, list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]],
+    all_decisions: dict[
+        int, list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]
+    ],
     graph_manager: GraphStateManager,
     governor: ConcurrencyController,
     provider: InferenceProvider,
@@ -1490,8 +1517,9 @@ async def _generate_decision_narratives(
 
     Returns list of {"agent_id": str, "narrative": str} dicts that were written.
     """
-    from alphaswarm.inference.types import InferenceMessage
     import asyncio as _asyncio
+
+    from alphaswarm.inference.types import InferenceMessage
 
     # Build per-agent decision summaries
     agent_decisions_by_id: dict[str, dict[int, AgentDecision]] = {}
@@ -1543,7 +1571,10 @@ async def _generate_decision_narratives(
         messages: list[InferenceMessage] = [
             {
                 "role": "system",
-                "content": "You are a concise financial analyst narrator. Summarize agent decision arcs in 2-3 sentences.",
+                "content": (
+                    "You are a concise financial analyst narrator."
+                    " Summarize agent decision arcs in 2-3 sentences."
+                ),
             },
             {"role": "user", "content": prompt},
         ]

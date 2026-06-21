@@ -220,32 +220,35 @@ class OpenAICompatProvider:
             if resp.status_code == 400:
                 # Check if the 400 is about strict JSON schema being unsupported.
                 # Only meaningful when a schema was requested.
-                if response_schema is not None and _body_mentions_strict_unsupported(resp.text):
-                    if not self._no_strict:
-                        # First time: downgrade to json_object and retry once.
-                        self._no_strict = True
-                        body["response_format"] = to_openai_json_object()
-                        # Single immediate retry (not counted against max_retries).
-                        try:
-                            retry_resp = await self._client.post(
-                                url, json=body, headers=self._headers
-                            )
-                        except (httpx.TransportError, httpx.TimeoutException) as exc:
-                            raise InferenceError(
-                                f"Transport error on strict-downgrade retry: {exc}",
-                                provider="openai_compatible",
-                                model=self.model,
-                                original_error=exc,
-                            ) from exc
-
-                        if retry_resp.status_code == 200:
-                            return self._parse_response(retry_resp)
+                if (
+                    response_schema is not None
+                    and _body_mentions_strict_unsupported(resp.text)
+                    and not self._no_strict
+                ):
+                    # First time: downgrade to json_object and retry once.
+                    self._no_strict = True
+                    body["response_format"] = to_openai_json_object()
+                    # Single immediate retry (not counted against max_retries).
+                    try:
+                        retry_resp = await self._client.post(
+                            url, json=body, headers=self._headers
+                        )
+                    except (httpx.TransportError, httpx.TimeoutException) as exc:
                         raise InferenceError(
-                            f"Strict-downgrade retry also failed (HTTP {retry_resp.status_code}): "
-                            f"{retry_resp.text}",
+                            f"Transport error on strict-downgrade retry: {exc}",
                             provider="openai_compatible",
                             model=self.model,
-                        )
+                            original_error=exc,
+                        ) from exc
+
+                    if retry_resp.status_code == 200:
+                        return self._parse_response(retry_resp)
+                    raise InferenceError(
+                        f"Strict-downgrade retry also failed (HTTP {retry_resp.status_code}): "
+                        f"{retry_resp.text}",
+                        provider="openai_compatible",
+                        model=self.model,
+                    )
                 # Non-schema-related 400 or already in no_strict mode
                 raise InferenceError(
                     f"Bad request (HTTP 400): {resp.text}",
@@ -293,7 +296,9 @@ class OpenAICompatProvider:
     def _parse_response(self, resp: httpx.Response) -> InferenceResult:
         """Parse a 200 response into an ``InferenceResult``."""
         data = resp.json()
-        content: str = (data["choices"][0]["message"]["content"] or "") if data.get("choices") else ""
+        content: str = (
+            (data["choices"][0]["message"]["content"] or "") if data.get("choices") else ""
+        )
         usage = data.get("usage", {})
         return InferenceResult(
             content=content,

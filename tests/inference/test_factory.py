@@ -14,7 +14,6 @@ import pytest
 from alphaswarm.config import InferenceConfig, ProviderLimits, ProviderType, RoleConfig
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference import (
-    BudgetMeter,
     RateLimitController,
 )
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
@@ -27,7 +26,6 @@ from alphaswarm.inference.factory import (
 )
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
-
 
 # ---------------------------------------------------------------------------
 # Helpers

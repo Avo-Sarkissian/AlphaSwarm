@@ -13,7 +13,6 @@ Public surface:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any, Literal, cast
 
 from alphaswarm.config import InferenceConfig, ProviderLimits, ProviderType
@@ -25,7 +24,6 @@ from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.rate_limit import RateLimitController
 from alphaswarm.inference.types import ProviderRole
-
 
 # ---------------------------------------------------------------------------
 # inference_mode
@@ -84,7 +82,9 @@ class BuiltProviders:
 # ---------------------------------------------------------------------------
 
 
-def _validate_cloud_role(provider: ProviderType, model: str, api_key: str | None, base_url: str | None) -> None:
+def _validate_cloud_role(
+    provider: ProviderType, model: str, api_key: str | None, base_url: str | None
+) -> None:
     """Raise ValueError with a clear message if cloud credentials are missing."""
     if not api_key:
         raise ValueError(

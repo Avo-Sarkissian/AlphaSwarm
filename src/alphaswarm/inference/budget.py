@@ -304,7 +304,7 @@ class BudgetTrackingProvider:
     Lifecycle methods (``prepare``, ``teardown``, ``aclose``) are also delegated.
     """
 
-    def __init__(self, inner: "InferenceProvider", meter: BudgetMeter) -> None:
+    def __init__(self, inner: InferenceProvider, meter: BudgetMeter) -> None:
         self._inner = inner
         self._meter = meter
 

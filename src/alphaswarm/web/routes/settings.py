@@ -17,9 +17,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ValidationError
 
 from alphaswarm.config import (
-    INFERENCE_CONFIG_PATH,
     InferenceConfig,
-    ProviderType,
     RoleConfig,
     load_inference_config,
     masked_config,
@@ -136,10 +134,7 @@ def _merge_role(
     effective_key: str | None
     # Strip before the empty check so whitespace-only ("   ") is treated as absent
     stripped = api_key_in.strip() if isinstance(api_key_in, str) else api_key_in
-    if stripped is None or stripped == "":
-        effective_key = stored_role.api_key  # keep current stored value
-    else:
-        effective_key = stripped
+    effective_key = stored_role.api_key if stripped is None or stripped == "" else stripped
 
     merged = stored_role.model_copy(
         update={
@@ -198,7 +193,10 @@ async def put_settings(
     if sim_manager.is_running:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "simulation_running", "message": "Cannot update settings while a simulation is running."},
+            detail={
+                "error": "simulation_running",
+                "message": "Cannot update settings while a simulation is running.",
+            },
         )
 
     try:
@@ -220,9 +218,15 @@ async def put_settings(
     merged_dict: dict[str, Any] = {
         "orchestrator": merged_orch.model_dump(),
         "worker": merged_worker.model_dump(),
-        "limits": body.get("limits", {role.value: lim.model_dump() for role, lim in stored.limits.items()}),
+        "limits": body.get(
+            "limits",
+            {role.value: lim.model_dump() for role, lim in stored.limits.items()},
+        ),
         "spend_cap_usd": body.get("spend_cap_usd", stored.spend_cap_usd),
-        "pricing_overrides": body.get("pricing_overrides", {k: v.model_dump() for k, v in stored.pricing_overrides.items()}),
+        "pricing_overrides": body.get(
+            "pricing_overrides",
+            {k: v.model_dump() for k, v in stored.pricing_overrides.items()},
+        ),
     }
 
     try:
@@ -273,7 +277,9 @@ async def test_connection(
         role_cfg: RoleConfig = cfg.orchestrator if body.role == "orchestrator" else cfg.worker
 
         # Build a single provider for the requested role
-        provider_role = ProviderRole.ORCHESTRATOR if body.role == "orchestrator" else ProviderRole.WORKER
+        provider_role = (
+            ProviderRole.ORCHESTRATOR if body.role == "orchestrator" else ProviderRole.WORKER
+        )
         meter = BudgetMeter(cap_usd=None, pricing=dict(DEFAULT_PRICING))
 
         provider = _build_single_provider(

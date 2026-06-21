@@ -9,6 +9,7 @@ Phase 3: Dynamic TokenPool with debt tracking, 5-state machine, dual-signal
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import enum
 import time
 from typing import TYPE_CHECKING
@@ -245,10 +246,8 @@ class ResourceGovernor:
         """
         if self._monitor_task is not None and not self._monitor_task.done():
             self._monitor_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._monitor_task
-            except asyncio.CancelledError:
-                pass
             self._monitor_task = None
 
         # Bug 1 fix: reset state machine so stale PAUSED/CRISIS doesn't bleed

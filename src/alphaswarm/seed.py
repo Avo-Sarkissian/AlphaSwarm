@@ -1,12 +1,14 @@
 """Seed injection pipeline for AlphaSwarm.
 
-Orchestrates: prepare orchestrator provider -> parse seed rumor -> persist to Neo4j -> teardown provider.
+Orchestrates: prepare orchestrator provider -> parse seed rumor ->
+persist to Neo4j -> teardown provider.
 Called by CLI inject subcommand. Self-contained model lifecycle per D-07.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -20,19 +22,24 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(component="seed")
 
-ORCHESTRATOR_SYSTEM_PROMPT = """You are a financial intelligence analyst. Given a market rumor, extract all named entities and assess sentiment.
-
-For each entity, determine:
-- name: The entity name (company, sector, or person)
-- type: One of "company", "sector", or "person"
-- relevance: How central this entity is to the rumor (0.0-1.0)
-- sentiment: The rumor's implication for this entity (-1.0 bearish to 1.0 bullish)
-
-Also determine overall_sentiment for the entire rumor (-1.0 to 1.0).
-
-Be thorough: extract ALL entities mentioned or strongly implied. Include sectors affected even if not named directly. Assign relevance based on centrality to the rumor's core claim.
-
-Respond with JSON: {"entities": [...], "overall_sentiment": float}"""
+ORCHESTRATOR_SYSTEM_PROMPT = (
+    "You are a financial intelligence analyst. Given a market rumor, extract all"
+    " named entities and assess sentiment.\n"
+    "\n"
+    "For each entity, determine:\n"
+    "- name: The entity name (company, sector, or person)\n"
+    '- type: One of "company", "sector", or "person"\n'
+    "- relevance: How central this entity is to the rumor (0.0-1.0)\n"
+    "- sentiment: The rumor's implication for this entity (-1.0 bearish to 1.0 bullish)\n"
+    "\n"
+    "Also determine overall_sentiment for the entire rumor (-1.0 to 1.0).\n"
+    "\n"
+    "Be thorough: extract ALL entities mentioned or strongly implied. Include sectors"
+    " affected even if not named directly. Assign relevance based on centrality to the"
+    " rumor's core claim.\n"
+    "\n"
+    'Respond with JSON: {"entities": [...], "overall_sentiment": float}'
+)
 
 
 async def inject_seed(
@@ -41,7 +48,9 @@ async def inject_seed(
     orchestrator: InferenceProvider,
     graph_manager: GraphStateManager,
     *,
-    modifier_generator: Callable[[SeedEvent, InferenceProvider], Awaitable[ParsedModifiersResult]] | None = None,
+    modifier_generator: (
+        Callable[[SeedEvent, InferenceProvider], Awaitable[ParsedModifiersResult]] | None
+    ) = None,
 ) -> tuple[str, ParsedSeedResult, ParsedModifiersResult | None]:
     """End-to-end seed injection pipeline. Returns (cycle_id, parsed_result, modifier_result).
 

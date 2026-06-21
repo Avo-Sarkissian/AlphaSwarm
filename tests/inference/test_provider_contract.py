@@ -9,7 +9,6 @@ from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from tests.inference.fakes import FakeInferenceProvider
 
-
 # ---------------------------------------------------------------------------
 # FakeInferenceProvider: protocol conformance + call recording
 # ---------------------------------------------------------------------------

@@ -25,7 +25,6 @@ from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from tests.inference.fakes import FakeInferenceProvider
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -205,7 +204,7 @@ class TestReportEngineAcceptsProvider:
 
     @pytest.mark.asyncio
     async def test_report_engine_routes_through_provider(self) -> None:
-        """ReportEngine.run() must call provider.chat() not OllamaClient.chat() — RED until migrated."""
+        """ReportEngine.run() must call provider.chat() not OllamaClient.chat() — RED."""
         from alphaswarm.report import ReportEngine
 
         fake_provider = FakeInferenceProvider(
@@ -251,7 +250,7 @@ class TestReportEngineAcceptsProvider:
 
 
 class TestInterviewEngineAcceptsProvider:
-    """InterviewEngine must accept `provider: InferenceProvider` instead of ollama_client + model."""
+    """InterviewEngine must accept `provider: InferenceProvider` instead of ollama_client."""
 
     def _make_context(self) -> Any:
         from alphaswarm.interview import InterviewContext, RoundDecision
@@ -379,9 +378,10 @@ class TestAdvisoryRouteBuildsProvider:
             def __call__(self, *args: Any, **kwargs: Any) -> _FakeProvider:
                 return _FakeProvider()
 
-        from types import SimpleNamespace
         from datetime import UTC, datetime
         from decimal import Decimal
+        from types import SimpleNamespace
+
         from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 
         portfolio = PortfolioSnapshot(
@@ -426,8 +426,8 @@ class TestReportRouteBuildsProvider:
         self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """_run_report_generation must call provider.prepare() and provider.teardown()."""
+
         import alphaswarm.web.routes.report as report_module
-        from unittest.mock import patch
 
         monkeypatch.chdir(tmp_path)
 

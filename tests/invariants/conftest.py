@@ -14,9 +14,11 @@ REVIEW REVISION (2026-04-18):
 from __future__ import annotations
 
 import io
+import json as _json_for_canary  # local alias to avoid shadowing
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
+from typing import Any as _AnyForCanary
 
 import pytest
 import structlog
@@ -162,10 +164,6 @@ def capture_jinja_renders() -> list[str]:
 # load-bearing invariant: if `alphaswarm.advisory.synthesize` leaks
 # sentinel values into any of the four surface sinks, the canary fails.
 # ------------------------------------------------------------------
-import json as _json_for_canary  # local alias to avoid shadowing
-from typing import Any as _AnyForCanary
-
-
 class CanaryFakeOllamaClient:
     """InferenceProvider fake that records every message into capture_jinja_renders.
 

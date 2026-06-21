@@ -17,20 +17,17 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from alphaswarm.config import (
     INFERENCE_CONFIG_PATH,
     InferenceConfig,
-    ModelPrice,
     ProviderType,
     RoleConfig,
 )
 from alphaswarm.errors import AuthError
 from alphaswarm.inference.types import InferenceResult, ProviderRole
-
 
 # ---------------------------------------------------------------------------
 # Test app factory
@@ -122,16 +119,18 @@ def _mock_ollama_list(models: list[str]) -> Any:
 
 class TestGetSettings:
     def test_returns_200(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]):
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.get("/api/settings")
+        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(
+            _make_settings_test_app()
+        ) as client:
+            r = client.get("/api/settings")
         assert r.status_code == 200
 
     def test_keys_are_masked_no_raw_key(self) -> None:
         """GET must NEVER expose a raw API key in the response."""
-        with _mock_load_cfg(_ANTHROPIC_CFG), _mock_ollama_list([]):
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.get("/api/settings")
+        with _mock_load_cfg(_ANTHROPIC_CFG), _mock_ollama_list([]), TestClient(
+            _make_settings_test_app()
+        ) as client:
+            r = client.get("/api/settings")
         data = r.json()
         assert r.status_code == 200
 
@@ -150,54 +149,59 @@ class TestGetSettings:
         assert worker_key["set"] is True
 
     def test_mode_field_present(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]):
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.get("/api/settings")
+        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(
+            _make_settings_test_app()
+        ) as client:
+            r = client.get("/api/settings")
         data = r.json()
         assert data["mode"] == "local"
 
     def test_mode_cloud(self) -> None:
-        with _mock_load_cfg(_ANTHROPIC_CFG), _mock_ollama_list([]):
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.get("/api/settings")
+        with _mock_load_cfg(_ANTHROPIC_CFG), _mock_ollama_list([]), TestClient(
+            _make_settings_test_app()
+        ) as client:
+            r = client.get("/api/settings")
         data = r.json()
         assert data["mode"] == "cloud"
 
     def test_available_local_models_from_ollama(self) -> None:
         """When ollama_client is present and list succeeds, models are returned."""
-        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list(["qwen3:8b", "qwen3:14b"]):
-            with TestClient(_make_settings_test_app()) as client:
-                # Inject a dummy ollama_client so the conditional branch fires
-                client.app.state.app_state.ollama_client = MagicMock()
-                r = client.get("/api/settings")
+        with (
+            _mock_load_cfg(_LOCAL_CFG),
+            _mock_ollama_list(["qwen3:8b", "qwen3:14b"]),
+            TestClient(_make_settings_test_app()) as client,
+        ):
+            # Inject a dummy ollama_client so the conditional branch fires
+            client.app.state.app_state.ollama_client = MagicMock()
+            r = client.get("/api/settings")
         data = r.json()
         assert data["available_local_models"] == ["qwen3:8b", "qwen3:14b"]
 
     def test_available_local_models_empty_on_failure(self) -> None:
         """If Ollama is down, available_local_models silently returns []."""
-        with _mock_load_cfg(_LOCAL_CFG):
-            with patch(
-                "alphaswarm.web.routes.settings._local_model_names",
-                new=AsyncMock(return_value=[]),
-            ):
-                with TestClient(_make_settings_test_app()) as client:
-                    # With ollama_client=None (default with_ollama=False), branch skips entirely
-                    r = client.get("/api/settings")
+        with _mock_load_cfg(_LOCAL_CFG), patch(
+            "alphaswarm.web.routes.settings._local_model_names",
+            new=AsyncMock(return_value=[]),
+        ), TestClient(_make_settings_test_app()) as client:
+            # With ollama_client=None (default with_ollama=False), branch skips entirely
+            r = client.get("/api/settings")
         assert r.json()["available_local_models"] == []
 
     def test_known_api_models_is_list_of_strings(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]):
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.get("/api/settings")
+        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(
+            _make_settings_test_app()
+        ) as client:
+            r = client.get("/api/settings")
         models = r.json()["known_api_models"]
         assert isinstance(models, list)
         assert all(isinstance(m, str) for m in models)
         assert len(models) > 0
 
     def test_known_api_models_contains_claude_ids(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]):
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.get("/api/settings")
+        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(
+            _make_settings_test_app()
+        ) as client:
+            r = client.get("/api/settings")
         models = r.json()["known_api_models"]
         assert any("claude" in m for m in models)
 
@@ -209,30 +213,32 @@ class TestGetSettings:
 
 class TestPutSettings:
     def test_409_when_sim_running(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG), _mock_save_cfg():
-            with TestClient(_make_settings_test_app()) as client:
-                # Force simulation to appear running via internal flag
-                client.app.state.sim_manager._is_running = True
-                r = client.put(
-                    "/api/settings",
-                    json={
-                        "orchestrator": {"provider": "ollama", "model": "test"},
-                        "worker": {"provider": "ollama", "model": "test"},
-                    },
-                )
+        with _mock_load_cfg(_LOCAL_CFG), _mock_save_cfg(), TestClient(
+            _make_settings_test_app()
+        ) as client:
+            # Force simulation to appear running via internal flag
+            client.app.state.sim_manager._is_running = True
+            r = client.put(
+                "/api/settings",
+                json={
+                    "orchestrator": {"provider": "ollama", "model": "test"},
+                    "worker": {"provider": "ollama", "model": "test"},
+                },
+            )
         assert r.status_code == 409
 
     def test_400_on_invalid_body(self) -> None:
         """Invalid provider value should yield 400."""
-        with _mock_load_cfg(_LOCAL_CFG), _mock_save_cfg():
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.put(
-                    "/api/settings",
-                    json={
-                        "orchestrator": {"provider": "bad_provider_xyz", "model": "test"},
-                        "worker": {"provider": "ollama", "model": "test"},
-                    },
-                )
+        with _mock_load_cfg(_LOCAL_CFG), _mock_save_cfg(), TestClient(
+            _make_settings_test_app()
+        ) as client:
+            r = client.put(
+                "/api/settings",
+                json={
+                    "orchestrator": {"provider": "bad_provider_xyz", "model": "test"},
+                    "worker": {"provider": "ollama", "model": "test"},
+                },
+            )
         assert r.status_code == 400
 
     def test_put_persists_and_returns_masked(self, tmp_path: Path) -> None:
@@ -242,16 +248,21 @@ class TestPutSettings:
         def _fake_save(cfg: InferenceConfig, path: Path = INFERENCE_CONFIG_PATH) -> None:
             saved_calls.append(cfg)
 
-        with _mock_load_cfg(_LOCAL_CFG):
-            with patch("alphaswarm.web.routes.settings.save_inference_config", side_effect=_fake_save):
-                with TestClient(_make_settings_test_app()) as client:
-                    r = client.put(
-                        "/api/settings",
-                        json={
-                            "orchestrator": {"provider": "ollama", "model": "new-orch"},
-                            "worker": {"provider": "ollama", "model": "new-worker"},
-                        },
-                    )
+        with (
+            _mock_load_cfg(_LOCAL_CFG),
+            patch(
+                "alphaswarm.web.routes.settings.save_inference_config",
+                side_effect=_fake_save,
+            ),
+            TestClient(_make_settings_test_app()) as client,
+        ):
+            r = client.put(
+                "/api/settings",
+                json={
+                    "orchestrator": {"provider": "ollama", "model": "new-orch"},
+                    "worker": {"provider": "ollama", "model": "new-worker"},
+                },
+            )
 
         assert r.status_code == 200
         data = r.json()
@@ -282,25 +293,30 @@ class TestPutSettings:
         def _fake_save(cfg: InferenceConfig, path: Path = INFERENCE_CONFIG_PATH) -> None:
             saved_calls.append(cfg)
 
-        with _mock_load_cfg(stored_cfg):
-            with patch("alphaswarm.web.routes.settings.save_inference_config", side_effect=_fake_save):
-                with TestClient(_make_settings_test_app()) as client:
-                    # PUT without api_key field
-                    r = client.put(
-                        "/api/settings",
-                        json={
-                            "orchestrator": {
-                                "provider": "anthropic",
-                                "model": "claude-3-5-haiku-20241022",
-                                # api_key deliberately omitted
-                            },
-                            "worker": {
-                                "provider": "anthropic",
-                                "model": "claude-3-5-haiku-20241022",
-                                "api_key": "",  # empty string → preserve stored
-                            },
-                        },
-                    )
+        with (
+            _mock_load_cfg(stored_cfg),
+            patch(
+                "alphaswarm.web.routes.settings.save_inference_config",
+                side_effect=_fake_save,
+            ),
+            TestClient(_make_settings_test_app()) as client,
+        ):
+            # PUT without api_key field
+            r = client.put(
+                "/api/settings",
+                json={
+                    "orchestrator": {
+                        "provider": "anthropic",
+                        "model": "claude-3-5-haiku-20241022",
+                        # api_key deliberately omitted
+                    },
+                    "worker": {
+                        "provider": "anthropic",
+                        "model": "claude-3-5-haiku-20241022",
+                        "api_key": "",  # empty string → preserve stored
+                    },
+                },
+            )
 
         assert r.status_code == 200
         assert len(saved_calls) == 1
@@ -318,33 +334,30 @@ class TestPutSettings:
         with patch(
             "alphaswarm.web.routes.settings.load_inference_config",
             side_effect=ValueError("corrupt: missing required field"),
-        ):
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.put(
-                    "/api/settings",
-                    json={
-                        "orchestrator": {"provider": "ollama", "model": "test"},
-                        "worker": {"provider": "ollama", "model": "test"},
-                    },
-                )
+        ), TestClient(_make_settings_test_app()) as client:
+            r = client.put(
+                "/api/settings",
+                json={
+                    "orchestrator": {"provider": "ollama", "model": "test"},
+                    "worker": {"provider": "ollama", "model": "test"},
+                },
+            )
         assert r.status_code == 422
         assert "stored inference config is invalid" in r.json()["detail"]
 
     def test_500_when_save_raises_oserror(self) -> None:
         """PUT → 500 when save_inference_config raises OSError (write failure)."""
-        with _mock_load_cfg(_LOCAL_CFG):
-            with patch(
-                "alphaswarm.web.routes.settings.save_inference_config",
-                side_effect=OSError("disk full"),
-            ):
-                with TestClient(_make_settings_test_app()) as client:
-                    r = client.put(
-                        "/api/settings",
-                        json={
-                            "orchestrator": {"provider": "ollama", "model": "test"},
-                            "worker": {"provider": "ollama", "model": "test"},
-                        },
-                    )
+        with _mock_load_cfg(_LOCAL_CFG), patch(
+            "alphaswarm.web.routes.settings.save_inference_config",
+            side_effect=OSError("disk full"),
+        ), TestClient(_make_settings_test_app()) as client:
+            r = client.put(
+                "/api/settings",
+                json={
+                    "orchestrator": {"provider": "ollama", "model": "test"},
+                    "worker": {"provider": "ollama", "model": "test"},
+                },
+            )
         assert r.status_code == 500
         assert "failed to persist settings" in r.json()["detail"]
 
@@ -368,23 +381,25 @@ class TestPutSettings:
         def _fake_save(cfg: InferenceConfig, path: Path = INFERENCE_CONFIG_PATH) -> None:
             saved_calls.append(cfg)
 
-        with _mock_load_cfg(stored_cfg):
-            with patch("alphaswarm.web.routes.settings.save_inference_config", side_effect=_fake_save):
-                with TestClient(_make_settings_test_app()) as client:
-                    r = client.put(
-                        "/api/settings",
-                        json={
-                            "orchestrator": {
-                                "provider": "anthropic",
-                                "model": "claude-3-5-haiku-20241022",
-                                "api_key": "   ",  # whitespace-only → treat as empty
-                            },
-                            "worker": {
-                                "provider": "anthropic",
-                                "model": "claude-3-5-haiku-20241022",
-                            },
-                        },
-                    )
+        with (
+            _mock_load_cfg(stored_cfg),
+            patch("alphaswarm.web.routes.settings.save_inference_config", side_effect=_fake_save),
+            TestClient(_make_settings_test_app()) as client,
+        ):
+            r = client.put(
+                "/api/settings",
+                json={
+                    "orchestrator": {
+                        "provider": "anthropic",
+                        "model": "claude-3-5-haiku-20241022",
+                        "api_key": "   ",  # whitespace-only → treat as empty
+                    },
+                    "worker": {
+                        "provider": "anthropic",
+                        "model": "claude-3-5-haiku-20241022",
+                    },
+                },
+            )
 
         assert r.status_code == 200
         assert len(saved_calls) == 1
@@ -411,24 +426,26 @@ class TestPutSettings:
         def _fake_save(cfg: InferenceConfig, path: Path = INFERENCE_CONFIG_PATH) -> None:
             saved_calls.append(cfg)
 
-        with _mock_load_cfg(stored_cfg):
-            with patch("alphaswarm.web.routes.settings.save_inference_config", side_effect=_fake_save):
-                with TestClient(_make_settings_test_app()) as client:
-                    r = client.put(
-                        "/api/settings",
-                        json={
-                            "orchestrator": {
-                                "provider": "anthropic",
-                                "model": "claude-3-5-haiku-20241022",
-                                "api_key": "new-key-xyz",
-                            },
-                            "worker": {
-                                "provider": "anthropic",
-                                "model": "claude-3-5-haiku-20241022",
-                                "api_key": "new-worker-key",
-                            },
-                        },
-                    )
+        with (
+            _mock_load_cfg(stored_cfg),
+            patch("alphaswarm.web.routes.settings.save_inference_config", side_effect=_fake_save),
+            TestClient(_make_settings_test_app()) as client,
+        ):
+            r = client.put(
+                "/api/settings",
+                json={
+                    "orchestrator": {
+                        "provider": "anthropic",
+                        "model": "claude-3-5-haiku-20241022",
+                        "api_key": "new-key-xyz",
+                    },
+                    "worker": {
+                        "provider": "anthropic",
+                        "model": "claude-3-5-haiku-20241022",
+                        "api_key": "new-worker-key",
+                    },
+                },
+            )
 
         assert r.status_code == 200
         assert saved_calls[0].orchestrator.api_key == "new-key-xyz"
@@ -460,13 +477,11 @@ class TestConnectionTest:
             is_local=False,
         )
 
-        with _mock_load_cfg(_ANTHROPIC_CFG):
-            with patch(
-                "alphaswarm.web.routes.settings._build_single_provider",
-                return_value=fake_provider,
-            ):
-                with TestClient(_make_settings_test_app()) as client:
-                    r = client.post("/api/settings/test", json={"role": "orchestrator"})
+        with _mock_load_cfg(_ANTHROPIC_CFG), patch(
+            "alphaswarm.web.routes.settings._build_single_provider",
+            return_value=fake_provider,
+        ), TestClient(_make_settings_test_app()) as client:
+            r = client.post("/api/settings/test", json={"role": "orchestrator"})
 
         assert r.status_code == 200
         data = r.json()
@@ -486,13 +501,11 @@ class TestConnectionTest:
         fake_provider.chat = _fake_chat
         fake_provider.aclose = AsyncMock()
 
-        with _mock_load_cfg(_ANTHROPIC_CFG):
-            with patch(
-                "alphaswarm.web.routes.settings._build_single_provider",
-                return_value=fake_provider,
-            ):
-                with TestClient(_make_settings_test_app()) as client:
-                    r = client.post("/api/settings/test", json={"role": "orchestrator"})
+        with _mock_load_cfg(_ANTHROPIC_CFG), patch(
+            "alphaswarm.web.routes.settings._build_single_provider",
+            return_value=fake_provider,
+        ), TestClient(_make_settings_test_app()) as client:
+            r = client.post("/api/settings/test", json={"role": "orchestrator"})
 
         assert r.status_code == 200  # never 500
         data = r.json()
@@ -511,13 +524,11 @@ class TestConnectionTest:
         fake_provider.chat = _fake_chat
         fake_provider.aclose = AsyncMock()
 
-        with _mock_load_cfg(_ANTHROPIC_CFG):
-            with patch(
-                "alphaswarm.web.routes.settings._build_single_provider",
-                return_value=fake_provider,
-            ):
-                with TestClient(_make_settings_test_app()) as client:
-                    r = client.post("/api/settings/test", json={"role": "worker"})
+        with _mock_load_cfg(_ANTHROPIC_CFG), patch(
+            "alphaswarm.web.routes.settings._build_single_provider",
+            return_value=fake_provider,
+        ), TestClient(_make_settings_test_app()) as client:
+            r = client.post("/api/settings/test", json={"role": "worker"})
 
         assert r.status_code == 200
         assert r.json()["ok"] is False
@@ -531,13 +542,11 @@ class TestConnectionTest:
         fake_provider.chat = _fake_chat
         fake_provider.aclose = AsyncMock()
 
-        with _mock_load_cfg(_ANTHROPIC_CFG):
-            with patch(
-                "alphaswarm.web.routes.settings._build_single_provider",
-                return_value=fake_provider,
-            ):
-                with TestClient(_make_settings_test_app()) as client:
-                    r = client.post("/api/settings/test", json={"role": "orchestrator"})
+        with _mock_load_cfg(_ANTHROPIC_CFG), patch(
+            "alphaswarm.web.routes.settings._build_single_provider",
+            return_value=fake_provider,
+        ), TestClient(_make_settings_test_app()) as client:
+            r = client.post("/api/settings/test", json={"role": "orchestrator"})
 
         assert r.status_code == 200
         assert r.json()["ok"] is False
@@ -551,11 +560,10 @@ class TestConnectionTest:
 class TestGetEstimate:
     def test_calls_count_includes_narratives(self) -> None:
         """calls = agents*rounds + agents(narratives) + 3."""
-        with _mock_load_cfg(_LOCAL_CFG):
-            with TestClient(_make_settings_test_app()) as client:
-                agents = len(client.app.state.app_state.personas)
-                rounds = client.app.state.app_state.settings.num_rounds
-                r = client.get("/api/settings/estimate")
+        with _mock_load_cfg(_LOCAL_CFG), TestClient(_make_settings_test_app()) as client:
+            agents = len(client.app.state.app_state.personas)
+            rounds = client.app.state.app_state.settings.num_rounds
+            r = client.get("/api/settings/estimate")
 
         assert r.status_code == 200
         data = r.json()
@@ -564,9 +572,8 @@ class TestGetEstimate:
 
     def test_local_config_zero_cost(self) -> None:
         """Local (OLLAMA) config → cost is $0."""
-        with _mock_load_cfg(_LOCAL_CFG):
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.get("/api/settings/estimate")
+        with _mock_load_cfg(_LOCAL_CFG), TestClient(_make_settings_test_app()) as client:
+            r = client.get("/api/settings/estimate")
 
         data = r.json()
         assert Decimal(data["low_usd"]) == Decimal("0.00")
@@ -575,9 +582,11 @@ class TestGetEstimate:
 
     def test_cloud_config_nonzero_cost(self) -> None:
         """Cloud (Anthropic) config → low/high > 0 for known model."""
-        with _mock_load_cfg(_ANTHROPIC_CFG):
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.get("/api/settings/estimate")
+        with (
+            _mock_load_cfg(_ANTHROPIC_CFG),
+            TestClient(_make_settings_test_app()) as client,
+        ):
+            r = client.get("/api/settings/estimate")
 
         data = r.json()
         assert data["mode"] == "cloud"
@@ -586,7 +595,6 @@ class TestGetEstimate:
         assert Decimal(data["low_usd"]) < Decimal(data["high_usd"])
 
     def test_mode_field_present(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG):
-            with TestClient(_make_settings_test_app()) as client:
-                r = client.get("/api/settings/estimate")
+        with _mock_load_cfg(_LOCAL_CFG), TestClient(_make_settings_test_app()) as client:
+            r = client.get("/api/settings/estimate")
         assert "mode" in r.json()

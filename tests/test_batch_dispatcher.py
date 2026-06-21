@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from alphaswarm.config import GovernorSettings
-from alphaswarm.errors import AuthError, BudgetExceededError, GovernorCrisisError, OllamaInferenceError, InferenceError
+from alphaswarm.errors import (
+    AuthError,
+    BudgetExceededError,
+    GovernorCrisisError,
+    InferenceError,
+    OllamaInferenceError,
+)
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import WorkerPersonaConfig
 from tests.inference.fakes import FakeInferenceProvider
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -200,7 +205,9 @@ async def test_jitter_within_settings_range(
     from alphaswarm.batch_dispatcher import dispatch_wave
 
     provider = _fake_provider(n=len(sample_personas))
-    settings = GovernorSettings(baseline_parallel=16, jitter_min_seconds=0.5, jitter_max_seconds=0.8)
+    settings = GovernorSettings(
+        baseline_parallel=16, jitter_min_seconds=0.5, jitter_max_seconds=0.8
+    )
     sleep_values: list[float] = []
 
     async def capture_sleep(duration: float) -> None:
@@ -243,7 +250,11 @@ async def test_partial_failure_produces_parse_error(
 
     call_count = 0
 
-    async def mock_infer(user_message: str, peer_context: str | None = None, market_context: str | None = None) -> AgentDecision:
+    async def mock_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
         nonlocal call_count
         call_count += 1
         if call_count == 2:
@@ -297,7 +308,11 @@ async def test_high_failure_rate_calls_report_wave_failures(
 
     call_idx = 0
 
-    async def mock_infer(user_message: str, peer_context: str | None = None, market_context: str | None = None) -> AgentDecision:
+    async def mock_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
         nonlocal call_idx
         call_idx += 1
         if call_idx <= 3:
@@ -343,7 +358,11 @@ async def test_low_failure_rate_does_not_call_report(
 
     call_idx = 0
 
-    async def mock_infer(user_message: str, peer_context: str | None = None, market_context: str | None = None) -> AgentDecision:
+    async def mock_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
         nonlocal call_idx
         call_idx += 1
         if call_idx == 1:
@@ -556,7 +575,11 @@ async def test_dispatch_wave_per_agent_peer_contexts(
 
     received_contexts: list[str | None] = []
 
-    async def mock_infer(user_message: str, peer_context: str | None = None, market_context: str | None = None) -> AgentDecision:
+    async def mock_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
         received_contexts.append(peer_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
@@ -617,7 +640,11 @@ async def test_dispatch_wave_peer_contexts_none_falls_back_to_scalar(
 
     received_contexts: list[str | None] = []
 
-    async def mock_infer(user_message: str, peer_context: str | None = None, market_context: str | None = None) -> AgentDecision:
+    async def mock_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
         received_contexts.append(peer_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
@@ -632,7 +659,7 @@ async def test_dispatch_wave_peer_contexts_none_falls_back_to_scalar(
         settings = GovernorSettings(baseline_parallel=16)
 
         with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
-            results = await dispatch_wave(
+            await dispatch_wave(
                 personas=sample_personas,
                 governor=governor,
                 provider=provider,
@@ -698,7 +725,10 @@ async def test_dispatch_wave_market_context_default_none(
     governor: ResourceGovernor,
     sample_personas: list[WorkerPersonaConfig],
 ) -> None:
-    """When market_context kwarg is omitted, dispatch_wave forwards None to every agent (backward compat)."""
+    """When market_context kwarg is omitted, dispatch_wave forwards None to every agent.
+
+    Backward compatibility: callers that don't pass market_context should see None.
+    """
     from alphaswarm.batch_dispatcher import dispatch_wave
 
     received_market_contexts: list[str | None] = []
@@ -966,16 +996,6 @@ async def test_safe_agent_inference_skips_rationale_on_parse_error(
 
     store = StateStore()
     settings = GovernorSettings(baseline_parallel=16)
-
-    # Build a provider whose chat() always raises via the scripted_fn approach.
-    # Use patch to make agent_worker raise OllamaInferenceError.
-    failing_provider = FakeInferenceProvider(
-        role=ProviderRole.WORKER,
-        model="fake-model",
-        scripted=lambda **kwargs: (_ for _ in ()).throw(
-            OllamaInferenceError("simulated failure", model="fake-model")
-        ),
-    )
 
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_aw.return_value.__aenter__ = AsyncMock(

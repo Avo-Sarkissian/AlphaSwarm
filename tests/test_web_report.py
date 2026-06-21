@@ -29,7 +29,6 @@ from fastapi.testclient import TestClient
 
 from alphaswarm.types import SimulationPhase
 
-
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
@@ -282,7 +281,8 @@ async def test_report_generation_pipeline(
 ) -> None:
     """_run_report_generation runs the exact sequence:
     provider.prepare (load_model) -> engine.run -> assembler.assemble ->
-    write_report -> write_sentinel -> provider.teardown (unload_model). Mirrors cli.py _handle_report (D-03).
+    write_report -> write_sentinel -> provider.teardown (unload_model).
+    Mirrors cli.py _handle_report (D-03).
     """
     monkeypatch.chdir(tmp_path)
     from alphaswarm.web.routes import report as report_module
@@ -326,16 +326,16 @@ async def test_report_generation_pipeline(
     async def _fake_write_sentinel(_cid: str, _path: str) -> None:
         call_order.append("write_sentinel")
 
-    with patch.object(report_module, "ReportEngine") as MockEngine, \
-            patch.object(report_module, "ReportAssembler") as MockAssembler, \
+    with patch.object(report_module, "ReportEngine") as mock_engine, \
+            patch.object(report_module, "ReportAssembler") as mock_assembler, \
             patch.object(report_module, "write_report", side_effect=_fake_write_report), \
             patch.object(report_module, "write_sentinel", side_effect=_fake_write_sentinel):
         engine_instance = MagicMock()
         engine_instance.run = _fake_run
-        MockEngine.return_value = engine_instance
+        mock_engine.return_value = engine_instance
         assembler_instance = MagicMock()
         assembler_instance.assemble = _fake_assemble
-        MockAssembler.return_value = assembler_instance
+        mock_assembler.return_value = assembler_instance
 
         await report_module._run_report_generation(mock_app_state, "abc-123")
 
@@ -377,10 +377,10 @@ async def test_report_generation_unloads_on_error(
     async def _raise(_cid: str) -> list:
         raise RuntimeError("boom")
 
-    with patch.object(report_module, "ReportEngine") as MockEngine:
+    with patch.object(report_module, "ReportEngine") as mock_engine:
         engine_instance = MagicMock()
         engine_instance.run = _raise
-        MockEngine.return_value = engine_instance
+        mock_engine.return_value = engine_instance
 
         with pytest.raises(RuntimeError, match="boom"):
             await report_module._run_report_generation(mock_app_state, "abc-123")

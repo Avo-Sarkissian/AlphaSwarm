@@ -125,13 +125,13 @@ async def get_report(cycle_id: str, request: Request) -> ReportResponse:
             },
         )
 
-    async with aiofiles.open(report_path, "r", encoding="utf-8") as f:
+    async with aiofiles.open(report_path, encoding="utf-8") as f:
         content = await f.read()
 
     # Async stat — returns os.stat_result with st_mtime (T-36-14).
     statres = await aiofiles.os.stat(report_path)
     generated_at = datetime.datetime.fromtimestamp(
-        statres.st_mtime, tz=datetime.timezone.utc,
+        statres.st_mtime, tz=datetime.UTC,
     ).isoformat()
 
     log.info("report_served", cycle_id=cycle_id, size=len(content))
@@ -242,7 +242,7 @@ async def generate_report(cycle_id: str, request: Request) -> GenerateResponse:
 
 
 def _on_report_task_done(
-    task: "asyncio.Task[Any]", cycle_id: str, app: FastAPI,
+    task: asyncio.Task[Any], cycle_id: str, app: FastAPI,
 ) -> None:
     """Done-callback for the background generation task (T-36-15).
 
@@ -297,7 +297,7 @@ def _on_report_task_done(
         log.error("report_task_exception_record_failed", cycle_id=cycle_id)
 
 
-async def _run_report_generation(app_state: "AppState", cycle_id: str) -> None:
+async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     """Background task — mirrors cli.py _handle_report sequence exactly (D-03).
 
     Sequence: provider.prepare -> ReportEngine.run -> ReportAssembler.assemble ->

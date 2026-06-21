@@ -10,7 +10,6 @@ from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.report import MAX_ITERATIONS, _parse_action_input
 from tests.inference.fakes import FakeInferenceProvider
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -81,7 +80,9 @@ class TestReportEngine:
         """Engine terminates immediately when LLM outputs FINAL_ANSWER."""
         from alphaswarm.report import ReportEngine
 
-        mock_tool = AsyncMock(return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100})
+        mock_tool = AsyncMock(
+            return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
+        )
         provider = _make_provider("THOUGHT: Done\nACTION: FINAL_ANSWER\nINPUT: {}")
 
         engine = ReportEngine(
@@ -99,7 +100,9 @@ class TestReportEngine:
         """Engine exits at MAX_ITERATIONS when no FINAL_ANSWER."""
         from alphaswarm.report import ReportEngine
 
-        mock_tool = AsyncMock(return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100})
+        mock_tool = AsyncMock(
+            return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
+        )
 
         # Return incrementing inputs to avoid duplicate detection
         scripted = [
@@ -126,12 +129,18 @@ class TestReportEngine:
         """Engine exits on duplicate (tool, input) pair after 1 successful call."""
         from alphaswarm.report import ReportEngine
 
-        mock_tool = AsyncMock(return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100})
+        mock_tool = AsyncMock(
+            return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
+        )
 
         # Scripted with the same response twice to trigger duplicate detection
         scripted = [
-            InferenceResult(content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}', model="test"),
-            InferenceResult(content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}', model="test"),
+            InferenceResult(
+                content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}', model="test",
+            ),
+            InferenceResult(
+                content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}', model="test",
+            ),
         ]
         provider = FakeInferenceProvider(
             role=ProviderRole.ORCHESTRATOR, model="test", scripted=scripted,
@@ -253,7 +262,9 @@ class TestReportAssembler:
 
         assembler = ReportAssembler()
         data = {"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100}
-        result = assembler.render_section("01_consensus_summary.j2", data=data, cycle_id="test-cycle")
+        result = assembler.render_section(
+            "01_consensus_summary.j2", data=data, cycle_id="test-cycle",
+        )
 
         assert "Consensus Summary" in result
         assert "50" in result
@@ -273,6 +284,7 @@ class TestReportAssembler:
         """write_sentinel creates JSON with cycle_id, path, and generated_at ISO timestamp."""
         import json
         from datetime import datetime
+
         from alphaswarm.report import write_sentinel
 
         await write_sentinel("cycle1", "./reports/cycle1_report.md", sentinel_dir=tmp_path)  # type: ignore[arg-type]

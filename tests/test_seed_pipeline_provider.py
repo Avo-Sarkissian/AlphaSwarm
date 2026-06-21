@@ -106,12 +106,12 @@ async def test_inject_seed_calls_prepare_on_provider(
     mock_graph_manager: AsyncMock,
 ) -> None:
     """inject_seed calls provider.prepare() before any inference."""
-    from unittest.mock import AsyncMock as AM
+    from unittest.mock import AsyncMock
 
     from alphaswarm.seed import inject_seed
 
     provider = _make_seed_provider()
-    prepare_spy = AM(wraps=provider.prepare)
+    prepare_spy = AsyncMock(wraps=provider.prepare)
     provider.prepare = prepare_spy  # type: ignore[method-assign]
 
     await inject_seed(
@@ -130,12 +130,12 @@ async def test_inject_seed_calls_teardown_on_provider(
     mock_graph_manager: AsyncMock,
 ) -> None:
     """inject_seed calls provider.teardown() after inference (even on success)."""
-    from unittest.mock import AsyncMock as AM
+    from unittest.mock import AsyncMock
 
     from alphaswarm.seed import inject_seed
 
     provider = _make_seed_provider()
-    teardown_spy = AM(wraps=provider.teardown)
+    teardown_spy = AsyncMock(wraps=provider.teardown)
     provider.teardown = teardown_spy  # type: ignore[method-assign]
 
     await inject_seed(
@@ -154,7 +154,7 @@ async def test_inject_seed_calls_teardown_on_error(
     mock_graph_manager: AsyncMock,
 ) -> None:
     """inject_seed calls provider.teardown() even when chat raises (finally block)."""
-    from unittest.mock import AsyncMock as AM
+    from unittest.mock import AsyncMock
 
     from alphaswarm.seed import inject_seed
 
@@ -163,7 +163,7 @@ async def test_inject_seed_calls_teardown_on_error(
         "alphaswarm-orchestrator",
         scripted=lambda **_: (_ for _ in ()).throw(RuntimeError("boom")),
     )
-    teardown_spy = AM(wraps=provider.teardown)
+    teardown_spy = AsyncMock(wraps=provider.teardown)
     provider.teardown = teardown_spy  # type: ignore[method-assign]
 
     with pytest.raises(RuntimeError, match="boom"):

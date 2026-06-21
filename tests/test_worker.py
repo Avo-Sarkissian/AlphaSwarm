@@ -11,7 +11,6 @@ from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import DECISION_JSON_SCHEMA, AgentWorker, WorkerPersonaConfig, agent_worker
 from tests.inference.fakes import FakeInferenceProvider
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -98,7 +97,7 @@ async def test_semaphore_lifecycle(
     provider = _fake_provider()
     assert governor.active_count == 0
 
-    async with agent_worker(sample_persona, governor, provider) as worker:
+    async with agent_worker(sample_persona, governor, provider) as _:
         assert governor.active_count == 1
 
     assert governor.active_count == 0
@@ -112,7 +111,7 @@ async def test_semaphore_released_on_error(
     provider = _fake_provider()
 
     with pytest.raises(RuntimeError, match="test error"):
-        async with agent_worker(sample_persona, governor, provider) as worker:
+        async with agent_worker(sample_persona, governor, provider) as _:
             raise RuntimeError("test error")
 
     assert governor.active_count == 0
@@ -406,7 +405,7 @@ async def test_agent_worker_passes_last_total_tokens_to_release(
     After a successful infer() with input_tokens=100 and output_tokens=50,
     the exit of agent_worker must call governor.release(success=True, result_tokens=150).
     """
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     scripted_result = InferenceResult(
         content=_VALID_BUY_JSON,

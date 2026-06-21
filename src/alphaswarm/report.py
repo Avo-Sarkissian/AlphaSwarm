@@ -5,9 +5,10 @@ from __future__ import annotations
 import datetime
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import aiofiles
 import structlog
@@ -121,7 +122,7 @@ class ReportEngine:
 
     def __init__(
         self,
-        provider: "InferenceProvider",
+        provider: InferenceProvider,
         tools: dict[str, Callable],  # type: ignore[type-arg]
         *,
         pre_seeded_observations: list[ToolObservation] | None = None,
@@ -143,7 +144,7 @@ class ReportEngine:
         observations: list[ToolObservation] = list(self._pre_seeded)
         seen_calls: set[tuple[str, str]] = set()
 
-        messages: list["InferenceMessage"] = [
+        messages: list[InferenceMessage] = [
             {"role": "system", "content": REACT_SYSTEM_PROMPT},
             {
                 "role": "user",
@@ -306,7 +307,7 @@ class ReportAssembler:
         # Index observations by tool_name for fast lookup
         obs_by_tool: dict[str, ToolObservation] = {obs.tool_name: obs for obs in observations}
 
-        now_iso = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+        now_iso = datetime.datetime.now(tz=datetime.UTC).isoformat()
         header = (
             f"# Post-Simulation Analysis Report\n\n"
             f"**Cycle:** {cycle_id}\n"
@@ -364,7 +365,7 @@ async def write_sentinel(
     payload = {
         "cycle_id": cycle_id,
         "path": report_path,
-        "generated_at": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+        "generated_at": datetime.datetime.now(tz=datetime.UTC).isoformat(),
     }
     async with aiofiles.open(sentinel_file, "w", encoding="utf-8") as f:
         await f.write(json.dumps(payload))

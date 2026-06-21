@@ -20,7 +20,6 @@ from alphaswarm.parsing import parse_agent_decision
 from alphaswarm.types import AgentDecision
 
 if TYPE_CHECKING:
-    from alphaswarm.governor import ResourceGovernor
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.state import StateStore

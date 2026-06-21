@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
+from alphaswarm.config import AppSettings, BracketConfig
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -18,7 +18,6 @@ from alphaswarm.types import (
     SeedEvent,
     SignalType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -294,8 +293,9 @@ async def test_run_round1_calls_ensure_clean_state_before_worker_load(
 
     # Track call order
     call_order: list[str] = []
-    mock_model_manager.ensure_clean_state.side_effect = lambda: call_order.append("ensure_clean_state")
-    original_load = mock_model_manager.load_model.side_effect
+    mock_model_manager.ensure_clean_state.side_effect = lambda: call_order.append(
+        "ensure_clean_state"
+    )
 
     async def track_load(model: str) -> None:
         call_order.append("load_model")
@@ -632,9 +632,19 @@ async def test_generate_decision_narratives_uses_injected_provider(
         influence_weight_base=0.9,
     )
     all_decisions: dict[int, list[tuple[str, AgentDecision]]] = {
-        1: [("institutions_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, sentiment=0.5))],
-        2: [("institutions_01", AgentDecision(signal=SignalType.BUY, confidence=0.85, sentiment=0.6))],
-        3: [("institutions_01", AgentDecision(signal=SignalType.HOLD, confidence=0.6, sentiment=0.1))],
+        1: [
+            ("institutions_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, sentiment=0.5))
+        ],
+        2: [
+            ("institutions_01", AgentDecision(
+                signal=SignalType.BUY, confidence=0.85, sentiment=0.6
+            ))
+        ],
+        3: [
+            ("institutions_01", AgentDecision(
+                signal=SignalType.HOLD, confidence=0.6, sentiment=0.1
+            ))
+        ],
     }
 
     result = await _generate_decision_narratives(
@@ -663,7 +673,9 @@ def test_round1_result_is_frozen() -> None:
     assert dataclasses.is_dataclass(Round1Result)
     field_names = {f.name for f in dataclasses.fields(Round1Result)}
     assert "agent_decisions" in field_names
-    assert "decisions" not in field_names, "Round1Result should not have a redundant 'decisions' field"
+    assert "decisions" not in field_names, (
+        "Round1Result should not have a redundant 'decisions' field"
+    )
 
     # Verify frozen
     result = Round1Result(
@@ -1117,16 +1129,24 @@ def test_simulation_result_is_frozen() -> None:
 
 # Helper to build a Round1Result for mocking run_round1
 
-def _mock_round1_result() -> "Round1Result":
+def _mock_round1_result():
     from alphaswarm.simulation import Round1Result
     return Round1Result(
         cycle_id="test-cycle-id",
         parsed_result=MOCK_PARSED_RESULT,
         agent_decisions=[
-            ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="momentum confirms")),
-            ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.7, rationale="factors align")),
-            ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="fading the pump")),
-            ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.5, rationale="exit liquidity")),
+            ("quants_01", AgentDecision(
+                signal=SignalType.BUY, confidence=0.8, rationale="momentum confirms"
+            )),
+            ("quants_02", AgentDecision(
+                signal=SignalType.BUY, confidence=0.7, rationale="factors align"
+            )),
+            ("degens_01", AgentDecision(
+                signal=SignalType.SELL, confidence=0.6, rationale="fading the pump"
+            )),
+            ("degens_02", AgentDecision(
+                signal=SignalType.SELL, confidence=0.5, rationale="exit liquidity"
+            )),
         ],
         decision_ids=[],  # Phase 11: empty list OK -- no episodes pushed from empty zip
     )
@@ -1134,7 +1154,7 @@ def _mock_round1_result() -> "Round1Result":
 
 # Helper to build a RoundDispatchResult for mocking _dispatch_round (Phase 11)
 
-def _mock_dispatch_result(personas: list | None = None) -> "RoundDispatchResult":
+def _mock_dispatch_result(personas: list | None = None):
     from alphaswarm.simulation import RoundDispatchResult
     p_list = personas if personas is not None else TEST_PERSONAS
     return RoundDispatchResult(
@@ -1536,7 +1556,6 @@ async def test_simulation_phase_transitions(
     mock_governor: AsyncMock,
 ) -> None:
     """Phase transitions are logged in correct order."""
-    import structlog
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -1544,7 +1563,6 @@ async def test_simulation_phase_transitions(
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
     logged_phases: list[str] = []
-    original_logger = structlog.get_logger
 
     with patch("alphaswarm.simulation.logger") as mock_logger:
         # Capture phase transitions from structlog info calls
@@ -1823,11 +1841,13 @@ def test_compute_bracket_summaries_signal_counts() -> None:
     brackets = [
         BracketConfig(
             bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-            risk_profile=0.4, temperature=0.3, system_prompt_template="t", influence_weight_base=0.7,
+            risk_profile=0.4, temperature=0.3, system_prompt_template="t",
+            influence_weight_base=0.7,
         ),
         BracketConfig(
             bracket_type=BracketType.DEGENS, display_name="Degens", count=1,
-            risk_profile=0.9, temperature=1.2, system_prompt_template="t", influence_weight_base=0.3,
+            risk_profile=0.9, temperature=1.2, system_prompt_template="t",
+            influence_weight_base=0.3,
         ),
     ]
     result = compute_bracket_summaries(decisions, personas, brackets)
@@ -1861,7 +1881,8 @@ def test_compute_bracket_summaries_excludes_parse_error() -> None:
     brackets = [
         BracketConfig(
             bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-            risk_profile=0.4, temperature=0.3, system_prompt_template="t", influence_weight_base=0.7,
+            risk_profile=0.4, temperature=0.3, system_prompt_template="t",
+            influence_weight_base=0.7,
         ),
     ]
     result = compute_bracket_summaries(decisions, personas, brackets)
@@ -1891,7 +1912,8 @@ def test_compute_bracket_summaries_avg_confidence() -> None:
     brackets = [
         BracketConfig(
             bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-            risk_profile=0.4, temperature=0.3, system_prompt_template="t", influence_weight_base=0.7,
+            risk_profile=0.4, temperature=0.3, system_prompt_template="t",
+            influence_weight_base=0.7,
         ),
     ]
     result = compute_bracket_summaries(decisions, personas, brackets)
@@ -1977,12 +1999,30 @@ def test_select_diverse_peers_fills_by_weight() -> None:
     from alphaswarm.simulation import select_diverse_peers
 
     personas = [
-        AgentPersona(id="quants_00", name="Q0", bracket=BracketType.QUANTS, risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7),
-        AgentPersona(id="degens_00", name="D0", bracket=BracketType.DEGENS, risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3),
-        AgentPersona(id="macro_00", name="M0", bracket=BracketType.MACRO, risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5),
-        AgentPersona(id="quants_01", name="Q1", bracket=BracketType.QUANTS, risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7),
-        AgentPersona(id="quants_02", name="Q2", bracket=BracketType.QUANTS, risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7),
-        AgentPersona(id="degens_01", name="D1", bracket=BracketType.DEGENS, risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3),
+        AgentPersona(
+            id="quants_00", name="Q0", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="degens_00", name="D0", bracket=BracketType.DEGENS,
+            risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3,
+        ),
+        AgentPersona(
+            id="macro_00", name="M0", bracket=BracketType.MACRO,
+            risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5,
+        ),
+        AgentPersona(
+            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
+            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+        ),
+        AgentPersona(
+            id="degens_01", name="D1", bracket=BracketType.DEGENS,
+            risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3,
+        ),
     ]
     # quants_01 has very high weight, should be picked in Phase 2
     weights = {
@@ -1993,7 +2033,10 @@ def test_select_diverse_peers_fills_by_weight() -> None:
         "self_00",
         weights,
         personas + [
-            AgentPersona(id="self_00", name="Self", bracket=BracketType.ALLOCATORS, risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5),
+            AgentPersona(
+            id="self_00", name="Self", bracket=BracketType.ALLOCATORS,
+            risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5,
+        ),
         ],
         limit=5,
         min_brackets=3,
@@ -2097,6 +2140,7 @@ async def test_dispatch_round_uses_dynamic_peers(
 ) -> None:
     """_dispatch_round calls select_diverse_peers when influence_weights is non-empty."""
     from unittest.mock import patch as mock_patch
+
     from alphaswarm.simulation import _dispatch_round
 
     mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
@@ -2215,6 +2259,7 @@ async def test_run_simulation_flushes_write_buffer(
 ) -> None:
     """WriteBuffer.flush is called 3 times during run_simulation (once per round)."""
     from unittest.mock import patch as mock_patch
+
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -2263,7 +2308,8 @@ async def test_run_simulation_pushes_episode_records(
     mock_governor: AsyncMock,
 ) -> None:
     """EpisodeRecord objects pushed to WriteBuffer have round_num set correctly."""
-    from unittest.mock import call, patch as mock_patch
+    from unittest.mock import patch as mock_patch
+
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -2499,7 +2545,7 @@ async def test_run_simulation_peer_contexts_cite_round1_agents(
     # self is always excluded.
     r2_contexts = mock_dispatch_wave.await_args_list[0].kwargs["peer_contexts"]
     assert len(r2_contexts) == len(TEST_PERSONAS)
-    for persona, ctx in zip(TEST_PERSONAS, r2_contexts):
+    for persona, ctx in zip(TEST_PERSONAS, r2_contexts, strict=False):
         assert ctx is not None
         assert f"[{persona.id}|" not in ctx  # self-exclusion
         assert "[quants_01|" in ctx or "[degens_01|" in ctx
@@ -2658,7 +2704,8 @@ async def test_run_simulation_injects_shock_into_round2(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """consume_shock returning text before Round 2 augments that round's user_message and writes a ShockEvent."""
+    """consume_shock returning text before Round 2 augments that round's user_message
+    and writes a ShockEvent."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -2759,7 +2806,8 @@ async def test_run_simulation_no_shock_passthrough(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """consume_shock returning None for both rounds leaves user_message == rumor and skips write_shock_event."""
+    """consume_shock returning None for both rounds leaves user_message == rumor
+    and skips write_shock_event."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -2841,7 +2889,8 @@ async def test_run_simulation_default_consume_shock_is_none(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """Omitting consume_shock (default None) preserves legacy behavior: no shock, no write_shock_event."""
+    """Omitting consume_shock (default None) preserves legacy behavior:
+    no shock, no write_shock_event."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -2914,7 +2963,8 @@ async def test_run_round1_market_context_default_none(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """Calling run_round1 without market_context kwarg passes None to dispatch_wave (backward compat)."""
+    """Calling run_round1 without market_context kwarg passes None to dispatch_wave
+    (backward compat)."""
     from alphaswarm.simulation import run_round1
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)

@@ -1,23 +1,23 @@
-"""Tests for AlphaSwarm web package: health endpoint, lifespan, SimulationManager, ConnectionManager, WebSocket state stream."""
+"""Tests for AlphaSwarm web package: health endpoint, lifespan, SimulationManager,
+ConnectionManager, WebSocket state stream."""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.simulation_manager import (
     NoSimulationRunningError,
     ShockAlreadyQueuedError,
     SimulationAlreadyRunningError,
     SimulationManager,
 )
-from alphaswarm.web.connection_manager import ConnectionManager
-
 
 # ---------------------------------------------------------------------------
 # Test helpers — lightweight lifespan that bypasses .env / Neo4j / Ollama
@@ -30,8 +30,6 @@ def _make_test_app() -> FastAPI:
     Uses AppSettings(_env_file=None) to avoid the .env file's extra keys
     that would fail Pydantic strict validation in unit tests.
     """
-    from contextlib import asynccontextmanager
-    from collections.abc import AsyncGenerator
 
     from alphaswarm.app import create_app_state
     from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
@@ -123,7 +121,6 @@ def test_health_endpoint() -> None:
 
 def test_health_inference_mode_default_local(monkeypatch: pytest.MonkeyPatch) -> None:
     """inference_mode defaults to 'local' when no config file is present."""
-    from alphaswarm.web.routes import health as health_module
 
     # load_inference_config raises when config file absent (no .secrets/inference.json)
     # by returning a default_inference_config with both providers OLLAMA.
@@ -137,7 +134,6 @@ def test_health_inference_mode_default_local(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_health_inference_mode_reflects_cloud_config(monkeypatch: pytest.MonkeyPatch) -> None:
     """inference_mode returns 'cloud' when load_inference_config returns a cloud-only config."""
-    from decimal import Decimal
     from unittest.mock import MagicMock
 
     from alphaswarm.config import ProviderType, RoleConfig
@@ -377,19 +373,19 @@ async def test_connection_manager_disconnect_cancels_task() -> None:
 def test_simulate_start_409_when_running() -> None:
     """POST /api/simulate/start returns HTTP 409 when simulation is already running."""
     from unittest.mock import AsyncMock, patch
+
     from alphaswarm.web.simulation_manager import SimulationAlreadyRunningError
 
-    with TestClient(_make_test_app()) as client:
-        with patch.object(
-            client.app.state.sim_manager,
-            "start",
-            new=AsyncMock(side_effect=SimulationAlreadyRunningError("Simulation already running")),
-        ):
-            r = client.post("/api/simulate/start", json={"seed": "test seed"})
-            assert r.status_code == 409
-            data = r.json()
-            assert "detail" in data
-            assert data["detail"]["error"] == "simulation_already_running"
+    with TestClient(_make_test_app()) as client, patch.object(
+        client.app.state.sim_manager,
+        "start",
+        new=AsyncMock(side_effect=SimulationAlreadyRunningError("Simulation already running")),
+    ):
+        r = client.post("/api/simulate/start", json={"seed": "test seed"})
+        assert r.status_code == 409
+        data = r.json()
+        assert "detail" in data
+        assert data["detail"]["error"] == "simulation_already_running"
 
 
 # ---------------------------------------------------------------------------
@@ -399,8 +395,6 @@ def test_simulate_start_409_when_running() -> None:
 
 def _make_ws_test_app() -> FastAPI:
     """FastAPI test app for WebSocket tests. Starts broadcaster (unlike _unit_lifespan)."""
-    from contextlib import asynccontextmanager
-    from collections.abc import AsyncGenerator
 
     from alphaswarm.app import create_app_state
     from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
@@ -429,10 +423,8 @@ def _make_ws_test_app() -> FastAPI:
         yield
 
         broadcaster_task.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await broadcaster_task
-        except asyncio.CancelledError:
-            pass
 
         if app_state.graph_manager is not None:
             await app_state.graph_manager.close()
@@ -471,8 +463,10 @@ def test_snapshot_to_json() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_snapshot_to_json_includes_live_memory_percent_idle(monkeypatch: pytest.MonkeyPatch) -> None:
-    """MEM-01: IDLE phase (governor_metrics=None) produces non-None governor_metrics with live psutil %."""
+def test_snapshot_to_json_includes_live_memory_percent_idle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MEM-01: IDLE phase (governor_metrics=None): non-None governor_metrics with live psutil %."""
     import json
     from types import SimpleNamespace
 
@@ -494,8 +488,10 @@ def test_snapshot_to_json_includes_live_memory_percent_idle(monkeypatch: pytest.
     assert "timestamp" in parsed["governor_metrics"]
 
 
-def test_snapshot_to_json_overlays_memory_percent_when_governor_silent(monkeypatch: pytest.MonkeyPatch) -> None:
-    """MEM-01: When governor has a stale GovernorMetrics, broadcaster overlays with fresh psutil %."""
+def test_snapshot_to_json_overlays_memory_percent_when_governor_silent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MEM-01: Stale GovernorMetrics is overlaid with fresh psutil % by broadcaster."""
     import json
     from types import SimpleNamespace
 
@@ -552,8 +548,10 @@ def test_broadcaster_emits_fresh_memory_percent_per_tick(monkeypatch: pytest.Mon
     assert results[2]["governor_metrics"]["memory_percent"] == 60.0
 
 
-def test_overlay_preserves_governor_authoritative_fields(monkeypatch: pytest.MonkeyPatch) -> None:
-    """MEM-03: Overlay only replaces memory_percent; all other governor fields are byte-identical."""
+def test_overlay_preserves_governor_authoritative_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MEM-03: Overlay only replaces memory_percent; all other governor fields unchanged."""
     import json
     from types import SimpleNamespace
 
@@ -618,10 +616,8 @@ def test_broadcaster_cancellation() -> None:
         task = start_broadcaster(store, cm)
         assert not task.done()
         task.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
         assert task.cancelled()
 
     asyncio.get_event_loop().run_until_complete(_run())
@@ -632,24 +628,23 @@ def test_ws_state_receives_snapshot() -> None:
     import json
 
     app = _make_ws_test_app()
-    with TestClient(app) as client:
-        with client.websocket_connect("/ws/state") as ws:
-            # Seed a broadcast directly via app state — no 200ms tick dependency
-            client.app.state.connection_manager.broadcast(
-                json.dumps({"phase": "idle", "agent_states": {}, "rationale_entries": []})
-            )
-            data = ws.receive_text()
-            parsed = json.loads(data)
-            assert "phase" in parsed
-            assert "agent_states" in parsed
-            assert "rationale_entries" in parsed
+    with TestClient(app) as client, client.websocket_connect("/ws/state") as ws:
+        # Seed a broadcast directly via app state — no 200ms tick dependency
+        client.app.state.connection_manager.broadcast(
+            json.dumps({"phase": "idle", "agent_states": {}, "rationale_entries": []})
+        )
+        data = ws.receive_text()
+        parsed = json.loads(data)
+        assert "phase" in parsed
+        assert "agent_states" in parsed
+        assert "rationale_entries" in parsed
 
 
 def test_ws_state_disconnect_cleanup() -> None:
     """Client count drops to 0 after WebSocket disconnect."""
     app = _make_ws_test_app()
     with TestClient(app) as client:
-        with client.websocket_connect("/ws/state") as ws:
+        with client.websocket_connect("/ws/state"):
             assert client.app.state.connection_manager.client_count == 1
         # After exiting context manager, disconnect should have fired
         assert client.app.state.connection_manager.client_count == 0
@@ -660,15 +655,14 @@ def test_ws_state_same_connection_manager() -> None:
     import json
 
     app = _make_ws_test_app()
-    with TestClient(app) as client:
-        with client.websocket_connect("/ws/state") as ws:
-            # Broadcasting via app.state.connection_manager should reach the WS client
-            # This proves the route handler and lifespan use the same object
-            cm = client.app.state.connection_manager
-            cm.broadcast(json.dumps({"phase": "identity_check"}))
-            data = ws.receive_text()
-            parsed = json.loads(data)
-            assert parsed["phase"] == "identity_check"
+    with TestClient(app) as client, client.websocket_connect("/ws/state") as ws:
+        # Broadcasting via app.state.connection_manager should reach the WS client
+        # This proves the route handler and lifespan use the same object
+        cm = client.app.state.connection_manager
+        cm.broadcast(json.dumps({"phase": "identity_check"}))
+        data = ws.receive_text()
+        parsed = json.loads(data)
+        assert parsed["phase"] == "identity_check"
 
 
 # ---------------------------------------------------------------------------
@@ -865,7 +859,8 @@ async def test_sim_manager_inject_shock() -> None:
 
 
 async def test_sim_manager_run_passes_consume_shock() -> None:
-    """Phase 35.1 — SimulationManager._run forwards consume_shock=self.consume_shock to run_simulation."""
+    """Phase 35.1 — SimulationManager._run forwards consume_shock=self.consume_shock
+    to run_simulation."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
     mock_app_state = MagicMock()
@@ -916,22 +911,22 @@ def test_simulate_start_202() -> None:
     """POST /api/simulate/start returns 202 with accepted status."""
     from unittest.mock import AsyncMock, patch
 
-    with TestClient(_make_test_app()) as client:
-        with patch.object(
-            client.app.state.sim_manager,
-            "start",
-            new=AsyncMock(),
-        ):
-            r = client.post("/api/simulate/start", json={"seed": "test rumor"})
-            assert r.status_code == 202
-            data = r.json()
-            assert data["status"] == "accepted"
-            assert data["message"] == "Simulation started"
+    with TestClient(_make_test_app()) as client, patch.object(
+        client.app.state.sim_manager,
+        "start",
+        new=AsyncMock(),
+    ):
+        r = client.post("/api/simulate/start", json={"seed": "test rumor"})
+        assert r.status_code == 202
+        data = r.json()
+        assert data["status"] == "accepted"
+        assert data["message"] == "Simulation started"
 
 
 def test_simulate_stop_200_and_409() -> None:
     """POST /api/simulate/stop returns 200 when running, 409 when not."""
     from unittest.mock import MagicMock, patch
+
     from alphaswarm.web.simulation_manager import NoSimulationRunningError
 
     with TestClient(_make_test_app()) as client:
@@ -961,6 +956,7 @@ def test_simulate_stop_200_and_409() -> None:
 def test_simulate_shock_queued_and_409() -> None:
     """POST /api/simulate/shock returns 200 when queued, 409 when not running."""
     from unittest.mock import MagicMock, patch
+
     from alphaswarm.web.simulation_manager import NoSimulationRunningError
 
     with TestClient(_make_test_app()) as client:
@@ -991,18 +987,18 @@ def test_simulate_shock_queued_and_409() -> None:
 def test_simulate_shock_concurrent_409() -> None:
     """POST /api/simulate/shock returns 409 when shock already queued."""
     from unittest.mock import MagicMock, patch
+
     from alphaswarm.web.simulation_manager import ShockAlreadyQueuedError
 
-    with TestClient(_make_test_app()) as client:
-        with patch.object(
-            client.app.state.sim_manager,
-            "inject_shock",
-            new=MagicMock(side_effect=ShockAlreadyQueuedError("A shock is already queued")),
-        ):
-            r = client.post("/api/simulate/shock", json={"shock_text": "another shock"})
-            assert r.status_code == 409
-            data = r.json()
-            assert data["detail"]["error"] == "shock_already_queued"
+    with TestClient(_make_test_app()) as client, patch.object(
+        client.app.state.sim_manager,
+        "inject_shock",
+        new=MagicMock(side_effect=ShockAlreadyQueuedError("A shock is already queued")),
+    ):
+        r = client.post("/api/simulate/shock", json={"shock_text": "another shock"})
+        assert r.status_code == 409
+        data = r.json()
+        assert data["detail"]["error"] == "shock_already_queued"
 
 
 async def test_sim_manager_cancellation_resets_phase_to_idle() -> None:
@@ -1016,6 +1012,7 @@ async def test_sim_manager_cancellation_resets_phase_to_idle() -> None:
     itself (which would short-circuit the fix).
     """
     from unittest.mock import AsyncMock, MagicMock, patch
+
     from alphaswarm.types import SimulationPhase
 
     mock_app_state = MagicMock()
@@ -1355,6 +1352,7 @@ async def test_m8x_sim_manager_cancellation_phase_reset_before_lock_release() ->
     check proves flaky we fall back to the weaker "eventually IDLE" check.
     """
     from unittest.mock import AsyncMock, MagicMock, patch
+
     from alphaswarm.types import SimulationPhase
 
     mock_app_state = MagicMock()

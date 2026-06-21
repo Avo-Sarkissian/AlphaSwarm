@@ -233,9 +233,9 @@ def test_sentinel_absent_from_get_settings_response() -> None:
     """GET /api/settings must NOT expose the raw sentinel API key."""
     from fastapi.testclient import TestClient
 
-    with _mock_load_cfg(_SENTINEL_INFERENCE_CFG), _mock_ollama_list():
-        with TestClient(_make_settings_test_app()) as client:
-            r = client.get("/api/settings")
+    with _mock_load_cfg(_SENTINEL_INFERENCE_CFG), _mock_ollama_list(), \
+            TestClient(_make_settings_test_app()) as client:
+        r = client.get("/api/settings")
 
     assert r.status_code == 200
     raw = json.dumps(r.json())

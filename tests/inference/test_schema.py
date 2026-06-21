@@ -15,9 +15,6 @@ from typing import Any
 
 import pytest
 
-# Import the real DECISION_JSON_SCHEMA for realistic tests
-from alphaswarm.worker import DECISION_JSON_SCHEMA
-
 # These imports will fail until schema.py is implemented (RED phase)
 from alphaswarm.inference.schema import (
     extract_anthropic_tool_json,
@@ -26,6 +23,8 @@ from alphaswarm.inference.schema import (
     to_openai_response_format,
 )
 
+# Import the real DECISION_JSON_SCHEMA for realistic tests
+from alphaswarm.worker import DECISION_JSON_SCHEMA
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -95,7 +94,7 @@ class TestToOpenaiResponseFormat:
     def test_input_not_mutated(self) -> None:
         original = copy.deepcopy(TINY_SCHEMA)
         to_openai_response_format(TINY_SCHEMA)
-        assert TINY_SCHEMA == original
+        assert original == TINY_SCHEMA
 
     def test_nested_object_normalized(self) -> None:
         result = to_openai_response_format(NESTED_SCHEMA)
@@ -114,7 +113,7 @@ class TestToOpenaiResponseFormat:
     def test_nested_input_not_mutated(self) -> None:
         original = copy.deepcopy(NESTED_SCHEMA)
         to_openai_response_format(NESTED_SCHEMA)
-        assert NESTED_SCHEMA == original
+        assert original == NESTED_SCHEMA
 
     # --- realistic schema ---
 
@@ -145,7 +144,7 @@ class TestToOpenaiResponseFormat:
     def test_decision_schema_input_not_mutated(self) -> None:
         original = copy.deepcopy(DECISION_JSON_SCHEMA)
         to_openai_response_format(DECISION_JSON_SCHEMA)
-        assert DECISION_JSON_SCHEMA == original
+        assert original == DECISION_JSON_SCHEMA
 
     def test_existing_required_preserved_when_complete(self) -> None:
         """If schema already has required covering all keys it should not duplicate."""
