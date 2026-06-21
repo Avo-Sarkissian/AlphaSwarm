@@ -230,7 +230,21 @@ class AnthropicProvider:
     def _parse_response(self, resp: Any, *, use_tool: bool) -> InferenceResult:
         """Extract content and token counts from an Anthropic response."""
         if use_tool:
-            content = extract_anthropic_tool_json(resp.content, name="emit_decision")
+            # A successful response can still lack the forced tool_use block
+            # (e.g. stop_reason='max_tokens' truncation or a text-only refusal).
+            # extract_anthropic_tool_json raises ValueError there; translate it
+            # into the provider's documented error contract so it is not a bare
+            # ValueError escaping the retry/translation layer (F-22).
+            try:
+                content = extract_anthropic_tool_json(resp.content, name="emit_decision")
+            except ValueError as exc:
+                raise InferenceError(
+                    f"Expected forced tool_use 'emit_decision' but none found "
+                    f"(stop_reason={getattr(resp, 'stop_reason', None)!r}): {exc}",
+                    provider="anthropic",
+                    model=self.model,
+                    original_error=exc,
+                ) from exc
         else:
             # Concatenate all text blocks
             content = "".join(

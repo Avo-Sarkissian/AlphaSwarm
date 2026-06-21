@@ -309,9 +309,29 @@ class OpenAICompatProvider:
 
     @staticmethod
     def _parse_retry_after(resp: httpx.Response, *, default: float) -> float:
-        """Read ``Retry-After`` header as seconds; fall back to *default*."""
+        """Read ``Retry-After`` header; fall back to *default*.
+
+        RFC 7231 allows either delta-seconds or an HTTP-date. Gateways/proxies
+        in front of OpenAI-compatible endpoints sometimes emit the HTTP-date
+        form on 429; parsing only ``float()`` made those collapse to *default*
+        (1s), ignoring a much longer mandated back-off (F-23). Try numeric
+        first, then HTTP-date, and clamp to a sane ceiling.
+        """
         raw = resp.headers.get("retry-after", "")
         try:
             return float(raw)
         except (ValueError, TypeError):
-            return default
+            pass
+        try:
+            from datetime import datetime, timezone
+            from email.utils import parsedate_to_datetime
+
+            dt = parsedate_to_datetime(raw)
+            if dt is not None:
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                delay = (dt - datetime.now(timezone.utc)).total_seconds()
+                return max(0.0, min(delay, 60.0))  # clamp pathological values
+        except (ValueError, TypeError):
+            pass
+        return default
