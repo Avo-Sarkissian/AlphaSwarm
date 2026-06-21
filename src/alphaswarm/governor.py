@@ -11,12 +11,13 @@ from __future__ import annotations
 import asyncio
 import enum
 import time
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 import structlog
 
 from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError
+from alphaswarm.inference.concurrency import ConcurrencyController
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReading
 
 if TYPE_CHECKING:
@@ -128,26 +129,14 @@ class TokenPool:
 
 
 # ---------------------------------------------------------------------------
-# ResourceGovernorProtocol (extended for Phase 3)
+# ResourceGovernorProtocol — backward-compat alias for ConcurrencyController
 # ---------------------------------------------------------------------------
 
-
-class ResourceGovernorProtocol(Protocol):
-    """Interface contract for ResourceGovernor."""
-
-    async def acquire(self) -> None: ...
-    def release(self, *, success: bool = True, result_tokens: int | None = None) -> None: ...
-    async def start_monitoring(self) -> None: ...
-    async def stop_monitoring(self) -> None: ...
-
-    @property
-    def current_limit(self) -> int: ...
-
-    @property
-    def active_count(self) -> int: ...
-
-    @property
-    def is_paused(self) -> bool: ...
+# The canonical protocol now lives in alphaswarm.inference.concurrency so the
+# factory layer can return either ResourceGovernor (local) or a future cloud
+# RateLimitController behind the same type.  The alias is kept here so any
+# existing internal references continue to resolve without churn.
+ResourceGovernorProtocol = ConcurrencyController
 
 
 # ---------------------------------------------------------------------------

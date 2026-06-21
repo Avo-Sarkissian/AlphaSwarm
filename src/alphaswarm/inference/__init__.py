@@ -20,6 +20,13 @@ Public surface:
 from __future__ import annotations
 
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
+from alphaswarm.inference.budget import (
+    DEFAULT_PRICING,
+    BudgetMeter,
+    RunEstimate,
+    estimate_run,
+)
+from alphaswarm.inference.concurrency import ConcurrencyController
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.schema import (
@@ -32,11 +39,16 @@ from alphaswarm.inference.types import InferenceMessage, InferenceResult, Provid
 
 __all__ = [
     "AnthropicProvider",
+    "BudgetMeter",
+    "ConcurrencyController",
+    "DEFAULT_PRICING",
     "InferenceMessage",
     "InferenceProvider",
     "InferenceResult",
     "OpenAICompatProvider",
     "ProviderRole",
+    "RunEstimate",
+    "estimate_run",
     "extract_anthropic_tool_json",
     "to_anthropic_tool",
     "to_openai_json_object",
