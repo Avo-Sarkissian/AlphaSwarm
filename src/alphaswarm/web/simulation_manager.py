@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from alphaswarm.app import AppState
+    from alphaswarm.inference.factory import BuiltProviders
     from alphaswarm.types import BracketConfig
     from alphaswarm.web.replay_manager import ReplayManager
 
@@ -156,23 +157,56 @@ class SimulationManager:
         B10: COMPLETE is set by simulation.py:1109 as the single source of
         truth — no duplicate set_phase(COMPLETE) here.
         """
+        import asyncio as _asyncio
+        import contextlib as _ctx
+
+        from alphaswarm.config import load_inference_config
+        from alphaswarm.inference.factory import build_controller, build_providers, inference_mode
         from alphaswarm.simulation import run_simulation
         from alphaswarm.types import SimulationPhase
 
+        # `built` may remain None if cancelled before build_providers completes.
+        # The finally block guards aclose() accordingly.
+        built: BuiltProviders | None = None
+
         try:
+            # Load inference config off the event loop (sync file I/O).
+            cfg = await _asyncio.to_thread(load_inference_config, self._app_state.settings)
+            built = build_providers(
+                cfg,
+                ollama_client=self._app_state.ollama_client,
+                ollama_model_manager=self._app_state.model_manager,
+            )
+            controller = build_controller(
+                cfg,
+                self._app_state.settings.governor,
+                state_store=self._app_state.state_store,
+            )
+
+            # Store budget meter + inference mode on app_state for telemetry/estimates.
+            self._app_state.budget_meter = built.budget_meter  # type: ignore[attr-defined]
+            self._app_state.inference_mode = inference_mode(cfg)  # type: ignore[attr-defined]
+
+            log.info(
+                "inference_config_loaded",
+                mode=self._app_state.inference_mode,  # type: ignore[attr-defined]
+            )
+
             result = await run_simulation(
                 rumor=seed,
                 settings=self._app_state.settings,
                 ollama_client=self._app_state.ollama_client,
                 model_manager=self._app_state.model_manager,
                 graph_manager=self._app_state.graph_manager,
-                governor=self._app_state.governor,
+                governor=controller,
                 personas=list(self._app_state.personas),
                 brackets=list(self._brackets),
                 state_store=self._app_state.state_store,
                 consume_shock=self.consume_shock,
                 market_provider=self._app_state.market_provider,
                 news_provider=self._app_state.news_provider,
+                orchestrator_provider=built.orchestrator,
+                worker_provider=built.worker,
             )
             self._last_cycle_id = result.cycle_id
             # B10: do NOT set COMPLETE here — simulation.py:1109 is the single
@@ -192,6 +226,14 @@ class SimulationManager:
             except Exception:
                 log.error("failed_to_reset_phase_to_idle_on_error")
             raise
+        finally:
+            # aclose providers so cloud clients (httpx/anthropic) release connections.
+            # OllamaProvider.aclose is a documented no-op — safe for the local path.
+            # Guard: built may be None if cancelled before build_providers completed.
+            if built is not None:
+                async with _ctx.AsyncExitStack() as stack:
+                    stack.push_async_callback(built.orchestrator.aclose)
+                    stack.push_async_callback(built.worker.aclose)
 
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
         """Synchronous done-callback: releases lock and logs outcome.

@@ -773,7 +773,17 @@ async def test_sim_manager_run_passes_consume_shock() -> None:
     async def _capture_run(*args: object, **kwargs: object) -> None:
         called_kwargs.update(kwargs)
 
-    with patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_capture_run)):
+    # Patch inference factory functions so the test does not need a real AppSettings object.
+    mock_built = MagicMock()
+    mock_built.orchestrator.aclose = AsyncMock()
+    mock_built.worker.aclose = AsyncMock()
+    with (
+        patch("alphaswarm.config.load_inference_config", return_value=MagicMock()),
+        patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
+        patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
+        patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
+        patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_capture_run)),
+    ):
         await sm.start("test seed")
         # Allow the background task a tick to await run_simulation.
         await asyncio.sleep(0.05)
@@ -913,8 +923,18 @@ async def test_sim_manager_cancellation_resets_phase_to_idle() -> None:
     async def _long_run(**kwargs: object) -> None:
         await asyncio.sleep(100)
 
+    mock_built = MagicMock()
+    mock_built.orchestrator.aclose = AsyncMock()
+    mock_built.worker.aclose = AsyncMock()
+    # Patch inference factory functions so the test does not need a real AppSettings object.
     # Patch run_simulation so the REAL _run runs (including the B8 try/except).
-    with patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_long_run)):
+    with (
+        patch("alphaswarm.config.load_inference_config", return_value=MagicMock()),
+        patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
+        patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
+        patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
+        patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_long_run)),
+    ):
         await sm.start("test seed")
         # Yield once so the background task reaches `await run_simulation(...)`
         # before stop() cancels it — otherwise the task body never runs and
@@ -1252,7 +1272,17 @@ async def test_m8x_sim_manager_cancellation_phase_reset_before_lock_release() ->
     async def _long_run(**kwargs: object) -> None:
         await asyncio.sleep(100)
 
-    with patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_long_run)):
+    mock_built = MagicMock()
+    mock_built.orchestrator.aclose = AsyncMock()
+    mock_built.worker.aclose = AsyncMock()
+    # Patch inference factory so the test works with a MagicMock app_state.settings.
+    with (
+        patch("alphaswarm.config.load_inference_config", return_value=MagicMock()),
+        patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
+        patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
+        patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
+        patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_long_run)),
+    ):
         await sm.start("seed")
         # Replace the callback AFTER start has added the original, so our capturing
         # version runs instead. We must re-register on the task directly.
@@ -1341,7 +1371,17 @@ async def test_m8x_sim_manager_complete_phase_set_once() -> None:
     async def _fake_pipeline(**kwargs: object) -> None:
         await mock_state_store.set_phase(SimulationPhase.COMPLETE)
 
-    with patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_fake_pipeline)):
+    mock_built = MagicMock()
+    mock_built.orchestrator.aclose = AsyncMock()
+    mock_built.worker.aclose = AsyncMock()
+    # Patch inference factory so the test works with a MagicMock app_state.settings.
+    with (
+        patch("alphaswarm.config.load_inference_config", return_value=MagicMock()),
+        patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
+        patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
+        patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
+        patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_fake_pipeline)),
+    ):
         await sm.start("seed")
         await asyncio.sleep(0.05)
 
