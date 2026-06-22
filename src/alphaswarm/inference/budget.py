@@ -154,15 +154,15 @@ class BudgetMeter:
         # table is immutable, so compute once. Floored at the opus-tier fallback
         # so the ceiling is never *below* a realistic price even if the table is
         # sparse/cheap (which would otherwise under-enforce the cap).
+        # Floor each rate list with the fallback so max() always has a non-empty
+        # iterable even when the pricing table is empty.
+        _in_rates = [_FALLBACK_UNKNOWN_PRICE.input_per_mtok]
+        _in_rates += [p.input_per_mtok for p in pricing.values()]
+        _out_rates = [_FALLBACK_UNKNOWN_PRICE.output_per_mtok]
+        _out_rates += [p.output_per_mtok for p in pricing.values()]
         self._unknown_price: ModelPrice = ModelPrice(
-            input_per_mtok=max(
-                _FALLBACK_UNKNOWN_PRICE.input_per_mtok,
-                *(p.input_per_mtok for p in pricing.values()),
-            ),
-            output_per_mtok=max(
-                _FALLBACK_UNKNOWN_PRICE.output_per_mtok,
-                *(p.output_per_mtok for p in pricing.values()),
-            ),
+            input_per_mtok=max(_in_rates),
+            output_per_mtok=max(_out_rates),
         )
 
     # ------------------------------------------------------------------
