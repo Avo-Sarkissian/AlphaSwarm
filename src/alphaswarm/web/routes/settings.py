@@ -247,11 +247,17 @@ def _merge_role(
     # Applying a provider preset (sends provider+base_url, no api_key) or
     # otherwise switching vendor must NOT carry the prior vendor's secret onto
     # the new endpoint — that both misconfigures auth and transmits a key to an
-    # unintended third party (F-13). Compare both provider and base_url so
-    # switching between two openai_compatible endpoints also drops the old key.
+    # unintended third party (F-13). A base_url change only counts when the
+    # incoming payload supplies a NON-None base_url that differs — so a
+    # same-provider edit that omits or nulls base_url (e.g. a model-only change)
+    # does not falsely drop a still-valid key, while a real endpoint switch
+    # (openai_compatible A → B) still does.
+    incoming_base_url = incoming.get("base_url")
+    base_url_changed = (
+        incoming_base_url is not None and incoming_base_url != stored_role.base_url
+    )
     vendor_changed = (
-        str(effective_provider) != str(stored_role.provider)
-        or effective_base_url != stored_role.base_url
+        str(effective_provider) != str(stored_role.provider) or base_url_changed
     )
     if stripped:
         effective_key = stripped

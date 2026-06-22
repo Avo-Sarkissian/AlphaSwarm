@@ -150,21 +150,24 @@ class BudgetMeter:
         self._pricing = pricing
         self._total: Decimal = Decimal(0)
         self._warned_unknown: set[str] = set()
+        # Conservative ceiling for an unpriced model under a cap (F-18). The
+        # table is immutable, so compute once. Floored at the opus-tier fallback
+        # so the ceiling is never *below* a realistic price even if the table is
+        # sparse/cheap (which would otherwise under-enforce the cap).
+        self._unknown_price: ModelPrice = ModelPrice(
+            input_per_mtok=max(
+                _FALLBACK_UNKNOWN_PRICE.input_per_mtok,
+                *(p.input_per_mtok for p in pricing.values()),
+            ),
+            output_per_mtok=max(
+                _FALLBACK_UNKNOWN_PRICE.output_per_mtok,
+                *(p.output_per_mtok for p in pricing.values()),
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _conservative_price(self) -> ModelPrice:
-        """Highest input/output rates in the pricing table — a safe ceiling for
-        an unpriced model when a cap is set (F-18). Falls back to a fixed
-        opus-tier price only if the table is empty."""
-        if not self._pricing:
-            return _FALLBACK_UNKNOWN_PRICE
-        return ModelPrice(
-            input_per_mtok=max(p.input_per_mtok for p in self._pricing.values()),
-            output_per_mtok=max(p.output_per_mtok for p in self._pricing.values()),
-        )
 
     def _cost_of(self, model: str, in_tokens: int, out_tokens: int) -> Decimal:
         price = self._pricing.get(model)
@@ -184,7 +187,7 @@ class BudgetMeter:
                 self._warned_unknown.add(model)
             if self._cap is None:
                 return Decimal(0)
-            price = self._conservative_price()
+            price = self._unknown_price
         return (
             Decimal(in_tokens) / _MTOK * price.input_per_mtok
             + Decimal(out_tokens) / _MTOK * price.output_per_mtok

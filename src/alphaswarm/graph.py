@@ -820,13 +820,13 @@ class GraphStateManager:
             }
             for r in records
         ]
+        # episodes[0] is used only for this method's log/error context; each
+        # node is stamped per-record inside the tx (see below).
         cycle_id = episodes[0]["cycle_id"]
         round_num = episodes[0]["round_num"]
         try:
             async with self._driver.session(database=self._database) as session:
-                await session.execute_write(
-                    self._batch_write_episodes_tx, episodes, cycle_id, round_num,
-                )
+                await session.execute_write(self._batch_write_episodes_tx, episodes)
         except Neo4jError as exc:
             raise Neo4jWriteError(
                 f"Failed to write {len(episodes)} rationale episodes for cycle {cycle_id} round {round_num}",
@@ -840,16 +840,12 @@ class GraphStateManager:
     async def _batch_write_episodes_tx(
         tx: AsyncManagedTransaction,
         episodes: list[dict],  # type: ignore[type-arg]
-        cycle_id: str,
-        round_num: int,
     ) -> None:
         """UNWIND batch create RationaleEpisode nodes linked to Decision nodes.
 
         Each episode is stamped with its OWN round/cycle (ep.round_num /
-        ep.cycle_id), not the batch-level values — a single flush could in
-        principle carry records from more than one round/cycle (U1). The
-        cycle_id/round_num args are retained only for the caller's log/error
-        context.
+        ep.cycle_id), not batch-level values — a single flush could in principle
+        carry records from more than one round/cycle (U1).
         """
         await tx.run(
             """
@@ -866,8 +862,6 @@ class GraphStateManager:
             CREATE (d)-[:HAS_EPISODE]->(re)
             """,
             episodes=episodes,
-            cycle_id=cycle_id,
-            round_num=round_num,
         )
 
     async def write_narrative_edges(

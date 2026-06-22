@@ -150,10 +150,8 @@ class OllamaModelManager:
         bare_aliases = {a.removesuffix(":latest") for a in self._configured_aliases}
         for m in ps_response.models:
             if m.model.removesuffix(":latest") in bare_aliases:
-                # unload_model is best-effort; one stuck model must not prevent
-                # cleaning the rest (F-32). It already swallows its own errors,
-                # but guard here too in case ps()/lookup raises mid-loop.
-                try:
-                    await self.unload_model(m.model)
-                except Exception:
-                    await logger.awarning("ensure_clean_state_unload_failed", model=m.model)
+                # unload_model is best-effort (it swallows its own errors and
+                # clears state in a finally), so one stuck model can't abort the
+                # loop and leave the rest resident — preserving the max-2-models
+                # invariant (F-32).
+                await self.unload_model(m.model)

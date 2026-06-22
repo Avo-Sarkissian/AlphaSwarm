@@ -287,20 +287,22 @@ class RateLimitController:
             reserved, take additional tokens.
         """
         # TPM reconciliation. acquire() always reserved avg_tokens_per_call
-        # upfront, so release() must always reconcile when TPM is enforced —
-        # including the failure path where result_tokens is None (the call
-        # produced no output). Refunding the full reservation there keeps
-        # reserve/refund conserved; without it, every failed cloud call
-        # permanently burned avg_tokens_per_call, driving the bucket into a
-        # deficit it never recovers from (F-11).
+        # upfront. Three cases when TPM is enforced:
         if self._tokens_per_min is not None:
             if result_tokens is not None:
-                delta = self._avg_tokens_per_call - result_tokens
+                # Actual usage known → reconcile estimate vs actual.
                 # delta > 0 → over-reserved → refund; delta < 0 → under-reserved → take more
-                self._tpm_bucket.refund(delta)
-            else:
-                # Failed/None-token call consumed 0 of the reserved estimate.
+                self._tpm_bucket.refund(self._avg_tokens_per_call - result_tokens)
+            elif not success:
+                # FAILED call produced no output → refund the full reservation
+                # so a failure can't permanently burn avg_tokens_per_call and
+                # drive the bucket into a deficit it never recovers from (F-11).
                 self._tpm_bucket.refund(self._avg_tokens_per_call)
+            # else: SUCCESS but the provider/proxy omitted usage data
+            # (result_tokens is None). Keep the upfront avg reservation rather
+            # than refunding it — the call DID spend tokens, so refunding would
+            # under-count TPM and under-throttle, risking 429s on the very
+            # gateways that drop the usage block.
 
         self._semaphore.release()
         self._in_flight = max(0, self._in_flight - 1)

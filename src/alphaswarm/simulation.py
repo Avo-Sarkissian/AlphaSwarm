@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -168,8 +169,6 @@ def _stable_peer_jitter(reader_id: str, candidate_id: str) -> float:
     magnitude (< 1e-4) is far below any genuine weight difference (a single
     citation is 1/total_agents ~= 1e-2), so it only ever breaks exact ties.
     """
-    import hashlib
-
     digest = hashlib.blake2b(
         f"{reader_id}:{candidate_id}".encode(), digest_size=8
     ).digest()

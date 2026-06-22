@@ -25,7 +25,12 @@ import anthropic
 
 from alphaswarm.errors import AuthError, InferenceError
 from alphaswarm.inference.schema import extract_anthropic_tool_json, to_anthropic_tool
-from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
+from alphaswarm.inference.types import (
+    InferenceMessage,
+    InferenceResult,
+    ProviderRole,
+    parse_retry_after,
+)
 
 if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
@@ -262,9 +267,13 @@ class AnthropicProvider:
 
     @staticmethod
     def _parse_retry_after(exc: anthropic.RateLimitError) -> float:
-        """Extract Retry-After seconds from exception; default 1.0."""
+        """Extract Retry-After (delta-seconds or HTTP-date) from the exception.
+
+        Uses the shared parser so the Anthropic and OpenAI providers honor the
+        same forms and ceiling (F-23 parity); default 1.0 when absent/unparseable.
+        """
         try:
-            raw = exc.response.headers.get("retry-after", "")
-            return float(raw)
-        except (AttributeError, ValueError, TypeError):
+            raw = exc.response.headers.get("retry-after")
+        except AttributeError:
             return 1.0
+        return parse_retry_after(raw, default=1.0)
