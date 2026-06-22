@@ -123,7 +123,15 @@ export function parseConvergence(md: string): ConvergenceData[] | null {
   const rowRe = /^\|\s*(\d+)\s*\|\s*([A-Z]+)\s*\|\s*([\d.]+)\s*\|/gm;
   let m;
   while ((m = rowRe.exec(section)) !== null) {
-    rows.push({ round: Number(m[1]), signal: m[2], weight: Number(m[3]) });
+    // The regex accepts both a fraction ("0.65") and a percentage ("65").
+    // Downstream (ConvergenceFlow) assumes weight is 0..1 and multiplies by 100,
+    // so an un-normalized "65" rendered a 6500%-tall bar segment (U4). Normalize
+    // to 0..1: treat >1 as a percentage, then clamp.
+    let weight = Number(m[3]);
+    if (!Number.isFinite(weight) || weight < 0) weight = 0;
+    if (weight > 1) weight = weight / 100;
+    if (weight > 1) weight = 1;
+    rows.push({ round: Number(m[1]), signal: m[2], weight });
   }
   return rows.length > 0 ? rows : null;
 }

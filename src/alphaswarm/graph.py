@@ -843,7 +843,14 @@ class GraphStateManager:
         cycle_id: str,
         round_num: int,
     ) -> None:
-        """UNWIND batch create RationaleEpisode nodes linked to Decision nodes."""
+        """UNWIND batch create RationaleEpisode nodes linked to Decision nodes.
+
+        Each episode is stamped with its OWN round/cycle (ep.round_num /
+        ep.cycle_id), not the batch-level values — a single flush could in
+        principle carry records from more than one round/cycle (U1). The
+        cycle_id/round_num args are retained only for the caller's log/error
+        context.
+        """
         await tx.run(
             """
             UNWIND $episodes AS ep
@@ -853,8 +860,8 @@ class GraphStateManager:
                 timestamp: datetime(),
                 peer_context_received: ep.peer_context_received,
                 flip_type: ep.flip_type,
-                round: $round_num,
-                cycle_id: $cycle_id
+                round: ep.round_num,
+                cycle_id: ep.cycle_id
             })
             CREATE (d)-[:HAS_EPISODE]->(re)
             """,

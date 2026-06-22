@@ -299,6 +299,22 @@ class TestMemoryMonitor:
             result = await monitor.read_macos_pressure()
         assert result == PressureLevel.RED
 
+    async def test_read_macos_pressure_reaps_child_on_cancel(
+        self, settings: GovernorSettings
+    ) -> None:
+        """U2: a cancellation mid-communicate() must still reap the sysctl child.
+        CancelledError is a BaseException and bypasses `except Exception`, so the
+        finally must kill the still-running process rather than orphan it."""
+        monitor = MemoryMonitor(settings)
+        mock_proc = AsyncMock()
+        mock_proc.returncode = None  # still running when cancelled
+        mock_proc.communicate.side_effect = asyncio.CancelledError()
+        mock_proc.kill = MagicMock()
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(asyncio.CancelledError):
+                await monitor.read_macos_pressure()
+        mock_proc.kill.assert_called_once()
+
     async def test_read_macos_pressure_green_on_unknown_value(
         self, settings: GovernorSettings
     ) -> None:

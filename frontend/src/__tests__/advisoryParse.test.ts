@@ -7,6 +7,7 @@ import {
   AGENT_ID_RE,
   countAgentCitations,
   countAgentCitationsAgainst,
+  parseConvergence,
   parseInfluences,
 } from '../lib/advisoryParse';
 
@@ -55,6 +56,23 @@ describe('countAgentCitationsAgainst', () => {
     expect(
       countAgentCitationsAgainst('quants_01, macro_02 and degens_99', liveIds),
     ).toBe(2); // degens_99 matches the regex but is not live
+  });
+});
+
+describe('parseConvergence — weight normalization (U4)', () => {
+  it('normalizes percentage and fraction weights to 0..1 and clamps', () => {
+    const md = [
+      '## Convergence',
+      '| 1 | BUY | 65 |', // percentage form
+      '| 2 | SELL | 0.40 |', // fraction form
+      '| 3 | HOLD | 150 |', // pathological -> clamp to 1
+    ].join('\n');
+    const rows = parseConvergence(md);
+    expect(rows).not.toBeNull();
+    const byRound = Object.fromEntries(rows!.map((r) => [r.round, r.weight]));
+    expect(byRound[1]).toBeCloseTo(0.65);
+    expect(byRound[2]).toBeCloseTo(0.4);
+    expect(byRound[3]).toBe(1); // clamped — bar segment can't exceed 100%
   });
 });
 
