@@ -14,10 +14,22 @@ import pytest
 
 from alphaswarm.config import GovernorSettings
 from alphaswarm.governor import ResourceGovernor
+from alphaswarm.inference.ollama_provider import OllamaProvider
+from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
 from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import AgentWorker, WorkerPersonaConfig, agent_worker
+
+
+def _worker_provider(client: OllamaClient) -> OllamaProvider:
+    """Wrap a mock OllamaClient in the worker-role provider.
+
+    agent_worker takes an InferenceProvider (post inference-migration), not a
+    raw client + model kwarg. OllamaProvider is a faithful pass-through, so the
+    underlying client.chat assertions (model/format/think) still hold.
+    """
+    return OllamaProvider(ProviderRole.WORKER, "alphaswarm-worker", client)
 
 
 @pytest.fixture()
@@ -69,7 +81,7 @@ async def test_single_agent_inference(
     governor = ResourceGovernor(GovernorSettings(baseline_parallel=8))
     assert governor.active_count == 0
 
-    async with agent_worker(persona, governor, mock_client_success, model="alphaswarm-worker") as worker:
+    async with agent_worker(persona, governor, _worker_provider(mock_client_success)) as worker:
         assert governor.active_count == 1
         decision = await worker.infer(
             user_message="BREAKING: Apple reports Q3 earnings miss, revenue down 5% YoY"
@@ -101,7 +113,7 @@ async def test_inference_parse_error_fallback(
     """Agent inference with garbled response falls back to PARSE_ERROR."""
     governor = ResourceGovernor(GovernorSettings(baseline_parallel=8))
 
-    async with agent_worker(persona, governor, mock_client_garbled, model="alphaswarm-worker") as worker:
+    async with agent_worker(persona, governor, _worker_provider(mock_client_garbled)) as worker:
         decision = await worker.infer(
             user_message="BREAKING: Apple reports Q3 earnings miss"
         )
@@ -122,7 +134,7 @@ async def test_inference_with_peer_context(
     """Agent inference includes peer context in messages when provided."""
     governor = ResourceGovernor(GovernorSettings(baseline_parallel=8))
 
-    async with agent_worker(persona, governor, mock_client_success, model="alphaswarm-worker") as worker:
+    async with agent_worker(persona, governor, _worker_provider(mock_client_success)) as worker:
         decision = await worker.infer(
             user_message="BREAKING: Apple reports Q3 earnings miss",
             peer_context="macro_01: SELL (confidence=0.9), suits_03: HOLD (confidence=0.6)",
@@ -147,7 +159,7 @@ async def test_governor_backpressure(
     order: list[str] = []
 
     async def first_worker() -> None:
-        async with agent_worker(persona, governor, mock_client_success, model="alphaswarm-worker") as w:
+        async with agent_worker(persona, governor, _worker_provider(mock_client_success)) as w:
             order.append("first_acquired")
             await asyncio.sleep(0.1)  # Hold the slot briefly
             await w.infer(user_message="test")
@@ -155,7 +167,7 @@ async def test_governor_backpressure(
 
     async def second_worker() -> None:
         await asyncio.sleep(0.01)  # Ensure first_worker starts first
-        async with agent_worker(persona, governor, mock_client_success, model="alphaswarm-worker") as w:
+        async with agent_worker(persona, governor, _worker_provider(mock_client_success)) as w:
             order.append("second_acquired")
             await w.infer(user_message="test")
             order.append("second_done")

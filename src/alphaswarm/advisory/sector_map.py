@@ -79,3 +79,67 @@ UNKNOWN_SECTOR: SectorInfo = {
 def lookup(ticker: str) -> SectorInfo:
     """Return SectorInfo for `ticker` (case-insensitive), or UNKNOWN default."""
     return SECTOR_MAP.get(ticker.upper(), UNKNOWN_SECTOR)
+
+
+# Company/common name → ticker, for resolving free-form Entity names emitted by
+# the seed orchestrator (e.g. "NVIDIA", "Taiwan Semiconductor") back to the
+# ticker symbols the advisory keys on (F-07). Portfolio-scoped, mirroring
+# SECTOR_MAP's curation discipline; extend alongside SECTOR_MAP when holdings
+# change. Keys are lowercased. Pure ETFs / money-market funds are intentionally
+# omitted — rumors name companies, not the user's fund tickers — but they still
+# resolve via the ticker pass-through in resolve_ticker().
+COMPANY_ALIASES: dict[str, str] = {
+    "apple": "AAPL",
+    "amazon": "AMZN",
+    "arm": "ARM",
+    "arm holdings": "ARM",
+    "asml": "ASML",
+    "broadcom": "AVGO",
+    "byd": "BYDDY",
+    "coherent": "COHR",
+    "credo": "CRDO",
+    "credo technology": "CRDO",
+    "dropbox": "DBX",
+    "hims": "HIMS",
+    "hims & hers": "HIMS",
+    "hims and hers": "HIMS",
+    "honeywell": "HON",
+    "intuitive surgical": "ISRG",
+    "lg display": "LPL",
+    "marvell": "MRVL",
+    "marvell technology": "MRVL",
+    "nio": "NIO",
+    "nike": "NKE",
+    "nvidia": "NVDA",
+    "palantir": "PLTR",
+    "paypal": "PYPL",
+    "schwab": "SCHW",
+    "charles schwab": "SCHW",
+    "sofi": "SOFI",
+    "sofi technologies": "SOFI",
+    "talen": "TLN",
+    "talen energy": "TLN",
+    "tesla": "TSLA",
+    "tsmc": "TSM",
+    "taiwan semiconductor": "TSM",
+    "vertiv": "VRT",
+    "vistra": "VST",
+}
+
+
+def resolve_ticker(entity_name: str) -> str | None:
+    """Resolve a free-form Entity name to a portfolio ticker, or None.
+
+    Resolution order:
+      1. Pass-through: the name is already a known ticker (e.g. "NVDA", "tsm").
+      2. Alias: a curated company/common name (e.g. "NVIDIA", "Taiwan Semiconductor").
+
+    Returns None when the name maps to no held position, so the caller can skip
+    it rather than score an unrelated holding.
+    """
+    name = entity_name.strip()
+    if not name:
+        return None
+    if name.upper() in SECTOR_MAP:
+        return name.upper()
+    return COMPANY_ALIASES.get(name.lower())

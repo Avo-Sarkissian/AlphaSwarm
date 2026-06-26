@@ -92,6 +92,21 @@ def test_tier2_nested_json() -> None:
     assert result.cited_agents == ["quant_01", "macro_03"]
 
 
+def test_tier2_brace_in_rationale_with_trailing_brace() -> None:
+    """F-09: prose-wrapped JSON whose rationale contains '}' plus a later stray
+    '}' must still parse (string-aware brace scan), not silently become PARSE_ERROR."""
+    from alphaswarm.parsing import parse_agent_decision
+
+    raw = (
+        'My take: {"signal": "buy", "confidence": 0.7, '
+        '"rationale": "the set} looks bullish"} -- end of analysis }'
+    )
+    result = parse_agent_decision(raw)
+    assert result.signal == SignalType.BUY
+    assert result.confidence == 0.7
+    assert "looks bullish" in result.rationale
+
+
 def test_tier2_code_fence() -> None:
     """Tier 2: parse_agent_decision strips markdown code fences before extraction."""
     from alphaswarm.parsing import parse_agent_decision

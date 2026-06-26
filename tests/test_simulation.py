@@ -148,8 +148,16 @@ def mock_governor() -> AsyncMock:
 
 
 def _default_decisions(count: int) -> list[AgentDecision]:
-    """Return a list of BUY AgentDecision for testing."""
-    return [AgentDecision(signal=SignalType.BUY, confidence=0.8)] * count
+    """Return a list of BUY AgentDecision for testing.
+
+    Includes a non-empty rationale so peer-context builders emit real peer
+    lines: _format_peer_context now returns "" when every selected peer has
+    empty content (F-19), so empty-rationale decisions would yield no peer
+    context at all.
+    """
+    return [
+        AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="Bullish on the setup.")
+    ] * count
 
 
 # ---------------------------------------------------------------------------
@@ -2071,6 +2079,39 @@ def test_select_diverse_peers_graceful_with_few_brackets() -> None:
     weights = {p.id: 0.5 for p in personas}
     result = select_diverse_peers("quants_00", weights, personas, limit=5, min_brackets=3)
     assert len(result) == 5  # Still returns 5 even though < 3 brackets
+
+
+def test_select_diverse_peers_disperses_equal_weights_per_reader() -> None:
+    """F-08: with equal within-bracket weights (the Round-2 regime, where the
+    per-reader weight collapses to a per-bracket constant), different readers
+    must NOT all select the identical peer set — otherwise the cascade
+    re-converges on one homogeneous peer signal."""
+    from alphaswarm.simulation import select_diverse_peers
+
+    personas = []
+    for bt in (
+        BracketType.QUANTS, BracketType.DEGENS, BracketType.MACRO,
+        BracketType.SHORTS, BracketType.NARRATORS,
+    ):
+        for j in range(20):
+            personas.append(
+                AgentPersona(
+                    id=f"{bt.value}_{j:02d}", name=f"{bt.value}{j}", bracket=bt,
+                    risk_profile=0.5, temperature=0.5, system_prompt="t",
+                    influence_weight_base=0.5,
+                )
+            )
+    weights = {p.id: 0.5 for p in personas}  # all-equal: only the tie-break differs
+    peer_sets = {
+        tuple(select_diverse_peers(p.id, weights, personas, limit=5, min_brackets=4))
+        for p in personas
+    }
+    # 100 readers should yield many distinct ordered peer sets, not ~1.
+    assert len(peer_sets) >= 50
+    # Determinism: the same reader selects the same peers on a repeat call.
+    assert select_diverse_peers(
+        "quants_00", weights, personas, limit=5, min_brackets=4
+    ) == select_diverse_peers("quants_00", weights, personas, limit=5, min_brackets=4)
 
 
 # ---------------------------------------------------------------------------

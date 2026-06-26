@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -154,6 +155,26 @@ def compute_bracket_summaries(
     return tuple(result)
 
 
+def _stable_peer_jitter(reader_id: str, candidate_id: str) -> float:
+    """Deterministic, per-reader tie-break in [0, 1e-4).
+
+    Round 2 per-reader peer weights collapse to a per-bracket constant (R1 has
+    no citations, so the global-citation-share and personal-citation-boost
+    terms in `_build_diverse_peer_contexts` are both zero). Without a tie-break,
+    every reader sorts equal-weight candidates identically and selects the SAME
+    peers — re-introducing the "everyone sees the same top-N" convergence bias
+    that SWEEP-260528 §3.3 set out to remove (F-08). This jitter disperses WHICH
+    equal-weight peers each reader sees. It uses blake2b (not the builtin
+    process-salted hash()) so selection is reproducible across runs, and its
+    magnitude (< 1e-4) is far below any genuine weight difference (a single
+    citation is 1/total_agents ~= 1e-2), so it only ever breaks exact ties.
+    """
+    digest = hashlib.blake2b(
+        f"{reader_id}:{candidate_id}".encode(), digest_size=8
+    ).digest()
+    return (int.from_bytes(digest, "big") & 0xFFFF) / 1e9
+
+
 def select_diverse_peers(
     agent_id: str,
     influence_weights: dict[str, float],
@@ -213,7 +234,9 @@ def select_diverse_peers(
         bracket_groups[p.bracket.value].append((p.id, w))
 
     for bracket in bracket_groups:
-        bracket_groups[bracket].sort(key=lambda x: x[1], reverse=True)
+        bracket_groups[bracket].sort(
+            key=lambda x: (x[1], _stable_peer_jitter(agent_id, x[0])), reverse=True
+        )
 
     sorted_brackets = sorted(
         bracket_groups.keys(),
@@ -235,7 +258,9 @@ def select_diverse_peers(
     remaining: list[tuple[str, float]] = []
     for bracket in bracket_groups:
         remaining.extend(bracket_groups[bracket])
-    remaining.sort(key=lambda x: x[1], reverse=True)
+    remaining.sort(
+        key=lambda x: (x[1], _stable_peer_jitter(agent_id, x[0])), reverse=True
+    )
 
     for agent, _ in remaining:
         if len(selected) >= limit:
@@ -387,6 +412,13 @@ def _format_peer_context(
         line = f"{prefix}{content}{suffix}"
         lines.append(line)
         remaining -= len(line) + 1  # +1 for newline separator
+
+    if len(lines) == 1:
+        # Only the header survived — every peer was empty/budget-skipped. Honor
+        # the docstring's "empty when no peers" contract so callers map this to
+        # None instead of injecting a peer-context block that claims peers exist
+        # but contains none (F-19).
+        return ""
 
     lines.append(guard)
     return "\n".join(lines)
@@ -1206,9 +1238,15 @@ async def run_simulation(
             round2_flushed = await write_buffer.flush(graph_manager, entity_names)
             logger.info("write_buffer_flushed", round_num=2, flushed=round2_flushed)
 
-            # Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2)
+            # Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2).
+            # total_agents is the ACTIVE (non-PARSE_ERROR) decision count per the
+            # compute_influence_edges contract — counting failed agents in the
+            # denominator deflates every peer's influence weight (F-20).
+            round2_active = sum(
+                1 for _, d in round2_decisions if d.signal != SignalType.PARSE_ERROR
+            )
             round2_weights = await graph_manager.compute_influence_edges(
-                cycle_id, up_to_round=2, total_agents=len(round2_decisions),
+                cycle_id, up_to_round=2, total_agents=round2_active,
             )
 
             # Compute Round 2 bracket summaries (D-08)
@@ -1361,8 +1399,11 @@ async def run_simulation(
                 # being written. up_to_round=3 is cumulative per D-04, but the
                 # write tx fixes round=3 on every new edge so the /api/edges
                 # round-filtered read picks them up.
+                round3_active = sum(
+                    1 for _, d in round3_decisions if d.signal != SignalType.PARSE_ERROR
+                )
                 round3_weights = await graph_manager.compute_influence_edges(
-                    cycle_id, up_to_round=3, total_agents=len(round3_decisions),
+                    cycle_id, up_to_round=3, total_agents=round3_active,
                 )
 
                 # Compute Round 3 bracket summaries (D-08)

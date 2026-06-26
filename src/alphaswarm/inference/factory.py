@@ -118,7 +118,15 @@ def _build_single_provider(
     _validate_cloud_role(provider_type, model, api_key, base_url)
 
     if provider_type == ProviderType.ANTHROPIC:
-        inner: InferenceProvider = AnthropicProvider(role, model, api_key=api_key)  # type: ignore[arg-type]
+        # The Anthropic Messages API hard-caps output at max_tokens. The 1024
+        # constructor default silently truncated long orchestrator output —
+        # breaking seed JSON synthesis, the ReAct report loop, and advisory
+        # synthesis (F-05). Give the orchestrator a generous ceiling; the worker
+        # emits a single small decision JSON, so a tighter bound is fine.
+        max_tokens_default = 8192 if role == ProviderRole.ORCHESTRATOR else 2048
+        inner: InferenceProvider = AnthropicProvider(
+            role, model, api_key=api_key, max_tokens_default=max_tokens_default,  # type: ignore[arg-type]
+        )
     elif provider_type == ProviderType.OPENAI_COMPATIBLE:
         inner = OpenAICompatProvider(role, model, base_url=base_url, api_key=api_key)  # type: ignore[arg-type]
     else:

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from alphaswarm.web.replay_manager import ReplayAlreadyActiveError, SimulationActiveError
+from alphaswarm.web.routes.report import _validate_cycle_id  # single-source-of-truth regex guard
 
 log = structlog.get_logger(component="web.replay")
 
@@ -107,8 +108,13 @@ async def replay_start(cycle_id: str, request: Request) -> ReplayStartResponse:
     Returns 503 if Neo4j is not connected.
     Returns 409 if a live simulation is currently running (B4 route-side).
     Returns 409 if a replay session is already active.
+    Returns 400 if cycle_id is malformed (consistent with report/advisory).
     Returns 404 if the cycle has no signals in Neo4j.
     """
+    # F-26: validate cycle_id with the same single-source guard report/advisory
+    # use, so a malformed/oversized id returns a clean 400 instead of reaching
+    # Neo4j and surfacing as a 404.
+    _validate_cycle_id(cycle_id)
     app_state = request.app.state.app_state
     replay_manager = request.app.state.replay_manager
     connection_manager = request.app.state.connection_manager

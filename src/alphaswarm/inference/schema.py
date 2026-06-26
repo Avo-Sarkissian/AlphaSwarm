@@ -18,6 +18,31 @@ from typing import Any
 # Internal normalisation helpers
 # ---------------------------------------------------------------------------
 
+# JSON-Schema validation keywords that OpenAI strict Structured Outputs reject
+# with HTTP 400. They can appear on any node type (e.g. minimum/maximum on the
+# number leaves confidence/sentiment), so they must be stripped on every node,
+# not just objects — otherwise the very first call 400s and the provider
+# permanently downgrades the whole run to unconstrained json_object mode (F-10).
+_OPENAI_STRICT_FORBIDDEN_KEYS = frozenset(
+    {
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "minLength",
+        "maxLength",
+        "pattern",
+        "format",
+        "default",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "minProperties",
+        "maxProperties",
+    }
+)
+
 
 def _normalise_object(schema: dict[str, Any]) -> dict[str, Any]:
     """Recursively apply OpenAI strict-structured-outputs rules to *schema*.
@@ -27,6 +52,9 @@ def _normalise_object(schema: dict[str, Any]) -> dict[str, Any]:
     - ``"required"`` is set to the list of all ``properties`` keys (preserving
       insertion order so the output is deterministic).
 
+    Additionally, validation keywords forbidden by OpenAI strict mode
+    (``minimum``/``maximum``/``pattern``/...) are stripped from every node.
+
     The function recurses into:
     - every value inside ``"properties"``
     - the ``"items"`` sub-schema of ``"array"`` nodes
@@ -34,6 +62,9 @@ def _normalise_object(schema: dict[str, Any]) -> dict[str, Any]:
     The input dict is already a deep-copy by the time this function is called,
     so mutations here are safe.
     """
+    for forbidden in _OPENAI_STRICT_FORBIDDEN_KEYS:
+        schema.pop(forbidden, None)
+
     node_type = schema.get("type")
 
     if node_type == "object":

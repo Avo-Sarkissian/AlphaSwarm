@@ -325,6 +325,10 @@ export function App() {
       const maxOut = Math.max(1, ...Object.values(outDegree));
       return [...agents]
         .map(a => ({ a, deg: outDegree[a.id] ?? 0 }))
+        // Drop zero-out-degree agents so the OUT-DEGREE panel never shows "0"
+        // filler rows when fewer than 5 agents are edge sources (F-35). The
+        // topInfluencers.length === 0 render guard covers the empty case.
+        .filter(({ deg }) => deg > 0)
         .sort((x, y) => y.deg - x.deg)
         .slice(0, 5)
         .map(({ a, deg }) => ({

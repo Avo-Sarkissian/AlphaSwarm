@@ -52,6 +52,7 @@ class ReplayManager:
         self._store: ReplayStore | None = None
         self._cycle_id: str | None = None
         self._round_num: int = 0
+        self._max_rounds: int = 3
         self._seed_rumor: str = ""
         self._starting: bool = False
         # Set by app.py lifespan after SimulationManager exists (constructed
@@ -70,6 +71,17 @@ class ReplayManager:
         blocks a live-sim start during the awaited Neo4j loads inside start().
         """
         return self._store is not None or self._starting
+
+    @property
+    def has_store(self) -> bool:
+        """True only when the ReplayStore is committed and queryable.
+
+        Distinct from is_active, which is True during the _starting window
+        (before _store is committed). The broadcaster must gate on this, not
+        is_active, or it calls store.snapshot() while _store is still None and
+        raises NoReplayActiveError on every tick during replay start-up (F-24).
+        """
+        return self._store is not None
 
     @property
     def store(self) -> ReplayStore:
@@ -151,6 +163,10 @@ class ReplayManager:
                 self._store = store
                 self._cycle_id = cycle_id
                 self._round_num = 1
+                # Cap advance() at the cycle's actual round depth so a 2-round
+                # cycle never advances to an empty round 3 (F-12). signals keys
+                # are (agent_id, round_num).
+                self._max_rounds = max((rnd for (_, rnd) in signals), default=1)
             finally:
                 self._starting = False
             # Set phase on state_store so broadcaster sees REPLAY
@@ -176,8 +192,8 @@ class ReplayManager:
         async with self._lock:
             if not self.is_active or self._store is None:
                 raise NoReplayActiveError("No replay active")
-            if self._round_num >= 3:
-                return self._round_num  # Already at max
+            if self._round_num >= self._max_rounds:
+                return self._round_num  # Already at the cycle's last round
             self._round_num += 1
             self._store.set_round(self._round_num)
             # Load bracket summaries and rationale entries for new round
@@ -226,6 +242,7 @@ class ReplayManager:
             self._store = None
             self._cycle_id = None
             self._round_num = 0
+            self._max_rounds = 3
             self._seed_rumor = ""
             await self._app_state.state_store.set_phase(SimulationPhase.IDLE)
             log.info("replay_stopped")

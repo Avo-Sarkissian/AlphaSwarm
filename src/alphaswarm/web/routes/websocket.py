@@ -26,16 +26,21 @@ async def ws_state(websocket: WebSocket) -> None:
     writer task. This receive loop exists solely to detect client disconnects.
 
     Assumptions:
-    - receive_text() is used (not receive()) — tolerated because this endpoint
-      is local-dev-only (D-10) and clients are expected to be browser WebSocket
-      connections or wscat, neither of which sends binary frames.
+    - Data flows server-to-client only, so any inbound frame (text or binary)
+      is discarded. We use receive() rather than receive_text() so a non-text
+      frame does not raise a KeyError that escapes as an unhandled endpoint
+      error and abruptly drops the connection (F-27).
     """
     connection_manager = websocket.app.state.connection_manager
     log.info("ws_state_connected", client=str(websocket.client))
     await connection_manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text()  # Blocks; exists solely for disconnect detection
+            # Blocks; exists solely for disconnect detection. Inbound data
+            # frames (text or binary) are ignored — this channel is one-way.
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
     except WebSocketDisconnect:
         pass
     finally:

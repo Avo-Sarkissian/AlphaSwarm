@@ -272,7 +272,10 @@ class TestRateLimitControllerTPMReconciliation:
             assert tokens_after == pytest.approx(tokens_before - 1000, abs=1.0)
 
     @pytest.mark.asyncio
-    async def test_release_no_reconcile_when_result_tokens_none(self) -> None:
+    async def test_release_refunds_full_reservation_when_result_tokens_none(self) -> None:
+        """F-11: a failed/None-token call must refund the full upfront reservation,
+        else the TPM bucket leaks avg_tokens_per_call on every failure and drifts
+        into a permanent deficit."""
         clock = FakeClock()
         with patch("asyncio.sleep", new_callable=AsyncMock):
             ctrl = RateLimitController(
@@ -282,11 +285,37 @@ class TestRateLimitControllerTPMReconciliation:
                 avg_tokens_per_call=1500,
                 now=clock,
             )
+            tokens_pre_acquire = ctrl._tpm_bucket._tokens
             await ctrl.acquire()
-            tokens_before = ctrl._tpm_bucket._tokens
+            # acquire() reserves avg_tokens_per_call (1500) upfront
+            assert ctrl._tpm_bucket._tokens == pytest.approx(
+                tokens_pre_acquire - 1500, abs=1.0
+            )
+            ctrl.release(success=False, result_tokens=None)
+            # Full reservation refunded → bucket returns to its pre-acquire level
+            assert ctrl._tpm_bucket._tokens == pytest.approx(tokens_pre_acquire, abs=1.0)
+
+    @pytest.mark.asyncio
+    async def test_release_success_with_none_tokens_keeps_reservation(self) -> None:
+        """A SUCCESSFUL call whose provider omitted usage (result_tokens=None) must
+        KEEP the upfront reservation — refunding it would under-count TPM and
+        under-throttle, risking 429s. Only a failed call refunds."""
+        clock = FakeClock()
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            ctrl = RateLimitController(
+                max_in_flight=5,
+                requests_per_min=None,
+                tokens_per_min=6000,
+                avg_tokens_per_call=1500,
+                now=clock,
+            )
+            tokens_pre_acquire = ctrl._tpm_bucket._tokens
+            await ctrl.acquire()
             ctrl.release(success=True, result_tokens=None)
-            # No reconciliation when result_tokens is None
-            assert ctrl._tpm_bucket._tokens == pytest.approx(tokens_before, abs=1.0)
+            # Reservation retained (no refund) → bucket stays at the reserved level.
+            assert ctrl._tpm_bucket._tokens == pytest.approx(
+                tokens_pre_acquire - 1500, abs=1.0
+            )
 
 
 class TestRateLimitControllerShrink:

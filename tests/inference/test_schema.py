@@ -146,6 +146,32 @@ class TestToOpenaiResponseFormat:
         to_openai_response_format(DECISION_JSON_SCHEMA)
         assert original == DECISION_JSON_SCHEMA
 
+    def test_decision_schema_strips_strict_forbidden_keywords(self) -> None:
+        """F-10: OpenAI strict mode 400s on minimum/maximum/etc. They must be
+        stripped from every node while strict/additionalProperties/required remain,
+        else the first call permanently downgrades the run to json_object mode."""
+        result = to_openai_response_format(DECISION_JSON_SCHEMA)
+        forbidden = {
+            "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+            "multipleOf", "minLength", "maxLength", "pattern", "format",
+            "default", "minItems", "maxItems", "uniqueItems",
+        }
+
+        def _assert_clean(node: object) -> None:
+            if isinstance(node, dict):
+                assert forbidden.isdisjoint(node.keys()), f"forbidden key in {node!r}"
+                for v in node.values():
+                    _assert_clean(v)
+            elif isinstance(node, list):
+                for v in node:
+                    _assert_clean(v)
+
+        _assert_clean(result["json_schema"]["schema"])
+        # strict-mode markers survive the strip
+        assert result["json_schema"]["strict"] is True
+        assert result["json_schema"]["schema"]["additionalProperties"] is False
+        assert "confidence" in result["json_schema"]["schema"]["required"]
+
     def test_existing_required_preserved_when_complete(self) -> None:
         """If schema already has required covering all keys it should not duplicate."""
         schema_with_required: dict[str, Any] = {

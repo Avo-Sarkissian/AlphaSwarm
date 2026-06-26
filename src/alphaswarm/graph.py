@@ -820,13 +820,13 @@ class GraphStateManager:
             }
             for r in records
         ]
+        # episodes[0] is used only for this method's log/error context; each
+        # node is stamped per-record inside the tx (see below).
         cycle_id = episodes[0]["cycle_id"]
         round_num = episodes[0]["round_num"]
         try:
             async with self._driver.session(database=self._database) as session:
-                await session.execute_write(
-                    self._batch_write_episodes_tx, episodes, cycle_id, round_num,
-                )
+                await session.execute_write(self._batch_write_episodes_tx, episodes)
         except Neo4jError as exc:
             raise Neo4jWriteError(
                 f"Failed to write {len(episodes)} rationale episodes for cycle {cycle_id} round {round_num}",
@@ -840,10 +840,13 @@ class GraphStateManager:
     async def _batch_write_episodes_tx(
         tx: AsyncManagedTransaction,
         episodes: list[dict],  # type: ignore[type-arg]
-        cycle_id: str,
-        round_num: int,
     ) -> None:
-        """UNWIND batch create RationaleEpisode nodes linked to Decision nodes."""
+        """UNWIND batch create RationaleEpisode nodes linked to Decision nodes.
+
+        Each episode is stamped with its OWN round/cycle (ep.round_num /
+        ep.cycle_id), not batch-level values — a single flush could in principle
+        carry records from more than one round/cycle (U1).
+        """
         await tx.run(
             """
             UNWIND $episodes AS ep
@@ -853,14 +856,12 @@ class GraphStateManager:
                 timestamp: datetime(),
                 peer_context_received: ep.peer_context_received,
                 flip_type: ep.flip_type,
-                round: $round_num,
-                cycle_id: $cycle_id
+                round: ep.round_num,
+                cycle_id: ep.cycle_id
             })
             CREATE (d)-[:HAS_EPISODE]->(re)
             """,
             episodes=episodes,
-            cycle_id=cycle_id,
-            round_num=round_num,
         )
 
     async def write_narrative_edges(
@@ -1414,7 +1415,7 @@ class GraphStateManager:
                  END AS bracket_majority
             UNWIND agents AS ag
             WITH bracket, bracket_majority, ag
-            WHERE ag.signal <> bracket_majority
+            WHERE toUpper(ag.signal) <> bracket_majority
             RETURN
                 ag.agent_id AS agent_id,
                 ag.name AS name,
@@ -1510,15 +1511,15 @@ class GraphStateManager:
             """
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
             MATCH (d)-[:HAS_EPISODE]->(re:RationaleEpisode)
-            WHERE re.flip_type <> 'NONE'
+            WHERE re.flip_type <> 'none'
             RETURN
                 a.id AS agent_id,
                 a.name AS name,
                 a.bracket AS bracket,
-                re.round_num AS round_num,
+                re.round AS round_num,
                 re.flip_type AS flip_type,
                 d.signal AS final_signal
-            ORDER BY re.round_num, a.bracket
+            ORDER BY re.round, a.bracket
             """,
             cycle_id=cycle_id,
         )
@@ -1810,13 +1811,17 @@ class GraphStateManager:
             if r["pivoted"]
         ]
 
-        # Per-bracket signal counters for pre and post rounds
+        # Per-bracket signal counters for pre and post rounds.
+        # Signals are stored lowercase ('buy'/'sell'/'hold'); normalize to
+        # uppercase here so the uppercase comparison keys in _majority and the
+        # pre_c/post_c[...] lookups below match. pivot_agents above intentionally
+        # keeps the raw r["pre_signal"]/r["post_signal"] for display.
         pre_by_bracket: dict[str, list[str]] = defaultdict(list)
         post_by_bracket: dict[str, list[str]] = defaultdict(list)
         for r in rows:
             bracket = r["bracket"]
-            pre_by_bracket[bracket].append(r["pre_signal"])
-            post_by_bracket[bracket].append(r["post_signal"])
+            pre_by_bracket[bracket].append((r["pre_signal"] or "").upper())
+            post_by_bracket[bracket].append((r["post_signal"] or "").upper())
 
         def _majority(signals: list[str]) -> str:
             """Tie-break: BUY > SELL > HOLD."""

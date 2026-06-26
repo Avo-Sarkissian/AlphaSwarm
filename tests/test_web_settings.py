@@ -99,6 +99,31 @@ def _mock_load_cfg(cfg: InferenceConfig) -> Any:
     )
 
 
+def test_merge_role_drops_key_on_vendor_change() -> None:
+    """F-13: changing provider/base_url without a new api_key must NOT carry the
+    previous vendor's secret onto the new endpoint."""
+    from alphaswarm.web.routes.settings import _merge_role
+
+    stored = RoleConfig(
+        provider=ProviderType.OPENAI_COMPATIBLE,
+        model="gpt-4o",
+        base_url="https://api.openai.com/v1",
+        api_key="sk-openai-secret",
+    )
+
+    # Apply an Anthropic preset: provider + base_url change, no api_key supplied.
+    switched = _merge_role(stored, {"provider": "anthropic", "base_url": None})
+    assert switched.api_key is None
+
+    # Same vendor, no key supplied -> stored key preserved.
+    same_vendor = _merge_role(stored, {"model": "gpt-4o-mini"})
+    assert same_vendor.api_key == "sk-openai-secret"
+
+    # Same vendor, explicit new key -> the new key wins.
+    rekeyed = _merge_role(stored, {"api_key": "sk-new"})
+    assert rekeyed.api_key == "sk-new"
+
+
 def _mock_save_cfg() -> Any:
     """Return a patch target that no-ops save_inference_config."""
     return patch("alphaswarm.web.routes.settings.save_inference_config")

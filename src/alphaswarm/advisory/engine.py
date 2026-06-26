@@ -24,6 +24,7 @@ from pydantic import ValidationError
 
 from alphaswarm.advisory.prompt import build_advisory_prompt
 from alphaswarm.advisory.sector_map import lookup as sector_lookup
+from alphaswarm.advisory.sector_map import resolve_ticker
 from alphaswarm.advisory.types import AdvisoryReport
 from alphaswarm.holdings.types import PortfolioSnapshot
 from alphaswarm.inference.types import InferenceMessage
@@ -50,21 +51,25 @@ def _enrich_holdings(
     seed_match is 1.0 when the ticker or its sector substring appears
     in the seed text, else 0.0.
     """
-    seed_lower = seed_text.lower()
     enriched: list[dict[str, str]] = []
     for h in holdings:
         ticker = str(h.get("ticker", "")).upper()
         sm = sector_lookup(ticker)
         entity_impact = float(entity_impacts.get(ticker, 0.0))
         # Ticker match uses a word-boundary regex — a plain substring test
-        # false-positives on short tickers ("ARM" in "pharma"). Sector names
-        # are underscore_joined ("consumer_tech") and can never substring-match
-        # prose, so compare with underscores replaced by spaces.
+        # false-positives on short tickers ("ARM" in "pharma"). Single-word
+        # sector names ("displays", "industrials") ARE common English words, so
+        # the sector branch also uses a word-boundary match instead of a bare
+        # substring test, which previously granted a seed bonus on prose like
+        # "the chart displays a breakout" (F-28).
         sector_phrase = sm["sector"].replace("_", " ")
         seed_match = (
             1.0
             if (ticker and re.search(rf"\b{re.escape(ticker)}\b", seed_text, re.IGNORECASE))
-            or (sector_phrase and sector_phrase in seed_lower)
+            or (
+                sector_phrase
+                and re.search(rf"\b{re.escape(sector_phrase)}\b", seed_text, re.IGNORECASE)
+            )
             else 0.0
         )
         relevance = abs(entity_impact) * abs(sm["macro_beta"]) + 0.5 * seed_match
@@ -130,33 +135,39 @@ async def synthesize(
         }
         for h in portfolio.holdings
     ]
-    total_cost_basis = sum(
+    _total_cb = sum(
         (h.cost_basis if h.cost_basis is not None else Decimal("0"))
         for h in portfolio.holdings
-    ) or Decimal("1")  # D-07 guard against /0
+    )
+    # D-07: the denominator must be POSITIVE. The old `or Decimal("1")` only
+    # caught a falsy (zero) sum; a NEGATIVE aggregate (data-entry error or a
+    # credit/short lot) is truthy and would divide positive exposures by a
+    # negative number, inverting the advisory ranking (F-29).
+    total_cost_basis = _total_cb if _total_cb > 0 else Decimal("1")
 
     # ITEM 6 of quick task 260512-jqn — enrich + split.
-    # entity_impact from Neo4j is a list[dict] where each entry has at least
-    # `entity` and a magnitude-like field. We collapse to {ticker: float}
-    # for the relevance scorer; missing tickers fall back to 0.0.
+    # read_entity_impact rows carry entity_name + avg_sentiment (graph.py); the
+    # previous keys (`entity`/`magnitude`) never existed, so entity_impacts was
+    # always {} and the relevance ranking was dead (F-07). Collapse to
+    # {ticker: impact} using avg_sentiment as the bounded [-1,1] directional
+    # magnitude (mention_count is unbounded and would dominate abs() in the
+    # relevance product). Free-form names ("NVIDIA") are resolved to tickers via
+    # resolve_ticker; unresolved entities are skipped so they can't score an
+    # unrelated holding. When two entities map to one ticker, keep the strongest.
     entity_impacts: dict[str, float] = {}
     for entry in entities:
         if not isinstance(entry, dict):
             continue
-        ticker = str(entry.get("entity") or entry.get("ticker") or "").upper()
-        if not ticker:
+        raw_name = str(entry.get("entity_name") or entry.get("entity") or "").strip()
+        ticker = resolve_ticker(raw_name) if raw_name else None
+        if ticker is None:
             continue
-        # Magnitude — try several known keys without over-specifying schema.
-        mag_raw = (
-            entry.get("magnitude")
-            or entry.get("impact")
-            or entry.get("score")
-            or 0.0
-        )
         try:
-            entity_impacts[ticker] = float(mag_raw)
+            impact = float(entry.get("avg_sentiment", 0.0))
         except (TypeError, ValueError):
-            entity_impacts[ticker] = 0.0
+            impact = 0.0
+        if ticker not in entity_impacts or abs(impact) > abs(entity_impacts[ticker]):
+            entity_impacts[ticker] = impact
 
     enriched = _enrich_holdings(holdings_context, entity_impacts, seed_rumor)
     top_holdings = enriched[:15]
@@ -208,8 +219,17 @@ async def synthesize(
         prev = kept_by_ticker.get(ticker_up)
         if prev is not None and prev.confidence >= it.confidence:
             continue
+        # Normalize the ticker to the portfolio's canonical casing — the LLM
+        # may echo a different case ("nvda") than the user's CSV, which would
+        # make kept (conviction) and padded (HOLD) items disagree on casing for
+        # the same position and break ticker-keyed lookups/dedupe (F-30).
+        # display_ticker[ticker_up] is guaranteed present because actual_exposure
+        # (from cost_by_ticker, populated in the same loop) is not None here.
         kept_by_ticker[ticker_up] = it.model_copy(
-            update={"position_exposure": actual_exposure}
+            update={
+                "ticker": display_ticker[ticker_up],
+                "position_exposure": actual_exposure,
+            }
         )
     if dropped_tickers:
         # Pitfall 1: scalar-only logging — ticker symbols are fine, never

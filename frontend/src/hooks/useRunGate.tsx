@@ -13,7 +13,7 @@
 //   unexpected cost. Logging a console.warn is sufficient telemetry; blocking
 //   the user on a network error is not acceptable, so the modal still allows
 //   Confirm. If the user is confident, they can still run.
-import { ReactNode, useState } from 'react';
+import { ReactNode, useRef, useState } from 'react';
 import { RunConfirmModal } from '../components/run_confirm';
 import { getEstimate, RunEstimate } from '../api/settings';
 
@@ -40,27 +40,39 @@ export function useRunGate(
     estimate: RunEstimate | null;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Re-entrancy guard (ref, not state, so it is checked synchronously before
+  // the getEstimate await). The Run button is not disabled during that
+  // round-trip — `running` only flips after a WS frame arrives — so a fast
+  // double-click would otherwise fire requestRun twice and, in LOCAL mode,
+  // start the simulation twice (F-33).
+  const requestingRef = useRef(false);
 
   const requestRun = async (seed: string): Promise<void> => {
-    let estimate: RunEstimate | null = null;
+    if (requestingRef.current) return;
+    requestingRef.current = true;
     try {
-      estimate = await getEstimate();
-    } catch (err) {
-      // Estimate failure: show modal with null estimate so user can still cancel.
-      // eslint-disable-next-line no-console
-      console.warn('[useRunGate] getEstimate failed; showing modal without estimate', err);
-      setPending({ seed, estimate: null });
-      return;
-    }
+      let estimate: RunEstimate | null = null;
+      try {
+        estimate = await getEstimate();
+      } catch (err) {
+        // Estimate failure: show modal with null estimate so user can still cancel.
+        // eslint-disable-next-line no-console
+        console.warn('[useRunGate] getEstimate failed; showing modal without estimate', err);
+        setPending({ seed, estimate: null });
+        return;
+      }
 
-    if (estimate.mode === 'local') {
-      // Local mode: start immediately without a modal.
-      await simStartFn(seed);
-      return;
-    }
+      if (estimate.mode === 'local') {
+        // Local mode: start immediately without a modal.
+        await simStartFn(seed);
+        return;
+      }
 
-    // Cloud or mixed: open confirmation modal.
-    setPending({ seed, estimate });
+      // Cloud or mixed: open confirmation modal.
+      setPending({ seed, estimate });
+    } finally {
+      requestingRef.current = false;
+    }
   };
 
   const handleConfirm = async (): Promise<void> => {

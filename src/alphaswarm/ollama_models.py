@@ -104,14 +104,22 @@ class OllamaModelManager:
         """
         async with self._lock:
             await logger.ainfo("unloading model", model=model)
-            await self._client.chat(
-                model=model,
-                messages=[],
-                keep_alive=0,
-            )
-            if self._current_model == model:
-                self._current_model = None
-            await logger.ainfo("model unloaded", model=model)
+            try:
+                await self._client.chat(
+                    model=model,
+                    messages=[],
+                    keep_alive=0,
+                )
+                await logger.ainfo("model unloaded", model=model)
+            except Exception:
+                # Best-effort unload: some Ollama builds reject an empty
+                # messages list. A failed unload must not abort the caller
+                # (ensure_clean_state loops over models) nor leave _current_model
+                # stale — clear it in finally regardless (F-32).
+                await logger.awarning("unload_model_failed", model=model, exc_info=True)
+            finally:
+                if self._current_model == model:
+                    self._current_model = None
 
     async def is_model_loaded(self, model: str) -> bool:
         """Check if a model is currently loaded via ps().
@@ -142,4 +150,8 @@ class OllamaModelManager:
         bare_aliases = {a.removesuffix(":latest") for a in self._configured_aliases}
         for m in ps_response.models:
             if m.model.removesuffix(":latest") in bare_aliases:
+                # unload_model is best-effort (it swallows its own errors and
+                # clears state in a finally), so one stuck model can't abort the
+                # loop and leave the rest resident — preserving the max-2-models
+                # invariant (F-32).
                 await self.unload_model(m.model)

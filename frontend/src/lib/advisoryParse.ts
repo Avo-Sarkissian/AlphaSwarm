@@ -123,7 +123,15 @@ export function parseConvergence(md: string): ConvergenceData[] | null {
   const rowRe = /^\|\s*(\d+)\s*\|\s*([A-Z]+)\s*\|\s*([\d.]+)\s*\|/gm;
   let m;
   while ((m = rowRe.exec(section)) !== null) {
-    rows.push({ round: Number(m[1]), signal: m[2], weight: Number(m[3]) });
+    // The regex accepts both a fraction ("0.65") and a percentage ("65").
+    // Downstream (ConvergenceFlow) assumes weight is 0..1 and multiplies by 100,
+    // so an un-normalized "65" rendered a 6500%-tall bar segment (U4). Normalize
+    // to 0..1: treat >1 as a percentage, then clamp.
+    let weight = Number(m[3]);
+    if (!Number.isFinite(weight) || weight < 0) weight = 0;
+    if (weight > 1) weight = weight / 100;
+    if (weight > 1) weight = 1;
+    rows.push({ round: Number(m[1]), signal: m[2], weight });
   }
   return rows.length > 0 ? rows : null;
 }
@@ -162,12 +170,21 @@ export function parseInfluences(md: string): InfluenceEntry[] | null {
     `(?:^\\|\\s*(${AGENT_ID_SRC})\\s*\\|\\s*([\\d.]+))|(?:^[-*]\\s+(${AGENT_ID_SRC})\\s*[:\\-]\\s*([\\d.]+))`,
     'gm',
   );
+  // Dedup by agentId (keep the highest weight). The same agent can appear in
+  // both a table and a bullet, which would otherwise yield duplicate React keys
+  // in InfluenceChart and cause rows to be dropped/mis-reconciled (F-34).
+  const byId = new Map<string, number>();
   let m;
   while ((m = rowRe.exec(section)) !== null) {
     const id = m[1] || m[3];
     const w = m[2] || m[4];
-    if (id && w) out.push({ agentId: id, weight: Number(w) });
+    if (id && w) {
+      const weight = Number(w);
+      const prev = byId.get(id);
+      if (prev === undefined || weight > prev) byId.set(id, weight);
+    }
   }
+  for (const [agentId, weight] of byId) out.push({ agentId, weight });
   return out.length > 0 ? out : null;
 }
 

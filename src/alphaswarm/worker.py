@@ -126,8 +126,11 @@ class AgentWorker:
         # Compute total billable tokens for this call. Used by agent_worker
         # context manager to pass result_tokens to governor.release() so
         # the RateLimitController can reconcile TPM usage. LOCAL providers
-        # (Ollama) return None for both fields → last_total_tokens stays None
-        # → release gets None → governor ignores (behavior unchanged).
+        # (Ollama) return None for both fields → last_total_tokens stays None;
+        # the local ResourceGovernor.release ignores result_tokens entirely.
+        # For the cloud RateLimitController, a None here on a SUCCESSFUL call
+        # (provider omitted usage) keeps the upfront avg reservation; only a
+        # FAILED call (success=False) refunds it — see RateLimitController.release.
         if result.input_tokens is not None or result.output_tokens is not None:
             self.last_total_tokens = (result.input_tokens or 0) + (result.output_tokens or 0)
         else:

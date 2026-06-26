@@ -16,7 +16,12 @@ import httpx
 
 from alphaswarm.errors import AuthError, InferenceError
 from alphaswarm.inference.schema import to_openai_json_object, to_openai_response_format
-from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
+from alphaswarm.inference.types import (
+    InferenceMessage,
+    InferenceResult,
+    ProviderRole,
+    parse_retry_after,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -309,9 +314,9 @@ class OpenAICompatProvider:
 
     @staticmethod
     def _parse_retry_after(resp: httpx.Response, *, default: float) -> float:
-        """Read ``Retry-After`` header as seconds; fall back to *default*."""
-        raw = resp.headers.get("retry-after", "")
-        try:
-            return float(raw)
-        except (ValueError, TypeError):
-            return default
+        """Read ``Retry-After`` (delta-seconds or HTTP-date), clamped (F-23).
+
+        Delegates to the shared parser so the OpenAI and Anthropic providers
+        honor the same forms and the same ceiling.
+        """
+        return parse_retry_after(resp.headers.get("retry-after"), default=default)

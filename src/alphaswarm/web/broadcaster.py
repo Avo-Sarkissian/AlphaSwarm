@@ -79,7 +79,12 @@ def snapshot_to_json(
         else:
             gm["memory_percent"] = live_mem_pct
 
-    if replay_manager is not None and replay_manager.is_active:
+    # Gate on has_store (committed store) NOT is_active: during the _starting
+    # window is_active is True but store is None, so store.snapshot() would
+    # raise NoReplayActiveError on every tick. While starting we fall through to
+    # the live snapshot, which is correct (phase flips to REPLAY only after the
+    # store commits). F-24.
+    if replay_manager is not None and replay_manager.has_store:
         snap = replay_manager.store.snapshot()
         d = dataclasses.asdict(snap)
         _overlay_memory(d)  # D-01: replay also gets live host RAM

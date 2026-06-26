@@ -267,10 +267,11 @@ class TestMemoryMonitor:
             result = await monitor.read_macos_pressure()
         assert result == PressureLevel.RED
 
-    async def test_read_macos_pressure_green_on_subprocess_failure(
+    async def test_read_macos_pressure_green_on_subprocess_failure_cold(
         self, settings: GovernorSettings
     ) -> None:
-        """Fail-open: subprocess error returns GREEN."""
+        """F-17 fail-stale: a failed read before any success returns GREEN
+        (the cold-start default)."""
         monitor = MemoryMonitor(settings)
         with patch(
             "asyncio.create_subprocess_exec",
@@ -278,6 +279,41 @@ class TestMemoryMonitor:
         ):
             result = await monitor.read_macos_pressure()
         assert result == PressureLevel.GREEN
+
+    async def test_read_macos_pressure_failure_preserves_last_crisis(
+        self, settings: GovernorSettings
+    ) -> None:
+        """F-17 fail-stale: a failed read after a RED reading must NOT clear the
+        crisis — it returns the last successfully-read level, not GREEN."""
+        monitor = MemoryMonitor(settings)
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"4\n", b"")  # RED
+        mock_proc.returncode = 0
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            assert await monitor.read_macos_pressure() == PressureLevel.RED
+        # Now the next read fails — must stay RED, not fall open to GREEN.
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=OSError("fork failed under pressure"),
+        ):
+            result = await monitor.read_macos_pressure()
+        assert result == PressureLevel.RED
+
+    async def test_read_macos_pressure_reaps_child_on_cancel(
+        self, settings: GovernorSettings
+    ) -> None:
+        """U2: a cancellation mid-communicate() must still reap the sysctl child.
+        CancelledError is a BaseException and bypasses `except Exception`, so the
+        finally must kill the still-running process rather than orphan it."""
+        monitor = MemoryMonitor(settings)
+        mock_proc = AsyncMock()
+        mock_proc.returncode = None  # still running when cancelled
+        mock_proc.communicate.side_effect = asyncio.CancelledError()
+        mock_proc.kill = MagicMock()
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(asyncio.CancelledError):
+                await monitor.read_macos_pressure()
+        mock_proc.kill.assert_called_once()
 
     async def test_read_macos_pressure_green_on_unknown_value(
         self, settings: GovernorSettings

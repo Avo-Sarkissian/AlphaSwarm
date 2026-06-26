@@ -12,6 +12,7 @@ psutil-based zones (throttle, pause) only apply when kernel says GREEN.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import enum
 import time
 from dataclasses import dataclass
@@ -100,6 +101,8 @@ class MemoryMonitor:
 
     def __init__(self, settings: GovernorSettings) -> None:
         self._settings = settings
+        # Last successfully-read pressure level, for fail-stale on a failed read.
+        self._last_pressure: PressureLevel = PressureLevel.GREEN
 
     async def read_psutil_percent(self) -> float:
         """Read psutil virtual_memory percent (0-100)."""
@@ -108,9 +111,16 @@ class MemoryMonitor:
     async def read_macos_pressure(self) -> PressureLevel:
         """Read macOS kernel memory pressure via sysctl.
 
-        Uses asyncio.create_subprocess_exec to avoid blocking the event loop.
-        Falls back to GREEN on any error (fail-open per D-12).
+        sysctl is the MASTER crisis signal, so a FAILED read must NOT be
+        reported as GREEN: that would clear an active YELLOW/RED crisis and
+        trigger premature recovery / scale-up — exactly when fork/exec is most
+        likely to fail (under real memory pressure). On failure we fail-STALE:
+        return the last successfully-read level (GREEN only before any success).
+        The independent psutil throttle/pause zones remain a secondary net for
+        the rare cold-spike-during-failure case. A 2s timeout bounds a hung
+        sysctl so a stuck subprocess cannot wedge the monitor loop. (F-17)
         """
+        proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 "sysctl",
@@ -119,13 +129,27 @@ class MemoryMonitor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
             value = int(stdout.decode().strip())
             level = _SYSCTL_PRESSURE_MAP.get(value, PressureLevel.GREEN)
+            self._last_pressure = level
             return level
         except Exception:
-            log.debug("sysctl pressure read failed, defaulting to GREEN")
-            return PressureLevel.GREEN
+            log.warning(
+                "sysctl_pressure_read_failed_fail_stale",
+                last_pressure=self._last_pressure.value,
+            )
+            return self._last_pressure
+        finally:
+            # Reap the child on ANY exit — timeout, parse error, OR cancellation.
+            # CancelledError is a BaseException and bypasses `except Exception`,
+            # so without this finally a cancelled communicate() would orphan the
+            # sysctl subprocess (U2). Runs on the success path too (no-op once
+            # communicate() has reaped it).
+            if proc is not None and proc.returncode is None:
+                proc.kill()
+                with contextlib.suppress(Exception):
+                    await proc.wait()
 
     async def read_combined(self) -> MemoryReading:
         """Read both psutil and sysctl signals, return combined MemoryReading.

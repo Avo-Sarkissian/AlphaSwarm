@@ -828,12 +828,15 @@ async def test_batch_write_episodes_tx_uses_unwind_and_has_episode() -> None:
         }
     ]
 
-    await GraphStateManager._batch_write_episodes_tx(tx, episodes, "cycle-abc", 1)
+    await GraphStateManager._batch_write_episodes_tx(tx, episodes)
 
     tx.run.assert_awaited_once()
     cypher = tx.run.call_args[0][0]
     assert "UNWIND" in cypher
     assert "HAS_EPISODE" in cypher
+    # Each node is stamped from per-record fields, not batch-level params (U1).
+    assert "ep.round_num" in cypher
+    assert "ep.cycle_id" in cypher
     assert "RationaleEpisode" in cypher
 
 

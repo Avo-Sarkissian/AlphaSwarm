@@ -131,7 +131,9 @@ class HoldingsLoader:
                 raise HoldingsLoadError(
                     f"Invalid numeric value in CSV row {row_num}: {exc}"
                 ) from exc
-            account_labels.add(row["account"])
+            account_label = (row["account"] or "").strip()
+            if account_label:
+                account_labels.add(account_label)
             holdings_list.append(
                 Holding(
                     ticker=row["symbol"],
@@ -142,8 +144,12 @@ class HoldingsLoader:
 
         # HOLD-02: account_number_hash is the sha256_first8 digest of the
         # sorted unique account labels joined with '|'. With the real CSV this
-        # is sha256_first8("individual|roth_ira"). Guarded above: rows is
-        # non-empty, so account_labels is non-empty, so the join is non-empty.
+        # is sha256_first8("individual|roth_ira"). Empty/whitespace account
+        # cells are skipped above; if EVERY row had a blank account, the join
+        # would be "" and sha256_first8("") raises TypeError — not the
+        # documented HoldingsLoadError the lifespan 503 path expects (F-14).
+        if not account_labels:
+            raise HoldingsLoadError("CSV rows have no account labels")
         account_hash = sha256_first8("|".join(sorted(account_labels)))
 
         as_of = _as_of_from_path(path)

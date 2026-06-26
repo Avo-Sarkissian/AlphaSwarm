@@ -85,6 +85,29 @@ class TestBudgetMeterRecord:
         total = meter.record("unknown-model-xyz", 1_000_000, 1_000_000)
         assert total == Decimal("0")
 
+    def test_unknown_model_not_free_when_capped(self) -> None:
+        """F-18: with a cap set, an unpriced model must accrue cost (conservative
+        ceiling) — never $0, which would make the cap silently unenforceable."""
+        meter = _meter(cap=Decimal("100.00"))
+        total = meter.record("unknown-model-xyz", 1_000_000, 1_000_000)
+        assert total > Decimal("0")
+
+    def test_unknown_model_capped_would_exceed(self) -> None:
+        """F-18: an unpriced model under a tiny cap must trip would_exceed/check."""
+        meter = _meter(cap=Decimal("0.01"))
+        assert meter.would_exceed("unknown-model-xyz", 1_000_000, 1_000_000) is True
+
+    def test_empty_pricing_table_constructs_and_prices_unknown(self) -> None:
+        """An empty pricing table must construct (no max()-of-single-Decimal crash)
+        and, under a cap, price an unknown model at the opus-tier fallback."""
+        meter = BudgetMeter(cap_usd=Decimal("100.00"), pricing={})
+        total = meter.record("anything", 1_000_000, 1_000_000)
+        # Floored at _FALLBACK_UNKNOWN_PRICE: $15 in + $75 out = $90 for 1M/1M.
+        assert total == Decimal("90.00")
+        # Uncapped + empty table still free.
+        uncapped = BudgetMeter(cap_usd=None, pricing={})
+        assert uncapped.record("anything", 1_000_000, 0) == Decimal("0")
+
     def test_none_tokens_treated_as_zero(self) -> None:
         meter = _meter()
         total = meter.record("test-model", None, None)

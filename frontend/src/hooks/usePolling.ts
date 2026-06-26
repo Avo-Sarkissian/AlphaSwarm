@@ -52,9 +52,15 @@ export function usePolling<T>(opts: UsePollingOpts<T>): UsePollingResult<T> {
 
     let cancelled = false;
     let n = 0;
+    // In-flight guard: when fetchFn is slower than intervalMs, ticks would
+    // otherwise stack concurrent requests and let a slow earlier response
+    // clobber a newer one (out-of-order setData). Skip a tick while one is
+    // still running, so attempts are at-most-one-per-fetch-duration (F-16).
+    let running = false;
 
     const tick = async () => {
-      if (cancelled) return;
+      if (cancelled || running) return;
+      running = true;
       try {
         const result = await fnRef.current();
         if (cancelled) return;
@@ -65,6 +71,7 @@ export function usePolling<T>(opts: UsePollingOpts<T>): UsePollingResult<T> {
         if (cancelled) return;
         setError(e instanceof Error ? e : new Error(String(e)));
       } finally {
+        running = false;
         if (!cancelled) {
           n += 1;
           setAttempt(n);

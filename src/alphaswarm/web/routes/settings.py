@@ -239,14 +239,39 @@ def _merge_role(
     effective_key: str | None
     # Strip before the empty check so whitespace-only ("   ") is treated as absent
     stripped = api_key_in.strip() if isinstance(api_key_in, str) else api_key_in
-    effective_key = stored_role.api_key if stripped is None or stripped == "" else stripped
+
+    effective_provider = incoming.get("provider", stored_role.provider)
+    effective_base_url = incoming.get("base_url", stored_role.base_url)
+
+    # Only inherit the stored key when the destination vendor is UNCHANGED.
+    # Applying a provider preset (sends provider+base_url, no api_key) or
+    # otherwise switching vendor must NOT carry the prior vendor's secret onto
+    # the new endpoint — that both misconfigures auth and transmits a key to an
+    # unintended third party (F-13). A base_url change only counts when the
+    # incoming payload supplies a NON-None base_url that differs — so a
+    # same-provider edit that omits or nulls base_url (e.g. a model-only change)
+    # does not falsely drop a still-valid key, while a real endpoint switch
+    # (openai_compatible A → B) still does.
+    incoming_base_url = incoming.get("base_url")
+    base_url_changed = (
+        incoming_base_url is not None and incoming_base_url != stored_role.base_url
+    )
+    vendor_changed = (
+        str(effective_provider) != str(stored_role.provider) or base_url_changed
+    )
+    if stripped:
+        effective_key = stripped
+    elif vendor_changed:
+        effective_key = None
+    else:
+        effective_key = stored_role.api_key
 
     raw = stored_role.model_dump()
     raw.update(
         {
-            "provider": incoming.get("provider", stored_role.provider),
+            "provider": effective_provider,
             "model": incoming.get("model", stored_role.model),
-            "base_url": incoming.get("base_url", stored_role.base_url),
+            "base_url": effective_base_url,
             "api_key": effective_key,
         }
     )

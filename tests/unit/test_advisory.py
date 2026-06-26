@@ -610,3 +610,34 @@ async def test_synthesize_never_logs_portfolio_fields(
     assert sentinel_ticker not in log_output, f"leaked ticker into logs:\n{log_output}"
     assert "999999.99" not in log_output, f"leaked cost_basis into logs:\n{log_output}"
     assert "SNTL_ACCT" not in log_output, f"leaked acct hash into logs:\n{log_output}"
+
+
+# ---------------- F-07: entity-impact ranking ------------------------------
+
+
+def test_resolve_ticker_passthrough_and_alias() -> None:
+    """F-07: ticker pass-through and curated company-name aliases resolve;
+    non-holdings and blanks return None."""
+    from alphaswarm.advisory.sector_map import resolve_ticker
+
+    assert resolve_ticker("NVDA") == "NVDA"  # ticker pass-through (any case)
+    assert resolve_ticker("nvda") == "NVDA"
+    assert resolve_ticker("NVIDIA") == "NVDA"  # company-name alias
+    assert resolve_ticker("Taiwan Semiconductor") == "TSM"
+    assert resolve_ticker("Federal Reserve") is None  # not a held position
+    assert resolve_ticker("") is None
+
+
+def test_enrich_holdings_entity_impact_drives_ranking() -> None:
+    """F-07: a strong entity impact must lift its holding above an unmatched one
+    (the ranking was previously dead because entity_impacts was always empty)."""
+    from alphaswarm.advisory.engine import _enrich_holdings
+
+    holdings = [
+        {"ticker": "DBX", "qty": "10", "cost_basis": "1000"},
+        {"ticker": "NVDA", "qty": "10", "cost_basis": "1000"},
+    ]
+    # NVDA carries a strong directional impact; DBX none. No seed match for either.
+    ranked = _enrich_holdings(holdings, {"NVDA": -0.9}, seed_text="an unrelated rumor")
+    assert ranked[0]["ticker"] == "NVDA"
+    assert float(ranked[0]["relevance_score"]) > float(ranked[1]["relevance_score"])
