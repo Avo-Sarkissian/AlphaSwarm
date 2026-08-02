@@ -666,6 +666,158 @@ def test_ws_state_same_connection_manager() -> None:
 
 
 # ---------------------------------------------------------------------------
+# F2: /ws/state Origin allow-list (cross-site WebSocket hijacking guard)
+# ---------------------------------------------------------------------------
+
+
+def test_ws_state_allows_configured_origin() -> None:
+    """F2: an Origin in AppSettings.ws_allowed_origins connects normally."""
+    app = _make_ws_test_app()
+    with TestClient(app) as client, client.websocket_connect(
+        "/ws/state", headers={"origin": "http://localhost:5173"}
+    ):
+        assert client.app.state.connection_manager.client_count == 1
+
+
+def test_ws_state_allows_same_origin_from_host_header() -> None:
+    """F2: the server's own origin (scheme + Host) is accepted without configuration.
+
+    TestClient sends Host: testserver, so http://testserver is same-origin here.
+    """
+    app = _make_ws_test_app()
+    with TestClient(app) as client, client.websocket_connect(
+        "/ws/state", headers={"origin": "http://testserver"}
+    ):
+        assert client.app.state.connection_manager.client_count == 1
+
+
+def test_ws_state_allows_missing_origin() -> None:
+    """F2: a handshake with no Origin header (non-browser client) is still accepted.
+
+    Browsers always send Origin on a WS handshake, so this path is not the
+    cross-site vector — refusing it would break wscat/scripts/tests.
+    """
+    app = _make_ws_test_app()
+    with TestClient(app) as client, client.websocket_connect("/ws/state"):
+        assert client.app.state.connection_manager.client_count == 1
+
+
+def test_ws_state_refuses_foreign_origin_before_accept() -> None:
+    """F2: a foreign Origin is closed with 1008 and never allocates a client slot."""
+    from starlette.websockets import WebSocketDisconnect
+
+    app = _make_ws_test_app()
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as excinfo, client.websocket_connect(
+            "/ws/state", headers={"origin": "https://evil.example"}
+        ):
+            pass
+        assert excinfo.value.code == 1008
+        # Refused before connection_manager.connect(): no queue, no writer task.
+        assert client.app.state.connection_manager.client_count == 0
+
+
+def test_ws_state_refuses_null_origin() -> None:
+    """F2: the opaque "null" origin (sandboxed iframe, data: URL) is refused."""
+    from starlette.websockets import WebSocketDisconnect
+
+    app = _make_ws_test_app()
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as excinfo, client.websocket_connect(
+            "/ws/state", headers={"origin": "null"}
+        ):
+            pass
+        assert excinfo.value.code == 1008
+        assert client.app.state.connection_manager.client_count == 0
+
+
+@pytest.mark.parametrize("malformed_host", ["]", "[x]"])
+def test_ws_state_malformed_host_refuses_cleanly(malformed_host: str) -> None:
+    """F2: a bracket-malformed Host takes the normal refusal path, never a 500.
+
+    Starlette's WebSocket.url lazily urlsplit()s the raw Host header and raises
+    ValueError ("Invalid IPv6 URL") on unbalanced brackets, which h11/uvicorn
+    happily pass through. Deriving the server origin from scope["scheme"]
+    instead keeps an unauthenticated peer from turning each handshake into an
+    unhandled endpoint error. TestClient re-raises endpoint exceptions, so a
+    regression here surfaces as ValueError instead of WebSocketDisconnect.
+    """
+    from starlette.websockets import WebSocketDisconnect
+
+    app = _make_ws_test_app()
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as excinfo, client.websocket_connect(
+            "/ws/state",
+            headers={"origin": "https://evil.example", "host": malformed_host},
+        ):
+            pass
+        assert excinfo.value.code == 1008
+        assert client.app.state.connection_manager.client_count == 0
+
+
+def test_safe_origin_for_log_bounds_and_neutralizes() -> None:
+    """F2: the log helper truncates and strips whitespace/control chars."""
+    from alphaswarm.web.routes.websocket import (
+        _MAX_LOGGED_ORIGIN_CHARS,
+        _ORIGIN_TRUNCATION_MARKER,
+        _safe_origin_for_log,
+    )
+
+    assert _safe_origin_for_log(None) == "<none>"
+    assert _safe_origin_for_log("http://localhost:5173") == "http://localhost:5173"
+
+    forged = _safe_origin_for_log("x event=ws_state_connected\tclient=1\x07")
+    assert not any(c.isspace() for c in forged)
+    assert "\x07" not in forged
+
+    long_origin = _safe_origin_for_log("http://" + "a" * 5000)
+    assert len(long_origin) == _MAX_LOGGED_ORIGIN_CHARS + len(_ORIGIN_TRUNCATION_MARKER)
+    assert long_origin.endswith(_ORIGIN_TRUNCATION_MARKER)
+
+
+def test_ws_state_refused_origin_logged_bounded_and_neutralized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F2: the Origin bound to the refusal log event is bounded and whitespace-free.
+
+    Under ALPHASWARM_DEBUG=true structlog renders str values verbatim, so an
+    unbounded Origin containing spaces would forge extra key=value pairs in the
+    console line (and let a peer push ~16 KB of text per handshake into the log).
+    """
+    from starlette.websockets import WebSocketDisconnect
+
+    from alphaswarm.web.routes import websocket as ws_module
+
+    records: list[tuple[str, dict[str, object]]] = []
+
+    class _RecordingLog:
+        def info(self, event: str, **kwargs: object) -> None:
+            records.append((event, kwargs))
+
+        def warning(self, event: str, **kwargs: object) -> None:
+            records.append((event, kwargs))
+
+    monkeypatch.setattr(ws_module, "log", _RecordingLog())
+
+    hostile = "http://evil.example client=127.0.0.1 event=ws_state_connected " + "A" * 500
+
+    app = _make_ws_test_app()
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect), client.websocket_connect(
+            "/ws/state", headers={"origin": hostile}
+        ):
+            pass
+        assert client.app.state.connection_manager.client_count == 0
+
+    refusals = [kwargs for event, kwargs in records if event == "ws_state_origin_refused"]
+    assert len(refusals) == 1
+    logged = refusals[0]["origin"]
+    assert isinstance(logged, str)
+    assert len(logged) < 100  # bounded — nothing like the 500+ chars the peer sent
+    assert not any(c.isspace() for c in logged)  # cannot forge extra key=value pairs
+
+
+# ---------------------------------------------------------------------------
 # Test 13: create_app() production path registers /ws/state (BE-04)
 # ---------------------------------------------------------------------------
 

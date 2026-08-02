@@ -307,6 +307,17 @@ def masked_config(cfg: InferenceConfig) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+# Origins permitted to open the unauthenticated /ws/state WebSocket stream.
+# Covers the Vite dev server (5173) and the uvicorn app itself (8000) on both
+# loopback spellings — the two ways the operator actually reaches the UI.
+DEFAULT_WS_ALLOWED_ORIGINS: tuple[str, ...] = (
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+)
+
+
 class AppSettings(BaseSettings):
     """Root configuration loaded from environment / .env file."""
 
@@ -337,6 +348,15 @@ class AppSettings(BaseSettings):
     # env_prefix="ALPHASWARM_" maps this flat field to env var ALPHASWARM_HOLDINGS_CSV_PATH.
     # pydantic-settings v2 coerces string env values to pathlib.Path automatically.
     holdings_csv_path: Path = Path("Schwab/holdings.csv")
+
+    # Browser origins allowed to open /ws/state. The stream is unauthenticated,
+    # so without this any page the operator visits could open it cross-origin
+    # and read the whole live simulation state. Override with a JSON array in
+    # ALPHASWARM_WS_ALLOWED_ORIGINS. Compared exactly (case- and trailing-slash
+    # insensitive); the server's own origin is always accepted in addition.
+    ws_allowed_origins: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_WS_ALLOWED_ORIGINS)
+    )
 
 
 # ---------------------------------------------------------------------------
