@@ -19,3 +19,9 @@ data/sec_tickers.json
 /frontend/reports/
 # mypy stubs installed by `mypy --install-types`
 /typings/
+
+# Local agent scratch: worktree checkouts, machine-local settings, run locks.
+/.claude/
+
+# Security scan reports (each also carries its own .gitignore).
+/CLAUDE-SECURITY-*/
