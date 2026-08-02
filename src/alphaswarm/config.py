@@ -307,15 +307,25 @@ def masked_config(cfg: InferenceConfig) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-# Origins permitted to open the unauthenticated /ws/state WebSocket stream.
-# Covers the Vite dev server (5173) and the uvicorn app itself (8000) on both
-# loopback spellings — the two ways the operator actually reaches the UI.
-DEFAULT_WS_ALLOWED_ORIGINS: tuple[str, ...] = (
+# The two ways the operator actually reaches the UI: the Vite dev server (5173)
+# and the uvicorn app that also serves the built SPA (8000), on both loopback
+# spellings. Shared by the WebSocket handshake guard and the HTTP CSRF guard so
+# the two cannot drift apart.
+_DEFAULT_LOCAL_ORIGINS: tuple[str, ...] = (
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 )
+
+# Origins permitted to open the unauthenticated /ws/state WebSocket stream.
+DEFAULT_WS_ALLOWED_ORIGINS: tuple[str, ...] = _DEFAULT_LOCAL_ORIGINS
+
+# Origins allowed to issue state-changing (non-GET) HTTP requests to the API.
+# The server is a localhost-only operator console with no authentication, so
+# without this allow-list ANY web page the operator visits could POST to
+# /api/simulate/start, /api/advisory/{id}, ... (CWE-352).
+DEFAULT_HTTP_ALLOWED_ORIGINS: tuple[str, ...] = _DEFAULT_LOCAL_ORIGINS
 
 
 class AppSettings(BaseSettings):
@@ -357,6 +367,12 @@ class AppSettings(BaseSettings):
     ws_allowed_origins: list[str] = Field(
         default_factory=lambda: list(DEFAULT_WS_ALLOWED_ORIGINS)
     )
+
+    # CSRF guard (CWE-352): origins allowed to send state-changing HTTP requests.
+    # Consumed by alphaswarm.web.origin_guard, wired in web/app.py:create_app().
+    # Override with a JSON list when the server is reached under another origin:
+    #   ALPHASWARM_HTTP_ALLOWED_ORIGINS=["http://localhost:9000"]
+    http_allowed_origins: tuple[str, ...] = DEFAULT_HTTP_ALLOWED_ORIGINS
 
 
 # ---------------------------------------------------------------------------

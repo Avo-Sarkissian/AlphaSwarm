@@ -17,6 +17,7 @@ from alphaswarm.config import AppSettings, generate_personas, load_bracket_confi
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
+from alphaswarm.web.origin_guard import install_origin_guard
 from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.routes.advisory import router as advisory_router
 from alphaswarm.web.routes.edges import router as edges_router
@@ -195,6 +196,15 @@ def create_app() -> FastAPI:
     never at module import time.
     """
     app = FastAPI(title="AlphaSwarm", lifespan=lifespan)
+
+    # CSRF guard (CWE-352): the API is unauthenticated and localhost-only, so
+    # every mutating route runs with the operator's authority. One middleware
+    # in front of the whole app rejects non-GET requests carrying a foreign
+    # Origin/Referer, covering all routers below plus any added later.
+    # Header-less callers (curl, scripts/, the in-process ASGITransport report
+    # and advisory chains) are unaffected — see web/origin_guard.py.
+    install_origin_guard(app, AppSettings().http_allowed_origins)
+
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")
     app.include_router(edges_router, prefix="/api")
