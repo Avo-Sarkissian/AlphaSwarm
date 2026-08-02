@@ -215,6 +215,10 @@ docker run -d --name neo4j --restart unless-stopped \
   neo4j:community
 ```
 
+The app has no default Neo4j password: set `ALPHASWARM_NEO4J__PASSWORD` in
+`.env` to the same value you used in `NEO4J_AUTH`. Startup fails with an
+explicit error if it is unset.
+
 ### 4. Run
 
 **Web UI (recommended):**

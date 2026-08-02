@@ -105,7 +105,7 @@ def create_app_state(
         # run_until_complete creates futures on a throwaway loop.
         driver = AsyncGraphDatabase.driver(
             settings.neo4j.uri,
-            auth=(settings.neo4j.username, settings.neo4j.password),
+            auth=(settings.neo4j.username, settings.neo4j.require_password()),
             max_connection_pool_size=50,
         )
 

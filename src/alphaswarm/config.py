@@ -53,8 +53,32 @@ class Neo4jSettings(BaseModel):
 
     uri: str = "bolt://localhost:7687"
     username: str = "neo4j"
-    password: str = "alphaswarm"
+    # No literal default (CWE-798): a hardcoded password here is not a
+    # placeholder — it is the credential every default deployment actually
+    # authenticates with, published in this repository. Supply it via
+    # ALPHASWARM_NEO4J__PASSWORD (environment or .env).
+    #
+    # The empty default keeps AppSettings constructible for the many code
+    # paths that never open a Neo4j connection (CLI banner, web unit tests,
+    # inference-only flows). Every path that DOES open a driver must read the
+    # credential through require_password(), which fails loudly when unset.
+    password: str = ""
     database: str = "neo4j"
+
+    def require_password(self) -> str:
+        """Return the configured password, raising if none was supplied.
+
+        Called at driver-construction time so a missing credential surfaces as
+        an actionable startup error rather than an opaque Neo4j auth failure,
+        and so no deployment silently falls back to a published default.
+        """
+        if not self.password:
+            raise ValueError(
+                "Neo4j password is not configured. Set ALPHASWARM_NEO4J__PASSWORD "
+                "(environment variable or .env) to the password your Neo4j "
+                "instance was created with — there is no default."
+            )
+        return self.password
 
 
 class GovernorSettings(BaseModel):

@@ -44,7 +44,7 @@ def main() -> None:
     settings = AppSettings()
     driver = GraphDatabase.driver(
         settings.neo4j.uri,
-        auth=(settings.neo4j.username, settings.neo4j.password),
+        auth=(settings.neo4j.username, settings.neo4j.require_password()),
     )
     with driver.session(database=settings.neo4j.database) as session:
         rows = session.run(
