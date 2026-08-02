@@ -197,6 +197,76 @@ class InferenceConfig(BaseModel):
 # Path constant: .secrets/ is gitignored; the file is created on first save.
 INFERENCE_CONFIG_PATH: Path = Path(".secrets/inference.json")
 
+# The inference config holds raw cloud API keys in cleartext, so it must never
+# be readable by other local accounts (CWE-276). Owner-only mode bits for the
+# file and its containing directory; POSIX-only (see _restrict_mode).
+SECRET_FILE_MODE: int = 0o600
+SECRET_DIR_MODE: int = 0o700
+
+
+def _restrict_mode(fd: int, mode: int, target: Path) -> None:
+    """Best-effort chmod of the already-open descriptor *fd* to *mode*.
+
+    Always operates on a descriptor, never on a path: the mode then lands on
+    the exact object this process opened and cannot be redirected through a
+    symlink (CWE-59), nor swapped out between a check and the chmod. *target*
+    is used for logging only.
+
+    No-op on non-POSIX platforms: Windows has no POSIX mode bits (os.chmod
+    there only toggles the read-only flag, and os.fchmod does not exist), so
+    applying them is meaningless. The project targets POSIX — CI runs on
+    ubuntu-latest, the documented hardware target is Apple Silicon, and the
+    helper scripts are shell scripts — but this stays defensive so a save
+    never raises on another platform.
+
+    A chmod failure (filesystem without permission support, file owned by
+    another user) is logged and swallowed rather than turned into a failed
+    save: the secret file itself is already *created* with restrictive bits,
+    so this call is a repair for pre-existing paths, not the primary control.
+    """
+    if os.name != "posix":
+        return
+    try:
+        os.fchmod(fd, mode)
+    except OSError as exc:
+        logger.warning(
+            "secret_permissions_not_restricted",
+            target=str(target),
+            mode=oct(mode),
+            error=str(exc),
+        )
+
+
+def _restrict_dir_mode(directory: Path, mode: int) -> None:
+    """Best-effort chmod of *directory* to *mode*, refusing to follow symlinks.
+
+    ``Path.mkdir(parents=True, exist_ok=True)`` succeeds when the directory
+    entry is a *symlink* to an existing directory, so a plain path-based
+    ``os.chmod`` here would let anyone able to create that entry redirect the
+    mode change onto an unrelated directory the operator owns — stripping
+    group/other access and setgid/sticky bits from it (CWE-59). Opening with
+    ``O_DIRECTORY | O_NOFOLLOW`` instead fails cleanly (ELOOP/ENOTDIR) on a
+    symlinked directory, and fchmod applies to the object actually opened, so
+    there is no check-then-act window either. A failure is logged and skipped;
+    the secret file's own 0600 creation mode is unaffected.
+    """
+    if os.name != "posix":
+        return
+    try:
+        fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        logger.warning(
+            "secret_permissions_not_restricted",
+            target=str(directory),
+            mode=oct(mode),
+            error=str(exc),
+        )
+        return
+    try:
+        _restrict_mode(fd, mode, directory)
+    finally:
+        os.close(fd)
+
 
 def default_inference_config(app_settings: AppSettings) -> InferenceConfig:
     """Return a local-only default InferenceConfig from OllamaSettings.
@@ -263,12 +333,37 @@ def save_inference_config(
     interrupted write (crash / full disk) leaves the existing valid config
     untouched rather than a truncated file that breaks every subsequent load
     (F-25).
+
+    The file stores API keys in cleartext, so on POSIX it is owner-only
+    (SECRET_FILE_MODE) and its directory is owner-only (SECRET_DIR_MODE)
+    (CWE-276). The mode is applied at *creation* of the temp file — the
+    cleartext key is never on disk world-readable, not even briefly — and
+    os.replace carries the temp file's mode onto the destination, so a config
+    file previously written as 0644 is repaired on the next save.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=SECRET_DIR_MODE)
+    # mkdir(mode=...) does nothing for a directory that already exists, so an
+    # existing 0755 .secrets/ needs an explicit chmod. Skipped (not redirected)
+    # if that directory is a symlink — see _restrict_dir_mode.
+    _restrict_dir_mode(path.parent, SECRET_DIR_MODE)
+
     tmp = path.with_name(f"{path.name}.tmp")
     try:
-        tmp.write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
-        os.replace(tmp, path)  # atomic on the same filesystem
+        # os.open with an explicit mode (not write_text, which creates at
+        # 0666 & ~umask) so the temp file never exists with permissive bits.
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, SECRET_FILE_MODE)
+        try:
+            # O_CREAT applies the mode only when it creates the file; a stale
+            # temp file left behind by an interrupted save would keep its old
+            # mode, so re-apply it on the open descriptor.
+            _restrict_mode(fd, SECRET_FILE_MODE, tmp)
+            handle = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with handle:
+            handle.write(cfg.model_dump_json(indent=2))
+        os.replace(tmp, path)  # atomic on the same filesystem; keeps tmp's mode
     finally:
         # Clean up the temp file if the replace never happened.
         if tmp.exists():

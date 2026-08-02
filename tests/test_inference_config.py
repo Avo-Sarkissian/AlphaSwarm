@@ -8,13 +8,17 @@ model_dump_json/model_validate_json, no extra dependency).
 from __future__ import annotations
 
 import json
+import os
+import stat
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from alphaswarm.config import (
     AppSettings,
+    InferenceConfig,
     ModelPrice,
     ProviderLimits,
     ProviderType,
@@ -22,6 +26,13 @@ from alphaswarm.config import (
     load_inference_config,
     masked_config,
     save_inference_config,
+)
+
+# POSIX mode bits are meaningless on Windows (os.chmod there only toggles the
+# read-only flag), and save_inference_config skips them on non-POSIX platforms.
+posix_only = pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX file mode bits; save_inference_config skips chmod elsewhere",
 )
 
 # ---------------------------------------------------------------------------
@@ -177,6 +188,153 @@ def test_save_creates_parent_dirs(tmp_path: Path) -> None:
     save_inference_config(cfg, dest)
 
     assert dest.exists()
+
+
+# ---------------------------------------------------------------------------
+# File permissions — the config stores raw API keys (S1 / CWE-276)
+# ---------------------------------------------------------------------------
+
+
+def _mode(path: Path) -> int:
+    """Return the permission bits of *path*."""
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+@posix_only
+def test_save_writes_owner_only_file(tmp_path: Path) -> None:
+    """The saved config file is readable/writable by its owner only."""
+    settings = _clean_settings()
+    cfg = default_inference_config(settings)
+    dest = tmp_path / "secrets" / "inference.json"
+
+    save_inference_config(cfg, dest)
+
+    assert _mode(dest) == 0o600
+
+
+@posix_only
+def test_save_creates_owner_only_parent_dir(tmp_path: Path) -> None:
+    """A directory created for the config file is owner-only."""
+    settings = _clean_settings()
+    cfg = default_inference_config(settings)
+    dest = tmp_path / "secrets" / "inference.json"
+
+    save_inference_config(cfg, dest)
+
+    assert _mode(dest.parent) == 0o700
+
+
+@posix_only
+def test_save_tightens_existing_permissive_dir(tmp_path: Path) -> None:
+    """An existing world-readable directory is tightened (mkdir(mode=) is a no-op)."""
+    settings = _clean_settings()
+    cfg = default_inference_config(settings)
+    secrets_dir = tmp_path / "secrets"
+    secrets_dir.mkdir()
+    os.chmod(secrets_dir, 0o755)
+
+    save_inference_config(cfg, secrets_dir / "inference.json")
+
+    assert _mode(secrets_dir) == 0o700
+
+
+@posix_only
+def test_save_does_not_chmod_symlinked_parent_target(tmp_path: Path) -> None:
+    """A symlinked config directory must not have its TARGET chmod-ed (CWE-59).
+
+    ``Path.mkdir(exist_ok=True)`` happily accepts a symlink to an existing
+    directory, so a path-based chmod here would let whoever can create that
+    entry point it at an arbitrary directory the operator owns and have it
+    forced to 0700. The directory mode step must skip instead of redirect.
+    """
+    settings = _clean_settings()
+    cfg = default_inference_config(settings)
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    os.chmod(victim, 0o755)
+    link = tmp_path / "secrets"
+    link.symlink_to(victim, target_is_directory=True)
+
+    save_inference_config(cfg, link / "inference.json")
+
+    # The unrelated directory keeps its own permissions...
+    assert _mode(victim) == 0o755
+    # ...and the secret file itself is still written owner-only.
+    assert _mode(victim / "inference.json") == 0o600
+
+
+@posix_only
+def test_save_repairs_existing_permissive_file(tmp_path: Path) -> None:
+    """An already-written 0644 config file is repaired on the next save."""
+    settings = _clean_settings()
+    cfg = default_inference_config(settings)
+    dest = tmp_path / "inference.json"
+    dest.write_text("{}", encoding="utf-8")
+    os.chmod(dest, 0o644)
+
+    save_inference_config(cfg, dest)
+
+    assert _mode(dest) == 0o600
+
+
+@posix_only
+def test_save_temp_file_owner_only_at_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The temp file carries 0600 from creation — never a world-readable window.
+
+    The spy runs while the temp file exists but before the serialized config
+    (which contains the raw API key) has been written into it.
+    """
+    settings = _clean_settings()
+    cfg = default_inference_config(settings)
+    dest = tmp_path / "secrets" / "inference.json"
+    tmp_file = dest.with_name(f"{dest.name}.tmp")
+    observed: list[int] = []
+    original = InferenceConfig.model_dump_json
+
+    def _spy(self: InferenceConfig, *args: Any, **kwargs: Any) -> str:
+        observed.append(_mode(tmp_file))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(InferenceConfig, "model_dump_json", _spy)
+
+    save_inference_config(cfg, dest)
+
+    assert observed == [0o600]
+
+
+@posix_only
+def test_save_tightens_stale_permissive_temp_file(tmp_path: Path) -> None:
+    """A stale 0644 temp file from an interrupted save does not leak the mode.
+
+    O_CREAT only applies the mode when it creates the file, so the mode is
+    re-applied to the open descriptor before anything is written.
+    """
+    settings = _clean_settings()
+    cfg = default_inference_config(settings)
+    dest = tmp_path / "inference.json"
+    stale = dest.with_name(f"{dest.name}.tmp")
+    stale.write_text("stale", encoding="utf-8")
+    os.chmod(stale, 0o644)
+
+    save_inference_config(cfg, dest)
+
+    assert _mode(dest) == 0o600
+    assert not stale.exists()
+
+
+def test_save_keeps_api_key_readable_by_owner(tmp_path: Path) -> None:
+    """Hardened permissions do not break the owner's own read-back."""
+    settings = _clean_settings()
+    cfg = default_inference_config(settings)
+    orch = cfg.orchestrator.model_copy(update={"api_key": "sk-secret-1234"})
+    cfg = cfg.model_copy(update={"orchestrator": orch})
+    dest = tmp_path / "secrets" / "inference.json"
+
+    save_inference_config(cfg, dest)
+
+    assert load_inference_config(settings, dest).orchestrator.api_key == "sk-secret-1234"
 
 
 # ---------------------------------------------------------------------------
