@@ -209,15 +209,74 @@ ollama create alphaswarm-worker -f modelfiles/Modelfile.worker
 ### 3. Start Neo4j (first time only)
 
 ```bash
-docker run -d --name neo4j --restart unless-stopped \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/alphaswarm \
-  neo4j:community
+export ALPHASWARM_NEO4J__PASSWORD="$(openssl rand -hex 32)"
+docker compose up -d
 ```
 
-The app has no default Neo4j password: set `ALPHASWARM_NEO4J__PASSWORD` in
-`.env` to the same value you used in `NEO4J_AUTH`. Startup fails with an
-explicit error if it is unset.
+Neither the container nor the application carries a default Neo4j password.
+`docker compose up` aborts when `ALPHASWARM_NEO4J__PASSWORD` is unset or empty,
+and the app raises an explicit error instead of opening a Neo4j connection in
+the same case. Compose publishes Bolt (7687) and the browser (7474) on
+`127.0.0.1` only, so the database is not reachable from your LAN.
+
+Persist the value so every later `docker compose` command and app run can read
+it — Compose and the app both read `.env` from the repo root, and `.env` is
+gitignored:
+
+```bash
+cp .env.example .env   # then set ALPHASWARM_NEO4J__PASSWORD=<the value you generated>
+```
+
+Prefer `openssl rand -hex 32`: hex keeps the value clear of `/` (the separator
+in `NEO4J_AUTH`) and `$` (special inside `.env` values).
+
+`pytest` is the exception — `uv run` does not load `.env`, so **export**
+`ALPHASWARM_NEO4J__PASSWORD` in your shell before running the Neo4j integration
+tests (`tests/test_graph_integration.py`), which otherwise skip. When the
+variable is absent, `tests/conftest.py` still falls back to the legacy
+`alphaswarm` literal, so existing installs keep working untouched.
+
+#### Migrating an existing Neo4j
+
+**If you started it with the old `docker run --name neo4j` recipe.** That
+container publishes 7474/7687 on every interface with the old `alphaswarm`
+password, and holds those ports, so `docker compose up -d` cannot bind them
+until it is gone. Its data also sits on an *anonymous* volume that Compose's
+named volume does not adopt — the graph does not carry over on its own. Dump it
+first:
+
+```bash
+./scripts/backup_neo4j.sh   # writes data/backups/ (set ALPHASWARM_NEO4J_CONTAINER=neo4j if it finds two)
+docker rm -f neo4j          # frees the ports and retires the old credential
+export ALPHASWARM_NEO4J__PASSWORD="$(openssl rand -hex 32)"
+docker compose up -d        # starts alphaswarm-neo4j on 127.0.0.1 with your password
+```
+
+To carry the old graph across, load the dump with the restore command the backup
+script prints, substituting `alphaswarm-neo4j` for the container name
+(`neo4j-admin database load` expects the file named `neo4j.dump` in
+`--from-path`). The server you load into must be able to read that store: the
+old recipe's floating `neo4j:community` tag is now a 2026.x release while this
+repo pins `neo4j:5.26-community`, so if the load is rejected, pin `image:` in
+`docker-compose.yml` to the version you dumped from. Credentials are not part of
+a database dump — they live in the `system` database — so the restored graph
+uses your new password.
+
+**If you were already using `docker compose up -d`.** The named volume is
+already initialized, and `NEO4J_AUTH` only takes effect when a volume is
+initialized, so a new value in the environment will *not* change the stored
+password. Rotate it in place, then recreate the container with the same new
+value so its `NEO4J_AUTH` — and the healthcheck derived from it — agree:
+
+```bash
+docker exec -it alphaswarm-neo4j \
+  cypher-shell -u neo4j -p alphaswarm -d system \
+  "ALTER CURRENT USER SET PASSWORD FROM 'alphaswarm' TO '<new-password>'"
+export ALPHASWARM_NEO4J__PASSWORD='<new-password>'
+docker compose up -d
+```
+
+(`docker compose down -v` also works, at the cost of deleting the graph.)
 
 ### 4. Run
 

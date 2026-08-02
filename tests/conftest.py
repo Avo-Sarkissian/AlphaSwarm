@@ -128,6 +128,16 @@ async def neo4j_driver():
 
     Skips test if Neo4j is not available or auth fails.
 
+    The password comes from ALPHASWARM_NEO4J__PASSWORD when it is exported in
+    the environment, falling back to the historical `alphaswarm` literal so
+    installs created before the credential was made mandatory keep working.
+    Note that `uv run` does not load `.env`: export the variable in your shell
+    to run these tests against an instance with a per-install password.
+
+    The destination stays the hardcoded loopback address on purpose — these
+    tests write to whatever database they reach, so the target must not be
+    steerable by the environment.
+
     Async-fixture form so verify_connectivity runs on the same event loop as
     the test that consumes the driver. The previous sync form used
     `asyncio.get_event_loop().run_until_complete(...)` which created futures
@@ -137,7 +147,7 @@ async def neo4j_driver():
     import socket
 
     from neo4j import AsyncGraphDatabase
-    from neo4j.exceptions import Neo4jError, ServiceUnavailable
+    from neo4j.exceptions import AuthError, Neo4jError, ServiceUnavailable
 
     # Cheap TCP-level preflight: avoids spinning up the AsyncDriver at all
     # when the port is closed (typical local dev where Neo4j isn't running).
@@ -149,11 +159,21 @@ async def neo4j_driver():
 
     driver = AsyncGraphDatabase.driver(
         "bolt://localhost:7687",
-        auth=("neo4j", "alphaswarm"),
+        auth=("neo4j", os.environ.get("ALPHASWARM_NEO4J__PASSWORD", "alphaswarm")),
         max_connection_pool_size=5,
     )
     try:
         await driver.verify_connectivity()
+    # AuthError is a Neo4jError subclass, so it must be caught first. Keeping
+    # the two skips distinct stops "wrong password" from being misread as
+    # "server is down" when the whole module silently skips.
+    except AuthError:
+        await driver.close()
+        pytest.skip(
+            "Neo4j rejected the test credential for user 'neo4j'. Export "
+            "ALPHASWARM_NEO4J__PASSWORD with this instance's password "
+            "(uv run does not read .env)."
+        )
     except (ServiceUnavailable, Neo4jError, OSError):
         await driver.close()
         pytest.skip("Neo4j not available (docker compose up -d)")

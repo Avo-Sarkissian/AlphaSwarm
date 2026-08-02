@@ -3,14 +3,24 @@ services:
     image: neo4j:5.26-community
     container_name: alphaswarm-neo4j
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      # Loopback only. Bolt and the Neo4j browser are guarded by a single
+      # superuser account, so publishing them on 0.0.0.0 hands anyone who can
+      # reach this machine full read/write/DDL over the graph.
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
     environment:
-      NEO4J_AUTH: neo4j/alphaswarm
+      # No password lives in this repository. Compose aborts `up` when
+      # ALPHASWARM_NEO4J__PASSWORD is unset OR empty (the `:?` form checks
+      # both). Same variable the application reads, so one value configures
+      # both sides. See .env.example.
+      NEO4J_AUTH: "neo4j/${ALPHASWARM_NEO4J__PASSWORD:?set ALPHASWARM_NEO4J__PASSWORD to a per-install secret, e.g. openssl rand -hex 32 (see .env.example)}"
     volumes:
       - neo4j_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p alphaswarm 'RETURN 1'"]
+      # Derives the password in-container from NEO4J_AUTH (strip through the
+      # first "/") so the credential is never written here. `$$` escapes
+      # Compose interpolation; the shell inside the container does the rest.
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_AUTH#*/}\" 'RETURN 1'"]
       interval: 10s
       timeout: 5s
       retries: 5
