@@ -9,6 +9,10 @@ Behavior contract (Phase 40 D-03, D-08, D-09, Pitfall 5):
 - Returns None (not "") when nothing to emit — callers must NOT append an
   empty "Market context:\\n" system message to prompts.
 - Decimal fields render via Decimal.__str__ (financial precision guard).
+- Headlines are third-party text: each one is passed through
+  config.sanitize_headline() before rendering (F3), so a published title can
+  never forge block structure. Headlines that sanitize to "" are dropped, and
+  the "Recent headlines:" label is only emitted when at least one survives.
 
 KNOWN LIMITATION (Phase 40, REVIEWS concern #2):
 Entities are joined to market slices by exact string equality between
@@ -27,6 +31,7 @@ once a resolver lands, no call-site in Phase 40 changes.
 """
 from __future__ import annotations
 
+from alphaswarm.config import sanitize_headline
 from alphaswarm.ingestion.types import ContextPacket
 
 
@@ -78,9 +83,19 @@ def format_market_context(
             if parts:
                 lines.append("Fundamentals: " + ", ".join(parts))
         if n is not None and n.headlines:
-            lines.append("Recent headlines:")
-            for headline in n.headlines[:5]:  # D-09
-                lines.append(f"  - {headline}")
+            # F3: headlines are third-party text. sanitize_headline() is
+            # already applied at ingestion (rss_provider); re-applying here is
+            # idempotent and covers any NewsProvider that skips it, so this
+            # template can never emit a headline that forges "== ENTITY =="
+            # headers, extra "  - " bullets, or the worker's data fence.
+            headline_lines = [
+                f"  - {clean}"
+                for clean in (sanitize_headline(h) for h in n.headlines[:5])  # D-09
+                if clean
+            ]
+            if headline_lines:
+                lines.append("Recent headlines:")
+                lines.extend(headline_lines)
 
         # D-08 guard: block must have more than just the header
         if len(lines) <= 1:

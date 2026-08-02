@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import unicodedata
 from decimal import Decimal
 from enum import StrEnum
@@ -371,6 +372,57 @@ def sanitize_entity_name(name: str) -> str:
         c for c in truncated
         if unicodedata.category(c) not in ("Cc", "Cf")
     )
+
+
+# ---------------------------------------------------------------------------
+# Third-party headline sanitization (F3 — indirect prompt injection)
+# ---------------------------------------------------------------------------
+
+HEADLINE_MAX_LEN = 200
+
+_EQUALS_RUN_RE = re.compile(r"={2,}")
+_LEADING_MARKER_RE = re.compile(r"^(?:[-*•#=]+\s+)+")
+
+
+def sanitize_headline(headline: str, *, max_len: int = HEADLINE_MAX_LEN) -> str:
+    """Neutralize a third-party news headline for safe prompt interpolation.
+
+    Headlines are fetched from remote RSS/Atom feeds (Google News, Yahoo
+    Finance), i.e. authored by anyone who can get a title published, and are
+    rendered into the market-context block every agent sees. A title must
+    therefore never be able to forge prompt structure or smuggle instructions.
+
+    Applies the same Cc/Cf stripping rule as sanitize_entity_name(), plus the
+    extra guarantees the market-context template needs:
+
+    - Cc, Cf, Zl and Zp characters (CR, LF, TAB, U+2028, U+2029, zero-width
+      and bidi format characters) become a single space, so one headline can
+      never span more than one rendered line. They become spaces rather than
+      being dropped so that "foo\\nbar" reads "foo bar", not "foobar".
+    - '<' and '>' become spaces, so a headline cannot close or reopen the
+      untrusted-data fence that worker.py wraps the block in.
+    - Runs of '=' collapse to a single '=', so a headline cannot forge an
+      "== ENTITY ==" block header.
+    - Leading bullet/heading markers are dropped, so a headline cannot pose
+      as an additional "  - " list item or a markdown heading.
+    - Whitespace runs collapse to one space; the result is hard-capped at
+      max_len characters with a trailing ellipsis marking truncation.
+
+    Idempotent: sanitizing an already-sanitized headline returns it unchanged.
+    Returns "" when nothing survives — callers must skip empty results.
+    """
+    cleaned = "".join(
+        " "
+        if (c in "<>" or unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp"))
+        else c
+        for c in headline
+    )
+    cleaned = " ".join(cleaned.split())  # collapse whitespace runs, strip ends
+    cleaned = _EQUALS_RUN_RE.sub("=", cleaned)
+    cleaned = _LEADING_MARKER_RE.sub("", cleaned).strip()
+    if len(cleaned) > max_len:
+        cleaned = cleaned[: max_len - 1].rstrip() + "…"
+    return cleaned
 
 
 _MODIFIER_CHAR_LIMIT = 150

@@ -32,6 +32,14 @@ and the simulation assembly (Phase 40) would block. Pass
 timeout=_REQUEST_TIMEOUT_S to the constructor; keep per-request timeout=
 as defense-in-depth.
 
+F3 (MEDIUM — indirect prompt injection): feed <title> text is authored by
+whoever gets a headline published, and it ends up verbatim in the prompt of
+all 100 agents. Every title is normalized through config.sanitize_headline()
+at ingestion (control/format characters, fence and block-delimiter forging,
+per-headline length); titles that sanitize to nothing are dropped. The
+prompt-side half of the mitigation lives in context_formatter.py (rendering)
+and worker.py (untrusted-data fence + user role).
+
 T-38-01 (HIGH — URL injection): entity strings come from the seed rumor
 (untrusted input). Mitigations:
   - Ticker path: regex ^[A-Z]{1,5}$ guarantees only ticker-safe chars reach
@@ -65,6 +73,7 @@ from urllib.parse import quote_plus
 import feedparser  # type: ignore[import-untyped]
 import httpx
 
+from alphaswarm.config import sanitize_headline
 from alphaswarm.ingestion.providers import _fetch_failed_news_slice
 from alphaswarm.ingestion.types import NewsSlice
 
@@ -137,7 +146,13 @@ async def _fetch_one(
             age = _entry_age_hours(entry)
             if age is not None and age > max_age_hours:
                 continue
-            headlines.append(title)
+            # F3: the entity filter above matches on the RAW title (unchanged
+            # matching semantics); only the stored text is sanitized. A title
+            # that sanitizes to nothing carried no readable content.
+            clean_title = sanitize_headline(title)
+            if not clean_title:
+                continue
+            headlines.append(clean_title)
         # Research Open Question 2: 0 entries from Yahoo with HTTP 200 is fresh,
         # not fetch_failed. We distinguish "nothing to report" from "could not fetch".
         return NewsSlice(

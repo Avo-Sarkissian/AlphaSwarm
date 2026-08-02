@@ -599,10 +599,11 @@ async def run_round1(
         pre_injected: Optional (cycle_id, parsed_result) when seed injection
             was already performed by the caller (e.g., run_simulation for Phase 13
             modifier generation). Skips inject_seed when provided.
-        market_context: Optional grounded market data block injected as a system
-            message in Round 1 agent prompts per Phase 40 D-04, D-06. Forwarded
-            to dispatch_wave. When None, behavior is identical to pre-Phase-40
-            (rumor-only prompts).
+        market_context: Optional grounded market data block injected into Round 1
+            agent prompts per Phase 40 D-04, D-06. Forwarded to dispatch_wave.
+            F3: it is third-party text, so AgentWorker.infer fences it inside the
+            user message rather than trusting it as a system message. When None,
+            behavior is identical to pre-Phase-40 (rumor-only prompts).
         worker_provider: Optional pre-configured InferenceProvider for worker
             inference. When supplied, provider.prepare()/teardown() replace
             model_manager.load_model/unload_model and the provider is forwarded
