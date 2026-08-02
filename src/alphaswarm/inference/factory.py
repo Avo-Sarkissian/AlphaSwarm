@@ -109,8 +109,14 @@ def _build_single_provider(
     ollama_client: Any,
     ollama_model_manager: Any,
     meter: BudgetMeter,
+    max_retries: int = 3,
 ) -> InferenceProvider:
-    """Construct a single provider and optionally wrap it in a BudgetTrackingProvider."""
+    """Construct a single provider and optionally wrap it in a BudgetTrackingProvider.
+
+    ``max_retries`` is forwarded to the OpenAI-compatible adapter so callers can
+    raise the 429/5xx retry budget for rate-limited free tiers (defaults to 3,
+    preserving prior behavior; the Anthropic path is unaffected).
+    """
     if provider_type == ProviderType.OLLAMA:
         return OllamaProvider(role, model, ollama_client, ollama_model_manager)
 
@@ -128,7 +134,9 @@ def _build_single_provider(
             role, model, api_key=api_key, max_tokens_default=max_tokens_default,  # type: ignore[arg-type]
         )
     elif provider_type == ProviderType.OPENAI_COMPATIBLE:
-        inner = OpenAICompatProvider(role, model, base_url=base_url, api_key=api_key)  # type: ignore[arg-type]
+        inner = OpenAICompatProvider(
+            role, model, base_url=base_url, api_key=api_key, max_retries=max_retries,  # type: ignore[arg-type]
+        )
     else:
         raise ValueError(f"Unsupported provider type: {provider_type!r}")
 
@@ -182,6 +190,11 @@ def build_providers(
     merged_pricing = {**DEFAULT_PRICING, **cfg.pricing_overrides}
     meter = BudgetMeter(cfg.spend_cap_usd, merged_pricing)
 
+    # Resolve per-role retry budget from the provider's limits (falls back to the
+    # ProviderLimits default of 3 when no limits are configured for that backend).
+    orch_retries = cfg.limits.get(cfg.orchestrator.provider, ProviderLimits()).max_retries
+    worker_retries = cfg.limits.get(cfg.worker.provider, ProviderLimits()).max_retries
+
     orchestrator = _build_single_provider(
         ProviderRole.ORCHESTRATOR,
         cfg.orchestrator.provider,
@@ -191,6 +204,7 @@ def build_providers(
         ollama_client=ollama_client,
         ollama_model_manager=ollama_model_manager,
         meter=meter,
+        max_retries=orch_retries,
     )
 
     worker = _build_single_provider(
@@ -202,6 +216,7 @@ def build_providers(
         ollama_client=ollama_client,
         ollama_model_manager=ollama_model_manager,
         meter=meter,
+        max_retries=worker_retries,
     )
 
     return BuiltProviders(orchestrator=orchestrator, worker=worker, budget_meter=meter)

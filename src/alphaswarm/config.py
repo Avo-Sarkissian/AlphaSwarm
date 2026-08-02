@@ -136,6 +136,13 @@ class ProviderLimits(BaseModel):
     requests_per_min: int | None = None
     tokens_per_min: int | None = None
     max_in_flight: int = 24  # concurrency cap for the cloud path
+    # HTTP retry budget for 429/5xx on the OpenAI-compatible cloud path. The
+    # constructor default is 3; free tiers (e.g. NVIDIA NIM) return 429 with no
+    # Retry-After and a bursty leaky-bucket refill, so a higher value lets a
+    # serialized worker ride out rate-limit windows instead of dropping the
+    # agent. Empirically, max_in_flight=1 + requests_per_min=40 + max_retries=8
+    # cut worker failures from ~15% to ~2% on the NVIDIA free tier.
+    max_retries: int = Field(default=3, ge=0)
 
 
 class ModelPrice(BaseModel):

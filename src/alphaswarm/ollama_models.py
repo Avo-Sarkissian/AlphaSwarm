@@ -145,8 +145,23 @@ class OllamaModelManager:
         Only unloads models whose tags are in self._configured_aliases.
         Does NOT unload unrelated models loaded by other Ollama users.
         Addresses review concern: ensure_clean_state was too broad.
+
+        Best-effort on the ``ps()` probe: in a pure-cloud run (both roles on a
+        cloud provider) the Ollama daemon may not be running at all. This method
+        is called unconditionally at simulation start, so a hard failure here
+        would abort an otherwise all-cloud run before any cloud call is made.
+        If the daemon is unreachable there is nothing local to clean, so we log
+        and return rather than propagate the connection error.
         """
-        ps_response = await self._client.raw_client.ps()
+        try:
+            ps_response = await self._client.raw_client.ps()
+        except Exception as exc:  # noqa: BLE001 — best-effort; cloud runs may have no Ollama
+            logger.warning(
+                "ensure_clean_state_skipped",
+                reason="ollama_ps_unavailable",
+                error=str(exc),
+            )
+            return
         bare_aliases = {a.removesuffix(":latest") for a in self._configured_aliases}
         for m in ps_response.models:
             if m.model.removesuffix(":latest") in bare_aliases:

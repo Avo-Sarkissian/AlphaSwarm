@@ -23,6 +23,8 @@ from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
+    from alphaswarm.inference.concurrency import ConcurrencyController
+    from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.simulation import (
         BracketSummary,
         Round1Result,
@@ -478,18 +480,33 @@ async def _run_pipeline(
     app: AppState,
     personas: list[AgentPersona],
     brackets: list[BracketConfig],
+    *,
+    orchestrator_provider: InferenceProvider | None = None,
+    worker_provider: InferenceProvider | None = None,
+    controller: ConcurrencyController | None = None,
 ) -> None:
     """Async pipeline: schema -> full 3-round simulation -> final summary.
 
     Per D-17: _run_pipeline calls run_simulation() instead of run_round1().
     Per D-14: reports print DURING simulation via on_round_complete callback.
     Addresses Gemini/Codex review: truly progressive output, not buffered.
+
+    Inference backend: when ``orchestrator_provider``/``worker_provider`` and
+    ``controller`` are injected (by ``_handle_run`` from the .secrets/inference.json
+    config), cloud backends (e.g. NVIDIA NIM) are honored — mirroring the web
+    simulation_manager. When omitted (the default / unit-test path), it falls
+    back to the local Ollama governor and lets ``run_simulation`` build Ollama
+    providers internally, preserving prior behavior exactly.
     """
+    import contextlib
+
     from alphaswarm.simulation import run_simulation
 
     assert app.graph_manager is not None
     assert app.ollama_client is not None
     assert app.model_manager is not None
+
+    governor: ConcurrencyController = controller if controller is not None else app.governor
 
     try:
         await app.graph_manager.ensure_schema()
@@ -510,19 +527,27 @@ async def _run_pipeline(
             ollama_client=app.ollama_client,
             model_manager=app.model_manager,
             graph_manager=app.graph_manager,
-            governor=app.governor,
+            governor=governor,
             personas=personas,
             brackets=brackets,
             on_round_complete=handler,
             state_store=app.state_store,
             market_provider=market_provider,
             news_provider=news_provider,
+            orchestrator_provider=orchestrator_provider,
+            worker_provider=worker_provider,
         )
 
         # Final summary (only this prints AFTER run_simulation returns)
         _print_simulation_summary(result, personas, brackets)
 
     finally:
+        # Close injected cloud providers (httpx/anthropic clients). OllamaProvider
+        # and the None default treat aclose as a no-op / are skipped.
+        for _provider in (orchestrator_provider, worker_provider):
+            if _provider is not None:
+                with contextlib.suppress(Exception):
+                    await _provider.aclose()
         await app.graph_manager.close()
 
 
@@ -540,6 +565,8 @@ def _handle_run(rumor: str) -> None:
     BEFORE asyncio.run() starts the loop.
     """
     from alphaswarm.app import create_app_state
+    from alphaswarm.config import load_inference_config
+    from alphaswarm.inference.factory import build_controller, build_providers, inference_mode
 
     settings = AppSettings()
     brackets = load_bracket_configs()
@@ -550,8 +577,30 @@ def _handle_run(rumor: str) -> None:
     assert app.model_manager is not None
     assert app.graph_manager is not None
 
+    # Honor .secrets/inference.json so `run` uses the configured backend —
+    # local Ollama by default, or a cloud provider (e.g. NVIDIA NIM) when set.
+    # Without this, `run` silently ignored the cloud config and fell back to
+    # local Ollama aliases. Mirrors the web simulation_manager and the
+    # inject/report subcommands.
+    cfg = load_inference_config(settings)
+    built = build_providers(
+        cfg, ollama_client=app.ollama_client, ollama_model_manager=app.model_manager,
+    )
+    controller = build_controller(cfg, settings.governor, state_store=app.state_store)
+    print(
+        f"Inference mode: {inference_mode(cfg)} "
+        f"(orchestrator={cfg.orchestrator.model}, worker={cfg.worker.model})"
+    )
+
     # NOW start the event loop with the async pipeline
-    asyncio.run(_run_pipeline(rumor, settings, app, personas, brackets))
+    asyncio.run(
+        _run_pipeline(
+            rumor, settings, app, personas, brackets,
+            orchestrator_provider=built.orchestrator,
+            worker_provider=built.worker,
+            controller=controller,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
