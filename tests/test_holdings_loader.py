@@ -4,6 +4,11 @@ Hermetic: every test writes its own CSV fixture under tmp_path. No dependency
 on Schwab/holdings.csv — these tests pass in any environment including CI
 containers that do not ship the real data file.
 
+Fixture data is fictional (C-TEST-20): only the reserved tickers ZZZT, QQQX,
+XQZW, ZQXY and QZZX with made-up quantities and cost basis. Never paste real
+positions here; tests/invariants/test_fictional_fixtures.py enforces the
+ticker half of that rule (docs/DECISIONS.md#adr-holdings-isolation).
+
 pytest-asyncio asyncio_mode='auto' is configured project-wide, but this module
 contains no async tests (the loader is sync-only inside lifespan). pytest-socket
 --disable-socket is global — these tests touch no network.
@@ -52,8 +57,8 @@ def test_load_returns_portfolio_snapshot(tmp_path: Path) -> None:
     path = _schwab_like_csv(
         tmp_path,
         [
-            "individual,AAPL,10,100",
-            "roth_ira,MSFT,5,200",
+            "individual,ZZZT,12.3456,45.67",
+            "roth_ira,QQQX,3.5,210.25",
         ],
     )
     snap = HoldingsLoader.load(path)
@@ -70,26 +75,26 @@ def test_load_returns_portfolio_snapshot(tmp_path: Path) -> None:
 
 def test_cost_basis_is_total(tmp_path: Path) -> None:
     """D-02 — cost_basis = Decimal(shares) * Decimal(cost_basis_per_share). Total, not per-share."""
-    path = _schwab_like_csv(tmp_path, ["individual,AAPL,10.5,100"])
+    path = _schwab_like_csv(tmp_path, ["individual,ZZZT,12.5,80"])
     snap = HoldingsLoader.load(path)
     h = snap.holdings[0]
-    assert h.ticker == "AAPL"
-    assert h.qty == Decimal("10.5")
+    assert h.ticker == "ZZZT"
+    assert h.qty == Decimal("12.5")
     # Total cost, not per-share.
-    assert h.cost_basis == Decimal("10.5") * Decimal("100")
-    assert h.cost_basis == Decimal("1050.0")
+    assert h.cost_basis == Decimal("12.5") * Decimal("80")
+    assert h.cost_basis == Decimal("1000.0")
     # Negative assertions: it is NOT the per-share value, and it is NOT the bare shares value.
-    assert h.cost_basis != Decimal("100")
-    assert h.cost_basis != Decimal("10.5")
+    assert h.cost_basis != Decimal("80")
+    assert h.cost_basis != Decimal("12.5")
 
 
 def test_fractional_shares_preserve_decimal_precision(tmp_path: Path) -> None:
     """Research Pitfall 1 — Decimal(string), never Decimal(float)."""
-    path = _schwab_like_csv(tmp_path, ["individual,AAPL,101.3071,165.5365"])
+    path = _schwab_like_csv(tmp_path, ["individual,ZZZT,12.3456,1234.56"])
     snap = HoldingsLoader.load(path)
-    assert snap.holdings[0].qty == Decimal("101.3071")
+    assert snap.holdings[0].qty == Decimal("12.3456")
     # If the loader had used float(row["shares"]) first, this string equality would fail.
-    assert str(snap.holdings[0].qty) == "101.3071"
+    assert str(snap.holdings[0].qty) == "12.3456"
 
 
 def test_row_order_preserved(tmp_path: Path) -> None:
@@ -97,19 +102,19 @@ def test_row_order_preserved(tmp_path: Path) -> None:
     path = _schwab_like_csv(
         tmp_path,
         [
-            "individual,AAPL,10,1",
-            "individual,MSFT,10,1",
-            "roth_ira,QQQ,10,1",
-            "roth_ira,CRDO,10,1",
+            "individual,ZZZT,2,3",
+            "individual,QQQX,2,3",
+            "roth_ira,XQZW,2,3",
+            "roth_ira,ZQXY,2,3",
         ],
     )
     snap = HoldingsLoader.load(path)
-    assert [h.ticker for h in snap.holdings] == ["AAPL", "MSFT", "QQQ", "CRDO"]
+    assert [h.ticker for h in snap.holdings] == ["ZZZT", "QQQX", "XQZW", "ZQXY"]
 
 
 def test_holdings_tuple_is_immutable(tmp_path: Path) -> None:
     """PortfolioSnapshot.holdings MUST be a tuple — the loader converts list -> tuple."""
-    path = _schwab_like_csv(tmp_path, ["individual,AAPL,1,1"])
+    path = _schwab_like_csv(tmp_path, ["individual,ZZZT,2,3"])
     snap = HoldingsLoader.load(path)
     assert isinstance(snap.holdings, tuple)
     assert not hasattr(snap.holdings, "append")
@@ -117,7 +122,7 @@ def test_holdings_tuple_is_immutable(tmp_path: Path) -> None:
 
 def test_as_of_is_tz_aware_utc(tmp_path: Path) -> None:
     """Pitfall 6 — datetime.fromtimestamp(mtime, tz=UTC) produces tz-aware UTC."""
-    path = _schwab_like_csv(tmp_path, ["individual,AAPL,1,1"])
+    path = _schwab_like_csv(tmp_path, ["individual,ZZZT,2,3"])
     snap = HoldingsLoader.load(path)
     assert snap.as_of.tzinfo is UTC
 
@@ -126,18 +131,18 @@ def test_as_of_is_tz_aware_utc(tmp_path: Path) -> None:
 
 
 def test_all_rows_included(tmp_path: Path) -> None:
-    """D-04 — SWYXX money-market passes through, no filtering."""
+    """D-04 — a money-market row (QZZX here) passes through, no filtering."""
     path = _schwab_like_csv(
         tmp_path,
         [
-            "individual,AAPL,100,100",
-            "individual,SWYXX,10000,1",  # money-market — D-04 says include
-            "roth_ira,QQQ,6.0283,422.8024",
+            "individual,ZZZT,20,30",
+            "individual,QZZX,5000,1",  # money-market style row — D-04 says include
+            "roth_ira,QQQX,4.0283,321.1234",
         ],
     )
     snap = HoldingsLoader.load(path)
     tickers = [h.ticker for h in snap.holdings]
-    assert "SWYXX" in tickers
+    assert "QZZX" in tickers
     assert len(snap.holdings) == 3
 
 
@@ -146,9 +151,9 @@ def test_multi_account_merged_into_single_snapshot(tmp_path: Path) -> None:
     path = _schwab_like_csv(
         tmp_path,
         [
-            "individual,AAPL,100,100",
-            "individual,MSFT,50,200",
-            "roth_ira,QQQ,6,422",
+            "individual,ZZZT,20,30",
+            "individual,QQQX,15,40",
+            "roth_ira,XQZW,8,55",
         ],
     )
     snap = HoldingsLoader.load(path)
@@ -162,7 +167,7 @@ def test_same_ticker_multiple_accounts(tmp_path: Path) -> None:
     """Cross-AI review LOW (Gemini + Codex) — same-ticker-multi-account contract.
 
     D-03 says "multi-account rows collapse into one snapshot" but does NOT
-    specify what happens when AAPL appears in BOTH `individual` and `roth_ira`.
+    specify what happens when ZZZT appears in BOTH `individual` and `roth_ira`.
     This test locks the contract: TWO separate Holding entries — no summing,
     no weighted averaging, no per-ticker dedup. Rows are appended 1:1 from
     the CSV. Rationale: IRA vs taxable are tax-distinct lots; per-row
@@ -171,9 +176,9 @@ def test_same_ticker_multiple_accounts(tmp_path: Path) -> None:
     path = _schwab_like_csv(
         tmp_path,
         [
-            # AAPL in BOTH accounts with different share counts + costs
-            "individual,AAPL,100,150",  # 100 shares @ $150 = $15,000 cost basis
-            "roth_ira,AAPL,50,200",  # 50 shares @ $200 = $10,000 cost basis
+            # ZZZT in BOTH accounts with different share counts + costs
+            "individual,ZZZT,30,45",  # 30 shares @ $45 = $1,350 cost basis
+            "roth_ira,ZZZT,12,60",  # 12 shares @ $60 = $720 cost basis
         ],
     )
     snap = HoldingsLoader.load(path)
@@ -184,21 +189,21 @@ def test_same_ticker_multiple_accounts(tmp_path: Path) -> None:
         "summing would conflate tax-distinct lots"
     )
 
-    # Both entries are AAPL
+    # Both entries are ZZZT
     tickers = [h.ticker for h in snap.holdings]
-    assert tickers == ["AAPL", "AAPL"]
+    assert tickers == ["ZZZT", "ZZZT"]
 
-    # The per-account quantities are DIFFERENT — proves no summing (100+50=150)
+    # The per-account quantities are DIFFERENT — proves no summing (30+12=42)
     qtys = sorted([h.qty for h in snap.holdings])
-    assert qtys == [Decimal("50"), Decimal("100")]
-    assert Decimal("150") not in qtys  # would be the summed value
+    assert qtys == [Decimal("12"), Decimal("30")]
+    assert Decimal("42") not in qtys  # would be the summed value
 
     # Cost basis per entry matches its own row's qty * cost_per_share
     # (no weighted average was computed)
     cost_bases = sorted([h.cost_basis for h in snap.holdings if h.cost_basis is not None])
     assert cost_bases == [
-        Decimal("50") * Decimal("200"),  # $10,000 — roth_ira row
-        Decimal("100") * Decimal("150"),  # $15,000 — individual row
+        Decimal("12") * Decimal("60"),  # $720 — roth_ira row
+        Decimal("30") * Decimal("45"),  # $1,350 — individual row
     ]
 
     # Account hash still reflects BOTH accounts (sorted, joined with '|')
@@ -213,8 +218,8 @@ def test_account_hash(tmp_path: Path) -> None:
     path = _schwab_like_csv(
         tmp_path,
         [
-            "individual,AAPL,100,100",
-            "roth_ira,QQQ,6,422",
+            "individual,ZZZT,20,30",
+            "roth_ira,QQQX,15,40",
         ],
     )
     snap = HoldingsLoader.load(path)
@@ -228,9 +233,9 @@ def test_account_hash_is_sort_order_stable(tmp_path: Path) -> None:
         tmp_path,
         [
             # roth_ira FIRST — the loader must still sort before joining.
-            "roth_ira,QQQ,6,422",
-            "roth_ira,CRDO,31,111",
-            "individual,AAPL,100,100",
+            "roth_ira,QQQX,15,40",
+            "roth_ira,XQZW,8,55",
+            "individual,ZZZT,20,30",
         ],
     )
     snap = HoldingsLoader.load(path)
@@ -242,8 +247,8 @@ def test_account_label_not_in_hash_output(tmp_path: Path) -> None:
     path = _schwab_like_csv(
         tmp_path,
         [
-            "individual,AAPL,100,100",
-            "roth_ira,QQQ,6,422",
+            "individual,ZZZT,20,30",
+            "roth_ira,QQQX,15,40",
         ],
     )
     snap = HoldingsLoader.load(path)
@@ -253,7 +258,7 @@ def test_account_label_not_in_hash_output(tmp_path: Path) -> None:
 
 def test_single_account_hash(tmp_path: Path) -> None:
     """Single-account CSV — hash is sha256_first8('individual') (sorted of one-element set)."""
-    path = _schwab_like_csv(tmp_path, ["individual,AAPL,100,100"])
+    path = _schwab_like_csv(tmp_path, ["individual,ZZZT,20,30"])
     snap = HoldingsLoader.load(path)
     assert snap.account_number_hash == sha256_first8("individual")
 
@@ -273,7 +278,7 @@ def test_load_malformed_csv_missing_column(tmp_path: Path) -> None:
     path = _write_csv(
         tmp_path / "holdings.csv",
         "account,symbol,shares",  # missing cost_basis_per_share
-        ["individual,AAPL,10"],
+        ["individual,ZZZT,2"],
     )
     with pytest.raises(HoldingsLoadError) as excinfo:
         HoldingsLoader.load(path)
@@ -283,7 +288,7 @@ def test_load_malformed_csv_missing_column(tmp_path: Path) -> None:
 
 def test_load_malformed_csv_invalid_numeric(tmp_path: Path) -> None:
     """Non-numeric cell → HoldingsLoadError chained from InvalidOperation."""
-    path = _schwab_like_csv(tmp_path, ["individual,AAPL,notanumber,100"])
+    path = _schwab_like_csv(tmp_path, ["individual,ZZZT,notanumber,30"])
     with pytest.raises(HoldingsLoadError) as excinfo:
         HoldingsLoader.load(path)
     assert "invalid numeric" in str(excinfo.value).lower()
@@ -331,20 +336,20 @@ def test_load_bom_prefixed_csv(tmp_path: Path) -> None:
     # Write BOM (3 bytes: 0xEF 0xBB 0xBF) followed by the CSV body as UTF-8
     csv_body = (
         "account,symbol,shares,cost_basis_per_share\n"
-        "individual,AAPL,10,100\n"
-        "roth_ira,MSFT,5,200\n"
+        "individual,ZZZT,2,3\n"
+        "roth_ira,QQQX,5,7\n"
     )
     path.write_bytes(b"\xef\xbb\xbf" + csv_body.encode("utf-8"))
 
     # Without encoding='utf-8-sig' this would raise HoldingsLoadError
     # ('missing columns: [account]') because reader.fieldnames[0] would be
-    # '\ufeffaccount'. With utf-8-sig it parses cleanly.
+    # '﻿account'. With utf-8-sig it parses cleanly.
     snap = HoldingsLoader.load(path)
     assert isinstance(snap, PortfolioSnapshot)
     assert len(snap.holdings) == 2
-    assert snap.holdings[0].ticker == "AAPL"
-    assert snap.holdings[0].qty == Decimal("10")
-    assert snap.holdings[1].ticker == "MSFT"
+    assert snap.holdings[0].ticker == "ZZZT"
+    assert snap.holdings[0].qty == Decimal("2")
+    assert snap.holdings[1].ticker == "QQQX"
     # Account hash still works because the account column was parsed correctly
     assert snap.account_number_hash == sha256_first8("individual|roth_ira")
 

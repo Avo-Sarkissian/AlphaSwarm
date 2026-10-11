@@ -9,6 +9,10 @@ directly seeds app.state.portfolio_snapshot. HoldingsLoader is NEVER invoked and
 Schwab/holdings.csv is NEVER read. This isolates the test surface to the route
 module + pydantic serialization.
 
+Fixture data is fictional (C-TEST-20): only the reserved tickers ZZZT, QQQX,
+XQZW, ZQXY and QZZX with made-up quantities and cost basis
+(docs/DECISIONS.md#adr-holdings-isolation).
+
 Covers:
 - 200 happy path + response structure (D-06)
 - 503 when snapshot is None (D-08), with generic body (T-39-06: no filesystem
@@ -33,7 +37,6 @@ from fastapi.testclient import TestClient
 
 from alphaswarm.holdings import Holding, PortfolioSnapshot
 from alphaswarm.web.routes.holdings import router as holdings_router
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -70,11 +73,11 @@ def _sample_snapshot(
         holdings=holdings
         or (
             Holding(
-                ticker="AAPL",
-                qty=Decimal("101.3071"),
-                cost_basis=Decimal("101.3071") * Decimal("165.5365"),
+                ticker="ZZZT",
+                qty=Decimal("12.3456"),
+                cost_basis=Decimal("12.3456") * Decimal("1234.56"),
             ),
-            Holding(ticker="SWYXX", qty=Decimal("10000"), cost_basis=None),
+            Holding(ticker="QZZX", qty=Decimal("5000"), cost_basis=None),
         ),
         as_of=as_of or datetime(2026, 4, 18, 12, 34, 56, tzinfo=UTC),
         account_number_hash=account_number_hash,
@@ -110,9 +113,9 @@ def test_get_holdings_preserves_row_order() -> None:
     """Holdings tuple order is preserved across pydantic serialization."""
     snapshot = _sample_snapshot(
         holdings=(
-            Holding(ticker="QQQ", qty=Decimal("6"), cost_basis=Decimal("422")),
-            Holding(ticker="CRDO", qty=Decimal("31"), cost_basis=Decimal("111")),
-            Holding(ticker="MRVL", qty=Decimal("48"), cost_basis=Decimal("79")),
+            Holding(ticker="QQQX", qty=Decimal("15"), cost_basis=Decimal("600")),
+            Holding(ticker="XQZW", qty=Decimal("8"), cost_basis=Decimal("440")),
+            Holding(ticker="ZQXY", qty=Decimal("9"), cost_basis=Decimal("585")),
         ),
     )
     app = _make_holdings_test_app(snapshot)
@@ -120,7 +123,7 @@ def test_get_holdings_preserves_row_order() -> None:
         r = client.get("/api/holdings")
         assert r.status_code == 200
         tickers = [h["ticker"] for h in r.json()["holdings"]]
-        assert tickers == ["QQQ", "CRDO", "MRVL"]
+        assert tickers == ["QQQX", "XQZW", "ZQXY"]
 
 
 def test_get_holdings_account_hash_round_trip() -> None:
@@ -143,8 +146,8 @@ def test_get_holdings_qty_is_string_not_float() -> None:
     snapshot = _sample_snapshot(
         holdings=(
             Holding(
-                ticker="AAPL",
-                qty=Decimal("101.3071"),
+                ticker="ZZZT",
+                qty=Decimal("12.3456"),
                 cost_basis=Decimal("1000.00"),
             ),
         ),
@@ -153,19 +156,19 @@ def test_get_holdings_qty_is_string_not_float() -> None:
     with TestClient(app) as client:
         r = client.get("/api/holdings")
         assert r.status_code == 200
-        assert r.json()["holdings"][0]["qty"] == "101.3071"
+        assert r.json()["holdings"][0]["qty"] == "12.3456"
         # Not a float (JSON numbers serialize without trailing zeros; strings keep them)
         assert not isinstance(r.json()["holdings"][0]["qty"], float)
 
 
 def test_get_holdings_cost_basis_is_string_not_float() -> None:
     """Pitfall 1 — cost_basis is str(Decimal), preserves computed product exactly."""
-    expected_cost = Decimal("101.3071") * Decimal("165.5365")
+    expected_cost = Decimal("12.3456") * Decimal("1234.56")
     snapshot = _sample_snapshot(
         holdings=(
             Holding(
-                ticker="AAPL",
-                qty=Decimal("101.3071"),
+                ticker="ZZZT",
+                qty=Decimal("12.3456"),
                 cost_basis=expected_cost,
             ),
         ),
@@ -185,7 +188,7 @@ def test_get_holdings_cost_basis_null_when_none() -> None:
     """Holding.cost_basis=None → JSON null (not the string 'None')."""
     snapshot = _sample_snapshot(
         holdings=(
-            Holding(ticker="SWYXX", qty=Decimal("10000"), cost_basis=None),
+            Holding(ticker="QZZX", qty=Decimal("5000"), cost_basis=None),
         ),
     )
     app = _make_holdings_test_app(snapshot)
