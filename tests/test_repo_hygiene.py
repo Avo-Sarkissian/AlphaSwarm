@@ -216,3 +216,22 @@ def test_pytest_skips_icloud_duplicate_test_files() -> None:
 )
 def test_duplicate_glob_matches_only_icloud_copies(path: str, ignored: bool) -> None:
     assert fnmatch.fnmatch(path, DUPLICATE_GLOB) is ignored
+
+
+# --------- Porter leftovers (T12.10 steps 5-6) ---------
+
+
+def test_porter_leftovers_are_archived() -> None:
+    assert not (ROOT / "PROJECT_SPEC.md").exists()
+    assert (ROOT / "docs" / "history" / "original-spec.md").is_file()
+    assert not (ROOT / "docs" / "superpowers").exists()
+    design = _read("docs/design/inference-providers.md")
+    assert ".secrets/inference.toml" not in design
+    assert ".secrets/inference.json" in design
+
+
+def test_current_docs_do_not_point_at_moved_files() -> None:
+    current = ("README.md", "CLAUDE.md", "docs/ARCHITECTURE.md", "docs/DECISIONS.md",
+               "docs/RUNBOOK.md", "docs/HISTORY.md")
+    assert [rel for rel in current if "docs/superpowers/" in _read(rel)] == []
+    assert [rel for rel in current[:-1] if "PROJECT_SPEC.md" in _read(rel)] == []

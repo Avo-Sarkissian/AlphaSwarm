@@ -6,7 +6,7 @@ roadmap. For the reasoning behind each choice, see [DECISIONS.md](DECISIONS.md).
 
 ## Origin (2026-03)
 
-`PROJECT_SPEC.md` set the goal: an OASIS/MiroFish-style swarm in which 100 LLM
+The original spec ([docs/history/original-spec.md](history/original-spec.md), formerly `PROJECT_SPEC.md`) set the goal: an OASIS/MiroFish-style swarm in which 100 LLM
 personas react to a single "seed rumor," shown in a Textual terminal grid and on
 a Miro board. The spec named a Llama 4 orchestrator and had agents processed in
 parallel batches of 16. The hard constraint from day one was the hardware: an
