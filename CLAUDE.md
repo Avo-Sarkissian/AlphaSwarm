@@ -63,7 +63,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 - **Neo4j:** a public `async def read_*/write_*` method plus a `@staticmethod async def _<verb>_tx(tx, ...)`. Batch writes use `UNWIND $rows`, schema statements use `IF NOT EXISTS`, and signals are stored lowercase.
 - **LLM calls:** prompts are lists of `InferenceMessage` dicts. The worker decodes against a JSON schema; orchestrator calls use `json_mode=True` plus tiered parse fallbacks. Untrusted text (RSS headlines, peer rationales) is sanitized and fenced, and never placed in the system role.
 - **Comments:** cite `docs/DECISIONS.md#<anchor>` for design rationale. Legacy bare IDs (`D-xx`, `KR-…`, `F-xx`) are indexed there by file and line. Replace them with anchors when you next touch the comment.
-- **Tests:** `asyncio_mode=auto`; sockets are disabled globally (`@pytest.mark.enable_socket` opts in). Fakes are in `tests/inference/fakes.py`; architectural invariants are in `tests/invariants/`.
+- **Tests:** `asyncio_mode=auto`; sockets are disabled globally (`@pytest.mark.enable_socket` opts in). Fakes are in `tests/inference/fakes.py`; architectural invariants are in `tests/invariants/`. An autouse `hermetic_env` fixture clears `ALPHASWARM_*`, ignores `.env`, and points the inference config and holdings CSV at temp paths; env-clearing helpers must use `clear_alphaswarm_env`. Neo4j tests live in `tests/neo4j/` with `pytestmark = pytest.mark.neo4j`.
 - **Commits:** Conventional Commits with a scope (`fix(security): …`, `feat(inference): …`), an imperative summary, and an explanatory body.
 
 ## Gotchas
@@ -72,7 +72,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 - Ollama must run with `OLLAMA_USE_MLX=1`, or the nvfp4 models silently fall back to slow llama.cpp. When a simulation is suddenly slow, check the server env first (`docs/RUNBOOK.md` §1).
 - Orchestrator calls pass `think=False`. Output caps (`num_predict`) and `num_ctx` live in the Modelfiles, not in per-request options.
 - The web lifespan does not call `ensure_schema()` yet, so an empty database persists nothing until the CLI `run`/`inject` path has run once.
-- Tests share the single live Neo4j database. Never write an unscoped `DETACH DELETE`; cleanup must target only the test's own data (`docs/DECISIONS.md#adr-tests-scoped-cleanup`).
+- Tests never touch the dev database. Neo4j tests run against the throwaway `neo4j-test` container on 127.0.0.1:7688 (`scripts/neo4j_test.sh up`); its session fixture refuses port 7687 and non-empty databases, and its teardown is the only unscoped `DETACH DELETE` allowed (`docs/DECISIONS.md#adr-tests-scoped-cleanup`). Never run `docker compose --profile test down` without a service name: it also removes the dev container.
 - iCloud Drive creates `* 2.py` conflict copies in this folder. Delete them; don't "fix" tests they break.
 
 ## Project Docs
@@ -88,9 +88,9 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 - Plain git: branch off `master`, make small Conventional Commits, open PRs. Don't recreate a `.planning/` directory or any planning-framework scaffolding.
 - Write a short markdown plan in `docs/` only when a change is big enough to need one.
 - Before calling work done:
-  - `uv run pytest -q --ignore=tests/test_graph_integration.py --ignore=tests/test_integration_inference.py`
-    is green (run from the repo root; the two ignored modules need live services, and until the
-    isolated test database lands, the Neo4j one would write to the live database);
+  - `uv run pytest -q --ignore=tests/test_integration_inference.py` is green (run from the repo
+    root; the ignore mirrors CI; Neo4j tests skip unless neo4j-test is running);
+  - Neo4j tests: `scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j`, then `scripts/neo4j_test.sh down`;
   - `uv run lint-imports` reports the contract kept;
   - `uv run ruff check <changed files>` is clean;
   - `uv run mypy src` adds no errors over the ~33-error baseline (ruff and mypy are not yet gated in CI);

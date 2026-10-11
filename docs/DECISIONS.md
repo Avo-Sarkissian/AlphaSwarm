@@ -273,13 +273,13 @@ Contents
 - **History:** Textual TUI, then Vue 3 + D3 force graph, then a React port of the Claude Design UI, then the AlphaSwarm-2 Quant Terminal. See HISTORY.md.
 
 ### <a id="adr-test-network-gate"></a>Tests are offline by default
-- **Decision:** `pytest-socket --disable-socket --allow-unix-socket` applies globally (`pyproject.toml` addopts). `tests/integration/` auto-enables sockets ([p37-d-12](#p37-d-12)). Live-Neo4j tests skip unless `ALPHASWARM_NEO4J__PASSWORD` is exported.
+- **Decision:** `pytest-socket --disable-socket --allow-unix-socket` applies globally (`pyproject.toml` addopts). `tests/integration/` auto-enables sockets ([p37-d-12](#p37-d-12)). Tests marked `neo4j` get sockets and the session event loop from a collection hook in `tests/conftest.py`, and skip unless the throwaway `neo4j-test` database answers on 127.0.0.1:7688 (`--require-neo4j` turns the skip into a failure).
 - **Note:** Phase 41.2 D-08 planned to make integration tests opt-in through an `integration` marker. That was never done; see BACKLOG.
 
-### <a id="adr-tests-scoped-cleanup"></a>Neo4j test fixtures delete only what they created
-- **Decision:** The `graph_manager` fixture snapshots the existing cycle IDs and deletes only cycles created during the test (`tests/conftest.py:185-240`).
-- **Rationale:** Until 2026-06-10, unscoped `DETACH DELETE` ran against the live `neo4j` database after every test and destroyed all real cycle history. Community Edition has no second database.
-- **Rule:** Never add unscoped deletes. Back up with `scripts/backup_neo4j.sh` before running integration tests.
+### <a id="adr-tests-scoped-cleanup"></a>Neo4j tests run only against a throwaway database
+- **Decision (2026-10):** Neo4j tests use the `neo4j-test` Compose service (profile `test`, `127.0.0.1:7688`, tmpfs, throwaway credential), started with `scripts/neo4j_test.sh up`. The URI is hard-coded in `tests/conftest.py`, never read from the environment. The session fixture `neo4j_test_driver` exits with code 3 on port 7687 or on a database that already holds `Cycle` nodes. `graph_manager_test` deletes only the cycles created during the test (never ids in `NEO4J_PROTECTED_CYCLES`). An autouse `hermetic_env` fixture clears `ALPHASWARM_*`, ignores `.env`, and points the inference config and holdings CSV at temp paths.
+- **Rationale:** Until 2026-06-10, unscoped `DETACH DELETE` ran against the live `neo4j` database after every test and destroyed all real cycle history. Community Edition has no second database, so the isolation is a second container.
+- **Rule:** The only unscoped `DETACH DELETE` allowed anywhere is the `neo4j_test_driver` session teardown, after both guards pass. Never point a test at 7687, and never run `docker compose --profile test down` without the service name (it removes the dev container too).
 
 ### <a id="adr-security-2026-08"></a>Security hardening (Claude Security scans, 2026-08-01/02)
 - **Decision:**
@@ -343,7 +343,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p4-d-03"></a>`D-03` | cited_agents stored as explicit (Decision)-[:CITED]->(Agent) edges (raw LLM output), separate from computed INFLUENCED_BY. | active | graph.py:389 |
 | <a id="p4-d-05"></a>`D-05` | Schema applied idempotently at startup via ensure_schema() (CREATE ... IF NOT EXISTS). | active | graph.py:99 |
 | <a id="p4-d-06"></a>`D-06` | All 100 Agent nodes seeded eagerly in ensure_schema() from persona config. | active | graph.py:112 |
-| <a id="p4-d-07"></a>`D-07` | Session-per-method: each GraphStateManager method opens its own short-lived async session; callers never manage sessions. | active | graph.py:82; tests/test_graph_integration.py:292 |
+| <a id="p4-d-07"></a>`D-07` | Session-per-method: each GraphStateManager method opens its own short-lived async session; callers never manage sessions. | active | graph.py:82 |
 | <a id="p4-d-08"></a>`D-08` | Keep the GraphStateManager API minimal and batch writes via UNWIND (one transaction per round, not per agent). | active | graph.py:82,389 |
 | <a id="p4-d-09"></a>`D-09` | Pre-dynamic-topology peer ranking by static influence_weight_base (read_peer_decisions). Now only used by the dead _dispatch_round path. | superseded | graph.py:734 |
 | <a id="p4-d-10"></a>`D-10` | cycle_id is a uuid4. | active | graph.py:188 |
@@ -412,9 +412,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p11-d-04"></a>`D-04` | RationaleEpisode linked 1:1 via (Decision)-[:HAS_EPISODE]->(RationaleEpisode). | active | graph.py:803 |
 | <a id="p11-d-06"></a>`D-06` | flip_type enum stored on each episode (NONE for round 1). | active | types.py:75 |
 | <a id="p11-d-07"></a>`D-07` | Episode properties: rationale, timestamp, peer_context_received, flip_type, round, cycle_id. | active | graph.py:803 |
-| <a id="p11-d-08"></a>`D-08` | Decision-[:REFERENCES]->Entity via case-insensitive substring match; no NLP dependency. | active | graph.py:872; tests/test_graph_integration.py:425 |
+| <a id="p11-d-08"></a>`D-08` | Decision-[:REFERENCES]->Entity via case-insensitive substring match; no NLP dependency. | active | graph.py:872; tests/neo4j/test_graph_integration.py (test_references_edges_case_insensitive) |
 | <a id="p11-d-09"></a>`D-09` | REFERENCES written in the same post-round flush; entity names loaded once per cycle. | active | graph.py:872,919; simulation.py:1068 |
-| <a id="p11-d-10"></a>`D-10` | Post-simulation decision_narrative per agent written to Agent nodes (used by interviews/advisory). | active | graph.py:938; simulation.py:1441,1531,1544; tests/test_graph_integration.py:325,479 |
+| <a id="p11-d-10"></a>`D-10` | Post-simulation decision_narrative per agent written to Agent nodes (used by interviews/advisory). | active | graph.py:938; simulation.py:1441,1531,1544; tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc, test_write_decision_narratives_integration) |
 | <a id="p11-d-11"></a>`D-11` | Narratives generated eagerly as 100 worker calls after the last round. Lazy generation is an open backlog idea. | active | simulation.py:1441,1531,1544 |
 
 ### Phase 12: Richer agent interactions (posts)
@@ -797,11 +797,11 @@ implemented. MEM-01 is also cited in the superpowers spec.
 |---|---|---|
 | <a id="req-infra-03"></a>INFRA-03 | Sequential model loading (orchestrator unloads before worker loads) | ollama_models.py:3; tests/test_models.py:1 |
 | <a id="req-infra-04"></a>INFRA-04 | Async Ollama wrapper; `num_ctx` only in Modelfiles | tests/test_ollama_client.py:1 |
-| <a id="req-infra-05"></a>INFRA-05 | Cycle-scoped indexes for fast peer reads | tests/test_graph_integration.py:252 |
+| <a id="req-infra-05"></a>INFRA-05 | Cycle-scoped indexes for fast peer reads | tests/neo4j/test_graph_integration.py (test_ensure_schema_idempotent) |
 | <a id="req-infra-07"></a>INFRA-07 | TaskGroup for all batch processing; no bare create_task | batch_dispatcher.py:4,155 |
 | <a id="req-infra-08"></a>INFRA-08 | Pydantic parsing with multi-tier fallback | parsing.py:3; tests/test_parsing.py:1 |
 | <a id="req-tui-03"></a>TUI-03 / TUI-04 / TUI-05 | Rationale stream / telemetry (RAM, TPS, slots) / bracket panel. The contracts survive in StateStore after the TUI was removed | TUI-03: simulation.py:313,324; state.py:53,101. TUI-04: batch_dispatcher.py:176; simulation.py:313; state.py:101,127,216; worker.py:200,237. TUI-05: simulation.py:313,1110; state.py:101,130,229 |
-| <a id="req-graph-03"></a>GRAPH-03 | Decision→Entity REFERENCES edges | tests/test_graph_integration.py:325 |
+| <a id="req-graph-03"></a>GRAPH-03 | Decision→Entity REFERENCES edges | tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc) |
 | <a id="req-int-01"></a>INT-01 | Interview context reconstructed from Neo4j | graph.py:1160 |
 | <a id="req-report-02"></a>REPORT-02 | Cypher report tools (bracket, influence, entity, flips, posts) | graph.py:1260,1300,1339,1379,1434,1483,1529,1576 |
 | <a id="req-social-01"></a>SOCIAL-01 / SOCIAL-02 | Rationale posts as Post nodes / top-K posts in peer context (SOCIAL-02 ranking superseded, see [§2](#hist-read-post)) | SOCIAL-01: graph.py:504. SOCIAL-02: graph.py:592,678 |

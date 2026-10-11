@@ -106,15 +106,12 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
     neo4j-admin database load neo4j --from-path=/backups --overwrite-destination=true
   docker start alphaswarm-neo4j
   ```
-- **Tests share the live database.** Community Edition has one DB.
-  - `tests/test_graph_integration.py` writes to it and deletes only cycles it
-    created. The `neo4j_driver` fixture reads `ALPHASWARM_NEO4J__PASSWORD`
-    from the process environment only (`tests/conftest.py:126-180`, falling
-    back to the old literal `alphaswarm`), so with a per-install password the
-    tests skip with an auth message unless you **export** it. Neither `uv run`
-    nor the fixture reads `.env`.
-  - Back up first. Never add unscoped `DETACH DELETE` in tests: that is how all
-    cycle history before June 2026 was lost.
+- **Tests never use this database.** Neo4j tests run against the throwaway
+  `neo4j-test` container (`127.0.0.1:7688`, tmpfs, credential
+  `neo4j/alphaswarm-test-only`): `scripts/neo4j_test.sh up`, then
+  `uv run pytest -q -m neo4j --require-neo4j`, then `scripts/neo4j_test.sh down`.
+  The fixture refuses port 7687 and any database that already holds cycles; if it
+  reports leftover cycles, run `scripts/neo4j_test.sh reset`.
 - Useful Cypher in the browser (http://127.0.0.1:7474):
   ```cypher
   MATCH (c:Cycle) RETURN c.cycle_id, c.created_at, c.num_rounds, c.metrics_recorded_at ORDER BY c.created_at DESC LIMIT 10;
@@ -194,9 +191,9 @@ that names a held company exercises the advisory. Then check:
 
 **Fast checks (no services needed):**
 ```bash
-uv run pytest -q --ignore=tests/test_graph_integration.py --ignore=tests/test_integration_inference.py
-                          # the two ignored modules need live Neo4j / Ollama; the Neo4j one would
-                          # write to the live database. tests/integration hits the network (BACKLOG 1.8). iCloud
+uv run pytest -q -m "not neo4j" --ignore=tests/test_integration_inference.py
+                          # the ignore mirrors CI; Neo4j tests need neo4j-test (Neo4j section
+                          # above). tests/integration hits the network (BACKLOG 1.8). iCloud
                           # conflict copies ("app 2.py") are gitignored and skipped by
                           # the --ignore-glob in pyproject addopts (BACKLOG §8, B2)
 cd frontend && npx tsc -b --noEmit && npx vitest run && npm run build
@@ -217,7 +214,8 @@ uv run lint-imports       # holdings isolation contract: must report "kept"
 | `409 *_generation_in_progress` | The other orchestrator job (report/advisory) is running | Wait. The two jobs are serialized on purpose |
 | Graph empty during a round | Backend not streaming per-agent state, or an older backend still running | Restart the backend. Confirm `agent_states` keys in a WS frame |
 | Neo4j auth error at startup | `ALPHASWARM_NEO4J__PASSWORD` unset, or it differs from the initialized volume | README §3 "Migrating". `NEO4J_AUTH` only applies when a volume is first initialized |
-| `pytest` graph tests all skipped | Password not exported in the shell | `export ALPHASWARM_NEO4J__PASSWORD=…` |
+| `pytest` Neo4j tests all skipped | neo4j-test is not running | `scripts/neo4j_test.sh up`; add `--require-neo4j` to make a missing database fail instead of skip |
+| pytest exits with code 3 ("Refusing to run Neo4j tests") | neo4j-test holds leftover cycles from a crashed session, or something else answers on 7688 | `scripts/neo4j_test.sh reset` |
 | Replay or history list empty | No metric-stamped cycles, or history wiped | `MATCH (c:Cycle) WHERE c.metrics_recorded_at IS NOT NULL RETURN count(c)`. Restore from `data/backups/` |
 | Cloud run: many PARSE_ERRORs or 429s | Provider rate limit | Lower `requests_per_min`, set `max_in_flight: 1`, raise `max_retries` (see §4 cloud) |
 | `GovernorCrisisError` | Sustained macOS memory pressure (5 min with no successful inference) | Close memory-heavy apps. Check that `ollama ps` shows only 2 models. Lower `ALPHASWARM_GOVERNOR__BASELINE_PARALLEL` |

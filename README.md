@@ -191,11 +191,9 @@ cp .env.example .env   # then set ALPHASWARM_NEO4J__PASSWORD=<the value you gene
 Prefer `openssl rand -hex 32`: hex keeps the value clear of `/` (the separator
 in `NEO4J_AUTH`) and `$` (special inside `.env` values).
 
-`pytest` is the exception — `uv run` does not load `.env`, so **export**
-`ALPHASWARM_NEO4J__PASSWORD` in your shell before running the Neo4j integration
-tests (`tests/test_graph_integration.py`), which otherwise skip. When the
-variable is absent, `tests/conftest.py` still falls back to the legacy
-`alphaswarm` literal, so existing installs keep working untouched.
+Tests never use this database or password: the Neo4j tests run against a
+throwaway `neo4j-test` container on `127.0.0.1:7688`
+(`scripts/neo4j_test.sh up`, then `uv run pytest -m neo4j --require-neo4j`).
 
 #### Migrating an existing Neo4j
 
