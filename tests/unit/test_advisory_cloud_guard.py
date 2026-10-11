@@ -1,0 +1,122 @@
+"""The advisory job and the auto-trigger honour the cloud-advisory guard.
+
+The route rejects the POST; these tests cover the paths behind it: the job
+re-checks the config (it can change after the POST), a refused job records
+its own error code, and the post-run auto-trigger logs a distinct skip.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Callable
+from datetime import UTC, datetime
+from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from fastapi import FastAPI, HTTPException
+
+from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig
+from alphaswarm.holdings.types import Holding, PortfolioSnapshot
+from alphaswarm.web import simulation_manager
+from alphaswarm.web.routes import advisory as advisory_route
+
+
+def _cloud_cfg(*, opt_in: bool) -> InferenceConfig:
+    role = RoleConfig(
+        provider=ProviderType.ANTHROPIC, model="claude-fictional", api_key="sk-fictional-4444"
+    )
+    return InferenceConfig(orchestrator=role, worker=role, allow_cloud_advisory=opt_in)
+
+
+def _fictional_portfolio() -> PortfolioSnapshot:
+    return PortfolioSnapshot(
+        holdings=(Holding(ticker="ZZZT", qty=Decimal("12.3456"), cost_basis=Decimal("1234.56")),),
+        as_of=datetime(2026, 10, 3, tzinfo=UTC),
+        account_number_hash="fictional",
+    )
+
+
+class _RecordingLog:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def __getattr__(self, _level: str) -> Callable[..., None]:
+        def _log(event: str, **_kw: Any) -> None:
+            self.events.append(event)
+
+        return _log
+
+
+async def test_the_job_refuses_a_cloud_orchestrator_without_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The config can change between the POST and the job: the job checks again."""
+    build_providers = MagicMock()
+    synthesize = AsyncMock()
+    monkeypatch.setattr(
+        advisory_route, "load_inference_config", lambda _s: _cloud_cfg(opt_in=False)
+    )
+    monkeypatch.setattr(advisory_route, "build_providers", build_providers)
+    monkeypatch.setattr(advisory_route, "synthesize", synthesize)
+    app_state = SimpleNamespace(
+        settings=MagicMock(),
+        graph_manager=MagicMock(),
+        ollama_client=MagicMock(),
+        model_manager=MagicMock(),
+    )
+
+    with pytest.raises(advisory_route.CloudAdvisoryDisabledError):
+        await advisory_route._run_advisory_synthesis(
+            app_state, "cycle-1", _fictional_portfolio()  # type: ignore[arg-type]
+        )
+
+    build_providers.assert_not_called()
+    synthesize.assert_not_awaited()
+
+
+async def test_a_refused_job_records_the_cloud_advisory_code() -> None:
+    async def _refused() -> None:
+        raise advisory_route.CloudAdvisoryDisabledError("cloud orchestrator, no opt-in")
+
+    task: asyncio.Task[None] = asyncio.get_running_loop().create_task(_refused())
+    await asyncio.wait({task})
+    app = FastAPI()
+
+    advisory_route._on_advisory_task_done(task, "cycle-1", app)
+
+    assert app.state.advisory_generation_error["cycle-1"]["error"] == "cloud_advisory_disabled"
+
+
+def _app_answering_409(code: str) -> FastAPI:
+    app = FastAPI()
+
+    @app.post("/api/advisory/{cycle_id}")
+    async def _refuse(cycle_id: str) -> None:
+        raise HTTPException(status_code=409, detail={"error": code, "message": "refused"})
+
+    return app
+
+
+async def test_the_auto_trigger_logs_a_cloud_skip(monkeypatch: pytest.MonkeyPatch) -> None:
+    log = _RecordingLog()
+    monkeypatch.setattr(simulation_manager, "log", log)
+
+    await simulation_manager._auto_trigger_advisory(
+        _app_answering_409("cloud_advisory_disabled"), "cycle-1"
+    )
+
+    assert log.events == ["auto_advisory_skipped_cloud"]
+
+
+async def test_other_conflicts_keep_the_generic_skip(monkeypatch: pytest.MonkeyPatch) -> None:
+    log = _RecordingLog()
+    monkeypatch.setattr(simulation_manager, "log", log)
+
+    await simulation_manager._auto_trigger_advisory(
+        _app_answering_409("advisory_generation_in_progress"), "cycle-1"
+    )
+
+    assert log.events == ["auto_advisory_trigger_skipped_conflict"]

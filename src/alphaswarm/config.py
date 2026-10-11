@@ -192,6 +192,9 @@ class InferenceConfig(BaseModel):
     limits: dict[ProviderType, ProviderLimits] = Field(default_factory=dict)
     spend_cap_usd: Decimal | None = None
     pricing_overrides: dict[str, ModelPrice] = Field(default_factory=dict)
+    # Portfolio data goes to a cloud orchestrator only with this explicit
+    # opt-in; off by default (docs/DECISIONS.md#adr-advisory-pipeline).
+    allow_cloud_advisory: bool = False
 
 
 # Path constant: .secrets/ is gitignored; the file is created on first save.
@@ -298,11 +301,13 @@ def default_inference_config(app_settings: AppSettings) -> InferenceConfig:
 
 def load_inference_config(
     app_settings: AppSettings,
-    path: Path = INFERENCE_CONFIG_PATH,
+    path: Path | None = None,
 ) -> InferenceConfig:
     """Load InferenceConfig from *path*, falling back to local defaults.
 
-    - If *path* does not exist: returns ``default_inference_config(app_settings)``.
+    *path* defaults to ``app_settings.inference_config_path``.
+
+    - If the file does not exist: returns ``default_inference_config(app_settings)``.
     - If *path* exists but contains malformed/schema-invalid JSON: raises
       ``ValueError`` with a clear message (silent downgrade to local would
       surprise users who intentionally configured a cloud key).
@@ -310,22 +315,28 @@ def load_inference_config(
     This is a plain sync function; callers that need async should offload via
     ``asyncio.to_thread`` at their discretion.
     """
-    if not path.exists():
+    target = path if path is not None else app_settings.inference_config_path
+    if not target.exists():
         return default_inference_config(app_settings)
-    raw = path.read_text(encoding="utf-8")
+    raw = target.read_text(encoding="utf-8")
     try:
         return InferenceConfig.model_validate_json(raw)
     except Exception as exc:
         raise ValueError(
-            f"Failed to parse inference config at {path}: {exc}"
+            f"Failed to parse inference config at {target}: {exc}"
         ) from exc
 
 
 def save_inference_config(
     cfg: InferenceConfig,
-    path: Path = INFERENCE_CONFIG_PATH,
+    path: Path | None = None,
+    *,
+    settings: AppSettings | None = None,
 ) -> None:
     """Persist *cfg* as pretty-printed JSON at *path*.
+
+    *path* defaults to ``settings.inference_config_path`` when *settings* is
+    given, else to INFERENCE_CONFIG_PATH.
 
     Creates intermediate directories if they do not exist.
 
@@ -341,6 +352,8 @@ def save_inference_config(
     os.replace carries the temp file's mode onto the destination, so a config
     file previously written as 0644 is repaired on the next save.
     """
+    if path is None:
+        path = settings.inference_config_path if settings is not None else INFERENCE_CONFIG_PATH
     path.parent.mkdir(parents=True, exist_ok=True, mode=SECRET_DIR_MODE)
     # mkdir(mode=...) does nothing for a directory that already exists, so an
     # existing 0755 .secrets/ needs an explicit chmod. Skipped (not redirected)
@@ -453,6 +466,12 @@ class AppSettings(BaseSettings):
     # env_prefix="ALPHASWARM_" maps this flat field to env var ALPHASWARM_HOLDINGS_CSV_PATH.
     # pydantic-settings v2 coerces string env values to pathlib.Path automatically.
     holdings_csv_path: Path = Path("Schwab/holdings.csv")
+
+    # Runtime inference config (provider choice, cloud API keys), written by the
+    # Settings UI. Injectable so tests point it at a temp file and never read the
+    # operator's real one (docs/DECISIONS.md#adr-tests-scoped-cleanup). Env var:
+    # ALPHASWARM_INFERENCE_CONFIG_PATH. Relative paths resolve against the CWD.
+    inference_config_path: Path = INFERENCE_CONFIG_PATH
 
     # Browser origins allowed to open /ws/state. The stream is unauthenticated,
     # so without this any page the operator visits could open it cross-origin

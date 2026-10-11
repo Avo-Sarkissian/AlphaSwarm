@@ -92,13 +92,17 @@ class BudgetExceededError(Exception):
 
 
 class GovernorCrisisError(Exception):
-    """Raised when governor crisis timeout expires (5min sustained pressure, no success).
+    """Raised when the governor must abort the run.
+
+    Causes: a sustained memory crisis with no successful inference
+    (docs/DECISIONS.md#p3-d-07), or a dead memory monitor.
 
     Attributes:
-        duration_seconds: How long the crisis lasted before timeout.
+        duration_seconds: How long the crisis lasted before the abort
+            (0.0 when the monitor died outside a crisis).
     """
 
-    def __init__(self, message: str, duration_seconds: float) -> None:
+    def __init__(self, message: str, *, duration_seconds: float = 0.0) -> None:
         super().__init__(message)
         self.duration_seconds = duration_seconds
 

@@ -2,33 +2,94 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
-from typing import TYPE_CHECKING
+from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, NoReturn
+from urllib.parse import urlsplit
 
 import pytest
+import pytest_asyncio
 
 from alphaswarm.config import AppSettings, GovernorSettings, generate_personas, load_bracket_configs
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.worker import WorkerPersonaConfig
 
 if TYPE_CHECKING:
+    from neo4j import AsyncDriver
+
+    from alphaswarm.graph import GraphStateManager
     from alphaswarm.types import AgentPersona, BracketConfig
+
+
+# ---------------------------------------------------------------------------
+# Hermetic environment (docs/DECISIONS.md#adr-tests-scoped-cleanup)
+# ---------------------------------------------------------------------------
+
+# Variables hermetic_env sets itself. Every env-clearing helper keeps them,
+# otherwise AppSettings falls back to the operator's real .secrets/inference.json
+# and Schwab/holdings.csv (relative to the repo root, where pytest runs).
+HERMETIC_PRESERVED_ENV: Final[frozenset[str]] = frozenset(
+    {"ALPHASWARM_INFERENCE_CONFIG_PATH", "ALPHASWARM_HOLDINGS_CSV_PATH"}
+)
+
+
+def clear_alphaswarm_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Delete ALPHASWARM_* variables for one test, keeping HERMETIC_PRESERVED_ENV."""
+    for key in list(os.environ):
+        if key.startswith("ALPHASWARM_") and key not in HERMETIC_PRESERVED_ENV:
+            monkeypatch.delenv(key, raising=False)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def hermetic_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """Isolate the whole session from the operator's machine.
+
+    Removes every ALPHASWARM_* variable, stops AppSettings from reading .env,
+    points the inference config at a temp file that does not exist yet (so
+    load_inference_config returns the local defaults), and points the holdings
+    CSV at a path that never exists (so no test can load the real portfolio).
+    Yields the inference config path and restores everything on exit
+    (docs/DECISIONS.md#adr-tests-scoped-cleanup).
+    """
+    saved_env = {k: v for k, v in os.environ.items() if k.startswith("ALPHASWARM_")}
+    saved_env_file = AppSettings.model_config.get("env_file")
+    for key in saved_env:
+        del os.environ[key]
+    hermetic_dir = tmp_path_factory.mktemp("hermetic")
+    config_path = hermetic_dir / "inference.json"
+    os.environ["ALPHASWARM_INFERENCE_CONFIG_PATH"] = str(config_path)
+    os.environ["ALPHASWARM_HOLDINGS_CSV_PATH"] = str(hermetic_dir / "no-holdings.csv")
+    AppSettings.model_config["env_file"] = None
+    try:
+        yield config_path
+    finally:
+        AppSettings.model_config["env_file"] = saved_env_file
+        for key in [k for k in os.environ if k.startswith("ALPHASWARM_")]:
+            del os.environ[key]
+        os.environ.update(saved_env)
+
+
+@pytest.fixture(autouse=True)
+def _reset_hermetic_inference_config(hermetic_env: Path) -> Iterator[None]:
+    """Delete the session's inference config after each test so a saved cloud
+    config cannot change what later tests see."""
+    yield
+    hermetic_env.unlink(missing_ok=True)
+    hermetic_env.with_name(f"{hermetic_env.name}.tmp").unlink(missing_ok=True)
 
 
 @pytest.fixture()
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Clear all ALPHASWARM_ environment variables."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    """Clear ALPHASWARM_* variables, keeping the hermetic paths."""
+    clear_alphaswarm_env(monkeypatch)
 
 
 @pytest.fixture()
 def default_settings(monkeypatch: pytest.MonkeyPatch) -> AppSettings:
     """Return AppSettings with a clean environment (no .env influence)."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    clear_alphaswarm_env(monkeypatch)
     return AppSettings(_env_file=None)  # type: ignore[call-arg]
 
 
@@ -118,124 +179,161 @@ def sample_seed_event():
 
 
 # ---------------------------------------------------------------------------
-# Phase 4: Neo4j graph fixtures
+# Neo4j: throwaway neo4j-test database only
 # ---------------------------------------------------------------------------
+# Hard-coded on purpose: the target must never be steerable by the environment
+# (docs/DECISIONS.md#adr-tests-scoped-cleanup). Start it with scripts/neo4j_test.sh up.
+
+NEO4J_TEST_URI: Final[str] = "bolt://127.0.0.1:7688"
+NEO4J_TEST_AUTH: Final[tuple[str, str]] = ("neo4j", "alphaswarm-test-only")
+NEO4J_TEST_DATABASE: Final[str] = "neo4j"
+FORBIDDEN_NEO4J_PORT: Final[int] = 7687
+# Cycle ids that graph_manager_test teardown must keep (session-scoped seeded cycles).
+NEO4J_PROTECTED_CYCLES: set[str] = set()
+
+_GUARD_EXIT_CODE: Final[int] = 3
+
+# Same scoped cleanup the old live-database fixture used, plus ShockEvents.
+_SCOPED_CLEANUP: Final[tuple[str, ...]] = (
+    "MATCH (d:Decision) WHERE NOT d.cycle_id IN $keep DETACH DELETE d",
+    "MATCH (p:Post) WHERE NOT p.cycle_id IN $keep DETACH DELETE p",
+    "MATCH (re:RationaleEpisode) WHERE NOT re.cycle_id IN $keep DETACH DELETE re",
+    "MATCH ()-[e:INFLUENCED_BY]->() WHERE NOT e.cycle_id IN $keep DELETE e",
+    "MATCH (c:Cycle)-[:HAS_SHOCK]->(se:ShockEvent) WHERE NOT c.cycle_id IN $keep DETACH DELETE se",
+    "MATCH (c:Cycle) WHERE NOT c.cycle_id IN $keep DETACH DELETE c",
+    "MATCH (e:Entity) WHERE NOT (e)<-[:MENTIONS]-() DETACH DELETE e",
+)
 
 
-@pytest.fixture()
-async def neo4j_driver():
-    """AsyncDriver connected to local Neo4j. Requires Docker running.
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--require-neo4j",
+        action="store_true",
+        default=False,
+        help="Fail neo4j-marked tests instead of skipping them when neo4j-test is unreachable.",
+    )
 
-    Skips test if Neo4j is not available or auth fails.
 
-    The password comes from ALPHASWARM_NEO4J__PASSWORD when it is exported in
-    the environment, falling back to the historical `alphaswarm` literal so
-    installs created before the credential was made mandatory keep working.
-    Note that `uv run` does not load `.env`: export the variable in your shell
-    to run these tests against an instance with a per-install password.
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Give every `neo4j` test sockets and the session event loop (C-TEST-09).
 
-    The destination stays the hardcoded loopback address on purpose — these
-    tests write to whatever database they reach, so the target must not be
-    steerable by the environment.
-
-    Async-fixture form so verify_connectivity runs on the same event loop as
-    the test that consumes the driver. The previous sync form used
-    `asyncio.get_event_loop().run_until_complete(...)` which created futures
-    on a different loop than pytest-asyncio's test loop, producing
-    "got Future attached to a different loop" runtime errors.
+    append=False puts the session-scoped asyncio marker ahead of the bare one
+    that asyncio_mode=auto adds, so it is the marker pytest-asyncio reads and
+    the test shares the loop that owns neo4j_test_driver.
     """
-    import socket
+    for item in items:
+        if item.get_closest_marker("neo4j") is not None:
+            item.add_marker(pytest.mark.enable_socket)
+            item.add_marker(pytest.mark.asyncio(loop_scope="session"), append=False)
 
-    from neo4j import AsyncGraphDatabase
-    from neo4j.exceptions import AuthError, Neo4jError, ServiceUnavailable
 
-    # Cheap TCP-level preflight: avoids spinning up the AsyncDriver at all
-    # when the port is closed (typical local dev where Neo4j isn't running).
+def _refuse_forbidden_port(uri: str) -> None:
+    """Guard 1: never connect to the dev database's port, whatever the URI says."""
+    port = urlsplit(uri).port or FORBIDDEN_NEO4J_PORT  # no port means bolt's default, 7687
+    if port == FORBIDDEN_NEO4J_PORT:
+        pytest.exit(
+            f"Refusing to run Neo4j tests against {uri}: port {FORBIDDEN_NEO4J_PORT} is the "
+            "dev database. Tests use neo4j-test on 127.0.0.1:7688.",
+            returncode=_GUARD_EXIT_CODE,
+        )
+
+
+async def _refuse_nonempty_database(driver: AsyncDriver) -> None:
+    """Guard 2: the tmpfs test database starts empty, so Cycle nodes mean it is not ours."""
+    async with driver.session(database=NEO4J_TEST_DATABASE) as session:
+        result = await session.run("MATCH (c:Cycle) RETURN count(c) AS n")
+        record = await result.single()
+    cycles = int(record["n"]) if record is not None else 0
+    if cycles > 0:
+        pytest.exit(
+            f"Refusing to run Neo4j tests: the database on {NEO4J_TEST_URI} already holds "
+            f"{cycles} Cycle node(s), and neo4j-test must start empty. Recreate it with "
+            "`scripts/neo4j_test.sh reset`, then re-run.",
+            returncode=_GUARD_EXIT_CODE,
+        )
+
+
+async def _port_open(uri: str, timeout_s: float = 0.5) -> bool:
+    parts = urlsplit(uri)
     try:
-        with socket.create_connection(("localhost", 7687), timeout=0.5):
-            pass
-    except OSError:
-        pytest.skip("Neo4j not available (docker compose up -d)")
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(parts.hostname, parts.port), timeout=timeout_s
+        )
+    except (OSError, TimeoutError):
+        return False
+    writer.close()
+    await writer.wait_closed()
+    return True
 
+
+def _neo4j_unavailable(request: pytest.FixtureRequest, reason: str) -> NoReturn:
+    if request.config.getoption("--require-neo4j"):
+        pytest.fail(f"{reason} (--require-neo4j is set)", pytrace=False)
+    pytest.skip(reason)
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def neo4j_test_driver(request: pytest.FixtureRequest) -> AsyncIterator[AsyncDriver]:
+    """Session driver for neo4j-test, after both refusal guards pass (C-TEST-04)."""
+    from neo4j import AsyncGraphDatabase
+    from neo4j.exceptions import AuthError as Neo4jAuthError
+    from neo4j.exceptions import DriverError, Neo4jError
+
+    _refuse_forbidden_port(NEO4J_TEST_URI)
+    if not await _port_open(NEO4J_TEST_URI):
+        _neo4j_unavailable(request, "neo4j-test is not running (scripts/neo4j_test.sh up)")
     driver = AsyncGraphDatabase.driver(
-        "bolt://localhost:7687",
-        auth=("neo4j", os.environ.get("ALPHASWARM_NEO4J__PASSWORD", "alphaswarm")),
-        max_connection_pool_size=5,
+        NEO4J_TEST_URI, auth=NEO4J_TEST_AUTH, max_connection_pool_size=5
     )
     try:
         await driver.verify_connectivity()
-    # AuthError is a Neo4jError subclass, so it must be caught first. Keeping
-    # the two skips distinct stops "wrong password" from being misread as
-    # "server is down" when the whole module silently skips.
-    except AuthError:
+        await _refuse_nonempty_database(driver)
+    except Neo4jAuthError:
         await driver.close()
-        pytest.skip(
-            "Neo4j rejected the test credential for user 'neo4j'. Export "
-            "ALPHASWARM_NEO4J__PASSWORD with this instance's password "
-            "(uv run does not read .env)."
+        pytest.exit(
+            "The server on 127.0.0.1:7688 rejected the neo4j-test credential, so it is not "
+            "the throwaway test database. Stop it, then run scripts/neo4j_test.sh up.",
+            returncode=_GUARD_EXIT_CODE,
         )
-    except (ServiceUnavailable, Neo4jError, OSError):
+    except (DriverError, Neo4jError, OSError) as exc:
         await driver.close()
-        pytest.skip("Neo4j not available (docker compose up -d)")
+        _neo4j_unavailable(request, f"neo4j-test is not ready: {exc}")
+    except BaseException:
+        await driver.close()
+        raise
     try:
         yield driver
     finally:
+        # The only unscoped delete in the suite: both guards proved this is the
+        # empty throwaway database (docs/DECISIONS.md#adr-tests-scoped-cleanup).
+        async with driver.session(database=NEO4J_TEST_DATABASE) as session:
+            result = await session.run("MATCH (n) DETACH DELETE n")
+            await result.consume()
         await driver.close()
 
 
-@pytest.fixture()
-async def graph_manager(neo4j_driver, all_personas):
-    """GraphStateManager with schema applied and agents seeded. Cleans up after test.
+@pytest_asyncio.fixture(loop_scope="session")
+async def graph_manager_test(
+    neo4j_test_driver: AsyncDriver, all_personas: list[AgentPersona]
+) -> AsyncIterator[GraphStateManager]:
+    """GraphStateManager on neo4j-test with the schema applied (C-TEST-05).
 
-    DATA-SAFETY: tests share the live single-database Neo4j (Community edition
-    has no second database). The previous cleanup ran unscoped DETACH DELETE
-    over ALL Cycle/Decision/Post/Entity/RationaleEpisode nodes, destroying
-    every real simulation cycle on the machine each time pytest ran. Cleanup
-    is now scoped to cycles CREATED DURING THE TEST: cycle_ids present before
-    the test are preserved, and only orphaned Entity nodes are removed.
+    Teardown deletes only cycles created during the test and never the ids in
+    NEO4J_PROTECTED_CYCLES. Agent nodes stay for the next test.
     """
     from alphaswarm.graph import GraphStateManager
 
     manager = GraphStateManager(
-        driver=neo4j_driver,
-        personas=all_personas,
-        database="neo4j",
+        driver=neo4j_test_driver, personas=all_personas, database=NEO4J_TEST_DATABASE
     )
     await manager.ensure_schema()
-    # Snapshot pre-existing cycles so real simulation data survives test runs.
-    async with neo4j_driver.session(database="neo4j") as session:
+    async with neo4j_test_driver.session(database=NEO4J_TEST_DATABASE) as session:
         result = await session.run("MATCH (c:Cycle) RETURN collect(c.cycle_id) AS ids")
         record = await result.single()
-        preexisting: list[str] = list(record["ids"]) if record else []
+    preexisting: list[str] = list(record["ids"]) if record else []
     yield manager
-    # Delete ONLY data belonging to cycles created during this test
-    # (keep Agent nodes; keep all pre-existing cycle data).
-    async with neo4j_driver.session(database="neo4j") as session:
-        await session.run(
-            "MATCH (d:Decision) WHERE NOT d.cycle_id IN $keep DETACH DELETE d",
-            keep=preexisting,
-        )
-        await session.run(
-            "MATCH (p:Post) WHERE NOT p.cycle_id IN $keep DETACH DELETE p",
-            keep=preexisting,
-        )
-        await session.run(
-            "MATCH (re:RationaleEpisode) WHERE NOT re.cycle_id IN $keep DETACH DELETE re",
-            keep=preexisting,
-        )
-        # INFLUENCED_BY edges connect Agent nodes, so DETACH DELETE on
-        # decisions never removes them — without this they accumulate
-        # forever (4k+ stale edges observed from past test runs).
-        await session.run(
-            "MATCH ()-[e:INFLUENCED_BY]->() WHERE NOT e.cycle_id IN $keep DELETE e",
-            keep=preexisting,
-        )
-        await session.run(
-            "MATCH (c:Cycle) WHERE NOT c.cycle_id IN $keep DETACH DELETE c",
-            keep=preexisting,
-        )
-        # Entities are MERGE'd by name and shared across cycles: only remove
-        # ones no longer referenced by any cycle.
-        await session.run(
-            "MATCH (e:Entity) WHERE NOT (e)<-[:MENTIONS]-() DETACH DELETE e"
-        )
+    keep = sorted(set(preexisting) | NEO4J_PROTECTED_CYCLES)
+    async with neo4j_test_driver.session(database=NEO4J_TEST_DATABASE) as session:
+        for query in _SCOPED_CLEANUP:
+            result = await session.run(query, keep=keep)
+            await result.consume()

@@ -1,7 +1,7 @@
-"""Integration tests for GraphStateManager against real Neo4j.
+"""Integration tests for GraphStateManager against the throwaway neo4j-test database.
 
-Requires: docker compose up -d
-Skip: Automatically skipped if Neo4j is not available.
+Requires: scripts/neo4j_test.sh up (127.0.0.1:7688, tmpfs).
+Skip: automatically skipped when neo4j-test is unreachable, unless --require-neo4j.
 """
 
 from __future__ import annotations
@@ -15,11 +15,8 @@ import pytest
 
 from alphaswarm.types import AgentDecision, SignalType
 
-# Bypass the global pytest-socket gate so the neo4j_driver fixture can attempt
-# a real TCP connect. Without this marker, SocketBlockedError fires before the
-# fixture's ServiceUnavailable-catching skip path can run, and the whole module
-# shows up as ERROR instead of SKIPPED when Neo4j is down.
-pytestmark = pytest.mark.enable_socket
+# The `neo4j` marker adds enable_socket and the session event loop (tests/conftest.py).
+pytestmark = pytest.mark.neo4j
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
@@ -27,12 +24,12 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.asyncio()
-async def test_ensure_schema_idempotent(graph_manager: GraphStateManager) -> None:
+async def test_ensure_schema_idempotent(graph_manager_test: GraphStateManager) -> None:
     """ensure_schema can be called twice without errors. Constraints and indexes exist."""
-    # graph_manager fixture already called ensure_schema once; call again
-    await graph_manager.ensure_schema()
+    # graph_manager_test fixture already called ensure_schema once; call again
+    await graph_manager_test.ensure_schema()
 
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         # Verify constraints
         result = await session.run("SHOW CONSTRAINTS")
         constraints = [dict(record) async for record in result]
@@ -61,9 +58,9 @@ async def test_ensure_schema_idempotent(graph_manager: GraphStateManager) -> Non
 
 
 @pytest.mark.asyncio()
-async def test_seed_agents_creates_100_nodes(graph_manager: GraphStateManager) -> None:
+async def test_seed_agents_creates_100_nodes(graph_manager_test: GraphStateManager) -> None:
     """ensure_schema seeds all 100 agents."""
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run("MATCH (a:Agent) RETURN count(a) AS c")
         record = await result.single()
         assert record["c"] == 100
@@ -71,26 +68,26 @@ async def test_seed_agents_creates_100_nodes(graph_manager: GraphStateManager) -
 
 @pytest.mark.asyncio()
 async def test_seed_agents_idempotent(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """Calling seed_agents again does not create duplicates (MERGE)."""
-    await graph_manager.seed_agents(all_personas)
+    await graph_manager_test.seed_agents(all_personas)
 
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run("MATCH (a:Agent) RETURN count(a) AS c")
         record = await result.single()
         assert record["c"] == 100
 
 
 @pytest.mark.asyncio()
-async def test_create_cycle_returns_uuid(graph_manager: GraphStateManager) -> None:
+async def test_create_cycle_returns_uuid(graph_manager_test: GraphStateManager) -> None:
     """create_cycle returns a valid uuid4 and persists the Cycle node."""
-    cycle_id = await graph_manager.create_cycle("Test rumor")
+    cycle_id = await graph_manager_test.create_cycle("Test rumor")
 
     uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     assert re.match(uuid4_pattern, cycle_id), f"Not a valid UUID4: {cycle_id}"
 
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             "MATCH (c:Cycle {cycle_id: $cid}) RETURN c.seed_rumor AS sr",
             cid=cycle_id,
@@ -102,10 +99,10 @@ async def test_create_cycle_returns_uuid(graph_manager: GraphStateManager) -> No
 
 @pytest.mark.asyncio()
 async def test_batch_write_100_decisions(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """write_decisions persists 100 Decision nodes in a single batch."""
-    cycle_id = await graph_manager.create_cycle("Batch write test")
+    cycle_id = await graph_manager_test.create_cycle("Batch write test")
 
     decisions = [
         (
@@ -121,9 +118,9 @@ async def test_batch_write_100_decisions(
         for persona in all_personas
     ]
 
-    await graph_manager.write_decisions(decisions, cycle_id, 1)
+    await graph_manager_test.write_decisions(decisions, cycle_id, 1)
 
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             "MATCH (d:Decision {cycle_id: $cid}) RETURN count(d) AS c",
             cid=cycle_id,
@@ -134,10 +131,10 @@ async def test_batch_write_100_decisions(
 
 @pytest.mark.asyncio()
 async def test_write_decisions_creates_cited_relationships(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """write_decisions creates CITED relationships when cited_agents is non-empty."""
-    cycle_id = await graph_manager.create_cycle("Citation test")
+    cycle_id = await graph_manager_test.create_cycle("Citation test")
 
     decisions = [
         (
@@ -162,9 +159,9 @@ async def test_write_decisions_creates_cited_relationships(
         ),
     ]
 
-    await graph_manager.write_decisions(decisions, cycle_id, 1)
+    await graph_manager_test.write_decisions(decisions, cycle_id, 1)
 
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             'MATCH (d:Decision)-[:CITED]->(a:Agent {id: "degens_01"}) RETURN count(d) AS c'
         )
@@ -174,10 +171,10 @@ async def test_write_decisions_creates_cited_relationships(
 
 @pytest.mark.asyncio()
 async def test_write_decisions_empty_citations_still_persists(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """Decisions with empty cited_agents still persist. Zero CITED relationships."""
-    cycle_id = await graph_manager.create_cycle("Empty citations test")
+    cycle_id = await graph_manager_test.create_cycle("Empty citations test")
 
     decisions = [
         (
@@ -193,9 +190,9 @@ async def test_write_decisions_empty_citations_still_persists(
         for i in range(1, 6)
     ]
 
-    await graph_manager.write_decisions(decisions, cycle_id, 1)
+    await graph_manager_test.write_decisions(decisions, cycle_id, 1)
 
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         # All 5 decisions exist
         result = await session.run(
             "MATCH (d:Decision {cycle_id: $cid}) RETURN count(d) AS c",
@@ -215,10 +212,10 @@ async def test_write_decisions_empty_citations_still_persists(
 
 @pytest.mark.asyncio()
 async def test_read_peer_decisions_top5(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """read_peer_decisions returns top-5 peers by influence_weight_base, excluding self."""
-    cycle_id = await graph_manager.create_cycle("Peer read test")
+    cycle_id = await graph_manager_test.create_cycle("Peer read test")
 
     decisions = [
         (
@@ -234,9 +231,9 @@ async def test_read_peer_decisions_top5(
         for persona in all_personas
     ]
 
-    await graph_manager.write_decisions(decisions, cycle_id, 1)
+    await graph_manager_test.write_decisions(decisions, cycle_id, 1)
 
-    peers = await graph_manager.read_peer_decisions("quants_01", cycle_id, 1, limit=5)
+    peers = await graph_manager_test.read_peer_decisions("quants_01", cycle_id, 1, limit=5)
 
     assert len(peers) == 5
     # None should be the requesting agent
@@ -247,10 +244,10 @@ async def test_read_peer_decisions_top5(
 
 @pytest.mark.asyncio()
 async def test_peer_read_latency(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """read_peer_decisions averages under 5ms over 10 iterations (INFRA-05)."""
-    cycle_id = await graph_manager.create_cycle("Latency test")
+    cycle_id = await graph_manager_test.create_cycle("Latency test")
 
     decisions = [
         (
@@ -265,16 +262,16 @@ async def test_peer_read_latency(
         )
         for persona in all_personas
     ]
-    await graph_manager.write_decisions(decisions, cycle_id, 1)
+    await graph_manager_test.write_decisions(decisions, cycle_id, 1)
 
     # Warm-up read
-    await graph_manager.read_peer_decisions("quants_01", cycle_id, 1, limit=5)
+    await graph_manager_test.read_peer_decisions("quants_01", cycle_id, 1, limit=5)
 
     # Timed reads
     durations: list[float] = []
     for _ in range(10):
         start = time.perf_counter()
-        await graph_manager.read_peer_decisions("quants_01", cycle_id, 1, limit=5)
+        await graph_manager_test.read_peer_decisions("quants_01", cycle_id, 1, limit=5)
         durations.append(time.perf_counter() - start)
 
     avg_ms = (sum(durations) / len(durations)) * 1000
@@ -287,10 +284,10 @@ async def test_peer_read_latency(
 
 @pytest.mark.asyncio()
 async def test_concurrent_peer_reads(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """10 concurrent read_peer_decisions calls all return correct data (D-07)."""
-    cycle_id = await graph_manager.create_cycle("Concurrent read test")
+    cycle_id = await graph_manager_test.create_cycle("Concurrent read test")
 
     decisions = [
         (
@@ -305,13 +302,13 @@ async def test_concurrent_peer_reads(
         )
         for persona in all_personas
     ]
-    await graph_manager.write_decisions(decisions, cycle_id, 1)
+    await graph_manager_test.write_decisions(decisions, cycle_id, 1)
 
     agent_ids = [f"quants_{i:02d}" for i in range(1, 11)]
 
     results = await asyncio.gather(
         *[
-            graph_manager.read_peer_decisions(aid, cycle_id, 1, limit=5)
+            graph_manager_test.read_peer_decisions(aid, cycle_id, 1, limit=5)
             for aid in agent_ids
         ]
     )
@@ -328,7 +325,7 @@ async def test_concurrent_peer_reads(
 
 @pytest.mark.asyncio()
 async def test_complete_reasoning_arc(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona], sample_seed_event
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona], sample_seed_event
 ) -> None:
     """After writing decisions and episodes for 3 rounds, a Cypher query returns
     a complete reasoning arc for any agent: decisions, rationale episodes,
@@ -337,7 +334,7 @@ async def test_complete_reasoning_arc(
     from alphaswarm.types import SignalType
 
     # 1. Create cycle with seed event (Entity nodes created via MENTIONS edges)
-    cycle_id = await graph_manager.create_cycle_with_seed_event(
+    cycle_id = await graph_manager_test.create_cycle_with_seed_event(
         sample_seed_event.raw_rumor, sample_seed_event,
     )
 
@@ -356,7 +353,7 @@ async def test_complete_reasoning_arc(
             ))
             for p in test_personas
         ]
-        ids = await graph_manager.write_decisions(decisions, cycle_id, round_num)
+        ids = await graph_manager_test.write_decisions(decisions, cycle_id, round_num)
 
         # 3. Write episodes for each round
         records = [
@@ -374,11 +371,11 @@ async def test_complete_reasoning_arc(
             )
             for did, (aid, dec) in zip(ids, decisions)
         ]
-        await graph_manager.write_rationale_episodes(records)
+        await graph_manager_test.write_rationale_episodes(records)
 
         # Write narrative edges (REFERENCES Decision -> Entity)
-        entity_names = await graph_manager.read_cycle_entities(cycle_id)
-        await graph_manager.write_narrative_edges(records, entity_names)
+        entity_names = await graph_manager_test.read_cycle_entities(cycle_id)
+        await graph_manager_test.write_narrative_edges(records, entity_names)
 
         # Update prev signal map for next round
         for aid, dec in decisions:
@@ -386,7 +383,7 @@ async def test_complete_reasoning_arc(
 
     # 4. Query complete reasoning arc for first agent
     agent_id = test_personas[0].id
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             """
             MATCH (a:Agent {id: $agent_id})-[:MADE]->(d:Decision)-[:HAS_EPISODE]->(re:RationaleEpisode)
@@ -420,7 +417,7 @@ async def test_complete_reasoning_arc(
 
 @pytest.mark.asyncio()
 async def test_references_edges_case_insensitive(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona], sample_seed_event
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona], sample_seed_event
 ) -> None:
     """REFERENCES edges match entity names case-insensitively (D-08).
 
@@ -429,7 +426,7 @@ async def test_references_edges_case_insensitive(
     from alphaswarm.write_buffer import EpisodeRecord
     from alphaswarm.types import SignalType
 
-    cycle_id = await graph_manager.create_cycle_with_seed_event(
+    cycle_id = await graph_manager_test.create_cycle_with_seed_event(
         sample_seed_event.raw_rumor, sample_seed_event,
     )
     decisions = [
@@ -441,7 +438,7 @@ async def test_references_edges_case_insensitive(
             cited_agents=[],
         ))
     ]
-    ids = await graph_manager.write_decisions(decisions, cycle_id, round_num=1)
+    ids = await graph_manager_test.write_decisions(decisions, cycle_id, round_num=1)
 
     records = [
         EpisodeRecord(
@@ -454,12 +451,12 @@ async def test_references_edges_case_insensitive(
             cycle_id=cycle_id,
         )
     ]
-    entity_names = await graph_manager.read_cycle_entities(cycle_id)
-    await graph_manager.write_rationale_episodes(records)
-    await graph_manager.write_narrative_edges(records, entity_names)
+    entity_names = await graph_manager_test.read_cycle_entities(cycle_id)
+    await graph_manager_test.write_rationale_episodes(records)
+    await graph_manager_test.write_narrative_edges(records, entity_names)
 
     # Verify REFERENCES edge exists with original entity casing preserved
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             """
             MATCH (d:Decision)-[:REFERENCES]->(e:Entity)
@@ -474,14 +471,14 @@ async def test_references_edges_case_insensitive(
 
 @pytest.mark.asyncio()
 async def test_write_decision_narratives_integration(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """write_decision_narratives sets decision_narrative property on Agent nodes (D-10)."""
     agent_id = all_personas[0].id
     narratives = [{"agent_id": agent_id, "narrative": "This agent shifted from BUY to SELL over 3 rounds."}]
-    await graph_manager.write_decision_narratives(narratives)
+    await graph_manager_test.write_decision_narratives(narratives)
 
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             "MATCH (a:Agent {id: $aid}) RETURN a.decision_narrative AS narrative",
             aid=agent_id,
@@ -497,12 +494,12 @@ async def test_write_decision_narratives_integration(
 
 @pytest.mark.asyncio()
 async def test_posts_and_read_post_integration(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """Full Post lifecycle: write_posts, read_ranked_posts (self-exclusion), write_read_post_edges."""
     from alphaswarm.graph import RankedPost
 
-    cycle_id = await graph_manager.create_cycle("Post integration test")
+    cycle_id = await graph_manager_test.create_cycle("Post integration test")
 
     # Create 2 decisions for Round 1 from 2 agents
     agent_01 = all_personas[0]  # quants_01
@@ -531,15 +528,15 @@ async def test_posts_and_read_post_integration(
     ]
 
     # Write decisions first (creates Decision nodes)
-    decision_ids = await graph_manager.write_decisions(decisions, cycle_id, 1)
+    decision_ids = await graph_manager_test.write_decisions(decisions, cycle_id, 1)
     assert len(decision_ids) == 2
 
     # Write posts from decisions
-    post_ids = await graph_manager.write_posts(decisions, decision_ids, cycle_id, round_num=1)
+    post_ids = await graph_manager_test.write_posts(decisions, decision_ids, cycle_id, round_num=1)
     assert len(post_ids) == 2
 
     # Verify Post node count
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             "MATCH (p:Post) WHERE p.cycle_id = $cid RETURN count(p) AS cnt",
             cid=cycle_id,
@@ -548,7 +545,7 @@ async def test_posts_and_read_post_integration(
         assert record["cnt"] == 2
 
     # Verify AUTHORED relationships
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             "MATCH (a:Agent)-[:AUTHORED]->(p:Post) WHERE p.cycle_id = $cid RETURN count(*) AS cnt",
             cid=cycle_id,
@@ -557,7 +554,7 @@ async def test_posts_and_read_post_integration(
         assert record["cnt"] == 2
 
     # Verify HAS_POST relationships
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             "MATCH (d:Decision)-[:HAS_POST]->(p:Post) WHERE p.cycle_id = $cid RETURN count(*) AS cnt",
             cid=cycle_id,
@@ -566,7 +563,9 @@ async def test_posts_and_read_post_integration(
         assert record["cnt"] == 2
 
     # Read ranked posts for agent_01 -- should exclude self (only agent_02's post returned)
-    ranked = await graph_manager.read_ranked_posts(agent_01.id, cycle_id, source_round=1, limit=10)
+    ranked = await graph_manager_test.read_ranked_posts(
+        agent_01.id, cycle_id, source_round=1, limit=10
+    )
     assert len(ranked) == 1
     assert isinstance(ranked[0], RankedPost)
     assert ranked[0].agent_id == agent_02.id
@@ -574,12 +573,12 @@ async def test_posts_and_read_post_integration(
     assert ranked[0].content == "Bearish on tech sector"
 
     # Write READ_POST edges: both agents read all posts (round 2)
-    await graph_manager.write_read_post_edges(
+    await graph_manager_test.write_read_post_edges(
         [agent_01.id, agent_02.id], post_ids, round_num=2, cycle_id=cycle_id,
     )
 
     # Verify READ_POST edge count: 2 agents * 2 posts = 4
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             "MATCH ()-[r:READ_POST]->() RETURN count(r) AS cnt",
         )
@@ -587,7 +586,7 @@ async def test_posts_and_read_post_integration(
         assert record["cnt"] == 4
 
     # Verify READ_POST edge properties
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             "MATCH ()-[r:READ_POST]->() RETURN r.round_num AS rn, r.cycle_id AS cid LIMIT 1",
         )
@@ -598,10 +597,10 @@ async def test_posts_and_read_post_integration(
 
 @pytest.mark.asyncio()
 async def test_write_posts_filters_parse_error_integration(
-    graph_manager: GraphStateManager, all_personas: list[AgentPersona]
+    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """write_posts filters out PARSE_ERROR decisions -- only valid posts are persisted."""
-    cycle_id = await graph_manager.create_cycle("Parse error filter test")
+    cycle_id = await graph_manager_test.create_cycle("Parse error filter test")
 
     agent_01 = all_personas[0]
     agent_02 = all_personas[1]
@@ -629,13 +628,13 @@ async def test_write_posts_filters_parse_error_integration(
         ),
     ]
 
-    decision_ids = await graph_manager.write_decisions(decisions, cycle_id, 1)
-    post_ids = await graph_manager.write_posts(decisions, decision_ids, cycle_id, round_num=1)
+    decision_ids = await graph_manager_test.write_decisions(decisions, cycle_id, 1)
+    post_ids = await graph_manager_test.write_posts(decisions, decision_ids, cycle_id, round_num=1)
 
     # Only 1 post should exist (PARSE_ERROR filtered)
     assert len(post_ids) == 1
 
-    async with graph_manager._driver.session(database="neo4j") as session:
+    async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
             "MATCH (p:Post) WHERE p.cycle_id = $cid RETURN p.content AS content",
             cid=cycle_id,

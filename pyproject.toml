@@ -64,6 +64,7 @@ testpaths = ["tests"]
 addopts = "--disable-socket --allow-unix-socket --ignore-glob='* [2-9].py'"
 markers = [
     "enable_socket: opt-in marker for tests that need real network (D-12 escape hatch)",
+    "neo4j: needs the throwaway neo4j-test database on 127.0.0.1:7688 (scripts/neo4j_test.sh up)",
 ]
 
 [tool.mypy]

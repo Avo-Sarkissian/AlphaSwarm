@@ -292,6 +292,7 @@ def _on_report_task_done(
             cycle_id=cycle_id,
             error=str(exc),
             exc_type=exc.__class__.__name__,
+            exc_info=exc,
         )
     except Exception:  # defensive — callback must never raise
         log.error("report_task_exception_record_failed", cycle_id=cycle_id)

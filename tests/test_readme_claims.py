@@ -63,3 +63,11 @@ def test_readme_links_the_license_file() -> None:
 
 def test_readme_shows_no_prototype_screenshots() -> None:
     assert "docs/screenshots/" not in README.read_text(encoding="utf-8")
+
+
+def test_env_example_never_sends_test_runs_to_the_dev_password() -> None:
+    """Tests use the throwaway neo4j-test database, never the dev password, so the
+    template must not tell anyone to export that secret into their shell."""
+    text = (ROOT / ".env.example").read_text(encoding="utf-8")
+    assert "export ALPHASWARM_NEO4J__PASSWORD" not in text
+    assert "tests/test_graph_integration.py" not in text

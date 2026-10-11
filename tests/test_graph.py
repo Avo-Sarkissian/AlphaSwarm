@@ -39,6 +39,15 @@ def mock_driver() -> MagicMock:
     return driver
 
 
+def _ack_rows(_tx_fn: object, rows: list[object], *_args: object) -> int:
+    """execute_write stand-in that reports every row as created.
+
+    write_decisions compares the created count with its input (T2.1), so mock
+    sessions must return a count instead of a bare MagicMock.
+    """
+    return len(rows)
+
+
 @pytest.fixture()
 def sample_personas_for_graph() -> list[AgentPersona]:
     """Create 2 test AgentPersona objects for seed_agents testing."""
@@ -224,6 +233,7 @@ async def test_write_decisions_single_transaction(
     from alphaswarm.graph import GraphStateManager
 
     session = mock_driver.session.return_value
+    session.execute_write.side_effect = _ack_rows
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1)
@@ -240,6 +250,7 @@ async def test_write_decisions_generates_client_side_uuids(
     from alphaswarm.graph import GraphStateManager
 
     session = mock_driver.session.return_value
+    session.execute_write.side_effect = _ack_rows
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1)
@@ -271,6 +282,7 @@ async def test_write_decisions_transforms_signal_to_value(
         ),
     ]
     session = mock_driver.session.return_value
+    session.execute_write.side_effect = _ack_rows
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     await gsm.write_decisions(decisions, "test-cycle-id", 1)
@@ -286,6 +298,7 @@ async def test_batch_write_tx_skips_cited_when_empty() -> None:
     from alphaswarm.graph import GraphStateManager
 
     tx = AsyncMock()
+    tx.run.return_value.single = AsyncMock(return_value={"created": 2})
     decisions = [
         {"decision_id": "d1", "agent_id": "a1", "signal": "buy", "confidence": 0.5,
          "sentiment": 0.0, "rationale": "test", "cited_agents": []},
@@ -293,10 +306,11 @@ async def test_batch_write_tx_skips_cited_when_empty() -> None:
          "sentiment": -0.1, "rationale": "test", "cited_agents": []},
     ]
 
-    await GraphStateManager._batch_write_decisions_tx(tx, decisions, "cycle-1", 1)
+    created = await GraphStateManager._batch_write_decisions_tx(tx, decisions, "cycle-1", 1)
 
     # Only 1 tx.run call (Decision creation, no CITED)
     assert tx.run.await_count == 1
+    assert created == 2
 
 
 @pytest.mark.asyncio()
@@ -305,6 +319,7 @@ async def test_batch_write_tx_creates_cited_when_present() -> None:
     from alphaswarm.graph import GraphStateManager
 
     tx = AsyncMock()
+    tx.run.return_value.single = AsyncMock(return_value={"created": 1})
     decisions = [
         {"decision_id": "d1", "agent_id": "a1", "signal": "buy", "confidence": 0.5,
          "sentiment": 0.0, "rationale": "test", "cited_agents": ["a2"]},
@@ -707,6 +722,7 @@ async def test_write_decisions_returns_decision_ids(
 
     from alphaswarm.graph import GraphStateManager
 
+    mock_driver.session.return_value.execute_write.side_effect = _ack_rows
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     result = await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1)
@@ -728,6 +744,7 @@ async def test_write_decisions_accepts_pregenerated_ids(
     from alphaswarm.graph import GraphStateManager
 
     pre_ids = [f"pre-id-{i}" for i in range(len(sample_agent_decisions))]
+    mock_driver.session.return_value.execute_write.side_effect = _ack_rows
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     result = await gsm.write_decisions(
@@ -1716,3 +1733,69 @@ def test_schema_includes_shock_id_unique_constraint() -> None:
         f"Expected exactly one shock_id_unique constraint, found {len(matches)}: "
         f"{matches!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# T2.1: connectivity check and the decision write-count check
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_verify_connectivity_delegates_to_the_driver(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    mock_driver.verify_connectivity = AsyncMock()
+    await GraphStateManager(driver=mock_driver, personas=[]).verify_connectivity()
+    mock_driver.verify_connectivity.assert_awaited_once()
+
+
+@pytest.mark.asyncio()
+async def test_verify_connectivity_propagates_driver_errors(mock_driver: MagicMock) -> None:
+    from neo4j.exceptions import ServiceUnavailable
+
+    from alphaswarm.graph import GraphStateManager
+
+    mock_driver.verify_connectivity = AsyncMock(side_effect=ServiceUnavailable("down"))
+    with pytest.raises(ServiceUnavailable):
+        await GraphStateManager(driver=mock_driver, personas=[]).verify_connectivity()
+
+
+@pytest.mark.asyncio()
+async def test_write_decisions_raises_when_rows_are_dropped(
+    mock_driver: MagicMock,
+    sample_agent_decisions: list[tuple[str, AgentDecision]],
+) -> None:
+    """A MATCH that finds no Agent/Cycle silently drops rows; that must fail loudly."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_write.side_effect = lambda _fn, rows, *_a: len(rows) - 1
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    with pytest.raises(Neo4jWriteError, match=r"Wrote 2 of 3 decisions .* ensure_schema"):
+        await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1)
+
+
+@pytest.mark.asyncio()
+async def test_write_decisions_with_no_rows_writes_nothing_and_succeeds(
+    mock_driver: MagicMock,
+) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_write.side_effect = _ack_rows
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    assert await gsm.write_decisions([], "test-cycle-id", 1) == []
+
+
+@pytest.mark.asyncio()
+async def test_batch_write_tx_returns_the_cypher_created_count() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    tx = AsyncMock()
+    tx.run.return_value.single = AsyncMock(return_value={"created": 0})
+    rows = [{"decision_id": "d1", "agent_id": "ghost", "signal": "buy", "confidence": 0.5,
+             "sentiment": 0.0, "rationale": "x", "cited_agents": []}]
+
+    assert await GraphStateManager._batch_write_decisions_tx(tx, rows, "cycle-1", 1) == 0
+    assert "RETURN count(dec) AS created" in tx.run.await_args_list[0].args[0]

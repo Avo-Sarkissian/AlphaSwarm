@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
-
 import pytest
 import structlog
 
 from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.governor import ResourceGovernor
+from tests.conftest import clear_alphaswarm_env
 
 
 @pytest.fixture(autouse=True)
@@ -22,9 +21,7 @@ def reset_structlog() -> None:  # noqa: PT004
 
 def test_create_app_state(monkeypatch: pytest.MonkeyPatch) -> None:
     """AppState factory creates a properly initialized container."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    clear_alphaswarm_env(monkeypatch)
 
     settings = AppSettings()
     personas = generate_personas(load_bracket_configs())
@@ -41,9 +38,7 @@ def test_main_entry_point(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Entry point prints startup banner with correct values when no subcommand given."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    clear_alphaswarm_env(monkeypatch)
     # Set sys.argv to simulate no-args invocation (banner mode)
     monkeypatch.setattr("sys.argv", ["alphaswarm"])
 
@@ -56,14 +51,9 @@ def test_main_entry_point(
 
     assert f"AlphaSwarm v{__version__}" in captured.out
     assert "Agents: 100 across 10 brackets" in captured.out
-    # Banner model names come from AppSettings (which may read a local .env);
-    # assert against the same source instead of hardcoding — a hardcoded
-    # model string passes/fails depending on the machine's .env.
-    from alphaswarm.config import AppSettings
-
-    expected = AppSettings()
-    assert f"Orchestrator: {expected.ollama.orchestrator_model}" in captured.out
-    assert f"Workers: {expected.ollama.worker_model}" in captured.out
+    # hermetic_env keeps .env out of AppSettings, so the defaults are exact.
+    assert "Orchestrator: qwen3.6:27b-nvfp4" in captured.out
+    assert "Workers: qwen3.6:35b-a3b-nvfp4" in captured.out
 
 
 def test_main_invalid_config(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,9 +80,7 @@ async def test_governor_stub_async() -> None:
 
 def test_create_app_state_with_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
     """create_app_state with with_ollama=True creates OllamaClient and OllamaModelManager."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    clear_alphaswarm_env(monkeypatch)
 
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
@@ -107,9 +95,7 @@ def test_create_app_state_with_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_create_app_state_without_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
     """create_app_state default (with_ollama=False) has None for ollama fields."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    clear_alphaswarm_env(monkeypatch)
 
     settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
     personas = generate_personas(load_bracket_configs())

@@ -26,7 +26,7 @@ from pydantic import BaseModel
 
 from alphaswarm.advisory import synthesize
 from alphaswarm.config import load_inference_config
-from alphaswarm.inference.factory import build_providers
+from alphaswarm.inference.factory import advisory_allowed, build_providers
 from alphaswarm.types import SimulationPhase
 from alphaswarm.web.routes.report import _validate_cycle_id  # single-source-of-truth regex guard
 
@@ -83,6 +83,31 @@ async def _auto_trigger_report(app: FastAPI, cycle_id: str) -> None:
         log.exception("auto_report_trigger_failed", cycle_id=cycle_id)
 
 
+class CloudAdvisoryDisabledError(Exception):
+    """The orchestrator is a cloud provider and allow_cloud_advisory is off."""
+
+
+_CLOUD_ADVISORY_MESSAGE = (
+    "Advisory is disabled while the orchestrator runs on a cloud provider, so the "
+    "portfolio stays on this machine. Switch the orchestrator to Ollama, or set "
+    "allow_cloud_advisory to true in the inference config to opt in."
+)
+
+
+async def _advisory_permitted(app_state: AppState) -> bool:
+    """advisory_allowed() for the saved config.
+
+    An unreadable config (invalid JSON or schema -> ValueError; no read
+    permission -> OSError) fails closed.
+    """
+    try:
+        cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
+    except (ValueError, OSError) as exc:
+        log.warning("advisory_blocked_config_unreadable", error_type=type(exc).__name__)
+        return False
+    return advisory_allowed(cfg)
+
+
 class GenerateAdvisoryResponse(BaseModel):
     """Response body for POST /api/advisory/{cycle_id} (D-09)."""
 
@@ -101,6 +126,7 @@ async def generate_advisory(cycle_id: str, request: Request) -> GenerateAdvisory
     Guards (in order):
       400: invalid cycle_id (D-12)
       503: graph_manager / ollama_client / model_manager is None
+      409: cloud orchestrator without allow_cloud_advisory (cloud_advisory_disabled)
       503: portfolio_snapshot is None (holdings CSV unavailable — RESEARCH OQ-3)
       409: phase != COMPLETE
       409: report_task or advisory_task in flight (D-08, Pitfall 4)
@@ -119,6 +145,26 @@ async def generate_advisory(cycle_id: str, request: Request) -> GenerateAdvisory
                 "error": "services_unavailable",
                 "message": "Neo4j, Ollama, or ModelManager is not connected",
             },
+        )
+
+    # Never send the portfolio to a cloud orchestrator without the opt-in
+    # (docs/DECISIONS.md#adr-advisory-pipeline). Checked before the holdings
+    # are touched, including the lazy reload below.
+    if not await _advisory_permitted(app_state):
+        # Record the refusal like a refused job: with nothing recorded, GET answers
+        # 404, which the UI shows as "still generating" until its poll times out.
+        refusals: dict[str, dict[str, str]] | None = getattr(
+            request.app.state, "advisory_generation_error", None
+        )
+        if refusals is None:
+            refusals = request.app.state.advisory_generation_error = {}
+        refusals[cycle_id] = {
+            "error": "cloud_advisory_disabled",
+            "message": _CLOUD_ADVISORY_MESSAGE,
+        }
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "cloud_advisory_disabled", "message": _CLOUD_ADVISORY_MESSAGE},
         )
 
     portfolio: PortfolioSnapshot | None = getattr(
@@ -299,8 +345,13 @@ def _on_advisory_task_done(
         if errors is None:
             app.state.advisory_generation_error = {}
             errors = app.state.advisory_generation_error
+        code = (
+            "cloud_advisory_disabled"
+            if isinstance(exc, CloudAdvisoryDisabledError)
+            else "advisory_generation_failed"
+        )
         errors[cycle_id] = {
-            "error": "advisory_generation_failed",
+            "error": code,
             "message": str(exc) or exc.__class__.__name__,
         }
         log.error(
@@ -308,6 +359,7 @@ def _on_advisory_task_done(
             cycle_id=cycle_id,
             error=str(exc),
             exc_type=exc.__class__.__name__,
+            exc_info=exc,
         )
     except Exception:
         log.error("advisory_task_exception_record_failed", cycle_id=cycle_id)
@@ -336,6 +388,10 @@ async def _run_advisory_synthesis(
     assert model_manager is not None
 
     cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
+    if not advisory_allowed(cfg):
+        # The config can change between the POST and this task starting.
+        log.warning("advisory_blocked_cloud_disabled", cycle_id=cycle_id)
+        raise CloudAdvisoryDisabledError(_CLOUD_ADVISORY_MESSAGE)
     built = build_providers(
         cfg,
         ollama_client=ollama_client,
