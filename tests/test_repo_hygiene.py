@@ -264,3 +264,13 @@ def test_textual_is_not_a_dependency() -> None:
 def test_design_prototype_left_the_frontend_tree() -> None:
     assert not (ROOT / "frontend" / "design-reference").exists()
     assert (ROOT / "docs" / "design" / "prototype" / "README.md").is_file()  # G-07 branch A only
+
+
+# --------- Attribution (T12.6) ---------
+
+
+def test_mailmap_maps_the_relay_identity_to_the_owner() -> None:
+    result = _git("check-mailmap", "Gonmyh-7konwe-funmuw <newborn.jujitsu0w@icloud.com>")
+    assert result.returncode == 0, result.stderr
+    owner = "Avo Sarkissian <87339673+Avo-Sarkissian@users.noreply.github.com>"
+    assert result.stdout.strip() == owner
