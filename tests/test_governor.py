@@ -689,3 +689,52 @@ class TestResourceGovernorProtocol:
         settings = GovernorSettings()
         gov = ResourceGovernor(settings)
         assert isinstance(type(gov).is_paused, property)
+
+
+# ---------------------------------------------------------------------------
+# T1.1: a dead monitor aborts with GovernorCrisisError, never TypeError
+# ---------------------------------------------------------------------------
+
+
+def test_governor_crisis_error_duration_is_keyword_only_with_a_default() -> None:
+    assert GovernorCrisisError("crisis").duration_seconds == 0.0
+    assert GovernorCrisisError("crisis", duration_seconds=3.5).duration_seconds == 3.5
+    with pytest.raises(TypeError):
+        GovernorCrisisError("crisis", 3.5)  # type: ignore[misc]
+
+
+class TestGovernorDeadMonitor:
+    """acquire() turns a dead monitor into GovernorCrisisError (docs/DECISIONS.md#p3-d-07)."""
+
+    async def test_acquire_raises_crisis_when_the_memory_read_fails(self) -> None:
+        gov = ResourceGovernor(GovernorSettings(baseline_parallel=4, check_interval_seconds=0.5))
+        gov._monitor = MagicMock()
+        gov._monitor.read_combined = AsyncMock(side_effect=RuntimeError("sysctl died"))
+        await gov.start_monitoring()
+        assert gov._monitor_task is not None
+        await asyncio.wait({gov._monitor_task})
+
+        with pytest.raises(GovernorCrisisError) as exc_info:
+            await gov.acquire()
+
+        assert exc_info.value.duration_seconds == 0.0
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
+        assert gov.active_count == 0
+        await gov.stop_monitoring()
+
+    async def test_a_foreign_monitor_failure_is_wrapped_with_the_crisis_duration(self) -> None:
+        gov = ResourceGovernor(GovernorSettings(baseline_parallel=4))
+
+        async def _die() -> None:
+            raise RuntimeError("monitor died outside the loop's handlers")
+
+        task: asyncio.Task[None] = asyncio.create_task(_die())
+        await asyncio.wait({task})
+        gov._monitor_task = task
+        gov._crisis_start = time.monotonic() - 12.0
+
+        with pytest.raises(GovernorCrisisError) as exc_info:
+            await gov.acquire()
+
+        assert exc_info.value.duration_seconds >= 12.0
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
