@@ -1,7 +1,11 @@
 [project]
 name = "alphaswarm"
 version = "0.1.0"
-description = "Multi-agent financial simulation engine"
+description = "Local-first multi-agent financial simulation engine"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Avo Sarkissian" }]
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.12.5",
@@ -33,11 +37,17 @@ dev = [
     "hypothesis==6.152.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Avo-Sarkissian/AlphaSwarm"
+Repository = "https://github.com/Avo-Sarkissian/AlphaSwarm"
+Issues = "https://github.com/Avo-Sarkissian/AlphaSwarm/issues"
+Changelog = "https://github.com/Avo-Sarkissian/AlphaSwarm/blob/master/docs/HISTORY.md"
+
 [project.scripts]
 start = "alphaswarm.cli:main_web"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.ruff]
