@@ -138,7 +138,7 @@ uv run uvicorn alphaswarm.web.app:app --port 8000      # or ./start (cds to the 
 npm --prefix frontend run dev                           # http://localhost:5173
 ```
 - `http://localhost:8000` serves the UI **only after** `npm --prefix frontend run build`.
-  `frontend/dist/` is gitignored, despite what README says. Without a build, use :5173.
+  `frontend/dist/` is gitignored, so build it first (README Quick Start). Without a build, use :5173.
 - Uvicorn does not hot-reload Python changes in this setup. **Restart the
   backend** after backend edits, and hard-refresh the browser for frontend edits.
 - Fast smoke runs: `ALPHASWARM_NUM_ROUNDS=2`. The UI still shows "/3"
@@ -211,7 +211,7 @@ uv run lint-imports       # holdings isolation contract: must report "kept"
 | `403` on POST/PUT from the UI | Origin guard on state-changing routes | Add the serving origin to `ALPHASWARM_HTTP_ALLOWED_ORIGINS` (JSON list) |
 | `/api/holdings` → `holdings_unavailable` (503); advisory never appears | Backend started from the wrong directory (for example `frontend/`, or `uv run start` from elsewhere), or the CSV is missing or malformed | `lsof -a -d cwd -p "$(lsof -ti tcp:8000 -sTCP:LISTEN)"` must show the repo root (works for `uvicorn`, `./start`, and `uv run start`). Or set `ALPHASWARM_HOLDINGS_CSV_PATH` to an absolute path. A wrong directory also loses `.env` and `.secrets/inference.json` |
 | Advisory returns 404 for a long time | Still generating (404 is the "pending" contract) | Watch the server log for `advisory_generation_complete`. Post-run narratives (100 worker calls) and the model swap run first |
-| Report, advisory, or interview returns `409 report_unavailable` / `advisory_unavailable` / `interview_unavailable` | Phase gate: in-memory phase is not COMPLETE, for example after a backend restart | Known limitation (BACKLOG 1.3). Use the CLI `uv run python -m alphaswarm report --cycle <cycle_id>` for historical cycles. Note that README's `report <cycle_id>` form is wrong; see `cli.py:847-850` |
+| Report, advisory, or interview returns `409 report_unavailable` / `advisory_unavailable` / `interview_unavailable` | Phase gate: in-memory phase is not COMPLETE, for example after a backend restart | Known limitation (BACKLOG 1.3). Use the CLI `uv run python -m alphaswarm report --cycle <cycle_id>` for historical cycles. |
 | `409 *_generation_in_progress` | The other orchestrator job (report/advisory) is running | Wait. The two jobs are serialized on purpose |
 | Graph empty during a round | Backend not streaming per-agent state, or an older backend still running | Restart the backend. Confirm `agent_states` keys in a WS frame |
 | Neo4j auth error at startup | `ALPHASWARM_NEO4J__PASSWORD` unset, or it differs from the initialized volume | README §3 "Migrating". `NEO4J_AUTH` only applies when a volume is first initialized |
