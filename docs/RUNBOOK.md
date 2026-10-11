@@ -194,9 +194,9 @@ that names a held company exercises the advisory. Then check:
 
 **Fast checks (no services needed):**
 ```bash
-uv run pytest -q          # note: tests/integration hits the network (BACKLOG 1.8). Untracked
-                          # iCloud copies like "src/alphaswarm/app 2.py" make
-                          # tests/invariants/test_importlinter_coverage.py fail; delete them first (BACKLOG §8, B2)
+uv run pytest -q          # note: tests/integration hits the network (BACKLOG 1.8). iCloud
+                          # conflict copies ("app 2.py") are gitignored and skipped by
+                          # the --ignore-glob in pyproject addopts (BACKLOG §8, B2)
 cd frontend && npx tsc -b --noEmit && npx vitest run && npm run build
 uv run lint-imports       # holdings isolation contract: must report "kept"
 ```

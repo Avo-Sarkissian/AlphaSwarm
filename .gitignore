@@ -30,3 +30,8 @@ data/sec_tickers.json
 # while it describes unfixed security issues; un-ignore once Phase 3 lands.
 /docs/IMPROVEMENT_PLAN.md
 /docs/plans/
+
+# iCloud Drive / Finder conflict copies ("config 2.py", "README 3.md", "src 2/").
+# They break test collection and coverage; delete them, never commit them.
+* [2-9].*
+* [2-9]

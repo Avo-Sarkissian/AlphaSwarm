@@ -11,9 +11,13 @@ Neo4j fixtures, no second test module may request them.
 from __future__ import annotations
 
 import ast
+import fnmatch
 import re
+import shlex
 import subprocess
+import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -158,3 +162,57 @@ def test_only_the_excluded_file_requests_live_neo4j_fixtures() -> None:
         and _requested_fixtures(_read(rel)) & live
     }
     assert users <= LIVE_NEO4J_TEST_FILES
+
+
+# --------- iCloud duplicates (T12.8) ---------
+
+DUPLICATE_GLOB = "* [2-9].py"
+
+
+def _gitignore_lines() -> list[str]:
+    return [line.strip() for line in _read(".gitignore").splitlines()]
+
+
+def _pyproject() -> dict[str, Any]:
+    with (ROOT / "pyproject.toml").open("rb") as handle:
+        return tomllib.load(handle)
+
+
+def test_gitignore_hides_icloud_duplicates() -> None:
+    lines = _gitignore_lines()
+    assert "* [2-9].*" in lines
+    assert "* [2-9]" in lines
+
+
+@pytest.mark.parametrize(
+    ("path", "ignored"),
+    [
+        ("src/alphaswarm/config 2.py", True),
+        (".env 3.example", True),
+        ("AlphaSwarm-2/src 2", True),
+        ("src/alphaswarm/config.py", False),
+        ("tests/test_phase2.py", False),
+    ],
+)
+def test_git_ignores_only_icloud_copies(path: str, ignored: bool) -> None:
+    result = _git("check-ignore", "-q", "--no-index", path)
+    assert (result.returncode == 0) is ignored
+
+
+def test_pytest_skips_icloud_duplicate_test_files() -> None:
+    addopts = shlex.split(_pyproject()["tool"]["pytest"]["ini_options"]["addopts"])
+    assert f"--ignore-glob={DUPLICATE_GLOB}" in addopts
+
+
+@pytest.mark.parametrize(
+    ("path", "ignored"),
+    [
+        ("/Users/me/Documents/VS Code/AlphaSwarm/tests/test_config 2.py", True),
+        ("/Users/me/dev/AlphaSwarm/src/alphaswarm/worker 3.py", True),
+        ("/Users/me/Documents/VS Code/AlphaSwarm/tests/test_config.py", False),
+        ("/Users/me/VS 2/AlphaSwarm/tests/test_web.py", False),
+        ("/Users/me/dev/AlphaSwarm/tests/test_phase2.py", False),
+    ],
+)
+def test_duplicate_glob_matches_only_icloud_copies(path: str, ignored: bool) -> None:
+    assert fnmatch.fnmatch(path, DUPLICATE_GLOB) is ignored

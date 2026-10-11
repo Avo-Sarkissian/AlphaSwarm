@@ -34,7 +34,7 @@ _KNOWN_NON_SOURCE: frozenset[str] = frozenset(
 )
 
 
-def _enumerate_actual_packages() -> set[str]:
+def _enumerate_actual_packages(src: Path = SRC) -> set[str]:
     """Walk src/alphaswarm and return every package dotted path.
 
     A 'package' is any directory containing __init__.py; a 'module' at the top level
@@ -57,6 +57,10 @@ def _enumerate_actual_packages() -> set[str]:
         for child in dir_path.iterdir():
             if child.name.startswith("_") or child.name.startswith("."):
                 continue
+            # iCloud conflict copies ("config 2.py", "src 2/") are not importable
+            # modules: skip every name that is not a valid Python identifier.
+            if not (child.stem if child.is_file() else child.name).isidentifier():
+                continue
             if child.is_dir() and (child / "__init__.py").exists():
                 pkg = f"{dotted_prefix}.{child.name}"
                 found.add(pkg)
@@ -65,7 +69,7 @@ def _enumerate_actual_packages() -> set[str]:
                 mod = f"{dotted_prefix}.{child.stem}"
                 found.add(mod)
 
-    _walk(SRC, "alphaswarm")
+    _walk(src, "alphaswarm")
     return found
 
 
@@ -139,3 +143,14 @@ def test_forbidden_modules_is_exactly_alphaswarm_holdings() -> None:
         "Holdings isolation contract must forbid ONLY alphaswarm.holdings. "
         f"Current: {contract['forbidden_modules']}"
     )
+
+
+def test_enumeration_skips_icloud_conflict_copies(tmp_path: Path) -> None:
+    """T12.8: "config 2.py" and "src 2/" must not be enumerated as modules."""
+    pkg = tmp_path / "alphaswarm"
+    (pkg / "web").mkdir(parents=True)
+    (pkg / "src 2").mkdir()
+    for rel in ("__init__.py", "config.py", "config 2.py", "web/__init__.py",
+                "web/app 3.py", "src 2/__init__.py"):
+        (pkg / rel).write_text("", encoding="utf-8")
+    assert _enumerate_actual_packages(pkg) == {"alphaswarm.config", "alphaswarm.web"}
