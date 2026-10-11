@@ -194,7 +194,9 @@ that names a held company exercises the advisory. Then check:
 
 **Fast checks (no services needed):**
 ```bash
-uv run pytest -q          # note: tests/integration hits the network (BACKLOG 1.8). iCloud
+uv run pytest -q --ignore=tests/test_graph_integration.py --ignore=tests/test_integration_inference.py
+                          # the two ignored modules need live Neo4j / Ollama; the Neo4j one would
+                          # write to the live database. tests/integration hits the network (BACKLOG 1.8). iCloud
                           # conflict copies ("app 2.py") are gitignored and skipped by
                           # the --ignore-glob in pyproject addopts (BACKLOG §8, B2)
 cd frontend && npx tsc -b --noEmit && npx vitest run && npm run build
