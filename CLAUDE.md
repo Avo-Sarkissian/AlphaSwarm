@@ -72,7 +72,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 - Ollama must run with `OLLAMA_USE_MLX=1`, or the nvfp4 models silently fall back to slow llama.cpp. When a simulation is suddenly slow, check the server env first (`docs/RUNBOOK.md` §1).
 - Orchestrator calls pass `think=False`. Output caps (`num_predict`) and `num_ctx` live in the Modelfiles, not in per-request options.
 - Tests never touch the dev database. Neo4j tests run against the throwaway `neo4j-test` container on 127.0.0.1:7688 (`scripts/neo4j_test.sh up`); its session fixture refuses port 7687 and non-empty databases, and its teardown is the only unscoped `DETACH DELETE` allowed (`docs/DECISIONS.md#adr-tests-scoped-cleanup`). Start and stop it only with `scripts/neo4j_test.sh`: a bare `docker compose --profile test down` also removes the dev container, and any `compose down` deletes the project network a stopped dev container needs.
-- iCloud Drive creates `* 2.py` conflict copies in this folder. Delete them; don't "fix" tests they break.
+- The repo lives at `~/dev/AlphaSwarm`, outside iCloud Drive (moved 2026-10). If `* 2.py`-style conflict copies ever appear, they are gitignored and skipped by pytest; delete them, don't "fix" tests they break.
 
 ## Project Docs
 

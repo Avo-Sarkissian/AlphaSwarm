@@ -54,6 +54,7 @@ M1 Max with 64 GB, where memory pressure is the main way things fail.
 - **06-26 → 08-02:** Ran the full simulation on NVIDIA's free OpenAI-compatible API (llama-3.1-8b worker, llama-3.3-70b orchestrator) by tuning RPM, in-flight, and retry settings. The CLI was fixed to honor the cloud config (342b285).
 - **08-01/02: Four Claude Security scans.** Fixes: no default Neo4j password, loopback-only Neo4j, fenced RSS headlines in prompts, WS Origin validation, an Origin guard on state-changing routes, and owner-only key files.
 - **10-03:** GSD planning retired. Its knowledge was ported to `docs/`.
+- **2026-10: Repository hygiene.** Fictional holdings fixtures, iCloud duplicates removed and ignored, an MIT LICENSE, package metadata, an `alphaswarm` console script with a single version source (0.6.0), README false claims removed, and the working copy moved out of iCloud Drive to `~/dev/AlphaSwarm`.
 
 ## Major pivots
 
