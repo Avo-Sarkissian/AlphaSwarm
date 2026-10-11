@@ -308,6 +308,7 @@ def _on_advisory_task_done(
             cycle_id=cycle_id,
             error=str(exc),
             exc_type=exc.__class__.__name__,
+            exc_info=exc,
         )
     except Exception:
         log.error("advisory_task_exception_record_failed", cycle_id=cycle_id)

@@ -263,7 +263,7 @@ class SimulationManager:
             log.info("simulation_cancelled")
         else:
             exc = task.exception()
-            log.error("simulation_failed", error=str(exc))
+            log.error("simulation_failed", error=str(exc), exc_info=exc)
 
     def stop(self) -> None:
         """Stop the running simulation by cancelling the background task.
