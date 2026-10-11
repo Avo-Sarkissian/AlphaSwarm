@@ -32,9 +32,9 @@ This runs `launchctl setenv` and also installs the LaunchAgent
 **`launchctl setenv` does not survive a reboot.** A reboot once left the swarm
 running serially for weeks. The script header has the commands to reverse it.
 
-**Terminal `ollama serve`:** `./scripts/start_ollama.sh`.
-Caveat: it does **not** export `OLLAMA_USE_MLX=1` (BACKLOG 1.5). Until that is
-fixed, run `OLLAMA_USE_MLX=1 ./scripts/start_ollama.sh`.
+**Terminal `ollama serve`:** `./scripts/start_ollama.sh`. It exports
+`OLLAMA_USE_MLX=1`, `OLLAMA_NUM_PARALLEL=4` and `OLLAMA_MAX_LOADED_MODELS=2`;
+any of them already set in your shell wins.
 
 **Verify what the running server actually has:**
 ```bash
