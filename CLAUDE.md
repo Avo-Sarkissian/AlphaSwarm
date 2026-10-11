@@ -73,7 +73,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 - Orchestrator calls pass `think=False`. Output caps (`num_predict`) and `num_ctx` live in the Modelfiles, not in per-request options.
 - The web lifespan does not call `ensure_schema()` yet, so an empty database persists nothing until the CLI `run`/`inject` path has run once.
 - Tests share the single live Neo4j database. Never write an unscoped `DETACH DELETE`; cleanup must target only the test's own data (`docs/DECISIONS.md#adr-tests-scoped-cleanup`).
-- iCloud Drive creates `* 2.py` conflict copies in this folder. Delete them; don't "fix" tests they break.
+- The repo lives at `~/dev/AlphaSwarm`, outside iCloud Drive (moved 2026-10). If `* 2.py`-style conflict copies ever appear, they are gitignored and skipped by pytest; delete them, don't "fix" tests they break.
 
 ## Project Docs
 
