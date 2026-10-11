@@ -71,7 +71,6 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 - Start the backend from the repo root: `.env`, `Schwab/holdings.csv`, `.secrets/`, `advisory/`, and `reports/` are all resolved relative to the working directory.
 - Ollama must run with `OLLAMA_USE_MLX=1`, or the nvfp4 models silently fall back to slow llama.cpp. When a simulation is suddenly slow, check the server env first (`docs/RUNBOOK.md` §1).
 - Orchestrator calls pass `think=False`. Output caps (`num_predict`) and `num_ctx` live in the Modelfiles, not in per-request options.
-- The web lifespan does not call `ensure_schema()` yet, so an empty database persists nothing until the CLI `run`/`inject` path has run once.
 - Tests never touch the dev database. Neo4j tests run against the throwaway `neo4j-test` container on 127.0.0.1:7688 (`scripts/neo4j_test.sh up`); its session fixture refuses port 7687 and non-empty databases, and its teardown is the only unscoped `DETACH DELETE` allowed (`docs/DECISIONS.md#adr-tests-scoped-cleanup`). Never run `docker compose --profile test down` without a service name: it also removes the dev container.
 - iCloud Drive creates `* 2.py` conflict copies in this folder. Delete them; don't "fix" tests they break.
 

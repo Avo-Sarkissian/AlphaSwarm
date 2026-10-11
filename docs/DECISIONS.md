@@ -260,6 +260,7 @@ Contents
 - **Decision:**
   - Uvicorn owns the event loop. Every stateful object is built in the FastAPI lifespan ([p29-d-04](#p29-d-04)).
   - Each domain has a sub-router.
+  - Startup verifies Neo4j and runs `ensure_schema()` (constraints, indexes, and the 100 Agent nodes every write matches). Driver or auth errors log `neo4j_unavailable_at_startup`, set `app.state.neo4j_ready = False`, and the server keeps serving (2026-10).
   - FastAPI serves `frontend/dist` at `/` when it has been built ([p31-d-02](#p31-d-02)). In development, Vite on :5173 proxies `/api` and `/ws`, with `changeOrigin: true` on both.
   - `./start` (cds to the repo root, then runs `python -m alphaswarm web`) and `uv run start` (`cli:main_web`, no cd) both run uvicorn on 127.0.0.1:8000. Several paths are CWD-relative (`.env`, holdings CSV, `.secrets/inference.json`, `advisory/`, `reports/`), so the server must start from the repo root.
 

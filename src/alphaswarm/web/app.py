@@ -7,9 +7,12 @@ import contextlib
 import os
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import FastAPI
+from neo4j.exceptions import AuthError as Neo4jAuthError
+from neo4j.exceptions import DriverError, Neo4jError
 from starlette.staticfiles import StaticFiles
 
 from alphaswarm.app import create_app_state
@@ -32,7 +35,43 @@ from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
 from alphaswarm.web.simulation_manager import SimulationManager, _auto_trigger_advisory
 
+if TYPE_CHECKING:
+    from alphaswarm.graph import GraphStateManager
+
 log = structlog.get_logger(component="web.app")
+
+
+async def _prepare_neo4j(graph_manager: GraphStateManager | None) -> bool:
+    """Verify Neo4j, then apply the idempotent schema; return readiness.
+
+    ensure_schema() also seeds the 100 Agent nodes every write MATCHes, so a
+    fresh database persists nothing until it has run (docs/DECISIONS.md#p4-d-05).
+    A down or misconfigured database must not stop the server from starting,
+    so driver and auth errors are logged (with the fix for that failure) and
+    reported as not ready.
+    """
+    if graph_manager is None:
+        return False
+    try:
+        await graph_manager.verify_connectivity()
+        await graph_manager.ensure_schema()
+    except (DriverError, Neo4jError) as exc:
+        fix = (
+            "set ALPHASWARM_NEO4J__PASSWORD in .env to the database's password, "
+            "then restart the server"
+            if isinstance(exc, Neo4jAuthError)
+            else "start Neo4j (docker compose up -d neo4j, or docker start <name> for a "
+            "container you created yourself), then restart the server"
+        )
+        log.warning(
+            "neo4j_unavailable_at_startup",
+            error_type=type(exc).__name__,
+            error=str(exc),
+            fix=fix,
+        )
+        return False
+    log.info("neo4j_schema_ready")
+    return True
 
 
 def make_session_clearer(app: FastAPI) -> Callable[[], None]:
@@ -127,6 +166,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.sim_manager = sim_manager
     app.state.replay_manager = replay_manager
     app.state.connection_manager = connection_manager
+    app.state.neo4j_ready = await _prepare_neo4j(app_state.graph_manager)
 
     # Phase 39 D-07, D-08 + CLAUDE.md Hard Constraint 1: eager-load holdings
     # snapshot off the event loop via asyncio.to_thread. The synchronous
