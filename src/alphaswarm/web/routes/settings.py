@@ -363,6 +363,9 @@ async def put_settings(
                 "pricing_overrides",
                 {k: v.model_dump() for k, v in stored.pricing_overrides.items()},
             ),
+            # Not editable from the Settings UI yet: keep the stored opt-in so a
+            # save never silently changes the advisory privacy setting.
+            "allow_cloud_advisory": stored.allow_cloud_advisory,
         }
 
         merged_cfg = InferenceConfig.model_validate(merged_dict)

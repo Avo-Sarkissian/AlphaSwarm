@@ -532,3 +532,23 @@ def test_an_explicit_path_wins_over_settings(
     assert not from_settings.exists()
     assert load_inference_config(settings, explicit).orchestrator.provider == ProviderType.ANTHROPIC
     assert load_inference_config(settings).orchestrator.provider == ProviderType.OLLAMA
+
+
+def test_allow_cloud_advisory_defaults_off_and_round_trips(tmp_path: Path) -> None:
+    dest = tmp_path / "inference.json"
+    assert _cloud_cfg().allow_cloud_advisory is False
+    save_inference_config(_cloud_cfg().model_copy(update={"allow_cloud_advisory": True}), dest)
+    assert load_inference_config(AppSettings(_env_file=None), dest).allow_cloud_advisory is True  # type: ignore[call-arg]
+
+
+def test_a_config_file_written_before_the_flag_existed_loads_with_the_flag_off(
+    tmp_path: Path,
+) -> None:
+    dest = tmp_path / "inference.json"
+    dest.write_text(
+        '{"orchestrator": {"provider": "anthropic", "model": "claude-fictional", '
+        '"api_key": "sk-fictional-2222"}, '
+        '"worker": {"provider": "ollama", "model": "alphaswarm-worker"}}',
+        encoding="utf-8",
+    )
+    assert load_inference_config(AppSettings(_env_file=None), dest).allow_cloud_advisory is False  # type: ignore[call-arg]

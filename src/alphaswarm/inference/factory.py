@@ -5,6 +5,7 @@ the right ``ConcurrencyController`` for swarm execution.
 
 Public surface:
     inference_mode  — classify cfg as "local" | "cloud" | "mixed"
+    advisory_allowed — may the advisory send portfolio data to the orchestrator?
     BuiltProviders  — frozen dataclass holding the two providers + shared meter
     build_providers — construct providers from cfg, wrapping cloud ones in budget guard
     build_controller — select ResourceGovernor (local) or RateLimitController (cloud)
@@ -50,6 +51,16 @@ def inference_mode(cfg: InferenceConfig) -> Literal["local", "cloud", "mixed"]:
     if not orch_local and not worker_local:
         return "cloud"
     return "mixed"
+
+
+def advisory_allowed(cfg: InferenceConfig) -> bool:
+    """True when the advisory may send portfolio data to the orchestrator.
+
+    A local (Ollama) orchestrator is always allowed. A cloud orchestrator needs
+    the explicit ``allow_cloud_advisory`` opt-in
+    (docs/DECISIONS.md#adr-advisory-pipeline).
+    """
+    return cfg.orchestrator.provider == ProviderType.OLLAMA or bool(cfg.allow_cloud_advisory)
 
 
 # ---------------------------------------------------------------------------

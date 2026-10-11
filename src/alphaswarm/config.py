@@ -192,6 +192,9 @@ class InferenceConfig(BaseModel):
     limits: dict[ProviderType, ProviderLimits] = Field(default_factory=dict)
     spend_cap_usd: Decimal | None = None
     pricing_overrides: dict[str, ModelPrice] = Field(default_factory=dict)
+    # Portfolio data goes to a cloud orchestrator only with this explicit
+    # opt-in; off by default (docs/DECISIONS.md#adr-advisory-pipeline).
+    allow_cloud_advisory: bool = False
 
 
 # Path constant: .secrets/ is gitignored; the file is created on first save.

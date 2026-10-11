@@ -660,3 +660,26 @@ def test_put_saves_through_app_settings_not_a_hard_coded_path() -> None:
     assert r.status_code == 200
     assert captured["path"] is None
     assert captured["settings"] is expected_settings
+
+
+def test_put_keeps_the_stored_cloud_advisory_opt_in() -> None:
+    """The Settings UI cannot change allow_cloud_advisory yet, so a save must
+    not silently reset an opt-in the operator set in the config file."""
+    saved: list[InferenceConfig] = []
+
+    def _fake_save(
+        cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
+    ) -> None:
+        saved.append(cfg)
+
+    stored = _ANTHROPIC_CFG.model_copy(update={"allow_cloud_advisory": True})
+    with (
+        _mock_load_cfg(stored),
+        patch("alphaswarm.web.routes.settings.save_inference_config", side_effect=_fake_save),
+        TestClient(_make_settings_test_app()) as client,
+    ):
+        r = client.put("/api/settings", json={"worker": {"model": "claude-3-5-sonnet-latest"}})
+
+    assert r.status_code == 200
+    assert saved[0].allow_cloud_advisory is True
+    assert saved[0].worker.model == "claude-3-5-sonnet-latest"
