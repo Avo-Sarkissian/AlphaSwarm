@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import alphaswarm.web.routes.advisory as advisory_module
+from alphaswarm.config import AppSettings, InferenceConfig, ProviderType, RoleConfig
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.types import SimulationPhase
 from alphaswarm.web.routes.advisory import (
@@ -47,9 +48,10 @@ def _make_app(
     # Build app_state surface the route reads
     state_snapshot = SimpleNamespace(phase=phase)
     state_store = SimpleNamespace(snapshot=lambda: state_snapshot)
-    settings = SimpleNamespace(
-        ollama=SimpleNamespace(orchestrator_model_alias="alphaswarm-orchestrator"),
-    )
+    # Real settings: hermetic_env points the inference config at a missing file
+    # (local defaults, so the cloud-advisory guard allows the call) and the
+    # holdings CSV at a path that never exists.
+    settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
     app_state = SimpleNamespace(
         settings=settings,
         state_store=state_store,
@@ -285,3 +287,77 @@ async def test_advisory_done_cancelled_no_report(
     await _drain_report_chain()
 
     fake_trigger.assert_not_called()
+
+
+# ------ Cloud-advisory guard (docs/DECISIONS.md#adr-advisory-pipeline) ------
+
+
+def _cloud_cfg(*, opt_in: bool) -> InferenceConfig:
+    role = RoleConfig(
+        provider=ProviderType.ANTHROPIC, model="claude-fictional", api_key="sk-fictional-3333"
+    )
+    return InferenceConfig(orchestrator=role, worker=role, allow_cloud_advisory=opt_in)
+
+
+def test_post_advisory_409_for_a_cloud_orchestrator_without_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        advisory_module, "load_inference_config", lambda _s: _cloud_cfg(opt_in=False)
+    )
+    app = _make_app(portfolio=_fake_portfolio())
+
+    r = TestClient(app).post("/api/advisory/cycle_01")
+
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
+    assert app.state.advisory_task is None
+
+
+def test_the_cloud_guard_runs_before_the_holdings_are_touched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        advisory_module, "load_inference_config", lambda _s: _cloud_cfg(opt_in=False)
+    )
+    reloads: list[Any] = []
+    monkeypatch.setattr(
+        "alphaswarm.web.routes.holdings.load_portfolio_snapshot", lambda p: reloads.append(p)
+    )
+    app = _make_app(portfolio=None)
+
+    r = TestClient(app).post("/api/advisory/cycle_01")
+
+    assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
+    assert reloads == []
+
+
+def test_post_advisory_202_for_a_cloud_orchestrator_with_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        advisory_module, "load_inference_config", lambda _s: _cloud_cfg(opt_in=True)
+    )
+    app = _make_app(portfolio=_fake_portfolio())
+
+    assert TestClient(app).post("/api/advisory/cycle_01").status_code == 202
+
+
+@pytest.mark.parametrize(
+    "error",
+    [ValueError("Failed to parse inference config"), PermissionError("permission denied")],
+    ids=["corrupt", "no-permission"],
+)
+def test_an_unreadable_inference_config_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    def _broken(_settings: Any) -> InferenceConfig:
+        raise error
+
+    monkeypatch.setattr(advisory_module, "load_inference_config", _broken)
+    app = _make_app(portfolio=_fake_portfolio())
+
+    r = TestClient(app).post("/api/advisory/cycle_01")
+
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
