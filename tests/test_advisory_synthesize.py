@@ -44,7 +44,7 @@ def test_sector_map_unknown_default() -> None:
 
     macro_beta=0.5 (not 0.0) so seed-text matches can still promote unknown
     tickers via the `|impact| × |beta| + 0.5 × seed_match` formula —
-    SWEEP-260528 B-8 raised the default from 0.0 to 0.5 to keep relevance
+    docs/DECISIONS.md#sweep-b-8 raised the default from 0.0 to 0.5 to keep relevance
     scoring honest when the seed names a ticker outside SECTOR_MAP.
     """
     assert lookup("NOTREAL") == UNKNOWN_SECTOR
@@ -127,7 +127,7 @@ def test_seed_match_multiword_sector_phrase() -> None:
 
 def test_enrich_holdings_unknown_ticker_falls_back() -> None:
     """Unknown ticker still appears in enriched output with UNKNOWN sector
-    and the SWEEP-260528 B-8 default macro_beta of 0.5."""
+    and the docs/DECISIONS.md#sweep-b-8 default macro_beta of 0.5."""
     holdings = [{"ticker": "ZZZZZ"}]
     enriched = engine._enrich_holdings(holdings, entity_impacts={}, seed_text="")
     assert len(enriched) == 1
@@ -142,7 +142,7 @@ def test_enrich_holdings_unknown_ticker_falls_back() -> None:
 
 def test_prompt_instructs_conviction_items_only() -> None:
     """Prompt MUST instruct the LLM to emit conviction items only — engine
-    pads HOLD@0.30 server-side for no-signal holdings (SWEEP-260528 B-7)."""
+    pads HOLD@0.30 server-side for no-signal holdings (docs/DECISIONS.md#sweep-b-7)."""
     msgs = build_advisory_prompt(
         cycle_id="c1",
         seed_rumor="test seed",
@@ -160,7 +160,7 @@ def test_prompt_instructs_conviction_items_only() -> None:
 def test_prompt_renders_top_holdings_only() -> None:
     """Only top_holdings is rendered to the LLM. rest_holdings is accepted
     for back-compat but intentionally not included in the user message —
-    engine.py pads the unsent holdings server-side (SWEEP-260528 B-7)."""
+    engine.py pads the unsent holdings server-side (docs/DECISIONS.md#sweep-b-7)."""
     msgs = build_advisory_prompt(
         cycle_id="c1",
         seed_rumor="seed",

@@ -2,7 +2,7 @@
 //
 // Allowlist of UI-only keys that are safe to persist. Backend-touching keys
 // (model, inferenceSlots, memoryThreshold, agentCount, bracketWeights, keysTomlPath)
-// per CONTEXT.md D-23 are NOT in the allowlist and will be dropped silently.
+// per docs/DECISIONS.md#p41-6-d-23 are NOT in the allowlist and will be dropped silently.
 //
 // The previous setItem-only grep gate caught backend keys appearing as the
 // LITERAL key argument in `setItem(...)` but missed backend keys nested inside

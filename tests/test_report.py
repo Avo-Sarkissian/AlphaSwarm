@@ -382,7 +382,7 @@ class TestMarkdownAssembler:
 
     The HTML report path was removed (v4.0 → v6.0 migration): reports are now
     markdown that the frontend renders via marked.js. These tests target the
-    surviving `ReportAssembler.assemble()` method (SWEEP-260528 B-1).
+    surviving `ReportAssembler.assemble()` method (docs/DECISIONS.md#sweep-b-1).
     """
 
     def test_produces_markdown_document(self) -> None:

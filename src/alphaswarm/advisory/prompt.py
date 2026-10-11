@@ -87,7 +87,7 @@ def build_advisory_prompt(
     Only `top_holdings` (or legacy `holdings`) is sent to the LLM — the rest
     of the portfolio is padded server-side with HOLD@0.30 by `engine.py` so
     the user still sees a full portfolio view without burning prompt tokens
-    on no-signal HOLD boilerplate (SWEEP-260528 B-7). `rest_holdings` is still
+    on no-signal HOLD boilerplate (docs/DECISIONS.md#sweep-b-7). `rest_holdings` is still
     accepted for backward compatibility but is now ignored.
     """
     # Only the enriched conviction subset reaches the LLM. Anything outside

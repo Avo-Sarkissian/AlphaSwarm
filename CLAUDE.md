@@ -1,25 +1,28 @@
 # AlphaSwarm: Core Directives
 
 **Identity:** Senior Quantitative AI Engineer.
-**Mission:** Build a localized, multi-agent financial simulation engine. Ingest a "Seed Rumor," run a 3-round iterative consensus cascade across 100 distinct AI personas, and visualize real-time state through a web UI.
+**Mission:** Build a local-first, multi-agent financial simulation engine. Ingest a "Seed Rumor," run a multi-round consensus cascade (default 3 rounds, `ALPHASWARM_NUM_ROUNDS=2|3`) across 100 distinct AI personas, and visualize real-time state through a web UI.
 **Hardware Target:** Apple M1 Max 64GB. Memory pressure is the primary bottleneck.
 
 ## Hard Constraints
 
 1. **Concurrency:** 100% async (`asyncio`). No blocking I/O on the main event loop.
-2. **Local First:** All inference local via Ollama. No cloud APIs. Max 2 models loaded simultaneously.
-3. **Memory Safety:** Monitor RAM via `psutil`. Dynamically throttle `asyncio` semaphores; pause task queue at 90% utilization.
+2. **Local First:** Inference runs on the local Ollama server by default, with zero configuration. Cloud providers (OpenAI-compatible, Anthropic) are strictly opt-in through the Settings UI / `.secrets/inference.json`. Never make cloud the default; never commit or log API keys. Max 2 Ollama models loaded simultaneously.
+3. **Memory Safety:** Monitor RAM via `psutil` plus macOS kernel memory pressure. Dynamically throttle `asyncio` semaphores; pause the task queue at 90% utilization. (In cloud mode the rate-limit controller replaces the memory governor.)
 4. **WebSocket Cadence:** Broadcaster emits snapshots at ~5Hz. Drop-oldest backpressure on per-client queues. Never block the simulation loop on slow clients.
+5. **Holdings Isolation:** Portfolio data never enters swarm prompts, Neo4j, WebSocket frames, or logs. Only `alphaswarm.advisory` and `alphaswarm.web.routes.{holdings,advisory}` may import `alphaswarm.holdings`. Enforced by import-linter (pre-commit hook, and via `tests/invariants/`) plus a sentinel canary test. `Schwab/` holds the owner's real brokerage CSVs: never commit, quote, or copy values from it into code, tests, or docs. Use fictional fixtures.
 
 ## Technology Stack
 
 - **Runtime:** Python 3.11+ (strict typing), `uv` (package manager), `pytest-asyncio`.
-- **Inference:** `ollama-python` (>=0.6.1). Local Ollama server only. Orchestrator + worker model pair.
-- **State / Memory:** Neo4j Community (Docker) via async `neo4j` driver.
+- **Inference:** `ollama-python` (>=0.6.1) against local Ollama with the MLX backend (`OLLAMA_USE_MLX=1`). Code calls the aliases `alphaswarm-orchestrator` (qwen3.6:27b-nvfp4) and `alphaswarm-worker` (qwen3.6:35b-a3b-nvfp4), built from `modelfiles/`. Optional cloud adapters sit behind the `InferenceProvider` protocol in `src/alphaswarm/inference/`.
+- **State / Memory:** Neo4j Community 5.26 (Docker, loopback only) via the async `neo4j` driver (<6.0).
+- **Market data:** `yfinance` and RSS (`feedparser` + `httpx`) providers in `src/alphaswarm/ingestion/`. They never raise; failures become `fetch_failed` slices.
 - **Web Backend:** FastAPI + `uvicorn`, native WebSocket support, `httpx` for outbound calls.
-- **Web Frontend:** React + TypeScript, Vite build, D3 (d3-scale/selection/transition) for visualization primitives; deterministic SVG layout for the 100-agent "mirofish" graph (see KR-41.1-01 for d3-force displacement rationale).
+- **Web Frontend:** React + TypeScript, Vite build, D3 (d3-scale/selection/transition) for visualization primitives; deterministic SVG layout for the 100-agent "mirofish" graph (`docs/DECISIONS.md#kr-41-1-01` explains why d3-force was dropped).
 - **Validation / Config:** `pydantic`, `pydantic-settings`.
-- **Logging:** `structlog`.
+- **Logging:** `structlog`, with a fail-closed PII redaction processor.
+- **Testing:** pytest with `pytest-socket` (network off by default; `tests/integration/` opts in) and `hypothesis`; vitest wire-contract tests in `frontend/src/__tests__/`.
 
 ## Swarm Composition (v2, 2026-06-10)
 
@@ -38,23 +41,58 @@ The 10 brackets (counts/weights in `config.py:DEFAULT_BRACKETS`, rationale in
 capital — Sell-Side and Narrators rank highest by design. Action-bias mix is
 deliberate: 4 hold-biased, 4 act-biased, 1 sell-biased, 1 second-order.
 
-## Conventions
-
-Conventions not yet established. Will populate as patterns emerge during development.
-
 ## Architecture
 
-Architecture not yet mapped. Follow existing patterns found in the codebase.
+Full map: `docs/ARCHITECTURE.md`. In short:
 
-## GSD Workflow Enforcement
+- **Composition roots:** `cli.py` (`inject | run | report | web`), `app.py` (`AppState`), `web/app.py` (FastAPI lifespan: builds AppState and the managers, starts the 5 Hz broadcaster).
+- **Engine:** `seed.py` (orchestrator parses the rumor → Cycle + Entities) → `simulation.py` (`run_simulation`: rounds, in-memory diverse peer selection, influence edges, narratives, metrics) → `batch_dispatcher.py` (TaskGroup of 100 jittered agent calls) → `worker.py` (schema-constrained decision) → `parsing.py` (3-tier fallback).
+- **Concurrency:** `governor.py` + `memory_monitor.py` locally; `inference/rate_limit.py` for cloud. Both implement `inference/concurrency.py:ConcurrencyController`.
+- **Inference:** `inference/` (provider protocol, Ollama/OpenAI-compatible/Anthropic adapters, budget, factory) on top of `ollama_client.py` / `ollama_models.py`.
+- **Persistence:** `graph.py` (GraphStateManager: schema, writes, report/replay/interview queries). Graph model is in `docs/ARCHITECTURE.md`.
+- **Post-run:** `advisory/` (portfolio synthesis), `report.py` + `templates/report/` (ReAct → markdown), `interview.py`.
+- **Live state:** `state.py` (StateStore/ReplayStore) → `web/broadcaster.py` → `/ws/state` → `frontend/src/hooks/useWebSocket.ts` → `adapter/frame.ts` → React contexts → SVG graph.
 
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+## Conventions
 
-- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd:debug` for investigation and bug fixing
-- `/gsd:execute-phase` for planned phase work
+- **Python:** `from __future__ import annotations`; heavy or cyclic imports under `if TYPE_CHECKING:`. Ruff line length 100.
+- **Data models:** frozen pydantic models at LLM/ingestion boundaries (AgentDecision, SeedEvent, ingestion slices); frozen dataclasses for internal value objects; TypedDict for chat messages. Settings via pydantic-settings, prefix `ALPHASWARM_`, `__` for nesting.
+- **Async:** fan-out with `asyncio.TaskGroup` (no bare `create_task` in the engine). Long-running jobs use `create_task` with a strong-reference set and a done-callback. Blocking I/O goes through `asyncio.to_thread` or aiofiles. Loop-bound objects are created inside the FastAPI lifespan. Seams are Protocols.
+- **Logging:** `log = structlog.get_logger(component="<area>")`. Event names are snake_case past tense (`decisions_written`) with scalar key/value context. Never log holdings objects; log counts or hashes.
+- **Errors:** domain exceptions live in `errors.py`. Routes raise `HTTPException(status, detail={"error": "<snake_code>", "message": ...})`: 409 for state conflicts, 503 for unavailable services, 400 for bad ids. `AuthError` and `BudgetExceededError` are never swallowed.
+- **Neo4j:** a public `async def read_*/write_*` method plus a `@staticmethod async def _<verb>_tx(tx, ...)`. Batch writes use `UNWIND $rows`, schema statements use `IF NOT EXISTS`, and signals are stored lowercase.
+- **LLM calls:** prompts are lists of `InferenceMessage` dicts. The worker decodes against a JSON schema; orchestrator calls use `json_mode=True` plus tiered parse fallbacks. Untrusted text (RSS headlines, peer rationales) is sanitized and fenced, and never placed in the system role.
+- **Comments:** cite `docs/DECISIONS.md#<anchor>` for design rationale. Legacy bare IDs (`D-xx`, `KR-…`, `F-xx`) are indexed there by file and line. Replace them with anchors when you next touch the comment.
+- **Tests:** `asyncio_mode=auto`; sockets are disabled globally (`@pytest.mark.enable_socket` opts in). Fakes are in `tests/inference/fakes.py`; architectural invariants are in `tests/invariants/`.
+- **Commits:** Conventional Commits with a scope (`fix(security): …`, `feat(inference): …`), an imperative summary, and an explanatory body.
 
-Do not make direct repo edits outside a GSD workflow unless explicitly asked.
+## Gotchas
+
+- Start the backend from the repo root: `.env`, `Schwab/holdings.csv`, `.secrets/`, `advisory/`, and `reports/` are all resolved relative to the working directory.
+- Ollama must run with `OLLAMA_USE_MLX=1`, or the nvfp4 models silently fall back to slow llama.cpp. When a simulation is suddenly slow, check the server env first (`docs/RUNBOOK.md` §1).
+- Orchestrator calls pass `think=False`. Output caps (`num_predict`) and `num_ctx` live in the Modelfiles, not in per-request options.
+- The web lifespan does not call `ensure_schema()` yet, so an empty database persists nothing until the CLI `run`/`inject` path has run once.
+- Tests share the single live Neo4j database. Never write an unscoped `DETACH DELETE`; cleanup must target only the test's own data (`docs/DECISIONS.md#adr-tests-scoped-cleanup`).
+- iCloud Drive creates `* 2.py` conflict copies in this folder. Delete them; don't "fix" tests they break.
+
+## Project Docs
+
+- `docs/ARCHITECTURE.md`: components, modules, data flow, and the graph model.
+- `docs/DECISIONS.md`: why things are the way they are, with stable anchors for code comments.
+- `docs/BACKLOG.md`: open defects, cleanup items, experiments, and unsigned UAT, each with evidence. Update it when an item closes.
+- `docs/RUNBOOK.md`: Ollama env and LaunchAgent, MLX check, model builds, Neo4j backup/restore, the smoke checklist, troubleshooting.
+- `docs/HISTORY.md`: milestones, pivots, and lessons.
+
+## Workflow
+
+- Plain git: branch off `master`, make small Conventional Commits, open PRs. There is no GSD and no `.planning/` directory; don't recreate them.
+- Write a short markdown plan in `docs/` only when a change is big enough to need one.
+- Before calling work done:
+  - `uv run pytest -q` is green (run from the repo root);
+  - `uv run lint-imports` reports the contract kept;
+  - `uv run ruff check <changed files>` is clean;
+  - `uv run mypy src` adds no errors over the ~33-error baseline (ruff and mypy are not yet gated in CI);
+  - for frontend changes, run `npx tsc -b --noEmit && npx vitest run && npm run build` in `frontend/`.
 
 ## Developer Profile
 

@@ -108,7 +108,7 @@ def test_source_modules_covers_every_actual_package() -> None:
         f"{_KNOWN_NON_SOURCE}:\n  {sorted(uncovered)}\n"
         "Fix: add each uncovered package to source_modules in pyproject.toml, "
         "OR add it to _KNOWN_NON_SOURCE here if it is a new D-04-approved whitelist entry "
-        "(requires design review and CONTEXT.md update)."
+        "(requires design review and an update to docs/DECISIONS.md#adr-holdings-isolation)."
     )
 
 

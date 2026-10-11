@@ -3,7 +3,7 @@
 Every LLM call that goes through a worker MUST be wrapped in agent_worker().
 No raw OllamaClient.chat() calls outside this context manager.
 
-Pattern (per CONTEXT.md locked decision):
+Pattern (docs/DECISIONS.md#adr-agent-worker):
     async with agent_worker(persona, governor, provider) as worker:
         decision = await worker.infer(user_message="What is your reaction?")
 """
@@ -227,8 +227,9 @@ async def agent_worker(
     """Async context manager for agent inference with semaphore guarding.
 
     Acquires a governor concurrency slot before yielding the worker.
-    Releases the slot on exit (even on exception). Per CONTEXT.md locked
-    decision: implemented as asynccontextmanager, not class with __aenter__.
+    Releases the slot on exit (even on exception). Implemented as an
+    asynccontextmanager, not a class with __aenter__
+    (docs/DECISIONS.md#adr-agent-worker).
 
     Args:
         persona: Runtime persona config (WorkerPersonaConfig TypedDict).

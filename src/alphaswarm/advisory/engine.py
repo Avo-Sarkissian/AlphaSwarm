@@ -117,7 +117,7 @@ async def synthesize(
     )
 
     # Seed rumor retrieval — if the graph manager exposes read_cycle_seed, use it;
-    # otherwise fall back to empty string (Claude's Discretion per CONTEXT.md).
+    # otherwise fall back to empty string.
     seed_rumor = ""
     read_seed = getattr(graph_manager, "read_cycle_seed", None)
     if read_seed is not None:
@@ -171,7 +171,7 @@ async def synthesize(
 
     enriched = _enrich_holdings(holdings_context, entity_impacts, seed_rumor)
     top_holdings = enriched[:15]
-    # SWEEP-260528 B-7: do NOT send rest holdings to the LLM. They're padded
+    # docs/DECISIONS.md#sweep-b-7: do NOT send rest holdings to the LLM. They're padded
     # server-side with HOLD@0.30 after the conviction items return. Saves
     # ~1500 prompt tokens and ~25-30s synthesis time per cycle.
 

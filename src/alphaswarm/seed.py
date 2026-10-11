@@ -65,10 +65,9 @@ async def inject_seed(
     # 1. Load orchestrator model (per D-07)
     await orchestrator.prepare()
     try:
-        # 2. Chat with json_mode=True, think=False per Phase 41.4 decision
-        # (think=True added ~265s/call with marginal quality gain on this workload;
-        # see .planning/phases/41.4-r3-inference-and-ws-stall/41.4-MODEL-DECISION-LOG.md
-        # for revisit triggers and how to flip back).
+        # 2. Chat with json_mode=True, think=False (think=True added ~265s/call
+        # with marginal quality gain on this workload; see
+        # docs/DECISIONS.md#adr-think-off for revisit triggers and how to flip back).
         inference_result = await orchestrator.chat(
             messages=[
                 {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT},

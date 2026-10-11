@@ -88,10 +88,9 @@ async def test_inject_seed_calls_chat_with_json_mode(
 ) -> None:
     """inject_seed calls provider.chat() with json_mode=True.
 
-    Phase 41.4 model decision: think=False. think=True added ~265s/call with
-    marginal quality gain on this workload.
-    See .planning/phases/41.4-r3-inference-and-ws-stall/41.4-MODEL-DECISION-LOG.md
-    for revisit triggers and how to flip back.
+    think=False: think=True added ~265s/call with marginal quality gain on
+    this workload. See docs/DECISIONS.md#adr-think-off for revisit triggers
+    and how to flip back.
     """
     from alphaswarm.seed import inject_seed
 

@@ -154,7 +154,7 @@ class SimulationManager:
         lock is released, closing the race where a concurrent start()
         could slip between lock-release and the async reset.
 
-        B10: COMPLETE is set by simulation.py:1109 as the single source of
+        B10 (docs/DECISIONS.md#b10): COMPLETE is set by run_simulation as the single source of
         truth — no duplicate set_phase(COMPLETE) here.
         """
         import asyncio as _asyncio
@@ -209,7 +209,7 @@ class SimulationManager:
                 worker_provider=built.worker,
             )
             self._last_cycle_id = result.cycle_id
-            # B10: do NOT set COMPLETE here — simulation.py:1109 is the single
+            # B10: do NOT set COMPLETE here — run_simulation is the single
             # source of truth and sets it before this await returns.
         except asyncio.CancelledError:
             # B8: reset phase synchronously BEFORE re-raising; the done-callback

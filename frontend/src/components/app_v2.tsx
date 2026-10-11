@@ -3,7 +3,7 @@
 // Lifted from AlphaSwarm-2/src/app_v2.jsx (W2 Plan 41.6-02 task 3) and
 // rewired to live data per D-03 / D-07 / D-14 / KR-41.6-08.
 //
-// Wiring map (RESEARCH.md rows 1-14):
+// Wiring map:
 //   • useTelemetry() → tps / memMb / slotsUsed / slotsMax / elapsedSeconds /
 //     phase / running (replaces source's setInterval mock telemetry clock)
 //   • useAgents() → agents (replaces source's design-mock agent builder)

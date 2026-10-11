@@ -25,3 +25,8 @@ data/sec_tickers.json
 
 # Security scan reports (each also carries its own .gitignore).
 /CLAUDE-SECURITY-*/
+
+# Local audit / improvement plan (2026-10-03). Kept out of the public repo
+# while it describes unfixed security issues; un-ignore once Phase 3 lands.
+/docs/IMPROVEMENT_PLAN.md
+/docs/plans/

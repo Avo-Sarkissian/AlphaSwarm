@@ -163,7 +163,7 @@ def _stable_peer_jitter(reader_id: str, candidate_id: str) -> float:
     terms in `_build_diverse_peer_contexts` are both zero). Without a tie-break,
     every reader sorts equal-weight candidates identically and selects the SAME
     peers — re-introducing the "everyone sees the same top-N" convergence bias
-    that SWEEP-260528 §3.3 set out to remove (F-08). This jitter disperses WHICH
+    that docs/DECISIONS.md#sweep-3-3 set out to remove (F-08). This jitter disperses WHICH
     equal-weight peers each reader sees. It uses blake2b (not the builtin
     process-salted hash()) so selection is reproducible across runs, and its
     magnitude (< 1e-4) is far below any genuine weight difference (a single
@@ -185,7 +185,7 @@ def select_diverse_peers(
 ) -> list[str]:
     """Select top-N peers with bracket diversity guarantee (D-06).
 
-    PRODUCTION PATH since the SWEEP-260528 §3.3 fix: called per reader by
+    PRODUCTION PATH since the docs/DECISIONS.md#sweep-3-3 fix: called per reader by
     `_build_diverse_peer_contexts` with per-reader weights (base credibility
     + global citation share + personal citation boost), guaranteeing at
     least `min_brackets` distinct brackets in every agent's peer context.
@@ -435,7 +435,7 @@ def _build_diverse_peer_contexts(
 ) -> list[str | None]:
     """Build per-agent peer contexts from the previous round IN MEMORY.
 
-    Replaces the `read_ranked_posts` path (SWEEP-260528 §3.3 fix). That path
+    Replaces the `read_ranked_posts` path (docs/DECISIONS.md#sweep-3-3 fix). That path
     ranked peers by static authority weight, so every one of the 100 agents
     saw the same Sovereign/Whale/Suit top-10 — manufacturing convergence
     toward the most HOLD-biased bloc. This builder:
@@ -760,7 +760,7 @@ async def _dispatch_round(
     UNUSED IN PRODUCTION — see `select_diverse_peers` docstring. `run_simulation`
     bypasses this helper and calls `dispatch_wave` directly with peer contexts
     built from `read_ranked_posts`. Kept here together with `select_diverse_peers`
-    as the staging area for the proposed peer-bias fix (see SWEEP-260528 §3.3).
+    as the staging area for the proposed peer-bias fix (see docs/DECISIONS.md#sweep-3-3).
 
     When influence_weights is provided AND non-empty (and prev_decisions available):
     - Uses select_diverse_peers for bracket-diverse dynamic peer selection (D-06).
@@ -1099,8 +1099,8 @@ async def run_simulation(
     # rumor (no peer context), so they can't populate `cited_agents`, so
     # `compute_influence_edges(up_to_round=1)` always returns {} and the
     # returned weights were never read anyway (Round 2 builds peer context
-    # from `read_ranked_posts` directly, not from these weights). One fewer
-    # Neo4j round-trip per cycle. See `.planning/SWEEP-260528.md` B-5.
+    # in memory via `_build_diverse_peer_contexts`, not from these weights).
+    # One fewer Neo4j round-trip per cycle. See docs/DECISIONS.md#sweep-b-5.
 
     # Compute Round 1 bracket summaries (D-08)
     round1_summaries = compute_bracket_summaries(
@@ -1159,7 +1159,7 @@ async def run_simulation(
                 )
 
         # Build bracket-diverse peer contexts from Round 1 decisions in memory
-        # (SWEEP-260528 §3.3: replaces the global-authority read_ranked_posts
+        # (docs/DECISIONS.md#sweep-3-3: replaces the global-authority read_ranked_posts
         # path that showed every agent the same top-10). READ_POST edge writes
         # removed with it: ~10k edges/round recording "everyone read
         # everything" carried no analytical value.

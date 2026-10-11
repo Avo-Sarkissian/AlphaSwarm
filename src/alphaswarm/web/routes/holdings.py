@@ -25,7 +25,7 @@ Decisions implemented:
         "holdings_unavailable" inside the `detail` dict (T-39-06 from Plan 01
         threat model).
 
-Review closures (39-REVIEWS.md):
+Review closures:
 - Codex HIGH (import boundary): `web/app.py` imports `load_portfolio_snapshot`
   from THIS module, not from `alphaswarm.holdings.*`. `uv run lint-imports` is
   an explicit verify-before-code gate in Task 3.
@@ -55,7 +55,7 @@ class HoldingOut(BaseModel):
 
     Decimal fields are serialized as strings (`str(decimal_value)`) to preserve
     precision across JSON — float would silently drop significant digits for
-    fractional shares like 101.3071. See Pitfall 1 in 39-RESEARCH.md.
+    fractional shares like 12.3456 (docs/DECISIONS.md#p39-d-06).
     """
 
     ticker: str

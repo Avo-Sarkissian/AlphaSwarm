@@ -2,7 +2,7 @@
 // rationale log. Real-wired per D-11 / KR-41.6-03 / KR-41.6-09 / KR-41.1-11.
 //
 // Source: AlphaSwarm-2/src/interview_v2.jsx (338 LOC, CDN-globals format).
-// Conversion notes per RESEARCH.md wiring map row 17:
+// Conversion notes:
 //   - PERSONA dict (filler) DELETED — KR-41.6-03 documents the removal.
 //   - Source's setTimeout + keyword-matching response picker REPLACED with
 //     await askAgent() — single POST /api/interview/{agent_id} → response in one

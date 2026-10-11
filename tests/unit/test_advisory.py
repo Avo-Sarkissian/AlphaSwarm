@@ -257,7 +257,7 @@ async def test_ticker_join_filters_unmatched() -> None:
         provider=fake_provider,
     )
 
-    # SWEEP-260528 B-7: the engine pads HOLD@0.30 items server-side for every
+    # docs/DECISIONS.md#sweep-b-7: the engine pads HOLD@0.30 items server-side for every
     # holding the LLM didn't return, so the full portfolio is represented
     # without spending LLM tokens on no-signal HOLD boilerplate.
     assert report.total_holdings == 5

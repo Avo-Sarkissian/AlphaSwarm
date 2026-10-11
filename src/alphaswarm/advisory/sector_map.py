@@ -71,7 +71,7 @@ UNKNOWN_SECTOR: SectorInfo = {
     # when the seed matches. With 0.0 (previous value) the relevance formula
     # `|impact| × |beta| + 0.5 × seed_match` would zero out the entity-impact
     # contribution and unknown tickers would always rank at the bottom even
-    # when the seed explicitly named them. See SWEEP-260528 B-8.
+    # when the seed explicitly named them. See docs/DECISIONS.md#sweep-b-8.
     "macro_beta": 0.5,
 }
 

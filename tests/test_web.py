@@ -1606,7 +1606,7 @@ async def test_m8x_replay_manager_advance_and_stop_hold_lock() -> None:
 async def test_m8x_sim_manager_complete_phase_set_once() -> None:
     """B10: set_phase(COMPLETE) is invoked exactly once per run (no manager-level duplicate).
 
-    We simulate simulation.py:1109 calling set_phase(COMPLETE) from within
+    We simulate run_simulation calling set_phase(COMPLETE) from within
     run_simulation, then assert the manager does NOT call set_phase(COMPLETE)
     a second time after the pipeline returns.
     """
@@ -1621,7 +1621,7 @@ async def test_m8x_sim_manager_complete_phase_set_once() -> None:
     mock_app_state.personas = []
     sm = SimulationManager(mock_app_state, brackets=[])
 
-    # Simulate simulation.py:1109 by calling set_phase(COMPLETE) from the
+    # Simulate run_simulation by calling set_phase(COMPLETE) from the
     # patched run_simulation, then returning successfully.
     async def _fake_pipeline(**kwargs: object) -> None:
         await mock_state_store.set_phase(SimulationPhase.COMPLETE)

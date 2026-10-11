@@ -53,8 +53,8 @@ The _TICKER_RE pattern ^[A-Z]{1,5}$ is tuned for US-listed symbols (AAPL,
 MSFT, GOOG). International tickers with exchange suffixes — e.g.,
 VOD.L (Vodafone on LSE), SHOP.TO (Shopify on TSX), 7203.T (Toyota on TSE)
 — do NOT match this regex and therefore route to Google News RSS rather
-than Yahoo Finance RSS. This is intentional per user decisions D-01/D-02
-locked in CONTEXT.md: Google News has global publisher coverage and
+than Yahoo Finance RSS. This is intentional (docs/DECISIONS.md#p38-d-01,
+#p38-d-02): Google News has global publisher coverage and
 reliably surfaces headlines for international symbols via full-text
 search. If broader Yahoo-RSS international-ticker coverage becomes a
 requirement in a later phase, the regex can be relaxed to

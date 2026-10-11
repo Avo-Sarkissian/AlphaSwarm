@@ -3,7 +3,7 @@
 // The full Onboarding component lands in Plan 41.6-04 (W4); this file just
 // wires the gate so W2/W3 can run the dashboard against a flag-bypass.
 //
-// Pitfall #6 (RESEARCH.md): useWebSocket() runs ABOVE the gate so the WS
+// useWebSocket() runs ABOVE the gate so the WS
 // connection is open for the entire session, even while Onboarding renders.
 import { useState } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';

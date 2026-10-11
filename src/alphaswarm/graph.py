@@ -396,7 +396,7 @@ class GraphStateManager:
                 the same length as agent_decisions. If None, UUIDs are generated
                 internally (backward compatible). Pre-generating IDs allows the caller
                 to pass the same IDs to WriteBuffer.push() before Decision nodes exist
-                in Neo4j (Pitfall 1 from RESEARCH.md).
+                in Neo4j.
 
         Returns:
             list[str]: The decision_id strings for each decision written.
@@ -446,7 +446,7 @@ class GraphStateManager:
     ) -> None:
         """Transaction function for UNWIND batch decision creation.
 
-        Two-statement split avoids empty-UNWIND pitfall (Pitfall 5 from RESEARCH.md):
+        Two-statement split avoids the empty-UNWIND pitfall:
         Statement 1: Decision nodes + MADE + FOR relationships.
         Statement 2: CITED relationships (only if any citations exist).
         """
@@ -1905,7 +1905,7 @@ class GraphStateManager:
         }
 
     # ------------------------------------------------------------------
-    # Phase 35.1: Shock event writer (B1 wiring fix — see BUGFIX-CONTEXT.md)
+    # Shock event writer (B1 wiring fix — see docs/DECISIONS.md#b1)
     # ------------------------------------------------------------------
 
     async def write_shock_event(
@@ -1921,7 +1921,9 @@ class GraphStateManager:
 
         Args:
             cycle_id: Target cycle; must exist prior to this call.
-            shock_text: Raw shock text (caller enforces length cap per CONTEXT D-12).
+            shock_text: Raw shock text. The caller must cap its length
+                (docs/DECISIONS.md#hist-shock-max-len); currently NOT enforced,
+                see docs/BACKLOG.md item 1.2.
             injected_before_round: 2 or 3 — the round that receives the shock.
 
         Raises:
