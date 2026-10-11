@@ -21,7 +21,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from alphaswarm.config import (
-    INFERENCE_CONFIG_PATH,
     InferenceConfig,
     ProviderType,
     RoleConfig,
@@ -270,7 +269,9 @@ class TestPutSettings:
         """PUT should call save_inference_config and return masked config."""
         saved_calls: list[InferenceConfig] = []
 
-        def _fake_save(cfg: InferenceConfig, path: Path = INFERENCE_CONFIG_PATH) -> None:
+        def _fake_save(
+            cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
+        ) -> None:
             saved_calls.append(cfg)
 
         with (
@@ -315,7 +316,9 @@ class TestPutSettings:
 
         saved_calls: list[InferenceConfig] = []
 
-        def _fake_save(cfg: InferenceConfig, path: Path = INFERENCE_CONFIG_PATH) -> None:
+        def _fake_save(
+            cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
+        ) -> None:
             saved_calls.append(cfg)
 
         with (
@@ -403,7 +406,9 @@ class TestPutSettings:
 
         saved_calls: list[InferenceConfig] = []
 
-        def _fake_save(cfg: InferenceConfig, path: Path = INFERENCE_CONFIG_PATH) -> None:
+        def _fake_save(
+            cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
+        ) -> None:
             saved_calls.append(cfg)
 
         with (
@@ -448,7 +453,9 @@ class TestPutSettings:
 
         saved_calls: list[InferenceConfig] = []
 
-        def _fake_save(cfg: InferenceConfig, path: Path = INFERENCE_CONFIG_PATH) -> None:
+        def _fake_save(
+            cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
+        ) -> None:
             saved_calls.append(cfg)
 
         with (
@@ -623,3 +630,33 @@ class TestGetEstimate:
         with _mock_load_cfg(_LOCAL_CFG), TestClient(_make_settings_test_app()) as client:
             r = client.get("/api/settings/estimate")
         assert "mode" in r.json()
+
+
+def test_put_saves_through_app_settings_not_a_hard_coded_path() -> None:
+    """PUT hands app settings to save_inference_config so the configured
+    inference_config_path is honoured (T10.3 step 2)."""
+    captured: dict[str, object] = {}
+
+    def _fake_save(
+        cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
+    ) -> None:
+        captured["path"] = path
+        captured["settings"] = settings
+
+    app = _make_settings_test_app()
+    with (
+        _mock_load_cfg(_LOCAL_CFG),
+        patch("alphaswarm.web.routes.settings.save_inference_config", side_effect=_fake_save),
+        TestClient(app) as client,
+    ):
+        r = client.put(
+            "/api/settings",
+            json={
+                "orchestrator": {"provider": "ollama", "model": "new-orch"},
+                "worker": {"provider": "ollama", "model": "new-worker"},
+            },
+        )
+        expected_settings = app.state.app_state.settings
+    assert r.status_code == 200
+    assert captured["path"] is None
+    assert captured["settings"] is expected_settings

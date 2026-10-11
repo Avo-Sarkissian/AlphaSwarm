@@ -373,7 +373,7 @@ async def put_settings(
         ) from exc
 
     try:
-        await asyncio.to_thread(save_inference_config, merged_cfg)
+        await asyncio.to_thread(save_inference_config, merged_cfg, settings=app_state.settings)
     except OSError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
