@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NoReturn
+from urllib.parse import urlsplit
 
 import pytest
+import pytest_asyncio
 
 from alphaswarm.config import AppSettings, GovernorSettings, generate_personas, load_bracket_configs
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.worker import WorkerPersonaConfig
 
 if TYPE_CHECKING:
+    from neo4j import AsyncDriver
+
+    from alphaswarm.graph import GraphStateManager
     from alphaswarm.types import AgentPersona, BracketConfig
 
 
@@ -294,3 +300,164 @@ async def graph_manager(neo4j_driver, all_personas):
         await session.run(
             "MATCH (e:Entity) WHERE NOT (e)<-[:MENTIONS]-() DETACH DELETE e"
         )
+
+
+# ---------------------------------------------------------------------------
+# Neo4j: throwaway neo4j-test database only
+# ---------------------------------------------------------------------------
+# Hard-coded on purpose: the target must never be steerable by the environment
+# (docs/DECISIONS.md#adr-tests-scoped-cleanup). Start it with scripts/neo4j_test.sh up.
+
+NEO4J_TEST_URI: Final[str] = "bolt://127.0.0.1:7688"
+NEO4J_TEST_AUTH: Final[tuple[str, str]] = ("neo4j", "alphaswarm-test-only")
+NEO4J_TEST_DATABASE: Final[str] = "neo4j"
+FORBIDDEN_NEO4J_PORT: Final[int] = 7687
+# Cycle ids that graph_manager_test teardown must keep (session-scoped seeded cycles).
+NEO4J_PROTECTED_CYCLES: set[str] = set()
+
+_GUARD_EXIT_CODE: Final[int] = 3
+
+# Same scoped cleanup the old live-database fixture used, plus ShockEvents.
+_SCOPED_CLEANUP: Final[tuple[str, ...]] = (
+    "MATCH (d:Decision) WHERE NOT d.cycle_id IN $keep DETACH DELETE d",
+    "MATCH (p:Post) WHERE NOT p.cycle_id IN $keep DETACH DELETE p",
+    "MATCH (re:RationaleEpisode) WHERE NOT re.cycle_id IN $keep DETACH DELETE re",
+    "MATCH ()-[e:INFLUENCED_BY]->() WHERE NOT e.cycle_id IN $keep DELETE e",
+    "MATCH (c:Cycle)-[:HAS_SHOCK]->(se:ShockEvent) WHERE NOT c.cycle_id IN $keep DETACH DELETE se",
+    "MATCH (c:Cycle) WHERE NOT c.cycle_id IN $keep DETACH DELETE c",
+    "MATCH (e:Entity) WHERE NOT (e)<-[:MENTIONS]-() DETACH DELETE e",
+)
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--require-neo4j",
+        action="store_true",
+        default=False,
+        help="Fail neo4j-marked tests instead of skipping them when neo4j-test is unreachable.",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Give every `neo4j` test sockets and the session event loop (C-TEST-09).
+
+    append=False puts the session-scoped asyncio marker ahead of the bare one
+    that asyncio_mode=auto adds, so it is the marker pytest-asyncio reads and
+    the test shares the loop that owns neo4j_test_driver.
+    """
+    for item in items:
+        if item.get_closest_marker("neo4j") is not None:
+            item.add_marker(pytest.mark.enable_socket)
+            item.add_marker(pytest.mark.asyncio(loop_scope="session"), append=False)
+
+
+def _refuse_forbidden_port(uri: str) -> None:
+    """Guard 1: never connect to the dev database's port, whatever the URI says."""
+    port = urlsplit(uri).port or FORBIDDEN_NEO4J_PORT  # no port means bolt's default, 7687
+    if port == FORBIDDEN_NEO4J_PORT:
+        pytest.exit(
+            f"Refusing to run Neo4j tests against {uri}: port {FORBIDDEN_NEO4J_PORT} is the "
+            "dev database. Tests use neo4j-test on 127.0.0.1:7688.",
+            returncode=_GUARD_EXIT_CODE,
+        )
+
+
+async def _refuse_nonempty_database(driver: AsyncDriver) -> None:
+    """Guard 2: the tmpfs test database starts empty, so Cycle nodes mean it is not ours."""
+    async with driver.session(database=NEO4J_TEST_DATABASE) as session:
+        result = await session.run("MATCH (c:Cycle) RETURN count(c) AS n")
+        record = await result.single()
+    cycles = int(record["n"]) if record is not None else 0
+    if cycles > 0:
+        pytest.exit(
+            f"Refusing to run Neo4j tests: the database on {NEO4J_TEST_URI} already holds "
+            f"{cycles} Cycle node(s), and neo4j-test must start empty. Recreate it with "
+            "`scripts/neo4j_test.sh reset`, then re-run.",
+            returncode=_GUARD_EXIT_CODE,
+        )
+
+
+async def _port_open(uri: str, timeout_s: float = 0.5) -> bool:
+    parts = urlsplit(uri)
+    try:
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(parts.hostname, parts.port), timeout=timeout_s
+        )
+    except (OSError, TimeoutError):
+        return False
+    writer.close()
+    await writer.wait_closed()
+    return True
+
+
+def _neo4j_unavailable(request: pytest.FixtureRequest, reason: str) -> NoReturn:
+    if request.config.getoption("--require-neo4j"):
+        pytest.fail(f"{reason} (--require-neo4j is set)", pytrace=False)
+    pytest.skip(reason)
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def neo4j_test_driver(request: pytest.FixtureRequest) -> AsyncIterator[AsyncDriver]:
+    """Session driver for neo4j-test, after both refusal guards pass (C-TEST-04)."""
+    from neo4j import AsyncGraphDatabase
+    from neo4j.exceptions import AuthError as Neo4jAuthError
+    from neo4j.exceptions import DriverError, Neo4jError
+
+    _refuse_forbidden_port(NEO4J_TEST_URI)
+    if not await _port_open(NEO4J_TEST_URI):
+        _neo4j_unavailable(request, "neo4j-test is not running (scripts/neo4j_test.sh up)")
+    driver = AsyncGraphDatabase.driver(
+        NEO4J_TEST_URI, auth=NEO4J_TEST_AUTH, max_connection_pool_size=5
+    )
+    try:
+        await driver.verify_connectivity()
+        await _refuse_nonempty_database(driver)
+    except Neo4jAuthError:
+        await driver.close()
+        pytest.exit(
+            "The server on 127.0.0.1:7688 rejected the neo4j-test credential, so it is not "
+            "the throwaway test database. Stop it, then run scripts/neo4j_test.sh up.",
+            returncode=_GUARD_EXIT_CODE,
+        )
+    except (DriverError, Neo4jError, OSError) as exc:
+        await driver.close()
+        _neo4j_unavailable(request, f"neo4j-test is not ready: {exc}")
+    except BaseException:
+        await driver.close()
+        raise
+    try:
+        yield driver
+    finally:
+        # The only unscoped delete in the suite: both guards proved this is the
+        # empty throwaway database (docs/DECISIONS.md#adr-tests-scoped-cleanup).
+        async with driver.session(database=NEO4J_TEST_DATABASE) as session:
+            result = await session.run("MATCH (n) DETACH DELETE n")
+            await result.consume()
+        await driver.close()
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def graph_manager_test(
+    neo4j_test_driver: AsyncDriver, all_personas: list[AgentPersona]
+) -> AsyncIterator[GraphStateManager]:
+    """GraphStateManager on neo4j-test with the schema applied (C-TEST-05).
+
+    Teardown deletes only cycles created during the test and never the ids in
+    NEO4J_PROTECTED_CYCLES. Agent nodes stay for the next test.
+    """
+    from alphaswarm.graph import GraphStateManager
+
+    manager = GraphStateManager(
+        driver=neo4j_test_driver, personas=all_personas, database=NEO4J_TEST_DATABASE
+    )
+    await manager.ensure_schema()
+    async with neo4j_test_driver.session(database=NEO4J_TEST_DATABASE) as session:
+        result = await session.run("MATCH (c:Cycle) RETURN collect(c.cycle_id) AS ids")
+        record = await result.single()
+    preexisting: list[str] = list(record["ids"]) if record else []
+    yield manager
+    keep = sorted(set(preexisting) | NEO4J_PROTECTED_CYCLES)
+    async with neo4j_test_driver.session(database=NEO4J_TEST_DATABASE) as session:
+        for query in _SCOPED_CLEANUP:
+            result = await session.run(query, keep=keep)
+            await result.consume()
