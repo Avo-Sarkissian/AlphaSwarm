@@ -120,16 +120,15 @@ def test_health_endpoint() -> None:
 
 
 def test_health_inference_mode_default_local(monkeypatch: pytest.MonkeyPatch) -> None:
-    """inference_mode defaults to 'local' when no config file is present."""
+    """inference_mode is 'local' when no inference config file exists.
 
-    # load_inference_config raises when config file absent (no .secrets/inference.json)
-    # by returning a default_inference_config with both providers OLLAMA.
-    # We just ensure the field exists and equals "local" in the default test env.
+    hermetic_env points the config path at a missing temp file, so the
+    operator's real .secrets/inference.json can no longer change this answer.
+    """
     with TestClient(_make_test_app()) as client:
         r = client.get("/api/health")
         assert r.status_code == 200
-        data = r.json()
-        assert data["inference_mode"] in ("local", "cloud", "mixed")
+        assert r.json()["inference_mode"] == "local"
 
 
 def test_health_inference_mode_reflects_cloud_config(monkeypatch: pytest.MonkeyPatch) -> None:

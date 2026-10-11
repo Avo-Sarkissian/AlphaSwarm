@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from collections.abc import Iterator
+from pathlib import Path
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
@@ -15,20 +17,73 @@ if TYPE_CHECKING:
     from alphaswarm.types import AgentPersona, BracketConfig
 
 
+# ---------------------------------------------------------------------------
+# Hermetic environment (docs/DECISIONS.md#adr-tests-scoped-cleanup)
+# ---------------------------------------------------------------------------
+
+# Variables hermetic_env sets itself. Every env-clearing helper keeps them,
+# otherwise AppSettings falls back to the operator's real .secrets/inference.json
+# and Schwab/holdings.csv (relative to the repo root, where pytest runs).
+HERMETIC_PRESERVED_ENV: Final[frozenset[str]] = frozenset(
+    {"ALPHASWARM_INFERENCE_CONFIG_PATH", "ALPHASWARM_HOLDINGS_CSV_PATH"}
+)
+
+
+def clear_alphaswarm_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Delete ALPHASWARM_* variables for one test, keeping HERMETIC_PRESERVED_ENV."""
+    for key in list(os.environ):
+        if key.startswith("ALPHASWARM_") and key not in HERMETIC_PRESERVED_ENV:
+            monkeypatch.delenv(key, raising=False)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def hermetic_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """Isolate the whole session from the operator's machine.
+
+    Removes every ALPHASWARM_* variable, stops AppSettings from reading .env,
+    points the inference config at a temp file that does not exist yet (so
+    load_inference_config returns the local defaults), and points the holdings
+    CSV at a path that never exists (so no test can load the real portfolio).
+    Yields the inference config path and restores everything on exit
+    (docs/DECISIONS.md#adr-tests-scoped-cleanup).
+    """
+    saved_env = {k: v for k, v in os.environ.items() if k.startswith("ALPHASWARM_")}
+    saved_env_file = AppSettings.model_config.get("env_file")
+    for key in saved_env:
+        del os.environ[key]
+    hermetic_dir = tmp_path_factory.mktemp("hermetic")
+    config_path = hermetic_dir / "inference.json"
+    os.environ["ALPHASWARM_INFERENCE_CONFIG_PATH"] = str(config_path)
+    os.environ["ALPHASWARM_HOLDINGS_CSV_PATH"] = str(hermetic_dir / "no-holdings.csv")
+    AppSettings.model_config["env_file"] = None
+    try:
+        yield config_path
+    finally:
+        AppSettings.model_config["env_file"] = saved_env_file
+        for key in [k for k in os.environ if k.startswith("ALPHASWARM_")]:
+            del os.environ[key]
+        os.environ.update(saved_env)
+
+
+@pytest.fixture(autouse=True)
+def _reset_hermetic_inference_config(hermetic_env: Path) -> Iterator[None]:
+    """Delete the session's inference config after each test so a saved cloud
+    config cannot change what later tests see."""
+    yield
+    hermetic_env.unlink(missing_ok=True)
+    hermetic_env.with_name(f"{hermetic_env.name}.tmp").unlink(missing_ok=True)
+
+
 @pytest.fixture()
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Clear all ALPHASWARM_ environment variables."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    """Clear ALPHASWARM_* variables, keeping the hermetic paths."""
+    clear_alphaswarm_env(monkeypatch)
 
 
 @pytest.fixture()
 def default_settings(monkeypatch: pytest.MonkeyPatch) -> AppSettings:
     """Return AppSettings with a clean environment (no .env influence)."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    clear_alphaswarm_env(monkeypatch)
     return AppSettings(_env_file=None)  # type: ignore[call-arg]
 
 

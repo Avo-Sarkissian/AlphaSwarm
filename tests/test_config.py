@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -10,6 +9,7 @@ from pydantic import ValidationError
 
 from alphaswarm.config import AppSettings
 from alphaswarm.types import BracketType
+from tests.conftest import clear_alphaswarm_env
 
 if TYPE_CHECKING:
     from alphaswarm.types import BracketConfig
@@ -17,9 +17,7 @@ if TYPE_CHECKING:
 
 def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     """Default settings match expected values with clean env."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    clear_alphaswarm_env(monkeypatch)
     settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
 
     assert settings.app_name == "AlphaSwarm"
@@ -40,9 +38,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_settings_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     """Environment variables override default settings."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    clear_alphaswarm_env(monkeypatch)
     monkeypatch.setenv("ALPHASWARM_DEBUG", "true")
     monkeypatch.setenv("ALPHASWARM_LOG_LEVEL", "DEBUG")
     monkeypatch.setenv("ALPHASWARM_OLLAMA__NUM_PARALLEL", "4")
@@ -55,9 +51,7 @@ def test_settings_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_settings_invalid_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid log level raises ValidationError."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    clear_alphaswarm_env(monkeypatch)
     monkeypatch.setenv("ALPHASWARM_LOG_LEVEL", "INVALID")
     with pytest.raises(ValidationError):
         AppSettings(_env_file=None)  # type: ignore[call-arg]
@@ -65,9 +59,7 @@ def test_settings_invalid_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_settings_invalid_governor_percent(monkeypatch: pytest.MonkeyPatch) -> None:
     """Out-of-range governor percent raises ValidationError."""
-    for key in list(os.environ):
-        if key.startswith("ALPHASWARM_"):
-            monkeypatch.delenv(key, raising=False)
+    clear_alphaswarm_env(monkeypatch)
     monkeypatch.setenv("ALPHASWARM_GOVERNOR__MEMORY_PAUSE_PERCENT", "150")
     with pytest.raises(ValidationError):
         AppSettings(_env_file=None)  # type: ignore[call-arg]
