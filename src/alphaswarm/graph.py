@@ -438,7 +438,7 @@ class GraphStateManager:
                 original_error=exc,
             ) from exc
         # The MATCH on Agent/Cycle drops rows silently: on an empty database
-        # nothing is written and no error is raised (T2.1). Fail loudly instead.
+        # nothing is written and no error is raised. Fail loudly instead.
         if created < len(params):
             raise Neo4jWriteError(
                 f"Wrote {created} of {len(params)} decisions for cycle {cycle_id} round "
