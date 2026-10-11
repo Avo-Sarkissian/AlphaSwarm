@@ -11,7 +11,6 @@ dependencies = [
     "ollama>=0.6.1",
     "backoff>=2.2.1",
     "neo4j>=5.28,<6.0",
-    "textual>=8.1.1",
     "jinja2>=3.1.6",
     "aiofiles>=25.1.0",
     "fastapi>=0.115.0",

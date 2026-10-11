@@ -4,12 +4,10 @@ __pycache__/
 results/
 .DS_Store
 .secrets/
-*.vue.js
 frontend/tsconfig.*.tsbuildinfo
 Schwab/
 /*.csv
 .alphaswarm/
-data/sec_tickers.json
 
 # Runtime cycle outputs — not source, regenerated every run.
 # Patterns are root-anchored: an unanchored `advisory/` would also match
@@ -35,3 +33,9 @@ data/sec_tickers.json
 # They break test collection and coverage; delete them, never commit them.
 * [2-9].*
 * [2-9]
+
+# Local data: Neo4j dumps from scripts/backup_neo4j.sh and per-user data files.
+/data/
+# Coverage output.
+.coverage
+htmlcov/

@@ -235,3 +235,32 @@ def test_current_docs_do_not_point_at_moved_files() -> None:
                "docs/RUNBOOK.md", "docs/HISTORY.md")
     assert [rel for rel in current if "docs/superpowers/" in _read(rel)] == []
     assert [rel for rel in current[:-1] if "PROJECT_SPEC.md" in _read(rel)] == []
+
+
+# --------- Root clutter and ignores (T7.7, T12.11) ---------
+
+
+def test_gitignore_covers_backups_and_coverage_output() -> None:
+    lines = _gitignore_lines()
+    for required in ("/data/", ".coverage", "htmlcov/"):
+        assert required in lines
+    assert "*.vue.js" not in lines
+    assert "data/sec_tickers.json" not in lines
+
+
+def test_neo4j_backup_dumps_are_ignored() -> None:
+    result = _git("check-ignore", "-q", "--no-index", "data/backups/neo4j-20261003.dump")
+    assert result.returncode == 0
+
+
+def test_textual_is_not_a_dependency() -> None:
+    names = {
+        re.split(r"[<>=!~;\[ ]", dep, maxsplit=1)[0].lower()
+        for dep in _pyproject()["project"]["dependencies"]
+    }
+    assert "textual" not in names
+
+
+def test_design_prototype_left_the_frontend_tree() -> None:
+    assert not (ROOT / "frontend" / "design-reference").exists()
+    assert (ROOT / "docs" / "design" / "prototype" / "README.md").is_file()  # G-07 branch A only
