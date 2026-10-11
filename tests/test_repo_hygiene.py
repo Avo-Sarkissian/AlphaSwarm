@@ -216,3 +216,79 @@ def test_pytest_skips_icloud_duplicate_test_files() -> None:
 )
 def test_duplicate_glob_matches_only_icloud_copies(path: str, ignored: bool) -> None:
     assert fnmatch.fnmatch(path, DUPLICATE_GLOB) is ignored
+
+
+# --------- Porter leftovers (T12.10 steps 5-6) ---------
+
+
+def test_porter_leftovers_are_archived() -> None:
+    assert _tracked("PROJECT_SPEC.md") == []
+    assert (ROOT / "docs" / "history" / "original-spec.md").is_file()
+    assert _tracked("docs/superpowers") == []
+    design = _read("docs/design/inference-providers.md")
+    assert ".secrets/inference.toml" not in design
+    assert ".secrets/inference.json" in design
+
+
+def test_current_docs_do_not_point_at_moved_files() -> None:
+    current = ("README.md", "CLAUDE.md", "docs/ARCHITECTURE.md", "docs/DECISIONS.md",
+               "docs/RUNBOOK.md", "docs/HISTORY.md")
+    assert [rel for rel in current if "docs/superpowers/" in _read(rel)] == []
+    assert [rel for rel in current[:-1] if "PROJECT_SPEC.md" in _read(rel)] == []
+
+
+# --------- Root clutter and ignores (T7.7, T12.11) ---------
+
+
+def test_gitignore_covers_backups_and_coverage_output() -> None:
+    lines = _gitignore_lines()
+    for required in ("/data/", ".coverage", "htmlcov/"):
+        assert required in lines
+    assert "*.vue.js" not in lines
+    assert "data/sec_tickers.json" not in lines
+
+
+def test_neo4j_backup_dumps_are_ignored() -> None:
+    result = _git("check-ignore", "-q", "--no-index", "data/backups/neo4j-20261003.dump")
+    assert result.returncode == 0
+
+
+def test_textual_is_not_a_dependency() -> None:
+    names = {
+        re.split(r"[<>=!~;\[ ]", dep, maxsplit=1)[0].lower()
+        for dep in _pyproject()["project"]["dependencies"]
+    }
+    assert "textual" not in names
+
+
+def test_design_prototype_left_the_frontend_tree() -> None:
+    assert _tracked("frontend/design-reference") == []
+    assert (ROOT / "docs" / "design" / "prototype" / "README.md").is_file()  # G-07 branch A only
+
+
+# --------- Attribution (T12.6) ---------
+
+
+def test_mailmap_maps_the_relay_identity_to_the_owner() -> None:
+    result = _git("check-mailmap", "Gonmyh-7konwe-funmuw <newborn.jujitsu0w@icloud.com>")
+    assert result.returncode == 0, result.stderr
+    owner = "Avo Sarkissian <87339673+Avo-Sarkissian@users.noreply.github.com>"
+    assert result.stdout.strip() == owner
+
+
+# --------- Documented test commands (final review; Review Focus 4) ---------
+
+LIVE_MODULE_IGNORE = "--ignore=tests/test_graph_integration.py"
+
+
+@pytest.mark.parametrize("rel", ["CLAUDE.md", "docs/RUNBOOK.md"])
+def test_documented_suite_command_stays_off_the_live_neo4j(rel: str) -> None:
+    """Until plan 02 replaces the live fixtures (and deletes this test with them),
+    the documented suite command must skip the live-service modules:
+    tests/conftest.py falls back to a literal password for 127.0.0.1:7687."""
+    bare = [
+        n
+        for n, line in enumerate(_read(rel).splitlines(), start=1)
+        if "uv run pytest -q" in line and LIVE_MODULE_IGNORE not in line
+    ]
+    assert bare == [], f"{rel} lines {bare}: add {LIVE_MODULE_IGNORE} to the suite command"

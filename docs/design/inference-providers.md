@@ -1,7 +1,7 @@
 # API Inference Provider Support — Design
 
 **Date:** 2026-06-21
-**Status:** Approved (brainstorming) — ready for implementation planning
+**Status:** Implemented 2026-06-21. Historical design record, moved from `docs/superpowers/` in 2026-10; the config file is JSON (`.secrets/inference.json`).
 **Author:** brainstorming session
 
 ## 1. Summary
@@ -173,7 +173,7 @@ holdings). A new runtime-mutable `InferenceConfig` is persisted separately:
 
 ### 6.2 Persistence & secrecy
 
-- File at `.secrets/inference.toml`; `.secrets/` added to `.gitignore`.
+- File at `.secrets/inference.json`; `.secrets/` added to `.gitignore`.
 - Providers are rebuilt from this file at the **start of each run**, so
   switching local↔cloud needs no restart.
 - API keys are added to the phase-37 structlog PII-redaction allowlist

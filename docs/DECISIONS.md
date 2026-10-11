@@ -43,7 +43,7 @@ Contents
   orchestrator and worker roles are set independently and can be mixed.
 - **Rationale:** The product is a local simulation, but local throughput is the
   bottleneck. The cloud path removes it without changing simulation logic. The
-  design came from the superpowers spec (`docs/superpowers/specs/2026-06-21-api-provider-support-design.md`, decisions D1-D6):
+  design came from the superpowers spec (`docs/design/inference-providers.md`, decisions D1-D6):
   - D1: OpenAI-compatible plus Anthropic.
   - D2: adaptive token-bucket pacing with Retry-After handling and a max-in-flight cap.
   - D3: backend-owned key file; the browser never sees the raw key.
@@ -814,7 +814,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-hold"></a>HOLD-01..04 | CSV loader (01), account number hashed with `sha256_first8` (02/04), `GET /api/holdings` (03) | config.py:452; holdings/loader.py:1,13,73,145; holdings/types.py:33; security/hashing.py:5; web/routes/holdings.py:1; tests/... |
 | <a id="req-advis"></a>ADVIS-01 / 02 | `synthesize()` ranked items / `POST /api/advisory` with serialization | advisory/__init__.py:1; advisory/engine.py:1; advisory/types.py:1; web/routes/advisory.py:1,99; tests/unit/... |
 | <a id="req-sim-04"></a>SIM-04 | `run_simulation` takes optional providers; backward compatible without them | tests/test_simulation.py:3269 |
-| <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:47,56,67; tests/test_web.py:462,469,494,525,554; docs/superpowers/specs/...:142 |
+| <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:47,56,67; tests/test_web.py:462,469,494,525,554; docs/design/inference-providers.md:142 |
 | <a id="req-auto"></a>AUTO-01..05 | Auto-trigger advisory on completion (capture cycle_id, schedule from done-callback, in-process POST, swallow 409/503) | tests/unit/test_simulation_manager_auto_advisory.py; tests/unit/test_auto_advisory_trigger.py |
 
 ---

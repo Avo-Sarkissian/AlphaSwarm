@@ -52,7 +52,9 @@ def test_main_entry_point(
     main()
     captured = capsys.readouterr()
 
-    assert "AlphaSwarm v0.1.0" in captured.out
+    from alphaswarm import __version__
+
+    assert f"AlphaSwarm v{__version__}" in captured.out
     assert "Agents: 100 across 10 brackets" in captured.out
     # Banner model names come from AppSettings (which may read a local .env);
     # assert against the same source instead of hardcoding — a hardcoded

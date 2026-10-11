@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from alphaswarm import __version__
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.types import SignalType
@@ -58,7 +59,7 @@ def _print_banner() -> None:
     personas = generate_personas(brackets)
 
     print(BANNER.format(
-        version="0.1.0",
+        version=__version__,
         agents=len(personas),
         brackets=len(brackets),
         orchestrator=settings.ollama.orchestrator_model,

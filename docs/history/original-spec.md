@@ -1,5 +1,9 @@
 # AlphaSwarm: Master Project Specification
 
+> **Historical document (March 2026).** This is the original project spec, kept for the
+> origin story in [HISTORY.md](../HISTORY.md). It is not the current design: see
+> [ARCHITECTURE.md](../ARCHITECTURE.md) and [DECISIONS.md](../DECISIONS.md).
+
 ## 1. System Objective
 Build a localized, multi-agent financial simulation engine based on OASIS/Mirofish principles. The system will ingest a single "Seed Rumor" and simulate the cascading market reactions across 100 distinct AI personas, visualizing the consensus formation in real-time.
 

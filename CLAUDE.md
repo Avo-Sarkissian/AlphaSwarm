@@ -88,7 +88,9 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 - Plain git: branch off `master`, make small Conventional Commits, open PRs. Don't recreate a `.planning/` directory or any planning-framework scaffolding.
 - Write a short markdown plan in `docs/` only when a change is big enough to need one.
 - Before calling work done:
-  - `uv run pytest -q` is green (run from the repo root);
+  - `uv run pytest -q --ignore=tests/test_graph_integration.py --ignore=tests/test_integration_inference.py`
+    is green (run from the repo root; the two ignored modules need live services, and until the
+    isolated test database lands, the Neo4j one would write to the live database);
   - `uv run lint-imports` reports the contract kept;
   - `uv run ruff check <changed files>` is clean;
   - `uv run mypy src` adds no errors over the ~33-error baseline (ruff and mypy are not yet gated in CI);
