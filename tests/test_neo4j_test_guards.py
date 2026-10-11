@@ -83,3 +83,10 @@ async def test_a_database_that_already_holds_cycles_is_refused() -> None:
 
 async def test_an_empty_database_passes() -> None:
     await _refuse_nonempty_database(_FakeDriver(cycles=0))  # type: ignore[arg-type]
+
+
+def test_no_fixture_targets_the_dev_database() -> None:
+    import tests.conftest as conftest
+
+    assert not hasattr(conftest, "neo4j_driver"), "legacy live-database fixture"
+    assert not hasattr(conftest, "graph_manager"), "legacy live-database fixture"

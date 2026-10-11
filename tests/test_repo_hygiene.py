@@ -10,7 +10,6 @@ Neo4j fixtures, no second test module may request them.
 
 from __future__ import annotations
 
-import ast
 import fnmatch
 import re
 import shlex
@@ -118,50 +117,6 @@ def test_commit_shas_cited_in_docs_are_in_history() -> None:
         if line.endswith(" commit") and line.split()[0] not in reachable
     ]
     assert stale == []
-
-
-# --------- Live Neo4j guard (constraint 21; retires when plan 02 deletes the fixtures) ---------
-
-LIVE_NEO4J_FIXTURES = frozenset({"neo4j_driver", "graph_manager"})
-LIVE_NEO4J_TEST_FILES = frozenset({"tests/test_graph_integration.py"})
-
-
-def _requested_fixtures(source: str) -> set[str]:
-    """Fixtures a module requests: parameters of tests and fixtures, plus usefixtures() names."""
-    tree = ast.parse(source)
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and ast.unparse(node.func).endswith("usefixtures"):
-            names.update(
-                arg.value
-                for arg in node.args
-                if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
-            )
-    for node in tree.body:
-        members = node.body if isinstance(node, ast.ClassDef) else [node]
-        for func in members:
-            if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            is_fixture = any("fixture" in ast.unparse(dec) for dec in func.decorator_list)
-            if func.name.startswith("test") or is_fixture:
-                names.update(arg.arg for arg in (*func.args.args, *func.args.kwonlyargs))
-    return names
-
-
-def test_only_the_excluded_file_requests_live_neo4j_fixtures() -> None:
-    """The Phase 0 suite command ignores tests/test_graph_integration.py, so no other
-    module may request the live 127.0.0.1:7687 fixtures defined in tests/conftest.py.
-    Passes trivially once plan 02 deletes those fixtures."""
-    conftest = _read("tests/conftest.py")
-    live = {name for name in LIVE_NEO4J_FIXTURES if f"def {name}(" in conftest}
-    users = {
-        rel
-        for rel in _tracked("tests")
-        if rel.endswith(".py")
-        and rel != "tests/conftest.py"
-        and _requested_fixtures(_read(rel)) & live
-    }
-    assert users <= LIVE_NEO4J_TEST_FILES
 
 
 # --------- iCloud duplicates (T12.8) ---------
@@ -274,21 +229,3 @@ def test_mailmap_maps_the_relay_identity_to_the_owner() -> None:
     assert result.returncode == 0, result.stderr
     owner = "Avo Sarkissian <87339673+Avo-Sarkissian@users.noreply.github.com>"
     assert result.stdout.strip() == owner
-
-
-# --------- Documented test commands (final review; Review Focus 4) ---------
-
-LIVE_MODULE_IGNORE = "--ignore=tests/test_graph_integration.py"
-
-
-@pytest.mark.parametrize("rel", ["CLAUDE.md", "docs/RUNBOOK.md"])
-def test_documented_suite_command_stays_off_the_live_neo4j(rel: str) -> None:
-    """Until plan 02 replaces the live fixtures (and deletes this test with them),
-    the documented suite command must skip the live-service modules:
-    tests/conftest.py falls back to a literal password for 127.0.0.1:7687."""
-    bare = [
-        n
-        for n, line in enumerate(_read(rel).splitlines(), start=1)
-        if "uv run pytest -q" in line and LIVE_MODULE_IGNORE not in line
-    ]
-    assert bare == [], f"{rel} lines {bare}: add {LIVE_MODULE_IGNORE} to the suite command"
