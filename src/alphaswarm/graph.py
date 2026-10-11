@@ -93,6 +93,14 @@ class GraphStateManager:
         self._database = database
         self._log = structlog.get_logger(component="graph")
 
+    async def verify_connectivity(self) -> None:
+        """Check that Neo4j is reachable and accepts the configured credential.
+
+        Raises the driver's own errors (ServiceUnavailable, AuthError, ...); the
+        web lifespan turns them into a not-ready flag instead of crashing.
+        """
+        await self._driver.verify_connectivity()
+
     async def ensure_schema(self) -> None:
         """Apply idempotent schema constraints and indexes, then seed agents.
 
@@ -421,7 +429,7 @@ class GraphStateManager:
         ]
         try:
             async with self._driver.session(database=self._database) as session:
-                await session.execute_write(
+                created = await session.execute_write(
                     self._batch_write_decisions_tx, params, cycle_id, round_num
                 )
         except Neo4jError as exc:
@@ -429,6 +437,13 @@ class GraphStateManager:
                 f"Failed to write {len(agent_decisions)} decisions for cycle {cycle_id} round {round_num}",
                 original_error=exc,
             ) from exc
+        # The MATCH on Agent/Cycle drops rows silently: on an empty database
+        # nothing is written and no error is raised (T2.1). Fail loudly instead.
+        if created < len(params):
+            raise Neo4jWriteError(
+                f"Wrote {created} of {len(params)} decisions for cycle {cycle_id} round "
+                f"{round_num}: Agent or Cycle nodes are missing (was ensure_schema() run?)"
+            )
         self._log.info(
             "decisions_written",
             cycle_id=cycle_id,
@@ -443,15 +458,18 @@ class GraphStateManager:
         decisions: list[dict],  # type: ignore[type-arg]
         cycle_id: str,
         round_num: int,
-    ) -> None:
+    ) -> int:
         """Transaction function for UNWIND batch decision creation.
 
         Two-statement split avoids the empty-UNWIND pitfall:
         Statement 1: Decision nodes + MADE + FOR relationships.
         Statement 2: CITED relationships (only if any citations exist).
+
+        Returns the number of Decision nodes created, which write_decisions
+        compares with its input.
         """
         # Statement 1: Create Decision nodes with MADE and FOR relationships
-        await tx.run(
+        result = await tx.run(
             """
             UNWIND $decisions AS d
             MATCH (a:Agent {id: d.agent_id})
@@ -467,11 +485,14 @@ class GraphStateManager:
             })
             CREATE (a)-[:MADE]->(dec)
             CREATE (dec)-[:FOR]->(c)
+            RETURN count(dec) AS created
             """,
             decisions=decisions,
             cycle_id=cycle_id,
             round_num=round_num,
         )
+        record = await result.single()
+        created = int(record["created"]) if record is not None else 0
 
         # Statement 2: Create CITED relationships (only if any citations exist)
         cited_params = [
@@ -489,6 +510,7 @@ class GraphStateManager:
                 """,
                 cited=cited_params,
             )
+        return created
 
     # ------------------------------------------------------------------
     # Phase 12: Post nodes for social influence dynamics
