@@ -211,7 +211,7 @@ Contents
 - **Decision:** Portfolio data never enters swarm prompts, Neo4j, WebSocket frames, or logs. It reaches only the post-simulation advisory call. Enforcement:
   1. An import-linter `forbidden` contract allows only `alphaswarm.advisory` and `alphaswarm.web.routes.holdings` to import `alphaswarm.holdings` (`pyproject.toml [tool.importlinter]`; [p37-d-04](#p37-d-04)).
   2. A four-surface sentinel canary runs the real `synthesize()` (`tests/invariants/test_holdings_isolation.py`).
-  3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)).
+  3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)). Tracebacks are rendered without local variables in both modes (JSON: `ExceptionDictTransformer(show_locals=False)` before the redactor; console: `plain_traceback`), so frames never leak keys or portfolio objects (2026-10).
   4. Holdings are loaded into memory at lifespan startup and never persisted ([p39-d-07](#p39-d-07)).
 - **Rationale:** Uncontaminated consensus, plus privacy for real brokerage data.
 - **Gate:** This is the only lint gate in CI and pre-commit (pre-commit hook, plus `tests/invariants/test_importlinter_contract.py` inside pytest).

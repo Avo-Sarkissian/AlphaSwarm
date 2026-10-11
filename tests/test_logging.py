@@ -92,3 +92,80 @@ def test_context_packet_fields_not_in_pii_redaction_set() -> None:
     assert "market" not in _LITERAL_NORMALIZED
     assert "news" not in _LITERAL_NORMALIZED
     assert "entities" not in _LITERAL_NORMALIZED
+
+
+# ---------------------------------------------------------------------------
+# T11.1: tracebacks reach the logs, local variables never do
+# ---------------------------------------------------------------------------
+
+
+def _raise_with_canary_local() -> None:
+    # Built at runtime so the joined value never appears in this file's source,
+    # which a traceback would otherwise print as code context.
+    secret = "".join(["sk-", "LOCAL", "-CANARY"])
+    raise ValueError(f"boom ({len(secret)} chars)")
+
+
+def _walk_keys(node: object) -> set[str]:
+    if isinstance(node, dict):
+        keys = set(node)
+        for value in node.values():
+            keys |= _walk_keys(value)
+        return keys
+    if isinstance(node, list):
+        found: set[str] = set()
+        for value in node:
+            found |= _walk_keys(value)
+        return found
+    return set()
+
+
+def test_json_exception_has_structured_traceback_without_locals(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging(log_level="INFO", json_output=True)
+    logger = get_logger(component="test")
+    try:
+        _raise_with_canary_local()
+    except ValueError:
+        logger.exception("task_failed")
+
+    line = capsys.readouterr().out.strip()
+    parsed = json.loads(line)
+    assert "exc_info" not in parsed
+    stack = parsed["exception"]
+    assert stack[0]["exc_type"] == "ValueError"
+    assert stack[0]["exc_value"] == "boom (15 chars)"
+    assert [f["name"] for f in stack[0]["frames"]][-1] == "_raise_with_canary_local"
+    assert "locals" not in _walk_keys(stack)
+    assert "LOCAL-CANARY" not in line
+
+
+def test_json_exception_from_an_explicit_exc_info_keeps_the_cause_chain(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging(log_level="INFO", json_output=True)
+    logger = get_logger(component="test")
+    try:
+        try:
+            _raise_with_canary_local()
+        except ValueError as inner:
+            raise RuntimeError("wrapped") from inner
+    except RuntimeError as outer:
+        logger.error("simulation_failed", exc_info=outer)
+
+    parsed = json.loads(capsys.readouterr().out.strip())
+    assert [entry["exc_type"] for entry in parsed["exception"]] == ["RuntimeError", "ValueError"]
+
+
+def test_console_exception_never_prints_locals(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging(log_level="INFO", json_output=False)
+    logger = get_logger(component="test")
+    try:
+        _raise_with_canary_local()
+    except ValueError:
+        logger.exception("task_failed")
+
+    out = capsys.readouterr().out
+    assert "ValueError" in out
+    assert "LOCAL-CANARY" not in out
