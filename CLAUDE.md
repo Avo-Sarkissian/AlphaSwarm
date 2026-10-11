@@ -85,7 +85,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 
 ## Workflow
 
-- Plain git: branch off `master`, make small Conventional Commits, open PRs. There is no GSD and no `.planning/` directory; don't recreate them.
+- Plain git: branch off `master`, make small Conventional Commits, open PRs. Don't recreate a `.planning/` directory or any planning-framework scaffolding.
 - Write a short markdown plan in `docs/` only when a change is big enough to need one.
 - Before calling work done:
   - `uv run pytest -q` is green (run from the repo root);
