@@ -1,6 +1,6 @@
 [project]
 name = "alphaswarm"
-version = "0.1.0"
+version = "0.6.0"
 description = "Local-first multi-agent financial simulation engine"
 readme = "README.md"
 license = "MIT"
@@ -44,6 +44,7 @@ Issues = "https://github.com/Avo-Sarkissian/AlphaSwarm/issues"
 Changelog = "https://github.com/Avo-Sarkissian/AlphaSwarm/blob/master/docs/HISTORY.md"
 
 [project.scripts]
+alphaswarm = "alphaswarm.cli:main"
 start = "alphaswarm.cli:main_web"
 
 [build-system]
