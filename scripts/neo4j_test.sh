@@ -10,7 +10,10 @@
 #      through untouched; nothing is written anywhere.
 #   2. `docker compose --profile test down` without a service name also stops
 #      and removes the dev container `alphaswarm-neo4j` (killing any running
-#      simulation). Every command below names neo4j-test explicitly.
+#      simulation). Even with a service name, `down` deletes the project network
+#      when no running container uses it, so a stopped dev container could no
+#      longer start. Every command below names neo4j-test, and stopping uses
+#      `rm`, which never touches networks.
 #
 # Usage: scripts/neo4j_test.sh up|down|reset|status
 set -euo pipefail
@@ -22,8 +25,8 @@ compose() { docker compose --profile test "$@"; }
 
 case "${1:-}" in
   up)     compose up -d --wait neo4j-test ;;
-  down)   compose down neo4j-test ;;
-  reset)  compose down neo4j-test && compose up -d --wait neo4j-test ;;
+  down)   compose rm --force --stop --volumes neo4j-test ;;
+  reset)  compose rm --force --stop --volumes neo4j-test && compose up -d --wait neo4j-test ;;
   status) compose ps neo4j-test ;;
   *)      echo "usage: scripts/neo4j_test.sh up|down|reset|status" >&2; exit 2 ;;
 esac
