@@ -151,6 +151,17 @@ async def generate_advisory(cycle_id: str, request: Request) -> GenerateAdvisory
     # (docs/DECISIONS.md#adr-advisory-pipeline). Checked before the holdings
     # are touched, including the lazy reload below.
     if not await _advisory_permitted(app_state):
+        # Record the refusal like a refused job: with nothing recorded, GET answers
+        # 404, which the UI shows as "still generating" until its poll times out.
+        refusals: dict[str, dict[str, str]] | None = getattr(
+            request.app.state, "advisory_generation_error", None
+        )
+        if refusals is None:
+            refusals = request.app.state.advisory_generation_error = {}
+        refusals[cycle_id] = {
+            "error": "cloud_advisory_disabled",
+            "message": _CLOUD_ADVISORY_MESSAGE,
+        }
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"error": "cloud_advisory_disabled", "message": _CLOUD_ADVISORY_MESSAGE},

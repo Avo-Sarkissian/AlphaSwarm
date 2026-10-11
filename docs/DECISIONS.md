@@ -239,7 +239,7 @@ Contents
   - Ranking: confidence × exposure / total basis.
   - Output goes to `advisory/{cycle_id}_advisory.json`, served by a 202 + polling + done-callback API.
   - Auto-triggered on sim completion. On success it chains report generation.
-  - Runs only when the orchestrator is local (Ollama) or `allow_cloud_advisory` is true in the inference config. Otherwise the POST returns 409 `cloud_advisory_disabled` before the holdings are read, the job refuses as well, and the auto-trigger logs `auto_advisory_skipped_cloud` (T7.2, 2026-10). Until the post-run pipeline lands, a skipped advisory also means no auto-report.
+  - Runs only when the orchestrator is local (Ollama) or `allow_cloud_advisory` is true in the inference config. Otherwise the POST returns 409 `cloud_advisory_disabled` before the holdings are read, the job refuses as well, and the auto-trigger logs `auto_advisory_skipped_cloud` (T7.2, 2026-10). The refusal is recorded, so GET returns `cloud_advisory_disabled` instead of a pending 404. Until the post-run pipeline lands, a skipped advisory also means no auto-report.
 
 ### <a id="adr-report-react"></a>Report: prompt-based ReAct producing markdown
 - **Decision:**

@@ -361,3 +361,21 @@ def test_an_unreadable_inference_config_fails_closed(
 
     assert r.status_code == 409
     assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
+
+
+def test_a_refused_post_is_recorded_so_get_stops_reporting_pending(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """GET answers 404 ("still generating" in the UI) when nothing is recorded, so a
+    cloud refusal is recorded like a refused job and GET returns its code."""
+    monkeypatch.setattr(
+        advisory_module, "load_inference_config", lambda _s: _cloud_cfg(opt_in=False)
+    )
+    monkeypatch.setattr("alphaswarm.web.routes.advisory.ADVISORY_DIR", tmp_path)
+    client = TestClient(_make_app(portfolio=_fake_portfolio()))
+
+    assert client.post("/api/advisory/cycle_01").status_code == 409
+    r = client.get("/api/advisory/cycle_01")
+
+    assert r.status_code == 500
+    assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
