@@ -1,8 +1,8 @@
-"""HOLD-03 integration tests for GET /api/holdings.
+"""HOLD-03 route tests for GET /api/holdings.
 
-Lives under tests/integration/ so that tests/integration/conftest.py auto-applies
-the enable_socket marker — FastAPI TestClient needs in-process sockets even
-though no outbound network traffic occurs.
+Offline: FastAPI's TestClient runs the app in-process and needs no network, so
+these tests run with sockets disabled like every unmarked test
+(docs/DECISIONS.md#adr-test-network-gate).
 
 Tests are hermetic: they build a minimal FastAPI app with a custom lifespan that
 seeds app.state.portfolio_cache with a fixed snapshot. HoldingsLoader is NEVER invoked and

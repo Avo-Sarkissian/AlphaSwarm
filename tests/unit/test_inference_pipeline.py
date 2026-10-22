@@ -1,4 +1,4 @@
-"""Integration test: module integration for Phase 2 inference pipeline.
+"""Module-integration tests for the inference pipeline (mocked Ollama client, no server).
 
 Uses mocked AsyncClient to verify the full inference path without
 a running Ollama server. The integration here is between modules
@@ -174,8 +174,8 @@ async def test_governor_backpressure(
 
     await asyncio.gather(first_worker(), second_worker())
 
-    # First worker must complete before second acquires
-    assert order.index("first_acquired") < order.index("second_acquired")
+    # One slot: the second worker cannot enter until the first has released it.
+    assert order == ["first_acquired", "first_done", "second_acquired", "second_done"]
     assert governor.active_count == 0
 
 
