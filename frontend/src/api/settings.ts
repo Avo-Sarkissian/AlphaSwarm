@@ -53,6 +53,8 @@ export interface SettingsView {
       string,
       { input_per_mtok: string; output_per_mtok: string }
     >;
+    /** Cloud-advisory opt-in (backend default false; absent in older backends). */
+    allow_cloud_advisory?: boolean;
   };
   mode: 'local' | 'cloud' | 'mixed';
   available_local_models: string[];
@@ -76,6 +78,8 @@ export interface SettingsPutBody {
   limits?: SettingsView['config']['limits'];
   spend_cap_usd?: string | null;
   pricing_overrides?: SettingsView['config']['pricing_overrides'];
+  /** Omit to keep the stored opt-in. */
+  allow_cloud_advisory?: boolean;
 }
 
 /** GET /api/settings/estimate response. */
@@ -96,6 +100,8 @@ export interface TestResult {
 export interface HealthWithInference {
   inference_mode: 'local' | 'cloud' | 'mixed';
   spent_usd: number | null;
+  /** Package version from importlib.metadata (GET /api/health). */
+  version?: string;
   [key: string]: unknown;
 }
 
