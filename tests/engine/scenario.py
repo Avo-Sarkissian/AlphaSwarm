@@ -89,14 +89,24 @@ def round_calls(worker: ScriptedProvider, round_num: int) -> list[ScriptedCall]:
 def influence_weights_from_writes(
     graph: MagicMock, *, up_to_round: int, total_agents: int
 ) -> dict[str, float]:
-    """In-memory stand-in for compute_influence_edges (citations / active agents, cumulative)."""
-    if total_agents <= 0:
+    """In-memory stand-in for GraphStateManager.compute_influence_edges.
+
+    Mirrors the real query: DISTINCT (author, cited) pairs from rounds 1..up_to_round
+    with self-citations dropped, weight = pairs naming the agent / total_agents. Like
+    the real method it returns {} when nothing is cited and otherwise divides
+    unguarded, so total_agents=0 raises ZeroDivisionError here too.
+    """
+    pairs = {
+        (author, cited)
+        for round_num, decisions in recorded_decisions(graph).items()
+        if round_num <= up_to_round
+        for author, decision in decisions
+        for cited in decision.cited_agents
+        if cited != author
+    }
+    if not pairs:
         return {}
-    counts: Counter[str] = Counter()
-    for round_num, decisions in recorded_decisions(graph).items():
-        if round_num <= up_to_round:
-            for _, decision in decisions:
-                counts.update(decision.cited_agents)
+    counts = Counter(cited for _, cited in pairs)
     return {agent_id: n / total_agents for agent_id, n in sorted(counts.items())}
 
 

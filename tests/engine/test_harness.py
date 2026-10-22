@@ -7,11 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from alphaswarm.types import SimulationPhase
+from alphaswarm.types import AgentDecision, SignalType, SimulationPhase
 from tests.engine.scenario import (
     SCENARIO_CYCLE_ID,
     RecordingStateStore,
     RunScenario,
+    influence_weights_from_writes,
     persisted_rounds,
     round_calls,
 )
@@ -61,3 +62,39 @@ async def test_fake_graph_rejects_calls_that_break_the_real_signature(
     # the match keeps an unrelated TypeError (awaiting a plain MagicMock) from passing.
     with pytest.raises(TypeError, match="missing a required argument: 'metrics'"):
         await fake_graph.write_cycle_metrics("cycle")
+
+
+def _citing(*cited: str) -> AgentDecision:
+    return AgentDecision(signal=SignalType.HOLD, confidence=0.5, cited_agents=list(cited))
+
+
+async def test_influence_stand_in_counts_distinct_pairs_without_self_citations(
+    fake_graph: MagicMock,
+) -> None:
+    await fake_graph.write_decisions(
+        [("quants_01", _citing("sell_side_01", "quants_01"))], "cycle", 2
+    )
+    await fake_graph.write_decisions(
+        [
+            ("quants_01", _citing("sell_side_01")),
+            ("degens_01", _citing("sell_side_01", "sell_side_01")),
+        ],
+        "cycle",
+        3,
+    )
+    # Like the real query: DISTINCT (author, cited) pairs across rounds, self-citations dropped.
+    assert influence_weights_from_writes(fake_graph, up_to_round=2, total_agents=4) == {
+        "sell_side_01": 0.25
+    }
+    assert influence_weights_from_writes(fake_graph, up_to_round=3, total_agents=4) == {
+        "sell_side_01": 0.5
+    }
+
+
+async def test_influence_stand_in_divides_by_total_agents_like_the_real_method(
+    fake_graph: MagicMock,
+) -> None:
+    assert influence_weights_from_writes(fake_graph, up_to_round=3, total_agents=0) == {}
+    await fake_graph.write_decisions([("quants_01", _citing("sell_side_01"))], "cycle", 2)
+    with pytest.raises(ZeroDivisionError):
+        influence_weights_from_writes(fake_graph, up_to_round=2, total_agents=0)
