@@ -10,6 +10,9 @@ from typing import TYPE_CHECKING
 import httpx
 import structlog
 
+from alphaswarm.errors import InferenceConfigError, run_error_from_exception
+from alphaswarm.types import SimulationPhase
+
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
@@ -19,6 +22,10 @@ if TYPE_CHECKING:
     from alphaswarm.web.replay_manager import ReplayManager
 
 log = structlog.get_logger(component="web.simulation_manager")
+
+_ROUND_PHASES = frozenset(
+    {SimulationPhase.ROUND_1, SimulationPhase.ROUND_2, SimulationPhase.ROUND_3}
+)
 
 
 def _error_code(resp: httpx.Response) -> str | None:
@@ -154,6 +161,12 @@ class SimulationManager:
         if self._on_start is not None:
             self._on_start()
         await self._lock.acquire()
+        try:
+            # A new run starts with an empty error slot, before the first frame.
+            await self._app_state.state_store.set_last_error(None)
+        except BaseException:
+            self._lock.release()
+            raise
         self._is_running = True
         self._pending_shock = None  # Reset shock state
         log.info("simulation_started", seed_length=len(seed))
@@ -178,20 +191,29 @@ class SimulationManager:
         from alphaswarm.config import load_inference_config
         from alphaswarm.inference.factory import build_controller, build_providers, inference_mode
         from alphaswarm.simulation import run_simulation
-        from alphaswarm.types import SimulationPhase
 
         # `built` may remain None if cancelled before build_providers completes.
         # The finally block guards aclose() accordingly.
         built: BuiltProviders | None = None
 
         try:
-            # Load inference config off the event loop (sync file I/O).
-            cfg = await _asyncio.to_thread(load_inference_config, self._app_state.settings)
-            built = build_providers(
-                cfg,
-                ollama_client=self._app_state.ollama_client,
-                ollama_model_manager=self._app_state.model_manager,
-            )
+            try:
+                # Load inference config off the event loop (sync file I/O).
+                cfg = await _asyncio.to_thread(load_inference_config, self._app_state.settings)
+                built = build_providers(
+                    cfg,
+                    ollama_client=self._app_state.ollama_client,
+                    ollama_model_manager=self._app_state.model_manager,
+                )
+            except ValueError as exc:
+                # The ValueError text can quote the file path and raw config
+                # values, API keys included, so neither the UI nor the log gets
+                # it (docs/DECISIONS.md#adr-local-first-inference).
+                log.error("inference_config_invalid", error_type=type(exc).__name__)
+                raise InferenceConfigError(
+                    "The saved inference configuration is invalid. "
+                    "Open Settings and save a valid configuration."
+                ) from None
             controller = build_controller(
                 cfg,
                 self._app_state.settings.governor,
@@ -235,7 +257,8 @@ class SimulationManager:
             except Exception:
                 log.error("failed_to_reset_phase_to_idle_on_cancel")
             raise
-        except Exception:
+        except Exception as exc:
+            await self._publish_failure(exc)
             try:
                 await self._app_state.state_store.set_phase(SimulationPhase.IDLE)
             except Exception:
@@ -249,6 +272,28 @@ class SimulationManager:
                 async with _ctx.AsyncExitStack() as stack:
                     stack.push_async_callback(built.orchestrator.aclose)
                     stack.push_async_callback(built.worker.aclose)
+
+    async def _publish_failure(self, exc: BaseException) -> None:
+        """Put a UI-safe RunError on the StateStore and log the failure once.
+
+        Never raises: a broken store must not stop the phase reset that follows
+        (docs/DECISIONS.md#adr-taskgroup-dispatch).
+        """
+        store = self._app_state.state_store
+        try:
+            snap = store.snapshot()
+            round_num = snap.round_num if snap.phase in _ROUND_PHASES else None
+            err = run_error_from_exception(exc, round_num=round_num)
+            await store.set_last_error(err)
+        except Exception:
+            log.warning("last_error_publish_failed", exc_info=True)
+            return
+        log.error(
+            "simulation_run_failed",
+            error_code=err.code,
+            round_num=err.round_num,
+            exc_info=exc,
+        )
 
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
         """Synchronous done-callback: releases lock and logs outcome.
@@ -278,7 +323,8 @@ class SimulationManager:
             log.info("simulation_cancelled")
         else:
             exc = task.exception()
-            log.error("simulation_failed", error=str(exc), exc_info=exc)
+            # Details were logged by _publish_failure; keep this line text-free.
+            log.info("simulation_task_failed", error_type=type(exc).__name__)
 
     def stop(self) -> None:
         """Stop the running simulation by cancelling the background task.

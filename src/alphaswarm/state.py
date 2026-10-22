@@ -12,6 +12,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from alphaswarm.data_audit import DataSourceAuditBuffer, DataSourceAuditEntry
+from alphaswarm.errors import RunError
 from alphaswarm.types import SignalType, SimulationPhase
 
 
@@ -89,6 +90,9 @@ class StateSnapshot:
     # frontend SignalWire ticker reads this slice instead of the prior
     # DEV-only mock seed.
     data_source_audit: tuple[DataSourceAuditEntry, ...] = ()
+    # Typed, UI-safe description of the last failed run; cleared when a new
+    # run starts (docs/DECISIONS.md#adr-taskgroup-dispatch).
+    last_error: RunError | None = None
 
 
 class StateStore:
@@ -129,6 +133,7 @@ class StateStore:
         self._cumulative_eval_ns: int = 0
         # Phase 10: TUI-05 bracket summaries storage
         self._bracket_summaries: tuple[BracketSummary, ...] = ()
+        self._last_error: RunError | None = None
 
     async def update_agent_state(
         self,
@@ -233,6 +238,16 @@ class StateStore:
         async with self._lock:
             self._bracket_summaries = summaries
 
+    async def set_last_error(self, err: RunError | None) -> None:
+        """Record (or clear, with None) the error that ended the last run."""
+        async with self._lock:
+            self._last_error = err
+
+    @property
+    def last_error(self) -> RunError | None:
+        """The error that ended the last run, or None."""
+        return self._last_error
+
     def _compute_tps(self) -> float:
         """Compute running tokens-per-second from accumulated values."""
         if self._cumulative_eval_ns <= 0:
@@ -263,6 +278,7 @@ class StateStore:
             rationale_entries=tuple(self._rationale_window),
             bracket_summaries=self._bracket_summaries,
             data_source_audit=self._data_source_audit.snapshot(),
+            last_error=self._last_error,
         )
 
     def peek_rationales(self) -> tuple[RationaleEntry, ...]:

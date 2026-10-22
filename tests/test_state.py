@@ -511,3 +511,23 @@ def test_replay_store_no_drain() -> None:
     snap2 = store.snapshot()
     assert snap1.rationale_entries == snap2.rationale_entries
     assert len(snap1.rationale_entries) == 1
+
+
+async def test_last_error_defaults_to_none_and_round_trips() -> None:
+    from alphaswarm.errors import RoundFailedError, run_error_from_exception
+
+    store = StateStore()
+    assert store.last_error is None
+    assert store.snapshot().last_error is None
+
+    err = run_error_from_exception(RoundFailedError(2, 80, 100, 50.0), round_num=2)
+    await store.set_last_error(err)
+    assert store.last_error == err
+    assert store.snapshot().last_error == err
+
+    await store.set_last_error(None)
+    assert store.snapshot().last_error is None
+
+
+def test_replay_snapshot_has_no_last_error() -> None:
+    assert ReplayStore("c1", {}).snapshot().last_error is None
