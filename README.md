@@ -251,6 +251,8 @@ uv run alphaswarm web                                          # or: uv run star
 
 ```bash
 uv run alphaswarm run "Apple acquiring Anthropic for $500B"   # headless sim + markdown report
+uv run alphaswarm run "rumor text" --context-fixture <file>   # point-in-time market block, no live fetch
+uv run alphaswarm run "rumor text" --no-market-context        # no market block, no live fetch
 uv run alphaswarm inject "rumor text"                         # entity extraction only
 uv run alphaswarm report --cycle <cycle_id>                   # report for a past cycle (default: latest)
 ```

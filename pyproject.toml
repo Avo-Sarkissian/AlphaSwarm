@@ -74,6 +74,7 @@ timeout = 60
 [tool.mypy]
 python_version = "3.11"
 strict = true
+mypy_path = "src"
 
 # Modules that still carry strict-mode errors. Delete an entry here and in ALLOWED_OVERRIDES
 # (tests/invariants/test_mypy_overrides.py) when its module reaches zero; never add one.
@@ -85,6 +86,11 @@ module = [
     "alphaswarm.web.simulation_manager",
 ]
 ignore_errors = true
+
+# yfinance ships no py.typed marker; its imports are typed as Any.
+[[tool.mypy.overrides]]
+module = ["yfinance"]
+ignore_missing_imports = true
 
 [tool.importlinter]
 root_package = "alphaswarm"
@@ -100,6 +106,7 @@ source_modules = [
     "alphaswarm.context_formatter",
     "alphaswarm.data_audit",
     "alphaswarm.errors",
+    "alphaswarm.evaluation",
     "alphaswarm.fsutil",
     "alphaswarm.governor",
     "alphaswarm.graph",
@@ -115,6 +122,7 @@ source_modules = [
     "alphaswarm.inference.schema",
     "alphaswarm.inference.types",
     "alphaswarm.ingestion",
+    "alphaswarm.ingestion.fixture",
     "alphaswarm.ingestion.providers",
     "alphaswarm.ingestion.types",
     "alphaswarm.ingestion.yfinance_provider",

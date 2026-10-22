@@ -21,7 +21,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 ## Modules (`src/alphaswarm/`)
 
 - **Entry points and composition**
-  - `__main__.py`, `cli.py`: subcommands `inject | run | report | web`.
+  - `__main__.py`, `cli.py`: subcommands `inject | run | report | web`. `run` takes `--context-fixture PATH` (a point-in-time ContextPacket replaces the live fetch) or `--no-market-context` (no market block); either way no yfinance or RSS provider is built.
   - `app.py`: `AppState`, a container for the settings, StateStore, ResourceGovernor, Ollama client and model manager, GraphStateManager, and the market and news providers, plus `create_app_state()`.
   - `web/app.py`: the lifespan. It builds AppState, the Simulation, Replay, and Connection managers and the `PostRunPipeline`, loads the holdings into `PortfolioCache`, and starts the broadcaster.
 - **Domain and config**
@@ -65,6 +65,10 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 - **Web**
   - `web/`: `simulation_manager`, `replay_manager`, `post_run` (PostRunPipeline), `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `wire` (the versioned `StateFrame` and its mapper), `connection_manager`, and `origin_guard` (a CSRF Origin guard).
   - `web/routes/`: health (component readiness, cached 5 s, plus `/api/health/live`), simulation (start/stop/shock), edges, replay, interview, holdings, report, advisory, settings, websocket.
+- **Evaluation**
+  - `evaluation.py`: eval records, outcome labels and forecast scoring (pure; `docs/DECISIONS.md#adr-eval-harness`).
+  - `ingestion/fixture.py`: point-in-time `ContextPacket` fixtures for `alphaswarm run --context-fixture`.
+  - Repo-root `eval/`: the `build_fixtures`, `label_outcomes` and preliminary `pilot` scripts. They read `eval/events.jsonl` and `eval/headlines/`, and write the committed `eval/fixtures/` and the gitignored `eval/results/` (labels, pilot state).
 
 ## Data flow: seed → rounds → graph → web → UI
 
@@ -80,7 +84,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - `generate_modifiers`.
 
    Then `generate_personas` builds 100 prompts. Each one is a bracket template plus a round-robin modifier, a per-cycle focus line, and the JSON instructions.
-3. **Market context (Round 1 only).** Ticker-shaped entities go to `asyncio.gather(yfinance.get_prices, rss.get_headlines)`. The results become a ContextPacket, which `format_market_context` turns into one block, fenced as untrusted data inside the user message.
+3. **Market context (Round 1 only).** Ticker-shaped entities go to `asyncio.gather(yfinance.get_prices, rss.get_headlines)`. The results become a ContextPacket, which `format_market_context` turns into one block, fenced as untrusted data inside the user message. A point-in-time run (`run --context-fixture`) skips the fetch: its fixture packet goes straight to `format_market_context`, and supplied providers are never called.
 4. **Round 1.** `dispatch_wave` runs 100 tasks. Each one waits out its jitter, calls `controller.acquire`, then `AgentWorker.infer` (schema-constrained decode, per-bracket temperature), then `parse_agent_decision`. Results stream into the StateStore as they finish. Then:
    - the round-abort check (`RoundFailedError` when more than `round_abort_failure_percent` of agents failed);
    - `write_decisions` (plus CITED edges);

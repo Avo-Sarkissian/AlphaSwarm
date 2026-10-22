@@ -1083,6 +1083,64 @@ async def test_run_pipeline_constructs_providers() -> None:
     assert isinstance(kwargs["news_provider"], RSSNewsProvider)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["context_fixture", "no_market_context"])
+async def test_run_pipeline_point_in_time_runs_build_no_live_providers(mode: str) -> None:
+    """A fixture or --no-market-context run builds no YFinance/RSS provider, and the
+    fixture is what reaches run_simulation (docs/DECISIONS.md#adr-eval-harness)."""
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from alphaswarm.ingestion.fixture import build_fixture_packet
+    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+
+    packet = build_fixture_packet(
+        event_id="evt-001",
+        as_of=datetime(2026, 2, 3, 14, 0, tzinfo=UTC),
+        ticker="ZZZT",
+        close=Decimal("123.45"),
+        volume=1_000_000,
+    )
+    run_kwargs: dict[str, object] = (
+        {"context_fixture": packet} if mode == "context_fixture" else {"market_context": False}
+    )
+    mock_app = MagicMock()
+    mock_app.graph_manager = AsyncMock()
+    mock_app.ollama_client = MagicMock()
+    mock_app.model_manager = AsyncMock()
+    mock_app.governor = AsyncMock()
+    mock_settings = MagicMock()
+    mock_settings.num_rounds = 3
+    empty_shifts = ShiftMetrics(
+        signal_transitions=(), total_flips=0, bracket_confidence_delta=(), agents_shifted=0
+    )
+    mock_result = MagicMock(spec=SimulationResult)
+    mock_result.round2_shifts = empty_shifts
+    mock_result.round3_shifts = empty_shifts
+    mock_result.round3_decisions = ()
+    mock_result.round3_summaries = ()
+    mock_result.cycle_id = "test-cycle"
+    mock_sim = AsyncMock(return_value=mock_result)
+
+    with (
+        patch("alphaswarm.simulation.run_simulation", mock_sim),
+        patch("alphaswarm.cli.YFinanceMarketDataProvider") as market_cls,
+        patch("alphaswarm.cli.RSSNewsProvider") as news_cls,
+    ):
+        from alphaswarm.cli import _run_pipeline
+
+        await _run_pipeline(
+            "test rumor", mock_settings, mock_app, _TEST_PERSONAS, _TEST_BRACKETS, **run_kwargs
+        )
+
+    market_cls.assert_not_called()
+    news_cls.assert_not_called()
+    kwargs = mock_sim.call_args.kwargs
+    assert kwargs["market_provider"] is None
+    assert kwargs["news_provider"] is None
+    assert kwargs["context_fixture"] is (packet if mode == "context_fixture" else None)
+
+
 def test_shift_analysis_uses_actual_agent_count(capsys: pytest.CaptureFixture[str]) -> None:
     from alphaswarm.cli import _print_shift_analysis
     from alphaswarm.simulation import ShiftMetrics

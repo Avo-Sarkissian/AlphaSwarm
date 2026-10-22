@@ -55,7 +55,7 @@ import math
 from datetime import UTC, datetime
 from decimal import Decimal
 
-import yfinance as yf  # type: ignore[import-untyped]
+import yfinance as yf
 
 from alphaswarm.ingestion.providers import _fetch_failed_market_slice
 from alphaswarm.ingestion.types import Fundamentals, MarketSlice

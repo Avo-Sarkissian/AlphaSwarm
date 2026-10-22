@@ -1182,6 +1182,7 @@ async def run_simulation(
     news_provider: NewsProvider | None = None,
     orchestrator_provider: InferenceProvider | None = None,
     worker_provider: InferenceProvider | None = None,
+    context_fixture: ContextPacket | None = None,
 ) -> SimulationResult:
     """Execute the full 3-round simulation pipeline (D-04).
 
@@ -1201,6 +1202,11 @@ async def run_simulation(
     (`context_assembly_skipped`) is emitted and run_round1 receives
     `market_context=None` (backward compatible). Rounds 2-3 are NOT affected
     (D-06 keeps market context Round 1 only).
+
+    A context_fixture (a point-in-time ContextPacket for evaluation runs,
+    docs/DECISIONS.md#adr-eval-harness) takes precedence over both providers:
+    it is formatted directly, the providers are never called, and
+    `context_fixture_used` is logged instead.
 
     Lifecycle:
     1. run_round1() handles SEEDING + ROUND_1 (owns its own governor session per D-06)
@@ -1275,7 +1281,18 @@ async def run_simulation(
     # news-only context. See context_formatter.py module docstring for
     # full rationale.
     market_context_str: str | None = None
-    if market_provider is None or news_provider is None:
+    if context_fixture is not None:
+        # Point-in-time run: the fixture replaces the live fetch
+        # (docs/DECISIONS.md#adr-eval-harness).
+        market_context_str = format_market_context(context_fixture)
+        logger.info(
+            "context_fixture_used",
+            cycle_id=cycle_id,
+            as_of=context_fixture.as_of.isoformat(),
+            entity_count=len(context_fixture.entities),
+            rendered=market_context_str is not None,
+        )
+    elif market_provider is None or news_provider is None:
         logger.warning(
             "context_assembly_skipped",
             reason="no_providers_configured",

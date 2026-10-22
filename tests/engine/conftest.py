@@ -15,6 +15,7 @@ from alphaswarm.inference.concurrency import ConcurrencyController
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
+from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
 from alphaswarm.simulation import OnRoundComplete, SimulationResult, run_simulation
@@ -172,6 +173,7 @@ def run_scenario(
         generate_narratives: bool = True,
         market_provider: MarketDataProvider | None = None,
         news_provider: NewsProvider | None = None,
+        context_fixture: ContextPacket | None = None,
         on_round_complete: OnRoundComplete = None,
     ) -> SimulationResult:
         pending = dict(shocks or {})
@@ -201,6 +203,7 @@ def run_scenario(
             news_provider=news_provider,
             orchestrator_provider=chosen_orchestrator,
             worker_provider=chosen_worker,
+            context_fixture=context_fixture,
         )
 
     return _run
