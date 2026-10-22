@@ -472,7 +472,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p7-d-04"></a>`D-04` | Single run_simulation() orchestrates all rounds, reusing run_round1() for Round 1. | active | simulation.py:933 |
 | <a id="p7-d-05"></a>`D-05` | Worker reloaded once after run_round1() (which unloads in its finally) and kept warm for later rounds. | active | simulation.py:957,1129 |
 | <a id="p7-d-06"></a>`D-06` | run_round1 owns its governor monitoring session; run_simulation starts a fresh one for Rounds 2-3. | active | simulation.py:951,958,1132 |
-| <a id="p7-d-07"></a>`D-07` | Phase machine IDLE -> SEEDING -> ROUND_1..3 -> COMPLETE. Originally log-only; StateStore.set_phase now drives the UI. | partial | simulation.py:935 |
+| <a id="p7-d-07"></a>`D-07` | Phase machine IDLE -> SEEDING -> ROUND_1..N -> FINALIZING -> COMPLETE. FINALIZING covers narratives (while eager) and metrics. StateStore.set_phase drives the UI. | active | simulation.py (run_simulation); types.py (SimulationPhase) |
 | <a id="p7-d-08"></a>`D-08` | SimulationResult is one frozen container for all rounds plus shift metrics. | active | simulation.py:292 |
 | <a id="p7-d-09"></a>`D-09` | Round N reads peer context from round N-1, personalised per agent (self excluded). | active | simulation.py:758,1135,1293 |
 | <a id="p7-d-10"></a>`D-10` | Peer contexts are built per agent BEFORE dispatch and passed into dispatch_wave. | active | simulation.py:758,846 |

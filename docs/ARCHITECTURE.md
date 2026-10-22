@@ -91,6 +91,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 
    The round is then dispatched, checked against the same round-abort rule, and persisted, and `compute_influence_edges` writes `INFLUENCED_BY {round, weight}`.
 6. **Finalize.**
+   - The phase becomes FINALIZING.
    - `_generate_decision_narratives`: 100 worker calls.
    - `write_cycle_metrics`.
    - The phase becomes COMPLETE.
