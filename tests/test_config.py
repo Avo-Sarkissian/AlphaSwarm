@@ -266,3 +266,27 @@ def test_modifier_length_cap() -> None:
     assert not result.endswith(" ")  # No trailing space after word-boundary truncation
     # Short modifiers pass through unchanged
     assert _truncate_modifier("short modifier") == "short modifier"
+
+
+def test_round_abort_failure_percent_defaults_to_50() -> None:
+    from alphaswarm.config import GovernorSettings
+
+    assert GovernorSettings().round_abort_failure_percent == 50.0
+
+
+@pytest.mark.parametrize("bad", [0.5, 100.5])
+def test_round_abort_failure_percent_bounds(bad: float) -> None:
+    from pydantic import ValidationError
+
+    from alphaswarm.config import GovernorSettings
+
+    with pytest.raises(ValidationError):
+        GovernorSettings(round_abort_failure_percent=bad)
+
+
+def test_round_abort_failure_percent_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    from alphaswarm.config import AppSettings
+
+    monkeypatch.setenv("ALPHASWARM_GOVERNOR__ROUND_ABORT_FAILURE_PERCENT", "75")
+    settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.governor.round_abort_failure_percent == 75.0
