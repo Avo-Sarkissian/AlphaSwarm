@@ -218,6 +218,7 @@ Contents
 - **Leftovers:**
   - `read_ranked_posts`, `_dispatch_round`, and `read_peer_decisions` are dead code.
   - READ_POST edges are no longer written, which empties the report's `social_post_reach` section. See BACKLOG.
+- **Control holdout (decided 2026-10 under the owner's delegation):** `control_fraction` defaults to 0.0, so product runs keep every reader's peer context; experiment and eval runs set `ALPHASWARM_SIMULATION__CONTROL_FRACTION=0.2` (20 seeded readers, round-half-up per bracket, never see peers).
 
 ### <a id="adr-num-rounds"></a>Configurable cascade depth (2 or 3 rounds)
 - **Decision:** `ALPHASWARM_NUM_ROUNDS` accepts 2 or 3 and defaults to 3 (`AppSettings.num_rounds`).

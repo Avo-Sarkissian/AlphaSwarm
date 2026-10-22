@@ -32,6 +32,7 @@ from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.manifest import current_git_revision
+from alphaswarm.metrics import split_flips
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
@@ -1415,6 +1416,11 @@ async def run_simulation(
                     shock_length=len(shock_text_r2),
                 )
 
+        # Seeded no-peer holdout for the whole run (docs/DECISIONS.md#adr-diverse-peer-context).
+        control_ids = select_control_ids(
+            personas, fraction=settings.simulation.control_fraction, run_seed=cycle_id
+        )
+
         # Build bracket-diverse peer contexts from Round 1 decisions in memory
         # (docs/DECISIONS.md#sweep-3-3: replaces the global-authority read_ranked_posts
         # path that showed every agent the same top-10). READ_POST edge writes
@@ -1424,6 +1430,15 @@ async def run_simulation(
             personas, round1_result.agent_decisions, source_round=1,
             sim=settings.simulation,
             run_seed=cycle_id,
+        )
+        round2_peer_contexts, round2_exposures, round2_own_priors = apply_holdout_and_priors(
+            personas,
+            round2_peer_contexts,
+            round2_exposures,
+            round1_result.agent_decisions,
+            1,
+            sim=settings.simulation,
+            control_ids=control_ids,
         )
         exposure_metrics: dict[str, int] = compute_exposure_metrics(
             round2_exposures, personas, round_num=2,
@@ -1454,6 +1469,7 @@ async def run_simulation(
                 peer_contexts=round2_peer_contexts,
                 state_store=state_store,
                 round_num=2,
+                own_priors=round2_own_priors,
             )
             round2_decisions: list[tuple[str, AgentDecision]] = [
                 (wc["agent_id"], dec)
@@ -1472,7 +1488,7 @@ async def run_simulation(
                 2, round2_decisions, settings.governor.round_abort_failure_percent,
             )
             round2_ids = await graph_manager.write_decisions(
-                round2_decisions, cycle_id, round_num=2
+                round2_decisions, cycle_id, round_num=2, control_ids=control_ids
             )
 
             # Phase 12: Write Round 2 Post nodes (D-12 step 2)
@@ -1533,6 +1549,16 @@ async def run_simulation(
             # Compute Round 2 shifts in-memory (D-13)
             round2_shifts = _compute_shifts(
                 round1_result.agent_decisions, round2_decisions, personas,
+            )
+            r2_control_flips, r2_treated_flips = split_flips(
+                round1_result.agent_decisions, round2_decisions, control_ids
+            )
+            exposure_metrics.update(
+                {
+                    "r2_control_agents": len(control_ids),
+                    "r2_flips_control": r2_control_flips,
+                    "r2_flips_treated": r2_treated_flips,
+                }
             )
 
             # Fire callback for Round 2 (progressive output)
@@ -1597,6 +1623,19 @@ async def run_simulation(
                     run_seed=cycle_id,
                     global_citation_weights=round2_weights,
                 )
+                (
+                    round3_peer_contexts,
+                    round3_exposures,
+                    round3_own_priors,
+                ) = apply_holdout_and_priors(
+                    personas,
+                    round3_peer_contexts,
+                    round3_exposures,
+                    round2_decisions,
+                    2,
+                    sim=settings.simulation,
+                    control_ids=control_ids,
+                )
                 exposure_metrics.update(
                     compute_exposure_metrics(round3_exposures, personas, round_num=3)
                 )
@@ -1621,6 +1660,7 @@ async def run_simulation(
                     peer_contexts=round3_peer_contexts,
                     state_store=state_store,
                     round_num=3,
+                    own_priors=round3_own_priors,
                 )
                 round3_decisions: list[tuple[str, AgentDecision]] = [
                     (wc["agent_id"], dec)
@@ -1638,7 +1678,7 @@ async def run_simulation(
                     3, round3_decisions, settings.governor.round_abort_failure_percent,
                 )
                 round3_ids = await graph_manager.write_decisions(
-                    round3_decisions, cycle_id, round_num=3
+                    round3_decisions, cycle_id, round_num=3, control_ids=control_ids
                 )
 
                 # Phase 12: Write Round 3 Post nodes
@@ -1708,6 +1748,16 @@ async def run_simulation(
                 # Compute Round 3 shifts in-memory (D-13)
                 round3_shifts = _compute_shifts(
                     round2_decisions, round3_decisions, personas,
+                )
+                r3_control_flips, r3_treated_flips = split_flips(
+                    round2_decisions, round3_decisions, control_ids
+                )
+                exposure_metrics.update(
+                    {
+                        "r3_control_agents": len(control_ids),
+                        "r3_flips_control": r3_control_flips,
+                        "r3_flips_treated": r3_treated_flips,
+                    }
                 )
 
                 # Fire callback for Round 3 (progressive output)

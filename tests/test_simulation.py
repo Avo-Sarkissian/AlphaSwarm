@@ -3663,6 +3663,11 @@ _EXPOSURE_KEYS_TEST_BRACKETS: frozenset[str] = frozenset(
     | {"r2_distinct_peers_shown", "r3_distinct_peers_shown"}
 )
 
+# Control-holdout size and flip split, rounds 2-3 (docs/DECISIONS.md#adr-diverse-peer-context).
+_CONTROL_KEYS: frozenset[str] = frozenset(
+    f"r{n}_{kind}" for n in (2, 3) for kind in ("control_agents", "flips_control", "flips_treated")
+)
+
 # Peer parameters and run provenance stamped on every cycle (docs/DECISIONS.md#adr-cycle-metrics).
 _PROVENANCE_KEYS: frozenset[str] = frozenset(
     {
@@ -3726,7 +3731,9 @@ async def test_run_simulation_writes_cycle_metrics(
         "r1_inference_errors", "r2_inference_errors", "r3_inference_errors",
         "final_round",
     }
-    assert set(metrics.keys()) == expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS | _PROVENANCE_KEYS
+    assert set(metrics.keys()) == (
+        expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS | _CONTROL_KEYS | _PROVENANCE_KEYS
+    )
     # All values are flat scalars (Neo4j property constraint)
     assert all(isinstance(v, (int, float, str, bool)) for v in metrics.values())
     assert metrics["agent_count"] == len(TEST_PERSONAS)
