@@ -387,7 +387,11 @@ class StateStore:
         self._num_rounds = n
 
     def set_pending_shock(self, text: str | None) -> None:
-        """Mirror SimulationManager's queued shock (None once consumed or cleared)."""
+        """Record the shock queued for the next round, or None when none is queued.
+
+        The store does not watch the shock queue: pending_shock shows only what
+        the queue's owner last passed here.
+        """
         self._pending_shock = text
 
     def record_applied_shock(self, text: str, round_num: int) -> None:
