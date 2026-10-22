@@ -3,7 +3,7 @@
 // widgets that poll or load DEV mocks, and Settings. Edges come from a
 // controllable EdgesContext stub.
 import type { ReactNode } from 'react';
-import { cleanup, screen } from '@testing-library/react';
+import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App as DashboardShell } from '../../components/app_v2';
 import { makeAgent } from '../helpers/agents';
@@ -80,5 +80,42 @@ describe('Brackets panel', () => {
     expect(row.querySelector('.bracket-count')?.textContent).toBe('2');
     expect((row.querySelector('.b-buy') as HTMLElement).style.width).toBe('50%');
     expect((row.querySelector('.b-hold') as HTMLElement).style.width).toBe('0%');
+  });
+});
+
+describe('dashboard lifecycle', () => {
+  it('keeps the topbar and Settings reachable while idle (exit criterion)', () => {
+    renderAt(<DashboardShell />, 'idle');
+    expect(screen.queryByText('Swarm is dormant.')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /^run$/i })).not.toBeNull();
+    fireEvent.click(screen.getByTitle('Settings'));
+    expect(screen.queryByRole('dialog', { name: 'Settings dialog' })).not.toBeNull();
+  });
+
+  it('shows the seeding overlay, the SEEDING label and Stop while seeding', () => {
+    renderAt(<DashboardShell />, 'seeding');
+    expect(screen.queryByText('Spawning agents…')).not.toBeNull();
+    expect(screen.queryByText('SEEDING')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /stop/i })).not.toBeNull();
+  });
+
+  it('shows the graph without overlays during a live round', () => {
+    renderAt(<DashboardShell />, 'live');
+    expect(screen.queryByText('Swarm is dormant.')).toBeNull();
+    expect(screen.queryByText('Spawning agents…')).toBeNull();
+    expect(screen.queryByText('ROUND 2/3')).not.toBeNull();
+  });
+
+  it('shows the replay bar and hides Run/Stop in replay, with no local state', () => {
+    renderAt(<DashboardShell />, 'replay');
+    expect(screen.queryByRole('button', { name: 'Exit replay' })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /^run$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /stop/i })).toBeNull();
+    expect(screen.queryByText('REPLAY · R2/3')).not.toBeNull();
+  });
+
+  it('caps the seed input at the backend maximum', () => {
+    renderAt(<DashboardShell />, 'idle');
+    expect((screen.getByLabelText('Seed rumor') as HTMLInputElement).maxLength).toBe(2000);
   });
 });

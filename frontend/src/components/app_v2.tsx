@@ -11,9 +11,9 @@
 //   • useRationales() → rationale feed (replaces source's static fixture)
 //   • useConnection() → reconnectFailed gate for ErrorState
 //   • simStart(seed) / simStop() from api/simulation → Topbar Run/Stop
-//   • Lifecycle dispatch: ErrorState > SeedingState (phase=='initializing'/'seeding')
-//     > IdleState (phase=='idle' && !running)
-//     > running dashboard (Viz + KpiStrip + ConsensusRing + BracketList + RationaleFeed).
+//   • Lifecycle (lib/lifecycle.ts, from the frame): the shell and topbar always
+//     render; IdleState / SeedingState are overlays inside .canvas-wrap; the
+//     ReplayBar mounts while mode === 'replay'; RunControls picks Run/Stop.
 //     Governor paused/crisis renders as a dismissible banner over the dashboard
 //     (the backend governor resumes on its own — no takeover, no simStart).
 //
@@ -55,6 +55,11 @@ import { Settings } from './settings';
 import { InterviewV2 } from './interview_v2';
 import { BracketDeepDive } from './bracket_deep';
 import { InlineError } from './InlineError';
+import { RunControls } from './RunControls';
+import { useFrameMeta } from '../context/FrameMetaContext';
+import { formatApiError } from '../lib/apiError';
+import { lifecycleOf } from '../lib/lifecycle';
+import { SEED_MAX_LENGTH } from '../lib/seed';
 
 function BrandMark() {
   const nodes: [number, number][] = [[8,2],[4,8],[12,8],[2,14],[8,14],[14,14],[6,11],[10,11]];
@@ -207,14 +212,12 @@ function Legend() {
 interface UiState {
   shockOpen: boolean;
   cyclePickerOpen: boolean;
-  replayCycle: any | null; // cycle picked in CyclePickerModal (shown in ReplayBar)
   interviewAgent: any | null;
   interviewV2Agent: any | null;
   reportOpen: boolean;
   reportCycleId: string | null; // cycle picked in CycleHistory (null = current)
   advisoryOpen: boolean;
   dataSourcesOpen: boolean;
-  watchOpen: boolean;
   settingsOpen: boolean;
   historyOpen: boolean;
   bracketDeepDive: any | null;
@@ -231,6 +234,8 @@ export function App() {
   const { rationales } = useRationales();
   const { reconnectFailed, connected } = useConnection();
   const tel = useTelemetry();
+  const meta = useFrameMeta();
+  const lifecycle = lifecycleOf(meta);
   const { edges } = useEdgesCtx();
   // Viz still takes [citing, cited] tuples; every other panel reads `edges`.
   const edgePairs = useMemo<Array<[string, string]>>(
@@ -238,7 +243,6 @@ export function App() {
     [edges],
   );
   const phase = tel.phase;
-  const running = tel.running;
   const tps = tel.telemetry.tps;
   const memMb = tel.telemetry.memMb;
   const slotsUsed = tel.telemetry.slotsUsed;
@@ -256,6 +260,7 @@ export function App() {
 
   // Local UI state — chrome only (no live data here).
   const [seed, setSeed] = useState<string>('');
+  const [actionError, setActionError] = useState<string | null>(null);
   const [layout, setLayout] = useState<'force' | 'radial' | 'grid'>('force');
   const [hintsDismissed, setHintsDismissed] = useState(false);
   const [tweaksOpen, setTweaksOpen] = useState(false);
@@ -269,14 +274,12 @@ export function App() {
   const [ui, setUi] = useState<UiState>({
     shockOpen: false,
     cyclePickerOpen: false,
-    replayCycle: null,
     interviewAgent: null,
     interviewV2Agent: null,
     reportOpen: false,
     reportCycleId: null,
     advisoryOpen: false,
     dataSourcesOpen: false,
-    watchOpen: false,
     settingsOpen: false,
     historyOpen: false,
     bracketDeepDive: null,
@@ -362,64 +365,17 @@ export function App() {
   const runConfirmModal = runGate.modal;
   const onRun = () => runGate.requestRun(seed.trim());
   const onStop = async () => {
+    setActionError(null);
     try {
       await simStop();
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('simStop failed', err);
+      setActionError(formatApiError(err));
     }
   };
 
-  // Lifecycle dispatch — gate the dashboard render based on phase + telemetry.
-  // Priority: error > seeding > idle > running. Governor paused/crisis renders
-  // as a dismissible banner OVER the dashboard (not a takeover) — see below.
+  // Only a dead WebSocket replaces the dashboard; every other lifecycle renders the shell (overlays below).
   if (reconnectFailed) {
     return <ErrorState onRetry={() => window.location.reload()} />;
-  }
-  if (phase === 'initializing' || phase === 'seeding') {
-    return <SeedingState seed={seed} />;
-  }
-  if (phase === 'idle' && !running) {
-    return (
-      <>
-        {/* Floats over the absolutely positioned idle overlay, which would
-            otherwise paint over a static row. */}
-        {runGate.error && (
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }}>
-            <InlineError error={runGate.error} />
-          </div>
-        )}
-        <IdleState
-          seed={seed}
-          setSeed={setSeed}
-          onStart={onRun}
-          ollamaOk
-          onShowHistory={() => setUi((u) => ({ ...u, historyOpen: true }))}
-        />
-        {ui.historyOpen && (
-          <CycleHistory
-            onClose={() => setUi((u) => ({ ...u, historyOpen: false }))}
-            onOpenReport={(c) =>
-              setUi((u) => ({
-                ...u,
-                historyOpen: false,
-                reportOpen: true,
-                reportCycleId: c.cycle_id,
-              }))
-            }
-          />
-        )}
-        {ui.reportOpen && (
-          <ReportModal
-            cycleId={ui.reportCycleId}
-            onClose={() =>
-              setUi((u) => ({ ...u, reportOpen: false, reportCycleId: null }))
-            }
-          />
-        )}
-        {runConfirmModal}
-      </>
-    );
   }
 
   return (
@@ -442,7 +398,13 @@ export function App() {
         <div style={{flex:1, minWidth:200, position:'relative', display:'flex', alignItems:'center', gap:6}}>
           <div className="seed-input" style={{flex:1}}>
             <span className="prefix">SEED ⟶</span>
-            <input value={seed} onChange={e => setSeed(e.target.value)} />
+            <input
+              value={seed}
+              onChange={e => setSeed(e.target.value)}
+              maxLength={SEED_MAX_LENGTH}
+              placeholder="Seed rumor…"
+              aria-label="Seed rumor"
+            />
             <span className="seed-entities">3 entities</span>
           </div>
           <button className="btn ghost-btn" title="Inspire — suggest a seed scenario"
@@ -450,11 +412,12 @@ export function App() {
             onClick={() => setUi(u => ({...u, seedSuggestOpen: !u.seedSuggestOpen}))}>✦</button>
         </div>
 
-        {running ? (
-          <button className="btn danger" onClick={onStop}><Icon name="stop" /> Stop</button>
-        ) : (
-          <button className="btn primary" onClick={onRun}><Icon name="play" /> Run</button>
-        )}
+        <RunControls
+          seed={seed}
+          pending={runGate.pending}
+          onRun={onRun}
+          onStop={() => void onStop()}
+        />
 
         <ModelStatus />
 
@@ -520,6 +483,7 @@ export function App() {
       </div>
 
       <InlineError error={runGate.error} />
+      <InlineError error={actionError} onDismiss={() => setActionError(null)} />
 
       {/* Signal Wire ticker — real ported component (DEV-only mock per KR-41.6-14) */}
       <SignalWire onInspect={() => setUi((u) => ({ ...u, dataSourcesOpen: true }))} />
@@ -637,6 +601,14 @@ export function App() {
                 <button className="btn ghost" style={{height:22, padding:'0 8px'}} onClick={() => setHintsDismissed(true)}>Got it</button>
               </div>
             )}
+            {lifecycle === 'idle' && (
+              <IdleState
+                seed={seed}
+                numRounds={numRounds}
+                onShowHistory={() => setUi((u) => ({ ...u, historyOpen: true }))}
+              />
+            )}
+            {lifecycle === 'seeding' && <SeedingState seed={seed} />}
           </div>
 
           <KpiStrip
@@ -697,7 +669,8 @@ export function App() {
       {ui.shockOpen && (
         <ShockDrawer onClose={() => setUi((u) => ({ ...u, shockOpen: false }))} />
       )}
-      {ui.watchOpen && <ReplayBar />}
+      {/* Replay is driven by the frame (mode), so the bar survives a reload. */}
+      {lifecycle === 'replay' && <ReplayBar />}
       {ui.reportOpen && (
         <ReportModal
           cycleId={ui.reportCycleId}
@@ -740,16 +713,11 @@ export function App() {
         <CyclePickerModal
           onClose={() => setUi((u) => ({ ...u, cyclePickerOpen: false }))}
           onPick={async (cycle: any) => {
-            // Start backend replay for the picked cycle, THEN show the bar.
-            // Errors (e.g. 409 replay already active) propagate back to the
-            // picker, which console.logs + surfaces them in its err label.
+            // Start the backend replay; the bar appears as soon as frames switch
+            // to mode 'replay'. Errors (e.g. 409 replay already active) propagate
+            // back to the picker, which shows them in its error label.
             await replayStart(cycle.cycle_id);
-            setUi((u) => ({
-              ...u,
-              cyclePickerOpen: false,
-              watchOpen: true,
-              replayCycle: cycle,
-            }));
+            setUi((u) => ({ ...u, cyclePickerOpen: false }));
           }}
         />
       )}
