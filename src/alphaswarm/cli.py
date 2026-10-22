@@ -785,7 +785,9 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
         # Determine output path
         output_path = (
-            Path(output) if output is not None else Path("reports") / f"{cycle_id}_report.md"
+            Path(output)
+            if output is not None
+            else settings.resolve_path(settings.reports_dir) / f"{cycle_id}_report.md"
         )
 
         # Write report and sentinel (per D-10, D-05)

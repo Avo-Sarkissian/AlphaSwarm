@@ -102,6 +102,7 @@ source_modules = [
     "alphaswarm.context_formatter",
     "alphaswarm.data_audit",
     "alphaswarm.errors",
+    "alphaswarm.fsutil",
     "alphaswarm.governor",
     "alphaswarm.graph",
     "alphaswarm.inference",
