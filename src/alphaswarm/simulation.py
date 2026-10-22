@@ -502,6 +502,45 @@ def _build_diverse_peer_contexts(
     return contexts
 
 
+def compute_exposure_metrics(
+    exposures: Sequence[tuple[str, ...]],
+    personas: Sequence[AgentPersona],
+    round_num: int,
+) -> dict[str, int]:
+    """Summarize one round's peer exposure as flat cycle-metric keys.
+
+    ``exposures[i]`` holds the peer ids rendered into reader i's prompt (``()``
+    when the reader saw no peers). Produces, for every bracket in roster
+    order, ``r{n}_exposure_<bracket>`` (peer slots that bracket filled) and
+    ``r{n}_readers_seeing_<bracket>`` (readers shown at least one peer from
+    it), plus ``r{n}_distinct_peers_shown``. Unseen brackets report 0; ids
+    outside the roster are ignored (docs/DECISIONS.md#adr-diverse-peer-context).
+    """
+    bracket_of = {p.id: p.bracket.value for p in personas}
+    brackets = list(dict.fromkeys(p.bracket.value for p in personas))
+    slots = dict.fromkeys(brackets, 0)
+    readers = dict.fromkeys(brackets, 0)
+    distinct: set[str] = set()
+    for shown in exposures:
+        seen_here: set[str] = set()
+        for peer_id in shown:
+            bracket = bracket_of.get(peer_id)
+            if bracket is None:
+                continue
+            slots[bracket] += 1
+            seen_here.add(bracket)
+            distinct.add(peer_id)
+        for bracket in seen_here:
+            readers[bracket] += 1
+
+    metrics: dict[str, int] = {}
+    for bracket in brackets:
+        metrics[f"r{round_num}_exposure_{bracket}"] = slots[bracket]
+        metrics[f"r{round_num}_readers_seeing_{bracket}"] = readers[bracket]
+    metrics[f"r{round_num}_distinct_peers_shown"] = len(distinct)
+    return metrics
+
+
 def _compute_shifts(
     prev_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
     curr_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
