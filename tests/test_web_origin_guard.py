@@ -95,12 +95,11 @@ def test_post_with_null_origin_rejected() -> None:
 
 
 def test_post_without_origin_or_referer_allowed() -> None:
-    """Header-less callers (curl, scripts/, TestClient, in-process ASGI chains) still work.
+    """Header-less callers (curl, scripts/, TestClient) still work.
 
     Browsers always attach Origin to cross-origin POST, so allowing the
     header-less case closes no browser-reachable hole while keeping every
-    non-browser caller — including the advisory -> report ASGITransport chain
-    — functional.
+    non-browser caller functional.
     """
     with TestClient(_make_guarded_app()) as client:
         r = client.post("/api/echo")

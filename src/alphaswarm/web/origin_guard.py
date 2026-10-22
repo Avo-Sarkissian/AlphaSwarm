@@ -25,11 +25,9 @@ Policy
   always attach ``Origin`` to cross-origin POST/PUT/DELETE (per Fetch, the
   header is set for every non-GET/HEAD request, including form submissions),
   so a header-less request is not browser-driven. Non-browser callers — curl,
-  ``scripts/``, the test suite's Starlette ``TestClient``, and the in-process
-  ``httpx.ASGITransport`` chains that fire POST /api/report/{id}/generate and
-  POST /api/advisory/{id} after a run — send neither header and must keep
-  working. Rejecting header-less requests would break those callers without
-  closing any browser-reachable hole.
+  ``scripts/`` and the test suite's Starlette ``TestClient`` — send neither
+  header and must keep working. Rejecting header-less requests would break
+  those callers without closing any browser-reachable hole.
 """
 
 from __future__ import annotations
@@ -106,8 +104,8 @@ class OriginGuardMiddleware:
             source = "referer"
             raw = headers.get("referer")
         if raw is None:
-            # No browser-supplied origin information at all: curl, scripts,
-            # TestClient, or the in-process ASGITransport chains. Allowed by
+            # No browser-supplied origin information at all: curl, scripts or
+            # TestClient. Allowed by
             # policy (see module docstring).
             await self.app(scope, receive, send)
             return

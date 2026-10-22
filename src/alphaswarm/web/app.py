@@ -16,14 +16,23 @@ from neo4j.exceptions import DriverError, Neo4jError
 from starlette.staticfiles import StaticFiles
 
 from alphaswarm.app import create_app_state
-from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+from alphaswarm.config import (
+    AppSettings,
+    generate_personas,
+    load_bracket_configs,
+    load_inference_config,
+)
+from alphaswarm.inference.factory import advisory_allowed
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers
+from alphaswarm.web.guards import orchestrator_job_running
 from alphaswarm.web.origin_guard import install_origin_guard
+from alphaswarm.web.post_run import AdvisoryGate, PostRunJobBusyError, PostRunPipeline
 from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.routes.advisory import router as advisory_router
+from alphaswarm.web.routes.advisory import start_advisory_job
 from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
 from alphaswarm.web.routes.holdings import PortfolioCache
@@ -31,10 +40,11 @@ from alphaswarm.web.routes.holdings import router as holdings_router
 from alphaswarm.web.routes.interview import router as interview_router
 from alphaswarm.web.routes.replay import router as replay_router
 from alphaswarm.web.routes.report import router as report_router
+from alphaswarm.web.routes.report import start_report_job
 from alphaswarm.web.routes.settings import router as settings_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
-from alphaswarm.web.simulation_manager import SimulationManager, _auto_trigger_advisory
+from alphaswarm.web.simulation_manager import SimulationManager
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
@@ -118,6 +128,50 @@ def make_session_clearer(app: FastAPI) -> Callable[[], None]:
     return _clear_interview_sessions
 
 
+class WebPostRunJobs:
+    """PostRunJobs over the route-level job starters.
+
+    The pipeline, the POST routes and the job status therefore share one code
+    path. ``app.state.portfolio_cache`` is passed through untyped: this module
+    must not import ``alphaswarm.holdings`` (docs/DECISIONS.md#adr-holdings-isolation).
+    """
+
+    def __init__(self, app: FastAPI) -> None:
+        self._app = app
+
+    async def advisory_gate(self, cycle_id: str) -> AdvisoryGate:
+        # Cloud check first, like the POST route: holdings are not touched for a
+        # cloud orchestrator without the opt-in (docs/DECISIONS.md#adr-advisory-pipeline).
+        # The host checked is the shared OllamaClient's, and no client fails closed,
+        # as in the route. An invalid or unreadable config raises (ValueError,
+        # OSError); the pipeline records the advisory as failed and still runs
+        # the report.
+        app_state = self._app.state.app_state
+        cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
+        client = app_state.ollama_client
+        if client is None or not advisory_allowed(cfg, ollama_base_url=client.base_url):
+            return "cloud_advisory_disabled"
+        if await self._app.state.portfolio_cache.get() is None:
+            return "no_portfolio"
+        return "run"
+
+    async def run_advisory(self, cycle_id: str) -> None:
+        if orchestrator_job_running(self._app.state.app_state):
+            raise PostRunJobBusyError("advisory")
+        portfolio = await self._app.state.portfolio_cache.get()
+        if portfolio is None:
+            raise RuntimeError("holdings disappeared before the advisory started")
+        # The job's done-callback (which resets the job status) was registered
+        # before this await, so it runs before we resume and run_report sees the
+        # slot free.
+        await start_advisory_job(self._app, cycle_id, portfolio)
+
+    async def run_report(self, cycle_id: str) -> None:
+        if orchestrator_job_running(self._app.state.app_state):
+            raise PostRunJobBusyError("report")
+        await start_report_job(self._app, cycle_id)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """FastAPI lifespan: create all stateful objects inside the event loop.
@@ -150,12 +204,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ReplayManager must be constructed BEFORE SimulationManager so the latter
     # can hold a reference for the B4 replay-active guard in start().
     replay_manager = ReplayManager(app_state)
+    # docs/DECISIONS.md#adr-sequential-model-lifecycle: advisory (when allowed), then the
+    # report, always; direct calls, no in-process HTTP.
+    post_run_pipeline = PostRunPipeline(jobs=WebPostRunJobs(app))
+    app.state.post_run_pipeline = post_run_pipeline
     sim_manager = SimulationManager(
         app_state,
         brackets,
         on_start=make_session_clearer(app),
         replay_manager=replay_manager,
-        on_complete=lambda cycle_id: _auto_trigger_advisory(app, cycle_id),
+        on_complete=post_run_pipeline.on_complete,
     )
     # Bidirectional replay/sim exclusion: ReplayManager.start() re-checks for a
     # live simulation under its own lock (closes the TOCTOU window between the
@@ -239,8 +297,7 @@ def create_app() -> FastAPI:
     # every mutating route runs with the operator's authority. One middleware
     # in front of the whole app rejects non-GET requests carrying a foreign
     # Origin/Referer, covering all routers below plus any added later.
-    # Header-less callers (curl, scripts/, the in-process ASGITransport report
-    # and advisory chains) are unaffected — see web/origin_guard.py.
+    # Header-less callers (curl, scripts/) are unaffected — see web/origin_guard.py.
     install_origin_guard(app, AppSettings().http_allowed_origins)
 
     app.include_router(health_router, prefix="/api")

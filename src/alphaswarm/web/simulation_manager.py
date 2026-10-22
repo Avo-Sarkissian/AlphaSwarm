@@ -8,15 +8,12 @@ import dataclasses
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
-import httpx
 import structlog
 
 from alphaswarm.errors import InferenceConfigError, run_error_from_exception
 from alphaswarm.types import SimulationPhase
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
-
     from alphaswarm.app import AppState
     from alphaswarm.inference.factory import BuiltProviders
     from alphaswarm.types import BracketConfig
@@ -27,51 +24,6 @@ log = structlog.get_logger(component="web.simulation_manager")
 _ROUND_PHASES = frozenset(
     {SimulationPhase.ROUND_1, SimulationPhase.ROUND_2, SimulationPhase.ROUND_3}
 )
-
-
-def _error_code(resp: httpx.Response) -> str | None:
-    """Return the `detail.error` code of an error response, or None."""
-    try:
-        body = resp.json()
-    except ValueError:
-        return None
-    detail = body.get("detail") if isinstance(body, dict) else None
-    code = detail.get("error") if isinstance(detail, dict) else None
-    return code if isinstance(code, str) else None
-
-
-async def _auto_trigger_advisory(app: FastAPI, cycle_id: str) -> None:
-    """POST /api/advisory/{cycle_id} in-process after simulation completes.
-
-    Uses httpx.ASGITransport to call the FastAPI ASGI app directly — no
-    network socket, no port assumption. All route guards (409, 503) are
-    re-used. Non-202 responses are swallowed: 409 means another task is
-    already running (fine), 503 means portfolio unavailable (advisory
-    impossible — expected degraded mode). Any network-level exception is
-    logged and swallowed so it never surfaces as an unhandled exception.
-    """
-    try:
-        transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
-        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-            resp = await client.post(f"/api/advisory/{cycle_id}")
-        if resp.status_code == 202:
-            log.info("auto_advisory_trigger_accepted", cycle_id=cycle_id)
-        elif resp.status_code == 409 and _error_code(resp) == "cloud_advisory_disabled":
-            # Cloud or remote orchestrator without the opt-in: the portfolio stays local
-            # (docs/DECISIONS.md#adr-advisory-pipeline).
-            log.info("auto_advisory_skipped_cloud", cycle_id=cycle_id)
-        elif resp.status_code == 409:
-            log.info("auto_advisory_trigger_skipped_conflict", cycle_id=cycle_id)
-        elif resp.status_code == 503:
-            log.warning("auto_advisory_trigger_skipped_unavailable", cycle_id=cycle_id)
-        else:
-            log.warning(
-                "auto_advisory_trigger_unexpected_status",
-                cycle_id=cycle_id,
-                status=resp.status_code,
-            )
-    except Exception:
-        log.exception("auto_advisory_trigger_failed", cycle_id=cycle_id)
 
 
 class SimulationAlreadyRunningError(Exception):
@@ -113,7 +65,7 @@ class SimulationManager:
         brackets: list[BracketConfig],
         on_start: Callable[[], None] | None = None,
         replay_manager: ReplayManager | None = None,
-        on_complete: Callable[[str], Awaitable[None]] | None = None,
+        on_complete: Callable[[str], Awaitable[object]] | None = None,
     ) -> None:
         self._app_state = app_state
         self._brackets = brackets
@@ -128,9 +80,9 @@ class SimulationManager:
         # The failure _publish_failure already logged with its traceback, so
         # _on_task_done logs only failures raised outside _run's handler.
         self._logged_failure: BaseException | None = None
-        # Strong references to fire-and-forget callback tasks (on_complete
-        # trigger). The event loop holds only weak refs to tasks; without
-        # this set the auto-advisory trigger can be GC'd before it runs.
+        # Strong references to the post-run pipeline task (on_complete). The
+        # loop holds only weak refs; the set also tells start() that post-run
+        # jobs are still pending (docs/DECISIONS.md#adr-sequential-model-lifecycle).
         self._bg_tasks: set[asyncio.Task[None]] = set()
 
     @property
@@ -322,7 +274,7 @@ class SimulationManager:
             if cycle_id is not None and self._on_complete is not None:
                 trigger: asyncio.Task[None] = asyncio.create_task(
                     self._run_on_complete(cycle_id),
-                    name=f"auto_advisory_{cycle_id}",
+                    name=f"post_run_{cycle_id}",
                 )
                 self._bg_tasks.add(trigger)
                 trigger.add_done_callback(self._bg_tasks.discard)
@@ -369,7 +321,7 @@ class SimulationManager:
         return shock
 
     async def _run_on_complete(self, cycle_id: str) -> None:
-        """Await the on_complete callback (typed coroutine wrapper for create_task)."""
+        """Await the post-run pipeline for *cycle_id*; its outcome is logged there."""
         assert self._on_complete is not None
         await self._on_complete(cycle_id)
 

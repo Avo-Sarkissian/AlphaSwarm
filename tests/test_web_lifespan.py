@@ -173,3 +173,7 @@ def test_lifespan_wires_portfolio_cache(
     with TestClient(app):
         assert isinstance(app.state.portfolio_cache, PortfolioCache)
         assert not hasattr(app.state.app_state, "portfolio_snapshot")
+        from alphaswarm.web.post_run import PostRunPipeline
+
+        assert isinstance(app.state.post_run_pipeline, PostRunPipeline)
+        assert app.state.sim_manager._on_complete == app.state.post_run_pipeline.on_complete
