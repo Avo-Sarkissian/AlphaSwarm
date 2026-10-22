@@ -1,39 +1,44 @@
-"""The production FastAPI lifespan (C-TEST-18).
+"""The production FastAPI lifespan, run with fakes.
 
-Runs the real `create_app()` lifespan with a fake graph manager: no Neo4j,
-no Ollama, and never the operator's holdings CSV. Later plans extend this
-file in place (create_app(settings), shutdown order); do not add a second one.
+The app is built with create_app(settings) and a fake graph manager: no Neo4j,
+no Ollama. Startup verifies Neo4j, then applies the schema; the server keeps
+serving when Neo4j is down or rejects the password; no graph manager means not
+ready. The tests also pin the settings identity, a running broadcaster, health
+and the shutdown order (docs/DECISIONS.md#adr-web-lifespan). The settings point
+every file path at tmp_path, so the lifespan never reads Schwab/ or .secrets/.
+Extend this file in place; do not add a second one.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, create_autospec
 
+import httpx
 import pytest
 import structlog
-from fastapi.testclient import TestClient
+from fastapi import FastAPI
 from neo4j.exceptions import AuthError as Neo4jAuthError
 from neo4j.exceptions import ServiceUnavailable
 
 import alphaswarm.manifest as manifest
 import alphaswarm.web.app as web_app
-import alphaswarm.web.routes.holdings as holdings_routes
+from alphaswarm.app import AppState, create_app_state
+from alphaswarm.config import AppSettings
+from alphaswarm.graph import GraphStateManager
+from alphaswarm.types import AgentPersona
+from alphaswarm.web.simulation_manager import SimulationManager
 
 
 @pytest.fixture(autouse=True)
 def _reset_structlog() -> Iterator[None]:
+    """create_app_state() configures structlog globally; undo it after each test."""
     yield
     structlog.reset_defaults()
     structlog.contextvars.clear_contextvars()
-
-
-@pytest.fixture(autouse=True)
-def _no_holdings_csv(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The lifespan must never read the real holdings CSV during tests."""
-    monkeypatch.setattr(holdings_routes, "load_portfolio_snapshot", lambda _path: None)
 
 
 @pytest.fixture(autouse=True)
@@ -46,44 +51,79 @@ def _git_heads(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[tuple[str, bool
     manifest.current_git_revision.cache_clear()
 
 
-def _fake_graph_manager(verify_error: BaseException | None = None) -> MagicMock:
-    gm = MagicMock()
-    gm.calls = []
-
-    async def _verify() -> None:
-        gm.calls.append("verify_connectivity")
-        if verify_error is not None:
-            raise verify_error
-
-    async def _schema() -> None:
-        gm.calls.append("ensure_schema")
-
-    gm.verify_connectivity = AsyncMock(side_effect=_verify)
-    gm.ensure_schema = AsyncMock(side_effect=_schema)
-    gm.close = AsyncMock()
-    return gm
+@dataclass
+class LifespanProbe:
+    app: FastAPI
+    settings: AppSettings
+    graph: MagicMock
+    received_settings: list[AppSettings] = field(default_factory=list)
+    events: list[tuple[str, bool]] = field(default_factory=list)
 
 
-def _use_graph_manager(monkeypatch: pytest.MonkeyPatch, gm: MagicMock) -> None:
-    real_create_app_state: Callable[..., Any] = web_app.create_app_state
+@pytest.fixture
+def lifespan_settings(tmp_path: Path) -> AppSettings:
+    return AppSettings(  # type: ignore[call-arg]
+        _env_file=None,
+        holdings_csv_path=tmp_path / "absent-holdings.csv",
+        inference_config_path=tmp_path / "inference.json",
+    )
 
-    def _create(settings: Any, personas: Any, **_kwargs: Any) -> Any:
-        state = real_create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
-        state.graph_manager = gm
+
+@pytest.fixture
+def probe(lifespan_settings: AppSettings, monkeypatch: pytest.MonkeyPatch) -> LifespanProbe:
+    graph = create_autospec(GraphStateManager, instance=True)
+    received: list[AppSettings] = []
+
+    def fake_create_app_state(
+        settings: AppSettings,
+        personas: list[AgentPersona],
+        *,
+        with_ollama: bool = False,
+        with_neo4j: bool = False,
+    ) -> AppState:
+        received.append(settings)
+        state = create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
+        state.graph_manager = graph
         return state
 
-    monkeypatch.setattr(web_app, "create_app_state", _create)
+    def forbidden_settings(*args: Any, **kwargs: Any) -> AppSettings:
+        raise AssertionError("create_app(settings) must not construct AppSettings() again")
+
+    monkeypatch.setattr(web_app, "create_app_state", fake_create_app_state)
+    monkeypatch.setattr(web_app, "AppSettings", forbidden_settings)
+    app = web_app.create_app(lifespan_settings)
+    result = LifespanProbe(
+        app=app, settings=lifespan_settings, graph=graph, received_settings=received
+    )
+
+    original_shutdown = SimulationManager.shutdown
+
+    async def recording_shutdown(self: SimulationManager) -> None:
+        result.events.append(("sim_shutdown", app.state.broadcaster_task.done()))
+        await original_shutdown(self)
+
+    async def recording_close() -> None:
+        result.events.append(("graph_close", app.state.broadcaster_task.done()))
+
+    monkeypatch.setattr(SimulationManager, "shutdown", recording_shutdown)
+    graph.close.side_effect = recording_close
+    return result
 
 
-def test_lifespan_verifies_neo4j_then_applies_the_schema(monkeypatch: pytest.MonkeyPatch) -> None:
-    gm = _fake_graph_manager()
-    _use_graph_manager(monkeypatch, gm)
+async def _get_health(app: FastAPI) -> httpx.Response:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+        return await client.get("/api/health")
 
-    with TestClient(web_app.create_app()) as client:
-        assert gm.calls == ["verify_connectivity", "ensure_schema"]
-        assert client.app.state.neo4j_ready is True  # type: ignore[attr-defined]
 
-    gm.close.assert_awaited_once()
+async def test_lifespan_verifies_neo4j_then_applies_the_schema(probe: LifespanProbe) -> None:
+    async with probe.app.router.lifespan_context(probe.app):
+        assert [c[0] for c in probe.graph.method_calls] == [
+            "verify_connectivity",
+            "ensure_schema",
+        ]
+        assert probe.app.state.neo4j_ready is True
+    probe.graph.close.assert_awaited_once()
 
 
 @pytest.mark.parametrize(
@@ -91,40 +131,71 @@ def test_lifespan_verifies_neo4j_then_applies_the_schema(monkeypatch: pytest.Mon
     [ServiceUnavailable("connection refused"), Neo4jAuthError("unauthorized")],
     ids=["neo4j-down", "wrong-password"],
 )
-def test_lifespan_keeps_serving_when_neo4j_is_unavailable(
-    monkeypatch: pytest.MonkeyPatch, error: BaseException
+async def test_lifespan_keeps_serving_when_neo4j_is_unavailable(
+    probe: LifespanProbe, error: Exception
 ) -> None:
-    gm = _fake_graph_manager(verify_error=error)
-    _use_graph_manager(monkeypatch, gm)
-
-    with TestClient(web_app.create_app()) as client:
-        assert gm.calls == ["verify_connectivity"]
-        assert client.app.state.neo4j_ready is False  # type: ignore[attr-defined]
-        assert client.get("/api/health").status_code == 200
-
-
-def test_lifespan_without_a_graph_manager_is_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
-    real_create_app_state: Callable[..., Any] = web_app.create_app_state
-
-    def _create(settings: Any, personas: Any, **_kwargs: Any) -> Any:
-        return real_create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
-
-    monkeypatch.setattr(web_app, "create_app_state", _create)
-
-    with TestClient(web_app.create_app()) as client:
-        assert client.app.state.neo4j_ready is False  # type: ignore[attr-defined]
+    probe.graph.verify_connectivity.side_effect = error
+    async with probe.app.router.lifespan_context(probe.app):
+        assert probe.app.state.neo4j_ready is False
+        probe.graph.ensure_schema.assert_not_awaited()
+        response = await _get_health(probe.app)
+        assert response.status_code == 200
 
 
-def test_lifespan_pins_the_git_revision_it_started_from(
-    monkeypatch: pytest.MonkeyPatch, _git_heads: list[tuple[str, bool]]
+async def test_lifespan_without_a_graph_manager_is_not_ready(
+    probe: LifespanProbe, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A commit after startup does not relabel the code the server is running."""
-    _use_graph_manager(monkeypatch, _fake_graph_manager())
+    def no_graph(
+        settings: AppSettings,
+        personas: list[AgentPersona],
+        *,
+        with_ollama: bool = False,
+        with_neo4j: bool = False,
+    ) -> AppState:
+        return create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
 
-    with TestClient(web_app.create_app()):
-        _git_heads.append(("b" * 40, True))  # the owner commits while the server runs
+    monkeypatch.setattr(web_app, "create_app_state", no_graph)
+    async with probe.app.router.lifespan_context(probe.app):
+        assert probe.app.state.neo4j_ready is False
+    probe.graph.close.assert_not_awaited()
 
-        assert manifest.current_git_revision() == ("a" * 40, False)
+
+async def test_lifespan_uses_given_settings_and_applies_schema(probe: LifespanProbe) -> None:
+    async with probe.app.router.lifespan_context(probe.app):
+        assert probe.app.state.settings is probe.settings
+        assert len(probe.received_settings) == 1
+        assert probe.received_settings[0] is probe.settings
+        probe.graph.verify_connectivity.assert_awaited_once()
+        probe.graph.ensure_schema.assert_awaited_once()
+        assert probe.app.state.neo4j_ready is True
+
+
+async def test_health_is_served_and_the_broadcaster_runs(probe: LifespanProbe) -> None:
+    async with probe.app.router.lifespan_context(probe.app):
+        task = probe.app.state.broadcaster_task
+        assert task.get_name() == "broadcaster"
+        assert not task.done()
+        response = await _get_health(probe.app)
+        assert response.status_code == 200
+        assert response.json()["simulation_phase"] == "idle"
+
+
+async def test_shutdown_stops_broadcaster_before_simulation_and_graph(
+    probe: LifespanProbe,
+) -> None:
+    async with probe.app.router.lifespan_context(probe.app):
+        pass
+    assert probe.events == [("sim_shutdown", True), ("graph_close", True)]
+    assert probe.app.state.broadcaster_task.cancelled()
+
+
+def test_create_app_without_settings_reads_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ALPHASWARM_LOG_LEVEL", "DEBUG")
+    app = web_app.create_app()
+    assert isinstance(app.state.settings, AppSettings)
+    assert app.state.settings.log_level == "DEBUG"
 
 
 class _RecordingLog:
@@ -171,29 +242,22 @@ async def test_the_startup_warning_names_the_fix(
     assert fix_fragment in warnings[0]["fix"]
 
 
-def test_lifespan_wires_post_run_and_holdings(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+async def test_lifespan_pins_the_git_revision_it_started_from(
+    probe: LifespanProbe, _git_heads: list[tuple[str, bool]]
 ) -> None:
+    """A commit after startup does not relabel the code the server is running."""
+    async with probe.app.router.lifespan_context(probe.app):
+        _git_heads.append(("b" * 40, True))  # the owner commits while the server runs
+
+        assert manifest.current_git_revision() == ("a" * 40, False)
+
+
+async def test_lifespan_wires_post_run_and_holdings(probe: LifespanProbe) -> None:
     """The lifespan builds PortfolioCache on app.state (never on AppState)."""
-    from alphaswarm.app import create_app_state as real_create_app_state
     from alphaswarm.web.routes.holdings import PortfolioCache
-    from tests.support.web_app import route_test_settings
 
-    def _offline_app_state(settings: object, personas: object, **_: object) -> object:
-        state = real_create_app_state(settings, personas, with_ollama=False, with_neo4j=False)  # type: ignore[arg-type]
-        graph = MagicMock()
-        graph.verify_connectivity = AsyncMock()
-        graph.ensure_schema = AsyncMock()
-        graph.close = AsyncMock()
-        state.graph_manager = graph
-        return state
-
-    settings = route_test_settings(tmp_path)
-    monkeypatch.setattr(web_app, "create_app_state", _offline_app_state)
-    monkeypatch.setattr(web_app, "AppSettings", lambda: settings)
-    app = web_app.create_app()
-    with TestClient(app):
+    app = probe.app
+    async with app.router.lifespan_context(app):
         assert isinstance(app.state.portfolio_cache, PortfolioCache)
         assert not hasattr(app.state.app_state, "portfolio_snapshot")
         from alphaswarm.web.post_run import PostRunPipeline

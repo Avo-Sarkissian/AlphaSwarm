@@ -171,7 +171,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     here — never at module import time — to avoid the
     "Future attached to a different loop" error class.
     """
-    settings = AppSettings()
+    # create_app() stores the settings; the lifespan never builds AppSettings() itself,
+    # so tests and launchers control configuration explicitly (docs/DECISIONS.md#adr-web-lifespan).
+    settings: AppSettings = app.state.settings
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
@@ -276,13 +278,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("lifespan_stopped")
 
 
-def create_app() -> FastAPI:
+def create_app(settings: AppSettings | None = None) -> FastAPI:
     """Create and configure the AlphaSwarm FastAPI application.
 
-    All stateful objects are created inside the lifespan function,
-    never at module import time.
+    ``settings`` is stored on ``app.state.settings`` and the lifespan reads it.
+    ``None`` keeps today's behaviour (environment plus ``.env``). All stateful
+    objects are still created inside the lifespan, never at import time.
     """
+    resolved = settings if settings is not None else AppSettings()
     app = FastAPI(title="AlphaSwarm", lifespan=lifespan)
+    app.state.settings = resolved
     install_error_handlers(app)
 
     # CSRF guard (CWE-352): the API is unauthenticated and localhost-only, so
@@ -290,7 +295,7 @@ def create_app() -> FastAPI:
     # in front of the whole app rejects non-GET requests carrying a foreign
     # Origin/Referer, covering all routers below plus any added later.
     # Header-less callers (curl, scripts/) are unaffected — see web/origin_guard.py.
-    install_origin_guard(app, AppSettings().http_allowed_origins)
+    install_origin_guard(app, resolved.http_allowed_origins)
 
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")
