@@ -118,18 +118,14 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
   MATCH (c:Cycle {cycle_id:$id}) RETURN c;   // run metrics: durations, flips, parse errors, final distribution
   ```
 - Compare runs: `uv run python scripts/compare_cycles.py --limit 5`.
-  It builds `AppSettings()` (`scripts/compare_cycles.py:44`), which reads
-  `.env` from the current directory, so run it from the repo root.
+  It builds `AppSettings()` (`scripts/compare_cycles.py:44`), which reads the
+  repo root's `.env` whatever the current directory.
 
 ## 4. Running the stack for development
 
 ```bash
-# Terminal 1: backend. Start it FROM THE REPO ROOT. These paths are all
-# relative to the working directory: .env (AppSettings env_file), the holdings
-# CSV (Schwab/holdings.csv), .secrets/inference.json, and the advisory/ and
-# reports/ output dirs.
+# Terminal 1: backend. Runtime paths (.env, holdings CSV, .secrets/, advisory/, reports/) resolve against the repo root, so any working directory works.
 uv run uvicorn alphaswarm.web.app:app --port 8000      # or ./start (cds to the repo root, then python -m alphaswarm web)
-# Note: `uv run start` (cli:main_web) does NOT cd, so it uses whatever directory you are in.
 
 # Terminal 2: frontend with hot reload (proxies /api and /ws to :8000)
 npm --prefix frontend run dev                           # http://localhost:5173
@@ -177,7 +173,7 @@ that names a held company exercises the advisory. Then check:
   - Top Influencers switches to OUT-DEGREE with no "0" filler rows (F-35).
   - The top strip shows "N active edges".
   - `/api/edges/<cycle>?round=3` is non-empty.
-- [ ] Advisory auto-fires. The server log shows `auto_advisory_trigger_accepted`, and `advisory/<cycle>_advisory.json` appears.
+- [ ] The post-run pipeline runs. With holdings loaded, `advisory/<cycle>_advisory.json` appears first; the server log then shows `post_run_pipeline_completed` with `report=ran` (and `advisory=ran`, or a `skipped_*` value naming why the advisory did not run).
 - [ ] AdvisoryV2 has one row per holding, and the Overview tiles show real values.
 - [ ] The report then auto-generates at `reports/<cycle>_report.md`. It contains global consensus **and** signal-flip sections (F-06), a minority of dissenters rather than all 100 (F-01), and only real flips (F-02). The "social post reach" section is currently empty (BACKLOG 1.1).
 - [ ] InterviewV2 gives a real answer from `/api/interview/<agent>`.
@@ -212,10 +208,12 @@ uv run mypy src           # strict; must report "Success: no issues found"
 | Individual calls take minutes, or one agent hangs | Runaway generation, or a model swap thrash | `num_predict 400` must be in the registered worker (`ollama show …`). The client timeout (600 s) turns a hang into PARSE_ERROR. Check that `ollama ps` holds no more than 2 models |
 | UI frozen, elapsed timer still ticking | WebSocket not connected | DevTools → WS: expect `101` on `/ws/state`. Vite proxy needs `changeOrigin: true` (present in `frontend/vite.config.ts`). A close code **1008** means the page origin is not in `ALPHASWARM_WS_ALLOWED_ORIGINS`; add it, for example a LAN address |
 | `403` on POST/PUT from the UI | Origin guard on state-changing routes | Add the serving origin to `ALPHASWARM_HTTP_ALLOWED_ORIGINS` (JSON list) |
-| `/api/holdings` → `holdings_unavailable` (503); advisory never appears | Backend started from the wrong directory (for example `frontend/`, or `uv run start` from elsewhere), or the CSV is missing or malformed | `lsof -a -d cwd -p "$(lsof -ti tcp:8000 -sTCP:LISTEN)"` must show the repo root (works for `uvicorn`, `./start`, and `uv run start`). Or set `ALPHASWARM_HOLDINGS_CSV_PATH` to an absolute path. A wrong directory also loses `.env` and `.secrets/inference.json` |
-| Advisory returns 404 for a long time | Still generating (404 is the "pending" contract) | Watch the server log for `advisory_generation_complete`. Post-run narratives (100 worker calls) and the model swap run first |
-| Report, advisory, or interview returns `409 report_unavailable` / `advisory_unavailable` / `interview_unavailable` | Phase gate: in-memory phase is not COMPLETE, for example after a backend restart | Known limitation (BACKLOG 1.3). Use the CLI `uv run python -m alphaswarm report --cycle <cycle_id>` for historical cycles. |
+| `/api/holdings` → `holdings_unavailable` (503); advisory never appears | The CSV is missing or malformed | Check the server log for `holdings_load_failed`, then fix the file: it is re-read when it changes, no restart needed. The path is `ALPHASWARM_HOLDINGS_CSV_PATH` (default `Schwab/holdings.csv`), resolved against the repo root |
+| Advisory GET returns 409 `advisory_generation_in_progress` | Generating | Wait; 404 now means no advisory exists (no holdings, or the run and its narratives have not finished yet) |
+| Advisory GET returns 500 `cloud_advisory_disabled` or `inference_config_invalid` | The orchestrator is a cloud or remote model without `allow_cloud_advisory`, or the inference config cannot be read. The advisory was refused (after a run, the report still runs) | Switch the orchestrator to a local Ollama model or set the opt-in in `.secrets/inference.json`; fix an invalid config in Settings |
+| `404 cycle_not_found` / `422 cycle_not_ready` / `409 simulation_running` | Unknown cycle, unfinished cycle, or a run in progress | Pick a complete cycle; wait for the run to finish |
 | `409 *_generation_in_progress` | The other orchestrator job (report/advisory) is running | Wait. The two jobs are serialized on purpose |
+| `409 post_run_jobs_in_progress` on Run | Advisory or report still running after the last run | Wait for the report to finish (`post_run_pipeline_completed` in the server log), then Run again. The UI shows this message in a RUN NOT STARTED banner |
 | Graph empty during a round | Backend not streaming per-agent state, or an older backend still running | Restart the backend. Confirm `agent_states` keys in a WS frame |
 | Neo4j auth error at startup | `ALPHASWARM_NEO4J__PASSWORD` unset, or it differs from the initialized volume | README §3 "Migrating". `NEO4J_AUTH` only applies when a volume is first initialized |
 | `pytest` Neo4j tests all skipped | neo4j-test is not running | `scripts/neo4j_test.sh up`; add `--require-neo4j` to make a missing database fail instead of skip |
