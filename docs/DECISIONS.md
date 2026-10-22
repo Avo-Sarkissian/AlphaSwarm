@@ -608,7 +608,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p30-d-04"></a>`D-04` | Broadcaster includes rationale entries in each frame (now the persistent sliding window, not a drain), each stamped with `seq` and `ts`. | partial | web/wire.py (`build_frame`); state.py (`push_rationale`) |
 | <a id="p30-d-05"></a>`D-05` | Wire format was json.dumps(dataclasses.asdict(snapshot)) with no separate pydantic wire model. Superseded by the versioned `StateFrame` built by `web/wire.py:build_frame` ([adr-ws-broadcaster](#adr-ws-broadcaster)). | superseded | web/wire.py; web/broadcaster.py |
 | <a id="p30-d-06"></a>`D-06` | snapshot_to_json() helper encapsulates the frame pipeline (snapshot → `build_frame` → JSON). | active | web/broadcaster.py (`snapshot_to_json`) |
-| <a id="p30-d-07"></a>`D-07` | Broadcaster is an always-on lifespan task ticking at 200 ms (5 Hz). | active | web/broadcaster.py:113 |
+| <a id="p30-d-07"></a>`D-07` | Broadcaster is an always-on lifespan task ticking at 200 ms (5 Hz). | active | web/broadcaster.py:66,96 |
 | <a id="p30-d-08"></a>`D-08` | /ws/state registered without a prefix. | active | web/app.py:217 |
 | <a id="p30-d-10"></a>`D-10` | WebSocket is unauthenticated (local only). Since Aug 2026 the handshake Origin is validated against an allow-list. | partial | web/routes/websocket.py:7 |
 
@@ -835,7 +835,7 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-21"></a>F-21 | Any monitor-loop exception silently killed throttling | 78744f6 | governor.py:346,360 |
 | <a id="f-22"></a>F-22 | Anthropic missing-tool ValueError escaped the provider error contract | c99d00b | inference/anthropic_provider.py:242 |
 | <a id="f-23"></a>F-23 | Retry-After HTTP-date ignored; now a shared clamped parser | c99d00b, 9312419 | inference/anthropic_provider.py:273; inference/openai_provider.py:317 |
-| <a id="f-24"></a>F-24 | Broadcaster crashed every tick during replay start-up (`has_store` gate) | 66d680f | web/broadcaster.py:86; web/replay_manager.py:82 |
+| <a id="f-24"></a>F-24 | Broadcaster crashed every tick during replay start-up (`has_store` gate) | 66d680f | web/broadcaster.py:44,46; web/replay_manager.py:134 |
 | <a id="f-25"></a>F-25 | Inference config save was not atomic (now temp file + `os.replace`) | 902d7b5 | config.py:335 |
 | <a id="f-26"></a>F-26 | `/replay/start` skipped the cycle_id guard | 66d680f | web/routes/replay.py:114 |
 | <a id="f-27"></a>F-27 | A binary WS frame dropped the connection | 66d680f | web/routes/websocket.py:133 |
@@ -926,7 +926,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-hold"></a>HOLD-01..04 | CSV loader (01), account number hashed with `sha256_first8` (02/04), `GET /api/holdings` (03) | config.py:452; holdings/loader.py:1,13,73,145; holdings/types.py:33; security/hashing.py:5; web/routes/holdings.py:1; tests/... |
 | <a id="req-advis"></a>ADVIS-01 / 02 | `synthesize()` ranked items / `POST /api/advisory` with serialization | advisory/__init__.py:1; advisory/engine.py:1; advisory/types.py:1; web/routes/advisory.py:1,99; tests/unit/... |
 | <a id="req-sim-04"></a>SIM-04 | `run_simulation` takes optional providers; backward compatible without them | tests/test_simulation.py:3269 |
-| <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:47,56,67; tests/test_web.py:462,469,494,525,554; docs/design/inference-providers.md:142 |
+| <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:27,53; web/wire.py:167; tests/test_web.py:464,471,496,527,556; docs/design/inference-providers.md:142 |
 | <a id="req-auto"></a>AUTO-01..05 | Run the post-run jobs on completion (capture cycle_id, schedule from the done-callback). Revised 2026-10: PostRunPipeline calls the advisory and report jobs directly instead of an in-process POST, and the report runs in every case | tests/unit/test_simulation_manager_auto_advisory.py; tests/test_post_run_pipeline.py; tests/test_web_post_run_wiring.py |
 
 ---
