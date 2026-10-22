@@ -28,6 +28,7 @@ from alphaswarm.errors import AuthError, InferenceError
 from alphaswarm.inference.budget import DEFAULT_PRICING, BudgetMeter, RunEstimate, estimate_run
 from alphaswarm.inference.factory import _build_single_provider, inference_mode
 from alphaswarm.inference.types import ProviderRole
+from alphaswarm.web.errors import ApiError
 
 log = structlog.get_logger(component="web.settings")
 
@@ -405,8 +406,15 @@ async def test_connection(
 
     Builds a transient provider, issues a 1-token ping, then closes it.
     NEVER persists anything. Returns {ok: false, error: ...} on any failure;
-    never raises a 500.
+    never raises a 500. Returns 409 simulation_running while a run is in
+    progress (a test could load a second large model mid-run).
     """
+    if request.app.state.sim_manager.is_running:
+        raise ApiError(
+            409,
+            "simulation_running",
+            "Cannot test a connection while a simulation is running",
+        )
     app_state = request.app.state.app_state
 
     try:

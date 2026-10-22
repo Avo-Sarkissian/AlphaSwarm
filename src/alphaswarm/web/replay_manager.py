@@ -12,7 +12,7 @@ import structlog
 
 from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.state import BracketSummary, RationaleEntry, ReplayStore
-from alphaswarm.types import SignalType, SimulationPhase
+from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
@@ -199,8 +199,9 @@ class ReplayManager:
                 self._max_rounds = max((rnd for (_, rnd) in signals), default=1)
             finally:
                 self._starting = False
-            # Set phase on state_store so broadcaster sees REPLAY
-            await self._app_state.state_store.set_phase(SimulationPhase.REPLAY)
+            # The live phase is left alone: ReplayStore.snapshot() reports REPLAY and the
+            # broadcaster serves it while a store is committed
+            # (docs/DECISIONS.md#adr-replaystore-separate).
             # Broadcast round-1 snapshot immediately
             snap = self._store.snapshot()
             d = dataclasses.asdict(snap)
@@ -245,12 +246,10 @@ class ReplayManager:
             return self._round_num
 
     async def stop(self) -> None:
-        """Stop replay, reset to IDLE (D-10).
+        """Stop replay; the live phase (IDLE or COMPLETE) is untouched (docs/DECISIONS.md#p34-d-10).
 
         B9: body is serialized behind self._lock to match start() and
         prevent races between concurrent stop() and advance() calls.
-        state_store.set_phase uses its own internal lock, not ours, so
-        this is deadlock-safe.
         """
         async with self._lock:
             self._store = None
@@ -258,5 +257,4 @@ class ReplayManager:
             self._round_num = 0
             self._max_rounds = 3
             self._seed_rumor = ""
-            await self._app_state.state_store.set_phase(SimulationPhase.IDLE)
             log.info("replay_stopped")

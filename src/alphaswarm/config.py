@@ -8,7 +8,7 @@ import unicodedata
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 from pydantic import BaseModel, Field, model_validator
@@ -22,6 +22,11 @@ if TYPE_CHECKING:
     from alphaswarm.worker import WorkerPersonaConfig
 
 logger = structlog.get_logger(component="config")
+
+#: Repository root. Relative runtime paths (.env, reports/, advisory/, the holdings
+#: CSV, .secrets/inference.json) resolve against it, never against the working
+#: directory (docs/DECISIONS.md#adr-web-lifespan).
+PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------
@@ -329,19 +334,14 @@ def load_inference_config(
     app_settings: AppSettings,
     path: Path | None = None,
 ) -> InferenceConfig:
-    """Load InferenceConfig from *path*, falling back to local defaults.
+    """Load InferenceConfig from *path* (default: the anchored settings path).
 
-    *path* defaults to ``app_settings.inference_config_path``.
-
-    - If the file does not exist: returns ``default_inference_config(app_settings)``.
-    - If *path* exists but contains malformed/schema-invalid JSON: raises
-      ``ValueError`` with a clear message (silent downgrade to local would
-      surprise users who intentionally configured a cloud key).
-
-    This is a plain sync function; callers that need async should offload via
-    ``asyncio.to_thread`` at their discretion.
+    Falls back to local defaults when the file does not exist; raises ValueError
+    with a clear message when it exists but is invalid.
     """
-    target = path if path is not None else app_settings.inference_config_path
+    target = path if path is not None else app_settings.resolve_path(
+        app_settings.inference_config_path,
+    )
     if not target.exists():
         return default_inference_config(app_settings)
     raw = target.read_text(encoding="utf-8")
@@ -361,8 +361,9 @@ def save_inference_config(
 ) -> None:
     """Persist *cfg* as pretty-printed JSON at *path*.
 
-    *path* defaults to ``settings.inference_config_path`` when *settings* is
-    given, else to INFERENCE_CONFIG_PATH.
+    *path* defaults to ``settings.inference_config_path`` resolved against the
+    repo root (``settings.resolve_path``) when *settings* is given, else to
+    ``PROJECT_ROOT / INFERENCE_CONFIG_PATH``; never to the working directory.
 
     Creates intermediate directories if they do not exist.
 
@@ -379,7 +380,11 @@ def save_inference_config(
     file previously written as 0644 is repaired on the next save.
     """
     if path is None:
-        path = settings.inference_config_path if settings is not None else INFERENCE_CONFIG_PATH
+        path = (
+            settings.resolve_path(settings.inference_config_path)
+            if settings is not None
+            else PROJECT_ROOT / INFERENCE_CONFIG_PATH
+        )
     path.parent.mkdir(parents=True, exist_ok=True, mode=SECRET_DIR_MODE)
     # mkdir(mode=...) does nothing for a directory that already exists, so an
     # existing 0755 .secrets/ needs an explicit chmod. Skipped (not redirected)
@@ -468,7 +473,7 @@ class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ALPHASWARM_",
         env_nested_delimiter="__",
-        env_file=".env",
+        env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -497,8 +502,19 @@ class AppSettings(BaseSettings):
     # Runtime inference config (provider choice, cloud API keys), written by the
     # Settings UI. Injectable so tests point it at a temp file and never read the
     # operator's real one (docs/DECISIONS.md#adr-tests-scoped-cleanup). Env var:
-    # ALPHASWARM_INFERENCE_CONFIG_PATH. Relative paths resolve against the CWD.
+    # ALPHASWARM_INFERENCE_CONFIG_PATH. Relative paths resolve against PROJECT_ROOT
+    # (resolve_path).
     inference_config_path: Path = INFERENCE_CONFIG_PATH
+
+    # Output directories for report markdown and advisory JSON. Relative values
+    # resolve against PROJECT_ROOT (see resolve_path).
+    reports_dir: Path = Path("reports")
+    advisory_dir: Path = Path("advisory")
+
+    def resolve_path(self, p: Path) -> Path:
+        """Return *p* as an absolute path; relative paths are anchored at PROJECT_ROOT."""
+        expanded = p.expanduser()
+        return expanded if expanded.is_absolute() else PROJECT_ROOT / expanded
 
     # Browser origins allowed to open /ws/state. The stream is unauthenticated,
     # so without this any page the operator visits could open it cross-origin

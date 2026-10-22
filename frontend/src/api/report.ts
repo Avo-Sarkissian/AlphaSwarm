@@ -1,7 +1,7 @@
 // Report endpoints: POST /api/report/{cycle_id}/generate + GET /api/report/{cycle_id}.
-// Key-based polling convention: reportFetch returns null on 404 (still pending);
-// 500/503 propagate to stop the usePolling loop.
 import { apiFetch, apiPost, ApiError } from './client';
+import { parseErrorEnvelope } from '../lib/apiError';
+import { shouldKeepPolling } from '../lib/reportPolling';
 
 export interface ReportContent {
   cycle_id: string;
@@ -14,28 +14,37 @@ export interface ReportGenerateResponse {
   cycle_id: string;
 }
 
-// POST /api/report/{cycle_id}/generate — 202 on accept, 409 when another
-// generation is in flight. Callers branch on ApiError.status === 409.
-export async function reportGenerate(
-  cycleId: string,
-): Promise<ReportGenerateResponse> {
-  return apiPost<ReportGenerateResponse>(
-    `/api/report/${encodeURIComponent(cycleId)}/generate`,
-    {},
-  );
+const reportPath = (cycleId: string) => `/api/report/${encodeURIComponent(cycleId)}`;
+
+// POST: 202 on accept; 409 report_generation_in_progress when a job already runs
+// for a cycle; 404 cycle_not_found / 422 cycle_not_ready otherwise.
+export async function reportGenerate(cycleId: string): Promise<ReportGenerateResponse> {
+  return apiPost<ReportGenerateResponse>(`${reportPath(cycleId)}/generate`, {});
 }
 
-// GET /api/report/{cycle_id} — 404 means still generating (returns null);
-// 500/503 propagate as ApiError so the polling loop stops with status=error.
-export async function reportFetch(
-  cycleId: string,
-): Promise<ReportContent | null> {
+// GET when the modal opens: 404 report_not_found -> null ("no report yet").
+// Everything else propagates (409 means a job is running: the modal starts polling).
+export async function reportFetch(cycleId: string): Promise<ReportContent | null> {
   try {
-    return await apiFetch<ReportContent>(
-      `/api/report/${encodeURIComponent(cycleId)}`,
-    );
+    return await apiFetch<ReportContent>(reportPath(cycleId));
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+}
+
+// GET while polling after a generation started: 409 report_generation_in_progress
+// -> null (keep polling); every other error, 404 included, ends the poll.
+export async function reportPoll(cycleId: string): Promise<ReportContent | null> {
+  try {
+    return await apiFetch<ReportContent>(reportPath(cycleId));
+  } catch (e) {
+    if (
+      e instanceof ApiError &&
+      shouldKeepPolling({ status: e.status, code: parseErrorEnvelope(e.body).code })
+    ) {
+      return null;
+    }
     throw e;
   }
 }

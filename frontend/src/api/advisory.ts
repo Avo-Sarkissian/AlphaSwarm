@@ -1,10 +1,10 @@
 // Advisory endpoints: GET /api/advisory/{cycle_id} only.
-// The POST path was removed in quick task 260507-19f — synthesis is now
-// auto-fired by the backend on FINAL round (SimulationManager.on_complete
-// → _auto_trigger_advisory). Frontend is a pure viewer; the manual brief
-// icon must NEVER cause a ~17 GB orchestrator load.
-// Mirrors report.ts on read: 404→null (pending), 500/503 propagate.
+// The backend's post-run pipeline starts the advisory after a completed run
+// (when holdings are loaded); the frontend is a pure viewer, so the brief icon
+// never causes a ~17 GB orchestrator load.
+// 404 and 409 advisory_generation_in_progress -> null (pending); 500/503 propagate.
 import { apiFetch, ApiError } from './client';
+import { parseErrorEnvelope } from '../lib/apiError';
 
 export interface AdvisoryContent {
   cycle_id: string;
@@ -18,7 +18,7 @@ export interface AdvisoryContent {
   [key: string]: unknown;
 }
 
-// GET /api/advisory/{cycle_id} — 404 means still generating (returns null).
+// GET /api/advisory/{cycle_id} — 404 / 409 in progress mean pending (returns null).
 export async function advisoryFetch(
   cycleId: string,
 ): Promise<AdvisoryContent | null> {
@@ -27,7 +27,13 @@ export async function advisoryFetch(
       `/api/advisory/${encodeURIComponent(cycleId)}`,
     );
   } catch (e) {
-    if (e instanceof ApiError && e.status === 404) return null;
+    // 404: not generated yet; 409 advisory_generation_in_progress: generating now.
+    if (
+      e instanceof ApiError &&
+      (e.status === 404 || parseErrorEnvelope(e.body).code === 'advisory_generation_in_progress')
+    ) {
+      return null;
+    }
     throw e;
   }
 }

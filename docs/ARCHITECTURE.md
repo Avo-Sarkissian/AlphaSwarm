@@ -15,7 +15,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 | Optional cloud LLMs | `.secrets/inference.json` (Settings UI) | OpenAI-compatible or Anthropic, chosen per role, wrapped in `BudgetTrackingProvider` and throttled by `RateLimitController` |
 | Neo4j 5.26 | `docker-compose.yml`, bolt on `127.0.0.1:7687` | Durable graph of cycles, decisions, episodes, and influence |
 | External data | yfinance, Google/Yahoo RSS | Round 1 market context (prices and headlines) |
-| Files | `reports/`, `advisory/`, `Schwab/holdings.csv` | Report markdown, advisory JSON, holdings input (gitignored) |
+| Files | `reports/`, `advisory/`, `Schwab/holdings.csv` | Report markdown, advisory JSON, holdings input (gitignored). Paths resolve against the repo root. |
 | React SPA | `frontend/` (Vite, TypeScript, D3) | Live dashboard, deterministic SVG agent graph, replay, interview, report and advisory modals, settings |
 
 ## Modules (`src/alphaswarm/`)
@@ -23,7 +23,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 - **Entry points and composition**
   - `__main__.py`, `cli.py`: subcommands `inject | run | report | web`.
   - `app.py`: `AppState`, a container for the settings, StateStore, ResourceGovernor, Ollama client and model manager, GraphStateManager, and the market and news providers, plus `create_app_state()`.
-  - `web/app.py`: the lifespan. It builds AppState and the Simulation, Replay, and Connection managers, loads the portfolio snapshot, and starts the broadcaster.
+  - `web/app.py`: the lifespan. It builds AppState, the Simulation, Replay, and Connection managers and the `PostRunPipeline`, loads the holdings into `PortfolioCache`, and starts the broadcaster.
 - **Domain and config**
   - `types.py`: enums, BracketConfig, AgentPersona, SeedEvent, AgentDecision.
   - `config.py`: settings, inference-config persistence, origin constants, prompt templates, sanitizers, `DEFAULT_BRACKETS`, `generate_personas`, `generate_modifiers`.
@@ -46,7 +46,8 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `ollama_models.py`: model load and unload.
   - `inference/`: provider protocol and types; the `ollama_provider`, `openai_provider`, and `anthropic_provider` adapters; `schema` (structured-output translation per vendor); `budget`; `factory` (`build_providers`, `build_controller`, `inference_mode`).
 - **Persistence**
-  - `graph.py`: GraphStateManager. It covers schema, writes, influence edges, and the report, replay, and interview queries.
+  - `graph.py`: GraphStateManager. It covers schema, writes, influence edges, cycle status, and the report, replay, and interview queries.
+  - `fsutil.py`: `atomic_write_text`, the all-or-nothing writer for report and advisory files.
 - **Ingestion**
   - `ingestion/`: MarketDataProvider and NewsProvider protocols with fakes, the yfinance and RSS providers, and frozen pydantic slices. Providers never raise.
 - **Post-run features**
@@ -60,12 +61,12 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `logging.py`: structlog plus the fail-closed PII redaction processor.
   - `security/hashing.py`.
 - **Web**
-  - `web/`: `simulation_manager`, `replay_manager`, `broadcaster`, `connection_manager`, and `origin_guard` (a CSRF Origin guard).
+  - `web/`: `simulation_manager`, `replay_manager`, `post_run` (PostRunPipeline), `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `connection_manager`, and `origin_guard` (a CSRF Origin guard).
   - `web/routes/`: health, simulation (start/stop/shock), edges, replay, interview, holdings, report, advisory, settings, websocket.
 
 ## Data flow: seed → rounds → graph → web → UI
 
-1. **Start.** `POST /api/simulate/start {seed}` reaches `SimulationManager.start`, which takes the lock, clears interview sessions and the previous run's `StateStore.last_error`, and calls `_run`. `_run` loads the InferenceConfig (or the local defaults) and builds:
+1. **Start.** `POST /api/simulate/start {seed}` reaches `SimulationManager.start`, which refuses with 409 while a replay is active or post-run jobs hold the orchestrator (`post_run_jobs_in_progress`), then takes the lock, clears interview sessions and the previous run's `StateStore.last_error`, and calls `_run`. `_run` loads the InferenceConfig (or the local defaults) and builds:
    - providers with `build_providers`: Ollama, or budget-wrapped cloud providers;
    - a controller with `build_controller`: ResourceGovernor locally, RateLimitController for cloud.
 
@@ -95,15 +96,13 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - The phase becomes COMPLETE.
 
    If anything in steps 1-6 fails instead (an invalid inference config, a hard stop, `RoundFailedError`, a Neo4j error), `SimulationManager._run` publishes a UI-safe `RunError` as `StateStore.last_error`, logs the exception once with its traceback, and resets the phase to IDLE. A cancelled run sets no error.
-7. **Post-run chain.**
-   - Advisory: an in-process POST `/api/advisory/{id}` → `synthesize` → `advisory/{id}_advisory.json`.
-   - Report: only if the advisory succeeds, an in-process POST `/api/report/{id}/generate` runs the ReAct loop (up to 10 orchestrator calls over 8 graph tools), renders through Jinja, and writes `reports/{id}_report.md`.
+7. **Post-run pipeline.** `PostRunPipeline` runs the advisory when holdings are loaded (`PortfolioCache`) and allowed, writing `advisory/{id}_advisory.json`, then always the report (`reports/{id}_report.md`: the ReAct loop, up to 10 orchestrator calls over 8 graph tools, rendered through Jinja). Both write atomically; job status is in the StateStore.
 8. **Live UI.**
    - The broadcaster sends `asdict(StateSnapshot)` plus a live memory overlay over `/ws/state`.
    - On the frontend, `useWebSocket` feeds `adapter/frame.ts`, which updates the React contexts (Agents, Bracket, Rationales, Telemetry, Edges), which render the D3/SVG graph.
    - Edges, report, advisory, replay, and settings come over REST.
-9. **Replay.** ReplayManager loads a cycle's signals from Neo4j into a ReplayStore, and the broadcaster switches its snapshot source. No inference runs.
-10. **Interview.** `POST /api/interview/{agent_id}` takes the latest completed cycle, reads the agent's context with `read_agent_interview_context`, and runs InterviewEngine on the worker provider.
+9. **Replay.** ReplayManager loads a cycle's signals from Neo4j into a ReplayStore, and the broadcaster switches its snapshot source. No inference runs, and the live phase is left alone.
+10. **Interview.** `POST /api/interview/{agent_id}` takes the request's `cycle_id` or the latest complete cycle, reads the agent's context with `read_agent_interview_context`, and runs InterviewEngine on the worker provider.
 
 ## Neo4j graph model
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import re
@@ -13,6 +14,8 @@ from typing import TYPE_CHECKING
 import aiofiles
 import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
+from alphaswarm.fsutil import atomic_write_text
 
 if TYPE_CHECKING:
     from alphaswarm.inference.provider import InferenceProvider
@@ -361,17 +364,12 @@ class ReportAssembler:
 
 
 async def write_report(path: Path, content: str) -> None:
-    """Write report content to disk using aiofiles (async, per D-11).
+    """Write the report markdown atomically (temp file + fsync + os.replace), off the loop.
 
-    Creates parent directory if absent (per D-10).
-
-    Args:
-        path: Destination file path.
-        content: Markdown content to write.
+    Creates the parent directory. Readers see the old file or the complete new
+    one, never a truncated file (docs/DECISIONS.md#adr-background-tasks).
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    async with aiofiles.open(path, "w", encoding="utf-8") as f:
-        await f.write(content)
+    await asyncio.to_thread(atomic_write_text, path, content)
 
 
 async def write_sentinel(

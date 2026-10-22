@@ -15,8 +15,9 @@ code disagrees with the original decision, the entry says so. The original
   format is `p<phase>-d-<nn>`, with dots in the phase number replaced by hyphens.
   Examples: `#p37-d-19`, `#p41-6-d-08`, `#p999-3-d-01`.
 - Status values: **active** (true in code today), **partial** (true with
-  changes, which the entry notes), **superseded** (replaced by a later decision),
-  **lost** (the code no longer exists).
+  changes, which the entry notes), **revised** (changed on purpose; the entry
+  describes the current code and says what it replaced), **superseded**
+  (replaced by a later decision), **lost** (the code no longer exists).
 
 Contents
 
@@ -54,7 +55,8 @@ Contents
   - `inference/provider.py`, `factory.py`, `rate_limit.py`, `budget.py`.
   - Config lives in the gitignored `.secrets/inference.json`. It is edited through
     the Settings UI or `GET/PUT /api/settings`.
-  - `AuthError` and `BudgetExceededError` are never swallowed.
+  - `AuthError` and `BudgetExceededError` are never swallowed. One deliberate limit: in an advisory job they are logged with their traceback and recorded for GET, but they do not stop the post-run report ([adr-advisory-pipeline](#adr-advisory-pipeline)).
+  - The inference config's load error (ValueError/OSError) can quote the file path and raw values, API keys included. The run (`SimulationManager._run`), the report and advisory jobs (`web/guards.py:job_config_error`) and the advisory gate (`web/guards.py:load_inference_config_or_422`) log only its type and fail with a fixed message: an `InferenceConfigError` raised `from None`, or 422 `inference_config_invalid` (2026-10).
 - **Note:** CLAUDE.md's old "No cloud APIs" rule predates this. The correct reading is "local by default".
 
 ### <a id="adr-model-stack"></a>Model stack: MLX Qwen 3.6 pair (decided 2026-06-11)
@@ -97,8 +99,9 @@ Contents
 ### <a id="adr-sequential-model-lifecycle"></a>At most two models loaded; orchestrator users are serialized
 - **Decision:**
   - `OllamaModelManager` enforces sequential loading: orchestrator for seed, then worker for the rounds and narratives, then orchestrator for advisory and report (`ollama_models.py:3`, INFRA-03).
-  - Report and advisory guard each other with a bidirectional 409 (`web/routes/report.py:206-216`, `web/routes/advisory.py:172`).
-  - The chain is sim complete → advisory → report, using in-process `httpx.ASGITransport` calls (`web/simulation_manager.py:24`, `web/routes/advisory.py:51`).
+  - Report and advisory never overlap: both POST routes and the post-run pipeline check the orchestrator slot (`web/guards.py:require_orchestrator_free` and `orchestrator_job_running`, backed by `StateStore.job_statuses()`).
+  - After a completed run, `PostRunPipeline` (`web/post_run.py`) runs the advisory when a portfolio is loaded (and, with a cloud orchestrator, only with the opt-in), then always the report, by direct calls; the former in-process `httpx.ASGITransport` chain is gone. `SimulationManager.start()` refuses a new run with 409 `post_run_jobs_in_progress` while the pipeline task is pending or an orchestrator job runs, and `POST /api/settings/test` is refused during a run.
+  - The report and advisory POST routes check for a running simulation again after their last await, right before the job starts (`web/guards.py:require_no_simulation`): a run started while they awaited Neo4j, the config or the holdings passed `start()`'s probe, because no job was marked running yet (2026-10).
 - **Rationale:** On 64 GB the worker and orchestrator cannot both stay warm, and either task unloading the orchestrator under the other corrupts the run.
 
 ### <a id="adr-swarm-composition-v2"></a>Swarm composition v2 (2026-06-10)
@@ -275,7 +278,7 @@ Contents
 - **Rationale:** The simulation must never block on a slow client (CLAUDE.md hard constraint 4).
 
 ### <a id="adr-replaystore-separate"></a>ReplayStore is separate from StateStore
-- **Decision:** Replay builds its own `ReplayStore` (`state.py:323`) inside `ReplayManager`. While replay is active, the broadcaster reads it instead of live state. Replay and live simulation exclude each other (B4).
+- **Decision:** Replay builds its own `ReplayStore` (`state.py:323`) inside `ReplayManager`. While replay is active, the broadcaster reads it instead of live state. Replay and live simulation exclude each other (B4). Replay never writes the live StateStore phase: start and stop leave IDLE or COMPLETE as they were, so a replay cannot block a report or a new run ([p34-d-10](#p34-d-10), 2026-10).
 - **Rationale:** Reusing StateStore would corrupt the live run. The rationale drain was destructive at the time, and the elapsed timer would restart.
 - **Read model (2026-10):** Replay shows every configured bracket in config order, with its display name. Bracket rows count BUY/SELL/HOLD only: `total` and the averages exclude PARSE_ERROR, so a replayed round matches the live frame's `compute_bracket_summaries`. The report's consensus summary, by contrast, gives PARSE_ERROR its own row ([adr-report-react](#adr-report-react)). Rationales come from `Decision.rationale` ([adr-neo4j-schema](#adr-neo4j-schema)).
 
@@ -292,7 +295,7 @@ Contents
 - **Rationale:** Cycle-scoped edges keep reads fast without pruning history.
 
 ### <a id="adr-cycle-metrics"></a>Per-cycle run metrics on the Cycle node
-- **Decision:** At the end of a run, `write_cycle_metrics` stamps durations, flips, parse errors, `r{n}_inference_errors` (the subset of `r{n}_parse_errors` whose `error_kind` is `"inference"`, for the rounds actually run), `final_round` and the final distribution onto the Cycle node (`graph.py`). `metrics_recorded_at` marks a cycle as complete for listing (`graph.py`, `read_completed_cycles`). Compare runs with `scripts/compare_cycles.py` against `scripts/benchmark_seeds.json`.
+- **Decision:** At the end of a run, `write_cycle_metrics` stamps durations, flips, parse errors, `r{n}_inference_errors` (the subset of `r{n}_parse_errors` whose `error_kind` is `"inference"`, for the rounds actually run), `final_round` and the final distribution onto the Cycle node (`graph.py`). `metrics_recorded_at` marks a cycle as complete for listing (`graph.py`, `read_completed_cycles`) and for the report, advisory and interview gates (`read_cycle_status`, which also accepts a round-3 decision until cycles store a status). Compare runs with `scripts/compare_cycles.py` against `scripts/benchmark_seeds.json`.
 - **Provenance and peer keys:** each cycle also records `orchestrator_provider` / `worker_provider` (`ollama` for local providers, `cloud` otherwise; the model id identifies the cloud provider), `orchestrator_model`, `worker_model`, `inference_mode` (`local` / `cloud` / `mixed`), `git_sha` (empty when unknown) and `git_dirty` (omitted when unknown, because a Neo4j property cannot be null), the effective peer parameters (`peer_selection_version`, `peer_limit`, `peer_min_brackets`, `peer_bracket_cap`, `peer_budget_chars`, `peer_personal_boost`, `peer_seed_source`) and the per-round exposure keys from [adr-diverse-peer-context](#adr-diverse-peer-context). Older cycles lack these keys, so every reader must tolerate missing keys. `git_revision` lives in `alphaswarm/manifest.py`; `current_git_revision` reads it once per process, and the web lifespan makes that read at startup, so a server stamps the revision whose code it runs even after a later commit.
 - **Rationale:** A/B experiments (rounds, peers, models) need durable numbers. All history before June 2026 was lost (see [adr-tests-scoped-cleanup](#adr-tests-scoped-cleanup)).
 
@@ -301,7 +304,7 @@ Contents
   1. An import-linter `forbidden` contract allows only `alphaswarm.advisory` and `alphaswarm.web.routes.holdings` to import `alphaswarm.holdings` (`pyproject.toml [tool.importlinter]`; [p37-d-04](#p37-d-04)).
   2. A four-surface sentinel canary runs the real `synthesize()` (`tests/invariants/test_holdings_isolation.py`).
   3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)). Tracebacks are rendered without local variables in both modes (JSON: `ExceptionDictTransformer(show_locals=False)` before the redactor; console: `plain_traceback`), so frames never leak keys or portfolio objects (2026-10).
-  4. Holdings are loaded into memory at lifespan startup and never persisted ([p39-d-07](#p39-d-07)).
+  4. Holdings are loaded into memory at lifespan startup (`PortfolioCache`, re-read when the CSV changes) and never persisted ([p39-d-07](#p39-d-07)).
 - **Rationale:** Uncontaminated consensus, plus privacy for real brokerage data.
 - **Gate:** `uv run lint-imports` runs in the CI `lint` job (next to strict mypy) and as a pre-commit hook, and `tests/invariants/test_importlinter_contract.py` runs it inside pytest. Ruff is not gated yet.
 
@@ -327,8 +330,9 @@ Contents
   - Unknown tickers default to `macro_beta` 0.5 (SWEEP B-8).
   - Ranking: confidence × exposure / total basis.
   - Output goes to `advisory/{cycle_id}_advisory.json`, served by a 202 + polling + done-callback API.
-  - Auto-triggered on sim completion. On success it chains report generation.
-  - Runs only when the orchestrator is local or `allow_cloud_advisory` is true in the inference config. Local means all three of: provider Ollama; not an Ollama cloud model (any dash- or colon-separated part of the name or tag that is exactly `cloud`, e.g. `gpt-oss:120b-cloud`, `glm-4.6:cloud`, `foo-cloud:latest`; this over-blocks a few odd local names on purpose); and a loopback Ollama server (`localhost`, 127.0.0.0/8 or `::1`). The server checked is read from the shared `OllamaClient` itself (`OllamaClient.base_url`, the httpx host after ollama resolved `AppSettings.ollama.base_url` or `OLLAMA_HOST`), so the check and the connection read the same value. A non-loopback `base_url` on the orchestrator role also counts as remote, even though `OllamaProvider` ignores it today. Anything unparseable, and host spellings such as 0.0.0.0, `127.1` or `0x7f000001`, fail closed (`inference/factory.py:advisory_block_reason`, 2026-10-21); the refusal log carries `reason` (`cloud_provider`, `role_base_url_remote`, `cloud_model`, `remote_host`, `remote_model`). A name cannot reveal an alias whose Modelfile is `FROM` a cloud model, and the default `alphaswarm-orchestrator` is such an alias, so before synthesis the job also asks the server (`OllamaClient.is_remote_model`, raw `/api/show`; newer servers set `remote_host`/`remote_model` for cloud models) and refuses when it reports a remote model or the request fails. The `OllamaClient` httpx client sets `trust_env=False` (an `HTTP_PROXY`/`ALL_PROXY` or macOS system proxy gets no localhost bypass in httpx and would receive the prompt) and `follow_redirects=False`. The opt-in is edited in `.secrets/inference.json`; the Settings UI preserves it but has no toggle yet. Otherwise the POST returns 409 `cloud_advisory_disabled` before the holdings are read, the job refuses as well, and the auto-trigger logs `auto_advisory_skipped_cloud` (T7.2, 2026-10). The refusal is recorded, so GET returns `cloud_advisory_disabled` instead of a pending 404. Until the post-run pipeline lands, a skipped advisory also means no auto-report.
+  - Runs from PostRunPipeline after every completed run when holdings are loaded (cloud orchestrator: only with the opt-in); the report runs afterwards in every case, including no holdings and advisory failure. Holdings come from PortfolioCache, which re-reads the CSV when its mtime changes.
+  - Advisory failures, `AuthError` and `BudgetExceededError` included, are logged with their traceback (`advisory_task_exception_recorded`), recorded for GET (500 `advisory_generation_failed`), and do not stop the report. This is deliberate: the report needs no holdings and must not be lost to an advisory failure (2026-10).
+  - Runs only when the orchestrator is local or `allow_cloud_advisory` is true in the inference config. Local means all three of: provider Ollama; not an Ollama cloud model (any dash- or colon-separated part of the name or tag that is exactly `cloud`, e.g. `gpt-oss:120b-cloud`, `glm-4.6:cloud`, `foo-cloud:latest`; this over-blocks a few odd local names on purpose); and a loopback Ollama server (`localhost`, 127.0.0.0/8 or `::1`). The server checked is read from the shared `OllamaClient` itself (`OllamaClient.base_url`, the httpx host after ollama resolved `AppSettings.ollama.base_url` or `OLLAMA_HOST`), so the check and the connection read the same value. A non-loopback `base_url` on the orchestrator role also counts as remote, even though `OllamaProvider` ignores it today. Anything unparseable, and host spellings such as 0.0.0.0, `127.1` or `0x7f000001`, fail closed (`inference/factory.py:advisory_block_reason`, 2026-10-21); the refusal log carries `reason` (`cloud_provider`, `role_base_url_remote`, `cloud_model`, `remote_host`, `remote_model`). A name cannot reveal an alias whose Modelfile is `FROM` a cloud model, and the default `alphaswarm-orchestrator` is such an alias, so before synthesis the job also asks the server (`OllamaClient.is_remote_model`, raw `/api/show`; newer servers set `remote_host`/`remote_model` for cloud models) and refuses when it reports a remote model or the request fails. The `OllamaClient` httpx client sets `trust_env=False` (an `HTTP_PROXY`/`ALL_PROXY` or macOS system proxy gets no localhost bypass in httpx and would receive the prompt) and `follow_redirects=False`. The opt-in is edited in `.secrets/inference.json`; the Settings UI preserves it but has no toggle yet. Otherwise the POST returns 409 `cloud_advisory_disabled` before the holdings are read, the job refuses as well, and the post-run pipeline skips the advisory and logs `auto_advisory_skipped_cloud` (T7.2, 2026-10). The POST route and the pipeline share `web/routes/advisory.py:advisory_refusal`, which records the refusal, so GET returns `cloud_advisory_disabled` instead of a pending 404. An unreadable inference config fails closed with 422 `inference_config_invalid`; the post-run pipeline then skips the advisory the same way (recorded, so GET returns `inference_config_invalid`) and still runs the report.
 
 ### <a id="adr-report-react"></a>Report: prompt-based ReAct producing markdown
 - **Decision:**
@@ -348,11 +352,11 @@ Contents
 
 ### <a id="adr-background-tasks"></a>Long LLM jobs: 202 + background task + polling
 - **Decision:** Report and advisory POSTs return 202 and run `asyncio` tasks.
-  - Done-callbacks record errors per cycle (T-36-15).
-  - GET reads the file: 404 means pending, 500 means failed.
-  - File probes are async through `aiofiles.os` (T-36-14).
-  - `cycle_id` must match a regex guard (T-36-01).
-  - The frontend `usePolling` keeps at most one request in flight (F-16) and surfaces timeouts ([p41-6-d-19](#p41-6-d-19)).
+  - POST gates on durable state: 409 `simulation_running` during a run, 404 `cycle_not_found` for an unknown cycle, 422 `cycle_not_ready` unless the cycle reads as complete (`GraphStateManager.read_cycle_status`: a stored `Cycle.status` when there is one, else metrics stamped or a round-3 decision), 409 `*_generation_in_progress` while the orchestrator slot is taken. The in-memory phase is not consulted, so historical cycles work after a restart or a replay.
+  - Job status lives in StateStore (`JobStatus` idle/running/failed per job kind); done-callbacks record failures per cycle with the exception class only, refusals with their fixed message (T-36-15).
+  - GET returns 200 with the file, 409 `*_generation_in_progress` while that cycle's job runs, 500 after a recorded failure, 404 otherwise. File probes are async (T-36-14); writes are atomic (`fsutil.atomic_write_text`).
+  - Cycle ids are validated by the `CycleId` uuid4 path type (`web/params.py`); malformed ids return 422 `validation_error` (T-36-01). Every error uses the envelope from `web/errors.py`.
+  - The report modal polls only on 409 `report_generation_in_progress`; `usePolling` keeps at most one request in flight (F-16) and surfaces timeouts ([p41-6-d-19](#p41-6-d-19)).
 
 ### <a id="adr-web-lifespan"></a>Web process shape
 - **Decision:**
@@ -360,7 +364,7 @@ Contents
   - Each domain has a sub-router.
   - Startup verifies Neo4j and runs `ensure_schema()` (constraints, indexes, and the 100 Agent nodes every write matches). Driver or auth errors log `neo4j_unavailable_at_startup`, set `app.state.neo4j_ready = False`, and the server keeps serving (2026-10).
   - FastAPI serves `frontend/dist` at `/` when it has been built ([p31-d-02](#p31-d-02)). In development, Vite on :5173 proxies `/api` and `/ws`, with `changeOrigin: true` on both.
-  - `./start` (cds to the repo root, then runs `python -m alphaswarm web`) and `uv run start` (`cli:main_web`, no cd) both run uvicorn on 127.0.0.1:8000. Several paths are CWD-relative (`.env`, holdings CSV, `.secrets/inference.json`, `advisory/`, `reports/`), so the server must start from the repo root.
+  - `./start` (cds to the repo root, then runs `python -m alphaswarm web`) and `uv run start` (`cli:main_web`, no cd) both run uvicorn on 127.0.0.1:8000. Runtime paths (`.env`, the holdings CSV, `.secrets/inference.json`, `advisory/`, `reports/`) resolve against the repository root (`config.PROJECT_ROOT`, `AppSettings.resolve_path`), so the server may start from any directory.
 
 ### <a id="adr-frontend-quant-terminal"></a>Frontend: React + TS "Quant Terminal"
 - **Decision:**
@@ -409,7 +413,7 @@ Contents
 | <a id="hist-miro"></a>Miro API v2 live visualization; batcher stubbed (Phase 8 D-09/D-10) | Planned spatial visualization | **Dropped** for the web graph. `miro.py` was deleted in `76b7537` (2026-06-11). |
 | <a id="hist-tui"></a>Textual TUI as the primary UI (Phases 9-10, 14, 26-28) | First interface | **Retired** in favor of the web UI. `tui.py` was deleted in `76b7537`. The StateStore contracts it introduced survive. |
 | <a id="hist-read-post"></a>Posts ranked by INFLUENCED_BY weight via `read_ranked_posts`; READ_POST edges from every agent to every prior post (Phase 12 D-07..D-11) | Social-influence layer | **Superseded** by [adr-diverse-peer-context](#adr-diverse-peer-context). Post nodes are still written, but READ_POST edges are not, so `read_social_post_reach` returns nothing for new cycles. |
-| <a id="hist-schwab-report-only"></a>Schwab CSV loaded in memory only during the report step | Privacy | **Changed:** now loaded once at web lifespan startup ([p39-d-07](#p39-d-07)). Still memory-only and never persisted. |
+| <a id="hist-schwab-report-only"></a>Schwab CSV loaded in memory only during the report step | Privacy | **Changed:** now loaded at web lifespan startup into `PortfolioCache` and re-read when the CSV changes ([p39-d-07](#p39-d-07)). Still memory-only and never persisted. |
 
 ---
 
@@ -626,24 +630,24 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p34-d-07"></a>`D-07` | ReplayManager holds the ReplayStore, cycle_id and round; created in the lifespan. | active | web/replay_manager.py:1; tests/test_web.py:1265 |
 | <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, builds ReplayStore, sets round 1, broadcasts. | active | web/replay_manager.py:115; web/routes/replay.py:38,103 |
 | <a id="p34-d-09"></a>`D-09` | replay_advance increments the round (capped at the cycle's real depth since F-12) and broadcasts. | active | web/replay_manager.py:185; web/routes/replay.py:46,175 |
-| <a id="p34-d-10"></a>`D-10` | POST /api/replay/stop resets replay to idle. | active | web/replay_manager.py:234; web/routes/replay.py:53,206 |
+| <a id="p34-d-10"></a>`D-10` | POST /api/replay/stop ends the replay (ReplayManager inactive again) and never writes the live StateStore phase, which stays IDLE or COMPLETE. Revised 2026-10 (start set the live phase to REPLAY and stop set it to IDLE). | revised | web/replay_manager.py:249; web/routes/replay.py:54,130 |
 | <a id="p34-d-11"></a>`D-11` | Broadcaster reads the replay snapshot instead of live state while replay is active. | active | web/broadcaster.py:8,36; tests/test_web.py:1265 |
 
 ### Phase 35: Agent interviews (web)
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p35-d-06"></a>`D-06` | One InterviewEngine per agent_id kept in app.state.interview_sessions; cleared on sim start (no TTL). | active | web/app.py:94; web/routes/interview.py:52 |
+| <a id="p35-d-06"></a>`D-06` | One InterviewEngine per (cycle_id, agent_id) in app.state.interview_sessions; cleared on sim start (no TTL). Revised 2026-10 (was per agent_id). | revised | web/app.py:178; web/routes/interview.py:5 |
 | <a id="p35-d-08"></a>`D-08` | Single POST /api/interview/{agent_id} endpoint; engine created lazily on first call. | active | web/routes/interview.py:39 |
 
 ### Phase 36: Report viewer (web)
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p36-d-01"></a>`D-01` | POST /api/report/{cycle_id}/generate returns 202 and runs a background task; allowed only when phase == COMPLETE (blocks regenerating historical cycles after restart). | active | web/routes/report.py:64,149,154,183; tests/test_web_report.py:205 |
-| <a id="p36-d-02"></a>`D-02` | 409 if a report task is already running (single orchestrator user). | active | web/app.py:99; web/routes/report.py:149,155,195; tests/test_web.py:67; tests/test_web_report.py:42,62,220 |
-| <a id="p36-d-03"></a>`D-03` | Web report path mirrors the CLI sequence and file locations. | active | web/routes/report.py:301,340; tests/test_web_report.py:285 |
-| <a id="p36-d-05"></a>`D-05` | GET /api/report/{cycle_id} reads the markdown file; filesystem is the source of truth; 404 = not generated. | active | web/routes/report.py:56,84 |
+| <a id="p36-d-01"></a>`D-01` | POST /api/report/{cycle_id}/generate returns 202 and runs a background task for any complete cycle while no simulation runs. Revised 2026-10: the phase == COMPLETE gate is gone. | revised | web/routes/report.py:58,110; tests/test_report_routes.py |
+| <a id="p36-d-02"></a>`D-02` | 409 if a report task is already running (single orchestrator user). | active | web/app.py:180; web/guards.py:require_orchestrator_free; tests/test_report_routes.py |
+| <a id="p36-d-03"></a>`D-03` | Web report path mirrors the CLI sequence and file locations. | active | web/routes/report.py:187,227; tests/test_web_report.py:40 |
+| <a id="p36-d-05"></a>`D-05` | GET /api/report/{cycle_id} reads the markdown file; the filesystem is the source of truth: 404 = no report, 409 report_generation_in_progress while that cycle's job runs, 500 after a recorded failure. Revised 2026-10 (404 also meant "still generating"). | revised | web/routes/report.py:50,70 |
 
 ### Phase 37: Isolation foundation + provider scaffolding
 
@@ -690,9 +694,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p39-d-02"></a>`D-02` | Holding.cost_basis is total position cost (shares x per-share basis). | active | holdings/loader.py:10,141; tests/test_holdings_loader.py:72 |
 | <a id="p39-d-03"></a>`D-03` | Multiple accounts merge into one PortfolioSnapshot. | active | holdings/loader.py:11; tests/test_holdings_loader.py:125,145,164 |
 | <a id="p39-d-04"></a>`D-04` | All positions included (no money-market filtering). | active | holdings/loader.py:12; tests/test_holdings_loader.py:125,129,134 |
-| <a id="p39-d-05"></a>`D-05` | Path from ALPHASWARM_HOLDINGS_CSV_PATH, default Schwab/holdings.csv (relative to the working directory). | active | config.py:452; web/routes/holdings.py:140 |
+| <a id="p39-d-05"></a>`D-05` | Path from ALPHASWARM_HOLDINGS_CSV_PATH, default Schwab/holdings.csv, resolved against the repo root. | active | config.py:478; web/app.py:220 |
 | <a id="p39-d-06"></a>`D-06` | GET /api/holdings returns account hash, as_of, holdings with Decimals as strings. | active | web/routes/holdings.py:17,54,67; tests/integration/test_holdings_route.py:13,85,90,137 |
-| <a id="p39-d-07"></a>`D-07` | Holdings loaded once at lifespan startup onto app.state; no disk I/O per request (advisory lazily reloads if startup failed). | active | web/app.py:131; web/routes/holdings.py:19,76 |
+| <a id="p39-d-07"></a>`D-07` | Holdings load at lifespan startup into PortfolioCache on app.state and reload when the CSV's mtime changes; never assigned onto AppState. Revised 2026-10 (was loaded once, with a lazy reload in the advisory route). | revised | web/app.py:218; web/routes/holdings.py:18,120 |
 | <a id="p39-d-08"></a>`D-08` | Missing/malformed CSV -> snapshot None -> structured 503; never crashes the WS loop. | active | holdings/loader.py:52; web/app.py:131,138; web/routes/holdings.py:21,82,136,146; tests/integration/test_holdings_route.py:14,215,220; tests/test_holdings_loader.py:261 |
 
 ### Phase 40: Simulation context wiring
@@ -721,8 +725,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p41-d-07"></a>`D-07` | Rank by confidence x (exposure / total cost basis); denominator must be positive (F-29). | active | advisory/engine.py:142,262 |
 | <a id="p41-d-08"></a>`D-08` | Route owns orchestrator load/unload in try/finally; advisory never runs concurrently with report generation (bidirectional 409). | active | advisory/engine.py:6; web/app.py:105; web/routes/advisory.py:106,323 |
 | <a id="p41-d-09"></a>`D-09` | POST /api/advisory/{cycle_id} returns 202 and spawns a background task. | active | web/routes/advisory.py:87,99 |
-| <a id="p41-d-10"></a>`D-10` | GET reads advisory/{cycle_id}_advisory.json: 200 ready, 404 still generating, 500 recorded failure. | active | web/routes/advisory.py:215 |
-| <a id="p41-d-12"></a>`D-12` | cycle_id regex guard shared with the report route. | active | web/routes/advisory.py:102,220 |
+| <a id="p41-d-10"></a>`D-10` | GET reads advisory/{cycle_id}_advisory.json: 200 ready, 409 advisory_generation_in_progress while generating, 500 recorded failure or refusal, 404 absent. Revised 2026-10 (404 meant "still generating"). | revised | web/routes/advisory.py:193 |
+| <a id="p41-d-12"></a>`D-12` | Cycle ids use the shared CycleId uuid4 type (web/params.py); malformed ids return 422 validation_error. Revised 2026-10 (was a regex guard shared with the report route, 400 invalid_cycle_id). | revised | web/params.py; web/routes/advisory.py:162,193 |
 | <a id="p41-d-13"></a>`D-13` | Done-callback records failures in app.state.advisory_generation_error so polling can stop. | active | web/app.py:105; web/routes/advisory.py:191,260 |
 | <a id="p41-d-20"></a>`D-20` | The isolation canary calls the real synthesize() (load-bearing since Phase 41). | active | pyproject.toml:137; tests/invariants/conftest.py:162; tests/invariants/test_holdings_isolation.py:7,74 |
 
@@ -881,10 +885,10 @@ code. Their status is in BACKLOG.md.
 | ID | Threat and mitigation | Referenced from |
 |---|---|---|
 | <a id="t-35-1-01"></a>T-35.1-01 | Cypher injection through shock text. All user input goes through parameters, never f-strings | graph.py:1964 |
-| <a id="t-36-01"></a>T-36-01 | Path traversal through cycle_id. Regex guard (`_CYCLE_ID_RE`), shared by report, advisory, and replay | web/routes/report.py:51,71,92,152; tests/test_web_report.py:145,263 |
+| <a id="t-36-01"></a>T-36-01 | Path traversal through cycle_id. Since 2026-10 the `CycleId` path type and `CYCLE_ID_PATTERN` (`web/params.py`) validate it for report, advisory, replay, edges and interview, and malformed ids get 422 `validation_error` (was the `_CYCLE_ID_RE` regex guard) | web/params.py; tests/test_web_params.py |
 | <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:4,95,101,131; tests/test_web_report.py:11,175 |
 | <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:101; web/routes/advisory.py:5,260; web/routes/report.py:7,90,106,159,161,220,233,247; tests/test_web.py:69; tests/test_web_report.py:5,43,64,157,438 |
-| <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Accepted LOW risk; temp file + rename suggested | web/routes/advisory.py:8; web/routes/report.py:12,316 |
+| <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Fixed 2026-10: both writes go through `fsutil.atomic_write_text` (temp file, fsync, `os.replace`, owner-only) | fsutil.py; report.py:write_report; web/routes/advisory.py:8 |
 | <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,89; simulation.py:56; tests/test_rss_provider.py:142,164,549 |
 | <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/integration/test_holdings_route.py:14,215,259 |
 | <a id="t-41-6-13"></a>T-41.6-13 | XSS through interview responses. Rendered as plain text, not markdown | fe/components/interview_v2.tsx:19 |
@@ -920,7 +924,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-advis"></a>ADVIS-01 / 02 | `synthesize()` ranked items / `POST /api/advisory` with serialization | advisory/__init__.py:1; advisory/engine.py:1; advisory/types.py:1; web/routes/advisory.py:1,99; tests/unit/... |
 | <a id="req-sim-04"></a>SIM-04 | `run_simulation` takes optional providers; backward compatible without them | tests/test_simulation.py:3269 |
 | <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:47,56,67; tests/test_web.py:462,469,494,525,554; docs/design/inference-providers.md:142 |
-| <a id="req-auto"></a>AUTO-01..05 | Auto-trigger advisory on completion (capture cycle_id, schedule from done-callback, in-process POST, swallow 409/503) | tests/unit/test_simulation_manager_auto_advisory.py; tests/unit/test_auto_advisory_trigger.py |
+| <a id="req-auto"></a>AUTO-01..05 | Run the post-run jobs on completion (capture cycle_id, schedule from the done-callback). Revised 2026-10: PostRunPipeline calls the advisory and report jobs directly instead of an in-process POST, and the report runs in every case | tests/unit/test_simulation_manager_auto_advisory.py; tests/test_post_run_pipeline.py; tests/test_web_post_run_wiring.py |
 
 ---
 

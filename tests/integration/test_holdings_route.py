@@ -5,7 +5,7 @@ the enable_socket marker — FastAPI TestClient needs in-process sockets even
 though no outbound network traffic occurs.
 
 Tests are hermetic: they build a minimal FastAPI app with a custom lifespan that
-directly seeds app.state.portfolio_snapshot. HoldingsLoader is NEVER invoked and
+seeds app.state.portfolio_cache with a fixed snapshot. HoldingsLoader is NEVER invoked and
 Schwab/holdings.csv is NEVER read. This isolates the test surface to the route
 module + pydantic serialization.
 
@@ -37,6 +37,7 @@ from fastapi.testclient import TestClient
 
 from alphaswarm.holdings import Holding, PortfolioSnapshot
 from alphaswarm.web.routes.holdings import router as holdings_router
+from tests.support.web_app import StaticPortfolioCache
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -46,7 +47,7 @@ from alphaswarm.web.routes.holdings import router as holdings_router
 def _make_holdings_test_app(snapshot: PortfolioSnapshot | None) -> FastAPI:
     """Build a minimal FastAPI app for GET /api/holdings tests.
 
-    The lifespan seeds app.state.portfolio_snapshot directly with the argument;
+    The lifespan seeds app.state.portfolio_cache with a fixed snapshot;
     HoldingsLoader is not invoked and no filesystem I/O happens. Mirrors the
     _make_report_test_app pattern in tests/test_web_report.py (omits the
     report-specific state).
@@ -54,7 +55,7 @@ def _make_holdings_test_app(snapshot: PortfolioSnapshot | None) -> FastAPI:
 
     @asynccontextmanager
     async def _holdings_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-        app.state.portfolio_snapshot = snapshot
+        app.state.portfolio_cache = StaticPortfolioCache(snapshot)
         yield
 
     app = FastAPI(title="AlphaSwarm-Holdings-Test", lifespan=_holdings_lifespan)
@@ -220,7 +221,7 @@ def test_get_holdings_as_of_is_iso8601_with_tz() -> None:
 
 
 def test_get_holdings_503_when_snapshot_none() -> None:
-    """D-08 — 503 with locked body when app.state.portfolio_snapshot is None.
+    """D-08 — 503 with locked body when app.state.portfolio_cache returns None.
 
     FastAPI's HTTPException(detail={...}) wraps the detail dict under a
     top-level "detail" key. Assertions read r.json()["detail"][...] to match
@@ -232,7 +233,7 @@ def test_get_holdings_503_when_snapshot_none() -> None:
         assert r.status_code == 503
         detail = r.json()["detail"]
         assert detail["error"] == "holdings_unavailable"
-        assert detail["message"] == "Holdings file could not be loaded at startup"
+        assert detail["message"] == "Holdings file could not be loaded"
 
 
 def test_get_holdings_503_body_is_detail_wrapped() -> None:
@@ -308,16 +309,16 @@ def test_route_source_does_not_log_holding_field_values() -> None:
 
 
 def test_web_app_uses_asyncio_to_thread_for_holdings_load() -> None:
-    """Review closure: Codex MEDIUM — lifespan MUST wrap load_portfolio_snapshot
+    """Review closure: Codex MEDIUM — PortfolioCache MUST wrap load_portfolio_snapshot
     in asyncio.to_thread so the synchronous CSV parsing never blocks uvicorn's
-    event loop (CLAUDE.md Hard Constraint 1)."""
+    event loop (CLAUDE.md Hard Constraint 1), and the lifespan builds the cache."""
     from pathlib import Path as _Path
-    src = _Path(__file__).parent.parent.parent / "src/alphaswarm/web/app.py"
-    content = src.read_text(encoding="utf-8")
-    assert "asyncio.to_thread(load_portfolio_snapshot," in content, (
-        "web/app.py must use asyncio.to_thread(load_portfolio_snapshot, ...) "
-        "in the lifespan — synchronous calls would block the event loop."
-    )
+
+    root = _Path(__file__).parent.parent.parent / "src/alphaswarm/web"
+    holdings_src = (root / "routes/holdings.py").read_text(encoding="utf-8")
+    app_src = (root / "app.py").read_text(encoding="utf-8")
+    assert "asyncio.to_thread(load_portfolio_snapshot," in holdings_src
+    assert "PortfolioCache(" in app_src
 
 
 def test_web_app_does_not_import_alphaswarm_holdings_directly() -> None:
@@ -333,6 +334,6 @@ def test_web_app_does_not_import_alphaswarm_holdings_directly() -> None:
     matches = forbidden.findall(content)
     assert not matches, (
         f"web/app.py MUST NOT import alphaswarm.holdings.* directly — "
-        f"use load_portfolio_snapshot from alphaswarm.web.routes.holdings "
+        f"use PortfolioCache from alphaswarm.web.routes.holdings "
         f"(D-04 whitelist). Forbidden matches: {matches}"
     )

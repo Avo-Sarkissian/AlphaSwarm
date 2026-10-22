@@ -10,6 +10,7 @@ import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Literal
 
 from alphaswarm.data_audit import DataSourceAuditBuffer, DataSourceAuditEntry
 from alphaswarm.errors import RunError
@@ -70,6 +71,30 @@ class AgentState:
 
     signal: SignalType | None = None
     confidence: float = 0.0
+
+
+JobKind = Literal["advisory", "report"]
+
+
+@dataclass(frozen=True)
+class JobStatus:
+    """Status of one orchestrator job kind; idle/failed keep the last cycle id.
+
+    The single source of truth for "is a report/advisory running" used by the
+    route cross-guards and SimulationManager (docs/DECISIONS.md#adr-background-tasks).
+    """
+
+    state: Literal["idle", "running", "failed"] = "idle"
+    cycle_id: str | None = None
+    error_code: str | None = None
+
+
+@dataclass(frozen=True)
+class JobsSnapshot:
+    """Both job statuses at one instant."""
+
+    advisory: JobStatus
+    report: JobStatus
 
 
 @dataclass(frozen=True)
@@ -134,6 +159,11 @@ class StateStore:
         # Phase 10: TUI-05 bracket summaries storage
         self._bracket_summaries: tuple[BracketSummary, ...] = ()
         self._last_error: RunError | None = None
+        # Orchestrator job status (report/advisory). Not run-scoped: survives SEEDING.
+        self._jobs: dict[JobKind, JobStatus] = {
+            "advisory": JobStatus(),
+            "report": JobStatus(),
+        }
 
     async def update_agent_state(
         self,
@@ -309,6 +339,14 @@ class StateStore:
     def update_governor_metrics(self, metrics: GovernorMetrics) -> None:
         """Store latest governor metrics."""
         self._latest_governor_metrics = metrics
+
+    def set_job_status(self, kind: JobKind, status: JobStatus) -> None:
+        """Record the advisory or report job status (sync: called from done-callbacks)."""
+        self._jobs[kind] = status
+
+    def job_statuses(self) -> JobsSnapshot:
+        """Return both job statuses."""
+        return JobsSnapshot(advisory=self._jobs["advisory"], report=self._jobs["report"])
 
     # ------------------------------------------------------------------
     # ITEM 5 of quick task 260512-jqn — data-provider audit pass-through

@@ -1,22 +1,19 @@
-"""The advisory job and the auto-trigger honour the cloud-advisory guard.
+"""The advisory job honours the cloud-advisory guard (docs/DECISIONS.md#adr-advisory-pipeline).
 
-The route rejects the POST; these tests cover the paths behind it: the job
-re-checks the config (it can change after the POST), a refused job records
-its own error code, and the post-run auto-trigger logs a distinct skip.
+The job re-checks the config and a refused job records its own error code. The
+post-run skip is pinned in tests/test_post_run_pipeline.py.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 
 from alphaswarm.config import (
     AppSettings,
@@ -26,7 +23,6 @@ from alphaswarm.config import (
     RoleConfig,
 )
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
-from alphaswarm.web import simulation_manager
 from alphaswarm.web.routes import advisory as advisory_route
 
 
@@ -67,17 +63,6 @@ def _ollama_client(
 
 class _ReachedError(Exception):
     """Raised by a stubbed build_providers: the job got past every locality check."""
-
-
-class _RecordingLog:
-    def __init__(self) -> None:
-        self.events: list[str] = []
-
-    def __getattr__(self, _level: str) -> Callable[..., None]:
-        def _log(event: str, **_kw: Any) -> None:
-            self.events.append(event)
-
-        return _log
 
 
 async def test_the_job_refuses_a_cloud_orchestrator_without_opt_in(
@@ -222,35 +207,3 @@ async def test_a_refused_job_records_the_cloud_advisory_code() -> None:
     advisory_route._on_advisory_task_done(task, "cycle-1", app)
 
     assert app.state.advisory_generation_error["cycle-1"]["error"] == "cloud_advisory_disabled"
-
-
-def _app_answering_409(code: str) -> FastAPI:
-    app = FastAPI()
-
-    @app.post("/api/advisory/{cycle_id}")
-    async def _refuse(cycle_id: str) -> None:
-        raise HTTPException(status_code=409, detail={"error": code, "message": "refused"})
-
-    return app
-
-
-async def test_the_auto_trigger_logs_a_cloud_skip(monkeypatch: pytest.MonkeyPatch) -> None:
-    log = _RecordingLog()
-    monkeypatch.setattr(simulation_manager, "log", log)
-
-    await simulation_manager._auto_trigger_advisory(
-        _app_answering_409("cloud_advisory_disabled"), "cycle-1"
-    )
-
-    assert log.events == ["auto_advisory_skipped_cloud"]
-
-
-async def test_other_conflicts_keep_the_generic_skip(monkeypatch: pytest.MonkeyPatch) -> None:
-    log = _RecordingLog()
-    monkeypatch.setattr(simulation_manager, "log", log)
-
-    await simulation_manager._auto_trigger_advisory(
-        _app_answering_409("advisory_generation_in_progress"), "cycle-1"
-    )
-
-    assert log.events == ["auto_advisory_trigger_skipped_conflict"]

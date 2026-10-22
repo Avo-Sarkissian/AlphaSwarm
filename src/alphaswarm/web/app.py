@@ -21,20 +21,25 @@ from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.manifest import current_git_revision
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
+from alphaswarm.web.errors import install_error_handlers
+from alphaswarm.web.guards import orchestrator_job_running
 from alphaswarm.web.origin_guard import install_origin_guard
+from alphaswarm.web.post_run import AdvisoryGate, PostRunJobBusyError, PostRunPipeline
 from alphaswarm.web.replay_manager import ReplayManager
+from alphaswarm.web.routes.advisory import advisory_refusal, start_advisory_job
 from alphaswarm.web.routes.advisory import router as advisory_router
 from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
-from alphaswarm.web.routes.holdings import load_portfolio_snapshot
+from alphaswarm.web.routes.holdings import PortfolioCache
 from alphaswarm.web.routes.holdings import router as holdings_router
 from alphaswarm.web.routes.interview import router as interview_router
 from alphaswarm.web.routes.replay import router as replay_router
 from alphaswarm.web.routes.report import router as report_router
+from alphaswarm.web.routes.report import start_report_job
 from alphaswarm.web.routes.settings import router as settings_router
 from alphaswarm.web.routes.simulation import router as simulation_router
 from alphaswarm.web.routes.websocket import router as ws_router
-from alphaswarm.web.simulation_manager import SimulationManager, _auto_trigger_advisory
+from alphaswarm.web.simulation_manager import SimulationManager
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
@@ -88,7 +93,7 @@ def make_session_clearer(app: FastAPI) -> Callable[[], None]:
     local path.
     """
     def _clear_interview_sessions() -> None:
-        sessions: dict[str, object] = app.state.interview_sessions
+        sessions: dict[tuple[str, str], dict[str, object]] = app.state.interview_sessions
         close_tasks: set[asyncio.Task[None]] = getattr(
             app.state, "_interview_close_tasks", set()
         )
@@ -118,6 +123,45 @@ def make_session_clearer(app: FastAPI) -> Callable[[], None]:
     return _clear_interview_sessions
 
 
+class WebPostRunJobs:
+    """PostRunJobs over the route-level job starters.
+
+    The pipeline, the POST routes and the job status therefore share one code
+    path. ``app.state.portfolio_cache`` is passed through untyped: this module
+    must not import ``alphaswarm.holdings`` (docs/DECISIONS.md#adr-holdings-isolation).
+    """
+
+    def __init__(self, app: FastAPI) -> None:
+        self._app = app
+
+    async def advisory_gate(self, cycle_id: str) -> AdvisoryGate:
+        # The POST route's check, before the holdings are touched: an unreadable
+        # config fails closed and a cloud or remote orchestrator without the opt-in
+        # is refused. Both refusals are recorded, so GET answers with their code
+        # instead of a 404 the UI shows as pending (docs/DECISIONS.md#adr-advisory-pipeline).
+        if await advisory_refusal(self._app, cycle_id) is not None:
+            return "cloud_advisory_disabled"
+        if await self._app.state.portfolio_cache.get() is None:
+            return "no_portfolio"
+        return "run"
+
+    async def run_advisory(self, cycle_id: str) -> None:
+        if orchestrator_job_running(self._app.state.app_state):
+            raise PostRunJobBusyError("advisory")
+        portfolio = await self._app.state.portfolio_cache.get()
+        if portfolio is None:
+            raise RuntimeError("holdings disappeared before the advisory started")
+        # The job's done-callback (which resets the job status) was registered
+        # before this await, so it runs before we resume and run_report sees the
+        # slot free.
+        await start_advisory_job(self._app, cycle_id, portfolio)
+
+    async def run_report(self, cycle_id: str) -> None:
+        if orchestrator_job_running(self._app.state.app_state):
+            raise PostRunJobBusyError("report")
+        await start_report_job(self._app, cycle_id)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """FastAPI lifespan: create all stateful objects inside the event loop.
@@ -131,10 +175,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
-    # Per D-06 and review consensus: sessions stored as
-    # {agent_id: {"engine": InterviewEngine, "lock": asyncio.Lock}}
-    # Initialized before SimulationManager so the on_start lambda can reference
-    # app.state.interview_sessions.
+    # Interview sessions keyed (cycle_id, agent_id) -> {"engine", "lock", "provider"}; created
+    # before SimulationManager so on_start can clear them (docs/DECISIONS.md#p35-d-06).
     app.state.interview_sessions = {}
     # Phase 36 D-02: single task handle for in-progress report generation detection.
     app.state.report_task = None
@@ -150,12 +192,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ReplayManager must be constructed BEFORE SimulationManager so the latter
     # can hold a reference for the B4 replay-active guard in start().
     replay_manager = ReplayManager(app_state)
+    # docs/DECISIONS.md#adr-sequential-model-lifecycle: advisory (when allowed), then the
+    # report, always; direct calls, no in-process HTTP.
+    post_run_pipeline = PostRunPipeline(jobs=WebPostRunJobs(app))
+    app.state.post_run_pipeline = post_run_pipeline
     sim_manager = SimulationManager(
         app_state,
         brackets,
         on_start=make_session_clearer(app),
         replay_manager=replay_manager,
-        on_complete=lambda cycle_id: _auto_trigger_advisory(app, cycle_id),
+        on_complete=post_run_pipeline.on_complete,
+        orchestrator_busy=lambda: orchestrator_job_running(app_state),
     )
     # Bidirectional replay/sim exclusion: ReplayManager.start() re-checks for a
     # live simulation under its own lock (closes the TOCTOU window between the
@@ -172,15 +219,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # revision even if HEAD moves before the first run (docs/DECISIONS.md#adr-cycle-metrics).
     await asyncio.to_thread(current_git_revision)
 
-    # Phase 39 D-07, D-08 + CLAUDE.md Hard Constraint 1: eager-load holdings
-    # snapshot off the event loop via asyncio.to_thread. The synchronous
-    # load_portfolio_snapshot uses csv.DictReader + Path.open (blocking I/O)
-    # and catches HoldingsLoadError internally, returning None on failure.
-    # Using asyncio.to_thread keeps the lifespan compliant with the "no
-    # blocking I/O on the main event loop" hard constraint (review closure:
-    # Codex MEDIUM). On None, GET /api/holdings surfaces 503 while the
-    # broadcaster below still starts (D-08 success criterion 4).
-    app.state.portfolio_snapshot = await asyncio.to_thread(load_portfolio_snapshot, settings.holdings_csv_path)  # noqa: E501
+    # Holdings are loaded eagerly (docs/DECISIONS.md#p39-d-07) and reloaded when the
+    # CSV's mtime changes; the cache stays on app.state, never on AppState.
+    portfolio_cache = PortfolioCache(settings.resolve_path(settings.holdings_csv_path))
+    await portfolio_cache.get()
+    app.state.portfolio_cache = portfolio_cache
 
     # Phase 40 D-10: construct Yahoo Finance + RSS providers once at startup.
     # Both __init__ methods are synchronous and do no network I/O (lazy fetch).
@@ -240,13 +283,13 @@ def create_app() -> FastAPI:
     never at module import time.
     """
     app = FastAPI(title="AlphaSwarm", lifespan=lifespan)
+    install_error_handlers(app)
 
     # CSRF guard (CWE-352): the API is unauthenticated and localhost-only, so
     # every mutating route runs with the operator's authority. One middleware
     # in front of the whole app rejects non-GET requests carrying a foreign
     # Origin/Referer, covering all routers below plus any added later.
-    # Header-less callers (curl, scripts/, the in-process ASGITransport report
-    # and advisory chains) are unaffected — see web/origin_guard.py.
+    # Header-less callers (curl, scripts/) are unaffected — see web/origin_guard.py.
     install_origin_guard(app, AppSettings().http_allowed_origins)
 
     app.include_router(health_router, prefix="/api")

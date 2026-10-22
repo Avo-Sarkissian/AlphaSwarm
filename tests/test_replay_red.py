@@ -41,12 +41,11 @@ def test_replay_response_models_exist() -> None:
 
 
 def test_replay_cycles_endpoint_has_503_guard() -> None:
-    """replay_cycles raises HTTPException 503 when graph_manager is None."""
+    """replay_cycles raises ApiError 503 when graph_manager is None."""
     import asyncio
     from unittest.mock import MagicMock
 
-    from fastapi import HTTPException
-
+    from alphaswarm.web.errors import ApiError
     from alphaswarm.web.routes.replay import replay_cycles
 
     # Create a mock request with graph_manager=None
@@ -55,7 +54,7 @@ def test_replay_cycles_endpoint_has_503_guard() -> None:
 
     try:
         asyncio.get_event_loop().run_until_complete(replay_cycles(mock_request))
-        assert False, "Should have raised HTTPException"
-    except HTTPException as exc:
-        assert exc.status_code == 503
-        assert exc.detail["error"] == "graph_unavailable"
+        raise AssertionError("Should have raised ApiError")
+    except ApiError as exc:
+        assert exc.status == 503
+        assert exc.code == "graph_unavailable"

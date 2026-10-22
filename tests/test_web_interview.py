@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from alphaswarm.types import SimulationPhase
+from tests.support.web_app import CYCLE_A
 
 # ---------------------------------------------------------------------------
 # Test helpers
@@ -31,6 +32,7 @@ def _make_interview_test_app() -> FastAPI:
     from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
     from alphaswarm.web.app import make_session_clearer
     from alphaswarm.web.connection_manager import ConnectionManager
+    from alphaswarm.web.errors import install_error_handlers
     from alphaswarm.web.replay_manager import ReplayManager
     from alphaswarm.web.routes.interview import router as interview_router
     from alphaswarm.web.simulation_manager import SimulationManager
@@ -63,6 +65,7 @@ def _make_interview_test_app() -> FastAPI:
             await app_state.graph_manager.close()
 
     app = FastAPI(title="AlphaSwarm-Interview-Test", lifespan=_interview_lifespan)
+    install_error_handlers(app)
     app.include_router(interview_router, prefix="/api")
     return app
 
@@ -89,47 +92,26 @@ def test_interview_503_no_graph() -> None:
         # graph_manager is None by default (no neo4j in test app)
         r = client.post("/api/interview/agent_1", json={"message": "hello"})
         assert r.status_code == 503
-        assert r.json()["detail"]["error"] == "services_unavailable"
+        assert r.json()["detail"]["error"] == "graph_unavailable"
 
 
 # ---------------------------------------------------------------------------
-# Test 2: 503 when ollama_client is None
+# Test 3: 409 while a simulation runs
 # ---------------------------------------------------------------------------
 
 
-def test_interview_503_no_ollama() -> None:
-    """POST /api/interview/{agent_id} returns 503 when ollama_client is None."""
-    from unittest.mock import AsyncMock
-
-    app = _make_interview_test_app()
-    with TestClient(app) as client:
-        app.state.app_state.graph_manager = AsyncMock()
-        # ollama_client is None by default (no ollama in test app)
-        r = client.post("/api/interview/agent_1", json={"message": "hello"})
-        assert r.status_code == 503
-        assert r.json()["detail"]["error"] == "services_unavailable"
-
-
-# ---------------------------------------------------------------------------
-# Test 3: 409 when phase is not COMPLETE
-# ---------------------------------------------------------------------------
-
-
-def test_interview_409_phase_not_complete() -> None:
-    """POST /api/interview/{agent_id} returns 409 when simulation is in progress."""
+def test_interview_409_while_simulation_runs() -> None:
+    """POST /api/interview/{agent_id} returns 409 simulation_running during a run."""
     from unittest.mock import AsyncMock, MagicMock
 
     app = _make_interview_test_app()
     with TestClient(app) as client:
         app.state.app_state.graph_manager = AsyncMock()
         app.state.app_state.ollama_client = MagicMock()
-        mock_snap = MagicMock()
-        mock_snap.phase = SimulationPhase.ROUND_2
-        app.state.app_state.state_store = MagicMock()
-        app.state.app_state.state_store.snapshot = MagicMock(return_value=mock_snap)
+        app.state.sim_manager._is_running = True
         r = client.post("/api/interview/agent_1", json={"message": "hello"})
         assert r.status_code == 409
-        assert r.json()["detail"]["error"] == "interview_unavailable"
+        assert r.json()["detail"]["error"] == "simulation_running"
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +147,7 @@ def test_interview_404_empty_context() -> None:
     app = _make_interview_test_app()
     with TestClient(app) as client:
         mock_gm = AsyncMock()
-        mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
+        mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
         mock_gm.read_agent_interview_context = AsyncMock(return_value=None)
         app.state.app_state.graph_manager = mock_gm
         app.state.app_state.ollama_client = MagicMock()
@@ -227,7 +209,7 @@ def test_interview_endpoint_returns_response() -> None:
             ],
         )
         mock_gm = AsyncMock()
-        mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
+        mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
         mock_gm.read_agent_interview_context = AsyncMock(return_value=mock_context)
         app.state.app_state.graph_manager = mock_gm
         app.state.app_state.ollama_client = MagicMock()
@@ -272,7 +254,7 @@ def test_interview_multi_turn() -> None:
             ],
         )
         mock_gm = AsyncMock()
-        mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
+        mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
         mock_gm.read_agent_interview_context = AsyncMock(return_value=mock_context)
         app.state.app_state.graph_manager = mock_gm
         app.state.app_state.ollama_client = MagicMock()
@@ -319,7 +301,7 @@ def test_interview_session_reuse() -> None:
             ],
         )
         mock_gm = AsyncMock()
-        mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
+        mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
         mock_gm.read_agent_interview_context = AsyncMock(return_value=mock_context)
         app.state.app_state.graph_manager = mock_gm
         app.state.app_state.ollama_client = MagicMock()
@@ -361,7 +343,7 @@ async def test_interview_concurrent_same_agent_serializes() -> None:
         ],
     )
     mock_gm = AsyncMock()
-    mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
+    mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
     mock_gm.read_agent_interview_context = AsyncMock(return_value=mock_context)
 
     # Track concurrency overlap
