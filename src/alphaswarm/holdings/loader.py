@@ -176,14 +176,14 @@ class HoldingsLoader:
 
         as_of = _as_of_from_path(path)
 
-        # Pitfall 7: NEVER log raw Holding fields (ticker/qty/cost_basis).
-        # Count + sorted account labels only — the labels (individual/roth_ira)
-        # are not raw account numbers, so logging them is safe.
+        # Never log Holding fields (ticker/qty/cost_basis) or the account labels:
+        # a label is free text and may be an account number, which is why the
+        # snapshot keeps only their hash (docs/DECISIONS.md#adr-holdings-isolation).
         log.info(
             "holdings_loaded",
             path=str(path),
             count=len(holdings_list),
-            accounts=sorted(account_labels),
+            account_count=len(account_labels),
         )
 
         return PortfolioSnapshot(
