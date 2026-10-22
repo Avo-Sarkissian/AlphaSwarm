@@ -39,11 +39,11 @@ class EpisodeRecord:
     Consumed in batches by WriteBuffer.flush() at round boundaries.
     """
 
-    decision_id: str          # links to parent Decision node via HAS_EPISODE edge
+    decision_id: str  # links to parent Decision node via HAS_EPISODE edge
     agent_id: str
     rationale: str
     peer_context_received: str  # full formatted context string; "" for Round 1 (Pitfall 3)
-    flip_type: str              # FlipType.value string (stored as string for Neo4j compat)
+    flip_type: str  # FlipType.value string (stored as string for Neo4j compat)
     round_num: int
     cycle_id: str
 

@@ -40,9 +40,7 @@ def fake_provider() -> FakeInferenceProvider:
     return FakeInferenceProvider(
         ProviderRole.ORCHESTRATOR,
         "alphaswarm-orchestrator",
-        scripted=[
-            InferenceResult(content=VALID_SEED_JSON, model="alphaswarm-orchestrator")
-        ],
+        scripted=[InferenceResult(content=VALID_SEED_JSON, model="alphaswarm-orchestrator")],
     )
 
 
@@ -258,9 +256,7 @@ async def test_inject_seed_passes_rumor_as_user_message(
     provider = FakeInferenceProvider(
         ProviderRole.ORCHESTRATOR,
         "alphaswarm-orchestrator",
-        scripted=[
-            InferenceResult(content=VALID_SEED_JSON, model="alphaswarm-orchestrator")
-        ],
+        scripted=[InferenceResult(content=VALID_SEED_JSON, model="alphaswarm-orchestrator")],
     )
 
     await inject_seed(

@@ -27,9 +27,7 @@ if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
 
 SEED: Final = 20261003
-SEED_RUMOR: Final = (
-    "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
-)
+SEED_RUMOR: Final = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
 SHOCK_TEXT: Final = "ZZZT Holdings says the QQQX Robotics talks ended without a deal."
 SHOCK_ROUND: Final = 2
 OVERALL_SENTIMENT: Final = 0.45
@@ -94,9 +92,7 @@ def _agent_index(agent_id: str) -> int:
     return int(agent_id.rsplit("_", 1)[1])
 
 
-def _intended_signals(
-    personas: tuple[AgentPersona, ...], num_rounds: int
-) -> dict[int, dict[str, SignalType]]:
+def _intended_signals(personas: tuple[AgentPersona, ...], num_rounds: int) -> dict[int, dict[str, SignalType]]:
     """Signal each agent would give if it did not fail.
 
     Round 1 alternates BUY/SELL/HOLD inside every bracket. In round 2 agent 1 of each
@@ -128,9 +124,7 @@ def _citations(
     failing = PARSE_ERRORS_BY_ROUND[2] | PARSE_ERRORS_BY_ROUND[3]
     cites: dict[int, dict[str, list[str]]] = {r: {} for r in range(1, num_rounds + 1)}
     for hub_id, total in HUB_CITATIONS:
-        candidates = sorted(
-            p.id for p in personas if p.bracket != bracket_of[hub_id] and p.id not in failing
-        )
+        candidates = sorted(p.id for p in personas if p.bracket != bracket_of[hub_id] and p.id not in failing)
         citers = rng.sample(candidates, total)
         split = total // 2
         for round_num, group in ((2, citers[:split]), (3, citers[split:])):
@@ -212,12 +206,8 @@ async def build_seeded_cycle(gm: GraphStateManager, *, num_rounds: int = 3) -> S
     intended = _intended_signals(personas, num_rounds)
     cites = _citations(rng, personas, num_rounds)
 
-    seed_event = SeedEvent(
-        raw_rumor=SEED_RUMOR, entities=list(SEED_ENTITIES), overall_sentiment=OVERALL_SENTIMENT
-    )
-    cycle_id = await gm.create_cycle_with_seed_event(
-        SEED_RUMOR, seed_event, num_rounds=num_rounds
-    )
+    seed_event = SeedEvent(raw_rumor=SEED_RUMOR, entities=list(SEED_ENTITIES), overall_sentiment=OVERALL_SENTIMENT)
+    cycle_id = await gm.create_cycle_with_seed_event(SEED_RUMOR, seed_event, num_rounds=num_rounds)
     entity_names = await gm.read_cycle_entities(cycle_id)
 
     decisions: dict[int, tuple[tuple[str, AgentDecision], ...]] = {}
@@ -255,9 +245,7 @@ async def build_seeded_cycle(gm: GraphStateManager, *, num_rounds: int = 3) -> S
         decisions=decisions,
         shock_text=SHOCK_TEXT,
         shock_round=SHOCK_ROUND,
-        parse_error_agent_ids=frozenset().union(
-            *(PARSE_ERRORS_BY_ROUND[r] for r in range(1, num_rounds + 1))
-        ),
+        parse_error_agent_ids=frozenset().union(*(PARSE_ERRORS_BY_ROUND[r] for r in range(1, num_rounds + 1))),
         cited_pairs={
             r: frozenset((citer, hub) for citer, hubs in cites[r].items() for hub in hubs)
             for r in range(1, num_rounds + 1)
@@ -265,9 +253,7 @@ async def build_seeded_cycle(gm: GraphStateManager, *, num_rounds: int = 3) -> S
     )
 
 
-def _metrics(
-    decisions: Mapping[int, tuple[tuple[str, AgentDecision], ...]], num_rounds: int
-) -> dict[str, float | int]:
+def _metrics(decisions: Mapping[int, tuple[tuple[str, AgentDecision], ...]], num_rounds: int) -> dict[str, float | int]:
     """Baseline (metrics_version 1) keys with fixed timings."""
     metrics: dict[str, float | int] = {"metrics_version": 1, "num_rounds": num_rounds}
     for round_num in range(1, num_rounds + 1):

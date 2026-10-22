@@ -61,9 +61,7 @@ def _app(tmp_path: Path, portfolio: object | None) -> FastAPI:
 def _save_cloud_config(app: FastAPI) -> None:
     """A cloud orchestrator without the allow_cloud_advisory opt-in."""
     cloud = InferenceConfig(
-        orchestrator=RoleConfig(
-            provider=ProviderType.ANTHROPIC, model="claude-test", api_key="sk-x"
-        ),
+        orchestrator=RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-test", api_key="sk-x"),
         worker=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker"),
     )
     save_inference_config(cloud, app.state.app_state.settings.inference_config_path)
@@ -196,9 +194,7 @@ async def test_the_config_error_text_never_reaches_the_log(
     outcome = await PostRunPipeline(jobs=WebPostRunJobs(app)).on_complete(CYCLE_A)
 
     assert (outcome.advisory, outcome.report) == ("skipped_cloud_advisory_disabled", "failed")
-    assert app.state.report_generation_error[CYCLE_A]["message"] == (
-        "Report generation failed (InferenceConfigError)"
-    )
+    assert app.state.report_generation_error[CYCLE_A]["message"] == ("Report generation failed (InferenceConfigError)")
     # Positive control: the report failure was rendered with its traceback.
     assert "report_task_exception_recorded" in rendered.events
     assert '"exc_type": "InferenceConfigError"' in rendered.text

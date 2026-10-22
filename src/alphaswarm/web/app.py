@@ -88,11 +88,10 @@ def make_session_clearer(app: FastAPI) -> Callable[[], None]:
     OllamaProvider.aclose is a documented no-op — the close is harmless for the
     local path.
     """
+
     def _clear_interview_sessions() -> None:
         sessions: dict[tuple[str, str], dict[str, object]] = app.state.interview_sessions
-        close_tasks: set[asyncio.Task[None]] = getattr(
-            app.state, "_interview_close_tasks", set()
-        )
+        close_tasks: set[asyncio.Task[None]] = getattr(app.state, "_interview_close_tasks", set())
         app.state._interview_close_tasks = close_tasks
 
         async def _safe_close(provider: object) -> None:

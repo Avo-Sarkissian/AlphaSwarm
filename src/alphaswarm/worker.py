@@ -179,11 +179,7 @@ class AgentWorker:
         # than sent as a second user message: some OpenAI-compatible backends
         # reject consecutive same-role turns, and this fix must not change
         # which providers work.
-        user_content = (
-            _fence_market_context(market_context) + user_message
-            if market_context
-            else user_message
-        )
+        user_content = _fence_market_context(market_context) + user_message if market_context else user_message
         messages.append({"role": "user", "content": user_content})
 
         result = await self._provider.chat(

@@ -79,14 +79,22 @@ TEST_PERSONAS = [
 
 TEST_BRACKETS = [
     BracketConfig(
-        bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-        risk_profile=0.4, temperature=0.3,
-        system_prompt_template="test", influence_weight_base=0.7,
+        bracket_type=BracketType.QUANTS,
+        display_name="Quants",
+        count=2,
+        risk_profile=0.4,
+        temperature=0.3,
+        system_prompt_template="test",
+        influence_weight_base=0.7,
     ),
     BracketConfig(
-        bracket_type=BracketType.DEGENS, display_name="Degens", count=2,
-        risk_profile=0.95, temperature=1.2,
-        system_prompt_template="test", influence_weight_base=0.3,
+        bracket_type=BracketType.DEGENS,
+        display_name="Degens",
+        count=2,
+        risk_profile=0.95,
+        temperature=1.2,
+        system_prompt_template="test",
+        influence_weight_base=0.3,
     ),
 ]
 
@@ -154,9 +162,7 @@ def _default_decisions(count: int) -> list[AgentDecision]:
     empty content (F-19), so empty-rationale decisions would yield no peer
     context at all.
     """
-    return [
-        AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="Bullish on the setup.")
-    ] * count
+    return [AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="Bullish on the setup.")] * count
 
 
 # ---------------------------------------------------------------------------
@@ -286,9 +292,7 @@ async def test_run_round1_loads_worker_after_orchestrator(
         pre_injected=_PRE_INJECTED,
     )
 
-    mock_model_manager.load_model.assert_awaited_with(
-        mock_settings.ollama.worker_model_alias
-    )
+    mock_model_manager.load_model.assert_awaited_with(mock_settings.ollama.worker_model_alias)
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -310,9 +314,7 @@ async def test_run_round1_calls_ensure_clean_state_before_worker_load(
 
     # Track call order
     call_order: list[str] = []
-    mock_model_manager.ensure_clean_state.side_effect = lambda: call_order.append(
-        "ensure_clean_state"
-    )
+    mock_model_manager.ensure_clean_state.side_effect = lambda: call_order.append("ensure_clean_state")
 
     async def track_load(model: str) -> None:
         call_order.append("load_model")
@@ -559,14 +561,10 @@ async def test_run_round1_routes_through_injected_worker_provider(
     )
 
     # Injected provider lifecycle was called
-    assert call_log == ["prepare", "teardown"], (
-        f"Expected ['prepare', 'teardown'], got {call_log}"
-    )
+    assert call_log == ["prepare", "teardown"], f"Expected ['prepare', 'teardown'], got {call_log}"
     # dispatch_wave received the injected provider
     dispatch_call_provider = mock_dispatch.call_args.kwargs["provider"]
-    assert dispatch_call_provider is fake_provider, (
-        "dispatch_wave did not receive the injected worker_provider"
-    )
+    assert dispatch_call_provider is fake_provider, "dispatch_wave did not receive the injected worker_provider"
     # model_manager load/unload NOT called (cloud provider manages its own lifecycle)
     mock_model_manager.load_model.assert_not_awaited()
     mock_model_manager.unload_model.assert_not_awaited()
@@ -604,12 +602,8 @@ async def test_run_round1_default_path_uses_model_manager(
         # worker_provider not passed — default None (local path)
     )
 
-    mock_model_manager.load_model.assert_awaited_with(
-        mock_settings.ollama.worker_model_alias
-    )
-    mock_model_manager.unload_model.assert_awaited_with(
-        mock_settings.ollama.worker_model_alias
-    )
+    mock_model_manager.load_model.assert_awaited_with(mock_settings.ollama.worker_model_alias)
+    mock_model_manager.unload_model.assert_awaited_with(mock_settings.ollama.worker_model_alias)
 
 
 async def test_generate_decision_narratives_uses_injected_provider(
@@ -657,19 +651,9 @@ async def test_generate_decision_narratives_uses_injected_provider(
         influence_weight_base=0.9,
     )
     all_decisions: dict[int, list[tuple[str, AgentDecision]]] = {
-        1: [
-            ("institutions_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, sentiment=0.5))
-        ],
-        2: [
-            ("institutions_01", AgentDecision(
-                signal=SignalType.BUY, confidence=0.85, sentiment=0.6
-            ))
-        ],
-        3: [
-            ("institutions_01", AgentDecision(
-                signal=SignalType.HOLD, confidence=0.6, sentiment=0.1
-            ))
-        ],
+        1: [("institutions_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, sentiment=0.5))],
+        2: [("institutions_01", AgentDecision(signal=SignalType.BUY, confidence=0.85, sentiment=0.6))],
+        3: [("institutions_01", AgentDecision(signal=SignalType.HOLD, confidence=0.6, sentiment=0.1))],
     }
 
     result = await _generate_decision_narratives(
@@ -698,9 +682,7 @@ def test_round1_result_is_frozen() -> None:
     assert dataclasses.is_dataclass(Round1Result)
     field_names = {f.name for f in dataclasses.fields(Round1Result)}
     assert "agent_decisions" in field_names
-    assert "decisions" not in field_names, (
-        "Round1Result should not have a redundant 'decisions' field"
-    )
+    assert "decisions" not in field_names, "Round1Result should not have a redundant 'decisions' field"
 
     # Verify frozen
     result = Round1Result(
@@ -924,12 +906,24 @@ def test_format_peer_context_prompt_guard_preserved() -> None:
 
     posts = [
         RankedPost(
-            post_id="p1", agent_id="a1", bracket="quants", signal="buy",
-            confidence=0.85, content="analysis here", influence_weight=0.7, round_num=1,
+            post_id="p1",
+            agent_id="a1",
+            bracket="quants",
+            signal="buy",
+            confidence=0.85,
+            content="analysis here",
+            influence_weight=0.7,
+            round_num=1,
         ),
         RankedPost(
-            post_id="p2", agent_id="a2", bracket="degens", signal="sell",
-            confidence=0.6, content="bearish view", influence_weight=0.5, round_num=1,
+            post_id="p2",
+            agent_id="a2",
+            bracket="degens",
+            signal="sell",
+            confidence=0.6,
+            content="bearish view",
+            influence_weight=0.5,
+            round_num=1,
         ),
     ]
 
@@ -947,8 +941,14 @@ def test_format_peer_context_header_format() -> None:
 
     posts = [
         RankedPost(
-            post_id="p1", agent_id="a1", bracket="quants", signal="buy",
-            confidence=0.85, content="analysis here", influence_weight=0.7, round_num=1,
+            post_id="p1",
+            agent_id="a1",
+            bracket="quants",
+            signal="buy",
+            confidence=0.85,
+            content="analysis here",
+            influence_weight=0.7,
+            round_num=1,
         ),
     ]
 
@@ -963,8 +963,14 @@ def test_format_peer_context_line_format() -> None:
 
     posts = [
         RankedPost(
-            post_id="p1", agent_id="a1", bracket="quants", signal="buy",
-            confidence=0.85, content="analysis here", influence_weight=0.7, round_num=1,
+            post_id="p1",
+            agent_id="a1",
+            bracket="quants",
+            signal="buy",
+            confidence=0.85,
+            content="analysis here",
+            influence_weight=0.7,
+            round_num=1,
         ),
     ]
 
@@ -979,12 +985,24 @@ def test_format_peer_context_skip_empty_content() -> None:
 
     posts = [
         RankedPost(
-            post_id="p1", agent_id="a1", bracket="quants", signal="buy",
-            confidence=0.85, content="real analysis", influence_weight=0.7, round_num=1,
+            post_id="p1",
+            agent_id="a1",
+            bracket="quants",
+            signal="buy",
+            confidence=0.85,
+            content="real analysis",
+            influence_weight=0.7,
+            round_num=1,
         ),
         RankedPost(
-            post_id="p2", agent_id="a2", bracket="degens", signal="sell",
-            confidence=0.6, content="", influence_weight=0.5, round_num=1,
+            post_id="p2",
+            agent_id="a2",
+            bracket="degens",
+            signal="sell",
+            confidence=0.6,
+            content="",
+            influence_weight=0.5,
+            round_num=1,
         ),
     ]
 
@@ -1043,18 +1061,30 @@ def test_compute_shifts_signal_flips() -> None:
 
     personas = [
         AgentPersona(
-            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t",
+            id="quants_01",
+            name="Q1",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
             influence_weight_base=0.7,
         ),
         AgentPersona(
-            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t",
+            id="quants_02",
+            name="Q2",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
             influence_weight_base=0.7,
         ),
         AgentPersona(
-            id="degens_01", name="D1", bracket=BracketType.DEGENS,
-            risk_profile=0.95, temperature=1.2, system_prompt="t",
+            id="degens_01",
+            name="D1",
+            bracket=BracketType.DEGENS,
+            risk_profile=0.95,
+            temperature=1.2,
+            system_prompt="t",
             influence_weight_base=0.3,
         ),
     ]
@@ -1079,13 +1109,21 @@ def test_compute_shifts_no_flips() -> None:
 
     personas = [
         AgentPersona(
-            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t",
+            id="quants_01",
+            name="Q1",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
             influence_weight_base=0.7,
         ),
         AgentPersona(
-            id="degens_01", name="D1", bracket=BracketType.DEGENS,
-            risk_profile=0.95, temperature=1.2, system_prompt="t",
+            id="degens_01",
+            name="D1",
+            bracket=BracketType.DEGENS,
+            risk_profile=0.95,
+            temperature=1.2,
+            system_prompt="t",
             influence_weight_base=0.3,
         ),
     ]
@@ -1111,13 +1149,21 @@ def test_compute_shifts_bracket_confidence() -> None:
 
     personas = [
         AgentPersona(
-            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t",
+            id="quants_01",
+            name="Q1",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
             influence_weight_base=0.7,
         ),
         AgentPersona(
-            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t",
+            id="quants_02",
+            name="Q2",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
             influence_weight_base=0.7,
         ),
     ]
@@ -1186,24 +1232,18 @@ def test_simulation_result_is_frozen() -> None:
 
 # Helper to build a Round1Result for mocking run_round1
 
+
 def _mock_round1_result():
     from alphaswarm.simulation import Round1Result
+
     return Round1Result(
         cycle_id="test-cycle-id",
         parsed_result=MOCK_PARSED_RESULT,
         agent_decisions=[
-            ("quants_01", AgentDecision(
-                signal=SignalType.BUY, confidence=0.8, rationale="momentum confirms"
-            )),
-            ("quants_02", AgentDecision(
-                signal=SignalType.BUY, confidence=0.7, rationale="factors align"
-            )),
-            ("degens_01", AgentDecision(
-                signal=SignalType.SELL, confidence=0.6, rationale="fading the pump"
-            )),
-            ("degens_02", AgentDecision(
-                signal=SignalType.SELL, confidence=0.5, rationale="exit liquidity"
-            )),
+            ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="momentum confirms")),
+            ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.7, rationale="factors align")),
+            ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="fading the pump")),
+            ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.5, rationale="exit liquidity")),
         ],
         decision_ids=[],  # Phase 11: empty list OK -- no episodes pushed from empty zip
     )
@@ -1769,27 +1809,50 @@ def test_compute_bracket_summaries_signal_counts() -> None:
     ]
     personas = [
         AgentPersona(
-            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+            id="quants_01",
+            name="Q1",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
+            influence_weight_base=0.7,
         ),
         AgentPersona(
-            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+            id="quants_02",
+            name="Q2",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
+            influence_weight_base=0.7,
         ),
         AgentPersona(
-            id="degens_01", name="D1", bracket=BracketType.DEGENS,
-            risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3,
+            id="degens_01",
+            name="D1",
+            bracket=BracketType.DEGENS,
+            risk_profile=0.9,
+            temperature=1.2,
+            system_prompt="t",
+            influence_weight_base=0.3,
         ),
     ]
     brackets = [
         BracketConfig(
-            bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-            risk_profile=0.4, temperature=0.3, system_prompt_template="t",
+            bracket_type=BracketType.QUANTS,
+            display_name="Quants",
+            count=2,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt_template="t",
             influence_weight_base=0.7,
         ),
         BracketConfig(
-            bracket_type=BracketType.DEGENS, display_name="Degens", count=1,
-            risk_profile=0.9, temperature=1.2, system_prompt_template="t",
+            bracket_type=BracketType.DEGENS,
+            display_name="Degens",
+            count=1,
+            risk_profile=0.9,
+            temperature=1.2,
+            system_prompt_template="t",
             influence_weight_base=0.3,
         ),
     ]
@@ -1813,18 +1876,32 @@ def test_compute_bracket_summaries_excludes_parse_error() -> None:
     ]
     personas = [
         AgentPersona(
-            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+            id="quants_01",
+            name="Q1",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
+            influence_weight_base=0.7,
         ),
         AgentPersona(
-            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+            id="quants_02",
+            name="Q2",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
+            influence_weight_base=0.7,
         ),
     ]
     brackets = [
         BracketConfig(
-            bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-            risk_profile=0.4, temperature=0.3, system_prompt_template="t",
+            bracket_type=BracketType.QUANTS,
+            display_name="Quants",
+            count=2,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt_template="t",
             influence_weight_base=0.7,
         ),
     ]
@@ -1844,24 +1921,38 @@ def test_compute_bracket_summaries_avg_confidence() -> None:
     ]
     personas = [
         AgentPersona(
-            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+            id="quants_01",
+            name="Q1",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
+            influence_weight_base=0.7,
         ),
         AgentPersona(
-            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
+            id="quants_02",
+            name="Q2",
+            bracket=BracketType.QUANTS,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt="t",
+            influence_weight_base=0.7,
         ),
     ]
     brackets = [
         BracketConfig(
-            bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-            risk_profile=0.4, temperature=0.3, system_prompt_template="t",
+            bracket_type=BracketType.QUANTS,
+            display_name="Quants",
+            count=2,
+            risk_profile=0.4,
+            temperature=0.3,
+            system_prompt_template="t",
             influence_weight_base=0.7,
         ),
     ]
     result = compute_bracket_summaries(decisions, personas, brackets)
-    assert result[0].avg_confidence == pytest.approx(0.7)   # (0.8 + 0.6) / 2
-    assert result[0].avg_sentiment == pytest.approx(0.1)    # (0.4 + -0.2) / 2
+    assert result[0].avg_confidence == pytest.approx(0.7)  # (0.8 + 0.6) / 2
+    assert result[0].avg_sentiment == pytest.approx(0.1)  # (0.4 + -0.2) / 2
 
 
 # ---------------------------------------------------------------------------
@@ -1880,13 +1971,20 @@ def test_simulation_result_has_bracket_summaries() -> None:
     from alphaswarm.simulation import BracketSummary, ShiftMetrics, SimulationResult
 
     dummy_shift = ShiftMetrics(
-        signal_transitions=(), total_flips=0,
-        bracket_confidence_delta=(), agents_shifted=0,
+        signal_transitions=(),
+        total_flips=0,
+        bracket_confidence_delta=(),
+        agents_shifted=0,
     )
     dummy_summary = BracketSummary(
-        bracket="quants", display_name="Quants",
-        buy_count=1, sell_count=0, hold_count=0,
-        total=1, avg_confidence=0.8, avg_sentiment=0.4,
+        bracket="quants",
+        display_name="Quants",
+        buy_count=1,
+        sell_count=0,
+        hold_count=0,
+        total=1,
+        avg_confidence=0.8,
+        avg_sentiment=0.4,
     )
 
     result = SimulationResult(
@@ -1914,9 +2012,14 @@ def test_round_complete_event_has_bracket_summaries() -> None:
     from alphaswarm.simulation import BracketSummary, RoundCompleteEvent
 
     dummy_summary = BracketSummary(
-        bracket="degens", display_name="Degens",
-        buy_count=0, sell_count=2, hold_count=0,
-        total=2, avg_confidence=0.65, avg_sentiment=-0.3,
+        bracket="degens",
+        display_name="Degens",
+        buy_count=0,
+        sell_count=2,
+        hold_count=0,
+        total=2,
+        avg_confidence=0.65,
+        avg_sentiment=-0.3,
     )
 
     event = RoundCompleteEvent(
@@ -2045,6 +2148,7 @@ async def test_run_simulation_pushes_episode_records(
     r1_result = _mock_round1_result()
     # Patch decision_ids to match the agent_decisions count
     from alphaswarm.simulation import Round1Result
+
     r1_with_ids = Round1Result(
         cycle_id=r1_result.cycle_id,
         parsed_result=r1_result.parsed_result,
@@ -2290,7 +2394,8 @@ async def test_run_simulation_two_rounds_skips_round3(
     assert len(result.round2_decisions) == len(TEST_PERSONAS)
     # No round-3 Neo4j writes.
     r3_writes = [
-        c for c in mock_graph_manager.write_decisions.await_args_list
+        c
+        for c in mock_graph_manager.write_decisions.await_args_list
         if c.kwargs.get("round_num") == 3 or (len(c.args) >= 3 and c.args[2] == 3)
     ]
     assert r3_writes == []
@@ -2404,10 +2509,7 @@ async def test_shocks_carry_forward_oldest_first(
     second = "\n\n[MARKET SHOCK]: CEO DENIES TALKS"
     assert r2_msg == f"{MOCK_RUMOR}{first}"
     assert r3_msg == f"{MOCK_RUMOR}{first}{second}"
-    rounds = [
-        c.kwargs.get("injected_before_round")
-        for c in mock_graph_manager.write_shock_event.await_args_list
-    ]
+    rounds = [c.kwargs.get("injected_before_round") for c in mock_graph_manager.write_shock_event.await_args_list]
     assert rounds == [2, 3]
     assert store.snapshot().applied_shocks == (
         AppliedShock("DOJ FILES ANTITRUST SUIT", 2),
@@ -2700,20 +2802,28 @@ async def test_run_simulation_assembles_context_packet(
     from alphaswarm.ingestion.types import MarketSlice, NewsSlice
     from alphaswarm.simulation import run_simulation
 
-    fake_market = FakeMarketDataProvider(fixtures={
-        "NVDA": MarketSlice(
-            ticker="NVDA", price=Decimal("523.45"),
-            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
-            source="fake", staleness="fresh",
-        ),
-    })
-    fake_news = FakeNewsProvider(fixtures={
-        "NVDA": NewsSlice(
-            entity="NVDA", headlines=("NVDA soars",),
-            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
-            source="fake", staleness="fresh",
-        ),
-    })
+    fake_market = FakeMarketDataProvider(
+        fixtures={
+            "NVDA": MarketSlice(
+                ticker="NVDA",
+                price=Decimal("523.45"),
+                fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+                source="fake",
+                staleness="fresh",
+            ),
+        }
+    )
+    fake_news = FakeNewsProvider(
+        fixtures={
+            "NVDA": NewsSlice(
+                entity="NVDA",
+                headlines=("NVDA soars",),
+                fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+                source="fake",
+                staleness="fresh",
+            ),
+        }
+    )
 
     mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
     mock_round1.return_value = _mock_round1_result()
@@ -2779,9 +2889,7 @@ async def test_run_simulation_skips_context_when_market_provider_missing(
 
     assert mock_round1.call_args.kwargs["market_context"] is None
     skip_events = [
-        e for e in cap
-        if e.get("event") == "context_assembly_skipped"
-        and e.get("reason") == "no_providers_configured"
+        e for e in cap if e.get("event") == "context_assembly_skipped" and e.get("reason") == "no_providers_configured"
     ]
     assert len(skip_events) == 1
 
@@ -2825,9 +2933,7 @@ async def test_run_simulation_skips_context_when_news_provider_missing(
 
     assert mock_round1.call_args.kwargs["market_context"] is None
     skip_events = [
-        e for e in cap
-        if e.get("event") == "context_assembly_skipped"
-        and e.get("reason") == "no_providers_configured"
+        e for e in cap if e.get("event") == "context_assembly_skipped" and e.get("reason") == "no_providers_configured"
     ]
     assert len(skip_events) == 1
 
@@ -2869,10 +2975,7 @@ async def test_run_simulation_skips_context_when_both_providers_missing(
         )
 
     assert mock_round1.call_args.kwargs["market_context"] is None
-    skip_events = [
-        e for e in cap
-        if e.get("event") == "context_assembly_skipped"
-    ]
+    skip_events = [e for e in cap if e.get("event") == "context_assembly_skipped"]
     assert len(skip_events) == 1
 
 
@@ -2984,9 +3087,7 @@ async def test_run_simulation_filters_non_ticker_entities_from_market_call(
         recorded_ticker_calls.append(list(tickers))
         return await orig_prices(tickers)
 
-    async def news_spy(
-        entities: list[str], *, max_age_hours: int = 72
-    ) -> dict:  # type: ignore[type-arg]
+    async def news_spy(entities: list[str], *, max_age_hours: int = 72) -> dict:  # type: ignore[type-arg]
         recorded_entity_calls.append(list(entities))
         return await orig_heads(entities, max_age_hours=max_age_hours)
 
@@ -3044,21 +3145,29 @@ async def test_run_simulation_company_name_entity_gets_news_only(
     from alphaswarm.simulation import run_simulation
 
     # MarketSlice keyed by TICKER shape — will not match entity "NVIDIA"
-    fake_market = FakeMarketDataProvider(fixtures={
-        "NVDA": MarketSlice(
-            ticker="NVDA", price=Decimal("523.45"),
-            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
-            source="fake", staleness="fresh",
-        ),
-    })
+    fake_market = FakeMarketDataProvider(
+        fixtures={
+            "NVDA": MarketSlice(
+                ticker="NVDA",
+                price=Decimal("523.45"),
+                fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+                source="fake",
+                staleness="fresh",
+            ),
+        }
+    )
     # NewsSlice keyed by ENTITY-NAME shape — matches orchestrator output
-    fake_news = FakeNewsProvider(fixtures={
-        "NVIDIA": NewsSlice(
-            entity="NVIDIA", headlines=("NVIDIA breaks records",),
-            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
-            source="fake", staleness="fresh",
-        ),
-    })
+    fake_news = FakeNewsProvider(
+        fixtures={
+            "NVIDIA": NewsSlice(
+                entity="NVIDIA",
+                headlines=("NVIDIA breaks records",),
+                fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+                source="fake",
+                staleness="fresh",
+            ),
+        }
+    )
 
     # Spy on provider call arguments
     recorded_ticker_calls: list[list[str]] = []
@@ -3070,9 +3179,7 @@ async def test_run_simulation_company_name_entity_gets_news_only(
         recorded_ticker_calls.append(list(tickers))
         return await orig_prices(tickers)
 
-    async def news_spy(
-        entities: list[str], *, max_age_hours: int = 72
-    ) -> dict:  # type: ignore[type-arg]
+    async def news_spy(entities: list[str], *, max_age_hours: int = 72) -> dict:  # type: ignore[type-arg]
         recorded_entity_calls.append(list(entities))
         return await orig_heads(entities, max_age_hours=max_age_hours)
 
@@ -3143,25 +3250,29 @@ async def test_run_simulation_forwards_market_context_to_run_round1(
     from alphaswarm.ingestion.types import Fundamentals, MarketSlice, NewsSlice
     from alphaswarm.simulation import run_simulation
 
-    fake_market = FakeMarketDataProvider(fixtures={
-        "NVDA": MarketSlice(
-            ticker="NVDA",
-            price=Decimal("523.45"),
-            fundamentals=Fundamentals(pe_ratio=Decimal("65.2")),
-            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
-            source="fake_market",
-            staleness="fresh",
-        ),
-    })
-    fake_news = FakeNewsProvider(fixtures={
-        "NVDA": NewsSlice(
-            entity="NVDA",
-            headlines=("NVIDIA breaks records",),
-            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
-            source="fake_news",
-            staleness="fresh",
-        ),
-    })
+    fake_market = FakeMarketDataProvider(
+        fixtures={
+            "NVDA": MarketSlice(
+                ticker="NVDA",
+                price=Decimal("523.45"),
+                fundamentals=Fundamentals(pe_ratio=Decimal("65.2")),
+                fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+                source="fake_market",
+                staleness="fresh",
+            ),
+        }
+    )
+    fake_news = FakeNewsProvider(
+        fixtures={
+            "NVDA": NewsSlice(
+                entity="NVDA",
+                headlines=("NVIDIA breaks records",),
+                fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+                source="fake_news",
+                staleness="fresh",
+            ),
+        }
+    )
 
     mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
     mock_round1.return_value = _mock_round1_result()
@@ -3218,25 +3329,29 @@ async def test_run_simulation_through_dispatch_wave(
     from alphaswarm.ingestion.types import Fundamentals, MarketSlice, NewsSlice
     from alphaswarm.simulation import run_simulation
 
-    fake_market = FakeMarketDataProvider(fixtures={
-        "NVDA": MarketSlice(
-            ticker="NVDA",
-            price=Decimal("523.45"),
-            fundamentals=Fundamentals(pe_ratio=Decimal("65.2")),
-            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
-            source="fake_market",
-            staleness="fresh",
-        ),
-    })
-    fake_news = FakeNewsProvider(fixtures={
-        "NVDA": NewsSlice(
-            entity="NVDA",
-            headlines=("NVIDIA breaks records",),
-            fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
-            source="fake_news",
-            staleness="fresh",
-        ),
-    })
+    fake_market = FakeMarketDataProvider(
+        fixtures={
+            "NVDA": MarketSlice(
+                ticker="NVDA",
+                price=Decimal("523.45"),
+                fundamentals=Fundamentals(pe_ratio=Decimal("65.2")),
+                fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+                source="fake_market",
+                staleness="fresh",
+            ),
+        }
+    )
+    fake_news = FakeNewsProvider(
+        fixtures={
+            "NVDA": NewsSlice(
+                entity="NVDA",
+                headlines=("NVIDIA breaks records",),
+                fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
+                source="fake_news",
+                staleness="fresh",
+            ),
+        }
+    )
 
     mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
 
@@ -3330,6 +3445,7 @@ async def test_generate_decision_narratives_produces_output(
 
     class FakeNarrativeProvider:
         """Minimal InferenceProvider stub for narrative generation tests."""
+
         role = ProviderRole.WORKER
         model = "alphaswarm-worker"
 
@@ -3383,10 +3499,7 @@ async def test_generate_decision_narratives_produces_output(
     )
 
     assert isinstance(result, list)
-    assert len(result) >= 1, (
-        f"_generate_decision_narratives produced 0 narratives — D-03 regression. "
-        f"Result: {result}"
-    )
+    assert len(result) >= 1, f"_generate_decision_narratives produced 0 narratives — D-03 regression. Result: {result}"
     first = result[0]
     assert first.get("agent_id") == "quants_01"
     assert first.get("narrative", "").strip() == "test narrative"
@@ -3468,16 +3581,28 @@ async def test_run_simulation_writes_cycle_metrics(
     cycle_id_arg, metrics = mock_graph_manager.write_cycle_metrics.await_args.args
     assert cycle_id_arg == "test-cycle-id"
     expected_keys = {
-        "metrics_version", "num_rounds", "r1_seconds", "r2_seconds",
-        "r3_seconds", "narratives_seconds", "total_seconds", "r2_flips",
-        "r3_flips", "r1_parse_errors", "r2_parse_errors", "r3_parse_errors",
-        "final_buy", "final_sell", "final_hold", "agent_count",
-        "r1_inference_errors", "r2_inference_errors", "r3_inference_errors",
+        "metrics_version",
+        "num_rounds",
+        "r1_seconds",
+        "r2_seconds",
+        "r3_seconds",
+        "narratives_seconds",
+        "total_seconds",
+        "r2_flips",
+        "r3_flips",
+        "r1_parse_errors",
+        "r2_parse_errors",
+        "r3_parse_errors",
+        "final_buy",
+        "final_sell",
+        "final_hold",
+        "agent_count",
+        "r1_inference_errors",
+        "r2_inference_errors",
+        "r3_inference_errors",
         "final_round",
     }
-    assert set(metrics.keys()) == (
-        expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS | _CONTROL_KEYS | _PROVENANCE_KEYS
-    )
+    assert set(metrics.keys()) == (expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS | _CONTROL_KEYS | _PROVENANCE_KEYS)
     # All values are flat scalars (Neo4j property constraint)
     assert all(isinstance(v, (int, float, str, bool)) for v in metrics.values())
     assert metrics["agent_count"] == len(TEST_PERSONAS)
@@ -3566,9 +3691,7 @@ async def test_run_simulation_stamps_peer_params_and_provenance(
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
-    tuned = mock_settings.model_copy(
-        update={"simulation": SimulationSettings(peer_limit=7, personal_boost=0.05)}
-    )
+    tuned = mock_settings.model_copy(update={"simulation": SimulationSettings(peer_limit=7, personal_boost=0.05)})
 
     await run_simulation(
         rumor=MOCK_RUMOR,
@@ -3708,8 +3831,7 @@ async def test_run_simulation_uses_injected_worker_provider(
     assert mock_dispatch_wave.await_count == 2
     for call in mock_dispatch_wave.await_args_list:
         assert call.kwargs["provider"] is fake_worker, (
-            "dispatch_wave must receive the injected worker_provider, "
-            f"got: {call.kwargs.get('provider')!r}"
+            f"dispatch_wave must receive the injected worker_provider, got: {call.kwargs.get('provider')!r}"
         )
 
     # prepare() and teardown() are called on the injected worker, not model_manager directly.

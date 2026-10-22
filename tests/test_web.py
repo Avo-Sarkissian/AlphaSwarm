@@ -379,10 +379,13 @@ def test_simulate_start_409_when_running() -> None:
 
     from alphaswarm.web.simulation_manager import SimulationAlreadyRunningError
 
-    with TestClient(_make_test_app()) as client, patch.object(
-        client.app.state.sim_manager,
-        "start",
-        new=AsyncMock(side_effect=SimulationAlreadyRunningError("Simulation already running")),
+    with (
+        TestClient(_make_test_app()) as client,
+        patch.object(
+            client.app.state.sim_manager,
+            "start",
+            new=AsyncMock(side_effect=SimulationAlreadyRunningError("Simulation already running")),
+        ),
     ):
         r = client.post("/api/simulate/start", json={"seed": "test seed"})
         assert r.status_code == 409
@@ -676,9 +679,7 @@ def test_ws_state_same_connection_manager() -> None:
 def test_ws_state_allows_configured_origin() -> None:
     """F2: an Origin in AppSettings.ws_allowed_origins connects normally."""
     app = _make_ws_test_app()
-    with TestClient(app) as client, client.websocket_connect(
-        "/ws/state", headers={"origin": "http://localhost:5173"}
-    ):
+    with TestClient(app) as client, client.websocket_connect("/ws/state", headers={"origin": "http://localhost:5173"}):
         assert client.app.state.connection_manager.client_count == 1
 
 
@@ -688,9 +689,7 @@ def test_ws_state_allows_same_origin_from_host_header() -> None:
     TestClient sends Host: testserver, so http://testserver is same-origin here.
     """
     app = _make_ws_test_app()
-    with TestClient(app) as client, client.websocket_connect(
-        "/ws/state", headers={"origin": "http://testserver"}
-    ):
+    with TestClient(app) as client, client.websocket_connect("/ws/state", headers={"origin": "http://testserver"}):
         assert client.app.state.connection_manager.client_count == 1
 
 
@@ -711,8 +710,9 @@ def test_ws_state_refuses_foreign_origin_before_accept() -> None:
 
     app = _make_ws_test_app()
     with TestClient(app) as client:
-        with pytest.raises(WebSocketDisconnect) as excinfo, client.websocket_connect(
-            "/ws/state", headers={"origin": "https://evil.example"}
+        with (
+            pytest.raises(WebSocketDisconnect) as excinfo,
+            client.websocket_connect("/ws/state", headers={"origin": "https://evil.example"}),
         ):
             pass
         assert excinfo.value.code == 1008
@@ -726,8 +726,9 @@ def test_ws_state_refuses_null_origin() -> None:
 
     app = _make_ws_test_app()
     with TestClient(app) as client:
-        with pytest.raises(WebSocketDisconnect) as excinfo, client.websocket_connect(
-            "/ws/state", headers={"origin": "null"}
+        with (
+            pytest.raises(WebSocketDisconnect) as excinfo,
+            client.websocket_connect("/ws/state", headers={"origin": "null"}),
         ):
             pass
         assert excinfo.value.code == 1008
@@ -749,9 +750,12 @@ def test_ws_state_malformed_host_refuses_cleanly(malformed_host: str) -> None:
 
     app = _make_ws_test_app()
     with TestClient(app) as client:
-        with pytest.raises(WebSocketDisconnect) as excinfo, client.websocket_connect(
-            "/ws/state",
-            headers={"origin": "https://evil.example", "host": malformed_host},
+        with (
+            pytest.raises(WebSocketDisconnect) as excinfo,
+            client.websocket_connect(
+                "/ws/state",
+                headers={"origin": "https://evil.example", "host": malformed_host},
+            ),
         ):
             pass
         assert excinfo.value.code == 1008
@@ -806,9 +810,7 @@ def test_ws_state_refused_origin_logged_bounded_and_neutralized(
 
     app = _make_ws_test_app()
     with TestClient(app) as client:
-        with pytest.raises(WebSocketDisconnect), client.websocket_connect(
-            "/ws/state", headers={"origin": hostile}
-        ):
+        with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws/state", headers={"origin": hostile}):
             pass
         assert client.app.state.connection_manager.client_count == 0
 
@@ -835,8 +837,7 @@ def test_create_app_ws_route_registered() -> None:
     prod_app = production_create_app()
     route_paths = [getattr(r, "path", None) for r in prod_app.routes]
     assert "/ws/state" in route_paths, (
-        f"/ws/state not registered in production create_app(). "
-        f"Found routes: {route_paths}"
+        f"/ws/state not registered in production create_app(). Found routes: {route_paths}"
     )
 
 
@@ -873,11 +874,10 @@ def test_edges_endpoint_round_validation() -> None:
 def test_edges_route_registered_in_production_app() -> None:
     """Production create_app() registers /api/edges/{cycle_id} route."""
     from alphaswarm.web.app import create_app as production_create_app
+
     prod_app = production_create_app()
     route_paths = [getattr(r, "path", None) for r in prod_app.routes]
-    assert "/api/edges/{cycle_id}" in route_paths, (
-        f"/api/edges/{{cycle_id}} not registered. Found: {route_paths}"
-    )
+    assert "/api/edges/{cycle_id}" in route_paths, f"/api/edges/{{cycle_id}} not registered. Found: {route_paths}"
 
 
 # ---------------------------------------------------------------------------
@@ -1052,8 +1052,7 @@ async def test_sim_manager_run_passes_consume_shock() -> None:
             await sm._task
 
     assert "consume_shock" in called_kwargs, (
-        f"run_simulation was NOT called with consume_shock kwarg. "
-        f"kwargs received: {sorted(called_kwargs.keys())}"
+        f"run_simulation was NOT called with consume_shock kwarg. kwargs received: {sorted(called_kwargs.keys())}"
     )
     # The forwarded value must be the manager's own consume_shock bound method
     # (not a newly created lambda), so replays see pending shock state.
@@ -1071,10 +1070,13 @@ def test_simulate_start_202() -> None:
     """POST /api/simulate/start returns 202 with accepted status."""
     from unittest.mock import AsyncMock, patch
 
-    with TestClient(_make_test_app()) as client, patch.object(
-        client.app.state.sim_manager,
-        "start",
-        new=AsyncMock(),
+    with (
+        TestClient(_make_test_app()) as client,
+        patch.object(
+            client.app.state.sim_manager,
+            "start",
+            new=AsyncMock(),
+        ),
     ):
         r = client.post("/api/simulate/start", json={"seed": "test rumor"})
         assert r.status_code == 202
@@ -1150,10 +1152,13 @@ def test_simulate_shock_concurrent_409() -> None:
 
     from alphaswarm.web.simulation_manager import ShockAlreadyQueuedError
 
-    with TestClient(_make_test_app()) as client, patch.object(
-        client.app.state.sim_manager,
-        "inject_shock",
-        new=MagicMock(side_effect=ShockAlreadyQueuedError("A shock is already queued")),
+    with (
+        TestClient(_make_test_app()) as client,
+        patch.object(
+            client.app.state.sim_manager,
+            "inject_shock",
+            new=MagicMock(side_effect=ShockAlreadyQueuedError("A shock is already queued")),
+        ),
     ):
         r = client.post("/api/simulate/shock", json={"shock_text": "another shock"})
         assert r.status_code == 409
@@ -1288,11 +1293,13 @@ def test_replay_start_real_logic() -> None:
         app_state = app.state.app_state
         mock_gm = AsyncMock()
         # read_full_cycle_signals returns dict[(agent_id, round), AgentState]
-        mock_gm.read_full_cycle_signals = AsyncMock(return_value={
-            ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
-            ("agent_1", 2): AgentState(signal=SignalType.SELL, confidence=0.6),
-            ("agent_1", 3): AgentState(signal=SignalType.HOLD, confidence=0.5),
-        })
+        mock_gm.read_full_cycle_signals = AsyncMock(
+            return_value={
+                ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
+                ("agent_1", 2): AgentState(signal=SignalType.SELL, confidence=0.6),
+                ("agent_1", 3): AgentState(signal=SignalType.HOLD, confidence=0.5),
+            }
+        )
         mock_gm.read_bracket_narratives_for_round = AsyncMock(return_value=[])
         mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
         app_state.graph_manager = mock_gm
@@ -1317,9 +1324,11 @@ def test_replay_start_409_already_active() -> None:
     with TestClient(app) as client:
         app_state = app.state.app_state
         mock_gm = AsyncMock()
-        mock_gm.read_full_cycle_signals = AsyncMock(return_value={
-            ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
-        })
+        mock_gm.read_full_cycle_signals = AsyncMock(
+            return_value={
+                ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
+            }
+        )
         mock_gm.read_bracket_narratives_for_round = AsyncMock(return_value=[])
         mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
         app_state.graph_manager = mock_gm
@@ -1356,11 +1365,13 @@ def test_replay_advance_real_logic() -> None:
     app = _make_test_app()
     with TestClient(app) as client:
         mock_gm = AsyncMock()
-        mock_gm.read_full_cycle_signals = AsyncMock(return_value={
-            ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
-            ("agent_1", 2): AgentState(signal=SignalType.SELL, confidence=0.6),
-            ("agent_1", 3): AgentState(signal=SignalType.HOLD, confidence=0.5),
-        })
+        mock_gm.read_full_cycle_signals = AsyncMock(
+            return_value={
+                ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
+                ("agent_1", 2): AgentState(signal=SignalType.SELL, confidence=0.6),
+                ("agent_1", 3): AgentState(signal=SignalType.HOLD, confidence=0.5),
+            }
+        )
         mock_gm.read_bracket_narratives_for_round = AsyncMock(return_value=[])
         mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
         app.state.app_state.graph_manager = mock_gm
@@ -1384,9 +1395,11 @@ def test_replay_stop_deactivates_replay() -> None:
     app = _make_test_app()
     with TestClient(app) as client:
         mock_gm = AsyncMock()
-        mock_gm.read_full_cycle_signals = AsyncMock(return_value={
-            ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
-        })
+        mock_gm.read_full_cycle_signals = AsyncMock(
+            return_value={
+                ("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8),
+            }
+        )
         mock_gm.read_bracket_narratives_for_round = AsyncMock(return_value=[])
         mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
         app.state.app_state.graph_manager = mock_gm
@@ -1653,8 +1666,7 @@ async def test_m8x_sim_manager_complete_phase_set_once() -> None:
         await asyncio.sleep(0.05)
 
     complete_calls = [
-        call for call in mock_state_store.set_phase.call_args_list
-        if call.args == (SimulationPhase.COMPLETE,)
+        call for call in mock_state_store.set_phase.call_args_list if call.args == (SimulationPhase.COMPLETE,)
     ]
     assert len(complete_calls) == 1, (
         f"Expected exactly one set_phase(COMPLETE) call, got {len(complete_calls)}. "

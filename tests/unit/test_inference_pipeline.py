@@ -19,7 +19,7 @@ from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
 from alphaswarm.types import AgentDecision, SignalType
-from alphaswarm.worker import AgentWorker, WorkerPersonaConfig, agent_worker
+from alphaswarm.worker import WorkerPersonaConfig, agent_worker
 
 
 def _worker_provider(client: OllamaClient) -> OllamaProvider:
@@ -68,9 +68,7 @@ def mock_client_success() -> OllamaClient:
 @pytest.fixture()
 def mock_client_garbled() -> OllamaClient:
     """OllamaClient returning unparseable output."""
-    return _make_mock_client(
-        "I think the market will go up but I am not sure about anything really."
-    )
+    return _make_mock_client("I think the market will go up but I am not sure about anything really.")
 
 
 async def test_single_agent_inference(
@@ -83,9 +81,7 @@ async def test_single_agent_inference(
 
     async with agent_worker(persona, governor, _worker_provider(mock_client_success)) as worker:
         assert governor.active_count == 1
-        decision = await worker.infer(
-            user_message="BREAKING: Apple reports Q3 earnings miss, revenue down 5% YoY"
-        )
+        decision = await worker.infer(user_message="BREAKING: Apple reports Q3 earnings miss, revenue down 5% YoY")
 
     # Verify decision
     assert isinstance(decision, AgentDecision)
@@ -101,6 +97,7 @@ async def test_single_agent_inference(
     mock_client_success._client.chat.assert_called_once()
     call_kwargs = mock_client_success._client.chat.call_args.kwargs
     from alphaswarm.worker import DECISION_JSON_SCHEMA
+
     assert call_kwargs.get("format") == DECISION_JSON_SCHEMA
     assert call_kwargs.get("think") is False
     assert call_kwargs.get("model") == "alphaswarm-worker"
@@ -114,9 +111,7 @@ async def test_inference_parse_error_fallback(
     governor = ResourceGovernor(GovernorSettings(baseline_parallel=8))
 
     async with agent_worker(persona, governor, _worker_provider(mock_client_garbled)) as worker:
-        decision = await worker.infer(
-            user_message="BREAKING: Apple reports Q3 earnings miss"
-        )
+        decision = await worker.infer(user_message="BREAKING: Apple reports Q3 earnings miss")
 
     assert isinstance(decision, AgentDecision)
     assert decision.signal == SignalType.PARSE_ERROR

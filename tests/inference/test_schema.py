@@ -152,9 +152,19 @@ class TestToOpenaiResponseFormat:
         else the first call permanently downgrades the run to json_object mode."""
         result = to_openai_response_format(DECISION_JSON_SCHEMA)
         forbidden = {
-            "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
-            "multipleOf", "minLength", "maxLength", "pattern", "format",
-            "default", "minItems", "maxItems", "uniqueItems",
+            "minimum",
+            "maximum",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "multipleOf",
+            "minLength",
+            "maxLength",
+            "pattern",
+            "format",
+            "default",
+            "minItems",
+            "maxItems",
+            "uniqueItems",
         }
 
         def _assert_clean(node: object) -> None:
@@ -245,9 +255,7 @@ class _FakeTextBlock:
 
 
 class TestExtractAnthropicToolJson:
-    def _dict_block(
-        self, type_: str, name: str, input_: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _dict_block(self, type_: str, name: str, input_: dict[str, Any]) -> dict[str, Any]:
         return {"type": type_, "name": name, "input": input_}
 
     # --- dict blocks ---

@@ -17,8 +17,6 @@ from alphaswarm.state import StateStore
 from alphaswarm.types import AgentPersona
 
 if TYPE_CHECKING:
-    from neo4j import AsyncDriver
-
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
 
 

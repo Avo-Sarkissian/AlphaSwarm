@@ -22,12 +22,7 @@ from tests.inference.fakes import FakeInferenceProvider
 
 
 def _decisions(personas: list[AgentPersona]) -> dict[int, list[tuple[str, AgentDecision]]]:
-    return {
-        1: [
-            (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.6, rationale="ZZZT deal"))
-            for p in personas
-        ]
-    }
+    return {1: [(p.id, AgentDecision(signal=SignalType.BUY, confidence=0.6, rationale="ZZZT deal")) for p in personas]}
 
 
 async def test_budget_error_during_narratives_raises_bare(all_personas: list[AgentPersona]) -> None:

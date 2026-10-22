@@ -128,9 +128,7 @@ def test_get_with_foreign_origin_unaffected() -> None:
 def test_referer_fallback_when_origin_absent() -> None:
     """With no Origin header, Referer is validated the same way."""
     with TestClient(_make_guarded_app()) as client:
-        allowed = client.post(
-            "/api/echo", headers={"referer": f"{ALLOWED_ORIGIN}/advisory"}
-        )
+        allowed = client.post("/api/echo", headers={"referer": f"{ALLOWED_ORIGIN}/advisory"})
         assert allowed.status_code == 200
         foreign = client.post("/api/echo", headers={"referer": f"{FOREIGN_ORIGIN}/x"})
         assert foreign.status_code == 403
@@ -175,8 +173,7 @@ def test_create_app_installs_origin_guard() -> None:
 
     prod_app = production_create_app()
     assert any(m.cls is OriginGuardMiddleware for m in prod_app.user_middleware), (
-        "OriginGuardMiddleware missing from create_app(); state-changing routes "
-        "are CSRF-reachable."
+        "OriginGuardMiddleware missing from create_app(); state-changing routes are CSRF-reachable."
     )
 
 

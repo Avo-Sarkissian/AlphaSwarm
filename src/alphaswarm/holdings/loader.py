@@ -39,9 +39,7 @@ from alphaswarm.security.hashing import sha256_first8
 
 log = structlog.get_logger(component="holdings.loader")
 
-REQUIRED_COLUMNS: frozenset[str] = frozenset(
-    {"account", "symbol", "shares", "cost_basis_per_share"}
-)
+REQUIRED_COLUMNS: frozenset[str] = frozenset({"account", "symbol", "shares", "cost_basis_per_share"})
 
 
 class HoldingsLoadError(Exception):
@@ -99,9 +97,7 @@ class HoldingsLoader:
                     raise HoldingsLoadError("CSV is empty — no header row")
                 missing = REQUIRED_COLUMNS - set(reader.fieldnames)
                 if missing:
-                    raise HoldingsLoadError(
-                        f"CSV missing columns: {sorted(missing)}"
-                    )
+                    raise HoldingsLoadError(f"CSV missing columns: {sorted(missing)}")
                 rows = list(reader)
         except FileNotFoundError as exc:
             raise HoldingsLoadError(f"CSV not found: {path}") from exc
@@ -128,9 +124,7 @@ class HoldingsLoader:
                 # restval=None and Decimal(None) raises TypeError, not
                 # InvalidOperation. Pitfall 7: never embed the raw row in the
                 # message (it gets logged) — row NUMBER only.
-                raise HoldingsLoadError(
-                    f"Invalid numeric value in CSV row {row_num}: {exc}"
-                ) from exc
+                raise HoldingsLoadError(f"Invalid numeric value in CSV row {row_num}: {exc}") from exc
             account_label = (row["account"] or "").strip()
             if account_label:
                 account_labels.add(account_label)

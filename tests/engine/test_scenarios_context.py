@@ -32,10 +32,7 @@ async def test_round_prompts_show_previous_round_peers_and_never_self(
             assert 1 <= len(call.shown_peer_ids) <= 10, call.agent_id
             assert call.agent_id not in call.shown_peer_ids
             assert len({bracket_of[p] for p in call.shown_peer_ids}) >= 4, call.agent_id
-    shown = {
-        (c.agent_id, c.round_num): set(c.shown_peer_ids)
-        for c in scripted_worker.calls_for("decision")
-    }
+    shown = {(c.agent_id, c.round_num): set(c.shown_peer_ids) for c in scripted_worker.calls_for("decision")}
     decisions_by_round = recorded_decisions(fake_graph)
     assert [len(decisions_by_round[r]) for r in (1, 2, 3)] == [100, 100, 100]
     # The default script cites shown peers, so an empty list means citations were lost.

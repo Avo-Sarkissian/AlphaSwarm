@@ -53,13 +53,9 @@ async def test_ensure_schema_idempotent(graph_manager_test: GraphStateManager) -
         index_names = [idx["name"] for idx in indexes]
         assert "decision_cycle_round" in index_names
         assert "decision_id_idx" in index_names
-        agent_id_backed = (
-            "agent_id_idx" in index_names
-            or "agent_id_unique" in constraint_names
-        )
+        agent_id_backed = "agent_id_idx" in index_names or "agent_id_unique" in constraint_names
         assert agent_id_backed, (
-            "Expected a backing index for (:Agent.id) via either "
-            "'agent_id_idx' index or 'agent_id_unique' constraint"
+            "Expected a backing index for (:Agent.id) via either 'agent_id_idx' index or 'agent_id_unique' constraint"
         )
 
 
@@ -73,9 +69,7 @@ async def test_seed_agents_creates_100_nodes(graph_manager_test: GraphStateManag
 
 
 @pytest.mark.asyncio()
-async def test_seed_agents_idempotent(
-    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
-) -> None:
+async def test_seed_agents_idempotent(graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]) -> None:
     """Calling seed_agents again does not create duplicates (MERGE)."""
     await graph_manager_test.seed_agents(all_personas)
 
@@ -169,8 +163,7 @@ async def test_write_decisions_creates_cited_relationships(
 
     async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
-            'MATCH (d:Decision {cycle_id: $cid})-[:CITED]->(a:Agent {id: "degens_01"}) '
-            "RETURN count(d) AS c",
+            'MATCH (d:Decision {cycle_id: $cid})-[:CITED]->(a:Agent {id: "degens_01"}) RETURN count(d) AS c',
             cid=cycle_id,
         )
         record = await result.single()
@@ -230,12 +223,14 @@ async def test_complete_reasoning_arc(
     """After writing decisions and episodes for 3 rounds, a Cypher query returns
     a complete reasoning arc for any agent: decisions, rationale episodes,
     influence relationships, and entity references (SC-3)."""
-    from alphaswarm.write_buffer import EpisodeRecord, compute_flip_type
     from alphaswarm.types import SignalType
+    from alphaswarm.write_buffer import EpisodeRecord, compute_flip_type
 
     # 1. Create cycle with seed event (Entity nodes created via MENTIONS edges)
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(
-        sample_seed_event.raw_rumor, sample_seed_event, num_rounds=3,
+        sample_seed_event.raw_rumor,
+        sample_seed_event,
+        num_rounds=3,
     )
 
     # 2. Write decisions and episodes for 3 rounds (use first 3 personas for speed)
@@ -244,13 +239,16 @@ async def test_complete_reasoning_arc(
 
     for round_num in range(1, 4):
         decisions = [
-            (p.id, AgentDecision(
-                signal=SignalType.BUY if round_num < 3 else SignalType.SELL,
-                confidence=0.8,
-                sentiment=0.5,
-                rationale=f"NVIDIA looks strong in round {round_num}",
-                cited_agents=[],
-            ))
+            (
+                p.id,
+                AgentDecision(
+                    signal=SignalType.BUY if round_num < 3 else SignalType.SELL,
+                    confidence=0.8,
+                    sentiment=0.5,
+                    rationale=f"NVIDIA looks strong in round {round_num}",
+                    cited_agents=[],
+                ),
+            )
             for p in test_personas
         ]
         ids = await graph_manager_test.write_decisions(decisions, cycle_id, round_num)
@@ -323,20 +321,25 @@ async def test_references_edges_case_insensitive(
 
     Entity stored as 'NVIDIA', rationale mentions 'nvidia' lowercase.
     """
-    from alphaswarm.write_buffer import EpisodeRecord
     from alphaswarm.types import SignalType
+    from alphaswarm.write_buffer import EpisodeRecord
 
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(
-        sample_seed_event.raw_rumor, sample_seed_event, num_rounds=3,
+        sample_seed_event.raw_rumor,
+        sample_seed_event,
+        num_rounds=3,
     )
     decisions = [
-        (all_personas[0].id, AgentDecision(
-            signal=SignalType.BUY,
-            confidence=0.9,
-            sentiment=0.7,
-            rationale="i think nvidia will dominate the market",  # lowercase match
-            cited_agents=[],
-        ))
+        (
+            all_personas[0].id,
+            AgentDecision(
+                signal=SignalType.BUY,
+                confidence=0.9,
+                sentiment=0.7,
+                rationale="i think nvidia will dominate the market",  # lowercase match
+                cited_agents=[],
+            ),
+        )
     ]
     ids = await graph_manager_test.write_decisions(decisions, cycle_id, round_num=1)
 

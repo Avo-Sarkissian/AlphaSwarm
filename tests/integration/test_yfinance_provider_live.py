@@ -112,8 +112,7 @@ async def test_yfinance_real_fetch_fundamentals_returns_at_least_one_field() -> 
     assert fundamentals is not None
     populated = [fundamentals.pe_ratio, fundamentals.eps, fundamentals.market_cap]
     assert any(f is not None for f in populated), (
-        "Expected at least one of (pe_ratio, eps, market_cap) to be populated "
-        f"for AAPL; got {fundamentals}"
+        f"Expected at least one of (pe_ratio, eps, market_cap) to be populated for AAPL; got {fundamentals}"
     )
     for field in populated:
         if field is not None:
@@ -125,4 +124,3 @@ async def test_yfinance_real_empty_list_returns_empty_dict() -> None:
     confirms the guard also holds when enable_socket is active."""
     provider = YFinanceMarketDataProvider()
     assert await provider.get_prices([]) == {}
-

@@ -90,10 +90,7 @@ def _route_url(entity: str) -> str:
     """
     if _TICKER_RE.match(entity):
         return f"https://finance.yahoo.com/rss/headline?s={entity}"
-    return (
-        f"https://news.google.com/rss/search?q={quote_plus(entity)}"
-        "&hl=en-US&gl=US&ceid=US:en"
-    )
+    return f"https://news.google.com/rss/search?q={quote_plus(entity)}&hl=en-US&gl=US&ceid=US:en"
 
 
 def _entry_age_hours(entry: dict[str, Any]) -> float | None:
@@ -115,9 +112,7 @@ def _entry_age_hours(entry: dict[str, Any]) -> float | None:
     return (datetime.now(UTC) - published_dt).total_seconds() / 3600.0
 
 
-async def _fetch_one(
-    client: httpx.AsyncClient, entity: str, max_age_hours: int
-) -> NewsSlice:
+async def _fetch_one(client: httpx.AsyncClient, entity: str, max_age_hours: int) -> NewsSlice:
     """Never-raise: any exception -> _fetch_failed_news_slice(entity, 'rss').
 
     Covered failure modes (any of which trips the outer except):
@@ -197,14 +192,15 @@ class RSSNewsProvider:
             return
         try:
             sink.record_data_source(  # type: ignore[attr-defined]
-                source="rss", query=query, result=result, used=used,
+                source="rss",
+                query=query,
+                result=result,
+                used=used,
             )
         except Exception:  # noqa: BLE001 — observability MUST NOT break fetch
             pass
 
-    async def get_headlines(
-        self, entities: list[str], *, max_age_hours: int = 72
-    ) -> dict[str, NewsSlice]:
+    async def get_headlines(self, entities: list[str], *, max_age_hours: int = 72) -> dict[str, NewsSlice]:
         if not entities:  # Pitfall 9 — empty input guard
             return {}
         async with httpx.AsyncClient(

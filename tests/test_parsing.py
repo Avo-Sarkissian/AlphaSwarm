@@ -13,7 +13,6 @@ import pytest
 
 from alphaswarm.types import AgentDecision, SignalType
 
-
 # --- AgentDecision model tests (no parsing module needed) ---
 
 
@@ -97,10 +96,7 @@ def test_tier2_brace_in_rationale_with_trailing_brace() -> None:
     '}' must still parse (string-aware brace scan), not silently become PARSE_ERROR."""
     from alphaswarm.parsing import parse_agent_decision
 
-    raw = (
-        'My take: {"signal": "buy", "confidence": 0.7, '
-        '"rationale": "the set} looks bullish"} -- end of analysis }'
-    )
+    raw = 'My take: {"signal": "buy", "confidence": 0.7, "rationale": "the set} looks bullish"} -- end of analysis }'
     result = parse_agent_decision(raw)
     assert result.signal == SignalType.BUY
     assert result.confidence == 0.7
@@ -411,9 +407,7 @@ def test_parse_logs_tier_used() -> None:
     # Capture structlog output
     captured: list[dict[str, object]] = []
 
-    def capture_log(
-        logger: object, method_name: str, event_dict: dict[str, object]
-    ) -> dict[str, object]:
+    def capture_log(logger: object, method_name: str, event_dict: dict[str, object]) -> dict[str, object]:
         captured.append(event_dict)
         raise structlog.DropEvent
 

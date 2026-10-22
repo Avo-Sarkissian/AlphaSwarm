@@ -13,7 +13,8 @@ pytestmark = pytest.mark.neo4j
 
 @pytest.mark.parametrize("num_rounds", [2, 3])
 async def test_cycle_has_num_rounds_before_completion(
-    graph_manager_test: GraphStateManager, num_rounds: int,
+    graph_manager_test: GraphStateManager,
+    num_rounds: int,
 ) -> None:
     cycle_id = await write_mini_cycle(
         graph_manager_test,

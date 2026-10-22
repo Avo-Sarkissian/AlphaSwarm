@@ -243,7 +243,10 @@ async def test_generation_fails_with_a_fixed_error_on_an_invalid_config(
     monkeypatch.setattr(report_module, "log", rendered)
     monkeypatch.setattr(guards_module, "log", rendered, raising=False)
     app_state = SimpleNamespace(
-        settings=settings, graph_manager=object(), ollama_client=object(), model_manager=object(),
+        settings=settings,
+        graph_manager=object(),
+        ollama_client=object(),
+        model_manager=object(),
     )
     with pytest.raises(InferenceConfigError) as exc_info:
         await _REAL_GENERATION(app_state, CYCLE_A)  # type: ignore[arg-type]

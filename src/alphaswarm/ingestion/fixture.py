@@ -75,9 +75,7 @@ def _names(token: str, text: str) -> bool:
 def anonymize_packet(packet: ContextPacket, *, label: str = ANON_LABEL) -> ContextPacket:
     """Same numbers under a neutral label; headlines dropped because they name the company."""
     if len(packet.entities) != 1:
-        raise ValueError(
-            f"{packet.cycle_id}: anonymize_packet expects one entity, got {len(packet.entities)}"
-        )
+        raise ValueError(f"{packet.cycle_id}: anonymize_packet expects one entity, got {len(packet.entities)}")
     original = packet.entities[0]
     market = tuple(s.model_copy(update={"ticker": label}) for s in packet.market)
     anonymized = packet.model_copy(update={"entities": (label,), "market": market, "news": ()})
@@ -86,15 +84,11 @@ def anonymize_packet(packet: ContextPacket, *, label: str = ANON_LABEL) -> Conte
     return anonymized
 
 
-def validate_fixture(
-    packet: ContextPacket, *, not_after: datetime | None = None, name: str = "fixture"
-) -> None:
+def validate_fixture(packet: ContextPacket, *, not_after: datetime | None = None, name: str = "fixture") -> None:
     """Reject anything a point-in-time run must not see (docs/DECISIONS.md#adr-eval-harness)."""
     _require_aware(packet.as_of, "as_of", name)
     if not_after is not None and packet.as_of > not_after:
-        raise ValueError(
-            f"{name}: as_of {packet.as_of.isoformat()} is after the event ({not_after.isoformat()})"
-        )
+        raise ValueError(f"{name}: as_of {packet.as_of.isoformat()} is after the event ({not_after.isoformat()})")
     if not packet.market and not packet.news:
         raise ValueError(f"{name}: no market or news data")
     for market_slice in packet.market:

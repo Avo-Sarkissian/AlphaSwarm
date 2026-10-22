@@ -69,8 +69,7 @@ async def test_rss_real_fetch_topic_entity_returns_fresh_slice_with_headlines() 
     needle = "ev battery"
     for headline in slice_.headlines:
         assert needle in headline.lower(), (
-            f"Entity filter regression — headline {headline!r} does not "
-            f"contain case-insensitive 'ev battery'"
+            f"Entity filter regression — headline {headline!r} does not contain case-insensitive 'ev battery'"
         )
 
 
@@ -93,8 +92,7 @@ async def test_rss_real_user_agent_prevents_yahoo_429() -> None:
     provider = RSSNewsProvider()
     result = await provider.get_headlines(["AAPL"])
     assert result["AAPL"].staleness == "fresh", (
-        "First-attempt Yahoo RSS fetch failed. Most likely cause: "
-        "_USER_AGENT header removed or misapplied (Pitfall 4)."
+        "First-attempt Yahoo RSS fetch failed. Most likely cause: _USER_AGENT header removed or misapplied (Pitfall 4)."
     )
 
 
@@ -107,4 +105,3 @@ async def test_rss_real_mixed_batch_returns_fresh_for_all_entities() -> None:
     assert set(result.keys()) == {"AAPL", "EV battery"}
     assert result["AAPL"].staleness == "fresh"
     assert result["EV battery"].staleness == "fresh"
-

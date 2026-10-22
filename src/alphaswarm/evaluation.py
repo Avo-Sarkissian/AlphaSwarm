@@ -374,9 +374,7 @@ def compute_outcome(
     i0 = base_index(days, event_ts)
     horizon = max(HORIZON_DAYS.values())
     if i0 < vol_window:
-        raise InsufficientHistoryError(
-            f"{event_id}: needs {vol_window} sessions before the event, has {i0}"
-        )
+        raise InsufficientHistoryError(f"{event_id}: needs {vol_window} sessions before the event, has {i0}")
     if i0 + horizon >= len(days):
         raise InsufficientHistoryError(
             f"{event_id}: needs {horizon} sessions after the event, has {len(days) - 1 - i0}"
@@ -474,9 +472,7 @@ class ReliabilityBin:
     freq: float | None
 
 
-def reliability_bins(
-    pairs: Sequence[tuple[float, bool]], *, n_bins: int = RELIABILITY_BINS
-) -> list[ReliabilityBin]:
+def reliability_bins(pairs: Sequence[tuple[float, bool]], *, n_bins: int = RELIABILITY_BINS) -> list[ReliabilityBin]:
     """Equal-width bins of forecast P(up) with the observed up frequency."""
     bins: list[ReliabilityBin] = []
     for b in range(n_bins):
@@ -598,15 +594,9 @@ def score_forecaster(
             hits += 1
         briers.append(brier(p_up(s), up))
         losses.append(log_loss(p_up(s), up))
-    rho = (
-        spearman_rho([scores[e] for e in events], [labels[e].abn_ret(horizon) for e in events])
-        if events
-        else None
-    )
+    rho = spearman_rho([scores[e] for e in events], [labels[e].abn_ret(horizon) for e in events]) if events else None
     accuracy3 = (
-        fmean(
-            1.0 if lean3(scores[e], deadband) == labels[e].label(horizon) else 0.0 for e in events
-        )
+        fmean(1.0 if lean3(scores[e], deadband) == labels[e].label(horizon) else 0.0 for e in events)
         if events
         else None
     )
@@ -636,9 +626,7 @@ def brier_by_event(
     }
 
 
-def paired_difference(
-    a: Mapping[str, float], b: Mapping[str, float], *, rng: random.Random
-) -> Interval | None:
+def paired_difference(a: Mapping[str, float], b: Mapping[str, float], *, rng: random.Random) -> Interval | None:
     """Mean of a - b over the events both cover, bootstrapped over events."""
     common = sorted(set(a) & set(b))
     return cluster_bootstrap({e: [a[e] - b[e]] for e in common}, rng=rng)

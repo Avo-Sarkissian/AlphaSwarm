@@ -252,11 +252,7 @@ class AnthropicProvider:
                 ) from exc
         else:
             # Concatenate all text blocks
-            content = "".join(
-                block.text
-                for block in resp.content
-                if getattr(block, "type", None) == "text"
-            )
+            content = "".join(block.text for block in resp.content if getattr(block, "type", None) == "text")
 
         return InferenceResult(
             content=content,

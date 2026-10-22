@@ -68,13 +68,7 @@ def test_fixture_after_event_is_rejected(tmp_path: Path) -> None:
 def test_fixture_with_fundamentals_is_rejected() -> None:
     packet = _packet()
     leaky = packet.model_copy(
-        update={
-            "market": (
-                packet.market[0].model_copy(
-                    update={"fundamentals": Fundamentals(pe_ratio=Decimal("20"))}
-                ),
-            )
-        }
+        update={"market": (packet.market[0].model_copy(update={"fundamentals": Fundamentals(pe_ratio=Decimal("20"))}),)}
     )
     with pytest.raises(ValueError, match="fundamentals"):
         validate_fixture(leaky, name="evt-001.json")

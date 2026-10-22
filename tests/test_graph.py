@@ -256,10 +256,24 @@ async def test_batch_write_tx_skips_cited_when_empty() -> None:
     tx = AsyncMock()
     tx.run.return_value.single = AsyncMock(return_value={"created": 2})
     decisions = [
-        {"decision_id": "d1", "agent_id": "a1", "signal": "buy", "confidence": 0.5,
-         "sentiment": 0.0, "rationale": "test", "cited_agents": []},
-        {"decision_id": "d2", "agent_id": "a2", "signal": "sell", "confidence": 0.6,
-         "sentiment": -0.1, "rationale": "test", "cited_agents": []},
+        {
+            "decision_id": "d1",
+            "agent_id": "a1",
+            "signal": "buy",
+            "confidence": 0.5,
+            "sentiment": 0.0,
+            "rationale": "test",
+            "cited_agents": [],
+        },
+        {
+            "decision_id": "d2",
+            "agent_id": "a2",
+            "signal": "sell",
+            "confidence": 0.6,
+            "sentiment": -0.1,
+            "rationale": "test",
+            "cited_agents": [],
+        },
     ]
 
     created = await GraphStateManager._batch_write_decisions_tx(tx, decisions, "cycle-1", 1)
@@ -277,8 +291,15 @@ async def test_batch_write_tx_creates_cited_when_present() -> None:
     tx = AsyncMock()
     tx.run.return_value.single = AsyncMock(return_value={"created": 1})
     decisions = [
-        {"decision_id": "d1", "agent_id": "a1", "signal": "buy", "confidence": 0.5,
-         "sentiment": 0.0, "rationale": "test", "cited_agents": ["a2"]},
+        {
+            "decision_id": "d1",
+            "agent_id": "a1",
+            "signal": "buy",
+            "confidence": 0.5,
+            "sentiment": 0.0,
+            "rationale": "test",
+            "cited_agents": ["a2"],
+        },
     ]
 
     await GraphStateManager._batch_write_decisions_tx(tx, decisions, "cycle-1", 1)
@@ -348,9 +369,7 @@ async def test_create_cycle_with_seed_event_single_transaction(
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    await gsm.create_cycle_with_seed_event(
-        "test rumor", sample_seed_event_for_graph, num_rounds=3
-    )
+    await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph, num_rounds=3)
 
     session.execute_write.assert_awaited_once()
 
@@ -365,9 +384,7 @@ async def test_create_cycle_with_seed_event_returns_uuid(
 
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    cycle_id = await gsm.create_cycle_with_seed_event(
-        "test rumor", sample_seed_event_for_graph, num_rounds=3
-    )
+    cycle_id = await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph, num_rounds=3)
 
     uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     assert re.match(uuid4_pattern, cycle_id), f"Not a valid UUID4: {cycle_id}"
@@ -390,9 +407,7 @@ async def test_create_cycle_with_seed_event_wraps_neo4j_error(
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     with pytest.raises(Neo4jWriteError) as exc_info:
-        await gsm.create_cycle_with_seed_event(
-            "test rumor", sample_seed_event_for_graph, num_rounds=3
-        )
+        await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph, num_rounds=3)
 
     assert exc_info.value.original_error is original_exc
 
@@ -405,7 +420,12 @@ async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
     tx = AsyncMock()
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, [], 3,
+        tx,
+        "test-cycle-id",
+        "test rumor",
+        0.6,
+        [],
+        3,
     )
 
     # Only 1 tx.run call (Cycle creation, no Entity UNWIND)
@@ -524,9 +544,7 @@ async def test_write_decisions_accepts_pregenerated_ids(
     mock_driver.session.return_value.execute_write.side_effect = _ack_rows
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    result = await gsm.write_decisions(
-        sample_agent_decisions, "test-cycle-id", 1, decision_ids=pre_ids
-    )
+    result = await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1, decision_ids=pre_ids)
 
     assert result == pre_ids
     # Verify the pre-generated IDs were actually passed to execute_write
@@ -548,9 +566,7 @@ async def test_write_decisions_raises_on_mismatched_ids(
     wrong_ids = ["only-one-id"]  # 3 decisions, 1 id
 
     with pytest.raises(ValueError, match="decision_ids length"):
-        await gsm.write_decisions(
-            sample_agent_decisions, "test-cycle-id", 1, decision_ids=wrong_ids
-        )
+        await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1, decision_ids=wrong_ids)
 
 
 @pytest.mark.asyncio()
@@ -976,11 +992,13 @@ async def test_read_full_cycle_signals(
     from alphaswarm.state import AgentState
 
     session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(return_value=[
-        {"agent_id": "quants_01", "round_num": 1, "signal": "buy", "confidence": 0.9, "sentiment": 0.5},
-        {"agent_id": "quants_01", "round_num": 2, "signal": "sell", "confidence": 0.6, "sentiment": -0.3},
-        {"agent_id": "degens_01", "round_num": 1, "signal": "hold", "confidence": 0.4, "sentiment": 0.0},
-    ])
+    session.execute_read = AsyncMock(
+        return_value=[
+            {"agent_id": "quants_01", "round_num": 1, "signal": "buy", "confidence": 0.9, "sentiment": 0.5},
+            {"agent_id": "quants_01", "round_num": 2, "signal": "sell", "confidence": 0.6, "sentiment": -0.3},
+            {"agent_id": "degens_01", "round_num": 1, "signal": "hold", "confidence": 0.4, "sentiment": 0.0},
+        ]
+    )
 
     gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
     result = await gm.read_full_cycle_signals("test-cycle")
@@ -1000,10 +1018,12 @@ async def test_read_completed_cycles(
     from alphaswarm.graph import GraphStateManager
 
     session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(return_value=[
-        {"cycle_id": "abc-123", "created_at": "2026-04-12T14:30:00", "seed_rumor": "Test rumor 1"},
-        {"cycle_id": "def-456", "created_at": "2026-04-11T09:15:00", "seed_rumor": "Test rumor 2"},
-    ])
+    session.execute_read = AsyncMock(
+        return_value=[
+            {"cycle_id": "abc-123", "created_at": "2026-04-12T14:30:00", "seed_rumor": "Test rumor 1"},
+            {"cycle_id": "def-456", "created_at": "2026-04-11T09:15:00", "seed_rumor": "Test rumor 2"},
+        ]
+    )
 
     gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
     result = await gm.read_completed_cycles()
@@ -1055,9 +1075,7 @@ async def test_write_shock_event_returns_uuid4(mock_driver: MagicMock) -> None:
 
     # UUID4: 8-4-4-4-12 hex, 3rd group starts with 4, 4th group starts with 8/9/a/b
     uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    assert re.fullmatch(uuid4_pattern, shock_id) is not None, (
-        f"shock_id {shock_id!r} is not a valid UUID4"
-    )
+    assert re.fullmatch(uuid4_pattern, shock_id) is not None, f"shock_id {shock_id!r} is not a valid UUID4"
 
 
 @pytest.mark.asyncio()
@@ -1086,10 +1104,7 @@ def test_schema_includes_shock_id_unique_constraint() -> None:
 
     pattern = r"CREATE CONSTRAINT shock_id_unique.*FOR \(se:ShockEvent\).*REQUIRE se\.shock_id IS UNIQUE"
     matches = [s for s in SCHEMA_STATEMENTS if re.search(pattern, s)]
-    assert len(matches) == 1, (
-        f"Expected exactly one shock_id_unique constraint, found {len(matches)}: "
-        f"{matches!r}"
-    )
+    assert len(matches) == 1, f"Expected exactly one shock_id_unique constraint, found {len(matches)}: {matches!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -1151,8 +1166,17 @@ async def test_batch_write_tx_returns_the_cypher_created_count() -> None:
 
     tx = AsyncMock()
     tx.run.return_value.single = AsyncMock(return_value={"created": 0})
-    rows = [{"decision_id": "d1", "agent_id": "ghost", "signal": "buy", "confidence": 0.5,
-             "sentiment": 0.0, "rationale": "x", "cited_agents": []}]
+    rows = [
+        {
+            "decision_id": "d1",
+            "agent_id": "ghost",
+            "signal": "buy",
+            "confidence": 0.5,
+            "sentiment": 0.0,
+            "rationale": "x",
+            "cited_agents": [],
+        }
+    ]
 
     assert await GraphStateManager._batch_write_decisions_tx(tx, rows, "cycle-1", 1) == 0
     assert "RETURN count(dec) AS created" in tx.run.await_args_list[0].args[0]

@@ -37,9 +37,7 @@ def _legacy_props(brackets: tuple[str, ...]) -> dict[str, Any]:
 
 
 class _FakeResult:
-    def __init__(
-        self, *, single: dict[str, Any] | None = None, data: list[dict[str, Any]] | None = None
-    ) -> None:
+    def __init__(self, *, single: dict[str, Any] | None = None, data: list[dict[str, Any]] | None = None) -> None:
         self._single = single
         self._data = data or []
 
@@ -64,9 +62,7 @@ class _FakeSession:
 
 
 def test_legacy_feed_fails_the_invariant(peer_exposure: ModuleType) -> None:
-    rounds = peer_exposure.exposure_rounds(
-        _legacy_props(peer_exposure.BRACKETS), {2: {"sell_side": 70, "quants": 30}}
-    )
+    rounds = peer_exposure.exposure_rounds(_legacy_props(peer_exposure.BRACKETS), {2: {"sell_side": 70, "quants": 30}})
 
     assert [r.round_num for r in rounds] == [2]
     (r2,) = rounds
@@ -210,8 +206,7 @@ def test_header_names_the_effective_peer_knobs(peer_exposure: ModuleType) -> Non
     )
 
     assert header.rstrip("\n").split("\n")[-1] == (
-        "peers: limit=10 min_brackets=4 bracket_cap=- personal_boost=0.3"
-        " budget_chars=4000 seed_source=cycle_id"
+        "peers: limit=10 min_brackets=4 bracket_cap=- personal_boost=0.3 budget_chars=4000 seed_source=cycle_id"
     )
     assert header.endswith("\n")  # print() adds the blank line before the first table
 
@@ -288,9 +283,7 @@ def test_main_exit_code_follows_the_check(
     assert ("-> PASS" if balanced else "-> FAIL") in capsys.readouterr().out
 
 
-@pytest.mark.parametrize(
-    "props", [None, {"agent_count": 100}], ids=["missing-cycle", "no-exposure-keys"]
-)
+@pytest.mark.parametrize("props", [None, {"agent_count": 100}], ids=["missing-cycle", "no-exposure-keys"])
 def test_main_exits_2_when_a_cycle_has_nothing_to_report(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

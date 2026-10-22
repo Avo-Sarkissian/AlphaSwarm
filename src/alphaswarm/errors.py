@@ -93,9 +93,7 @@ class BudgetExceededError(Exception):
     """
 
     def __init__(self, spent_usd: Decimal, cap_usd: Decimal) -> None:
-        super().__init__(
-            f"Budget cap exceeded: spent ${spent_usd:.4f} > cap ${cap_usd:.4f}"
-        )
+        super().__init__(f"Budget cap exceeded: spent ${spent_usd:.4f} > cap ${cap_usd:.4f}")
         self.spent_usd = spent_usd
         self.cap_usd = cap_usd
 
@@ -177,10 +175,7 @@ class RoundFailedError(AlphaSwarmError):
         total: int,
         threshold_percent: float,
     ) -> None:
-        super().__init__(
-            f"Round {round_num} aborted: {failed} of {total} agents failed "
-            f"(limit {threshold_percent:g}%)"
-        )
+        super().__init__(f"Round {round_num} aborted: {failed} of {total} agents failed (limit {threshold_percent:g}%)")
         self.round_num = round_num
         self.failed = failed
         self.total = total
@@ -259,14 +254,12 @@ def _describe(exc: BaseException) -> tuple[RunErrorCode, str]:
         if exc.duration_seconds > 0:
             return (
                 "governor_crisis",
-                f"The memory governor aborted the run after {exc.duration_seconds:.0f} s "
-                "of sustained memory pressure.",
+                f"The memory governor aborted the run after {exc.duration_seconds:.0f} s of sustained memory pressure.",
             )
         # No crisis was timed, so the abort came from the memory monitor dying.
         return (
             "governor_crisis",
-            "The memory governor aborted the run because its memory monitor stopped. "
-            "See the server log for details.",
+            "The memory governor aborted the run because its memory monitor stopped. See the server log for details.",
         )
     if isinstance(exc, RoundFailedError):
         return (
@@ -287,7 +280,6 @@ def _describe(exc: BaseException) -> tuple[RunErrorCode, str]:
     if isinstance(exc, InferenceConfigError):
         return (
             "inference_config_invalid",
-            "The saved inference configuration is invalid. "
-            "Open Settings and save a valid configuration.",
+            "The saved inference configuration is invalid. Open Settings and save a valid configuration.",
         )
     return ("internal_error", f"Unexpected {type(exc).__name__}. See the server log for details.")

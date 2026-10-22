@@ -341,9 +341,7 @@ async def test_inject_seed_logs_warning_on_tier3(
     provider = FakeInferenceProvider(
         ProviderRole.ORCHESTRATOR,
         "alphaswarm-orchestrator",
-        scripted=[
-            InferenceResult(content="not valid json", model="alphaswarm-orchestrator")
-        ],
+        scripted=[InferenceResult(content="not valid json", model="alphaswarm-orchestrator")],
     )
 
     with patch("alphaswarm.seed.logger") as mock_logger:

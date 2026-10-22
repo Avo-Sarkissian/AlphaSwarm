@@ -256,9 +256,7 @@ async def _refuse_nonempty_database(driver: AsyncDriver) -> None:
 async def _port_open(uri: str, timeout_s: float = 0.5) -> bool:
     parts = urlsplit(uri)
     try:
-        _reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(parts.hostname, parts.port), timeout=timeout_s
-        )
+        _reader, writer = await asyncio.wait_for(asyncio.open_connection(parts.hostname, parts.port), timeout=timeout_s)
     except (OSError, TimeoutError):
         return False
     writer.close()
@@ -282,9 +280,7 @@ async def neo4j_test_driver(request: pytest.FixtureRequest) -> AsyncIterator[Asy
     _refuse_forbidden_port(NEO4J_TEST_URI)
     if not await _port_open(NEO4J_TEST_URI):
         _neo4j_unavailable(request, "neo4j-test is not running (scripts/neo4j_test.sh up)")
-    driver = AsyncGraphDatabase.driver(
-        NEO4J_TEST_URI, auth=NEO4J_TEST_AUTH, max_connection_pool_size=5
-    )
+    driver = AsyncGraphDatabase.driver(NEO4J_TEST_URI, auth=NEO4J_TEST_AUTH, max_connection_pool_size=5)
     try:
         await driver.verify_connectivity()
         await _refuse_nonempty_database(driver)
@@ -323,9 +319,7 @@ async def graph_manager_test(
     """
     from alphaswarm.graph import GraphStateManager
 
-    manager = GraphStateManager(
-        driver=neo4j_test_driver, personas=all_personas, database=NEO4J_TEST_DATABASE
-    )
+    manager = GraphStateManager(driver=neo4j_test_driver, personas=all_personas, database=NEO4J_TEST_DATABASE)
     await manager.ensure_schema()
     async with neo4j_test_driver.session(database=NEO4J_TEST_DATABASE) as session:
         result = await session.run("MATCH (c:Cycle) RETURN collect(c.cycle_id) AS ids")
@@ -366,9 +360,7 @@ async def seeded_cycle_2r(neo4j_test_driver: AsyncDriver) -> SeededCycle:
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def seeded_cycle(
-    neo4j_test_driver: AsyncDriver, seeded_cycle_2r: SeededCycle
-) -> SeededCycle:
+async def seeded_cycle(neo4j_test_driver: AsyncDriver, seeded_cycle_2r: SeededCycle) -> SeededCycle:
     """Session-scoped 3-round cycle in neo4j-test, written through the real write API.
 
     Built once (deterministic content, see tests/support/seed_builder.py) and protected

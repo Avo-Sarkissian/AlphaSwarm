@@ -202,11 +202,7 @@ def test_interview_endpoint_returns_response() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="TestAgent decided to BUY.",
-            decisions=[
-                RoundDecision(
-                    round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good news"
-                )
-            ],
+            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good news")],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
@@ -218,9 +214,7 @@ def test_interview_endpoint_returns_response() -> None:
         mock_engine = MagicMock()
         mock_engine.ask = AsyncMock(return_value="mock response")
 
-        with patch(
-            "alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine
-        ) as mock_cls:
+        with patch("alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine) as mock_cls:
             r = client.post("/api/interview/agent_1", json={"message": "Why did you buy?"})
             assert r.status_code == 200
             data = r.json()
@@ -247,11 +241,7 @@ def test_interview_multi_turn() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="TestAgent decided to BUY.",
-            decisions=[
-                RoundDecision(
-                    round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good"
-                )
-            ],
+            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good")],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
@@ -263,9 +253,7 @@ def test_interview_multi_turn() -> None:
         mock_engine = MagicMock()
         mock_engine.ask = AsyncMock(return_value="response")
 
-        with patch(
-            "alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine
-        ) as mock_cls:
+        with patch("alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine) as mock_cls:
             r1 = client.post("/api/interview/agent_1", json={"message": "Question 1"})
             r2 = client.post("/api/interview/agent_1", json={"message": "Question 2"})
             assert r1.status_code == 200
@@ -294,11 +282,7 @@ def test_interview_session_reuse() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="Narrative.",
-            decisions=[
-                RoundDecision(
-                    round_num=1, signal="buy", confidence=0.8, sentiment=0.6, rationale="ok"
-                )
-            ],
+            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.8, sentiment=0.6, rationale="ok")],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
@@ -336,11 +320,7 @@ async def test_interview_concurrent_same_agent_serializes() -> None:
         bracket="quants",
         interview_system_prompt="You are TestAgent.",
         decision_narrative="Narrative.",
-        decisions=[
-            RoundDecision(
-                round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok"
-            )
-        ],
+        decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
     )
     mock_gm = AsyncMock()
     mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
@@ -405,9 +385,7 @@ def test_interview_sessions_cleared_on_new_simulation() -> None:
 
         # Patch _run so start() completes without real simulation
         with patch.object(app.state.sim_manager, "_run", AsyncMock(return_value=None)):
-            asyncio.get_event_loop().run_until_complete(
-                app.state.sim_manager.start("new seed")
-            )
+            asyncio.get_event_loop().run_until_complete(app.state.sim_manager.start("new seed"))
 
         assert app.state.interview_sessions == {}
 

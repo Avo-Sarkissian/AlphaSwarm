@@ -303,18 +303,14 @@ class TestEstimateRun:
         # total point = orch(3 * $1) + narrative_worker(1 * $10) = $13
         expected_low = (Decimal("13.00") * Decimal("0.7")).quantize(Decimal("0.01"))
         expected_high = (Decimal("13.00") * Decimal("1.3")).quantize(Decimal("0.01"))
-        assert result.low_usd == expected_low, (
-            "narrative_calls must be priced at worker rate ($10), not orch rate ($1)"
-        )
+        assert result.low_usd == expected_low, "narrative_calls must be priced at worker rate ($10), not orch rate ($1)"
         assert result.high_usd == expected_high
 
     def test_narrative_calls_default_zero_regression(self) -> None:
         """(c) narrative_calls=0 (default) reproduces the prior cost — regression guard."""
         cfg = _cloud_cfg()
         # Explicit zero and omitted should produce identical results
-        result_explicit = estimate_run(
-            cfg, agents=10, rounds=3, avg_in=500, avg_out=200, narrative_calls=0
-        )
+        result_explicit = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200, narrative_calls=0)
         result_default = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200)
         assert result_explicit.calls == result_default.calls
         assert result_explicit.low_usd == result_default.low_usd
@@ -328,9 +324,7 @@ class TestEstimateRun:
                 output_per_mtok=Decimal("0.00"),
             )
         }
-        result = estimate_run(
-            cfg, agents=10, rounds=3, avg_in=1_000_000, avg_out=1_000_000, pricing=custom
-        )
+        result = estimate_run(cfg, agents=10, rounds=3, avg_in=1_000_000, avg_out=1_000_000, pricing=custom)
         assert result.low_usd == Decimal("0.00")
         assert result.high_usd == Decimal("0.00")
 

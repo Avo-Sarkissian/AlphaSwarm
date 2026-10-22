@@ -102,9 +102,7 @@ def test_account_number_hash_is_not_rehashed() -> None:
     """REVIEW MEDIUM (Codex) — pre-hashed token must pass through unchanged,
     otherwise downstream correlation breaks ('acct:{hash(hash)}' is useless)."""
     prehashed = "acct:abcd1234"
-    result = pii_redaction_processor(
-        None, "info", {"event": "x", "account_number_hash": prehashed}
-    )
+    result = pii_redaction_processor(None, "info", {"event": "x", "account_number_hash": prehashed})
     assert result["account_number_hash"] == prehashed  # passthrough
     # Also test case/separator variants of the hash key
     for key in ("AccountNumberHash", "account-number-hash", "accountnumberhash"):
@@ -169,17 +167,13 @@ def test_processor_honors_max_depth() -> None:
 
 
 def test_processor_scrubs_currency_pattern_in_free_text_key() -> None:
-    result = pii_redaction_processor(
-        None, "info", {"event": "x", "note": "Client paid $12,345.67 last week"}
-    )
+    result = pii_redaction_processor(None, "info", {"event": "x", "note": "Client paid $12,345.67 last week"})
     assert "$12,345.67" not in result["note"]
     assert "[REDACTED_CURRENCY]" in result["note"]
 
 
 def test_processor_scrubs_ssn_pattern_in_free_text_key() -> None:
-    result = pii_redaction_processor(
-        None, "info", {"event": "x", "summary": "SSN 123-45-6789 on file"}
-    )
+    result = pii_redaction_processor(None, "info", {"event": "x", "summary": "SSN 123-45-6789 on file"})
     assert "123-45-6789" not in result["summary"]
     assert "[REDACTED_SSN]" in result["summary"]
 
@@ -189,17 +183,13 @@ def test_processor_does_NOT_scrub_currency_in_non_free_text_key() -> None:
 
     A MarketSlice diagnostic event might log {'ticker': 'AAPL', 'price_display': '$185.50'};
     price_display is NOT a free-text key, must be preserved verbatim."""
-    result = pii_redaction_processor(
-        None, "info", {"event": "price_log", "price_display": "$185.50"}
-    )
+    result = pii_redaction_processor(None, "info", {"event": "price_log", "price_display": "$185.50"})
     assert result["price_display"] == "$185.50"  # NOT redacted
 
 
 def test_processor_does_not_scrub_sensitive_keys_via_value_pass() -> None:
     """account_number goes through the hash path, not the value-scrub pass."""
-    result = pii_redaction_processor(
-        None, "info", {"event": "x", "account_number": "$999.00"}
-    )
+    result = pii_redaction_processor(None, "info", {"event": "x", "account_number": "$999.00"})
     assert result["account_number"].startswith("acct:")  # hashed, not currency-scrubbed
 
 
@@ -315,6 +305,8 @@ _SENSITIVE_KEY_VARIANTS = st.sampled_from(
         "Shares",
     ]
 )
+
+
 def _normalize_safe(s: str) -> bool:
     """Filter out accidental matches with sensitive-normalized keys."""
     blacklist = {
@@ -343,25 +335,23 @@ def _normalize_safe(s: str) -> bool:
     return s.lower() not in blacklist
 
 
-_SAFE_KEY_STRATEGY = st.text(
-    alphabet=st.characters(whitelist_categories=("Ll",)), min_size=3, max_size=10
-).filter(_normalize_safe)
+_SAFE_KEY_STRATEGY = st.text(alphabet=st.characters(whitelist_categories=("Ll",)), min_size=3, max_size=10).filter(
+    _normalize_safe
+)
 
 
 # Sensitive values use a fixed prefix so they are distinguishable from key names in
 # rendered JSON — avoids false positives where a short value appears as a substring
 # of a key name (e.g., value='aa' inside key 'aaa').
-_VALUE_STRATEGY = st.text(
-    alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")), min_size=6, max_size=30
-).map(lambda s: f"SVAL_{s}")
+_VALUE_STRATEGY = st.text(alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")), min_size=6, max_size=30).map(
+    lambda s: f"SVAL_{s}"
+)
 
 
 def _nested_sensitive_strategy() -> Any:
     """Build a nested dict up to 3 levels with mixed sensitive/safe keys."""
     return st.recursive(
-        st.dictionaries(
-            _SENSITIVE_KEY_VARIANTS, _VALUE_STRATEGY, min_size=1, max_size=3
-        ),
+        st.dictionaries(_SENSITIVE_KEY_VARIANTS, _VALUE_STRATEGY, min_size=1, max_size=3),
         lambda children: st.dictionaries(_SAFE_KEY_STRATEGY, children, min_size=1, max_size=3),
         max_leaves=8,
     )
@@ -432,9 +422,7 @@ def test_fuzz_no_sensitive_value_renders_verbatim_nested(payload: dict[str, Any]
         ),
     ],
 )
-def test_tabular_no_sensitive_leaks(
-    event_dict: dict[str, Any], banned_substrings: list[str]
-) -> None:
+def test_tabular_no_sensitive_leaks(event_dict: dict[str, Any], banned_substrings: list[str]) -> None:
     result = pii_redaction_processor(None, "info", dict(event_dict))
     rendered = json.dumps(result, default=str)
     for banned in banned_substrings:

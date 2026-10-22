@@ -45,6 +45,7 @@ log = structlog.get_logger(component="web.report")
 
 router = APIRouter()
 
+
 class ReportResponse(BaseModel):
     """Response body for GET /api/report/{cycle_id} (D-05)."""
 
@@ -80,9 +81,7 @@ async def get_report(cycle_id: CycleId, request: Request) -> ReportResponse:
         )
     report_path = reports_dir(app_state) / f"{cycle_id}_report.md"
     if not await aiofiles.os.path.exists(report_path):
-        errors: dict[str, dict[str, str]] = (
-            getattr(request.app.state, "report_generation_error", {}) or {}
-        )
+        errors: dict[str, dict[str, str]] = getattr(request.app.state, "report_generation_error", {}) or {}
         recorded = errors.get(cycle_id)
         if recorded is not None:
             raise ApiError(
@@ -132,7 +131,8 @@ def start_report_job(app: FastAPI, cycle_id: str) -> asyncio.Task[None]:
         app.state.report_generation_error = errors
     errors.pop(cycle_id, None)
     task: asyncio.Task[None] = asyncio.create_task(
-        _run_report_generation(app_state, cycle_id), name=f"report_{cycle_id}",
+        _run_report_generation(app_state, cycle_id),
+        name=f"report_{cycle_id}",
     )
     app.state.report_task = task
     app_state.state_store.set_job_status("report", JobStatus("running", cycle_id))
@@ -168,7 +168,9 @@ def _on_report_task_done(task: asyncio.Task[Any], cycle_id: str, app: FastAPI) -
             log.info("report_task_completed", cycle_id=cycle_id)
             return
         _record_report_failure(
-            app, cycle_id, f"Report generation failed ({exc.__class__.__name__})",
+            app,
+            cycle_id,
+            f"Report generation failed ({exc.__class__.__name__})",
         )
         _set_report_status(app, JobStatus("failed", cycle_id, "report_generation_failed"))
         # Event name and exc_info are pinned by tests/test_task_failure_logging.py.

@@ -38,14 +38,10 @@ pytestmark = pytest.mark.live_network
 # ---------------------------------------------------------------------------
 
 _ANTHROPIC_KEY: str | None = os.environ.get("ALPHASWARM_TEST_ANTHROPIC_KEY")
-_ANTHROPIC_MODEL: str = os.environ.get(
-    "ALPHASWARM_TEST_ANTHROPIC_MODEL", "claude-3-5-haiku-latest"
-)
+_ANTHROPIC_MODEL: str = os.environ.get("ALPHASWARM_TEST_ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
 
 _OPENAI_KEY: str | None = os.environ.get("ALPHASWARM_TEST_OPENAI_KEY")
-_OPENAI_BASE_URL: str = os.environ.get(
-    "ALPHASWARM_TEST_OPENAI_BASE_URL", "https://api.openai.com/v1"
-)
+_OPENAI_BASE_URL: str = os.environ.get("ALPHASWARM_TEST_OPENAI_BASE_URL", "https://api.openai.com/v1")
 _OPENAI_MODEL: str = os.environ.get("ALPHASWARM_TEST_OPENAI_MODEL", "gpt-4o-mini")
 
 _PROMPT: list[dict[str, str]] = [

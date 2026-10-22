@@ -127,7 +127,9 @@ async def _safe_agent_inference(
     # PARSE_ERROR agent must stop showing "thinking" and must not keep last
     # round's signal (docs/DECISIONS.md#adr-streaming-state).
     await state_store.update_agent_state(
-        persona["agent_id"], decision.signal, decision.confidence,
+        persona["agent_id"],
+        decision.signal,
+        decision.confidence,
     )
     # The rationale feed carries reasoning only; a failure's text is an error
     # message, so PARSE_ERROR decisions skip it.
@@ -214,9 +216,7 @@ async def dispatch_wave(
         ``from`` the TaskGroup's ExceptionGroup -- never as an ExceptionGroup.
     """
     if peer_contexts is not None and len(peer_contexts) != len(personas):
-        raise ValueError(
-            f"peer_contexts length {len(peer_contexts)} != personas length {len(personas)}"
-        )
+        raise ValueError(f"peer_contexts length {len(peer_contexts)} != personas length {len(personas)}")
     if own_priors is not None and len(own_priors) != len(personas):
         raise ValueError(f"own_priors length {len(own_priors)} != personas length {len(personas)}")
 

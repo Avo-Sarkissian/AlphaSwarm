@@ -14,7 +14,6 @@ from neo4j.exceptions import Neo4jError
 from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
 from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
-
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
@@ -191,26 +190,18 @@ _LEGACY_COMPLETE: Final = (
 )
 # The status a reader assumes: the stored one, else the legacy rule, so the
 # readers are right even before ensure_schema() has back-filled.
-_EFFECTIVE_STATUS: Final = (
-    f"coalesce(c.status, CASE WHEN {_LEGACY_COMPLETE} THEN 'complete' ELSE 'failed' END)"
-)
+_EFFECTIVE_STATUS: Final = f"coalesce(c.status, CASE WHEN {_LEGACY_COMPLETE} THEN 'complete' ELSE 'failed' END)"
 
 # One completeness rule for every reader: the stored Cycle.status, else the
 # legacy predicate (metrics stamped, or a round-3 decision), so the job routes and
 # read_completed_cycles never disagree about a cycle (docs/DECISIONS.md#adr-cycle-metrics).
-_CYCLE_STATUS_QUERY: Final = (
-    f"MATCH (c:Cycle {{cycle_id: $cycle_id}}) RETURN {_EFFECTIVE_STATUS} AS status"
-)
+_CYCLE_STATUS_QUERY: Final = f"MATCH (c:Cycle {{cycle_id: $cycle_id}}) RETURN {_EFFECTIVE_STATUS} AS status"
 _CYCLE_STATUSES: Final[frozenset[str]] = frozenset(get_args(CycleStatus))
 
 # Bracket display names and order come from config so report rows match the
 # live frame (simulation.compute_bracket_summaries) — docs/DECISIONS.md#adr-swarm-composition-v2.
-_BRACKET_DISPLAY_NAMES: Final[dict[str, str]] = {
-    b.bracket_type.value: b.display_name for b in DEFAULT_BRACKETS
-}
-_BRACKET_ORDER: Final[dict[str, int]] = {
-    b.bracket_type.value: i for i, b in enumerate(DEFAULT_BRACKETS)
-}
+_BRACKET_DISPLAY_NAMES: Final[dict[str, str]] = {b.bracket_type.value: b.display_name for b in DEFAULT_BRACKETS}
+_BRACKET_ORDER: Final[dict[str, int]] = {b.bracket_type.value: i for i, b in enumerate(DEFAULT_BRACKETS)}
 
 
 def _bracket_sort_key(bracket: str) -> tuple[int, str]:
@@ -310,7 +301,8 @@ class GraphStateManager:
         async with self._driver.session(database=self._database) as session:
             await session.execute_write(self._seed_agents_tx, agent_params)
             pruned = await session.execute_write(
-                self._prune_stale_agents_tx, current_ids,
+                self._prune_stale_agents_tx,
+                current_ids,
             )
 
         if pruned:
@@ -376,7 +368,9 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 await session.execute_write(
-                    self._write_cycle_metrics_tx, cycle_id, metrics,
+                    self._write_cycle_metrics_tx,
+                    cycle_id,
+                    metrics,
                 )
         except Neo4jError as exc:
             raise Neo4jWriteError(
@@ -411,7 +405,8 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 result = await session.execute_read(
-                    self._read_cycle_seed_tx, cycle_id,
+                    self._read_cycle_seed_tx,
+                    cycle_id,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -586,9 +581,7 @@ class GraphStateManager:
         ]
         try:
             async with self._driver.session(database=self._database) as session:
-                created = await session.execute_write(
-                    self._batch_write_decisions_tx, params, cycle_id, round_num
-                )
+                created = await session.execute_write(self._batch_write_decisions_tx, params, cycle_id, round_num)
         except Neo4jError as exc:
             raise Neo4jWriteError(
                 f"Failed to write {len(agent_decisions)} decisions for cycle {cycle_id} round {round_num}",
@@ -654,9 +647,7 @@ class GraphStateManager:
 
         # Statement 2: Create CITED relationships (only if any citations exist)
         cited_params = [
-            {"decision_id": d["decision_id"], "cited_id": cid}
-            for d in decisions
-            for cid in d["cited_agents"]
+            {"decision_id": d["decision_id"], "cited_id": cid} for d in decisions for cid in d["cited_agents"]
         ]
         if cited_params:
             await tx.run(
@@ -704,22 +695,27 @@ class GraphStateManager:
                 continue
             pid = str(uuid.uuid4())
             post_ids.append(pid)
-            posts.append({
-                "post_id": pid,
-                "decision_id": did,
-                "agent_id": agent_id,
-                "content": decision.rationale,
-                "signal": decision.signal.value,
-                "confidence": decision.confidence,
-                "round_num": round_num,
-                "cycle_id": cycle_id,
-            })
+            posts.append(
+                {
+                    "post_id": pid,
+                    "decision_id": did,
+                    "agent_id": agent_id,
+                    "content": decision.rationale,
+                    "signal": decision.signal.value,
+                    "confidence": decision.confidence,
+                    "round_num": round_num,
+                    "cycle_id": cycle_id,
+                }
+            )
         if not posts:
             return []
         try:
             async with self._driver.session(database=self._database) as session:
                 await session.execute_write(
-                    self._batch_write_posts_tx, posts, cycle_id, round_num,
+                    self._batch_write_posts_tx,
+                    posts,
+                    cycle_id,
+                    round_num,
                 )
         except Neo4jError as exc:
             raise Neo4jWriteError(
@@ -727,7 +723,10 @@ class GraphStateManager:
                 original_error=exc,
             ) from exc
         self._log.info(
-            "posts_written", cycle_id=cycle_id, round_num=round_num, count=len(posts),
+            "posts_written",
+            cycle_id=cycle_id,
+            round_num=round_num,
+            count=len(posts),
         )
         return post_ids
 
@@ -803,7 +802,10 @@ class GraphStateManager:
                 original_error=exc,
             ) from exc
         self._log.info(
-            "episodes_written", cycle_id=cycle_id, round_num=round_num, count=len(episodes),
+            "episodes_written",
+            cycle_id=cycle_id,
+            round_num=round_num,
+            count=len(episodes),
         )
 
     @staticmethod
@@ -978,7 +980,9 @@ class GraphStateManager:
             async with self._driver.session(database=self._database) as session:
                 # Read citation PAIRS (source_id, target_id) for pair-aware INFLUENCED_BY edges
                 pairs = await session.execute_read(
-                    self._read_citation_pairs_tx, cycle_id, up_to_round,
+                    self._read_citation_pairs_tx,
+                    cycle_id,
+                    up_to_round,
                 )
                 if not pairs:
                     self._log.info(
@@ -993,8 +997,7 @@ class GraphStateManager:
 
                 # Compute normalized weights (D-01: weight = citations / total_agents)
                 weights: dict[str, float] = {
-                    agent_id: count / total_agents
-                    for agent_id, count in target_counts.items()
+                    agent_id: count / total_agents for agent_id, count in target_counts.items()
                 }
 
                 # Build edge list: each unique (source, target) pair gets the target's weight
@@ -1009,7 +1012,10 @@ class GraphStateManager:
 
                 # Batch-write INFLUENCED_BY edges
                 await session.execute_write(
-                    self._write_influence_edges_tx, edges, cycle_id, up_to_round,
+                    self._write_influence_edges_tx,
+                    edges,
+                    cycle_id,
+                    up_to_round,
                 )
 
             self._log.info(
@@ -1085,7 +1091,9 @@ class GraphStateManager:
         )
 
     async def read_influence_edges(
-        self, cycle_id: str, round_num: int,
+        self,
+        cycle_id: str,
+        round_num: int,
     ) -> list[InfluenceEdgeRow]:
         """Return INFLUENCED_BY edges for a given cycle and round.
 
@@ -1099,7 +1107,9 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 records = await session.execute_read(
-                    self._read_influence_edges_tx, cycle_id, round_num,
+                    self._read_influence_edges_tx,
+                    cycle_id,
+                    round_num,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -1107,7 +1117,10 @@ class GraphStateManager:
                 original_error=exc,
             ) from exc
         self._log.debug(
-            "influence_edges_read", cycle_id=cycle_id, round=round_num, count=len(records),
+            "influence_edges_read",
+            cycle_id=cycle_id,
+            round=round_num,
+            count=len(records),
         )
         return records
 
@@ -1143,7 +1156,9 @@ class GraphStateManager:
     # ------------------------------------------------------------------
 
     async def read_agent_interview_context(
-        self, agent_id: str, cycle_id: str,
+        self,
+        agent_id: str,
+        cycle_id: str,
     ) -> InterviewContext:
         """Read agent context for post-simulation interview (INT-01, D-04, D-06).
 
@@ -1163,7 +1178,9 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 records = await session.execute_read(
-                    self._read_interview_context_tx, agent_id, cycle_id,
+                    self._read_interview_context_tx,
+                    agent_id,
+                    cycle_id,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -1173,9 +1190,7 @@ class GraphStateManager:
 
         # Look up persona from in-memory list (D-06: avoids second Neo4j query)
         persona = next((p for p in self._personas if p.id == agent_id), None)
-        interview_system_prompt = (
-            _strip_json_instructions(persona.system_prompt) if persona else ""
-        )
+        interview_system_prompt = _strip_json_instructions(persona.system_prompt) if persona else ""
 
         # Extract agent-level fields from first record
         first = records[0] if records else {}
@@ -1285,7 +1300,11 @@ class GraphStateManager:
         record = await result.single()
         if record is None:
             return ConsensusSummaryRow(
-                buy_count=0, sell_count=0, hold_count=0, parse_error_count=0, total=0,
+                buy_count=0,
+                sell_count=0,
+                hold_count=0,
+                parse_error_count=0,
+                total=0,
             )
         return ConsensusSummaryRow(
             buy_count=int(record["buy_count"]),
@@ -1465,7 +1484,9 @@ class GraphStateManager:
         ]
 
     async def read_influence_leaders(
-        self, cycle_id: str, limit: int = 10,
+        self,
+        cycle_id: str,
+        limit: int = 10,
     ) -> list[InfluenceLeaderRow]:
         """Most-cited agents in the final round.
 
@@ -1477,7 +1498,9 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 rows = await session.execute_read(
-                    self._read_influence_leaders_tx, cycle_id, limit,
+                    self._read_influence_leaders_tx,
+                    cycle_id,
+                    limit,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -1537,7 +1560,8 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 rows = await session.execute_read(
-                    self._read_signal_flips_tx, cycle_id,
+                    self._read_signal_flips_tx,
+                    cycle_id,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -1591,7 +1615,8 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 rows = await session.execute_read(
-                    self._read_entity_impact_tx, cycle_id,
+                    self._read_entity_impact_tx,
+                    cycle_id,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -1640,7 +1665,9 @@ class GraphStateManager:
         ]
 
     async def read_social_post_reach(
-        self, cycle_id: str, limit: int = 10,
+        self,
+        cycle_id: str,
+        limit: int = 10,
     ) -> list[dict]:  # type: ignore[type-arg]
         """Return top posts by READ_POST edge count for the cycle (REPORT-02).
 
@@ -1658,7 +1685,9 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 records = await session.execute_read(
-                    self._read_social_post_reach_tx, cycle_id, limit,
+                    self._read_social_post_reach_tx,
+                    cycle_id,
+                    limit,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -1729,7 +1758,8 @@ class GraphStateManager:
 
     @staticmethod
     async def _read_cycle_status_tx(
-        tx: AsyncManagedTransaction, cycle_id: str,
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
     ) -> CycleStatus | None:
         result = await tx.run(_CYCLE_STATUS_QUERY, cycle_id=cycle_id)
         record = await result.single()
@@ -1758,7 +1788,8 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 record = await session.execute_read(
-                    self._read_shock_event_tx, cycle_id,
+                    self._read_shock_event_tx,
+                    cycle_id,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -1804,7 +1835,9 @@ class GraphStateManager:
                 original_error=exc,
             ) from exc
         self._log.debug(
-            "read_shock_impact", cycle_id=cycle_id, pivot_count=row["pivot_count"],
+            "read_shock_impact",
+            cycle_id=cycle_id,
+            pivot_count=row["pivot_count"],
         )
         return row
 
@@ -1845,8 +1878,13 @@ class GraphStateManager:
         """Pure aggregation of per-agent (pre, post) rows into a ShockImpactRow."""
         if not rows:
             return ShockImpactRow(
-                shock_text="", injected_before_round=0, pre_dominant=None,
-                post_dominant=None, pivot_count=0, pivot_rate=0.0, bracket_pivots=[],
+                shock_text="",
+                injected_before_round=0,
+                pre_dominant=None,
+                post_dominant=None,
+                pivot_count=0,
+                pivot_rate=0.0,
+                bracket_pivots=[],
             )
         by_bracket: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
@@ -1860,24 +1898,29 @@ class GraphStateManager:
             pre_buy_pct = pre.count("BUY") / len(members) * 100
             post_buy_pct = post.count("BUY") / len(members) * 100
             delta = post_buy_pct - pre_buy_pct
-            bracket_pivots.append({
-                "bracket": bracket,
-                "display_name": _BRACKET_DISPLAY_NAMES.get(bracket, bracket),
-                "comparable": len(members),
-                "pivots": len(pivoted),
-                "pre_dominant": _majority(pre),
-                "post_dominant": _majority(post),
-                "pre_buy_pct": pre_buy_pct,
-                "post_buy_pct": post_buy_pct,
-                "delta_buy_pct": delta,
-                # The arrow glyph stays in the row until the templates own presentation.
-                "dominant_arrow": "▲" if delta > 0 else "▼" if delta < 0 else "·",
-                "agents": [
-                    {"agent_id": str(r["agent_id"]), "pre_signal": str(r["pre_signal"]),
-                     "post_signal": str(r["post_signal"])}
-                    for r in pivoted
-                ],
-            })
+            bracket_pivots.append(
+                {
+                    "bracket": bracket,
+                    "display_name": _BRACKET_DISPLAY_NAMES.get(bracket, bracket),
+                    "comparable": len(members),
+                    "pivots": len(pivoted),
+                    "pre_dominant": _majority(pre),
+                    "post_dominant": _majority(post),
+                    "pre_buy_pct": pre_buy_pct,
+                    "post_buy_pct": post_buy_pct,
+                    "delta_buy_pct": delta,
+                    # The arrow glyph stays in the row until the templates own presentation.
+                    "dominant_arrow": "▲" if delta > 0 else "▼" if delta < 0 else "·",
+                    "agents": [
+                        {
+                            "agent_id": str(r["agent_id"]),
+                            "pre_signal": str(r["pre_signal"]),
+                            "post_signal": str(r["post_signal"]),
+                        }
+                        for r in pivoted
+                    ],
+                }
+            )
         pivot_count = sum(1 for r in rows if r["pre_signal"] != r["post_signal"])
         return ShockImpactRow(
             shock_text=str(rows[0]["shock_text"]),
@@ -1971,7 +2014,7 @@ class GraphStateManager:
     # Phase 28: Simulation replay read methods (Plan 01)
     # ------------------------------------------------------------------
 
-    async def read_full_cycle_signals(self, cycle_id: str) -> "dict[tuple[str, int], AgentState]":
+    async def read_full_cycle_signals(self, cycle_id: str) -> dict[tuple[str, int], AgentState]:
         """Load all agent signals for all rounds of a cycle (REPLAY-01, D-08).
 
         Returns dict keyed by (agent_id, round_num) -> AgentState.
@@ -1989,7 +2032,8 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 records = await session.execute_read(
-                    self._read_full_cycle_signals_tx, cycle_id,
+                    self._read_full_cycle_signals_tx,
+                    cycle_id,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -2015,7 +2059,7 @@ class GraphStateManager:
 
     @staticmethod
     async def _read_full_cycle_signals_tx(
-        tx: "AsyncManagedTransaction",
+        tx: AsyncManagedTransaction,
         cycle_id: str,
     ) -> list[dict]:  # type: ignore[type-arg]
         """Transaction: load all Decision rows for a cycle, starting from Decision node (Review #6)."""
@@ -2042,7 +2086,8 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 records = await session.execute_read(
-                    self._read_completed_cycles_tx, limit,
+                    self._read_completed_cycles_tx,
+                    limit,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -2092,7 +2137,9 @@ class GraphStateManager:
         ]
 
     async def read_bracket_narratives_for_round(
-        self, cycle_id: str, round_num: int,
+        self,
+        cycle_id: str,
+        round_num: int,
     ) -> list[BracketRoundRow]:
         """Per-bracket distribution for one round (replay).
 
@@ -2102,7 +2149,9 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 rows = await session.execute_read(
-                    self._read_bracket_narratives_for_round_tx, cycle_id, round_num,
+                    self._read_bracket_narratives_for_round_tx,
+                    cycle_id,
+                    round_num,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
@@ -2156,7 +2205,10 @@ class GraphStateManager:
         ]
 
     async def read_rationale_entries_for_round(
-        self, cycle_id: str, round_num: int, limit: int = 10,
+        self,
+        cycle_id: str,
+        round_num: int,
+        limit: int = 10,
     ) -> list[RationaleRoundRow]:
         """Top rationales for a round by confidence, read from the Decision node.
 
@@ -2165,7 +2217,10 @@ class GraphStateManager:
         try:
             async with self._driver.session(database=self._database) as session:
                 rows = await session.execute_read(
-                    self._read_rationale_entries_for_round_tx, cycle_id, round_num, limit,
+                    self._read_rationale_entries_for_round_tx,
+                    cycle_id,
+                    round_num,
+                    limit,
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(

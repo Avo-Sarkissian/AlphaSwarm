@@ -31,9 +31,7 @@ def _capture(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> dict[str, Any]
     return seen
 
 
-def test_context_fixture_reaches_the_handler(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_context_fixture_reaches_the_handler(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     path = tmp_path / "evt-001.json"
     path.write_text(PACKET.model_dump_json(), encoding="utf-8")
     seen = _capture(monkeypatch, ["run", RUMOR, "--context-fixture", str(path)])
@@ -51,9 +49,7 @@ def test_plain_run_passes_no_keywords(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize("content", [None, "{}"], ids=["missing", "not_a_packet"])
-def test_invalid_fixture_exits_2(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str | None
-) -> None:
+def test_invalid_fixture_exits_2(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str | None) -> None:
     """A bad fixture is a usage error while parsing: the run handler never starts."""
     path = tmp_path / "x.json"
     if content is not None:

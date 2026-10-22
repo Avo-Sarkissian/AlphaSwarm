@@ -128,14 +128,10 @@ def is_local_ollama(model: str, base_url: str | None) -> bool:
     return not is_cloud_ollama_model(model) and is_loopback_url(effective_ollama_host(base_url))
 
 
-AdvisoryBlockReason = Literal[
-    "cloud_provider", "role_base_url_remote", "cloud_model", "remote_host"
-]
+AdvisoryBlockReason = Literal["cloud_provider", "role_base_url_remote", "cloud_model", "remote_host"]
 
 
-def advisory_block_reason(
-    cfg: InferenceConfig, *, ollama_base_url: str | None
-) -> AdvisoryBlockReason | None:
+def advisory_block_reason(cfg: InferenceConfig, *, ollama_base_url: str | None) -> AdvisoryBlockReason | None:
     """Which check refuses the advisory, or None when it may run.
 
     Without the explicit ``allow_cloud_advisory`` opt-in, only a local Ollama
@@ -200,9 +196,7 @@ class BuiltProviders:
 # ---------------------------------------------------------------------------
 
 
-def _validate_cloud_role(
-    provider: ProviderType, model: str, api_key: str | None, base_url: str | None
-) -> None:
+def _validate_cloud_role(provider: ProviderType, model: str, api_key: str | None, base_url: str | None) -> None:
     """Raise ValueError with a clear message if cloud credentials are missing."""
     if not api_key:
         raise ValueError(

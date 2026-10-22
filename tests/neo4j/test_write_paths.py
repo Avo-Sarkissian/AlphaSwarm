@@ -20,19 +20,13 @@ pytestmark = pytest.mark.neo4j
 _RUMOR = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
 _EVENT = SeedEvent(
     raw_rumor=_RUMOR,
-    entities=[
-        SeedEntity(name="ZZZT Holdings", type=EntityType.COMPANY, relevance=0.95, sentiment=0.6)
-    ],
+    entities=[SeedEntity(name="ZZZT Holdings", type=EntityType.COMPANY, relevance=0.95, sentiment=0.6)],
     overall_sentiment=0.45,
 )
 
 
-def _decision(
-    signal: SignalType, cited: tuple[str, ...] = (), rationale: str = "r"
-) -> AgentDecision:
-    return AgentDecision(
-        signal=signal, confidence=0.5, sentiment=0.0, rationale=rationale, cited_agents=list(cited)
-    )
+def _decision(signal: SignalType, cited: tuple[str, ...] = (), rationale: str = "r") -> AgentDecision:
+    return AgentDecision(signal=signal, confidence=0.5, sentiment=0.0, rationale=rationale, cited_agents=list(cited))
 
 
 async def _rows(driver: AsyncDriver, query: str, **params: object) -> list[dict[str, object]]:
@@ -74,9 +68,7 @@ async def test_influence_edges_skip_self_citations_and_collapse_duplicates(
         ("sell_side_01", _decision(SignalType.HOLD)),
     ]
     await graph_manager_test.write_decisions(decisions, cycle_id, 2)
-    weights = await graph_manager_test.compute_influence_edges(
-        cycle_id, up_to_round=2, total_agents=3
-    )
+    weights = await graph_manager_test.compute_influence_edges(cycle_id, up_to_round=2, total_agents=3)
     assert weights == {"sell_side_01": pytest.approx(2 / 3)}
     rows = await _rows(
         neo4j_test_driver,
@@ -105,16 +97,10 @@ async def test_influence_edges_are_cumulative_and_stamped_per_round(
     graph_manager_test: GraphStateManager, neo4j_test_driver: AsyncDriver
 ) -> None:
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(_RUMOR, _EVENT, num_rounds=3)
-    await graph_manager_test.write_decisions(
-        [("quants_01", _decision(SignalType.BUY, ("macro_01",)))], cycle_id, 2
-    )
+    await graph_manager_test.write_decisions([("quants_01", _decision(SignalType.BUY, ("macro_01",)))], cycle_id, 2)
     await graph_manager_test.compute_influence_edges(cycle_id, up_to_round=2, total_agents=4)
-    await graph_manager_test.write_decisions(
-        [("degens_01", _decision(SignalType.SELL, ("macro_01",)))], cycle_id, 3
-    )
-    weights = await graph_manager_test.compute_influence_edges(
-        cycle_id, up_to_round=3, total_agents=4
-    )
+    await graph_manager_test.write_decisions([("degens_01", _decision(SignalType.SELL, ("macro_01",)))], cycle_id, 3)
+    weights = await graph_manager_test.compute_influence_edges(cycle_id, up_to_round=3, total_agents=4)
     assert weights == {"macro_01": pytest.approx(2 / 4)}
     rows = await _rows(
         neo4j_test_driver,
@@ -133,12 +119,8 @@ async def test_rationale_episodes_are_stamped_from_each_record(
     graph_manager_test: GraphStateManager, neo4j_test_driver: AsyncDriver
 ) -> None:
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(_RUMOR, _EVENT, num_rounds=3)
-    first = await graph_manager_test.write_decisions(
-        [("quants_01", _decision(SignalType.BUY))], cycle_id, 1
-    )
-    second = await graph_manager_test.write_decisions(
-        [("quants_01", _decision(SignalType.SELL))], cycle_id, 2
-    )
+    first = await graph_manager_test.write_decisions([("quants_01", _decision(SignalType.BUY))], cycle_id, 1)
+    second = await graph_manager_test.write_decisions([("quants_01", _decision(SignalType.SELL))], cycle_id, 2)
     records = [
         EpisodeRecord(first[0], "quants_01", "r", "", "none", 1, cycle_id),
         EpisodeRecord(second[0], "quants_01", "r", "peers", "buy_to_sell", 2, cycle_id),
@@ -166,9 +148,7 @@ async def test_narrative_edges_link_decisions_case_insensitively(
         cycle_id,
         1,
     )
-    record = EpisodeRecord(
-        ids[0], "quants_01", "zzzt holdings looks cheap", "", "none", 1, cycle_id
-    )
+    record = EpisodeRecord(ids[0], "quants_01", "zzzt holdings looks cheap", "", "none", 1, cycle_id)
     await graph_manager_test.write_narrative_edges([record], ["ZZZT Holdings"])
     rows = await _rows(
         neo4j_test_driver,

@@ -42,9 +42,7 @@ SEED_JSON = json.dumps(
         "overall_sentiment": 0.4,
     }
 )
-MODIFIERS_JSON = json.dumps(
-    {b.value: "Weigh the ZZZT Holdings and QQQX Robotics deal terms." for b in BracketType}
-)
+MODIFIERS_JSON = json.dumps({b.value: "Weigh the ZZZT Holdings and QQQX Robotics deal terms." for b in BracketType})
 
 
 def orchestrator(personas: Sequence[AgentPersona], script: Any = None) -> ScriptedProvider:

@@ -104,10 +104,7 @@ class InterviewEngine:
             "Round-by-Round Decisions:",
         ]
         for d in self._context.decisions:
-            lines.append(
-                f"Round {d.round_num}: Signal={d.signal}, "
-                f"Confidence={d.confidence}, Sentiment={d.sentiment}"
-            )
+            lines.append(f"Round {d.round_num}: Signal={d.signal}, Confidence={d.confidence}, Sentiment={d.sentiment}")
             lines.append(f"Rationale: {d.rationale}")
         return "\n".join(lines)
 
@@ -125,9 +122,7 @@ class InterviewEngine:
             {"role": "system", "content": self._build_context_block()},
         ]
         if self._summary is not None:
-            messages.append(
-                {"role": "system", "content": f"[Earlier: {self._summary}]"}
-            )
+            messages.append({"role": "system", "content": f"[Earlier: {self._summary}]"})
         messages.extend(self._history)
         return messages
 
@@ -163,8 +158,7 @@ class InterviewEngine:
             {
                 "role": "system",
                 "content": (
-                    "In one sentence, summarize what the user asked and "
-                    "what you said in the following exchange."
+                    "In one sentence, summarize what the user asked and what you said in the following exchange."
                 ),
             },
             {"role": "user", "content": dropped_user["content"]},

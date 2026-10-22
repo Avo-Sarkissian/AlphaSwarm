@@ -177,7 +177,9 @@ class ReportEngine:
             call_key = (action, input_json or "{}")
             if call_key in seen_calls:
                 self._log.warning(
-                    "react_duplicate_call", action=action, iteration=iteration,
+                    "react_duplicate_call",
+                    action=action,
+                    iteration=iteration,
                 )
                 break
             seen_calls.add(call_key)
@@ -339,12 +341,7 @@ class ReportAssembler:
         obs_by_tool: dict[str, ToolObservation] = {obs.tool_name: obs for obs in observations}
 
         now_iso = datetime.datetime.now(tz=datetime.UTC).isoformat()
-        header = (
-            f"# Post-Simulation Analysis Report\n\n"
-            f"**Cycle:** {cycle_id}\n"
-            f"**Generated:** {now_iso}\n\n"
-            f"---\n\n"
-        )
+        header = f"# Post-Simulation Analysis Report\n\n**Cycle:** {cycle_id}\n**Generated:** {now_iso}\n\n---\n\n"
 
         sections: list[str] = []
         for tool_name in SECTION_ORDER:

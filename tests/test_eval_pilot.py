@@ -29,16 +29,12 @@ def _rows(signal: str, count: int, rounds: tuple[int, ...] = (1, 2)) -> list[dic
 
 
 def test_pilot_takes_the_first_five_events_unless_named() -> None:
-    assert [e.event_id for e in pilot.pilot_events(EVENTS, ())] == [
-        f"evt-00{i}" for i in range(1, 6)
-    ]
+    assert [e.event_id for e in pilot.pilot_events(EVENTS, ())] == [f"evt-00{i}" for i in range(1, 6)]
     assert [e.event_id for e in pilot.pilot_events(EVENTS, ("evt-006",))] == ["evt-006"]
 
 
 def test_run_pilot_tops_up_to_three_repeats_and_stops_on_usage_errors(tmp_path: Path) -> None:
-    done = [
-        {"cycle_id": "c1", "seed_rumor": EVENTS[0].rumor, "num_rounds": 2, "overall_sentiment": 0.1}
-    ] * 2
+    done = [{"cycle_id": "c1", "seed_rumor": EVENTS[0].rumor, "num_rounds": 2, "overall_sentiment": 0.1}] * 2
     codes = iter([0, 0, 0, 2])
     calls: list[tuple[Sequence[str], Mapping[str, str]]] = []
 

@@ -117,9 +117,7 @@ def _local_models(cfg: InferenceConfig | None, request: Request) -> tuple[str, .
 
 async def _components(request: Request, cfg: InferenceConfig | None) -> dict[str, ComponentStatus]:
     state = request.app.state
-    cached: tuple[float, dict[str, ComponentStatus]] | None = getattr(
-        state, "health_components", None
-    )
+    cached: tuple[float, dict[str, ComponentStatus]] | None = getattr(state, "health_components", None)
     now = _clock()
     if cached is not None and now - cached[0] < COMPONENT_CACHE_TTL_S:
         return cached[1]

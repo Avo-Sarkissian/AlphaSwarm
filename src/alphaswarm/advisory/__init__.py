@@ -5,6 +5,7 @@ being alphaswarm.web.routes.holdings). Per importlinter source_modules list in
 pyproject.toml, alphaswarm.advisory is intentionally absent — making it allowed
 to depend on alphaswarm.holdings. Do NOT add alphaswarm.advisory to that list.
 """
+
 from alphaswarm.advisory.engine import synthesize
 from alphaswarm.advisory.types import AdvisoryItem, AdvisoryReport, Signal
 

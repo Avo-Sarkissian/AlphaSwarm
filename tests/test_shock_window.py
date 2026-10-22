@@ -33,9 +33,7 @@ def _keep_logging_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("alphaswarm.app.configure_logging", lambda **_: None)
 
 
-async def _running_manager(
-    phase: SimulationPhase, num_rounds: int = 3
-) -> tuple[SimulationManager, StateStore]:
+async def _running_manager(phase: SimulationPhase, num_rounds: int = 3) -> tuple[SimulationManager, StateStore]:
     store = StateStore()
     store.set_num_rounds(num_rounds)
     await store.set_phase(phase)

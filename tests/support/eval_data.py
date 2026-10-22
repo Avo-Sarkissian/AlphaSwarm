@@ -25,8 +25,7 @@ def make_event(index: int, *, when: datetime | None = None, **overrides: object)
         "event_id": f"evt-{index:03d}",
         "timestamp": timestamp.isoformat(),
         "rumor": (
-            f"{ticker} Holdings is reported to be exploring a sale of its robotics unit "
-            f"(fictional event {index})."
+            f"{ticker} Holdings is reported to be exploring a sale of its robotics unit (fictional event {index})."
         ),
         "primary_ticker": ticker,
         "benchmark": "SPY",
@@ -71,10 +70,7 @@ def alternating_series(move: float, *, days: Sequence[date] = PRICE_DAYS) -> lis
         closes.append(closes[-1] * (1.01 if i % 2 else 0.99))
     closes.append(closes[-1] * (1.0 + move))
     closes.extend([closes[-1]] * (len(days) - len(closes)))
-    return [
-        PricePoint(day=d, close=c, volume=1000 + i)
-        for i, (d, c) in enumerate(zip(days, closes, strict=True))
-    ]
+    return [PricePoint(day=d, close=c, volume=1000 + i) for i, (d, c) in enumerate(zip(days, closes, strict=True))]
 
 
 def flat_series(level: float = 100.0, *, days: Sequence[date] = PRICE_DAYS) -> list[PricePoint]:

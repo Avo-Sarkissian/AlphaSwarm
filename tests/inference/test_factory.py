@@ -383,9 +383,7 @@ class TestBuildControllerCloud:
     ],
     ids=["local", "mixed-local-orch", "mixed-cloud-orch", "cloud", "openai", "cloud-opted-in"],
 )
-def test_advisory_allowed(
-    orchestrator: RoleConfig, worker: RoleConfig, opt_in: bool, allowed: bool
-) -> None:
+def test_advisory_allowed(orchestrator: RoleConfig, worker: RoleConfig, opt_in: bool, allowed: bool) -> None:
     cfg = InferenceConfig(orchestrator=orchestrator, worker=worker, allow_cloud_advisory=opt_in)
     assert advisory_allowed(cfg, ollama_base_url=_LOCAL_OLLAMA) is allowed
 
@@ -533,9 +531,7 @@ def test_is_local_ollama_follows_ollama_host_when_base_url_is_empty(
 def test_advisory_allowed_treats_cloud_or_remote_ollama_as_cloud(
     orchestrator: RoleConfig, ollama_base_url: str, opt_in: bool, allowed: bool
 ) -> None:
-    cfg = InferenceConfig(
-        orchestrator=orchestrator, worker=_ollama_role(), allow_cloud_advisory=opt_in
-    )
+    cfg = InferenceConfig(orchestrator=orchestrator, worker=_ollama_role(), allow_cloud_advisory=opt_in)
     assert advisory_allowed(cfg, ollama_base_url=ollama_base_url) is allowed
 
 
@@ -564,8 +560,6 @@ def test_advisory_block_reason_names_the_failed_check(
     orchestrator: RoleConfig, ollama_base_url: str, opt_in: bool, reason: str | None
 ) -> None:
     """The reason goes into the refusal log, so the user knows which setting to fix."""
-    cfg = InferenceConfig(
-        orchestrator=orchestrator, worker=_ollama_role(), allow_cloud_advisory=opt_in
-    )
+    cfg = InferenceConfig(orchestrator=orchestrator, worker=_ollama_role(), allow_cloud_advisory=opt_in)
     assert advisory_block_reason(cfg, ollama_base_url=ollama_base_url) == reason
     assert advisory_allowed(cfg, ollama_base_url=ollama_base_url) is (reason is None)

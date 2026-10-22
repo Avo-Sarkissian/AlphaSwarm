@@ -111,17 +111,13 @@ def test_bracket_template_word_counts(all_brackets: list[BracketConfig]) -> None
     """Each bracket system_prompt_template is between 100 and 250 words."""
     for b in all_brackets:
         word_count = len(b.system_prompt_template.split())
-        assert 100 <= word_count <= 250, (
-            f"{b.bracket_type.value} template has {word_count} words, expected 100-250"
-        )
+        assert 100 <= word_count <= 250, f"{b.bracket_type.value} template has {word_count} words, expected 100-250"
 
 
 def test_bracket_templates_no_todo(all_brackets: list[BracketConfig]) -> None:
     """No system_prompt_template contains TODO markers."""
     for b in all_brackets:
-        assert "TODO" not in b.system_prompt_template, (
-            f"{b.bracket_type.value} template still contains TODO"
-        )
+        assert "TODO" not in b.system_prompt_template, f"{b.bracket_type.value} template still contains TODO"
 
 
 def test_json_output_instructions_fields() -> None:
@@ -129,9 +125,7 @@ def test_json_output_instructions_fields() -> None:
     from alphaswarm.config import JSON_OUTPUT_INSTRUCTIONS
 
     for field in ("signal", "confidence", "sentiment", "rationale", "cited_agents"):
-        assert field in JSON_OUTPUT_INSTRUCTIONS, (
-            f"JSON_OUTPUT_INSTRUCTIONS missing field: {field}"
-        )
+        assert field in JSON_OUTPUT_INSTRUCTIONS, f"JSON_OUTPUT_INSTRUCTIONS missing field: {field}"
 
 
 # --- Phase 13: sanitize_entity_name and modifier cap tests ---
@@ -339,9 +333,7 @@ def test_simulation_settings_env_override(monkeypatch: pytest.MonkeyPatch) -> No
         ("ALPHASWARM_SIMULATION__PEER_BUDGET_CHARS", "16001"),
     ],
 )
-def test_simulation_settings_rejects_out_of_range(
-    monkeypatch: pytest.MonkeyPatch, env_key: str, value: str
-) -> None:
+def test_simulation_settings_rejects_out_of_range(monkeypatch: pytest.MonkeyPatch, env_key: str, value: str) -> None:
     """A bad knob fails at settings load and the error names the field."""
     clear_alphaswarm_env(monkeypatch)
     monkeypatch.setenv(env_key, value)

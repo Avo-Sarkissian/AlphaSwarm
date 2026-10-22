@@ -51,7 +51,9 @@ class InterviewResponse(BaseModel):
 
 @router.post("/interview/{agent_id}", response_model=InterviewResponse)
 async def interview_agent(
-    agent_id: str, body: InterviewRequest, request: Request,
+    agent_id: str,
+    body: InterviewRequest,
+    request: Request,
 ) -> InterviewResponse:
     """Answer one interview turn in character.
 
@@ -65,7 +67,9 @@ async def interview_agent(
     graph = require_graph(app_state)
     if sim_manager.is_running:
         raise ApiError(
-            409, "simulation_running", "Interviews are unavailable while a simulation is running",
+            409,
+            "simulation_running",
+            "Interviews are unavailable while a simulation is running",
         )
     if body.cycle_id is not None:
         await require_complete_cycle(app_state, sim_manager, body.cycle_id)
@@ -92,7 +96,9 @@ async def interview_agent(
                 context = await graph.read_agent_interview_context(agent_id, cycle_id)
                 if context is None or not context.agent_name:
                     raise ApiError(
-                        404, "agent_not_found", f"No interview context for agent {agent_id}",
+                        404,
+                        "agent_not_found",
+                        f"No interview context for agent {agent_id}",
                     )
                 cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
                 built = build_providers(

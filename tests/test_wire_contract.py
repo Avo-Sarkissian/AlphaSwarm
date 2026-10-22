@@ -117,9 +117,7 @@ async def _live_store(clock: FrozenClock) -> StateStore:
     for agent_id, signal, confidence in ROUND_2:
         await store.update_agent_state(agent_id, signal, confidence)
     clock.wall += 5.0
-    await store.push_rationale(
-        RationaleEntry("shorts_02", SignalType.SELL, "Crowded long; fade the cascade", 2)
-    )
+    await store.push_rationale(RationaleEntry("shorts_02", SignalType.SELL, "Crowded long; fade the cascade", 2))
     await store.set_bracket_summaries(SUMMARIES)
     store.update_governor_metrics(GovernorMetrics(16, 12, "green", 58.0, "running", 1_500.0))
     store.record_data_source(source="yfinance", query="ZZZT 1d OHLCV", result="ok", used=True)
@@ -172,9 +170,7 @@ async def _failed_store(clock: FrozenClock) -> StateStore:
 
 async def test_live_frame_matches_golden(clock: FrozenClock) -> None:
     store = await _live_store(clock)
-    assert_golden_file(
-        FIXTURES / "ws_snapshot.json", _pretty(snapshot_to_json(store)), normalize_values=False
-    )
+    assert_golden_file(FIXTURES / "ws_snapshot.json", _pretty(snapshot_to_json(store)), normalize_values=False)
 
 
 def test_replay_frame_matches_golden(clock: FrozenClock) -> None:
@@ -204,6 +200,4 @@ def test_brackets_fixture_matches_default_brackets() -> None:
         }
         for b in DEFAULT_BRACKETS
     ]
-    assert_golden_file(
-        FIXTURES / "brackets.json", json.dumps(rows, indent=2), normalize_values=False
-    )
+    assert_golden_file(FIXTURES / "brackets.json", json.dumps(rows, indent=2), normalize_values=False)
