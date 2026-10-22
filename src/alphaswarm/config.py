@@ -158,6 +158,11 @@ class SimulationSettings(BaseModel):
     personal_boost: float = Field(default=0.3, ge=0.0, le=1.0)
     # Character budget of one reader's rendered peer block.
     peer_budget_chars: int = Field(default=4000, ge=500, le=16000)
+    # --- Experiment knobs, fast-track subset (docs/DECISIONS.md#adr-diverse-peer-context)
+    # Show each agent its own previous decision in Rounds 2..N.
+    own_prior_memory: bool = True
+    # Seeded share of each bracket that never sees peers (d.control).
+    control_fraction: float = Field(default=0.0, ge=0.0, le=0.5)
 
 
 # ---------------------------------------------------------------------------

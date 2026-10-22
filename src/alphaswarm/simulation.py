@@ -32,6 +32,7 @@ from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.manifest import current_git_revision
+from alphaswarm.metrics import split_flips
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
@@ -168,6 +169,101 @@ def peer_rng(run_seed: str, reader_id: str, round_num: int) -> random.Random:
     """
     digest = hashlib.blake2b(f"{run_seed}:{reader_id}:{round_num}".encode(), digest_size=8).digest()
     return random.Random(int.from_bytes(digest, "big"))
+
+
+CONTROL_SALT: Final = "control"
+_OWN_PRIOR_TRANSLATION: Final = str.maketrans({"<": None, ">": None, "[": "(", "]": ")", '"': "'"})
+
+
+def subset_size(count: int, fraction: float) -> int:
+    """Round-half-up share of a bracket; a bracket of two or more keeps one agent outside."""
+    if count < 2 or fraction <= 0.0:
+        return 0
+    return min(count - 1, math.floor(count * fraction + 0.5))
+
+
+def seeded_bracket_subset(
+    personas: Sequence[AgentPersona], *, fraction: float, run_seed: str, salt: str
+) -> frozenset[str]:
+    """A seeded sample of ``subset_size(count, fraction)`` agents from every bracket.
+
+    The draw depends only on ``(run_seed, salt, bracket)`` and the bracket's ids
+    (sorted), so it is the same in every round, every process and any roster
+    order (docs/DECISIONS.md#adr-diverse-peer-context).
+    """
+    by_bracket: dict[str, list[str]] = {}
+    for persona in personas:
+        by_bracket.setdefault(persona.bracket.value, []).append(persona.id)
+    chosen: set[str] = set()
+    for bracket, ids in by_bracket.items():
+        k = subset_size(len(ids), fraction)
+        if k == 0:
+            continue
+        digest = hashlib.blake2b(f"{run_seed}:{salt}:{bracket}".encode(), digest_size=8).digest()
+        chosen.update(random.Random(int.from_bytes(digest, "big")).sample(sorted(ids), k))
+    return frozenset(chosen)
+
+
+def select_control_ids(
+    personas: Sequence[AgentPersona], *, fraction: float, run_seed: str
+) -> frozenset[str]:
+    """Readers held out from peer context for the whole run (``d.control``)."""
+    return seeded_bracket_subset(personas, fraction=fraction, run_seed=run_seed, salt=CONTROL_SALT)
+
+
+def own_prior_line(decision: AgentDecision | None, source_round: int) -> str | None:
+    """The reader's own previous decision as one sanitized line, or None.
+
+    None for a missing or PARSE_ERROR decision, so a failure never appears as a
+    position. The rationale is model output: control characters go, whitespace
+    collapses into one line and the text is cut at 300 characters ("..." marks a
+    cut). Then "<"/">" are dropped and "[" "]" become "(" ")", so no fence tag or
+    [agent_id] token can be forged, and double quotes become single quotes, so a
+    quoted field stays unambiguous (docs/DECISIONS.md#adr-diverse-peer-context).
+    """
+    if decision is None or decision.signal == SignalType.PARSE_ERROR:
+        return None
+    head = (
+        f"Your Round {source_round} position: "
+        f"{decision.signal.value.upper()} (conf {decision.confidence:.2f})"
+    )
+    rationale = (
+        sanitize_rationale(decision.rationale, max_len=300)
+        .translate(_OWN_PRIOR_TRANSLATION)
+        .strip()
+    )
+    return f"{head}: {rationale}" if rationale else head
+
+
+def apply_holdout_and_priors(
+    personas: Sequence[AgentPersona],
+    contexts: Sequence[str | None],
+    exposures: Sequence[tuple[str, ...]],
+    prev_decisions: Sequence[tuple[str, AgentDecision]],
+    source_round: int,
+    *,
+    sim: SimulationSettings,
+    control_ids: frozenset[str],
+) -> tuple[list[str | None], list[tuple[str, ...]], list[str | None]]:
+    """Blank the holdout's peer contexts and exposures, and build own-prior lines.
+
+    Control readers get no peers but keep their own prior, so their flips
+    measure everything except peer influence (docs/DECISIONS.md#adr-diverse-peer-context).
+    """
+    prev_by_id = dict(prev_decisions)
+    blanked = [
+        None if p.id in control_ids else context
+        for p, context in zip(personas, contexts, strict=True)
+    ]
+    shown = [
+        () if p.id in control_ids else exposure
+        for p, exposure in zip(personas, exposures, strict=True)
+    ]
+    priors = [
+        own_prior_line(prev_by_id.get(p.id), source_round) if sim.own_prior_memory else None
+        for p in personas
+    ]
+    return blanked, shown, priors
 
 
 def _reach(weight: float) -> float:
@@ -591,7 +687,7 @@ def _peer_and_provenance_metrics(
     git_sha: str | None,
     git_dirty: bool | None,
 ) -> dict[str, float | int | str | bool]:
-    """Effective peer parameters and run provenance as flat cycle-metric keys.
+    """Effective peer parameters, experiment knobs and run provenance as flat cycle-metric keys.
 
     ``git_sha`` is "" when unknown. ``git_dirty`` is omitted when unknown,
     because a Neo4j property cannot hold null (docs/DECISIONS.md#adr-cycle-metrics).
@@ -604,6 +700,8 @@ def _peer_and_provenance_metrics(
         "peer_budget_chars": sim.peer_budget_chars,
         "peer_personal_boost": sim.personal_boost,
         "peer_seed_source": _PEER_SEED_SOURCE,
+        "own_prior_memory": sim.own_prior_memory,
+        "control_fraction": sim.control_fraction,
         "orchestrator_provider": _provider_label(orchestrator),
         "orchestrator_model": orchestrator.model,
         "worker_provider": _provider_label(worker),
@@ -1322,6 +1420,11 @@ async def run_simulation(
                     shock_length=len(shock_text_r2),
                 )
 
+        # Seeded no-peer holdout for the whole run (docs/DECISIONS.md#adr-diverse-peer-context).
+        control_ids = select_control_ids(
+            personas, fraction=settings.simulation.control_fraction, run_seed=cycle_id
+        )
+
         # Build bracket-diverse peer contexts from Round 1 decisions in memory
         # (docs/DECISIONS.md#sweep-3-3: replaces the global-authority read_ranked_posts
         # path that showed every agent the same top-10). READ_POST edge writes
@@ -1331,6 +1434,15 @@ async def run_simulation(
             personas, round1_result.agent_decisions, source_round=1,
             sim=settings.simulation,
             run_seed=cycle_id,
+        )
+        round2_peer_contexts, round2_exposures, round2_own_priors = apply_holdout_and_priors(
+            personas,
+            round2_peer_contexts,
+            round2_exposures,
+            round1_result.agent_decisions,
+            1,
+            sim=settings.simulation,
+            control_ids=control_ids,
         )
         exposure_metrics: dict[str, int] = compute_exposure_metrics(
             round2_exposures, personas, round_num=2,
@@ -1361,6 +1473,7 @@ async def run_simulation(
                 peer_contexts=round2_peer_contexts,
                 state_store=state_store,
                 round_num=2,
+                own_priors=round2_own_priors,
             )
             round2_decisions: list[tuple[str, AgentDecision]] = [
                 (wc["agent_id"], dec)
@@ -1379,7 +1492,7 @@ async def run_simulation(
                 2, round2_decisions, settings.governor.round_abort_failure_percent,
             )
             round2_ids = await graph_manager.write_decisions(
-                round2_decisions, cycle_id, round_num=2
+                round2_decisions, cycle_id, round_num=2, control_ids=control_ids
             )
 
             # Phase 12: Write Round 2 Post nodes (D-12 step 2)
@@ -1440,6 +1553,16 @@ async def run_simulation(
             # Compute Round 2 shifts in-memory (D-13)
             round2_shifts = _compute_shifts(
                 round1_result.agent_decisions, round2_decisions, personas,
+            )
+            r2_control_flips, r2_treated_flips = split_flips(
+                round1_result.agent_decisions, round2_decisions, control_ids
+            )
+            exposure_metrics.update(
+                {
+                    "r2_control_agents": len(control_ids),
+                    "r2_flips_control": r2_control_flips,
+                    "r2_flips_treated": r2_treated_flips,
+                }
             )
 
             # Fire callback for Round 2 (progressive output)
@@ -1504,6 +1627,19 @@ async def run_simulation(
                     run_seed=cycle_id,
                     global_citation_weights=round2_weights,
                 )
+                (
+                    round3_peer_contexts,
+                    round3_exposures,
+                    round3_own_priors,
+                ) = apply_holdout_and_priors(
+                    personas,
+                    round3_peer_contexts,
+                    round3_exposures,
+                    round2_decisions,
+                    2,
+                    sim=settings.simulation,
+                    control_ids=control_ids,
+                )
                 exposure_metrics.update(
                     compute_exposure_metrics(round3_exposures, personas, round_num=3)
                 )
@@ -1528,6 +1664,7 @@ async def run_simulation(
                     peer_contexts=round3_peer_contexts,
                     state_store=state_store,
                     round_num=3,
+                    own_priors=round3_own_priors,
                 )
                 round3_decisions: list[tuple[str, AgentDecision]] = [
                     (wc["agent_id"], dec)
@@ -1545,7 +1682,7 @@ async def run_simulation(
                     3, round3_decisions, settings.governor.round_abort_failure_percent,
                 )
                 round3_ids = await graph_manager.write_decisions(
-                    round3_decisions, cycle_id, round_num=3
+                    round3_decisions, cycle_id, round_num=3, control_ids=control_ids
                 )
 
                 # Phase 12: Write Round 3 Post nodes
@@ -1615,6 +1752,16 @@ async def run_simulation(
                 # Compute Round 3 shifts in-memory (D-13)
                 round3_shifts = _compute_shifts(
                     round2_decisions, round3_decisions, personas,
+                )
+                r3_control_flips, r3_treated_flips = split_flips(
+                    round2_decisions, round3_decisions, control_ids
+                )
+                exposure_metrics.update(
+                    {
+                        "r3_control_agents": len(control_ids),
+                        "r3_flips_control": r3_control_flips,
+                        "r3_flips_treated": r3_treated_flips,
+                    }
                 )
 
                 # Fire callback for Round 3 (progressive output)

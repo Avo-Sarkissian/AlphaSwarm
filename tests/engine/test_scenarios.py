@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -31,6 +32,9 @@ THREE_ROUND_PHASES = [
 ]
 TWO_ROUND_PHASES = [p for p in THREE_ROUND_PHASES if p is not SimulationPhase.ROUND_3]
 SHOCK_SUFFIX = f"\n\n[MARKET SHOCK]: {SCENARIO_SHOCK_TEXT}"
+# Rounds 2-3 prefix the reader's own prior; its presence and position are pinned in
+# tests/engine/test_fast_track_rounds.py (docs/DECISIONS.md#adr-diverse-peer-context).
+OWN_PRIOR_PREFIX = re.compile(r"^Your Round \d+ position: [^\n]*\n\n")
 
 
 def _metrics(fake_graph: MagicMock) -> dict[str, object]:
@@ -38,7 +42,10 @@ def _metrics(fake_graph: MagicMock) -> dict[str, object]:
 
 
 def _user_messages(worker: ScriptedProvider, round_num: int) -> set[str]:
-    return {c.messages[-1]["content"] for c in round_calls(worker, round_num)}
+    return {
+        OWN_PRIOR_PREFIX.sub("", c.messages[-1]["content"], count=1)
+        for c in round_calls(worker, round_num)
+    }
 
 
 def _summary(

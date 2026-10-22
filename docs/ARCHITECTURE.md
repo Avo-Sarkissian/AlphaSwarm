@@ -30,7 +30,8 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `errors.py`: exception types.
 - **Engine**
   - `seed.py`: `inject_seed`. The orchestrator parses the seed, then one atomic write creates the Cycle and its Entities, then persona modifiers are generated.
-  - `simulation.py`: `run_simulation`, `run_round1`, peer selection, shifts, bracket summaries, narratives.
+  - `simulation.py`: `run_simulation`, `run_round1`, peer selection, the control holdout and own-prior lines, shifts, bracket summaries, narratives.
+  - `metrics.py`: pure measurement functions; `split_flips` splits a round's flips between the control holdout and the treated readers.
   - `batch_dispatcher.py`: `dispatch_wave`, a TaskGroup of 100 jittered inferences.
   - `worker.py`: `AgentWorker`, the decision JSON schema, and the fence for untrusted market data.
   - `parsing.py`: 3-tier parsers.
@@ -89,6 +90,8 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - `select_diverse_peers` samples peers by weight with a per-reader `peer_rng(cycle_id, reader, round)`: at least 4 brackets, at most 3 peers per bracket, shuffled display order;
    - the builder returns each reader's rendered peer ids, which `run_simulation` stamps on the Cycle as `r{n}_exposure_*` metrics next to the run provenance (models, provider mode, git SHA).
 
+   Each reader's user message then starts with its own previous decision (`own_prior_memory`, default on), and the seeded control holdout (`control_fraction`, default 0.0, so nobody) loses its peer context before the exposure metrics are counted; holdout decisions are stored with `d.control = true`, and the cycle metrics split the round's flips into control and treated.
+
    The round is then dispatched, checked against the same round-abort rule, and persisted, and `compute_influence_edges` writes `INFLUENCED_BY {round, weight}`.
 6. **Finalize.**
    - The phase becomes FINALIZING.
@@ -111,7 +114,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 (:Agent {id, name, bracket, risk_profile, temperature, influence_weight_base, decision_narrative})
 (:Cycle {cycle_id, seed_rumor, overall_sentiment, created_at, num_rounds, <metrics>, metrics_recorded_at})
     -[:MENTIONS {relevance, sentiment}]->(:Entity {name, type})
-(:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment, rationale})-[:FOR]->(:Cycle)
+(:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment, rationale, control})-[:FOR]->(:Cycle)
 (:Decision)-[:CITED]->(:Agent)
 (:Decision)-[:HAS_EPISODE]->(:RationaleEpisode {rationale, peer_context_received, flip_type, round, cycle_id})
 (:Decision)-[:REFERENCES]->(:Entity)

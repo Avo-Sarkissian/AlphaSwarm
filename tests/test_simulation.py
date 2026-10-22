@@ -3491,10 +3491,14 @@ async def test_run_simulation_through_dispatch_wave(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        *,
+        own_prior: str | None = None,
     ) -> AgentDecision:
         """Mirror AgentWorker.infer message construction so we can assert on
         the same messages list the real worker would send to ollama_client.chat.
         """
+        if own_prior:
+            user_message = f"{own_prior}\n\n{user_message}"
         messages: list[dict[str, str]] = [
             {"role": "system", "content": "test-persona-prompt"},
         ]
@@ -3659,7 +3663,13 @@ _EXPOSURE_KEYS_TEST_BRACKETS: frozenset[str] = frozenset(
     | {"r2_distinct_peers_shown", "r3_distinct_peers_shown"}
 )
 
-# Peer parameters and run provenance stamped on every cycle (docs/DECISIONS.md#adr-cycle-metrics).
+# Control-holdout size and flip split, rounds 2-3 (docs/DECISIONS.md#adr-diverse-peer-context).
+_CONTROL_KEYS: frozenset[str] = frozenset(
+    f"r{n}_{kind}" for n in (2, 3) for kind in ("control_agents", "flips_control", "flips_treated")
+)
+
+# Peer parameters, experiment knobs and run provenance stamped on every cycle
+# (docs/DECISIONS.md#adr-cycle-metrics).
 _PROVENANCE_KEYS: frozenset[str] = frozenset(
     {
         "peer_selection_version",
@@ -3669,6 +3679,8 @@ _PROVENANCE_KEYS: frozenset[str] = frozenset(
         "peer_budget_chars",
         "peer_personal_boost",
         "peer_seed_source",
+        "own_prior_memory",
+        "control_fraction",
         "orchestrator_provider",
         "orchestrator_model",
         "worker_provider",
@@ -3722,7 +3734,9 @@ async def test_run_simulation_writes_cycle_metrics(
         "r1_inference_errors", "r2_inference_errors", "r3_inference_errors",
         "final_round",
     }
-    assert set(metrics.keys()) == expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS | _PROVENANCE_KEYS
+    assert set(metrics.keys()) == (
+        expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS | _CONTROL_KEYS | _PROVENANCE_KEYS
+    )
     # All values are flat scalars (Neo4j property constraint)
     assert all(isinstance(v, (int, float, str, bool)) for v in metrics.values())
     assert metrics["agent_count"] == len(TEST_PERSONAS)

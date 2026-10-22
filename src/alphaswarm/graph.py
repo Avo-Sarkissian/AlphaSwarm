@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, cast, get_args
@@ -582,6 +582,7 @@ class GraphStateManager:
         round_num: int,
         *,
         decision_ids: list[str] | None = None,
+        control_ids: Collection[str] = (),
     ) -> list[str]:
         """Batch-write agent decisions via UNWIND. Per D-08, D-01, D-03.
 
@@ -594,6 +595,9 @@ class GraphStateManager:
                 internally (backward compatible). Pre-generating IDs allows the caller
                 to pass the same IDs to WriteBuffer.push() before Decision nodes exist
                 in Neo4j.
+            control_ids: Agents in the seeded no-peer holdout; their decisions get
+                d.control = true, every other decision false
+                (docs/DECISIONS.md#adr-diverse-peer-context).
 
         Returns:
             list[str]: The decision_id strings for each decision written.
@@ -604,6 +608,7 @@ class GraphStateManager:
                 f"decision_ids length {len(decision_ids)} != agent_decisions length {len(agent_decisions)}"
             )
         ids = decision_ids if decision_ids is not None else [str(uuid.uuid4()) for _ in agent_decisions]
+        control_set = frozenset(control_ids)
         params = [
             {
                 "decision_id": did,
@@ -613,6 +618,7 @@ class GraphStateManager:
                 "sentiment": decision.sentiment,
                 "rationale": decision.rationale,
                 "cited_agents": list(decision.cited_agents),
+                "control": agent_id in control_set,
             }
             for did, (agent_id, decision) in zip(ids, agent_decisions)
         ]
@@ -670,7 +676,8 @@ class GraphStateManager:
                 signal: d.signal,
                 confidence: d.confidence,
                 sentiment: d.sentiment,
-                rationale: d.rationale
+                rationale: d.rationale,
+                control: d.control
             })
             CREATE (a)-[:MADE]->(dec)
             CREATE (dec)-[:FOR]->(c)

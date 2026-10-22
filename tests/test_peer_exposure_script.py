@@ -123,6 +123,32 @@ def test_balanced_feed_passes_both_rounds(peer_exposure: ModuleType) -> None:
     assert peer_exposure.format_round(rounds[1], markdown=False).endswith("PASS")
 
 
+def test_readers_share_leaves_the_control_holdout_out(peer_exposure: ModuleType) -> None:
+    """Control readers never see peers, so readers % divides by the readers shown peers."""
+    props = _balanced_props(peer_exposure.BRACKETS)
+    props["r2_readers_seeing_allocators"] = 13
+    props["r2_control_agents"] = 20
+
+    (r2,) = peer_exposure.exposure_rounds(props, {})
+
+    allocators = next(r for r in r2.rows if r.bracket == "allocators")
+    assert r2.reader_share(allocators) == pytest.approx(13 / 80)
+    assert r2.passes() is True  # 16% of the 80 readers with a feed, not 13% of all 100
+    text = peer_exposure.format_round(r2, markdown=True)
+    assert "| allocators | 100 | 20.0 | 10.0% | 16% | 0.0% |" in text
+    assert "min readers 16% (limit 15%; 20 control readers excluded) -> PASS" in text
+
+
+def test_without_a_holdout_every_reader_counts(peer_exposure: ModuleType) -> None:
+    props = _balanced_props(peer_exposure.BRACKETS)
+    props["r2_control_agents"] = 0
+
+    (r2,) = peer_exposure.exposure_rounds(props, {})
+
+    assert r2.reader_share(r2.rows[0]) == pytest.approx(0.6)
+    assert "min readers 60% (limit 15%) -> PASS" in peer_exposure.format_round(r2, markdown=False)
+
+
 def test_cycle_without_exposure_keys_has_no_rounds(peer_exposure: ModuleType) -> None:
     assert peer_exposure.exposure_rounds({"agent_count": 100}, {}) == []
 

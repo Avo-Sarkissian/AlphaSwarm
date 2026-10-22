@@ -5,7 +5,9 @@ metric keys that run_simulation stamps on the Cycle node, adds CITED counts
 per bracket, prints the cycle's effective peer knobs (so a before/after pair
 shows it shared one configuration), and checks the exposure invariant from
 docs/DECISIONS.md#adr-diverse-peer-context: no bracket above 35% of a round's
-peer slots, and every bracket seen by at least 15% of readers.
+peer slots, and every bracket seen by at least 15% of readers. Readers % counts
+only the readers who could be shown peers: a cycle's seeded control holdout
+(r{n}_control_agents) never is, so it is left out of the denominator.
 
 Usage:
     uv run python scripts/peer_exposure.py --cycle <cycle_id> [--cycle <cycle_id> ...]
@@ -54,6 +56,12 @@ class RoundExposure:
     agent_count: int
     distinct_peers: int
     rows: tuple[BracketExposure, ...]
+    control_agents: int = 0
+
+    @property
+    def peer_readers(self) -> int:
+        """Readers who could be shown peers; the seeded control holdout never is."""
+        return self.agent_count - self.control_agents
 
     @property
     def total_slots(self) -> int:
@@ -67,7 +75,7 @@ class RoundExposure:
         return row.slots / self.total_slots if self.total_slots else 0.0
 
     def reader_share(self, row: BracketExposure) -> float:
-        return row.readers / self.agent_count if self.agent_count else 0.0
+        return row.readers / self.peer_readers if self.peer_readers > 0 else 0.0
 
     def citation_share(self, row: BracketExposure) -> float:
         return row.citations / self.total_citations if self.total_citations else 0.0
@@ -105,6 +113,7 @@ def exposure_rounds(
                 agent_count=agent_count,
                 distinct_peers=int(props[f"r{n}_distinct_peers_shown"]),
                 rows=rows,
+                control_agents=int(props.get(f"r{n}_control_agents") or 0),
             )
         )
     return rounds
@@ -126,10 +135,11 @@ def format_round(rnd: RoundExposure, *, markdown: bool) -> str:
     ]
     max_slots = max(rnd.slot_share(r) for r in rnd.rows)
     min_readers = min(rnd.reader_share(r) for r in rnd.rows)
+    holdout = f"; {rnd.control_agents} control readers excluded" if rnd.control_agents else ""
     verdict = (
         f"R{rnd.round_num}: distinct peers shown {rnd.distinct_peers}/{rnd.agent_count}; "
         f"max slot share {max_slots:.1%} (limit {MAX_SLOT_SHARE:.0%}); "
-        f"min readers {min_readers:.0%} (limit {MIN_READER_SHARE:.0%}) -> "
+        f"min readers {min_readers:.0%} (limit {MIN_READER_SHARE:.0%}{holdout}) -> "
         f"{'PASS' if rnd.passes() else 'FAIL'}"
     )
     if markdown:

@@ -135,6 +135,8 @@ class AgentWorker:
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        *,
+        own_prior: str | None = None,
     ) -> AgentDecision:
         """Run inference for this agent and return a parsed AgentDecision.
 
@@ -151,10 +153,19 @@ class AgentWorker:
                 NOT a system message. It is fenced into the user message and
                 announced by the fixed MARKET_CONTEXT_GUARD system message,
                 which keeps the Phase 40 D-04 ordering (market before peer).
+            own_prior: This agent's previous decision as one sanitized line
+                ("Your Round N position: ..."). It is model output, so it goes into
+                the user message before the rumor, never into a system message
+                (docs/DECISIONS.md#adr-diverse-peer-context).
 
         Returns:
             AgentDecision -- always returns, never raises (parse fallback).
         """
+        if own_prior:
+            # Own prior travels with the user message: after any fenced market block,
+            # before the rumor.
+            user_message = f"{own_prior}\n\n{user_message}"
+
         from alphaswarm.inference.types import InferenceMessage
 
         messages: list[InferenceMessage] = [
