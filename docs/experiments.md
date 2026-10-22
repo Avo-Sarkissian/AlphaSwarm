@@ -4,10 +4,14 @@ The results log: every number the project quotes, with the command or record it 
 
 ## Headline numbers (v6.0)
 
-The numbers the README, the CHANGELOG and the résumé bullets in [HISTORY.md](HISTORY.md)
-quote. Each row links to the table it came from. `uv run python scripts/docs_sync.py write`
-copies them and `tests/test_docs_sync.py` fails when a copy is out of date. A value of
-`not measured` means the measurement was not run; it is shown as such, never estimated.
+The one place a measured number is written; each row links to the table it came from. The
+README, the CHANGELOG and the résumé bullets in [HISTORY.md](HISTORY.md) quote these rows
+only through generated blocks, which `uv run python scripts/docs_sync.py write` fills and
+`docs_sync.py check` compares ([why](DECISIONS.md#adr-docs-sync)). None of those blocks
+exists yet, so no document carries a generated copy today; until they all exist, along with
+`docs/media/captures.json`, both commands stop with exit status 2 and change nothing. A
+value of `not measured` means the measurement was not run; it is shown as such, never
+estimated.
 Rows whose source is plain text have no results table yet. Method and pre-registered
 metrics: `methodology.md` (not written yet).
 
