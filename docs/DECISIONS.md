@@ -344,7 +344,7 @@ Contents
 - **Decision:**
   - Prefetch swarm data in parallel, then make one orchestrator call ([p41-d-04](#p41-d-04), [p41-d-05](#p41-d-05)).
   - Relevance scoring uses a curated ticker→sector map plus an entity-impact join (F-07, F-28).
-  - The LLM receives only the top 15 holdings by relevance (`advisory/engine.py:173`). Every other holding is padded server-side as HOLD@0.30 (SWEEP B-7), so items[] has exactly one entry per holding.
+  - The LLM receives only the top 15 held tickers by relevance, one entry per ticker with sector tags; quantities and cost basis stay server-side (2026-10, [p41-d-05](#p41-d-05)). Every other holding is padded server-side as HOLD@0.30 (SWEEP B-7), so items[] has exactly one entry per holding.
   - Unknown tickers default to `macro_beta` 0.5 (SWEEP B-8).
   - Ranking: confidence × exposure / total basis.
   - Output goes to `advisory/{cycle_id}_advisory.json`, served by a 202 + polling + done-callback API.
@@ -741,7 +741,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 |---|---|---|---|
 | <a id="p41-d-03"></a>`D-03` | Original: the orchestrator decides which holdings are affected and omits the rest. Superseded by one item per holding with server-side HOLD padding (260512-jqn ITEM 6, SWEEP B-7). | superseded | tests/unit/test_advisory.py:227 |
 | <a id="p41-d-04"></a>`D-04` | Prefetch all swarm data from Neo4j in parallel (asyncio.gather) before the single LLM call. | active | advisory/engine.py:111 |
-| <a id="p41-d-05"></a>`D-05` | One orchestrator call with swarm data plus holdings (ticker, qty, cost basis); this is the sanctioned place holdings enter a prompt. | active | tests/invariants/test_holdings_isolation.py:21,163,172,193,200 |
+| <a id="p41-d-05"></a>`D-05` | One orchestrator call with swarm data plus the held tickers; this is the only place holdings enter a prompt. Since 2026-10 the prompt gets one entry per ticker with sector tags, never quantities, cost basis or account data; the engine adds the cost-basis exposure afterwards. | partial | advisory/engine.py (`_ticker_entries`); tests/invariants/test_holdings_isolation.py (rendered-prompt canary) |
 | <a id="p41-d-06"></a>`D-06` | AdvisoryItem schema (ticker, consensus_signal, confidence, rationale_summary, position_exposure). | active | advisory/prompt.py:84; advisory/types.py:17 |
 | <a id="p41-d-07"></a>`D-07` | Rank by confidence x (exposure / total cost basis); denominator must be positive (F-29). | active | advisory/engine.py:142,262 |
 | <a id="p41-d-08"></a>`D-08` | Route owns orchestrator load/unload in try/finally; advisory never runs concurrently with report generation (bidirectional 409). | active | advisory/engine.py:6; web/app.py:105; web/routes/advisory.py:106,323 |

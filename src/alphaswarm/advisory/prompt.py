@@ -1,7 +1,8 @@
 """Advisory LLM prompt builder — pure function, no I/O, mypy-strict-friendly.
 
 Pitfall 1 mitigation: the builder NEVER accepts a PortfolioSnapshot directly.
-Callers MUST pre-serialize to minimal dicts (ticker/qty/cost_basis as strings).
+Callers pass one dict per held ticker (the ticker plus sector tags); quantities
+and cost basis never reach the prompt (docs/DECISIONS.md#p41-d-05).
 Pitfall 2 mitigation: all Decimal values arrive as strings; this module never
 invokes json.dumps over raw Decimal.
 """
@@ -30,7 +31,7 @@ SCHEMA:
       "consensus_signal": "BUY" | "SELL" | "HOLD",
       "confidence": number in [0.0, 1.0],
       "rationale_summary": string (1-2 sentences),
-      "position_exposure": string (Decimal cost_basis for this holding)
+      "position_exposure": "0"                // always "0"; the engine fills in the real exposure
     }
   ],
   "total_holdings": integer (count of holdings supplied),
@@ -48,6 +49,9 @@ prompt tokens for the conviction cases you DO have something to say about.
 `total_holdings` will be overwritten by the engine to match the full
 portfolio count; emit whatever — it will be replaced.
 
+The portfolio block lists the held tickers with sector tags only; quantities and
+cost basis are never shared with you, so do not guess them.
+
 DO NOT output markdown, commentary, or fields outside this schema. Only return
 the JSON object."""
 
@@ -56,11 +60,11 @@ _WORKED_EXAMPLE = """EXAMPLE (shape only — use the real data below for the act
 {
   "cycle_id": "abc12345",
   "generated_at": "2026-04-19T22:00:00+00:00",
-  "portfolio_outlook": "The swarm converged BUY on AI infrastructure... ...",
+  "portfolio_outlook": "The swarm converged BUY on industrial automation... ...",
   "items": [
-    {"ticker": "NVDA", "consensus_signal": "BUY", "confidence": 0.82,
-     "rationale_summary": "Data-center demand reiterated across Quants and Sell-Side.",
-     "position_exposure": "12500.00"}
+    {"ticker": "ZZZT", "consensus_signal": "BUY", "confidence": 0.82,
+     "rationale_summary": "Order-book strength reiterated across Quants and Sell-Side.",
+     "position_exposure": "0"}
   ],
   "total_holdings": 7,
   "affected_holdings": 1

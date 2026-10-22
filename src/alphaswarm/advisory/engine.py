@@ -88,6 +88,19 @@ def _enrich_holdings(
     return enriched
 
 
+def _ticker_entries(portfolio: PortfolioSnapshot) -> list[dict[str, str]]:
+    """One prompt entry per unique held ticker (lots aggregated), first-seen order.
+
+    Only the ticker reaches the LLM: quantities, cost basis and account data stay
+    server-side (docs/DECISIONS.md#p41-d-05). The display casing is the first
+    lot's, matching how the padded HOLD items are labelled.
+    """
+    display_by_ticker: dict[str, str] = {}
+    for holding in portfolio.holdings:
+        display_by_ticker.setdefault(holding.ticker.upper(), holding.ticker)
+    return [{"ticker": display} for display in display_by_ticker.values()]
+
+
 async def synthesize(
     *,
     cycle_id: str,
@@ -126,15 +139,6 @@ async def synthesize(
         except Exception:  # noqa: BLE001 - defensive; synthesize still runs without seed text
             log.warning("advisory_seed_fetch_failed", cycle_id=cycle_id)
 
-    # Pitfall 1+2: minimal dict serialization. Never pass the snapshot or account hash.
-    holdings_context: list[dict[str, str]] = [
-        {
-            "ticker": h.ticker,
-            "qty": str(h.qty),
-            "cost_basis": str(h.cost_basis if h.cost_basis is not None else Decimal("0")),
-        }
-        for h in portfolio.holdings
-    ]
     _total_cb = sum(
         (h.cost_basis if h.cost_basis is not None else Decimal("0"))
         for h in portfolio.holdings
@@ -169,7 +173,7 @@ async def synthesize(
         if ticker not in entity_impacts or abs(impact) > abs(entity_impacts[ticker]):
             entity_impacts[ticker] = impact
 
-    enriched = _enrich_holdings(holdings_context, entity_impacts, seed_rumor)
+    enriched = _enrich_holdings(_ticker_entries(portfolio), entity_impacts, seed_rumor)
     top_holdings = enriched[:15]
     # docs/DECISIONS.md#sweep-b-7: do NOT send rest holdings to the LLM. They're padded
     # server-side with HOLD@0.30 after the conviction items return. Saves
