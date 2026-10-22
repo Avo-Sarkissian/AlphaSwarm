@@ -54,7 +54,9 @@ def test_report_sentinel_and_missing_template_mapping_are_gone() -> None:
     import alphaswarm.report as report
 
     assert not hasattr(report, "write_sentinel"), "nothing reads .alphaswarm/last_report.json"
-    assert "portfolio_impact" not in report.TOOL_TO_TEMPLATE, "10_portfolio_impact.j2 never existed"
+    assert "portfolio_impact" not in report.TOOL_TO_TEMPLATE, (
+        "10_portfolio_impact.j2 was deleted in 2026-04 and never restored"
+    )
     assert "portfolio_impact" not in report.SECTION_ORDER
 
 
