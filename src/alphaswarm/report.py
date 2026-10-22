@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import aiofiles
 import structlog
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 if TYPE_CHECKING:
     from alphaswarm.inference.provider import InferenceProvider
@@ -31,13 +31,13 @@ You are a post-simulation market analysis agent. Your task is to query the \
 simulation graph and produce a comprehensive structured analysis report.
 
 Available tools:
-- bracket_summary: Get global BUY/SELL/HOLD breakdown for Round 3
-- round_timeline: Get signal distribution per round (rounds 1-3)
-- bracket_narratives: Get per-bracket stance summary for Round 3
-- key_dissenters: Find agents whose signal diverges from bracket majority in Round 3
-- influence_leaders: Get top agents by INFLUENCED_BY edge weight
+- bracket_summary: Get the global BUY/SELL/HOLD/PARSE_ERROR breakdown for the final round
+- round_timeline: Get the signal distribution for every round that ran
+- bracket_narratives: Get the per-bracket stance summary for the final round
+- key_dissenters: Find agents whose final-round signal diverges from their bracket majority
+- influence_leaders: Get the most-cited agents in the final round, with influence share
 - signal_flip_analysis: Get agents who changed position between rounds
-- entity_impact: Get per-entity sentiment aggregation
+- entity_impact: Get per-entity sentiment aggregation for the final round
 - social_post_reach: Get top posts by READ_POST edge count
 - FINAL_ANSWER: Signal that you have gathered enough data and are done
 
@@ -228,6 +228,31 @@ class ReportEngine:
 
 TEMPLATE_DIR = Path(__file__).parent / "templates" / "report"
 
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def md_cell(value: object) -> str:
+    """Make free text safe for one markdown table cell.
+
+    Collapses every whitespace run (including newlines) to one space and
+    escapes backslashes and pipes, so a shock text or entity name can never
+    split a row. None renders as an empty string.
+    """
+    if value is None:
+        return ""
+    text = _WHITESPACE_RE.sub(" ", str(value)).strip()
+    return text.replace("\\", "\\\\").replace("|", "\\|")
+
+
+def num(value: object, digits: int = 2) -> str:
+    """Fixed-digit number for report cells; None renders as an em dash."""
+    if value is None:
+        return "—"
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"num filter expects a number, got {type(value).__name__}")
+    return f"{float(value):.{digits}f}"
+
+
 TOOL_TO_TEMPLATE: dict[str, str] = {
     "bracket_summary": "01_consensus_summary.j2",
     "round_timeline": "02_round_timeline.j2",
@@ -266,10 +291,16 @@ class ReportAssembler:
     def __init__(self) -> None:
         self._env = Environment(
             loader=FileSystemLoader(str(TEMPLATE_DIR)),
-            autoescape=False,  # markdown output, not HTML (per RESEARCH anti-pattern note)
+            autoescape=False,  # markdown output, not HTML
             trim_blocks=True,
             lstrip_blocks=True,
+            # A template that reads a key the row does not have must fail the
+            # report instead of rendering a blank column
+            # (docs/DECISIONS.md#adr-report-react).
+            undefined=StrictUndefined,
         )
+        self._env.filters["md_cell"] = md_cell
+        self._env.filters["num"] = num
 
     def render_section(
         self,

@@ -350,13 +350,37 @@ async def graph_manager_test(
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def seeded_cycle(neo4j_test_driver: AsyncDriver) -> SeededCycle:
+async def seeded_cycle_2r(neo4j_test_driver: AsyncDriver) -> SeededCycle:
+    """Two-round twin of `seeded_cycle`.
+
+    Built before the 3-round cycle (see `seeded_cycle`), so every neo4j session
+    holds the same two protected cycles and the 3-round one stays the newest.
+    """
+    from alphaswarm.graph import GraphStateManager
+    from tests.support.seed_builder import build_seeded_cycle
+
+    gm = GraphStateManager(
+        driver=neo4j_test_driver,
+        personas=generate_personas(load_bracket_configs()),
+        database=NEO4J_TEST_DATABASE,
+    )
+    await gm.ensure_schema()
+    seeded = await build_seeded_cycle(gm, num_rounds=2)
+    NEO4J_PROTECTED_CYCLES.add(seeded.cycle_id)
+    return seeded
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def seeded_cycle(
+    neo4j_test_driver: AsyncDriver, seeded_cycle_2r: SeededCycle
+) -> SeededCycle:
     """Session-scoped 3-round cycle in neo4j-test, written through the real write API.
 
     Built once (deterministic content, see tests/support/seed_builder.py) and protected
     from graph_manager_test's function-scoped cleanup. neo4j_test_driver's session teardown
     wipes the throwaway database afterwards.
     """
+    _ = seeded_cycle_2r  # build order: the 2-round twin first, so cycle listings are deterministic
     from alphaswarm.graph import GraphStateManager
     from tests.support.seed_builder import build_seeded_cycle
 

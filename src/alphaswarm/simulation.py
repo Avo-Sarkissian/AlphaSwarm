@@ -1642,7 +1642,8 @@ async def _generate_decision_narratives(
         if not rounds:
             return None
 
-        # Build prompt summarizing 3-round arc
+        # Build a prompt summarizing the arc over the rounds that ran
+        # (docs/DECISIONS.md#adr-num-rounds)
         lines = [
             f"Agent: {persona.name} ({persona.bracket.value})",
             f"Risk profile: {persona.risk_profile}",
@@ -1664,7 +1665,7 @@ async def _generate_decision_narratives(
                 lines.append(f"  Cited: {', '.join(dec.cited_agents)}")
 
         prompt = (
-            "Summarize this agent's 3-round decision arc in 2-3 sentences. "
+            f"Summarize this agent's {len(rounds)}-round decision arc in 2-3 sentences. "
             "Note any signal changes and key influences. Be concise.\n\n"
             + "\n".join(lines)
         )

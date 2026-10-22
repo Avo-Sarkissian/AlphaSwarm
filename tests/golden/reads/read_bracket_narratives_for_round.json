@@ -1,0 +1,278 @@
+{
+  "round_1": [
+    {
+      "avg_confidence": 0.625929,
+      "avg_sentiment": -0.122857,
+      "bracket": "algos",
+      "buy_count": 1,
+      "hold_count": 3,
+      "sell_count": 3,
+      "total": 7
+    },
+    {
+      "avg_confidence": 0.6978,
+      "avg_sentiment": -0.004,
+      "bracket": "allocators",
+      "buy_count": 1,
+      "hold_count": 2,
+      "sell_count": 2,
+      "total": 5
+    },
+    {
+      "avg_confidence": 0.61525,
+      "avg_sentiment": 0.097857,
+      "bracket": "degens",
+      "buy_count": 5,
+      "hold_count": 4,
+      "sell_count": 5,
+      "total": 14
+    },
+    {
+      "avg_confidence": 0.66075,
+      "avg_sentiment": 0.057,
+      "bracket": "event_driven",
+      "buy_count": 4,
+      "hold_count": 3,
+      "sell_count": 3,
+      "total": 10
+    },
+    {
+      "avg_confidence": 0.539056,
+      "avg_sentiment": -0.012778,
+      "bracket": "institutions",
+      "buy_count": 6,
+      "hold_count": 6,
+      "sell_count": 6,
+      "total": 18
+    },
+    {
+      "avg_confidence": 0.672357,
+      "avg_sentiment": 0.031429,
+      "bracket": "macro",
+      "buy_count": 2,
+      "hold_count": 3,
+      "sell_count": 2,
+      "total": 7
+    },
+    {
+      "avg_confidence": 0.638,
+      "avg_sentiment": 0.03625,
+      "bracket": "narrators",
+      "buy_count": 3,
+      "hold_count": 2,
+      "sell_count": 3,
+      "total": 8
+    },
+    {
+      "avg_confidence": 0.569455,
+      "avg_sentiment": 0.036364,
+      "bracket": "quants",
+      "buy_count": 4,
+      "hold_count": 3,
+      "sell_count": 4,
+      "total": 11
+    },
+    {
+      "avg_confidence": 0.6302,
+      "avg_sentiment": 0.067,
+      "bracket": "sell_side",
+      "buy_count": 3,
+      "hold_count": 4,
+      "sell_count": 3,
+      "total": 10
+    },
+    {
+      "avg_confidence": 0.6835,
+      "avg_sentiment": 0.045714,
+      "bracket": "shorts",
+      "buy_count": 3,
+      "hold_count": 2,
+      "sell_count": 2,
+      "total": 7
+    }
+  ],
+  "round_2": [
+    {
+      "avg_confidence": 0.588438,
+      "avg_sentiment": 0.05,
+      "bracket": "algos",
+      "buy_count": 2,
+      "hold_count": 4,
+      "sell_count": 2,
+      "total": 8
+    },
+    {
+      "avg_confidence": 0.6133,
+      "avg_sentiment": 0.014,
+      "bracket": "allocators",
+      "buy_count": 1,
+      "hold_count": 3,
+      "sell_count": 1,
+      "total": 5
+    },
+    {
+      "avg_confidence": 0.600393,
+      "avg_sentiment": 0.033571,
+      "bracket": "degens",
+      "buy_count": 6,
+      "hold_count": 3,
+      "sell_count": 5,
+      "total": 14
+    },
+    {
+      "avg_confidence": 0.643778,
+      "avg_sentiment": -0.178889,
+      "bracket": "event_driven",
+      "buy_count": 2,
+      "hold_count": 3,
+      "sell_count": 4,
+      "total": 9
+    },
+    {
+      "avg_confidence": 0.6055,
+      "avg_sentiment": -0.036471,
+      "bracket": "institutions",
+      "buy_count": 5,
+      "hold_count": 7,
+      "sell_count": 5,
+      "total": 17
+    },
+    {
+      "avg_confidence": 0.628714,
+      "avg_sentiment": 0.102857,
+      "bracket": "macro",
+      "buy_count": 3,
+      "hold_count": 2,
+      "sell_count": 2,
+      "total": 7
+    },
+    {
+      "avg_confidence": 0.6575,
+      "avg_sentiment": -0.0625,
+      "bracket": "narrators",
+      "buy_count": 2,
+      "hold_count": 2,
+      "sell_count": 4,
+      "total": 8
+    },
+    {
+      "avg_confidence": 0.637458,
+      "avg_sentiment": 0.091667,
+      "bracket": "quants",
+      "buy_count": 4,
+      "hold_count": 5,
+      "sell_count": 3,
+      "total": 12
+    },
+    {
+      "avg_confidence": 0.59185,
+      "avg_sentiment": 0.016,
+      "bracket": "sell_side",
+      "buy_count": 4,
+      "hold_count": 3,
+      "sell_count": 3,
+      "total": 10
+    },
+    {
+      "avg_confidence": 0.681333,
+      "avg_sentiment": 0.075,
+      "bracket": "shorts",
+      "buy_count": 2,
+      "hold_count": 2,
+      "sell_count": 2,
+      "total": 6
+    }
+  ],
+  "round_3": [
+    {
+      "avg_confidence": 0.577063,
+      "avg_sentiment": 0.0025,
+      "bracket": "algos",
+      "buy_count": 3,
+      "hold_count": 3,
+      "sell_count": 2,
+      "total": 8
+    },
+    {
+      "avg_confidence": 0.0,
+      "avg_sentiment": 0.0,
+      "bracket": "allocators",
+      "buy_count": 0,
+      "hold_count": 0,
+      "sell_count": 0,
+      "total": 0
+    },
+    {
+      "avg_confidence": 0.66075,
+      "avg_sentiment": -0.146429,
+      "bracket": "degens",
+      "buy_count": 4,
+      "hold_count": 4,
+      "sell_count": 6,
+      "total": 14
+    },
+    {
+      "avg_confidence": 0.5717,
+      "avg_sentiment": 0.066,
+      "bracket": "event_driven",
+      "buy_count": 3,
+      "hold_count": 4,
+      "sell_count": 3,
+      "total": 10
+    },
+    {
+      "avg_confidence": 0.656417,
+      "avg_sentiment": 0.060556,
+      "bracket": "institutions",
+      "buy_count": 7,
+      "hold_count": 6,
+      "sell_count": 5,
+      "total": 18
+    },
+    {
+      "avg_confidence": 0.559071,
+      "avg_sentiment": -0.017143,
+      "bracket": "macro",
+      "buy_count": 2,
+      "hold_count": 2,
+      "sell_count": 3,
+      "total": 7
+    },
+    {
+      "avg_confidence": 0.739563,
+      "avg_sentiment": 0.0525,
+      "bracket": "narrators",
+      "buy_count": 2,
+      "hold_count": 3,
+      "sell_count": 3,
+      "total": 8
+    },
+    {
+      "avg_confidence": 0.677542,
+      "avg_sentiment": 0.043333,
+      "bracket": "quants",
+      "buy_count": 5,
+      "hold_count": 4,
+      "sell_count": 3,
+      "total": 12
+    },
+    {
+      "avg_confidence": 0.56195,
+      "avg_sentiment": 0.009,
+      "bracket": "sell_side",
+      "buy_count": 3,
+      "hold_count": 3,
+      "sell_count": 4,
+      "total": 10
+    },
+    {
+      "avg_confidence": 0.558143,
+      "avg_sentiment": 0.044286,
+      "bracket": "shorts",
+      "buy_count": 2,
+      "hold_count": 3,
+      "sell_count": 2,
+      "total": 7
+    }
+  ]
+}

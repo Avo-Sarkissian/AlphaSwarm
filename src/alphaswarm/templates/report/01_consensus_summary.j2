@@ -1,11 +1,12 @@
 ## Consensus Summary
 
 **Cycle:** {{ cycle_id }}
+**Scope:** final-round decisions
 
 | Signal | Count | Share |
 |--------|-------|-------|
-| BUY | {{ data.buy_count }} | {{ "%.1f"|format(data.buy_count / data.total * 100 if data.total else 0) }}% |
-| SELL | {{ data.sell_count }} | {{ "%.1f"|format(data.sell_count / data.total * 100 if data.total else 0) }}% |
-| HOLD | {{ data.hold_count }} | {{ "%.1f"|format(data.hold_count / data.total * 100 if data.total else 0) }}% |
+{% for label, count in [("BUY", data.buy_count), ("SELL", data.sell_count), ("HOLD", data.hold_count), ("PARSE_ERROR", data.parse_error_count)] %}
+| {{ label }} | {{ count }} | {{ (count / data.total * 100 if data.total else 0) | num(1) }}% |
+{% endfor %}
 
 **Total agents:** {{ data.total }}

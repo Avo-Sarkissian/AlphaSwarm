@@ -462,7 +462,9 @@ async def test_create_cycle_with_seed_event_single_transaction(
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph)
+    await gsm.create_cycle_with_seed_event(
+        "test rumor", sample_seed_event_for_graph, num_rounds=3
+    )
 
     session.execute_write.assert_awaited_once()
 
@@ -477,7 +479,9 @@ async def test_create_cycle_with_seed_event_returns_uuid(
 
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    cycle_id = await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph)
+    cycle_id = await gsm.create_cycle_with_seed_event(
+        "test rumor", sample_seed_event_for_graph, num_rounds=3
+    )
 
     uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     assert re.match(uuid4_pattern, cycle_id), f"Not a valid UUID4: {cycle_id}"
@@ -500,7 +504,9 @@ async def test_create_cycle_with_seed_event_wraps_neo4j_error(
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     with pytest.raises(Neo4jWriteError) as exc_info:
-        await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph)
+        await gsm.create_cycle_with_seed_event(
+            "test rumor", sample_seed_event_for_graph, num_rounds=3
+        )
 
     assert exc_info.value.original_error is original_exc
 
@@ -513,7 +519,7 @@ async def test_create_cycle_with_entities_tx_creates_cycle_with_overall_sentimen
     tx = AsyncMock()
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, [],
+        tx, "test-cycle-id", "test rumor", 0.6, [], 3,
     )
 
     # With empty entities, only 1 tx.run call (Cycle creation only)
@@ -531,7 +537,7 @@ async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
     tx = AsyncMock()
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, [],
+        tx, "test-cycle-id", "test rumor", 0.6, [], 3,
     )
 
     # Only 1 tx.run call (Cycle creation, no Entity UNWIND)
@@ -550,7 +556,7 @@ async def test_create_cycle_with_entities_tx_creates_mentions_relationships() ->
     ]
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, entities,
+        tx, "test-cycle-id", "test rumor", 0.6, entities, 3,
     )
 
     # 2 tx.run calls: Cycle creation + Entity UNWIND with MENTIONS
@@ -1485,80 +1491,6 @@ async def test_read_shock_event_returns_none_when_no_shock(mock_driver: MagicMoc
     assert result is None
 
 
-@pytest.mark.asyncio()
-async def test_read_shock_impact_returns_per_agent_rows(mock_driver: MagicMock) -> None:
-    """Phase 27 SHOCK-04 — read_shock_impact returns dict with bracket_deltas, pivot_count, comparable_agents."""
-    from alphaswarm.graph import GraphStateManager
-
-    # 3 synthetic agents: 1 pivoted, 2 held firm
-    rows = [
-        {
-            "agent_id": "a1", "agent_name": "Agent 1", "bracket": "Quants",
-            "pre_signal": "BUY", "post_signal": "SELL", "pivoted": True,
-            "shock_round": 2, "shock_text": "Fed cut rates",
-        },
-        {
-            "agent_id": "a2", "agent_name": "Agent 2", "bracket": "Quants",
-            "pre_signal": "BUY", "post_signal": "BUY", "pivoted": False,
-            "shock_round": 2, "shock_text": "Fed cut rates",
-        },
-        {
-            "agent_id": "a3", "agent_name": "Agent 3", "bracket": "Degens",
-            "pre_signal": "SELL", "post_signal": "SELL", "pivoted": False,
-            "shock_round": 2, "shock_text": "Fed cut rates",
-        },
-    ]
-    session = mock_driver.session.return_value
-    # _read_shock_impact_tx calls _aggregate_shock_impact internally;
-    # we mock execute_read to return the aggregated result directly.
-    aggregated = GraphStateManager._aggregate_shock_impact(rows)
-    session.execute_read = AsyncMock(return_value=aggregated)
-
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-    result = await gsm.read_shock_impact("cycle-123")
-
-    assert result["comparable_agents"] == 3
-    assert result["pivot_count"] == 1
-    assert result["held_firm_count"] == 2
-    assert abs(result["pivot_rate_pct"] - 33.333) < 0.1
-    assert "bracket_deltas" in result
-    assert isinstance(result["bracket_deltas"], list)
-    assert len(result["bracket_deltas"]) == 2  # Quants + Degens
-
-
-@pytest.mark.asyncio()
-async def test_read_shock_impact_pivot_flag_computed_correctly(mock_driver: MagicMock) -> None:
-    """Phase 27 SHOCK-04 — pivot_count=1, held_firm_count=1, comparable_agents=2 when 1 of 2 agents changed signal."""
-    from alphaswarm.graph import GraphStateManager
-
-    rows = [
-        {
-            "agent_id": "a1", "agent_name": "Agent 1", "bracket": "Quants",
-            "pre_signal": "BUY", "post_signal": "SELL", "pivoted": True,
-            "shock_round": 2, "shock_text": "oil shock",
-        },
-        {
-            "agent_id": "a2", "agent_name": "Agent 2", "bracket": "Quants",
-            "pre_signal": "BUY", "post_signal": "BUY", "pivoted": False,
-            "shock_round": 2, "shock_text": "oil shock",
-        },
-    ]
-    result = GraphStateManager._aggregate_shock_impact(rows)
-
-    assert result["comparable_agents"] == 2
-    assert result["pivot_count"] == 1
-    assert result["held_firm_count"] == 1
-    assert result["pivot_rate_pct"] == pytest.approx(50.0)
-    assert result["held_firm_rate_pct"] == pytest.approx(50.0)
-    assert len(result["pivot_agents"]) == 1
-    assert result["pivot_agents"][0]["agent_id"] == "a1"
-    assert result["pivot_agents"][0]["pre_signal"] == "BUY"
-    assert result["pivot_agents"][0]["post_signal"] == "SELL"
-    # Quants: pre majority BUY (2), post majority BUY (1) vs SELL (1) -> BUY wins tie-break
-    # Agent 2 held BUY but bracket majority didn't change (BUY->BUY), so no notable held-firm
-    assert result["notable_held_firm_agents"] == []
-
-
 # ---------------------------------------------------------------------------
 # Phase 28 Task 2 Tests: Replay read methods
 # ---------------------------------------------------------------------------
@@ -1609,51 +1541,6 @@ async def test_read_completed_cycles(
     assert isinstance(result, list)
     assert len(result) == 2
     assert result[0]["cycle_id"] == "abc-123"
-
-
-@pytest.mark.asyncio()
-async def test_read_bracket_narratives_for_round(
-    mock_driver: MagicMock,
-    sample_personas_for_graph: list,
-) -> None:
-    """REPLAY-01 — read_bracket_narratives_for_round accepts (cycle_id, round_num) and returns bracket dicts."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(return_value=[
-        {"bracket": "quants", "buy_count": 5, "sell_count": 3, "hold_count": 2, "avg_confidence": 0.7, "avg_sentiment": 0.3},
-        {"bracket": "degens", "buy_count": 8, "sell_count": 1, "hold_count": 1, "avg_confidence": 0.85, "avg_sentiment": 0.6},
-    ])
-
-    gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
-    result = await gm.read_bracket_narratives_for_round("test-cycle", 2)
-
-    assert isinstance(result, list)
-    assert len(result) == 2
-    assert result[0]["bracket"] == "quants"
-    assert result[0]["buy_count"] == 5
-
-
-@pytest.mark.asyncio()
-async def test_read_rationale_entries_for_round(
-    mock_driver: MagicMock,
-    sample_personas_for_graph: list,
-) -> None:
-    """REPLAY-01 — read_rationale_entries_for_round returns rationale dicts for given round."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(return_value=[
-        {"agent_id": "quants_01", "signal": "buy", "rationale": "Strong momentum", "round_num": 1},
-        {"agent_id": "degens_01", "signal": "sell", "rationale": "Overbought signal", "round_num": 1},
-        {"agent_id": "macro_01", "signal": "hold", "rationale": "Wait and see", "round_num": 1},
-    ])
-
-    gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
-    result = await gm.read_rationale_entries_for_round("test-cycle", 1, limit=10)
-
-    assert isinstance(result, list)
-    assert len(result) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -1813,3 +1700,16 @@ async def test_compute_influence_edges_skips_when_no_active_agents(mock_driver: 
     assert await gsm.compute_influence_edges("c1", up_to_round=3, total_agents=0) == {}
     session.execute_read.assert_not_awaited()
     session.execute_write.assert_not_awaited()
+
+
+async def test_create_cycle_rejects_non_positive_num_rounds() -> None:
+    """num_rounds is validated before any database call."""
+    from alphaswarm.graph import GraphStateManager
+
+    gsm = GraphStateManager(MagicMock(), [])
+    with pytest.raises(ValueError, match="num_rounds"):
+        await gsm.create_cycle_with_seed_event(
+            "rumor",
+            SeedEvent(raw_rumor="rumor", entities=[], overall_sentiment=0.0),
+            num_rounds=0,
+        )

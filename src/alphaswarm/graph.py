@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 import structlog
 from neo4j.exceptions import Neo4jError
 
+from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
 from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
 
@@ -54,6 +57,126 @@ class RankedPost:
 
 
 # ---------------------------------------------------------------------------
+# Read-model rows returned by the read_* queries. Templates and consumers read
+# only these keys; mypy catches drift (docs/DECISIONS.md#adr-report-react).
+# ---------------------------------------------------------------------------
+
+
+class ConsensusSummaryRow(TypedDict):
+    """Final-round counts; total = buy + sell + hold + parse_error."""
+
+    buy_count: int
+    sell_count: int
+    hold_count: int
+    parse_error_count: int
+    total: int
+
+
+class RoundTimelineRow(TypedDict):
+    round_num: int
+    buy_count: int
+    sell_count: int
+    hold_count: int
+    parse_error_count: int
+    total: int
+
+
+class BracketNarrativeRow(TypedDict):
+    """Final-round stance per bracket; totals and averages exclude parse errors."""
+
+    bracket: str
+    display_name: str
+    buy_count: int
+    sell_count: int
+    hold_count: int
+    total: int
+    avg_confidence: float
+    avg_sentiment: float
+    majority: str | None
+
+
+class KeyDissenterRow(TypedDict):
+    agent_id: str
+    name: str
+    bracket: str
+    signal: str
+    bracket_majority: str
+
+
+class InfluenceLeaderRow(TypedDict):
+    agent_id: str
+    name: str
+    bracket: str
+    citation_count: int
+    influence_share: float
+
+
+class SignalFlipRow(TypedDict):
+    agent_id: str
+    name: str
+    bracket: str
+    round_num: int
+    flip_type: str
+    final_signal: str
+
+
+class EntityImpactRow(TypedDict):
+    entity_name: str
+    entity_type: str
+    avg_sentiment: float
+    mention_count: int
+    buy_mentions: int
+    sell_mentions: int
+    hold_mentions: int
+
+
+class ShockImpactRow(TypedDict):
+    """bracket_pivots entries: bracket, display_name, comparable, pivots,
+    pre_dominant, post_dominant, pre_buy_pct, post_buy_pct, delta_buy_pct,
+    dominant_arrow, agents (list of {agent_id, pre_signal, post_signal})."""
+
+    shock_text: str
+    injected_before_round: int
+    pre_dominant: str | None
+    post_dominant: str | None
+    pivot_count: int
+    pivot_rate: float
+    bracket_pivots: list[dict[str, object]]
+
+
+class InfluenceEdgeRow(TypedDict):
+    source_id: str  # citing agent
+    target_id: str  # cited agent
+    weight: float
+
+
+class CompletedCycleRow(TypedDict):
+    cycle_id: str
+    created_at: str
+    seed_rumor: str
+    round_count: int
+
+
+class BracketRoundRow(TypedDict):
+    """Replay per-round bracket row; totals and averages exclude parse errors."""
+
+    bracket: str
+    buy_count: int
+    sell_count: int
+    hold_count: int
+    total: int
+    avg_confidence: float
+    avg_sentiment: float
+
+
+class RationaleRoundRow(TypedDict):
+    agent_id: str
+    signal: str
+    rationale: str
+    round_num: int
+
+
+# ---------------------------------------------------------------------------
 # Schema constants
 # ---------------------------------------------------------------------------
 
@@ -69,6 +192,42 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
     "CREATE CONSTRAINT shock_id_unique IF NOT EXISTS FOR (se:ShockEvent) REQUIRE se.shock_id IS UNIQUE",
 ]
+
+# Bracket display names and order come from config so report rows match the
+# live frame (simulation.compute_bracket_summaries) — docs/DECISIONS.md#adr-swarm-composition-v2.
+_BRACKET_DISPLAY_NAMES: Final[dict[str, str]] = {
+    b.bracket_type.value: b.display_name for b in DEFAULT_BRACKETS
+}
+_BRACKET_ORDER: Final[dict[str, int]] = {
+    b.bracket_type.value: i for i, b in enumerate(DEFAULT_BRACKETS)
+}
+
+
+def _bracket_sort_key(bracket: str) -> tuple[int, str]:
+    """Config order first; unknown (legacy) brackets last, alphabetically."""
+    return (_BRACKET_ORDER.get(bracket, len(_BRACKET_ORDER)), bracket)
+
+
+def _majority(signals: Sequence[str]) -> str | None:
+    """Most common of BUY/SELL/HOLD; ties BUY > SELL > HOLD; None when empty."""
+    counts = {sig: 0 for sig in ("BUY", "SELL", "HOLD")}
+    for signal in signals:
+        if signal in counts:
+            counts[signal] += 1
+    if not any(counts.values()):
+        return None
+    best = max(counts.values())
+    return next(sig for sig in ("BUY", "SELL", "HOLD") if counts[sig] == best)
+
+
+def _iso(value: object) -> str:
+    """neo4j DateTime or datetime -> ISO-8601 string (CompletedCycleRow.created_at)."""
+    iso_format = getattr(value, "iso_format", None)
+    if callable(iso_format):
+        return str(iso_format())
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return "" if value is None else str(value)
 
 
 # ---------------------------------------------------------------------------
@@ -293,21 +452,24 @@ class GraphStateManager:
         return str(value) if value is not None else None
 
     async def create_cycle_with_seed_event(
-        self, seed_rumor: str, seed_event: SeedEvent,
+        self,
+        seed_rumor: str,
+        seed_event: SeedEvent,
+        *,
+        num_rounds: int,
     ) -> str:
-        """Atomically create Cycle node with seed event entities.
+        """Atomically create the Cycle (with num_rounds) and its seed entities.
 
-        Per review concern: create_cycle() then write_seed_event() as separate
-        operations could leave orphan Cycle nodes. This method wraps both in a
-        single transaction. Also persists overall_sentiment on the Cycle node.
-
-        Args:
-            seed_rumor: Raw rumor text for the Cycle node.
-            seed_event: Parsed seed event with entities and overall_sentiment.
+        Cycle, Entity and MENTIONS are written in one transaction so a failure
+        cannot leave an orphan Cycle. `num_rounds` is stamped here so running
+        and failed cycles carry it too; report queries resolve the final round
+        from it (docs/DECISIONS.md#adr-num-rounds).
 
         Returns:
             cycle_id: The UUID4 string for the created Cycle.
         """
+        if num_rounds < 1:
+            raise ValueError(f"num_rounds must be >= 1, got {num_rounds}")
         cycle_id = str(uuid.uuid4())
         entity_params = [
             {
@@ -326,6 +488,7 @@ class GraphStateManager:
                     seed_rumor,
                     seed_event.overall_sentiment,
                     entity_params,
+                    num_rounds,
                 )
         except Neo4jError as exc:
             raise Neo4jWriteError(
@@ -337,6 +500,7 @@ class GraphStateManager:
             cycle_id=cycle_id,
             entity_count=len(entity_params),
             overall_sentiment=seed_event.overall_sentiment,
+            num_rounds=num_rounds,
         )
         return cycle_id
 
@@ -346,22 +510,24 @@ class GraphStateManager:
         cycle_id: str,
         seed_rumor: str,
         overall_sentiment: float,
-        entities: list[dict],  # type: ignore[type-arg]
+        entities: list[dict[str, Any]],
+        num_rounds: int,
     ) -> None:
-        """Single transaction: create Cycle with overall_sentiment, then UNWIND Entity+MENTIONS."""
-        # Create Cycle node with overall_sentiment
+        """Single transaction: Cycle (num_rounds) then UNWIND Entity + MENTIONS."""
         await tx.run(
             """
             CREATE (c:Cycle {
                 cycle_id: $cycle_id,
                 seed_rumor: $seed_rumor,
                 overall_sentiment: $overall_sentiment,
-                created_at: datetime()
+                created_at: datetime(),
+                num_rounds: $num_rounds
             })
             """,
             cycle_id=cycle_id,
             seed_rumor=seed_rumor,
             overall_sentiment=overall_sentiment,
+            num_rounds=num_rounds,
         )
         # Create Entity nodes + MENTIONS relationships (only if entities exist)
         if entities:
@@ -1138,7 +1304,7 @@ class GraphStateManager:
 
     async def read_influence_edges(
         self, cycle_id: str, round_num: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
+    ) -> list[InfluenceEdgeRow]:
         """Return INFLUENCED_BY edges for a given cycle and round.
 
         Args:
@@ -1146,7 +1312,7 @@ class GraphStateManager:
             round_num: Round number to filter on (1, 2, or 3).
 
         Returns:
-            List of dicts with source_id, target_id, weight.
+            InfluenceEdgeRow list (source_id, target_id, weight).
         """
         try:
             async with self._driver.session(database=self._database) as session:
@@ -1168,7 +1334,7 @@ class GraphStateManager:
         tx: AsyncManagedTransaction,
         cycle_id: str,
         round_num: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
+    ) -> list[InfluenceEdgeRow]:
         """Transaction function for INFLUENCED_BY edges in a given round."""
         result = await tx.run(
             """
@@ -1181,7 +1347,14 @@ class GraphStateManager:
             cycle_id=cycle_id,
             round_num=round_num,
         )
-        return [dict(record) async for record in result]
+        return [
+            InfluenceEdgeRow(
+                source_id=str(r["source_id"]),
+                target_id=str(r["target_id"]),
+                weight=float(r["weight"]),
+            )
+            async for r in result
+        ]
 
     # ------------------------------------------------------------------
     # Phase 14: Interview context reads
@@ -1289,195 +1462,239 @@ class GraphStateManager:
     # Phase 15: Report query tools
     # ------------------------------------------------------------------
 
-    async def read_consensus_summary(self, cycle_id: str) -> dict:  # type: ignore[type-arg]
-        """Count BUY/SELL/HOLD decisions in Round 3 for cycle (REPORT-02).
+    async def read_consensus_summary(self, cycle_id: str) -> ConsensusSummaryRow:
+        """Final-round BUY/SELL/HOLD/PARSE_ERROR counts.
 
-        Returns plain dict for JSON-serializable ToolObservation.result.
+        The final round is Cycle.num_rounds (legacy cycles without it: 3),
+        resolved inside the query (docs/DECISIONS.md#adr-num-rounds).
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                record = await session.execute_read(
-                    self._read_consensus_summary_tx, cycle_id,
-                )
+                row = await session.execute_read(self._read_consensus_summary_tx, cycle_id)
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 f"Failed to read consensus summary for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug(
-            "report_consensus_summary", cycle_id=cycle_id,
-        )
-        return record
+        self._log.debug("report_consensus_summary", cycle_id=cycle_id, total=row["total"])
+        return row
 
     @staticmethod
     async def _read_consensus_summary_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> dict:  # type: ignore[type-arg]
-        """Transaction function for consensus summary Cypher."""
+    ) -> ConsensusSummaryRow:
         result = await tx.run(
             """
-            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            WITH coalesce(c.num_rounds, 3) AS fr
+            OPTIONAL MATCH (d:Decision {cycle_id: $cycle_id})
+            WHERE d.round = fr
+            WITH d, toLower(d.signal) AS s
             RETURN
-                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                sum(CASE WHEN s = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN s = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN s = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                sum(CASE WHEN s = 'parse_error' THEN 1 ELSE 0 END) AS parse_error_count,
                 count(d) AS total
             """,
             cycle_id=cycle_id,
         )
         record = await result.single()
-        return dict(record) if record else {"buy_count": 0, "sell_count": 0, "hold_count": 0, "total": 0}
+        if record is None:
+            return ConsensusSummaryRow(
+                buy_count=0, sell_count=0, hold_count=0, parse_error_count=0, total=0,
+            )
+        return ConsensusSummaryRow(
+            buy_count=int(record["buy_count"]),
+            sell_count=int(record["sell_count"]),
+            hold_count=int(record["hold_count"]),
+            parse_error_count=int(record["parse_error_count"]),
+            total=int(record["total"]),
+        )
 
-    async def read_round_timeline(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
-        """Return per-round BUY/SELL/HOLD counts across all agents (REPORT-02).
-
-        Returns list ordered by round_num ascending.
-        """
+    async def read_round_timeline(self, cycle_id: str) -> list[RoundTimelineRow]:
+        """Per-round counts for every round that ran, ascending."""
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_round_timeline_tx, cycle_id,
-                )
+                rows = await session.execute_read(self._read_round_timeline_tx, cycle_id)
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 f"Failed to read round timeline for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_round_timeline", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_round_timeline", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_round_timeline_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for per-round signal breakdown."""
+    ) -> list[RoundTimelineRow]:
         result = await tx.run(
             """
             MATCH (d:Decision {cycle_id: $cycle_id})
+            WITH d.round AS round_num, toLower(d.signal) AS s
             RETURN
-                d.round AS round_num,
-                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count,
-                count(d) AS total
-            ORDER BY d.round
+                round_num,
+                sum(CASE WHEN s = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN s = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN s = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                sum(CASE WHEN s = 'parse_error' THEN 1 ELSE 0 END) AS parse_error_count,
+                count(*) AS total
+            ORDER BY round_num
             """,
             cycle_id=cycle_id,
         )
-        return [dict(record) async for record in result]
+        return [
+            RoundTimelineRow(
+                round_num=int(r["round_num"]),
+                buy_count=int(r["buy_count"]),
+                sell_count=int(r["sell_count"]),
+                hold_count=int(r["hold_count"]),
+                parse_error_count=int(r["parse_error_count"]),
+                total=int(r["total"]),
+            )
+            async for r in result
+        ]
 
-    async def read_bracket_narratives(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
-        """Return per-bracket signal stance and confidence for Round 3 (REPORT-02).
+    async def read_bracket_narratives(self, cycle_id: str) -> list[BracketNarrativeRow]:
+        """Per-bracket final-round stance in config order.
 
-        Returns list ordered by bracket name.
+        Totals and averages exclude PARSE_ERROR; a bracket whose agents all
+        failed has total 0 and majority None (never a default BUY).
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_bracket_narratives_tx, cycle_id,
-                )
+                rows = await session.execute_read(self._read_bracket_narratives_tx, cycle_id)
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 f"Failed to read bracket narratives for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_bracket_narratives", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_bracket_narratives", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_bracket_narratives_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for per-bracket stance summary."""
+    ) -> list[BracketNarrativeRow]:
         result = await tx.run(
             """
-            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            WITH coalesce(c.num_rounds, 3) AS fr
+            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            WHERE d.round = fr
+            WITH a.bracket AS bracket, d, toLower(d.signal) AS s
+            WITH bracket,
+                 sum(CASE WHEN s = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                 sum(CASE WHEN s = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                 sum(CASE WHEN s = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                 avg(CASE WHEN s <> 'parse_error' THEN d.confidence END) AS avg_confidence,
+                 avg(CASE WHEN s <> 'parse_error' THEN d.sentiment END) AS avg_sentiment
             RETURN
-                a.bracket AS bracket,
-                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count,
-                avg(d.confidence) AS avg_confidence,
-                avg(d.sentiment) AS avg_sentiment
-            ORDER BY bracket
+                bracket, buy_count, sell_count, hold_count,
+                buy_count + sell_count + hold_count AS total,
+                coalesce(avg_confidence, 0.0) AS avg_confidence,
+                coalesce(avg_sentiment, 0.0) AS avg_sentiment,
+                CASE
+                    WHEN buy_count + sell_count + hold_count = 0 THEN null
+                    WHEN buy_count >= sell_count AND buy_count >= hold_count THEN 'BUY'
+                    WHEN sell_count >= hold_count THEN 'SELL'
+                    ELSE 'HOLD'
+                END AS majority
             """,
             cycle_id=cycle_id,
         )
-        return [dict(record) async for record in result]
+        rows = [
+            BracketNarrativeRow(
+                bracket=str(r["bracket"]),
+                display_name=_BRACKET_DISPLAY_NAMES.get(str(r["bracket"]), str(r["bracket"])),
+                buy_count=int(r["buy_count"]),
+                sell_count=int(r["sell_count"]),
+                hold_count=int(r["hold_count"]),
+                total=int(r["total"]),
+                avg_confidence=float(r["avg_confidence"]),
+                avg_sentiment=float(r["avg_sentiment"]),
+                majority=r["majority"],
+            )
+            async for r in result
+        ]
+        return sorted(rows, key=lambda row: _bracket_sort_key(row["bracket"]))
 
-    async def read_key_dissenters(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
-        """Find agents whose Round 3 signal differs from their bracket majority (REPORT-02).
+    async def read_key_dissenters(self, cycle_id: str) -> list[KeyDissenterRow]:
+        """Agents whose final-round signal differs from their bracket's majority.
 
-        Returns list of dissenters with agent_id, name, bracket, signal, bracket_majority.
+        PARSE_ERROR decisions are excluded before the majority is computed, so
+        a failed agent is never a dissenter and an all-failed bracket yields none.
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_key_dissenters_tx, cycle_id,
-                )
+                rows = await session.execute_read(self._read_key_dissenters_tx, cycle_id)
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 f"Failed to read key dissenters for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_key_dissenters", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_key_dissenters", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_key_dissenters_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for finding dissenters vs bracket majority."""
+    ) -> list[KeyDissenterRow]:
         result = await tx.run(
             """
-            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            WITH coalesce(c.num_rounds, 3) AS fr
+            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            WHERE d.round = fr AND toLower(d.signal) <> 'parse_error'
             WITH a.bracket AS bracket,
-                 collect({agent_id: a.id, name: a.name, signal: d.signal}) AS agents,
+                 collect({agent_id: a.id, name: a.name, signal: toUpper(d.signal)}) AS agents,
                  sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
                  sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
                  sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count
             WITH bracket, agents,
                  CASE
-                   WHEN buy_count >= sell_count AND buy_count >= hold_count THEN 'BUY'
-                   WHEN sell_count >= buy_count AND sell_count >= hold_count THEN 'SELL'
-                   ELSE 'HOLD'
+                     WHEN buy_count >= sell_count AND buy_count >= hold_count THEN 'BUY'
+                     WHEN sell_count >= hold_count THEN 'SELL'
+                     ELSE 'HOLD'
                  END AS bracket_majority
             UNWIND agents AS ag
             WITH bracket, bracket_majority, ag
-            WHERE toUpper(ag.signal) <> bracket_majority
-            RETURN
-                ag.agent_id AS agent_id,
-                ag.name AS name,
-                bracket AS bracket,
-                ag.signal AS signal,
-                bracket_majority AS bracket_majority
+            WHERE ag.signal <> bracket_majority
+            RETURN ag.agent_id AS agent_id, ag.name AS name, bracket,
+                   ag.signal AS signal, bracket_majority
             ORDER BY bracket, agent_id
             """,
             cycle_id=cycle_id,
         )
-        return [dict(record) async for record in result]
+        return [
+            KeyDissenterRow(
+                agent_id=str(r["agent_id"]),
+                name=str(r["name"]),
+                bracket=str(r["bracket"]),
+                signal=str(r["signal"]),
+                bracket_majority=str(r["bracket_majority"]),
+            )
+            async for r in result
+        ]
 
     async def read_influence_leaders(
         self, cycle_id: str, limit: int = 10,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Return top agents by cumulative INFLUENCED_BY weight in Round 3 (REPORT-02).
+    ) -> list[InfluenceLeaderRow]:
+        """Most-cited agents in the final round.
 
-        Filters to round=3 to avoid double-counting across rounds (Pitfall 1).
-
-        Args:
-            cycle_id: Simulation cycle ID.
-            limit: Maximum number of leaders to return (default 10).
-
-        Returns:
-            List of dicts with agent_id, name, bracket, total_influence_weight, citation_count.
+        influence_share = citation_count / N, N = active (non-PARSE_ERROR)
+        agents in the final round; this equals the D-01 edge weight and is
+        no longer the quadratic sum of incoming weights
+        (docs/DECISIONS.md#p8-d-01).
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows = await session.execute_read(
                     self._read_influence_leaders_tx, cycle_id, limit,
                 )
         except Neo4jError as exc:
@@ -1485,45 +1702,59 @@ class GraphStateManager:
                 f"Failed to read influence leaders for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_influence_leaders", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_influence_leaders", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_influence_leaders_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
         limit: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for top influence leaders by edge weight."""
+    ) -> list[InfluenceLeaderRow]:
         result = await tx.run(
             """
-            MATCH (src:Agent)-[infl:INFLUENCED_BY {cycle_id: $cycle_id, round: 3}]->(tgt:Agent)
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            WITH coalesce(c.num_rounds, 3) AS fr
+            OPTIONAL MATCH (fd:Decision {cycle_id: $cycle_id})
+            WHERE fd.round = fr AND toLower(fd.signal) <> 'parse_error'
+            WITH fr, count(fd) AS n_active
+            MATCH (src:Agent)-[infl:INFLUENCED_BY {cycle_id: $cycle_id}]->(tgt:Agent)
+            WHERE infl.round = fr
+            WITH tgt, n_active, count(DISTINCT src) AS citation_count
             RETURN
                 tgt.id AS agent_id,
                 tgt.name AS name,
                 tgt.bracket AS bracket,
-                sum(infl.weight) AS total_influence_weight,
-                count(src) AS citation_count
-            ORDER BY total_influence_weight DESC
+                citation_count,
+                CASE WHEN n_active > 0
+                     THEN toFloat(citation_count) / n_active
+                     ELSE 0.0 END AS influence_share
+            ORDER BY citation_count DESC, agent_id
             LIMIT $limit
             """,
             cycle_id=cycle_id,
             limit=limit,
         )
-        return [dict(record) async for record in result]
+        return [
+            InfluenceLeaderRow(
+                agent_id=str(r["agent_id"]),
+                name=str(r["name"]),
+                bracket=str(r["bracket"]),
+                citation_count=int(r["citation_count"]),
+                influence_share=float(r["influence_share"]),
+            )
+            async for r in result
+        ]
 
-    async def read_signal_flips(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
-        """Return agents who changed position between rounds (REPORT-02).
+    async def read_signal_flips(self, cycle_id: str) -> list[SignalFlipRow]:
+        """Agents who changed position, from RationaleEpisode.flip_type.
 
-        Uses RationaleEpisode.flip_type from Phase 11.
-        Filters out NONE flip_type using string comparison (Pitfall 2).
-
-        Returns:
-            List of dicts with agent_id, name, bracket, round_num, flip_type, final_signal.
+        final_signal is the (uppercase) signal after the flip in that round.
+        Rows are ordered by round, bracket, then agent id.
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows = await session.execute_read(
                     self._read_signal_flips_tx, cycle_id,
                 )
         except Neo4jError as exc:
@@ -1531,15 +1762,14 @@ class GraphStateManager:
                 f"Failed to read signal flips for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_signal_flips", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_signal_flips", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_signal_flips_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for signal flip episodes."""
+    ) -> list[SignalFlipRow]:
         result = await tx.run(
             """
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
@@ -1551,25 +1781,34 @@ class GraphStateManager:
                 a.bracket AS bracket,
                 re.round AS round_num,
                 re.flip_type AS flip_type,
-                d.signal AS final_signal
-            ORDER BY re.round, a.bracket
+                toUpper(d.signal) AS final_signal
+            ORDER BY round_num, bracket, agent_id
             """,
             cycle_id=cycle_id,
         )
-        return [dict(record) async for record in result]
+        return [
+            SignalFlipRow(
+                agent_id=str(r["agent_id"]),
+                name=str(r["name"]),
+                bracket=str(r["bracket"]),
+                round_num=int(r["round_num"]),
+                flip_type=str(r["flip_type"]),
+                final_signal=str(r["final_signal"]),
+            )
+            async for r in result
+        ]
 
-    async def read_entity_impact(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
-        """Return per-entity sentiment aggregation via REFERENCES edges (REPORT-02).
+    async def read_entity_impact(self, cycle_id: str) -> list[EntityImpactRow]:
+        """Per-entity sentiment over final-round, non-failed decisions.
 
-        Uses REFERENCES edges created by Phase 11 write_narrative_edges().
-
-        Returns:
-            List of dicts with entity_name, entity_type, avg_sentiment, mention_count,
-            buy_mentions, sell_mentions, hold_mentions.
+        Only the cycle's own MENTIONS entities count, so same-name entities
+        from other cycles or types cannot leak in (docs/DECISIONS.md#p11-d-08).
+        Each decision counts once per entity, even when a seed that listed the
+        entity twice left duplicate MENTIONS and REFERENCES edges.
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows = await session.execute_read(
                     self._read_entity_impact_tx, cycle_id,
                 )
         except Neo4jError as exc:
@@ -1577,31 +1816,46 @@ class GraphStateManager:
                 f"Failed to read entity impact for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_entity_impact", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_entity_impact", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_entity_impact_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for entity-level sentiment aggregation."""
+    ) -> list[EntityImpactRow]:
         result = await tx.run(
             """
-            MATCH (d:Decision {cycle_id: $cycle_id})-[:REFERENCES]->(e:Entity)
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            WITH c, coalesce(c.num_rounds, 3) AS fr
+            MATCH (c)-[:MENTIONS]->(e:Entity)<-[:REFERENCES]-(d:Decision {cycle_id: $cycle_id})
+            WHERE d.round = fr AND toLower(d.signal) <> 'parse_error'
+            WITH DISTINCT e, d
+            WITH e, d, toLower(d.signal) AS s
             RETURN
                 e.name AS entity_name,
                 e.type AS entity_type,
                 avg(d.sentiment) AS avg_sentiment,
                 count(d) AS mention_count,
-                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_mentions,
-                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_mentions,
-                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_mentions
-            ORDER BY mention_count DESC
+                sum(CASE WHEN s = 'buy' THEN 1 ELSE 0 END) AS buy_mentions,
+                sum(CASE WHEN s = 'sell' THEN 1 ELSE 0 END) AS sell_mentions,
+                sum(CASE WHEN s = 'hold' THEN 1 ELSE 0 END) AS hold_mentions
+            ORDER BY mention_count DESC, entity_name, entity_type
             """,
             cycle_id=cycle_id,
         )
-        return [dict(record) async for record in result]
+        return [
+            EntityImpactRow(
+                entity_name=str(r["entity_name"]),
+                entity_type=str(r["entity_type"]),
+                avg_sentiment=float(r["avg_sentiment"]),
+                mention_count=int(r["mention_count"]),
+                buy_mentions=int(r["buy_mentions"]),
+                sell_mentions=int(r["sell_mentions"]),
+                hold_mentions=int(r["hold_mentions"]),
+            )
+            async for r in result
+        ]
 
     async def read_social_post_reach(
         self, cycle_id: str, limit: int = 10,
@@ -1724,67 +1978,52 @@ class GraphStateManager:
         record = await result.single()
         return dict(record) if record else None
 
-    async def read_shock_impact(self, cycle_id: str) -> dict:  # type: ignore[type-arg]
-        """Return shock impact analysis: pivot counts, bracket deltas, notable agents.
+    async def read_shock_impact(self, cycle_id: str) -> ShockImpactRow:
+        """How the swarm moved across the (earliest) shock.
 
-        Queries pre-shock and post-shock Decision nodes for the cycle and computes
-        pivot statistics. Uses an inner join (MATCH, not OPTIONAL MATCH) so only
-        agents with BOTH a pre-shock and post-shock decision are included.
-        The comparable_agents field tracks the effective denominator (NOT 100).
-
-        Returns:
-            Dict with shock_text, injected_before_round, comparable_agents,
-            pivot_count, held_firm_count, pivot_rate_pct, held_firm_rate_pct,
-            pivot_agents, bracket_deltas, largest_shift, notable_held_firm_agents.
-            Returns a zero-filled dict if no ShockEvent or no comparable agents.
+        Compares each agent's decision in the round before the shock with the
+        shocked round; agents with a PARSE_ERROR on either side are excluded.
+        Zero-filled when the cycle has no shock or no comparable agents.
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                result = await session.execute_read(
-                    self._read_shock_impact_tx, cycle_id,
-                )
+                row = await session.execute_read(self._read_shock_impact_tx, cycle_id)
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 f"Failed to read shock_impact for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
         self._log.debug(
-            "read_shock_impact",
-            cycle_id=cycle_id,
-            pivot_count=result["pivot_count"],
-            comparable_agents=result["comparable_agents"],
+            "read_shock_impact", cycle_id=cycle_id, pivot_count=row["pivot_count"],
         )
-        return result
+        return row
 
     @staticmethod
     async def _read_shock_impact_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> dict:  # type: ignore[type-arg]
-        """Transaction function for shock impact analysis.
+    ) -> ShockImpactRow:
+        """Per-agent (pre, post) signals around the earliest shock, failures excluded.
 
-        Uses MATCH (inner join) for both pre and post decisions so only agents
-        who participated in both rounds are included in the analysis.
-        WHERE shock_round >= 2 guards against injected_before_round=1 edge case
-        (rounds start at 1, so round-1=0 would not exist).
+        WHERE shock_round >= 2 guards injected_before_round=1 (there is no round 0).
         """
         result = await tx.run(
             """
             MATCH (c:Cycle {cycle_id: $cycle_id})-[:HAS_SHOCK]->(se:ShockEvent)
-            WITH se.injected_before_round AS shock_round,
-                 se.shock_text AS shock_text
+            WITH se ORDER BY se.injected_before_round ASC LIMIT 1
+            WITH se.injected_before_round AS shock_round, se.shock_text AS shock_text
             WHERE shock_round >= 2
-            MATCH (a:Agent)-[:MADE]->(pre:Decision {cycle_id: $cycle_id, round: shock_round - 1})
-            MATCH (a)-[:MADE]->(post:Decision {cycle_id: $cycle_id, round: shock_round})
+            MATCH (a:Agent)-[:MADE]->(pre:Decision {cycle_id: $cycle_id})
+            WHERE pre.round = shock_round - 1 AND toLower(pre.signal) <> 'parse_error'
+            MATCH (a)-[:MADE]->(post:Decision {cycle_id: $cycle_id})
+            WHERE post.round = shock_round AND toLower(post.signal) <> 'parse_error'
             RETURN a.id AS agent_id,
-                   a.name AS agent_name,
                    a.bracket AS bracket,
-                   pre.signal AS pre_signal,
-                   post.signal AS post_signal,
-                   (pre.signal <> post.signal) AS pivoted,
-                   shock_round AS shock_round,
-                   shock_text AS shock_text
-            ORDER BY a.bracket, a.id
+                   toUpper(pre.signal) AS pre_signal,
+                   toUpper(post.signal) AS post_signal,
+                   shock_round,
+                   shock_text
+            ORDER BY bracket, agent_id
             """,
             cycle_id=cycle_id,
         )
@@ -1792,150 +2031,53 @@ class GraphStateManager:
         return GraphStateManager._aggregate_shock_impact(rows)
 
     @staticmethod
-    def _aggregate_shock_impact(rows: list[dict]) -> dict:  # type: ignore[type-arg]
-        """Aggregate per-agent shock rows into summary statistics.
-
-        Pure Python — no I/O. Called by _read_shock_impact_tx after the Cypher
-        inner join returns rows. Also directly testable without a database.
-
-        Args:
-            rows: List of dicts from the Cypher query, each with keys:
-                agent_id, agent_name, bracket, pre_signal, post_signal,
-                pivoted, shock_round, shock_text.
-
-        Returns:
-            Dict with all shock impact fields. Returns zero-filled dict if rows
-            is empty (no comparable agents or no shock for this cycle).
-        """
-        from collections import Counter, defaultdict
-
+    def _aggregate_shock_impact(rows: list[dict[str, Any]]) -> ShockImpactRow:
+        """Pure aggregation of per-agent (pre, post) rows into a ShockImpactRow."""
         if not rows:
-            return {
-                "shock_text": "",
-                "injected_before_round": 0,
-                "comparable_agents": 0,
-                "pivot_count": 0,
-                "held_firm_count": 0,
-                "pivot_rate_pct": 0.0,
-                "held_firm_rate_pct": 0.0,
-                "pivot_agents": [],
-                "bracket_deltas": [],
-                "largest_shift": {},
-                "notable_held_firm_agents": [],
-            }
-
-        shock_text: str = rows[0]["shock_text"]
-        injected_before_round: int = int(rows[0]["shock_round"])
-        comparable_agents: int = len(rows)
-
-        pivot_count = sum(1 for r in rows if r["pivoted"])
-        held_firm_count = comparable_agents - pivot_count
-        pivot_rate_pct = pivot_count / comparable_agents * 100
-        held_firm_rate_pct = held_firm_count / comparable_agents * 100
-
-        pivot_agents = [
-            {
-                "bracket": r["bracket"],
-                "agent_id": r["agent_id"],
-                "pre_signal": r["pre_signal"],
-                "post_signal": r["post_signal"],
-            }
-            for r in rows
-            if r["pivoted"]
-        ]
-
-        # Per-bracket signal counters for pre and post rounds.
-        # Signals are stored lowercase ('buy'/'sell'/'hold'); normalize to
-        # uppercase here so the uppercase comparison keys in _majority and the
-        # pre_c/post_c[...] lookups below match. pivot_agents above intentionally
-        # keeps the raw r["pre_signal"]/r["post_signal"] for display.
-        pre_by_bracket: dict[str, list[str]] = defaultdict(list)
-        post_by_bracket: dict[str, list[str]] = defaultdict(list)
-        for r in rows:
-            bracket = r["bracket"]
-            pre_by_bracket[bracket].append((r["pre_signal"] or "").upper())
-            post_by_bracket[bracket].append((r["post_signal"] or "").upper())
-
-        def _majority(signals: list[str]) -> str:
-            """Tie-break: BUY > SELL > HOLD."""
-            c = Counter(signals)
-            for sig in ("BUY", "SELL", "HOLD"):
-                if c[sig] == max(c.values()):
-                    return sig
-            return "HOLD"
-
-        def _pct(count: int, total: int) -> float:
-            return count / total * 100 if total > 0 else 0.0
-
-        bracket_deltas: list[dict] = []  # type: ignore[type-arg]
-        for bracket in sorted(pre_by_bracket.keys()):
-            pre_sigs = pre_by_bracket[bracket]
-            post_sigs = post_by_bracket[bracket]
-            total = len(pre_sigs)
-            pre_c = Counter(pre_sigs)
-            post_c = Counter(post_sigs)
-            pre_buy_pct = _pct(pre_c["BUY"], total)
-            post_buy_pct = _pct(post_c["BUY"], total)
-            pre_sell_pct = _pct(pre_c["SELL"], total)
-            post_sell_pct = _pct(post_c["SELL"], total)
-            pre_hold_pct = _pct(pre_c["HOLD"], total)
-            post_hold_pct = _pct(post_c["HOLD"], total)
-            delta_buy_pct = post_buy_pct - pre_buy_pct
-            dominant_post = _majority(post_sigs)
-            dominant_arrow = "▲" if delta_buy_pct > 0 else "▼" if delta_buy_pct < 0 else "·"
-            bracket_deltas.append({
+            return ShockImpactRow(
+                shock_text="", injected_before_round=0, pre_dominant=None,
+                post_dominant=None, pivot_count=0, pivot_rate=0.0, bracket_pivots=[],
+            )
+        by_bracket: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_bracket.setdefault(str(row["bracket"]), []).append(row)
+        bracket_pivots: list[dict[str, object]] = []
+        for bracket in sorted(by_bracket, key=_bracket_sort_key):
+            members = by_bracket[bracket]
+            pre = [str(r["pre_signal"]) for r in members]
+            post = [str(r["post_signal"]) for r in members]
+            pivoted = [r for r in members if r["pre_signal"] != r["post_signal"]]
+            pre_buy_pct = pre.count("BUY") / len(members) * 100
+            post_buy_pct = post.count("BUY") / len(members) * 100
+            delta = post_buy_pct - pre_buy_pct
+            bracket_pivots.append({
                 "bracket": bracket,
+                "display_name": _BRACKET_DISPLAY_NAMES.get(bracket, bracket),
+                "comparable": len(members),
+                "pivots": len(pivoted),
+                "pre_dominant": _majority(pre),
+                "post_dominant": _majority(post),
                 "pre_buy_pct": pre_buy_pct,
                 "post_buy_pct": post_buy_pct,
-                "pre_sell_pct": pre_sell_pct,
-                "post_sell_pct": post_sell_pct,
-                "pre_hold_pct": pre_hold_pct,
-                "post_hold_pct": post_hold_pct,
-                "delta_buy_pct": delta_buy_pct,
-                "dominant_post": dominant_post,
-                "dominant_arrow": dominant_arrow,
+                "delta_buy_pct": delta,
+                # The arrow glyph stays in the row until the templates own presentation.
+                "dominant_arrow": "▲" if delta > 0 else "▼" if delta < 0 else "·",
+                "agents": [
+                    {"agent_id": str(r["agent_id"]), "pre_signal": str(r["pre_signal"]),
+                     "post_signal": str(r["post_signal"])}
+                    for r in pivoted
+                ],
             })
-
-        # Largest absolute shift by bracket
-        largest_shift: dict = {}  # type: ignore[type-arg]
-        if bracket_deltas:
-            max_entry = max(bracket_deltas, key=lambda b: abs(b["delta_buy_pct"]))
-            largest_shift = {
-                "bracket": max_entry["bracket"],
-                "direction": "BUY" if max_entry["delta_buy_pct"] > 0 else "SELL",
-                "delta": max_entry["delta_buy_pct"],
-            }
-
-        # Notable held-firm agents: held firm AND their bracket majority changed
-        pre_majority_by_bracket = {b: _majority(sigs) for b, sigs in pre_by_bracket.items()}
-        post_majority_by_bracket = {b: _majority(sigs) for b, sigs in post_by_bracket.items()}
-
-        notable_held_firm_agents = [
-            {
-                "bracket": r["bracket"],
-                "agent_id": r["agent_id"],
-                "pre_signal": r["pre_signal"],
-                "pre_bracket_majority": pre_majority_by_bracket[r["bracket"]],
-                "post_bracket_majority": post_majority_by_bracket[r["bracket"]],
-            }
-            for r in rows
-            if not r["pivoted"]
-            and pre_majority_by_bracket[r["bracket"]] != post_majority_by_bracket[r["bracket"]]
-        ]
-
-        return {
-            "shock_text": shock_text,
-            "injected_before_round": injected_before_round,
-            "comparable_agents": comparable_agents,
-            "pivot_count": pivot_count,
-            "held_firm_count": held_firm_count,
-            "pivot_rate_pct": pivot_rate_pct,
-            "held_firm_rate_pct": held_firm_rate_pct,
-            "pivot_agents": pivot_agents,
-            "bracket_deltas": bracket_deltas,
-            "largest_shift": largest_shift,
-            "notable_held_firm_agents": notable_held_firm_agents,
-        }
+        pivot_count = sum(1 for r in rows if r["pre_signal"] != r["post_signal"])
+        return ShockImpactRow(
+            shock_text=str(rows[0]["shock_text"]),
+            injected_before_round=int(rows[0]["shock_round"]),
+            pre_dominant=_majority([str(r["pre_signal"]) for r in rows]),
+            post_dominant=_majority([str(r["post_signal"]) for r in rows]),
+            pivot_count=pivot_count,
+            pivot_rate=pivot_count / len(rows),
+            bracket_pivots=bracket_pivots,
+        )
 
     # ------------------------------------------------------------------
     # Shock event writer (B1 wiring fix — see docs/DECISIONS.md#b1)
@@ -2082,8 +2224,8 @@ class GraphStateManager:
         )
         return [dict(record) async for record in result]
 
-    async def read_completed_cycles(self, limit: int = 10) -> list[dict]:  # type: ignore[type-arg]
-        """Return completed cycles (those with Round 3 decisions), most recent first.
+    async def read_completed_cycles(self, limit: int = 10) -> list[CompletedCycleRow]:
+        """Return completed cycles, most recent first (created_at as ISO-8601).
 
         Used by CyclePickerScreen and CLI replay defaulting. LIMIT caps at 10.
         """
@@ -2102,10 +2244,10 @@ class GraphStateManager:
 
     @staticmethod
     async def _read_completed_cycles_tx(
-        tx: "AsyncManagedTransaction",
+        tx: AsyncManagedTransaction,
         limit: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction: return completed cycles.
+    ) -> list[CompletedCycleRow]:
+        """Transaction: return completed cycles, newest first.
 
         Completed = metrics were stamped at simulation end (covers 2-round
         cycles under ALPHASWARM_NUM_ROUNDS=2), OR a Round 3 decision exists
@@ -2129,22 +2271,27 @@ class GraphStateManager:
             """,
             limit=limit,
         )
-        return [dict(record) async for record in result]
+        return [
+            CompletedCycleRow(
+                cycle_id=str(r["cycle_id"]),
+                created_at=_iso(r["created_at"]),
+                seed_rumor=str(r["seed_rumor"] or ""),
+                round_count=int(r["round_count"]),
+            )
+            async for r in result
+        ]
 
     async def read_bracket_narratives_for_round(
         self, cycle_id: str, round_num: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Per-bracket signal distribution for a specific round (REPLAY-01, D-07).
+    ) -> list[BracketRoundRow]:
+        """Per-bracket distribution for one round (replay).
 
-        Unlike read_bracket_narratives (hardcoded Round 3 for reports),
-        this accepts a round_num parameter for replay per-round display.
-
-        IMPORTANT: Signal casing uses lowercase 'buy'/'sell'/'hold' to match
-        the stored SignalType enum values (Review concern #1).
+        total and averages exclude PARSE_ERROR, matching the live frame's
+        compute_bracket_summaries; the replay manager maps display names.
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows = await session.execute_read(
                     self._read_bracket_narratives_for_round_tx, cycle_id, round_num,
                 )
         except Neo4jError as exc:
@@ -2156,45 +2303,58 @@ class GraphStateManager:
             "read_bracket_narratives_for_round",
             cycle_id=cycle_id,
             round_num=round_num,
-            count=len(records),
+            count=len(rows),
         )
-        return records
+        return rows
 
     @staticmethod
     async def _read_bracket_narratives_for_round_tx(
-        tx: "AsyncManagedTransaction",
+        tx: AsyncManagedTransaction,
         cycle_id: str,
         round_num: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction: bracket signal distribution using LOWERCASE signal values (Review #1)."""
+    ) -> list[BracketRoundRow]:
         result = await tx.run(
             """
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: $round_num})
-            RETURN
-                a.bracket AS bracket,
-                sum(CASE WHEN d.signal = 'buy' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN d.signal = 'sell' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN d.signal = 'hold' THEN 1 ELSE 0 END) AS hold_count,
-                avg(d.confidence) AS avg_confidence,
-                avg(d.sentiment) AS avg_sentiment
+            WITH a.bracket AS bracket, d, toLower(d.signal) AS s
+            WITH bracket,
+                 sum(CASE WHEN s = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                 sum(CASE WHEN s = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                 sum(CASE WHEN s = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                 avg(CASE WHEN s <> 'parse_error' THEN d.confidence END) AS avg_confidence,
+                 avg(CASE WHEN s <> 'parse_error' THEN d.sentiment END) AS avg_sentiment
+            RETURN bracket, buy_count, sell_count, hold_count,
+                   buy_count + sell_count + hold_count AS total,
+                   coalesce(avg_confidence, 0.0) AS avg_confidence,
+                   coalesce(avg_sentiment, 0.0) AS avg_sentiment
             ORDER BY bracket
             """,
             cycle_id=cycle_id,
             round_num=round_num,
         )
-        return [dict(record) async for record in result]
+        return [
+            BracketRoundRow(
+                bracket=str(r["bracket"]),
+                buy_count=int(r["buy_count"]),
+                sell_count=int(r["sell_count"]),
+                hold_count=int(r["hold_count"]),
+                total=int(r["total"]),
+                avg_confidence=float(r["avg_confidence"]),
+                avg_sentiment=float(r["avg_sentiment"]),
+            )
+            async for r in result
+        ]
 
     async def read_rationale_entries_for_round(
         self, cycle_id: str, round_num: int, limit: int = 10,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Top rationale entries for a specific round, ordered by confidence (REPLAY-01, D-07).
+    ) -> list[RationaleRoundRow]:
+        """Top rationales for a round by confidence, read from the Decision node.
 
-        Returns agent_id, signal, rationale text, and round_num for the sidebar.
-        Limit defaults to 10 per round for readable sidebar display.
+        RationaleEpisode.rationale is no longer the source (docs/DECISIONS.md#adr-neo4j-schema).
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows = await session.execute_read(
                     self._read_rationale_entries_for_round_tx, cycle_id, round_num, limit,
                 )
         except Neo4jError as exc:
@@ -2206,32 +2366,38 @@ class GraphStateManager:
             "read_rationale_entries_for_round",
             cycle_id=cycle_id,
             round_num=round_num,
-            count=len(records),
+            count=len(rows),
         )
-        return records
+        return rows
 
     @staticmethod
     async def _read_rationale_entries_for_round_tx(
-        tx: "AsyncManagedTransaction",
+        tx: AsyncManagedTransaction,
         cycle_id: str,
         round_num: int,
         limit: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction: top rationale entries for a round, ordered by confidence DESC."""
+    ) -> list[RationaleRoundRow]:
         result = await tx.run(
             """
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: $round_num})
-            MATCH (d)-[:HAS_EPISODE]->(re:RationaleEpisode)
             RETURN
                 a.id AS agent_id,
-                d.signal AS signal,
-                re.rationale AS rationale,
+                toLower(d.signal) AS signal,
+                coalesce(d.rationale, '') AS rationale,
                 d.round AS round_num
-            ORDER BY d.confidence DESC
+            ORDER BY d.confidence DESC, agent_id
             LIMIT $limit
             """,
             cycle_id=cycle_id,
             round_num=round_num,
             limit=limit,
         )
-        return [dict(record) async for record in result]
+        return [
+            RationaleRoundRow(
+                agent_id=str(r["agent_id"]),
+                signal=str(r["signal"]),
+                rationale=str(r["rationale"]),
+                round_num=int(r["round_num"]),
+            )
+            async for r in result
+        ]

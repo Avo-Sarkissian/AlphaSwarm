@@ -1,0 +1,72 @@
+[
+  {
+    "agent_id": "sell_side_01",
+    "bracket": "sell_side",
+    "citation_count": 24,
+    "influence_share": 0.255319,
+    "name": "Sell-Side 1"
+  },
+  {
+    "agent_id": "narrators_01",
+    "bracket": "narrators",
+    "citation_count": 22,
+    "influence_share": 0.234043,
+    "name": "Narrators 1"
+  },
+  {
+    "agent_id": "institutions_01",
+    "bracket": "institutions",
+    "citation_count": 20,
+    "influence_share": 0.212766,
+    "name": "Institutions 1"
+  },
+  {
+    "agent_id": "macro_01",
+    "bracket": "macro",
+    "citation_count": 18,
+    "influence_share": 0.191489,
+    "name": "Macro 1"
+  },
+  {
+    "agent_id": "quants_01",
+    "bracket": "quants",
+    "citation_count": 16,
+    "influence_share": 0.170213,
+    "name": "Quants 1"
+  },
+  {
+    "agent_id": "event_driven_01",
+    "bracket": "event_driven",
+    "citation_count": 14,
+    "influence_share": 0.148936,
+    "name": "Event-Driven 1"
+  },
+  {
+    "agent_id": "degens_01",
+    "bracket": "degens",
+    "citation_count": 12,
+    "influence_share": 0.12766,
+    "name": "Degens 1"
+  },
+  {
+    "agent_id": "algos_01",
+    "bracket": "algos",
+    "citation_count": 10,
+    "influence_share": 0.106383,
+    "name": "Algos 1"
+  },
+  {
+    "agent_id": "shorts_01",
+    "bracket": "shorts",
+    "citation_count": 8,
+    "influence_share": 0.085106,
+    "name": "Shorts 1"
+  },
+  {
+    "agent_id": "allocators_03",
+    "bracket": "allocators",
+    "citation_count": 6,
+    "influence_share": 0.06383,
+    "name": "Allocators 3"
+  }
+]

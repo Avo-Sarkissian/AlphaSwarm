@@ -1,7 +1,11 @@
 ## Entity Impact
 
+{% if data %}
 | Entity | Type | Avg Sentiment | Mentions | BUY | SELL | HOLD |
 |--------|------|---------------|----------|-----|------|------|
 {% for entity in data %}
-| {{ entity.name }} | {{ entity.type }} | {{ "%.2f"|format(entity.avg_sentiment) }} | {{ entity.mention_count }} | {{ entity.buy_count }} | {{ entity.sell_count }} | {{ entity.hold_count }} |
+| {{ entity.entity_name | md_cell }} | {{ entity.entity_type | md_cell }} | {{ entity.avg_sentiment | num(2) }} | {{ entity.mention_count }} | {{ entity.buy_mentions }} | {{ entity.sell_mentions }} | {{ entity.hold_mentions }} |
 {% endfor %}
+{% else %}
+_No final-round rationale referenced a seed entity._
+{% endif %}
