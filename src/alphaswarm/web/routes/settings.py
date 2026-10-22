@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, StrictBool, ValidationError, field_validator
 
 from alphaswarm.config import (
     InferenceConfig,
@@ -213,6 +213,9 @@ class SettingsUpdateRequest(BaseModel, extra="forbid"):
     limits: dict[ProviderType, LimitsUpdate] | None = None
     spend_cap_usd: Decimal | None = None
     pricing_overrides: dict[str, PriceUpdate] | None = None
+    # Cloud-advisory opt-in (docs/DECISIONS.md#adr-advisory-pipeline). Omitted or
+    # null keeps the stored value; only a JSON boolean changes it ("yes" is a 422).
+    allow_cloud_advisory: StrictBool | None = None
 
     @field_validator("orchestrator", "worker", mode="before")
     @classmethod
@@ -408,6 +411,8 @@ async def put_settings(body: SettingsUpdateRequest, request: Request) -> Setting
         merged["pricing_overrides"] = {
             model: price.model_dump() for model, price in body.pricing_overrides.items()
         }
+    if body.allow_cloud_advisory is not None:
+        merged["allow_cloud_advisory"] = body.allow_cloud_advisory
     try:
         merged_cfg = InferenceConfig.model_validate(merged)
     except ValidationError as exc:
@@ -417,7 +422,11 @@ async def put_settings(body: SettingsUpdateRequest, request: Request) -> Setting
     except OSError as exc:
         log.error("settings_save_failed", exc_type=exc.__class__.__name__)
         raise ApiError(500, "settings_save_failed", "Failed to persist settings") from exc
-    log.info("settings_updated", mode=inference_mode(merged_cfg))
+    log.info(
+        "settings_updated",
+        mode=inference_mode(merged_cfg),
+        allow_cloud_advisory=merged_cfg.allow_cloud_advisory,
+    )
     return SettingsUpdateResponse(config=masked_config(merged_cfg), mode=inference_mode(merged_cfg))
 
 
