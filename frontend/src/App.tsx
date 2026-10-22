@@ -1,4 +1,4 @@
-// src/App.tsx — 6-context shell mirroring frontend-react-archive/src/App.tsx (D-07)
+// src/App.tsx — 7-context shell mirroring frontend-react-archive/src/App.tsx (docs/DECISIONS.md#p41-6-d-07)
 // + onboarding localStorage gate skeleton (D-12).
 // The full Onboarding component lands in Plan 41.6-04 (W4); this file just
 // wires the gate so W2/W3 can run the dashboard against a flag-bypass.

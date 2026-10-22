@@ -746,7 +746,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p41-6-d-03"></a>`D-03` | Convert the CDN-globals JSX design export to native ES modules. | active | fe/components/app_v2.tsx:4; fe/components/history.tsx:4; fe/components/icons.jsx:3; fe/components/panels.jsx:3; fe/components/settings.tsx:3; fe/components/states.jsx:5; fe/components/tweaks.jsx:3; fe/components/v2.tsx:5; fe/components/viz.jsx:3 |
-| <a id="p41-6-d-07"></a>`D-07` | App shell = six-context provider tree (Connection, Telemetry, Agents, Bracket, Rationales, Edges). | active | fe/App.tsx:1; fe/components/app_v2.tsx:4 |
+| <a id="p41-6-d-07"></a>`D-07` | App shell = seven-context provider tree (Connection, FrameMeta, Telemetry, Agents, Bracket, Rationales, Edges). Revised 2026-10 (six contexts until FrameMeta took the frame identity, [adr-frontend-quant-terminal](#adr-frontend-quant-terminal)). | revised | fe/App.tsx:1; fe/components/app_v2.tsx:4 |
 | <a id="p41-6-d-08"></a>`D-08` | AdvisoryV2: derive what the backend supports, stub the rest (stubs tracked as KRs). | active | fe/components/modals.jsx:9; fe/components/v2.tsx:17,743,810,838,1044; fe/lib/advisoryParse.ts:2,24,51 |
 | <a id="p41-6-d-09"></a>`D-09` | Render portfolio_outlook markdown via renderMarkdown(). | active | fe/components/v2.tsx:18,743,974; fe/lib/advisoryParse.ts:2,11; fe/lib/markdown.ts:3 |
 | <a id="p41-6-d-10"></a>`D-10` | AdvisoryV2 keeps four tabs; Holdings and Overview share items[]. | active | fe/components/v2.tsx:18,743,1012 |
