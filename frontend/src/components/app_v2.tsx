@@ -41,6 +41,7 @@ import { useRunGate } from '../hooks/useRunGate';
 import { replayStart } from '../api/replay';
 import { normalizeBracketKey } from '../data';
 import { errorMessage } from '../lib/apiError';
+import { rankInfluencers } from '../lib/influence';
 import { phaseLabelFor, roundFromPhase } from '../lib/phase';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
 // modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
@@ -348,42 +349,20 @@ export function App() {
     [rationales, agents],
   );
 
-  // Top Influencers: rank by OUT-DEGREE when edges are available (post-cycle),
-  // fall back to confidence rank for live/early frames (KR-41.1-09).
-  const outDegree = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const [source] of edgePairs) out[source] = (out[source] ?? 0) + 1;
-    return out;
-  }, [edgePairs]);
+  // Top Influencers: agents cited by the most distinct peers in the round on
+  // screen (in-degree). Nothing to rank until round 2's edges exist.
   const hasEdges = edges.length > 0;
   const topInfluencers = useMemo(() => {
-    if (hasEdges) {
-      const maxOut = Math.max(1, ...Object.values(outDegree));
-      return [...agents]
-        .map(a => ({ a, deg: outDegree[a.id] ?? 0 }))
-        // Drop zero-out-degree agents so the OUT-DEGREE panel never shows "0"
-        // filler rows when fewer than 5 agents are edge sources (F-35). The
-        // topInfluencers.length === 0 render guard covers the empty case.
-        .filter(({ deg }) => deg > 0)
-        .sort((x, y) => y.deg - x.deg)
-        .slice(0, 5)
-        .map(({ a, deg }) => ({
-          id: a.id,
-          bracket: a.bracketDisplay,
-          out: deg,
-          barPct: Math.round((deg / maxOut) * 100),
-        }));
-    }
-    return [...agents]
-      .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 5)
-      .map(a => ({
-        id: a.id,
-        bracket: a.bracketDisplay,
-        out: Math.round(a.confidence * 100),
-        barPct: Math.round(a.confidence * 100),
-      }));
-  }, [agents, outDegree, hasEdges]);
+    const byId = new Map(agents.map((a) => [a.id, a]));
+    const ranked = rankInfluencers(agents, edges).slice(0, 5);
+    const max = Math.max(1, ...ranked.map((r) => r.citedBy));
+    return ranked.map((r) => ({
+      id: r.agentId,
+      bracket: byId.get(r.agentId)?.bracketDisplay ?? '',
+      citedBy: r.citedBy,
+      barPct: Math.round((r.citedBy / max) * 100),
+    }));
+  }, [agents, edges]);
 
   // Header round and label from the backend phase string (lib/phase.ts);
   // 'finalizing' keeps the last round instead of falling back to round 1.
@@ -635,19 +614,21 @@ export function App() {
           <div className="panel">
             <div className="panel-head">
               <span className="panel-title">Top Influencers</span>
-              <span className="label">{hasEdges ? 'OUT-DEGREE' : 'CONFIDENCE'}</span>
+              <span className="label">CITED BY</span>
             </div>
             <div className="panel-body" style={{fontFamily:'JetBrains Mono', fontSize:11}}>
               {topInfluencers.length === 0 ? (
                 <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 10 }}>
-                  no agents yet — waiting for first frame
+                  {hasEdges
+                    ? 'no citations in this round'
+                    : "influence appears once round 2's citations are written"}
                 </div>
               ) : topInfluencers.map(r => (
                 <div key={r.id} className="influencer-row">
                   <span className="infl-id" onClick={() => onCiteClick(r.id)}>{r.id}</span>
                   <span className="infl-bracket">{r.bracket}</span>
                   <div className="infl-bar"><span style={{width: `${r.barPct}%`}} /></div>
-                  <span className="infl-num">{r.out}</span>
+                  <span className="infl-num">{r.citedBy}</span>
                 </div>
               ))}
             </div>
