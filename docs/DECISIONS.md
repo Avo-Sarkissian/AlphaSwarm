@@ -154,7 +154,9 @@ Contents
     | macro | 0 | 0.0% | 0% | 0.0% |
     | shorts | 0 | 0.0% | 0% | 0.0% |
     | allocators | 0 | 0.0% | 0% | 0.0% |
+
     R2: distinct peers shown 46/100; max slot share 46.0% (limit 35%); min readers 0% (limit 15%) -> FAIL
+
     | bracket | slots | slot % | readers % | citations % |
     |---|---|---|---|---|
     | institutions | 100 | 16.9% | 100% | 24.9% |
@@ -167,7 +169,42 @@ Contents
     | macro | 0 | 0.0% | 0% | 0.0% |
     | shorts | 0 | 0.0% | 0% | 0.0% |
     | allocators | 0 | 0.0% | 0% | 0.0% |
+
     R3: distinct peers shown 45/100; max slot share 49.2% (limit 35%); min readers 0% (limit 15%) -> FAIL
+
+  - *After* (seeded stratified sampling, `peer_selection_version` 2): cycle `c446284f-a40e-4527-b55e-2f9030d348a5`, git `b9238983`, mode `local`, worker `alphaswarm-worker`, parse errors R2 `1` / R3 `0`.
+
+    | bracket | slots | slot % | readers % | citations % |
+    |---|---|---|---|---|
+    | institutions | 94 | 15.8% | 70% | 24.6% |
+    | sell_side | 70 | 11.8% | 56% | 4.8% |
+    | event_driven | 57 | 9.6% | 47% | 15.5% |
+    | quants | 66 | 11.1% | 53% | 6.3% |
+    | degens | 59 | 9.9% | 47% | 3.9% |
+    | narrators | 62 | 10.4% | 59% | 8.7% |
+    | algos | 46 | 7.7% | 39% | 5.3% |
+    | macro | 47 | 7.9% | 41% | 5.3% |
+    | shorts | 50 | 8.4% | 48% | 13.5% |
+    | allocators | 44 | 7.4% | 43% | 12.1% |
+
+    R2: distinct peers shown 99/100; max slot share 15.8% (limit 35%); min readers 39% (limit 15%) -> PASS
+
+    | bracket | slots | slot % | readers % | citations % |
+    |---|---|---|---|---|
+    | institutions | 109 | 17.8% | 78% | 26.3% |
+    | sell_side | 69 | 11.3% | 58% | 5.8% |
+    | event_driven | 54 | 8.8% | 48% | 13.2% |
+    | quants | 61 | 10.0% | 51% | 12.8% |
+    | degens | 73 | 11.9% | 55% | 4.1% |
+    | narrators | 60 | 9.8% | 53% | 5.8% |
+    | algos | 40 | 6.5% | 36% | 6.2% |
+    | macro | 48 | 7.9% | 44% | 8.2% |
+    | shorts | 53 | 8.7% | 50% | 9.9% |
+    | allocators | 44 | 7.2% | 42% | 7.8% |
+
+    R3: distinct peers shown 99/100; max slot share 17.8% (limit 35%); min readers 36% (limit 15%) -> PASS
+
+  - *Summary:* R2 max slot share `46.0%` → `15.8%`; R2 min readers `0%` → `39%`; distinct peers shown R2 `46` → `99`, R3 `45` → `99`; Sell-Side share of R2 citations `46.7%` → `4.8%`. Flips and final distribution (context, not a gate) are in `scripts/compare_cycles.py` for both cycles.
 
 - **Leftovers:**
   - `read_ranked_posts`, `_dispatch_round`, and `read_peer_decisions` are dead code.
