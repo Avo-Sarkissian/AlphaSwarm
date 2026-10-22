@@ -1,4 +1,4 @@
-"""Deterministic run_simulation scenarios: rounds and shocks (T10.5 step 3)."""
+"""Deterministic run_simulation scenarios: rounds and shocks."""
 
 from __future__ import annotations
 
