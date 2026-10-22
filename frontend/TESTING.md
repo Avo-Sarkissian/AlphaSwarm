@@ -38,7 +38,10 @@ and `npm run build` on Node 20.
 5. Under happy-dom, DOMPurify stops at the first element it removes (happy-dom's NodeIterator
    skips the DOM's removal steps; browsers continue). Give each sanitizer case in
    `markdown.test.ts` at most one element to remove; the `it.fails` test there flags the day
-   happy-dom fixes this.
+   happy-dom fixes this. happy-dom's `Node.prototype.nodeName` getter also returns `''` for
+   elements (browsers return the tag name), and DOMPurify reads that getter, so
+   `markdown.test.ts` patches it in a `vi.hoisted` block before DOMPurify loads; a test there
+   fails once the patch is no longer needed.
 
 ## Wire contract
 
