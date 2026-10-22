@@ -170,10 +170,9 @@ async def test_budget_exceeded_halts_run_without_persisting_the_round(
     scenario_controller: ImmediateController,
 ) -> None:
     worker = make_scripted_worker(failing_in_round(2, _budget_stop, agent_ids={"quants_01"}))
-    # Pins today's wrapping: pytest.raises(ExceptionGroup) until the error surfaces unwrapped.
-    with pytest.raises(ExceptionGroup) as excinfo:
+    with pytest.raises(BudgetExceededError) as excinfo:
         await run_scenario(worker=worker)
-    assert excinfo.group_contains(BudgetExceededError)
+    assert isinstance(excinfo.value.__cause__, ExceptionGroup)
     assert persisted_rounds(fake_graph) == [1]
     assert scenario_store.phases[-1] is SimulationPhase.ROUND_2
     assert worker.prepare_calls == worker.teardown_calls
@@ -182,11 +181,6 @@ async def test_budget_exceeded_halts_run_without_persisting_the_round(
     fake_graph.write_cycle_metrics.assert_not_awaited()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T1.2: BudgetExceededError escapes run_simulation inside an ExceptionGroup "
-    "(fix: plan 05)",
-)
 async def test_budget_exceeded_surfaces_unwrapped(
     run_scenario: RunScenario, make_scripted_worker: Callable[..., ScriptedProvider]
 ) -> None:
