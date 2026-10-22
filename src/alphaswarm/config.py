@@ -340,8 +340,9 @@ def save_inference_config(
 ) -> None:
     """Persist *cfg* as pretty-printed JSON at *path*.
 
-    *path* defaults to ``settings.inference_config_path`` when *settings* is
-    given, else to INFERENCE_CONFIG_PATH.
+    *path* defaults to ``settings.inference_config_path`` resolved against the
+    repo root (``settings.resolve_path``) when *settings* is given, else to
+    ``PROJECT_ROOT / INFERENCE_CONFIG_PATH``; never to the working directory.
 
     Creates intermediate directories if they do not exist.
 

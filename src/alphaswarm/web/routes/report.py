@@ -184,33 +184,31 @@ def _on_report_task_done(task: asyncio.Task[Any], cycle_id: str, app: FastAPI) -
 
 
 async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
-    """Background task — mirrors cli.py _handle_report sequence exactly (D-03).
+    """Background task mirroring cli.py's _handle_report sequence (docs/DECISIONS.md#p36-d-03).
 
     Sequence: provider.prepare -> ReportEngine.run -> ReportAssembler.assemble ->
     write_report -> write_sentinel. provider.teardown/aclose happens in finally
     even when generation raises (prevents leaked model lock / cloud client leak).
 
-    Preconditions: the POST handler has already validated that graph_manager,
-    ollama_client, and model_manager are non-None, so the narrowing asserts
-    below are always safe when this coroutine is scheduled from the route.
+    Started by POST /api/report/{id}/generate and by the post-run pipeline; the
+    lifespan always builds graph_manager, ollama_client and model_manager, so the
+    asserts below only narrow their types.
 
     Uses build_providers(load_inference_config(...)) so cloud configs are honoured
     and the provider is budget-capped.  LOCAL mode returns a plain OllamaProvider
     with identical behaviour to before.  The budget_meter is per-operation (fresh
-    per report run) which bounds each report generation to its own spend cap.
+    per report run) which bounds each report generation to its own spend cap. An
+    invalid config fails the job with a fixed InferenceConfigError (job_config_error).
 
-    Accepted risk (T-36-16, both reviewers LOW): write_report is not atomic.
-    The window between open('w') truncation and write completion is milliseconds
-    and the poll cadence is 3 s, so collisions are extremely rare at the typical
-    5-10 KB report size. If observed in practice, Phase 15's write_report can
-    be enhanced with a .tmp + os.rename pattern in a follow-up quick task.
+    write_report replaces the file atomically, so GET never reads a partial report
+    (docs/DECISIONS.md#adr-background-tasks).
     """
     model_manager = app_state.model_manager
     gm = app_state.graph_manager
     ollama_client = app_state.ollama_client
-    assert model_manager is not None, "model_manager must be set (POST guard enforces this)"
-    assert gm is not None, "graph_manager must be set (POST guard enforces this)"
-    assert ollama_client is not None, "ollama_client must be set (POST guard enforces this)"
+    assert model_manager is not None, "model_manager must be set (the lifespan builds it)"
+    assert gm is not None, "graph_manager must be set (the lifespan builds it)"
+    assert ollama_client is not None, "ollama_client must be set (the lifespan builds it)"
 
     try:
         cfg = await asyncio.to_thread(load_inference_config, app_state.settings)

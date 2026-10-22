@@ -1372,8 +1372,9 @@ def test_replay_advance_real_logic() -> None:
         assert data["round_num"] == 2
 
 
-def test_replay_stop_resets_phase() -> None:
-    """POST /api/replay/stop resets replay_manager to inactive and phase to IDLE."""
+def test_replay_stop_deactivates_replay() -> None:
+    """POST /api/replay/stop makes replay_manager inactive. That stop leaves the live
+    phase alone is pinned by tests/test_replay_live_phase.py (docs/DECISIONS.md#p34-d-10)."""
     from unittest.mock import AsyncMock
 
     from alphaswarm.state import AgentState
