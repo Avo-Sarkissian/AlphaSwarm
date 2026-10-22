@@ -762,6 +762,10 @@ async def run_round1(
         # StateStore: mark SEEDING phase
         if state_store is not None:
             await state_store.set_phase(SimulationPhase.SEEDING)
+            # Canonical roster for this run, in config order and all pending, so
+            # every frame from SEEDING on carries the same agents in the same order
+            # (docs/DECISIONS.md#adr-streaming-state).
+            await state_store.begin_run([p.id for p in personas])
 
         # 1. Inject seed (orchestrator model lifecycle is self-contained)
         orchestrator_provider = OllamaProvider(
@@ -1140,6 +1144,10 @@ async def run_simulation(
     if state_store is not None:
         state_store.set_num_rounds(settings.num_rounds)
         await state_store.set_phase(SimulationPhase.SEEDING)
+        # Canonical roster for this run, in config order and all pending, so
+        # every frame from SEEDING on carries the same agents in the same order
+        # (docs/DECISIONS.md#adr-streaming-state).
+        await state_store.begin_run([p.id for p in personas])
 
     cycle_id, parsed_result, modifier_result = await inject_seed(
         rumor, settings, orch, graph_manager,
