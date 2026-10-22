@@ -333,7 +333,10 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
 // ──────────────────────────────────────────────────────────────────────
 // MODEL STATUS — topbar inline status chip
 // Now live: polls GET /api/health at 10s intervals for inference_mode and
-// spent_usd. Falls back gracefully when the backend is offline.
+// spent_usd. Until health answers it says "Checking…", and "Mode unknown" when
+// the request fails, never a guessed "Local". inference_mode looks at providers
+// only, so an Ollama cloud model still reads as Local here while Settings, which
+// applies the advisory's off-machine rule, says local + cloud.
 // ──────────────────────────────────────────────────────────────────────
 export function ModelStatus() {
   const tel = useTelemetry();
@@ -347,7 +350,7 @@ export function ModelStatus() {
   const roundNum = conn.lastFrame?.roundNum ?? null;
 
   // Live inference mode from /api/health — poll every 10 s.
-  const { data: healthData } = usePolling({
+  const { data: healthData, error: healthError } = usePolling({
     key: 'health-inference-mode',
     fetchFn: getHealth,
     intervalMs: 10_000,
@@ -360,7 +363,7 @@ export function ModelStatus() {
     if (mode === 'local') return 'Local';
     if (mode === 'cloud') return 'Cloud';
     if (mode === 'mixed') return 'Mixed';
-    return 'Local'; // graceful fallback while loading
+    return healthError !== null ? 'Mode unknown' : 'Checking…';
   }
 
   const ops = [
