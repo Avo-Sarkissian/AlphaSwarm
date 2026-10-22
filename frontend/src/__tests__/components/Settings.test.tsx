@@ -4,8 +4,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RoleView, SettingsView } from '../../api/settings';
+import { Settings } from '../../components/settings';
 import { InferenceSettings } from '../../components/settings_inference';
 import { stubFetchRoutes } from '../helpers/fetchRoutes';
+import { renderWithFrame } from '../helpers/renderWithFrame';
 
 const LOCAL_ROLE: RoleView = {
   provider: 'ollama',
@@ -51,6 +53,19 @@ function settingsView(
 function providerSelect(role: 'Orchestrator' | 'Worker'): HTMLSelectElement {
   const block = screen.getByText(role).closest('.st-inf-role') as HTMLElement;
   return block.querySelector('select') as HTMLSelectElement;
+}
+
+const HEALTH = {
+  status: 'ok',
+  inference_mode: 'local',
+  spent_usd: null,
+  version: '0.0.0-test',
+  components: {},
+};
+
+/** Open one Settings section from the side nav. */
+function openSection(name: 'Runtime' | 'Model' | 'API keys' | 'Storage' | 'Privacy') {
+  fireEvent.click(screen.getByRole('button', { name }));
 }
 
 /** The parsed JSON bodies of every PUT the component sent. */
@@ -144,5 +159,37 @@ describe('the opt-in in the PUT body', () => {
     await waitFor(() => expect(box.checked).toBe(true));
 
     expect(putBodies(fetchMock).map((body) => body.allow_cloud_advisory)).toEqual([false, true]);
+  });
+});
+
+describe('Settings privacy copy', () => {
+  it('follows a save in Settings → Model without reopening Settings', async () => {
+    stubFetchRoutes({
+      'GET /api/settings': { body: settingsView(LOCAL_ROLE, LOCAL_ROLE, false) },
+      'GET /api/health': { body: HEALTH },
+      'PUT /api/settings': {
+        body: { config: settingsView(LOCAL_ROLE, ANTHROPIC_ROLE, false).config, mode: 'mixed' },
+      },
+    });
+    renderWithFrame(<Settings onClose={vi.fn()} />);
+    expect(await screen.findByText('local only')).toBeDefined();
+    openSection('Privacy');
+    expect(
+      screen.getByText('Prompts for the worker role stay on this machine (local Ollama).'),
+    ).toBeDefined();
+
+    openSection('Model');
+    await screen.findByText('Worker');
+    fireEvent.change(providerSelect('Worker'), { target: { value: 'anthropic' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Saved.');
+
+    openSection('Privacy');
+    expect(
+      screen.getByText('Prompts for the worker role are sent to Anthropic (api.anthropic.com).'),
+    ).toBeDefined();
+    expect(screen.getByText('local + cloud')).toBeDefined();
+    openSection('API keys');
+    expect(screen.getByDisplayValue('worker')).toBeDefined();
   });
 });

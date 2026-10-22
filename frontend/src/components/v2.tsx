@@ -441,7 +441,7 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
     }
   }, [mockData, selected]);
   const [groupFilter, setGroupFilter] = useState('all');
-  const privacy = usePrivacyFacts();
+  const [privacy] = usePrivacyFacts();
 
   if (mockData === null) {
     if (!import.meta.env.DEV) {
@@ -791,7 +791,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<'overview' | 'holdings' | 'risk' | 'isolation'>(
     'overview',
   );
-  const privacy = usePrivacyFacts();
+  const [privacy] = usePrivacyFacts();
 
   // codex HIGH-3: GET-only polling. No POST trigger — synthesis is
   // auto-fired by SimulationManager.on_complete (per quick task 260507-19f).

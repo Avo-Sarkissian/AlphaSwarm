@@ -43,7 +43,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [section, setSection] = useState<
     'runtime' | 'model' | 'brackets' | 'keys' | 'storage' | 'privacy'
   >('runtime');
-  const privacy = usePrivacyFacts();
+  const [privacy, setPrivacyFromSettings] = usePrivacyFacts();
   const { telemetry } = useTelemetry();
   const [version, setVersion] = useState<string | null>(null);
 
@@ -224,7 +224,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               title="Inference / Models"
               desc="Provider, model, and API key for orchestrator and worker roles. Changes take effect on the next simulation run. Settings are backend-owned — never stored in localStorage."
             >
-              <InferenceSettings />
+              <InferenceSettings onSaved={setPrivacyFromSettings} />
             </SettingGroup>
           )}
 

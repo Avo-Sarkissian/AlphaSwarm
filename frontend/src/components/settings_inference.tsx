@@ -291,7 +291,12 @@ function RoleForm({
 
 // ── main component ────────────────────────────────────────────────────────
 
-export function InferenceSettings() {
+interface InferenceSettingsProps {
+  /** Called with the settings a save stored, so the privacy copy can follow them. */
+  onSaved?: (view: SettingsView) => void;
+}
+
+export function InferenceSettings({ onSaved }: InferenceSettingsProps) {
   const [view, setView] = useState<SettingsView | null>(null);
   const [orch, setOrch] = useState<RoleFormState | null>(null);
   const [worker, setWorker] = useState<RoleFormState | null>(null);
@@ -334,7 +339,7 @@ export function InferenceSettings() {
   }, []);
 
   async function handleSave() {
-    if (!orch || !worker) return;
+    if (!view || !orch || !worker) return;
     setSaving(true);
     setSaveError(null);
     setSaveOk(false);
@@ -346,15 +351,9 @@ export function InferenceSettings() {
         allow_cloud_advisory: allowCloudAdvisory,
       });
       // Refresh from returned config
-      setView((prev) =>
-        prev
-          ? {
-              ...prev,
-              config: result.config,
-              mode: result.mode,
-            }
-          : null,
-      );
+      const saved: SettingsView = { ...view, config: result.config, mode: result.mode };
+      setView(saved);
+      onSaved?.(saved);
       // Re-seed form from returned config (resets api_key fields + updates masks)
       setOrch(roleViewToForm(result.config.orchestrator));
       setWorker(roleViewToForm(result.config.worker));
