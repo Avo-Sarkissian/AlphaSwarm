@@ -154,7 +154,7 @@ export async function putSettings(
   }>;
 }
 
-/** POST /api/settings/test — test stored connection for a role. Never throws server-side. */
+/** POST /api/settings/test — test stored connection for a role. Connection failures come back in the result; throws ApiError 409 simulation_running during a run. */
 export function testConnection(
   role: 'orchestrator' | 'worker',
 ): Promise<TestResult> {

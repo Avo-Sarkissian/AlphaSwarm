@@ -8,16 +8,18 @@
 //   never infer from loose prose.
 // gemini #G1: section parsers from lib/advisoryParse.ts, NOT inline.
 //
-// Trigger semantics: POST /api/report/{cycle_id}/generate triggers the report
-// generator (202 on accept, 409 when another generation is in flight). GET
-// returns the report (404 → null/pending; 500/503 propagate). The trigger fires
-// once on mount; 409 is treated as "already in flight" (poll picks it up).
+// Trigger semantics: POST /api/report/{cycle_id}/generate starts the report job
+// (202 on accept, 409 report_generation_in_progress when one already runs). The
+// modal polls GET only while the backend answers 409 report_generation_in_progress;
+// every other error ends the poll and its envelope message is shown.
 import { useState, useMemo, useEffect } from 'react';
 import { Icon } from './icons';
 import { useCurrentCycle } from '../hooks/useCurrentCycle';
 import { usePolling } from '../hooks/usePolling';
-import { reportFetch, reportGenerate, type ReportContent } from '../api/report';
+import { reportFetch, reportGenerate, reportPoll, type ReportContent } from '../api/report';
 import { ApiError } from '../api/client';
+import { parseErrorEnvelope } from '../lib/apiError';
+import { shouldKeepPolling } from '../lib/reportPolling';
 import { renderMarkdown } from '../lib/markdown';
 import {
   parseConvergence,
@@ -33,6 +35,18 @@ import { ConvergenceFlow, InfluenceChart, Moment, Followup } from './v2';
 // alias if the wire field name shifts.
 type ReportPayload = ReportContent & { report_markdown?: string };
 
+function errorText(e: unknown): string {
+  if (e instanceof ApiError) return parseErrorEnvelope(e.body).message ?? `HTTP ${e.status}`;
+  return e instanceof Error ? e.message : String(e);
+}
+
+function isReportRunning(e: unknown): boolean {
+  return (
+    e instanceof ApiError &&
+    shouldKeepPolling({ status: e.status, code: parseErrorEnvelope(e.body).code })
+  );
+}
+
 export function ReportModal({
   cycleId: cycleIdProp,
   onClose,
@@ -47,12 +61,15 @@ export function ReportModal({
   // UX contract: the modal NEVER auto-kicks generation. On open, GET the report:
   //   - 200 -> show it
   //   - 404 -> render an explicit "no report yet" state with a Generate button
-  //   - 500 -> surface the recorded error
-  // Only after the user clicks Generate do we POST /api/report/{cycleId}/generate
-  // and start polling. (Previously the modal POSTed on mount, silently spawning
-  // a 25-50 min synthesis that the user did not request.)
+  //   - 409 report_generation_in_progress -> a job already runs: start polling
+  //   - anything else -> surface the backend's message
+  // Only after the user clicks Generate do we POST /api/report/{cycleId}/generate,
+  // and only once the POST is accepted do we start polling. (Previously the modal
+  // POSTed on mount, silently spawning a 25-50 min synthesis that the user did
+  // not request.)
   const [triggerError, setTriggerError] = useState<string | null>(null);
   const [generationKicked, setGenerationKicked] = useState(false);
+  const [triggerPending, setTriggerPending] = useState(false);
 
   // ── Probe phase: one-shot fetch on mount, never via usePolling ─────────
   // reportFetch returns null on 404 (no report yet). usePolling would
@@ -77,6 +94,12 @@ export function ReportModal({
       })
       .catch((e: unknown) => {
         if (cancelled) return;
+        if (isReportRunning(e)) {
+          // A report job for this cycle is already running (auto-report or another tab).
+          setGenerationKicked(true);
+          setProbeState({ loading: false, data: null, error: null });
+          return;
+        }
         setProbeState({
           loading: false,
           data: null,
@@ -88,11 +111,11 @@ export function ReportModal({
     };
   }, [cycleId]);
 
-  // ── Generation-phase polling (only active AFTER the user clicks Generate)
+  // ── Generation-phase polling (active once a report job is known to be running)
   const polled = usePolling<ReportPayload | null>({
     key: `report-gen:${cycleId ?? 'none'}:${generationKicked ? 'on' : 'off'}`,
     fetchFn: () =>
-      cycleId && generationKicked ? reportFetch(cycleId) : Promise.resolve(null),
+      cycleId && generationKicked ? reportPoll(cycleId) : Promise.resolve(null),
     intervalMs: 3000,
     maxAttempts: generationKicked ? 1200 : 0, // 0 = disabled until kicked
   });
@@ -107,15 +130,21 @@ export function ReportModal({
     probeError !== null ||
     fetchError !== null;
 
+  // Poll only after the POST is accepted, so a fast GET can never see 404.
   const handleGenerate = () => {
-    if (!cycleId || generationKicked) return;
-    setGenerationKicked(true);
+    if (!cycleId || generationKicked || triggerPending) return;
     setTriggerError(null);
-    void reportGenerate(cycleId).catch((e: unknown) => {
-      if (e instanceof ApiError && e.status === 409) return; // already in flight — poll picks up
-      const msg = e instanceof Error ? e.message : String(e);
-      setTriggerError(msg);
-    });
+    setTriggerPending(true);
+    reportGenerate(cycleId)
+      .then(() => setGenerationKicked(true))
+      .catch((e: unknown) => {
+        if (isReportRunning(e)) {
+          setGenerationKicked(true);
+          return;
+        }
+        setTriggerError(errorText(e));
+      })
+      .finally(() => setTriggerPending(false));
   };
 
   // Canonical markdown — pick whichever field the backend emitted.
@@ -179,7 +208,8 @@ export function ReportModal({
                 No report exists for this cycle yet.
               </div>
               <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6, maxWidth: 640 }}>
-                Reports now auto-generate once the advisory completes for this cycle.
+                Reports generate automatically after every completed run (after the
+                advisory when holdings are loaded).
                 If auto-generation has not started yet — or you want a fresh pass —
                 use the manual button below as a fallback / regenerate path. Total
                 wall-clock on M1 Max is ~5–10 min for the canonical markdown pass
@@ -189,6 +219,7 @@ export function ReportModal({
               <button
                 className="btn"
                 onClick={handleGenerate}
+                disabled={triggerPending}
                 style={{ marginTop: 4 }}
               >
                 <Icon name="bolt" size={12} /> Generate report
@@ -210,7 +241,8 @@ export function ReportModal({
           )}
           {hadError && !report && (
             <div className="report-hero" style={{ padding: 24, color: 'var(--sell)' }}>
-              Report failed: {probeError?.message ?? fetchError?.message ?? triggerError ?? 'unknown error'}
+              Report failed:{' '}
+              {probeError ? errorText(probeError) : fetchError ? errorText(fetchError) : triggerError ?? 'unknown error'}
             </div>
           )}
 

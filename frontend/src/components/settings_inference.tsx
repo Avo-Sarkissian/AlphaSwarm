@@ -26,6 +26,7 @@ import {
   type RolePut,
 } from '../api/settings';
 import { ApiError } from '../api/client';
+import { parseErrorEnvelope } from '../lib/apiError';
 
 // ── local form state ──────────────────────────────────────────────────────
 
@@ -93,6 +94,8 @@ function providerLabel(p: ProviderType): string {
 function extractErrorDetail(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 409) return 'Stop the running simulation first.';
+    const { message } = parseErrorEnvelope(e.body);
+    if (message) return message;
     if (typeof e.body === 'object' && e.body !== null) {
       const b = e.body as Record<string, unknown>;
       if (typeof b['detail'] === 'string') return b['detail'];
