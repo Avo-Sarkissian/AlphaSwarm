@@ -127,8 +127,6 @@ def mock_graph_manager() -> AsyncMock:
     gm.write_narrative_edges = AsyncMock()  # Phase 11 (called via WriteBuffer.flush)
     # Phase 12: Post node methods
     gm.write_posts = AsyncMock(return_value=["post_id_1", "post_id_2"])
-    gm.read_ranked_posts = AsyncMock(return_value=[])
-    gm.write_read_post_edges = AsyncMock(return_value=None)
     # Phase 35.1 — shock injection writer (B1 wiring fix)
     gm.write_shock_event = AsyncMock(return_value="shock-id-123")
     return gm
@@ -1260,7 +1258,7 @@ async def test_run_simulation_round2_uses_round1_peers(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """run_simulation builds Round 2 peer contexts from Round 1 posts via read_ranked_posts."""
+    """run_simulation builds Round 2 peer contexts in memory from Round 1 decisions."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -1286,8 +1284,6 @@ async def test_run_simulation_round2_uses_round1_peers(
     contexts = r2_kwargs["peer_contexts"]
     assert len(contexts) == len(TEST_PERSONAS)
     assert all(c is not None and "Peer Decisions (Round 1):" in c for c in contexts)
-    # The old Neo4j ranked-posts path is gone.
-    assert mock_graph_manager.read_ranked_posts.await_count == 0
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -1303,7 +1299,7 @@ async def test_run_simulation_round3_uses_round2_peers(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """run_simulation builds Round 3 peer contexts from Round 2 posts via read_ranked_posts."""
+    """run_simulation builds Round 3 peer contexts in memory from Round 2 decisions."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -1326,7 +1322,6 @@ async def test_run_simulation_round3_uses_round2_peers(
     contexts = r3_kwargs["peer_contexts"]
     assert len(contexts) == len(TEST_PERSONAS)
     assert all(c is not None and "Peer Decisions (Round 2):" in c for c in contexts)
-    assert mock_graph_manager.read_ranked_posts.await_count == 0
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -2251,48 +2246,6 @@ async def test_run_simulation_peer_contexts_cite_round1_agents(
         assert ctx is not None
         assert f"[{persona.id}|" not in ctx  # self-exclusion
         assert "[quants_01|" in ctx or "[degens_01|" in ctx
-    # No Neo4j reads for peer building anymore.
-    assert mock_graph_manager.read_ranked_posts.await_count == 0
-
-
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
-async def test_run_simulation_no_read_post_edges(
-    mock_inject: AsyncMock,
-    mock_round1: AsyncMock,
-    mock_dispatch_wave: AsyncMock,
-    mock_settings: AppSettings,
-    mock_ollama_client: MagicMock,
-    mock_model_manager: AsyncMock,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-) -> None:
-    """READ_POST edges are no longer written (top-down sweep: ~10k edges/round
-    recording 'everyone read everything' had no analytical value). Post nodes
-    themselves are still written for report/interview reads."""
-    from alphaswarm.simulation import run_simulation
-
-    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
-    mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
-    mock_graph_manager.write_posts = AsyncMock(return_value=["p1", "p2", "p3"])
-
-    await run_simulation(
-        rumor=MOCK_RUMOR,
-        settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        personas=TEST_PERSONAS,
-        brackets=TEST_BRACKETS,
-        generate_narratives=False,
-    )
-
-    # READ_POST edge writes are gone entirely; posts still written per round.
-    assert mock_graph_manager.write_read_post_edges.await_count == 0
-    assert mock_graph_manager.write_posts.await_count == 3  # R1, R2, R3
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -2348,44 +2301,6 @@ async def test_run_simulation_two_rounds_skips_round3(
     assert metrics["num_rounds"] == 2
     assert metrics["r3_seconds"] == 0.0
     assert metrics["final_buy"] == len(TEST_PERSONAS)
-
-
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
-async def test_run_simulation_skips_read_post_edges_when_no_posts(
-    mock_inject: AsyncMock,
-    mock_round1: AsyncMock,
-    mock_dispatch_wave: AsyncMock,
-    mock_settings: AppSettings,
-    mock_ollama_client: MagicMock,
-    mock_model_manager: AsyncMock,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-) -> None:
-    """write_read_post_edges NOT called when write_posts returns empty list."""
-    from alphaswarm.simulation import run_simulation
-
-    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
-    mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
-    # write_posts returns empty list for all rounds
-    mock_graph_manager.write_posts = AsyncMock(return_value=[])
-
-    await run_simulation(
-        rumor=MOCK_RUMOR,
-        settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        personas=TEST_PERSONAS,
-        brackets=TEST_BRACKETS,
-        generate_narratives=False,
-    )
-
-    # write_read_post_edges should NOT be called (empty post_ids guard)
-    mock_graph_manager.write_read_post_edges.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

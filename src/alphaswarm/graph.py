@@ -31,18 +31,6 @@ log = structlog.get_logger(component="graph")
 
 
 @dataclass(frozen=True)
-class PeerDecision:
-    """Immutable peer decision read from Neo4j for influence rounds."""
-
-    agent_id: str
-    bracket: str
-    signal: str
-    confidence: float
-    sentiment: float
-    rationale: str
-
-
-@dataclass(frozen=True)
 class RankedPost:
     """A peer's published rationale post ranked by influence weight."""
 
@@ -370,32 +358,6 @@ class GraphStateManager:
         )
         record = await result.single()
         return int(record["pruned"]) if record else 0
-
-    async def create_cycle(self, seed_rumor: str) -> str:
-        """Create a new Cycle node with a uuid4 cycle_id.
-
-        Per D-10: generate unique cycle_id, persist with seed_rumor and timestamp.
-        """
-        cycle_id = str(uuid.uuid4())
-
-        async with self._driver.session(database=self._database) as session:
-            await session.execute_write(self._create_cycle_tx, cycle_id, seed_rumor)
-
-        self._log.info("cycle_created", cycle_id=cycle_id)
-        return cycle_id
-
-    @staticmethod
-    async def _create_cycle_tx(
-        tx: AsyncManagedTransaction,
-        cycle_id: str,
-        seed_rumor: str,
-    ) -> None:
-        """Transaction function for Cycle node creation."""
-        await tx.run(
-            "CREATE (c:Cycle {cycle_id: $cycle_id, seed_rumor: $seed_rumor, created_at: datetime()})",
-            cycle_id=cycle_id,
-            seed_rumor=seed_rumor,
-        )
 
     async def write_cycle_metrics(
         self,
@@ -799,216 +761,6 @@ class GraphStateManager:
             cycle_id=cycle_id,
             round_num=round_num,
         )
-
-    async def read_ranked_posts(
-        self,
-        agent_id: str,
-        cycle_id: str,
-        source_round: int,
-        limit: int = 10,
-    ) -> list[RankedPost]:
-        """Read top-K peer posts ranked by INFLUENCED_BY weight (SOCIAL-02).
-
-        Uses OPTIONAL MATCH on INFLUENCED_BY edges from the reading agent to
-        the post author. Falls back to author's influence_weight_base when no
-        dynamic edge exists. Excludes self-posts and PARSE_ERROR posts.
-        """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                result = await session.execute_read(
-                    self._read_ranked_posts_tx, agent_id, cycle_id, source_round, limit,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read ranked posts for agent {agent_id} cycle {cycle_id} round {source_round}",
-                original_error=exc,
-            ) from exc
-        self._log.debug(
-            "ranked_posts_read", agent_id=agent_id, count=len(result),
-        )
-        return result
-
-    @staticmethod
-    async def _read_ranked_posts_tx(
-        tx: AsyncManagedTransaction,
-        agent_id: str,
-        cycle_id: str,
-        source_round: int,
-        limit: int,
-    ) -> list[RankedPost]:
-        """Transaction function for reading peer posts ranked by influence weight.
-
-        Ranking = influence_weight_base + citation boost. The two signals live
-        on different scales (base: 0.3-0.9 static credibility; INFLUENCED_BY
-        weight: citations/total_agents, typically 0.01-0.3), so the previous
-        `coalesce(infl.weight, base)` REPLACED the base with the much smaller
-        dynamic weight whenever the reader had cited the author — actively
-        demoting the very peers that influenced the reader. Additive boost
-        preserves base credibility while letting real citations raise rank.
-        """
-        result = await tx.run(
-            """
-            MATCH (p:Post)
-            WHERE p.cycle_id = $cycle_id AND p.round_num = $source_round
-              AND p.agent_id <> $agent_id
-              AND p.signal <> 'parse_error'
-            WITH p
-            MATCH (author:Agent {id: p.agent_id})
-            OPTIONAL MATCH (reader:Agent {id: $agent_id})-[infl:INFLUENCED_BY {cycle_id: $cycle_id, round: $source_round}]->(author)
-            RETURN p.post_id AS post_id,
-                   p.agent_id AS agent_id,
-                   author.bracket AS bracket,
-                   p.signal AS signal,
-                   p.confidence AS confidence,
-                   p.content AS content,
-                   p.round_num AS round_num,
-                   author.influence_weight_base + coalesce(infl.weight, 0.0) AS influence_weight
-            ORDER BY influence_weight DESC
-            LIMIT $limit
-            """,
-            agent_id=agent_id,
-            cycle_id=cycle_id,
-            source_round=source_round,
-            limit=limit,
-        )
-        records = [r async for r in result]
-        return [
-            RankedPost(
-                post_id=r["post_id"],
-                agent_id=r["agent_id"],
-                bracket=r["bracket"],
-                signal=r["signal"],
-                confidence=r["confidence"],
-                content=r["content"],
-                influence_weight=r["influence_weight"],
-                round_num=r["round_num"],
-            )
-            for r in records
-        ]
-
-    async def write_read_post_edges(
-        self,
-        agent_ids: list[str],
-        post_ids: list[str],
-        round_num: int,
-        cycle_id: str,
-    ) -> None:
-        """Batch-write READ_POST edges: every agent -> all posts (SOCIAL-02).
-
-        Creates N_agents * N_posts edges in a single UNWIND transaction.
-        Semantics: agent had access to this post during this round.
-        """
-        if not agent_ids or not post_ids:
-            return
-        pairs = [
-            {"agent_id": aid, "post_id": pid}
-            for aid in agent_ids
-            for pid in post_ids
-        ]
-        try:
-            async with self._driver.session(database=self._database) as session:
-                await session.execute_write(
-                    self._batch_write_read_post_edges_tx, pairs, round_num, cycle_id,
-                )
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to write {len(pairs)} READ_POST edges for cycle {cycle_id} round {round_num}",
-                original_error=exc,
-            ) from exc
-        self._log.info(
-            "read_post_edges_written",
-            cycle_id=cycle_id,
-            round_num=round_num,
-            count=len(pairs),
-        )
-
-    @staticmethod
-    async def _batch_write_read_post_edges_tx(
-        tx: AsyncManagedTransaction,
-        pairs: list[dict],  # type: ignore[type-arg]
-        round_num: int,
-        cycle_id: str,
-    ) -> None:
-        """UNWIND batch create READ_POST edges from Agent to Post."""
-        await tx.run(
-            """
-            UNWIND $pairs AS pair
-            MATCH (a:Agent {id: pair.agent_id})
-            MATCH (p:Post {post_id: pair.post_id})
-            CREATE (a)-[:READ_POST {round_num: $round_num, cycle_id: $cycle_id}]->(p)
-            """,
-            pairs=pairs,
-            round_num=round_num,
-            cycle_id=cycle_id,
-        )
-
-    async def read_peer_decisions(
-        self,
-        agent_id: str,
-        cycle_id: str,
-        round_num: int,
-        limit: int = 5,
-    ) -> list[PeerDecision]:
-        """Read top-N peer decisions ranked by static influence_weight_base. Per D-09."""
-        try:
-            async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_peers_tx, agent_id, cycle_id, round_num, limit
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read peer decisions for agent {agent_id} cycle {cycle_id} round {round_num}",
-                original_error=exc,
-            ) from exc
-        self._log.debug(
-            "peer_decisions_read",
-            agent_id=agent_id,
-            cycle_id=cycle_id,
-            round_num=round_num,
-            count=len(records),
-        )
-        return [
-            PeerDecision(
-                agent_id=r["agent_id"],
-                bracket=r["bracket"],
-                signal=r["signal"],
-                confidence=r["confidence"],
-                sentiment=r["sentiment"],
-                rationale=r["rationale"],
-            )
-            for r in records
-        ]
-
-    @staticmethod
-    async def _read_peers_tx(
-        tx: AsyncManagedTransaction,
-        agent_id: str,
-        cycle_id: str,
-        round_num: int,
-        limit: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for reading peer decisions by influence weight."""
-        result = await tx.run(
-            """
-            MATCH (a:Agent)-[:MADE]->(d:Decision)
-            WHERE d.cycle_id = $cycle_id
-              AND d.round = $round_num
-              AND a.id <> $agent_id
-            RETURN a.id AS agent_id,
-                   a.bracket AS bracket,
-                   d.signal AS signal,
-                   d.confidence AS confidence,
-                   d.sentiment AS sentiment,
-                   d.rationale AS rationale
-            ORDER BY a.influence_weight_base DESC
-            LIMIT $limit
-            """,
-            agent_id=agent_id,
-            cycle_id=cycle_id,
-            round_num=round_num,
-            limit=limit,
-        )
-        return [dict(record) async for record in result]
 
     # ------------------------------------------------------------------
     # Phase 11: RationaleEpisode writes, entity reads, narrative writes
@@ -1892,7 +1644,8 @@ class GraphStateManager:
     ) -> list[dict]:  # type: ignore[type-arg]
         """Return top posts by READ_POST edge count for the cycle (REPORT-02).
 
-        Uses READ_POST edges created by Phase 12 write_read_post_edges().
+        READ_POST edges are no longer written (docs/DECISIONS.md#hist-read-post),
+        so this returns nothing for new cycles.
 
         Args:
             cycle_id: Simulation cycle ID.

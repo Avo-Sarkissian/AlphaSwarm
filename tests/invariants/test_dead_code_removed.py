@@ -23,3 +23,13 @@ def test_run_round1_requires_the_seeded_cycle() -> None:
     param = inspect.signature(run_round1).parameters["pre_injected"]
     assert param.kind is inspect.Parameter.KEYWORD_ONLY
     assert param.default is inspect.Parameter.empty
+
+
+def test_dead_graph_methods_are_gone() -> None:
+    import alphaswarm.graph as graph
+
+    assert not hasattr(graph, "PeerDecision"), "alphaswarm.graph.PeerDecision is back"
+    assert hasattr(graph, "RankedPost"), "RankedPost is still used by peer formatting"
+    dead = ("create_cycle", "read_ranked_posts", "write_read_post_edges", "read_peer_decisions")
+    for name in dead:
+        assert not hasattr(graph.GraphStateManager, name), f"GraphStateManager.{name} is back"

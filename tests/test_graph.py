@@ -1,4 +1,4 @@
-"""Unit tests for GraphStateManager and PeerDecision."""
+"""Unit tests for GraphStateManager."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
+from alphaswarm.errors import Neo4jWriteError
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -128,23 +128,6 @@ async def test_seed_agents_transforms_personas_to_dicts(
 
 
 @pytest.mark.asyncio()
-async def test_create_cycle_returns_uuid_string(mock_driver: MagicMock) -> None:
-    """create_cycle returns a uuid4 string and calls execute_write."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    cycle_id = await gsm.create_cycle("test rumor")
-
-    # Validate UUID4 format
-    uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    assert re.match(uuid4_pattern, cycle_id), f"Not a valid UUID4: {cycle_id}"
-    # execute_write was called
-    session.execute_write.assert_awaited_once()
-
-
-@pytest.mark.asyncio()
 async def test_close_calls_driver_close(mock_driver: MagicMock) -> None:
     """close() calls driver.close()."""
     from alphaswarm.graph import GraphStateManager
@@ -153,33 +136,6 @@ async def test_close_calls_driver_close(mock_driver: MagicMock) -> None:
     await gsm.close()
 
     mock_driver.close.assert_awaited_once()
-
-
-def test_peer_decision_is_frozen_dataclass() -> None:
-    """PeerDecision is a frozen dataclass with 6 fields."""
-    from alphaswarm.graph import PeerDecision
-
-    pd = PeerDecision(
-        agent_id="quants_01",
-        bracket="quants",
-        signal="buy",
-        confidence=0.8,
-        sentiment=0.5,
-        rationale="test rationale",
-    )
-
-    # Verify all 6 fields
-    assert pd.agent_id == "quants_01"
-    assert pd.bracket == "quants"
-    assert pd.signal == "buy"
-    assert pd.confidence == 0.8
-    assert pd.sentiment == 0.5
-    assert pd.rationale == "test rationale"
-
-    # Verify frozen (assigning raises)
-    assert dataclasses.is_dataclass(pd)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        pd.agent_id = "changed"  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -332,55 +288,6 @@ async def test_batch_write_tx_creates_cited_when_present() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_read_peer_decisions_returns_peer_decision_list(
-    mock_driver: MagicMock,
-) -> None:
-    """read_peer_decisions returns list[PeerDecision] from execute_read results."""
-    from alphaswarm.graph import GraphStateManager, PeerDecision
-
-    session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(
-        return_value=[
-            {"agent_id": "allocators_01", "bracket": "allocators", "signal": "hold",
-             "confidence": 0.9, "sentiment": 0.1, "rationale": "stable outlook"},
-            {"agent_id": "narrators_01", "bracket": "narrators", "signal": "buy",
-             "confidence": 0.85, "sentiment": 0.4, "rationale": "bullish long-term"},
-        ]
-    )
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    result = await gsm.read_peer_decisions("quants_01", "test-cycle", 1, limit=5)
-
-    assert len(result) == 2
-    assert all(isinstance(r, PeerDecision) for r in result)
-    assert result[0].agent_id == "allocators_01"
-    assert result[0].bracket == "allocators"
-    assert result[1].signal == "buy"
-
-
-@pytest.mark.asyncio()
-async def test_read_peer_decisions_passes_parameters(
-    mock_driver: MagicMock,
-) -> None:
-    """read_peer_decisions passes correct parameters to execute_read."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(return_value=[])
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    await gsm.read_peer_decisions("quants_01", "test-uuid", 1, limit=5)
-
-    session.execute_read.assert_awaited_once()
-    call_args = session.execute_read.call_args
-    # Positional args: (tx_func, agent_id, cycle_id, round_num, limit)
-    assert call_args[0][1] == "quants_01"
-    assert call_args[0][2] == "test-uuid"
-    assert call_args[0][3] == 1
-    assert call_args[0][4] == 5
-
-
-@pytest.mark.asyncio()
 async def test_write_decisions_wraps_neo4j_error(
     mock_driver: MagicMock,
 ) -> None:
@@ -400,27 +307,6 @@ async def test_write_decisions_wraps_neo4j_error(
 
     with pytest.raises(Neo4jWriteError) as exc_info:
         await gsm.write_decisions(decisions, "test-cycle", 1)
-
-    assert exc_info.value.original_error is original_exc
-
-
-@pytest.mark.asyncio()
-async def test_read_peer_decisions_wraps_neo4j_error(
-    mock_driver: MagicMock,
-) -> None:
-    """read_peer_decisions wraps neo4j.exceptions.Neo4jError as Neo4jConnectionError."""
-    from neo4j.exceptions import Neo4jError
-
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    original_exc = Neo4jError("simulated failure")
-    session.execute_read = AsyncMock(side_effect=original_exc)
-
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    with pytest.raises(Neo4jConnectionError) as exc_info:
-        await gsm.read_peer_decisions("quants_01", "test-cycle", 1)
 
     assert exc_info.value.original_error is original_exc
 
@@ -1277,178 +1163,6 @@ async def test_write_posts_all_parse_error_is_noop(mock_driver: MagicMock) -> No
 
     session.execute_write.assert_not_awaited()
     assert result == []
-
-
-# ---------------------------------------------------------------------------
-# Phase 12 Plan 01 Task 2: read_ranked_posts, write_read_post_edges
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio()
-async def test_read_ranked_posts_returns_ordered_list(mock_driver: MagicMock) -> None:
-    """read_ranked_posts returns RankedPost list ordered by influence_weight DESC."""
-    from alphaswarm.graph import GraphStateManager, RankedPost
-
-    session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(
-        return_value=[
-            RankedPost(
-                post_id="p1", agent_id="a1", bracket="quants", signal="buy",
-                confidence=0.9, content="strong buy", influence_weight=0.9, round_num=1,
-            ),
-            RankedPost(
-                post_id="p2", agent_id="a2", bracket="degens", signal="sell",
-                confidence=0.7, content="sell signal", influence_weight=0.7, round_num=1,
-            ),
-            RankedPost(
-                post_id="p3", agent_id="a3", bracket="macro", signal="hold",
-                confidence=0.5, content="neutral", influence_weight=0.5, round_num=1,
-            ),
-        ]
-    )
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    result = await gsm.read_ranked_posts("agent_01", "cycle_1", source_round=1, limit=10)
-
-    assert len(result) == 3
-    assert all(isinstance(r, RankedPost) for r in result)
-    assert result[0].influence_weight >= result[1].influence_weight >= result[2].influence_weight
-    assert result[0].influence_weight == 0.9
-    assert result[1].influence_weight == 0.7
-    assert result[2].influence_weight == 0.5
-
-
-@pytest.mark.asyncio()
-async def test_read_ranked_posts_fallback_weight(mock_driver: MagicMock) -> None:
-    """read_ranked_posts uses influence_weight_base when INFLUENCED_BY edge is absent."""
-    from alphaswarm.graph import GraphStateManager, RankedPost
-
-    session = mock_driver.session.return_value
-    # Simulate coalesce fallback: influence_weight comes from author.influence_weight_base
-    session.execute_read = AsyncMock(
-        return_value=[
-            RankedPost(
-                post_id="p1", agent_id="a1", bracket="allocators", signal="buy",
-                confidence=0.8, content="test", influence_weight=0.9, round_num=1,
-            ),
-        ]
-    )
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    result = await gsm.read_ranked_posts("agent_02", "cycle_1", source_round=1, limit=5)
-
-    assert len(result) == 1
-    assert result[0].influence_weight == 0.9  # fallback base weight
-
-
-@pytest.mark.asyncio()
-async def test_read_ranked_posts_excludes_self() -> None:
-    """read_ranked_posts Cypher contains self-exclusion filter."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-
-    async def _empty_aiter():
-        return
-        yield  # make async generator
-
-    mock_result = MagicMock()
-    mock_result.__aiter__ = lambda self: _empty_aiter()
-    tx.run = AsyncMock(return_value=mock_result)
-    await GraphStateManager._read_ranked_posts_tx(tx, "agent_01", "cycle_1", 1, 10)
-    cypher = tx.run.call_args[0][0]
-    assert "p.agent_id <> $agent_id" in cypher
-
-
-@pytest.mark.asyncio()
-async def test_read_ranked_posts_excludes_parse_error() -> None:
-    """read_ranked_posts Cypher excludes parse_error posts."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-
-    async def _empty_aiter():
-        return
-        yield
-
-    mock_result = MagicMock()
-    mock_result.__aiter__ = lambda self: _empty_aiter()
-    tx.run = AsyncMock(return_value=mock_result)
-    await GraphStateManager._read_ranked_posts_tx(tx, "agent_01", "cycle_1", 1, 10)
-    cypher = tx.run.call_args[0][0]
-    assert "p.signal <> 'parse_error'" in cypher
-
-
-@pytest.mark.asyncio()
-async def test_write_read_post_edges_creates_all_pairs(mock_driver: MagicMock) -> None:
-    """write_read_post_edges creates N_agents * N_posts READ_POST edges."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    await gsm.write_read_post_edges(
-        agent_ids=["a1", "a2", "a3"],
-        post_ids=["p1", "p2", "p3", "p4"],
-        round_num=2,
-        cycle_id="cycle_1",
-    )
-
-    session.execute_write.assert_awaited_once()
-    call_args = session.execute_write.call_args
-    pairs_param = call_args[0][1]
-    assert len(pairs_param) == 12  # 3 agents * 4 posts
-
-
-@pytest.mark.asyncio()
-async def test_write_read_post_edges_empty_agents(mock_driver: MagicMock) -> None:
-    """write_read_post_edges with empty agent_ids is a no-op."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    await gsm.write_read_post_edges(
-        agent_ids=[], post_ids=["p1"], round_num=2, cycle_id="c1",
-    )
-
-    session.execute_write.assert_not_awaited()
-
-
-@pytest.mark.asyncio()
-async def test_write_read_post_edges_empty_posts(mock_driver: MagicMock) -> None:
-    """write_read_post_edges with empty post_ids is a no-op."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    await gsm.write_read_post_edges(
-        agent_ids=["a1"], post_ids=[], round_num=2, cycle_id="c1",
-    )
-
-    session.execute_write.assert_not_awaited()
-
-
-@pytest.mark.asyncio()
-async def test_write_read_post_edges_wraps_neo4j_error(mock_driver: MagicMock) -> None:
-    """write_read_post_edges wraps Neo4jError as Neo4jWriteError."""
-    from neo4j.exceptions import Neo4jError
-
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    original_exc = Neo4jError("simulated failure")
-    session.execute_write = AsyncMock(side_effect=original_exc)
-
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    with pytest.raises(Neo4jWriteError) as exc_info:
-        await gsm.write_read_post_edges(
-            agent_ids=["a1"], post_ids=["p1"], round_num=2, cycle_id="c1",
-        )
-
-    assert exc_info.value.original_error is original_exc
 
 
 # ---------------------------------------------------------------------------
