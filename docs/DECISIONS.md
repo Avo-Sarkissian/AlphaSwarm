@@ -417,7 +417,7 @@ Contents
 |---|---|---|
 | <a id="hist-pygal-html-report"></a>pygal SVG charts over Plotly; HTML report with portfolio overlay (Phase 24, 2026-04-09) | Kept HTML reports under 1 MB versus over 15 MB with Plotly | **Lost.** Commit `f5330a6` (2026-04-11, mislabelled `test(27-01)`) deleted `charts.py`, `portfolio.py`, `report.html.j2`, and their tests during a worktree merge. Reports are markdown only; SWEEP B-1 later rewrote the orphaned tests. |
 | <a id="hist-governor-suspend"></a>Governor `suspend()`/`resume()` around the shock window, with the memory-pressure guard at the callee (governor) to avoid a TOCTOU race; nested try/finally in `_collect_inter_round_shock` (Phase 26) | Prevented false THROTTLED states while the TUI waited for shock text | **Lost/obsolete.** The same `f5330a6` removed suspend/resume. The web shock path (Phase 35.1) never pauses: a queued shock is consumed by `consume_shock()` before Rounds 2 and 3 (`simulation.py:1144-1160, 1301-1318`). |
-| <a id="hist-shock-max-len"></a>`SHOCK_TEXT_MAX_LEN = 4096` caps shock text (STATE.md) | Bounds prompt growth across 100 agents | **Not enforced.** `SimulateShockRequest.shock_text` (`web/routes/simulation.py:40-43`) has no length limit, while `graph.py:1924` claims "caller enforces". See BACKLOG. |
+| <a id="hist-shock-max-len"></a>`SHOCK_TEXT_MAX_LEN = 4096` caps shock text (STATE.md) | Bounds prompt growth across 100 agents | **Replaced:** ShockText (web/params.py) bounds shock text to 10-1000 characters; shocks posted after the last gated round has started get 409 shock_window_closed, and applied shocks are carried into every later round. |
 | <a id="hist-v3-ticker-pipeline"></a>v3.0 SEC-validated ticker extraction, yfinance + Alpha Vantage pipeline with a disk cache, bracket-tailored enrichment, TickerDecision output (Phases 16-23, 2026-04-05..08) | First attempt at grounding in real data | **Lost.** Commit `7226d2e` (2026-04-09, mislabelled `feat(24-01)`) deleted `enrichment.py`, `market_data.py`, `ticker_validator.py`, and their tests: about 4.4k lines of source and tests. Most of the commit's 25.6k deleted lines (about 20.6k) were v3.0 planning docs. v6.0 Phases 37-40 rebuilt grounding as `alphaswarm.ingestion`. |
 | <a id="hist-miro"></a>Miro API v2 live visualization; batcher stubbed (Phase 8 D-09/D-10) | Planned spatial visualization | **Dropped** for the web graph. `miro.py` was deleted in `76b7537` (2026-06-11). |
 | <a id="hist-tui"></a>Textual TUI as the primary UI (Phases 9-10, 14, 26-28) | First interface | **Retired** in favor of the web UI. `tui.py` was deleted in `76b7537`. The StateStore contracts it introduced survive. |
@@ -459,7 +459,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 |---|---|---|---|
 | <a id="p4-d-01"></a>`D-01` | A Decision is a node (Agent-[:MADE]->Decision-[:FOR]->Cycle) holding signal/confidence/sentiment/rationale, not a relationship. | active | graph.py:389 |
 | <a id="p4-d-03"></a>`D-03` | cited_agents stored as explicit (Decision)-[:CITED]->(Agent) edges (raw LLM output), separate from computed INFLUENCED_BY. | active | graph.py:389 |
-| <a id="p4-d-05"></a>`D-05` | Schema applied idempotently at startup via ensure_schema() (CREATE ... IF NOT EXISTS). | active | graph.py:99 |
+| <a id="p4-d-05"></a>`D-05` | Schema applied idempotently at startup via ensure_schema() (CREATE ... IF NOT EXISTS). Since 2026-10 a web server whose Neo4j was down or rejected the password at startup still starts; once the database answers, the first `/api/health` probe applies the schema (no restart for a database that was only stopped). | active | graph.py:99; web/app.py (`_prepare_neo4j`); web/routes/health.py; readiness.py |
 | <a id="p4-d-06"></a>`D-06` | All 100 Agent nodes seeded eagerly in ensure_schema() from persona config. | active | graph.py:112 |
 | <a id="p4-d-07"></a>`D-07` | Session-per-method: each GraphStateManager method opens its own short-lived async session; callers never manage sessions. | active | graph.py:82 |
 | <a id="p4-d-08"></a>`D-08` | Keep the GraphStateManager API minimal and batch writes via UNWIND (one transaction per round, not per agent). | active | graph.py:82,389 |
@@ -591,7 +591,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p26-d-12"></a>`D-12` | Shock stored as (Cycle)-[:HAS_SHOCK]->(ShockEvent). The graph.py:1924 comment cites D-12 for a length cap; the cap (SHOCK_TEXT_MAX_LEN=4096, STATE.md) is NOT enforced anywhere in the web path today. | partial | graph.py:1924 |
+| <a id="p26-d-12"></a>`D-12` | Shock stored as (Cycle)-[:HAS_SHOCK]->(ShockEvent). The web path, the only shock source, enforces the length cap: ShockText (web/params.py) takes 10-1000 characters after stripping. Revised 2026-10: replaces the never-enforced SHOCK_TEXT_MAX_LEN=4096 from STATE.md ([hist-shock-max-len](#hist-shock-max-len)). | revised | graph.py (`write_shock_event`); web/params.py; web/routes/simulation.py |
 
 ### Phase 28: Simulation replay (data layer)
 
@@ -867,7 +867,7 @@ subjects, for example "remove hardcoded Neo4j password default (F1)". See
 
 | ID | Bug and fix | Referenced from |
 |---|---|---|
-| <a id="b1"></a>B1 | Shock injection was dead in the web UI: `consume_shock()` had no caller and there was no `write_shock_event`. Fixed in Phase 35.1: shock consumed before Rounds 2 and 3 and persisted as ShockEvent | graph.py:1908; simulation.py:1144; tests/test_graph.py:1643; tests/test_simulation.py:129,2737 |
+| <a id="b1"></a>B1 | Shock injection was dead in the web UI: `consume_shock()` had no caller and there was no `write_shock_event`. Fixed in Phase 35.1: shock consumed before Rounds 2 and 3 and persisted as ShockEvent. Since 2026-10 shocks carry forward: every applied shock is appended to all later rounds' user message, oldest first (a Round 2 shock is still in Round 3), and recorded on the StateStore (`applied_shocks`). A shock posted once the last gated round has started gets 409 `shock_window_closed` instead of being accepted and never read | graph.py:2140; simulation.py:1411 (`run_simulation` shock gates); web/simulation_manager.py (`inject_shock`); tests/test_graph.py:1547; tests/test_simulation.py:129,2602,2666; tests/test_shock_window.py; tests/engine/test_scenarios.py:138 |
 | <a id="b4"></a>B4 | Replay could run on top of a live sim. Fixed with mutual exclusion: route returns 409 and `SimulationManager.start` raises `ReplayActiveError` | web/app.py:111; web/routes/replay.py:109,124; web/simulation_manager.py:123,130; tests/test_web.py:57,1427,1433,1454 |
 | <a id="b7"></a>B7 | ConnectionManager leaked dead clients. The writer `finally` now removes its own entries | web/connection_manager.py:54,73; tests/test_web.py:1427,1473 |
 | <a id="b8"></a>B8 | `_on_task_done` race with `start()`. Phase reset now happens synchronously inside `_run` before the lock is released | web/simulation_manager.py:151,215,241; tests/test_web.py:1159,1427,1495,1560 |

@@ -155,13 +155,18 @@ npm --prefix frontend run dev                           # http://localhost:5173
 
 **Readiness check:**
 ```bash
-curl -s -o /dev/null -w "api %{http_code}\n" http://localhost:8000/api/health
+curl -s http://localhost:8000/api/health | python3 -c 'import sys,json; d=json.load(sys.stdin); print("api", d["status"]); [print("  %s: %s" % (n, "ok" if c["ok"] else "down (%s), not required" % c["detail"] if not c["required"] else "DOWN (%s); fix: %s" % (c["detail"], c["fix"]))) for n, c in d["components"].items()]'
 curl -s http://localhost:8000/api/holdings | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d["holdings"]),"positions") if "holdings" in d else print("FAILED:",d)'
 curl -s -o /dev/null -w "vite %{http_code}\n" http://localhost:5173
 curl -s -o /dev/null -w "ollama %{http_code}\n" http://localhost:11434/api/version
-docker compose ps        # neo4j healthy
+docker compose ps        # neo4j healthy (docker ps for a container you created yourself)
 grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -1
 ```
+
+Expect `api ok`. A component that is down but not required (Ollama and the
+aliases when both roles are cloud) does not degrade it. `/api/health` answers 200
+even when it is `degraded`, so read the status, not the HTTP code; each `DOWN`
+line prints its fix. `/api/health/live` only says the process answers.
 
 **Run a cycle.** Use a benchmark seed from `scripts/benchmark_seeds.json`; one
 that names a held company exercises the advisory. Then check:
@@ -221,6 +226,7 @@ uv run mypy src           # strict; must report "Success: no issues found"
 | `404 cycle_not_found` / `422 cycle_not_ready` / `409 simulation_running` | Unknown cycle, unfinished cycle, or a run in progress | Pick a complete cycle; wait for the run to finish |
 | `409 *_generation_in_progress` | The other orchestrator job (report/advisory) is running | Wait. The two jobs are serialized on purpose |
 | `409 post_run_jobs_in_progress` on Run | Advisory or report still running after the last run | Wait for the report to finish (`post_run_pipeline_completed` in the server log), then Run again. The UI shows this message in a RUN NOT STARTED banner |
+| `/api/health` status `degraded` | A required component is down | `components.<name>.fix` holds the fix. Neo4j stopped: "Start Neo4j (docker compose up -d neo4j, or docker start <name> for a container you created yourself)"; once it answers, the next probe applies the schema, no restart needed. If your data lives in a container you created yourself (for example `neo4j`), `docker start` it: compose would start a second, empty `alphaswarm-neo4j`. Password rejected (`credentials rejected (AuthError)`): "Set ALPHASWARM_NEO4J__PASSWORD in .env to the database's password, then restart the server". Missing alias: `ollama create alphaswarm-worker -f modelfiles/Modelfile.worker` (or the orchestrator's). Ollama down: start it with `OLLAMA_USE_MLX=1` (§1) |
 | Graph empty during a round | Backend not streaming per-agent state, or an older backend still running | Restart the backend. Confirm `agent_states` keys in a WS frame |
 | Neo4j auth error at startup | `ALPHASWARM_NEO4J__PASSWORD` unset, or it differs from the initialized volume | README §3 "Migrating". `NEO4J_AUTH` only applies when a volume is first initialized |
 | `pytest` Neo4j tests all skipped | neo4j-test is not running | `scripts/neo4j_test.sh up`; add `--require-neo4j` to make a missing database fail instead of skip |
