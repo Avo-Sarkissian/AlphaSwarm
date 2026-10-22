@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from alphaswarm.errors import BudgetExceededError, InferenceError
+from alphaswarm.errors import BudgetExceededError, InferenceError, RoundFailedError
 from alphaswarm.inference.types import InferenceMessage, InferenceResult
 from alphaswarm.types import AgentDecision, AgentPersona, SignalType, SimulationPhase
 from tests.engine.scenario import (
@@ -110,6 +110,7 @@ async def test_single_agent_inference_failure_becomes_parse_error_hidden_from_pe
     failed = _decision(fake_graph, 1, "sell_side_01")
     assert failed.signal is SignalType.PARSE_ERROR
     assert failed.rationale.startswith("Inference failed for sell_side_01")
+    assert failed.error_kind == "inference"
     assert all("sell_side_01" not in c.shown_peer_ids for c in round_calls(worker, 2))
     assert fake_graph.write_cycle_metrics.await_args.args[1]["r1_parse_errors"] == 1
     assert scenario_controller.wave_reports == [(99, 1)]
@@ -134,6 +135,7 @@ async def test_malformed_worker_output_becomes_parse_error_and_run_completes(
     garbled = _decision(fake_graph, 1, "degens_03")
     assert garbled.signal is SignalType.PARSE_ERROR
     assert garbled.rationale.startswith("Parse failed:")
+    assert garbled.error_kind == "parse"
     assert all("degens_03" not in c.shown_peer_ids for c in round_calls(worker, 2))
     assert fake_graph.write_cycle_metrics.await_args.args[1]["r1_parse_errors"] == 1
     assert scenario_controller.wave_reports == [(99, 1)]
@@ -141,22 +143,15 @@ async def test_malformed_worker_output_becomes_parse_error_and_run_completes(
     assert scenario_store.phases[-1] is SimulationPhase.COMPLETE
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T1.3: a round where every agent fails is persisted and fed forward (fix: plan 05)",
-)
 async def test_round_where_every_agent_fails_aborts_before_persisting(
     run_scenario: RunScenario,
     make_scripted_worker: Callable[..., ScriptedProvider],
     fake_graph: MagicMock,
 ) -> None:
     worker = make_scripted_worker(failing_in_round(2, _ollama_died))
-    raised: BaseException | None = None
-    try:
+    with pytest.raises(RoundFailedError) as excinfo:
         await run_scenario(worker=worker)
-    except Exception as exc:  # becomes pytest.raises(RoundFailedError) once that error exists
-        raised = exc
-    assert type(raised).__name__ == "RoundFailedError", f"run did not abort: {raised!r}"
+    assert (excinfo.value.round_num, excinfo.value.failed) == (2, 100)
     assert persisted_rounds(fake_graph) == [1]
 
 
@@ -168,10 +163,9 @@ async def test_budget_exceeded_halts_run_without_persisting_the_round(
     scenario_controller: ImmediateController,
 ) -> None:
     worker = make_scripted_worker(failing_in_round(2, _budget_stop, agent_ids={"quants_01"}))
-    # Pins today's wrapping: pytest.raises(ExceptionGroup) until the error surfaces unwrapped.
-    with pytest.raises(ExceptionGroup) as excinfo:
+    with pytest.raises(BudgetExceededError) as excinfo:
         await run_scenario(worker=worker)
-    assert excinfo.group_contains(BudgetExceededError)
+    assert isinstance(excinfo.value.__cause__, ExceptionGroup)
     assert persisted_rounds(fake_graph) == [1]
     assert scenario_store.phases[-1] is SimulationPhase.ROUND_2
     assert worker.prepare_calls == worker.teardown_calls
@@ -180,11 +174,6 @@ async def test_budget_exceeded_halts_run_without_persisting_the_round(
     fake_graph.write_cycle_metrics.assert_not_awaited()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T1.2: BudgetExceededError escapes run_simulation inside an ExceptionGroup "
-    "(fix: plan 05)",
-)
 async def test_budget_exceeded_surfaces_unwrapped(
     run_scenario: RunScenario, make_scripted_worker: Callable[..., ScriptedProvider]
 ) -> None:

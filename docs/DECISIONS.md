@@ -161,10 +161,14 @@ Contents
 
 ### <a id="adr-taskgroup-dispatch"></a>All agent fan-out uses `asyncio.TaskGroup`, with jitter
 - **Decision:**
-  - `dispatch_wave` creates one task per persona inside a TaskGroup, with no bare `create_task` (INFRA-07).
+  - `dispatch_wave` creates one task per persona inside a TaskGroup, with no bare `create_task` (INFRA-07). Narrative generation fans out the same way.
   - Random 0.5-1.5 s jitter runs before acquiring a slot ([p3-d-14](#p3-d-14)).
-  - Failed agents become PARSE_ERROR and the run continues.
-  - `BudgetExceededError` and `AuthError` propagate.
+  - A failed agent becomes a PARSE_ERROR decision with `error_kind` `"inference"` (the call raised) or `"parse"` (tier-3 parse fallback), and the round continues. Cycle metrics count `r{n}_inference_errors` separately from `r{n}_parse_errors`.
+  - Hard stops (`HARD_STOP_ERRORS` in `batch_dispatcher.py`: `BudgetExceededError`, `AuthError`, `GovernorCrisisError`) are never converted. `dispatch_wave` and `_generate_decision_narratives` unwrap the TaskGroup's `ExceptionGroup` with `except*` and re-raise the first one bare, chained `from` the group.
+  - Round abort: after `dispatch_wave` and before the round's first Neo4j write, a round in which `failed * 100 > GovernorSettings.round_abort_failure_percent * total` (default 50; `failed` = PARSE_ERROR of any kind) raises `RoundFailedError`; an empty round always fails. Failed agents are not re-dispatched.
+  - `SimulationManager._run` turns any non-cancel failure into a `RunError` on `StateStore.last_error` (code, fixed-template message, round, timestamp) and logs it once with `exc_info`; `start()` clears it and cancellation never sets it. Messages never quote exception text, so they cannot leak a path or a key. A failure raised outside that handler (a provider `aclose` in `_run`'s `finally`) sets no `RunError`; the task's done-callback logs it with `exc_info`.
+  - New domain errors derive from `AlphaSwarmError`; the `GraphError` family (`Neo4jUnavailableError`, `Neo4jQueryError`, `Neo4jWriteError`) carries an `op` that names the failed operation. `InferenceError`, `BudgetExceededError` and `GovernorCrisisError` keep their parents, so existing `except` clauses behave as before.
+- **Rationale:** A spend-cap or auth failure surfaced as "unhandled errors in a TaskGroup (1 sub-exception)" and the UI silently dropped to IDLE, and a dead model server persisted a round of PARSE_ERRORs that later rounds read as peer context (2026-10 audit, T1.2/T1.3).
 
 ### <a id="adr-agent-worker"></a>Every worker LLM call goes through the `agent_worker` context manager (Phase 2 rule)
 - **Decision:**
@@ -204,7 +208,7 @@ Contents
 - **Rationale:** Cycle-scoped edges keep reads fast without pruning history.
 
 ### <a id="adr-cycle-metrics"></a>Per-cycle run metrics on the Cycle node
-- **Decision:** At the end of a run, `write_cycle_metrics` stamps durations, flips, parse errors, and the final distribution onto the Cycle node (`graph.py:246`). `metrics_recorded_at` marks a cycle as complete for listing (`graph.py:2083`). Compare runs with `scripts/compare_cycles.py` against `scripts/benchmark_seeds.json`.
+- **Decision:** At the end of a run, `write_cycle_metrics` stamps durations, flips, parse errors, `r{n}_inference_errors` (the subset of `r{n}_parse_errors` whose `error_kind` is `"inference"`, for the rounds actually run), `final_round` and the final distribution onto the Cycle node (`graph.py`). `metrics_recorded_at` marks a cycle as complete for listing (`graph.py`, `read_completed_cycles`). Compare runs with `scripts/compare_cycles.py` against `scripts/benchmark_seeds.json`.
 - **Rationale:** A/B experiments (rounds, peers, models) need durable numbers. All history before June 2026 was lost (see [adr-tests-scoped-cleanup](#adr-tests-scoped-cleanup)).
 
 ### <a id="adr-holdings-isolation"></a>Holdings isolation: the swarm never sees the portfolio

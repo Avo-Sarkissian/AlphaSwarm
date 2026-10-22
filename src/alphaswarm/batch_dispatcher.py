@@ -34,6 +34,19 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(component="batch_dispatcher")
 
+# Errors that must stop a run instead of becoming PARSE_ERROR decisions
+# (docs/DECISIONS.md#adr-taskgroup-dispatch).
+HARD_STOP_ERRORS: tuple[type[BaseException], ...] = (
+    BudgetExceededError,
+    AuthError,
+    GovernorCrisisError,
+)
+_NEVER_CATCH: tuple[type[BaseException], ...] = (
+    asyncio.CancelledError,
+    KeyboardInterrupt,
+    *HARD_STOP_ERRORS,
+)
+
 
 async def _safe_agent_inference(
     persona: WorkerPersonaConfig,
@@ -94,8 +107,7 @@ async def _safe_agent_inference(
                 peer_context=peer_context,
                 market_context=market_context,
             )
-    except (asyncio.CancelledError, KeyboardInterrupt,
-            GovernorCrisisError, BudgetExceededError, AuthError):
+    except _NEVER_CATCH:
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
     except Exception as e:
         log.warning("agent inference failed", agent_id=persona["agent_id"], error=str(e))
@@ -104,6 +116,7 @@ async def _safe_agent_inference(
             confidence=0.0,
             sentiment=0.0,
             rationale=f"Inference failed for {persona['agent_id']}: {e}",
+            error_kind="inference",
         )
 
     # Streaming writes (success path only): agent_state + rationale together
@@ -187,8 +200,8 @@ async def dispatch_wave(
             completed rounds remain persisted and no further spend occurs.
         AuthError: If the API key is invalid (401/403); deterministic config
             error that halts the wave immediately.
-        ExceptionGroup: If CancelledError or other unrecoverable errors
-            propagate from TaskGroup.
+        Hard stops (HARD_STOP_ERRORS) are raised bare -- the first one, chained
+        ``from`` the TaskGroup's ExceptionGroup -- never as an ExceptionGroup.
     """
     if peer_contexts is not None and len(peer_contexts) != len(personas):
         raise ValueError(
@@ -197,24 +210,29 @@ async def dispatch_wave(
 
     tasks: list[asyncio.Task[AgentDecision]] = []
 
-    async with asyncio.TaskGroup() as tg:
-        tasks = [
-            tg.create_task(
-                _safe_agent_inference(
-                    p,
-                    governor,
-                    provider,
-                    user_message,
-                    peer_contexts[i] if peer_contexts is not None else peer_context,
-                    market_context,
-                    settings.jitter_min_seconds,
-                    settings.jitter_max_seconds,
-                    state_store=state_store,
-                    round_num=round_num,
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tasks = [
+                tg.create_task(
+                    _safe_agent_inference(
+                        p,
+                        governor,
+                        provider,
+                        user_message,
+                        peer_contexts[i] if peer_contexts is not None else peer_context,
+                        market_context,
+                        settings.jitter_min_seconds,
+                        settings.jitter_max_seconds,
+                        state_store=state_store,
+                        round_num=round_num,
+                    )
                 )
-            )
-            for i, p in enumerate(personas)
-        ]
+                for i, p in enumerate(personas)
+            ]
+    except* HARD_STOP_ERRORS as eg:
+        # Unwrap so callers and the UI see the real error instead of
+        # "unhandled errors in a TaskGroup" (docs/DECISIONS.md#adr-taskgroup-dispatch).
+        raise eg.exceptions[0] from eg
 
     results = [t.result() for t in tasks]
 

@@ -65,7 +65,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 
 ## Data flow: seed → rounds → graph → web → UI
 
-1. **Start.** `POST /api/simulate/start {seed}` reaches `SimulationManager.start`, which takes the lock, clears interview sessions, and calls `_run`. `_run` loads the InferenceConfig (or the local defaults) and builds:
+1. **Start.** `POST /api/simulate/start {seed}` reaches `SimulationManager.start`, which takes the lock, clears interview sessions and the previous run's `StateStore.last_error`, and calls `_run`. `_run` loads the InferenceConfig (or the local defaults) and builds:
    - providers with `build_providers`: Ollama, or budget-wrapped cloud providers;
    - a controller with `build_controller`: ResourceGovernor locally, RateLimitController for cloud.
 
@@ -79,6 +79,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    Then `generate_personas` builds 100 prompts. Each one is a bracket template plus a round-robin modifier, a per-cycle focus line, and the JSON instructions.
 3. **Market context (Round 1 only).** Ticker-shaped entities go to `asyncio.gather(yfinance.get_prices, rss.get_headlines)`. The results become a ContextPacket, which `format_market_context` turns into one block, fenced as untrusted data inside the user message.
 4. **Round 1.** `dispatch_wave` runs 100 tasks. Each one waits out its jitter, calls `controller.acquire`, then `AgentWorker.infer` (schema-constrained decode, per-bracket temperature), then `parse_agent_decision`. Results stream into the StateStore as they finish. Then:
+   - the round-abort check (`RoundFailedError` when more than `round_abort_failure_percent` of agents failed);
    - `write_decisions` (plus CITED edges);
    - RationaleEpisode and REFERENCES records;
    - bracket summaries.
@@ -86,11 +87,13 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - each candidate's weight is base reach plus global citation share, plus 0.3 if the reader cited that agent last round;
    - `select_diverse_peers` takes at least 4 brackets, with blake2b tie-breaks.
 
-   The round is then dispatched and persisted, and `compute_influence_edges` writes `INFLUENCED_BY {round, weight}`.
+   The round is then dispatched, checked against the same round-abort rule, and persisted, and `compute_influence_edges` writes `INFLUENCED_BY {round, weight}`.
 6. **Finalize.**
    - `_generate_decision_narratives`: 100 worker calls.
    - `write_cycle_metrics`.
    - The phase becomes COMPLETE.
+
+   If anything in steps 1-6 fails instead (an invalid inference config, a hard stop, `RoundFailedError`, a Neo4j error), `SimulationManager._run` publishes a UI-safe `RunError` as `StateStore.last_error`, logs the exception once with its traceback, and resets the phase to IDLE. A cancelled run sets no error.
 7. **Post-run chain.**
    - Advisory: an in-process POST `/api/advisory/{id}` → `synthesize` → `advisory/{id}_advisory.json`.
    - Report: only if the advisory succeeds, an in-process POST `/api/report/{id}/generate` runs the ReAct loop (up to 10 orchestrator calls over 8 graph tools), renders through Jinja, and writes `reports/{id}_report.md`.

@@ -898,6 +898,7 @@ async def test_sim_manager_start_creates_task() -> None:
 
     mock_app_state = MagicMock()
     mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_last_error = AsyncMock()
     mock_app_state.state_store.set_phase = AsyncMock()
     sm = SimulationManager(mock_app_state, brackets=[])
 
@@ -925,6 +926,7 @@ async def test_sim_manager_done_callback_releases_lock_on_exception() -> None:
 
     mock_app_state = MagicMock()
     mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_last_error = AsyncMock()
     mock_app_state.state_store.set_phase = AsyncMock()
     sm = SimulationManager(mock_app_state, brackets=[])
 
@@ -947,6 +949,7 @@ async def test_sim_manager_stop_cancels_task() -> None:
 
     mock_app_state = MagicMock()
     mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_last_error = AsyncMock()
     mock_app_state.state_store.set_phase = AsyncMock()
     sm = SimulationManager(mock_app_state, brackets=[])
 
@@ -978,6 +981,7 @@ async def test_sim_manager_inject_shock() -> None:
 
     mock_app_state = MagicMock()
     mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_last_error = AsyncMock()
     mock_app_state.state_store.set_phase = AsyncMock()
     sm = SimulationManager(mock_app_state, brackets=[])
 
@@ -1016,6 +1020,7 @@ async def test_sim_manager_run_passes_consume_shock() -> None:
 
     mock_app_state = MagicMock()
     mock_app_state.state_store = MagicMock()
+    mock_app_state.state_store.set_last_error = AsyncMock()
     mock_app_state.state_store.set_phase = AsyncMock()
     sm = SimulationManager(mock_app_state, brackets=[])
 
@@ -1168,6 +1173,7 @@ async def test_sim_manager_cancellation_resets_phase_to_idle() -> None:
 
     mock_app_state = MagicMock()
     mock_state_store = MagicMock()
+    mock_state_store.set_last_error = AsyncMock()
     mock_state_store.set_phase = AsyncMock()
     mock_app_state.state_store = mock_state_store
     mock_app_state.personas = []
@@ -1508,6 +1514,7 @@ async def test_m8x_sim_manager_cancellation_phase_reset_before_lock_release() ->
 
     mock_app_state = MagicMock()
     mock_state_store = MagicMock()
+    mock_state_store.set_last_error = AsyncMock()
     mock_state_store.set_phase = AsyncMock()
     mock_app_state.state_store = mock_state_store
     mock_app_state.personas = []
@@ -1615,6 +1622,7 @@ async def test_m8x_sim_manager_complete_phase_set_once() -> None:
 
     mock_app_state = MagicMock()
     mock_state_store = MagicMock()
+    mock_state_store.set_last_error = AsyncMock()
     mock_state_store.set_phase = AsyncMock()
     mock_app_state.state_store = mock_state_store
     mock_app_state.personas = []

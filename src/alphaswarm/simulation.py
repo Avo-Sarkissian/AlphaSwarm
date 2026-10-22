@@ -16,15 +16,16 @@ import dataclasses
 import hashlib
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.batch_dispatcher import dispatch_wave
+from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS, dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
 from alphaswarm.context_formatter import format_market_context
+from alphaswarm.errors import RoundFailedError
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.types import ContextPacket
@@ -556,6 +557,32 @@ def _compute_shifts(
     )
 
 
+def _raise_if_round_failed(
+    round_num: int,
+    decisions: Sequence[tuple[str, AgentDecision]],
+    threshold_percent: float,
+) -> None:
+    """Abort a round before it is persisted when too many agents failed.
+
+    "Failed" means a PARSE_ERROR decision of any error_kind. The rule is
+    ``failed * 100 > threshold_percent * total`` (exactly the threshold
+    passes), and an empty round always fails
+    (docs/DECISIONS.md#adr-taskgroup-dispatch). Failed agents are not
+    re-dispatched.
+    """
+    total = len(decisions)
+    failed = sum(1 for _, d in decisions if d.signal == SignalType.PARSE_ERROR)
+    if total == 0 or failed * 100 > threshold_percent * total:
+        logger.error(
+            "round_failed",
+            round_num=round_num,
+            failed=failed,
+            total=total,
+            threshold_percent=threshold_percent,
+        )
+        raise RoundFailedError(round_num, failed, total, threshold_percent)
+
+
 # ---------------------------------------------------------------------------
 # Round 1 pipeline (Phase 6)
 # ---------------------------------------------------------------------------
@@ -700,7 +727,11 @@ async def run_round1(
             # the entire 14-18min round window — see debug session
             # ws-agent-states-not-emitted-mid-sim.
 
-            # 8. Persist to Neo4j (Phase 11: capture returned decision_ids)
+            # 8. Abort before persisting when too many agents failed, then
+            #    persist (Phase 11: capture returned decision_ids)
+            _raise_if_round_failed(
+                1, agent_decisions, settings.governor.round_abort_failure_percent,
+            )
             round1_decision_ids = await graph_manager.write_decisions(
                 agent_decisions, cycle_id, round_num=1,
             )
@@ -1205,6 +1236,9 @@ async def run_simulation(
                 ctx if ctx is not None else "" for ctx in round2_peer_contexts
             ]
 
+            _raise_if_round_failed(
+                2, round2_decisions, settings.governor.round_abort_failure_percent,
+            )
             round2_ids = await graph_manager.write_decisions(
                 round2_decisions, cycle_id, round_num=2
             )
@@ -1246,9 +1280,13 @@ async def run_simulation(
             round2_active = sum(
                 1 for _, d in round2_decisions if d.signal != SignalType.PARSE_ERROR
             )
-            round2_weights = await graph_manager.compute_influence_edges(
-                cycle_id, up_to_round=2, total_agents=round2_active,
-            )
+            round2_weights: dict[str, float] = {}
+            if round2_active > 0:
+                round2_weights = await graph_manager.compute_influence_edges(
+                    cycle_id, up_to_round=2, total_agents=round2_active,
+                )
+            else:
+                logger.warning("influence_edges_skipped", cycle_id=cycle_id, round_num=2)
 
             # Compute Round 2 bracket summaries (D-08)
             round2_summaries = compute_bracket_summaries(round2_decisions, personas, brackets)
@@ -1356,6 +1394,9 @@ async def run_simulation(
                     ctx if ctx is not None else "" for ctx in round3_peer_contexts
                 ]
 
+                _raise_if_round_failed(
+                    3, round3_decisions, settings.governor.round_abort_failure_percent,
+                )
                 round3_ids = await graph_manager.write_decisions(
                     round3_decisions, cycle_id, round_num=3
                 )
@@ -1403,9 +1444,13 @@ async def run_simulation(
                 round3_active = sum(
                     1 for _, d in round3_decisions if d.signal != SignalType.PARSE_ERROR
                 )
-                round3_weights = await graph_manager.compute_influence_edges(
-                    cycle_id, up_to_round=3, total_agents=round3_active,
-                )
+                round3_weights: dict[str, float] = {}
+                if round3_active > 0:
+                    round3_weights = await graph_manager.compute_influence_edges(
+                        cycle_id, up_to_round=3, total_agents=round3_active,
+                    )
+                else:
+                    logger.warning("influence_edges_skipped", cycle_id=cycle_id, round_num=3)
 
                 # Compute Round 3 bracket summaries (D-08)
                 round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
@@ -1497,6 +1542,19 @@ async def run_simulation(
         "final_hold": final_counts["hold"],
         "agent_count": len(personas),
     }
+    # Inference failures separately from all PARSE_ERRORs, for every round
+    # actually run (docs/DECISIONS.md#adr-cycle-metrics).
+    rounds_run: dict[int, Sequence[tuple[str, AgentDecision]]] = {
+        1: round1_result.agent_decisions,
+        2: round2_decisions,
+    }
+    if settings.num_rounds >= 3:
+        rounds_run[3] = round3_decisions
+    for n, decisions_n in rounds_run.items():
+        cycle_metrics[f"r{n}_inference_errors"] = sum(
+            1 for _, d in decisions_n if d.error_kind == "inference"
+        )
+    cycle_metrics["final_round"] = max(rounds_run)
     try:
         await graph_manager.write_cycle_metrics(cycle_id, cycle_metrics)
     except Exception:
@@ -1544,7 +1602,8 @@ async def _generate_decision_narratives(
     """Generate natural-language decision narrative for each agent (D-10, D-11).
 
     Uses the worker provider through governor for memory safety.
-    Skip-and-log on per-agent failures (Pitfall 5 from research).
+    Skip-and-log on per-agent failures (Pitfall 5 from research); hard stops
+    (HARD_STOP_ERRORS) propagate bare, the first one if several fail.
 
     Args:
         personas: Agent personas to generate narratives for.
@@ -1572,10 +1631,10 @@ async def _generate_decision_narratives(
             agent_decisions_by_id[agent_id][round_num] = decision
 
     persona_map = {p.id: p for p in personas}
-    narratives: list[dict] = []
-    errors: list[str] = []
+    narratives: list[dict[str, str]] = []
+    failed = 0
 
-    async def _generate_one(agent_id: str) -> dict | None:
+    async def _generate_one(agent_id: str) -> dict[str, str] | None:
         persona = persona_map.get(agent_id)
         if not persona:
             return None
@@ -1621,6 +1680,7 @@ async def _generate_decision_narratives(
             {"role": "user", "content": prompt},
         ]
 
+        nonlocal failed
         try:
             async with governor:
                 result = await provider.chat(messages)
@@ -1628,22 +1688,28 @@ async def _generate_decision_narratives(
                 if narrative_text:
                     return {"agent_id": agent_id, "narrative": narrative_text}
                 return None
+        except HARD_STOP_ERRORS:
+            raise  # budget/auth/crisis stop the run (docs/DECISIONS.md#adr-taskgroup-dispatch)
         except Exception:
+            failed += 1
             logger.warning("narrative_generation_failed", agent_id=agent_id, exc_info=True)
             return None
 
-    # Dispatch all agents concurrently through governor (governor provides throttling)
-    tasks = [_generate_one(agent_id) for agent_id in agent_decisions_by_id]
-    results = await _asyncio.gather(*tasks, return_exceptions=True)
+    # Fan out through a TaskGroup (the governor throttles); hard stops leave bare.
+    tasks: list[_asyncio.Task[dict[str, str] | None]] = []
+    try:
+        async with _asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(_generate_one(agent_id)) for agent_id in agent_decisions_by_id]
+    except* HARD_STOP_ERRORS as eg:
+        raise eg.exceptions[0] from eg
 
-    for result in results:
-        if isinstance(result, dict):
-            narratives.append(result)
-        elif isinstance(result, Exception):
-            errors.append(str(result))
+    for task in tasks:
+        outcome = task.result()
+        if outcome is not None:
+            narratives.append(outcome)
 
-    if errors:
-        logger.warning("narrative_generation_partial_failures", error_count=len(errors))
+    if failed:
+        logger.warning("narrative_generation_partial_failures", error_count=failed)
 
     # Batch-write all successful narratives to Agent nodes
     if narratives:

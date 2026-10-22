@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 import httpx
 import structlog
+
+from alphaswarm.errors import InferenceConfigError, run_error_from_exception
+from alphaswarm.types import SimulationPhase
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -19,6 +23,10 @@ if TYPE_CHECKING:
     from alphaswarm.web.replay_manager import ReplayManager
 
 log = structlog.get_logger(component="web.simulation_manager")
+
+_ROUND_PHASES = frozenset(
+    {SimulationPhase.ROUND_1, SimulationPhase.ROUND_2, SimulationPhase.ROUND_3}
+)
 
 
 def _error_code(resp: httpx.Response) -> str | None:
@@ -117,6 +125,9 @@ class SimulationManager:
         self._task: asyncio.Task[None] | None = None
         self._pending_shock: str | None = None
         self._last_cycle_id: str | None = None
+        # The failure _publish_failure already logged with its traceback, so
+        # _on_task_done logs only failures raised outside _run's handler.
+        self._logged_failure: BaseException | None = None
         # Strong references to fire-and-forget callback tasks (on_complete
         # trigger). The event loop holds only weak refs to tasks; without
         # this set the auto-advisory trigger can be GC'd before it runs.
@@ -154,6 +165,12 @@ class SimulationManager:
         if self._on_start is not None:
             self._on_start()
         await self._lock.acquire()
+        try:
+            # A new run starts with an empty error slot, before the first frame.
+            await self._app_state.state_store.set_last_error(None)
+        except BaseException:
+            self._lock.release()
+            raise
         self._is_running = True
         self._pending_shock = None  # Reset shock state
         log.info("simulation_started", seed_length=len(seed))
@@ -178,20 +195,29 @@ class SimulationManager:
         from alphaswarm.config import load_inference_config
         from alphaswarm.inference.factory import build_controller, build_providers, inference_mode
         from alphaswarm.simulation import run_simulation
-        from alphaswarm.types import SimulationPhase
 
         # `built` may remain None if cancelled before build_providers completes.
         # The finally block guards aclose() accordingly.
         built: BuiltProviders | None = None
 
         try:
-            # Load inference config off the event loop (sync file I/O).
-            cfg = await _asyncio.to_thread(load_inference_config, self._app_state.settings)
-            built = build_providers(
-                cfg,
-                ollama_client=self._app_state.ollama_client,
-                ollama_model_manager=self._app_state.model_manager,
-            )
+            try:
+                # Load inference config off the event loop (sync file I/O).
+                cfg = await _asyncio.to_thread(load_inference_config, self._app_state.settings)
+                built = build_providers(
+                    cfg,
+                    ollama_client=self._app_state.ollama_client,
+                    ollama_model_manager=self._app_state.model_manager,
+                )
+            except ValueError as exc:
+                # The ValueError text can quote the file path and raw config
+                # values, API keys included, so neither the UI nor the log gets
+                # it (docs/DECISIONS.md#adr-local-first-inference).
+                log.error("inference_config_invalid", error_type=type(exc).__name__)
+                raise InferenceConfigError(
+                    "The saved inference configuration is invalid. "
+                    "Open Settings and save a valid configuration."
+                ) from None
             controller = build_controller(
                 cfg,
                 self._app_state.settings.governor,
@@ -235,7 +261,8 @@ class SimulationManager:
             except Exception:
                 log.error("failed_to_reset_phase_to_idle_on_cancel")
             raise
-        except Exception:
+        except Exception as exc:
+            await self._publish_failure(exc)
             try:
                 await self._app_state.state_store.set_phase(SimulationPhase.IDLE)
             except Exception:
@@ -250,6 +277,31 @@ class SimulationManager:
                     stack.push_async_callback(built.orchestrator.aclose)
                     stack.push_async_callback(built.worker.aclose)
 
+    async def _publish_failure(self, exc: BaseException) -> None:
+        """Put a UI-safe RunError on the StateStore and log the failure once.
+
+        The failure is logged with its traceback whether or not the store takes
+        the RunError, and this method never raises: a broken store must cost
+        neither the traceback nor the phase reset that follows
+        (docs/DECISIONS.md#adr-taskgroup-dispatch).
+        """
+        store = self._app_state.state_store
+        err = run_error_from_exception(exc, round_num=None)
+        try:
+            snap = store.snapshot()
+            if snap.phase in _ROUND_PHASES:
+                err = dataclasses.replace(err, round_num=snap.round_num)
+            await store.set_last_error(err)
+        except Exception:
+            log.warning("last_error_publish_failed", exc_info=True)
+        log.error(
+            "simulation_run_failed",
+            error_code=err.code,
+            round_num=err.round_num,
+            exc_info=exc,
+        )
+        self._logged_failure = exc
+
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
         """Synchronous done-callback: releases lock and logs outcome.
 
@@ -262,6 +314,7 @@ class SimulationManager:
         self._is_running = False
         self._task = None
         self._pending_shock = None
+        logged_failure, self._logged_failure = self._logged_failure, None
         self._lock.release()
         if not task.cancelled() and task.exception() is None:
             cycle_id = self._last_cycle_id
@@ -278,7 +331,13 @@ class SimulationManager:
             log.info("simulation_cancelled")
         else:
             exc = task.exception()
-            log.error("simulation_failed", error=str(exc), exc_info=exc)
+            if exc is logged_failure:
+                # Details were logged by _publish_failure; keep this line text-free.
+                log.info("simulation_task_failed", error_type=type(exc).__name__)
+            else:
+                # Raised outside _run's failure handler (a provider aclose in its
+                # finally, say), so this is the only record of the traceback.
+                log.error("simulation_task_failed", error_type=type(exc).__name__, exc_info=exc)
 
     def stop(self) -> None:
         """Stop the running simulation by cancelling the background task.

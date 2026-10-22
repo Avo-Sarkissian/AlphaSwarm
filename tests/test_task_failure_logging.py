@@ -41,17 +41,39 @@ async def _failed_task(exc: BaseException) -> asyncio.Task[None]:
 
 
 async def test_simulation_failure_is_logged_with_exc_info(monkeypatch: pytest.MonkeyPatch) -> None:
+    from alphaswarm.state import StateStore
     from alphaswarm.web import simulation_manager as module
 
     log = _RecordingLog()
     monkeypatch.setattr(module, "log", log)
     boom = RuntimeError("round 2 exploded")
-    manager = module.SimulationManager(MagicMock(), [])
+    app_state = MagicMock()
+    app_state.state_store = StateStore()
+    manager = module.SimulationManager(app_state, [])
+
+    # _run's failure path logs the exception itself, once, with the traceback.
+    await manager._publish_failure(boom)
+    assert log.kwargs_for("simulation_run_failed") == {
+        "error_code": "internal_error",
+        "round_num": None,
+        "exc_info": boom,
+    }
+
+    # The done-callback only notes the type: str(exc) can quote config text.
     await manager._lock.acquire()  # _on_task_done releases the run lock
-
     manager._on_task_done(await _failed_task(boom))
+    assert ("info", "simulation_task_failed", {"error_type": "RuntimeError"}) in log.calls
 
-    assert log.kwargs_for("simulation_failed") == {"error": "round 2 exploded", "exc_info": boom}
+    # A failure _publish_failure never saw (a provider aclose in _run's finally)
+    # is logged by the done-callback itself, with the traceback.
+    late = RuntimeError("aclose exploded")
+    await manager._lock.acquire()
+    manager._on_task_done(await _failed_task(late))
+    assert (
+        "error",
+        "simulation_task_failed",
+        {"error_type": "RuntimeError", "exc_info": late},
+    ) in log.calls
 
 
 async def test_report_task_failure_is_logged_with_exc_info(monkeypatch: pytest.MonkeyPatch) -> None:

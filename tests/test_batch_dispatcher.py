@@ -444,7 +444,7 @@ async def test_governor_crisis_error_propagates(
 
         with (
             patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
-            pytest.raises(ExceptionGroup) as exc_info,
+            pytest.raises(GovernorCrisisError) as exc_info,
         ):
             await dispatch_wave(
                 personas=sample_personas,
@@ -454,12 +454,8 @@ async def test_governor_crisis_error_propagates(
                 settings=settings,
             )
 
-        # GovernorCrisisError should be in the ExceptionGroup from TaskGroup
-        crisis_errors = [
-            e for e in exc_info.value.exceptions
-            if isinstance(e, GovernorCrisisError)
-        ]
-        assert len(crisis_errors) > 0
+        # Unwrapped to the bare error; the TaskGroup group is kept as __cause__.
+        assert isinstance(exc_info.value.__cause__, ExceptionGroup)
 
 
 # ---------------------------------------------------------------------------
@@ -1057,8 +1053,8 @@ async def test_budget_exceeded_error_propagates(
 
     When the spend cap trips, dispatch_wave must halt cleanly (completed rounds
     already persisted) rather than silently converting agents into PARSE_ERRORs.
-    Matches the GovernorCrisisError propagation pattern: TaskGroup wraps
-    un-caught exceptions in ExceptionGroup.
+    Matches the GovernorCrisisError propagation pattern: dispatch_wave raises it
+    bare (unwrapped from the TaskGroup's ExceptionGroup).
     """
     from decimal import Decimal
 
@@ -1076,7 +1072,7 @@ async def test_budget_exceeded_error_propagates(
 
         with (
             patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
-            pytest.raises(ExceptionGroup) as exc_info,
+            pytest.raises(BudgetExceededError) as exc_info,
         ):
             await dispatch_wave(
                 personas=sample_personas,
@@ -1086,12 +1082,8 @@ async def test_budget_exceeded_error_propagates(
                 settings=settings,
             )
 
-    # BudgetExceededError must appear in the ExceptionGroup from TaskGroup
-    budget_errors = [
-        e for e in exc_info.value.exceptions
-        if isinstance(e, BudgetExceededError)
-    ]
-    assert len(budget_errors) > 0
+    # Unwrapped to the bare error; the TaskGroup group is kept as __cause__.
+    assert isinstance(exc_info.value.__cause__, ExceptionGroup)
 
 
 # ---------------------------------------------------------------------------
@@ -1110,7 +1102,7 @@ async def test_auth_error_propagates_not_parse_error(
     sample_personas: list[WorkerPersonaConfig],
 ) -> None:
     """AuthError raised by an InferenceProvider must propagate out of
-    dispatch_wave as an ExceptionGroup (via TaskGroup), NOT be silently
+    dispatch_wave bare (unwrapped from the TaskGroup's ExceptionGroup), NOT be silently
     swallowed into PARSE_ERROR decisions.
 
     Pre-fix: AuthError was caught by `except Exception` (it IS-A InferenceError
@@ -1135,7 +1127,7 @@ async def test_auth_error_propagates_not_parse_error(
 
         with (
             patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
-            pytest.raises(ExceptionGroup) as exc_info,
+            pytest.raises(AuthError) as exc_info,
         ):
             await dispatch_wave(
                 personas=sample_personas,
@@ -1145,14 +1137,8 @@ async def test_auth_error_propagates_not_parse_error(
                 settings=settings,
             )
 
-    # AuthError must appear in the ExceptionGroup — not swallowed as PARSE_ERROR
-    auth_errors = [
-        e for e in exc_info.value.exceptions
-        if isinstance(e, AuthError)
-    ]
-    assert len(auth_errors) > 0, (
-        "AuthError was swallowed — it must propagate so the wave halts immediately"
-    )
+    # Unwrapped to the bare error; the TaskGroup group is kept as __cause__.
+    assert isinstance(exc_info.value.__cause__, ExceptionGroup)
 
 
 # ---------------------------------------------------------------------------
@@ -1165,9 +1151,8 @@ async def test_dead_monitor_aborts_the_wave_with_governor_crisis(
 ) -> None:
     """Every agent hits GovernorCrisisError in acquire(); none reaches the model.
 
-    dispatch_wave runs inside asyncio.TaskGroup, so the errors arrive wrapped in
-    an ExceptionGroup until T1.2 unwraps hard-stop errors; that change tightens
-    this assertion to a bare GovernorCrisisError.
+    dispatch_wave unwraps the TaskGroup's ExceptionGroup and raises the first
+    GovernorCrisisError bare (docs/DECISIONS.md#adr-taskgroup-dispatch).
     """
     from alphaswarm.batch_dispatcher import dispatch_wave
 
@@ -1182,7 +1167,7 @@ async def test_dead_monitor_aborts_the_wave_with_governor_crisis(
 
     with (
         patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
-        pytest.raises(ExceptionGroup) as exc_info,
+        pytest.raises(GovernorCrisisError) as exc_info,
     ):
         await dispatch_wave(
             personas=sample_personas,
@@ -1192,7 +1177,62 @@ async def test_dead_monitor_aborts_the_wave_with_governor_crisis(
             settings=settings,
         )
 
-    assert exc_info.value.exceptions
-    assert all(isinstance(e, GovernorCrisisError) for e in exc_info.value.exceptions)
+    group = exc_info.value.__cause__
+    assert isinstance(group, ExceptionGroup)
+    assert all(isinstance(e, GovernorCrisisError) for e in group.exceptions)
     assert provider.calls == []
     await governor.stop_monitoring()
+
+
+async def test_inference_exception_becomes_inference_error_kind(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    def _boom(**_: object) -> InferenceResult:
+        raise RuntimeError("connection refused by the model server")
+
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER, model="fake-model", scripted=_boom,
+    )
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        results = await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            provider=provider,
+            user_message="test",
+            settings=GovernorSettings(baseline_parallel=16),
+        )
+    assert {r.signal for r in results} == {SignalType.PARSE_ERROR}
+    assert {r.error_kind for r in results} == {"inference"}
+
+
+async def test_several_hard_stops_raise_only_the_first_bare(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    from decimal import Decimal
+
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    def _over_budget(**_: object) -> InferenceResult:
+        raise BudgetExceededError(Decimal("5"), Decimal("4"))
+
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER, model="fake-model", scripted=_over_budget,
+    )
+    with (
+        patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(BudgetExceededError) as exc_info,
+    ):
+        await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            provider=provider,
+            user_message="test",
+            settings=GovernorSettings(baseline_parallel=16),
+        )
+    group = exc_info.value.__cause__
+    assert isinstance(group, ExceptionGroup)
+    assert all(isinstance(e, BudgetExceededError) for e in group.exceptions)
