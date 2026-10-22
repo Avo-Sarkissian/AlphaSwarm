@@ -71,3 +71,68 @@ describe('Onboarding health gate', () => {
     expect((run as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+const HEALTH_DEGRADED = {
+  status: 'degraded',
+  components: {
+    neo4j: { ok: true, required: true, detail: null, fix: null, missing: [] },
+    ollama: { ok: true, required: true, detail: null, fix: null, missing: [] },
+    aliases: {
+      ok: false,
+      required: true,
+      detail: 'missing: alphaswarm-worker',
+      fix: 'ollama create alphaswarm-worker -f modelfiles/Modelfile.worker',
+      missing: ['alphaswarm-worker'],
+    },
+  },
+};
+const HEALTH_OK = {
+  status: 'ok',
+  components: {
+    neo4j: { ok: true, required: true, detail: null, fix: null, missing: [] },
+    ollama: { ok: true, required: true, detail: null, fix: null, missing: [] },
+    aliases: { ok: true, required: true, detail: null, fix: null, missing: [] },
+  },
+};
+
+describe('Onboarding component status', () => {
+  it('names the component that is down, with the command that fixes it, and blocks Run', async () => {
+    stubFetchRoutes({ 'GET /api/health': { body: HEALTH_DEGRADED } });
+    render(<Onboarding onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    expect(await screen.findByText('ollama create alphaswarm-worker -f modelfiles/Modelfile.worker')).toBeDefined();
+    expect(screen.queryByText('aliases')).not.toBeNull();
+    fireEvent.change(screen.getByPlaceholderText(/Fed announces/), { target: { value: SEED } });
+    const run = screen.getByRole('button', { name: /fix the items above first/i }) as HTMLButtonElement;
+    expect(run.disabled).toBe(true);
+  });
+
+  it('re-checks without a reload and enables Run once healthy', async () => {
+    stubFetchRoutes({
+      'GET /api/health': (call) => ({ body: call === 1 ? HEALTH_DEGRADED : HEALTH_OK }),
+    });
+    render(<Onboarding onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-check' }));
+    await screen.findByText(/Backend ready/);
+    fireEvent.change(screen.getByPlaceholderText(/Fed announces/), { target: { value: SEED } });
+    expect((screen.getByRole('button', { name: /run first cycle/i }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('lets the user skip to the dashboard (Settings is reachable there)', async () => {
+    stubFetchRoutes({ 'GET /api/health': { body: HEALTH_DEGRADED } });
+    const onComplete = vi.fn();
+    render(<Onboarding onComplete={onComplete} />);
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip to dashboard' }));
+    expect(onComplete).toHaveBeenCalledWith('');
+  });
+
+  it('shows a reachability hint when the backend is down', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    render(<Onboarding onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    expect(await screen.findByText(/Cannot reach the backend/)).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Re-check' })).not.toBeNull();
+  });
+});
