@@ -5,11 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from alphaswarm.web.replay_manager import ReplayAlreadyActiveError, SimulationActiveError
-from alphaswarm.web.routes.report import _validate_cycle_id  # single-source-of-truth regex guard
+from alphaswarm.web.errors import ApiError
+from alphaswarm.web.guards import require_graph
+from alphaswarm.web.params import CycleId
 
 log = structlog.get_logger(component="web.replay")
 
@@ -60,33 +61,22 @@ class ReplayStopResponse(BaseModel):
 
 @router.get("/replay/cycles", response_model=ReplayCyclesResponse)
 async def replay_cycles(request: Request) -> ReplayCyclesResponse:
-    """List completed simulation cycles eligible for replay (D-12).
+    """List completed cycles eligible for replay (D-12); 503 without Neo4j.
 
-    Returns 503 if Neo4j is not connected (same pattern as edges endpoint).
-
-    NOTE on "completed cycles" definition (addresses review concern #5):
-    The underlying graph_manager.read_completed_cycles() query already
-    filters to cycles that have at least one Round 3 decision via:
-        WHERE EXISTS {
-            MATCH (:Agent)-[:MADE]->(d:Decision {cycle_id: c.cycle_id, round: 3})
-        }
-    This means in-progress cycles (no Round 3 data yet) are excluded.
-    round_count is hard-coded to 3 because by definition, all returned
-    cycles have completed all 3 rounds.
+    Completed means the cycle stamped its metrics at simulation end, or (for
+    cycles predating the stamp) has a round-3 decision; cycles still running
+    are excluded (docs/DECISIONS.md#adr-cycle-metrics).
     """
-    app_state = request.app.state.app_state
-    graph_manager = app_state.graph_manager
-    if graph_manager is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": "graph_unavailable", "message": "Neo4j is not connected"},
-        )
-
-    raw_cycles = await graph_manager.read_completed_cycles()
+    graph = require_graph(request.app.state.app_state)
+    raw_cycles = await graph.read_completed_cycles()
     cycles = [
         CycleItem(
             cycle_id=c["cycle_id"],
-            created_at=c["created_at"].isoformat() if isinstance(c["created_at"], datetime) else str(c["created_at"]),
+            created_at=(
+                c["created_at"].isoformat()
+                if isinstance(c["created_at"], datetime)
+                else str(c["created_at"])
+            ),
             seed_rumor=c.get("seed_rumor", ""),
             # Actual cascade depth (2 under ALPHASWARM_NUM_ROUNDS=2);
             # cycles predating metrics stamping default to 3.
@@ -99,121 +89,48 @@ async def replay_cycles(request: Request) -> ReplayCyclesResponse:
 
 
 @router.post("/replay/start/{cycle_id}", response_model=ReplayStartResponse)
-async def replay_start(cycle_id: str, request: Request) -> ReplayStartResponse:
-    """Start replay for a given cycle (D-08).
+async def replay_start(cycle_id: CycleId, request: Request) -> ReplayStartResponse:
+    """Start replay for *cycle_id* (D-08).
 
-    Loads all signals from Neo4j via graph_manager, constructs ReplayStore,
-    sets round 1, and broadcasts the round-1 snapshot over WebSocket.
-
-    Returns 503 if Neo4j is not connected.
-    Returns 409 if a live simulation is currently running (B4 route-side).
-    Returns 409 if a replay session is already active.
-    Returns 400 if cycle_id is malformed (consistent with report/advisory).
-    Returns 404 if the cycle has no signals in Neo4j.
+    422 malformed id; 409 simulation_in_progress / replay_already_active; 404
+    cycle_not_found when the cycle has no signals; 503 graph_unavailable. The
+    TOCTOU errors raised inside ReplayManager.start map to the same 409 codes
+    in web/errors.py.
     """
-    # F-26: validate cycle_id with the same single-source guard report/advisory
-    # use, so a malformed/oversized id returns a clean 400 instead of reaching
-    # Neo4j and surfacing as a 404.
-    _validate_cycle_id(cycle_id)
-    app_state = request.app.state.app_state
     replay_manager = request.app.state.replay_manager
-    connection_manager = request.app.state.connection_manager
-    graph_manager = app_state.graph_manager
-    sim_manager = request.app.state.sim_manager
-
-    # B4 route-side: block replay while a live simulation is running. Runs
-    # BEFORE graph/replay-active checks so the most-specific conflict wins.
-    if sim_manager.is_running:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "simulation_in_progress",
-                "message": "Cannot start replay while a simulation is running",
-            },
+    if request.app.state.sim_manager.is_running:
+        raise ApiError(
+            409, "simulation_in_progress", "Cannot start replay while a simulation is running",
         )
-
-    if graph_manager is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": "graph_unavailable", "message": "Neo4j is not connected"},
-        )
-
+    graph = require_graph(request.app.state.app_state)
     if replay_manager.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "replay_already_active", "message": "A replay session is already active"},
-        )
-
-    signals = await graph_manager.read_full_cycle_signals(cycle_id)
+        raise ApiError(409, "replay_already_active", "A replay session is already active")
+    signals = await graph.read_full_cycle_signals(cycle_id)
     if not signals:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "cycle_not_found", "message": f"No signals found for cycle {cycle_id}"},
-        )
-
-    try:
-        await replay_manager.start(cycle_id, signals, connection_manager, graph_manager)
-    except ReplayAlreadyActiveError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "replay_already_active", "message": str(exc)},
-        ) from exc
-    except SimulationActiveError as exc:
-        # TOCTOU closure: a simulation may have started during the awaited
-        # read_full_cycle_signals call above, after the route-level check.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "simulation_in_progress", "message": str(exc)},
-        ) from exc
-
+        raise ApiError(404, "cycle_not_found", f"No signals found for cycle {cycle_id}")
+    await replay_manager.start(cycle_id, signals, request.app.state.connection_manager, graph)
     log.info("replay_started", cycle_id=cycle_id)
     return ReplayStartResponse(status="ok", cycle_id=cycle_id, round_num=1)
 
 
 @router.post("/replay/advance", response_model=ReplayAdvanceResponse)
 async def replay_advance(request: Request) -> ReplayAdvanceResponse:
-    """Advance replay to the next round (D-09).
-
-    Increments round_num on ReplayManager (max 3), loads bracket summaries
-    and rationale entries for the new round, and broadcasts the snapshot.
-
-    Returns 409 if no replay session is active.
-    Returns 503 if Neo4j is not connected.
-    """
+    """Advance to the next round (D-09); a concurrent stop surfaces as 409 no_replay_active."""
     replay_manager = request.app.state.replay_manager
-    connection_manager = request.app.state.connection_manager
-    graph_manager = request.app.state.app_state.graph_manager
-
     if not replay_manager.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "no_replay_active", "message": "No replay session is active"},
-        )
-
-    if graph_manager is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": "graph_unavailable", "message": "Neo4j is not connected"},
-        )
-
-    new_round = await replay_manager.advance(connection_manager, graph_manager)
+        raise ApiError(409, "no_replay_active", "No replay session is active")
+    graph = require_graph(request.app.state.app_state)
+    new_round = await replay_manager.advance(request.app.state.connection_manager, graph)
     log.info("replay_advanced", round_num=new_round)
     return ReplayAdvanceResponse(status="ok", round_num=new_round)
 
 
 @router.post("/replay/stop", response_model=ReplayStopResponse)
 async def replay_stop(request: Request) -> ReplayStopResponse:
-    """Stop the active replay session (D-10).
-
-    Resets ReplayManager to idle, clears store, resets phase to IDLE.
-    Returns 409 if no replay session is active.
-    """
+    """Stop the active replay (D-10); 409 when none is active."""
     replay_manager = request.app.state.replay_manager
     if not replay_manager.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "no_replay_active", "message": "No replay session is active"},
-        )
+        raise ApiError(409, "no_replay_active", "No replay session is active")
     await replay_manager.stop()
     log.info("replay_stopped")
     return ReplayStopResponse(status="ok")

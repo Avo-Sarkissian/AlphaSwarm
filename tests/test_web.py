@@ -18,6 +18,7 @@ from alphaswarm.web.simulation_manager import (
     SimulationAlreadyRunningError,
     SimulationManager,
 )
+from tests.support.web_app import CYCLE_A, CYCLE_B, CYCLE_UNKNOWN
 
 # ---------------------------------------------------------------------------
 # Test helpers — lightweight lifespan that bypasses .env / Neo4j / Ollama
@@ -35,6 +36,7 @@ def _make_test_app() -> FastAPI:
     from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
     from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
     from alphaswarm.web.connection_manager import ConnectionManager
+    from alphaswarm.web.errors import install_error_handlers
     from alphaswarm.web.replay_manager import ReplayManager
     from alphaswarm.web.routes.edges import router as edges_router
     from alphaswarm.web.routes.health import router as health_router
@@ -85,6 +87,7 @@ def _make_test_app() -> FastAPI:
             await app_state.graph_manager.close()
 
     app = FastAPI(title="AlphaSwarm-Test", lifespan=_unit_lifespan)
+    install_error_handlers(app)
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")
     app.include_router(edges_router, prefix="/api")
@@ -844,7 +847,7 @@ def test_create_app_ws_route_registered() -> None:
 def test_edges_endpoint_503_without_neo4j() -> None:
     """GET /api/edges/{cycle_id}?round=1 returns 503 when graph_manager is None."""
     with TestClient(_make_test_app()) as client:
-        r = client.get("/api/edges/test-cycle?round=1")
+        r = client.get(f"/api/edges/{CYCLE_A}?round=1")
         assert r.status_code == 503
         data = r.json()
         assert data["detail"]["error"] == "graph_unavailable"
@@ -853,16 +856,16 @@ def test_edges_endpoint_503_without_neo4j() -> None:
 def test_edges_endpoint_requires_round_param() -> None:
     """GET /api/edges/{cycle_id} without round query param returns 422."""
     with TestClient(_make_test_app()) as client:
-        r = client.get("/api/edges/test-cycle")
+        r = client.get(f"/api/edges/{CYCLE_A}")
         assert r.status_code == 422
 
 
 def test_edges_endpoint_round_validation() -> None:
     """GET /api/edges/{cycle_id}?round=0 returns 422 (round must be 1-3)."""
     with TestClient(_make_test_app()) as client:
-        r = client.get("/api/edges/test-cycle?round=0")
+        r = client.get(f"/api/edges/{CYCLE_A}?round=0")
         assert r.status_code == 422
-        r2 = client.get("/api/edges/test-cycle?round=4")
+        r2 = client.get(f"/api/edges/{CYCLE_A}?round=4")
         assert r2.status_code == 422
 
 
@@ -1225,7 +1228,7 @@ def test_replay_cycles_503() -> None:
 def test_replay_start_503_without_neo4j() -> None:
     """POST /api/replay/start/{cycle_id} returns 503 when graph_manager is None."""
     with TestClient(_make_test_app()) as client:
-        r = client.post("/api/replay/start/test-cycle-123")
+        r = client.post(f"/api/replay/start/{CYCLE_A}")
         assert r.status_code == 503
         data = r.json()
         assert data["detail"]["error"] == "graph_unavailable"
@@ -1260,7 +1263,7 @@ def test_edges_endpoint_regression_sc3() -> None:
     registered and responds correctly after Phase 32 router additions.
     """
     with TestClient(_make_test_app()) as client:
-        r = client.get("/api/edges/test-cycle?round=1")
+        r = client.get(f"/api/edges/{CYCLE_A}?round=1")
         assert r.status_code == 503  # graph_manager is None in test app
         data = r.json()
         assert data["detail"]["error"] == "graph_unavailable"
@@ -1293,11 +1296,11 @@ def test_replay_start_real_logic() -> None:
         mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
         app_state.graph_manager = mock_gm
 
-        r = client.post("/api/replay/start/test-cycle-abc")
+        r = client.post(f"/api/replay/start/{CYCLE_A}")
         assert r.status_code == 200
         data = r.json()
         assert data["status"] == "ok"
-        assert data["cycle_id"] == "test-cycle-abc"
+        assert data["cycle_id"] == CYCLE_A
         assert data["round_num"] == 1
         assert app.state.replay_manager.is_active is True
 
@@ -1320,9 +1323,9 @@ def test_replay_start_409_already_active() -> None:
         mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
         app_state.graph_manager = mock_gm
 
-        r1 = client.post("/api/replay/start/cycle-1")
+        r1 = client.post(f"/api/replay/start/{CYCLE_A}")
         assert r1.status_code == 200
-        r2 = client.post("/api/replay/start/cycle-2")
+        r2 = client.post(f"/api/replay/start/{CYCLE_B}")
         assert r2.status_code == 409
         assert r2.json()["detail"]["error"] == "replay_already_active"
 
@@ -1337,7 +1340,7 @@ def test_replay_start_404_cycle_not_found() -> None:
         mock_gm.read_full_cycle_signals = AsyncMock(return_value={})  # empty
         app.state.app_state.graph_manager = mock_gm
 
-        r = client.post("/api/replay/start/nonexistent-cycle")
+        r = client.post(f"/api/replay/start/{CYCLE_UNKNOWN}")
         assert r.status_code == 404
         assert r.json()["detail"]["error"] == "cycle_not_found"
 
@@ -1361,7 +1364,7 @@ def test_replay_advance_real_logic() -> None:
         mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
         app.state.app_state.graph_manager = mock_gm
 
-        client.post("/api/replay/start/test-cycle-abc")
+        client.post(f"/api/replay/start/{CYCLE_A}")
         r = client.post("/api/replay/advance")
         assert r.status_code == 200
         data = r.json()
@@ -1386,7 +1389,7 @@ def test_replay_stop_resets_phase() -> None:
         mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
         app.state.app_state.graph_manager = mock_gm
 
-        client.post("/api/replay/start/test-cycle-abc")
+        client.post(f"/api/replay/start/{CYCLE_A}")
         assert app.state.replay_manager.is_active is True
         r = client.post("/api/replay/stop")
         assert r.status_code == 200
@@ -1448,7 +1451,7 @@ def test_m8x_replay_start_409_when_simulation_running() -> None:
         # Flip the sim-manager into "running" state without actually running.
         client.app.state.sim_manager._is_running = True
 
-        r = client.post("/api/replay/start/any-cycle")
+        r = client.post(f"/api/replay/start/{CYCLE_A}")
         assert r.status_code == 409
         data = r.json()
         assert data["detail"]["error"] == "simulation_in_progress"

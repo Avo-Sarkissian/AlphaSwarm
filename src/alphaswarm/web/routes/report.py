@@ -10,14 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import aiofiles
 import aiofiles.os
 import structlog
-from fastapi import APIRouter, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, Request, status
 from pydantic import BaseModel
 
 from alphaswarm.config import load_inference_config
@@ -45,10 +44,6 @@ log = structlog.get_logger(component="web.report")
 
 router = APIRouter()
 
-# T-36-01: path traversal guard. Regex allows only the charset used in cycle UUIDs.
-_CYCLE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
-
-
 class ReportResponse(BaseModel):
     """Response body for GET /api/report/{cycle_id} (D-05)."""
 
@@ -62,18 +57,6 @@ class GenerateResponse(BaseModel):
 
     status: str
     cycle_id: str
-
-
-def _validate_cycle_id(cycle_id: str) -> None:
-    """Raise 400 if cycle_id contains characters outside the allowed charset (T-36-01)."""
-    if not _CYCLE_ID_RE.match(cycle_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "invalid_cycle_id",
-                "message": "cycle_id must match ^[a-zA-Z0-9_-]+$",
-            },
-        )
 
 
 def reports_dir(app_state: AppState) -> Path:

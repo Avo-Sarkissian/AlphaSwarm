@@ -24,6 +24,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from tests.support.web_app import CYCLE_A, CYCLE_B
+
 
 def _make_test_app_with_fake_graph(fake_edges: list[dict[str, Any]]) -> FastAPI:
     """Build a test FastAPI app with a fake graph_manager returning fake_edges.
@@ -83,7 +85,7 @@ def test_edges_route_returns_envelope_with_edges() -> None:
     ]
     app = _make_test_app_with_fake_graph(fake_edges)
     with TestClient(app) as client:
-        resp = client.get("/api/edges/test-cycle?round=3")
+        resp = client.get(f"/api/edges/{CYCLE_A}?round=3")
     assert resp.status_code == 200
     body = resp.json()
     assert "edges" in body, f"Response envelope must contain 'edges' key, got {body!r}"
@@ -97,7 +99,7 @@ def test_edges_route_empty_result_returns_empty_array() -> None:
     """No edges in store → { "edges": [] } with 200 status (NOT 404)."""
     app = _make_test_app_with_fake_graph([])
     with TestClient(app) as client:
-        resp = client.get("/api/edges/cycle-with-no-edges?round=3")
+        resp = client.get(f"/api/edges/{CYCLE_B}?round=3")
     assert resp.status_code == 200
     assert resp.json() == {"edges": []}
 
@@ -108,10 +110,10 @@ def test_edges_route_passes_round_param_through() -> None:
     app = _make_test_app_with_fake_graph(fake_edges)
     with TestClient(app) as client:
         # Round 1
-        resp1 = client.get("/api/edges/c1?round=1")
+        resp1 = client.get(f"/api/edges/{CYCLE_A}?round=1")
         assert resp1.status_code == 200
         # Round 3
-        resp3 = client.get("/api/edges/c1?round=3")
+        resp3 = client.get(f"/api/edges/{CYCLE_A}?round=3")
         assert resp3.status_code == 200
         # Both should hit the graph manager with the right round
         gm = client.app.state.app_state.graph_manager
@@ -124,7 +126,7 @@ def test_edges_route_rejects_invalid_round() -> None:
     """Round must be in [1, 3] — FastAPI Query validation rejects 0, 4, etc."""
     app = _make_test_app_with_fake_graph([])
     with TestClient(app) as client:
-        r0 = client.get("/api/edges/c1?round=0")
+        r0 = client.get(f"/api/edges/{CYCLE_A}?round=0")
         assert r0.status_code == 422  # Pydantic validation error
-        r4 = client.get("/api/edges/c1?round=4")
+        r4 = client.get(f"/api/edges/{CYCLE_A}?round=4")
         assert r4.status_code == 422
