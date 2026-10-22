@@ -7,7 +7,7 @@ fake_graph and scenario_settings (jitter 0). All values are fictional.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -213,6 +213,18 @@ async def test_phase_sequence_includes_finalizing(
     all_brackets: list[BracketConfig],
 ) -> None:
     store = RecordingStateStore()
+    # The phase the UI sees while each post-round write runs: FINALIZING must
+    # already be live, not merely appear somewhere in the set_phase order.
+    live_phase: dict[str, SimulationPhase] = {}
+
+    def phase_during(write: str) -> Callable[..., None]:
+        def record(*_args: object, **_kwargs: object) -> None:
+            live_phase[write] = store.snapshot().phase
+
+        return record
+
+    graph.write_decision_narratives.side_effect = phase_during("narratives")
+    graph.write_cycle_metrics.side_effect = phase_during("metrics")
     await run_case(
         settings=scenario_settings,
         graph=graph,
@@ -231,3 +243,7 @@ async def test_phase_sequence_includes_finalizing(
         SimulationPhase.FINALIZING,
         SimulationPhase.COMPLETE,
     ]
+    assert live_phase == {
+        "narratives": SimulationPhase.FINALIZING,
+        "metrics": SimulationPhase.FINALIZING,
+    }
