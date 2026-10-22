@@ -127,13 +127,18 @@ Contents
 - **Decision:** Weights span 0.45-0.75, and Sell-Side and Narrators rank highest on purpose.
 - **Rationale:** Peer visibility, not assets under management, determines whose rationale others read.
 
-### <a id="adr-diverse-peer-context"></a>Peer context is built in memory per reader, with a bracket-diversity guarantee
-- **Decision:** `_build_diverse_peer_contexts` (`simulation.py:427`) builds each reader's peer context. It is the production path since the June 2026 overhaul.
-  - Per-reader weight = base reach + global citation share + 0.3 if the reader cited that author last round.
-  - `select_diverse_peers` guarantees at least 4 brackets among 10 peers, best effort (`simulation.py:433-434` passes `limit=10, min_brackets=4`; the function's own defaults are 5 and 3).
-  - A deterministic blake2b tie-break, `_stable_peer_jitter` (F-08), stops equal-weight Round 2 readers from all picking the same peers.
-  - The format is `[agent_id|bracket] SIGNAL (conf)`, so agents can cite IDs (`simulation.py:388-400`).
-- **Rationale:** The old `read_ranked_posts` path showed all 100 agents the same authority top-10 (SWEEP-260528 §3.3), and also cost 100 sequential Neo4j reads per round.
+### <a id="adr-diverse-peer-context"></a>Peer context is built in memory per reader, by seeded stratified sampling
+- **Decision:** `_build_diverse_peer_contexts` (`simulation.py`) builds each reader's peer context in memory and returns the ids of the peers it rendered (the reader's *exposure*). It is the production path since the June 2026 overhaul; seeded sampling replaced the deterministic fill in October 2026.
+  - Per-reader weight = base reach + global citation share + `SimulationSettings.personal_boost` (default 0.3) if the reader cited that author last round. The boost raises a cited author's odds; it no longer guarantees a slot. Only an ablation (0 / 0.05 / 0.3) may change the default.
+  - `select_diverse_peers` samples without replacement, weighted by that score (Efraimidis–Spirakis keys `u ** (1/w)`, computed as `log(u)/w`): first `min_brackets` brackets (default 4), each weighted by its best candidate, with one peer each; then the remaining slots, with at most `bracket_cap` peers (default 3) from any one bracket. The cap is hard, so a reader gets fewer than `peer_limit` (default 10) peers when few brackets are eligible. The reader and previous-round PARSE_ERROR agents are never shown. Non-finite or non-positive weights sort last instead of raising.
+  - The final list is shuffled, so no bracket owns position 1.
+  - Randomness comes only from `peer_rng(run_seed, reader, round)` (blake2b, never the process-salted `hash()`); `run_seed` is the cycle id (`peer_seed_source = "cycle_id"`).
+  - Knobs: `ALPHASWARM_SIMULATION__PEER_LIMIT`, `__MIN_BRACKETS`, `__BRACKET_CAP`, `__PERSONAL_BOOST`, `__PEER_BUDGET_CHARS` (defaults 10 / 4 / 3 / 0.3 / 4000).
+  - The format is `[agent_id|bracket] SIGNAL (conf)`, so agents can cite IDs. Peers cut by the character budget do not count as exposure.
+  - Each peer round's exposure is summarized in the cycle metrics (`r{n}_exposure_<bracket>`, `r{n}_readers_seeing_<bracket>`, `r{n}_distinct_peers_shown`) with `peer_selection_version = 2`; `scripts/peer_exposure.py` prints and checks them.
+- **Rationale:** "Reach" means the probability of being seen, not a monopoly. Base weights are constant per bracket, so the previous top-weight fill was deterministic: every reader saw 7 Sell-Side, 1 Narrator, 1 Institution and 1 Event-Driven peer, Sell-Side held position 1 for every reader, six brackets were never shown, and only 46 (R2) and 45 (R3) agents were ever visible in the *before* cycle below. Sampling keeps the reach ordering per agent (Sell-Side and Narrators are still seen most often) while every bracket is heard. Building in memory also replaced the `read_ranked_posts` path, which showed all 100 agents the same authority top-10 (SWEEP-260528 §3.3) and cost 100 sequential Neo4j reads per round.
+- **Invariant (tested in `tests/test_peer_selection.py`):** on `generate_personas(DEFAULT_BRACKETS)`, no bracket takes more than 35% of a round's slots and every bracket is visible to at least 15% of readers, in R2 and in an R3 worst case where everyone cited the same two Sell-Side agents.
+- **Superseded:** the deterministic fill ([p8-d-06](#p8-d-06)) and the `_stable_peer_jitter` tie-break ([f-08](#f-08)); per-reader seeded sampling disperses equal-weight readers by construction.
 - **Evidence (benchmark seed `apple-anthropic`, 3 rounds, one inference configuration for both cycles):**
   - *Before* (legacy selector, `peer_selection_version` 1): cycle `5c59c533-e841-40fb-91ca-071ac239c1ab`, git `8ae04cac`, mode `local`, worker `alphaswarm-worker`, parse errors R2 `0` / R3 `0`.
 
@@ -239,6 +244,7 @@ Contents
 
 ### <a id="adr-cycle-metrics"></a>Per-cycle run metrics on the Cycle node
 - **Decision:** At the end of a run, `write_cycle_metrics` stamps durations, flips, parse errors, `r{n}_inference_errors` (the subset of `r{n}_parse_errors` whose `error_kind` is `"inference"`, for the rounds actually run), `final_round` and the final distribution onto the Cycle node (`graph.py`). `metrics_recorded_at` marks a cycle as complete for listing (`graph.py`, `read_completed_cycles`). Compare runs with `scripts/compare_cycles.py` against `scripts/benchmark_seeds.json`.
+- **Provenance and peer keys:** each cycle also records `orchestrator_provider` / `worker_provider` (`ollama` for local providers, `cloud` otherwise; the model id identifies the cloud provider), `orchestrator_model`, `worker_model`, `inference_mode` (`local` / `cloud` / `mixed`), `git_sha` (empty when unknown) and `git_dirty` (omitted when unknown, because a Neo4j property cannot be null), the effective peer parameters (`peer_selection_version`, `peer_limit`, `peer_min_brackets`, `peer_bracket_cap`, `peer_budget_chars`, `peer_personal_boost`, `peer_seed_source`) and the per-round exposure keys from [adr-diverse-peer-context](#adr-diverse-peer-context). Older cycles lack these keys, so every reader must tolerate missing keys. `git_revision` lives in `alphaswarm/manifest.py`.
 - **Rationale:** A/B experiments (rounds, peers, models) need durable numbers. All history before June 2026 was lost (see [adr-tests-scoped-cleanup](#adr-tests-scoped-cleanup)).
 
 ### <a id="adr-holdings-isolation"></a>Holdings isolation: the swarm never sees the portfolio
@@ -424,7 +430,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p8-d-03"></a>`D-03` | Every citation pair produces an edge; no threshold. Edge weight is the target's citation share. | active | graph.py:980 |
 | <a id="p8-d-04"></a>`D-04` | Weights are cumulative across rounds (round <= up_to_round). | active | graph.py:980,984,1058; simulation.py:961,1242,1400 |
 | <a id="p8-d-05"></a>`D-05` | Cold start: when no citations exist, fall back to static influence_weight_base. The explicit fallback (sequential `read_peer_decisions` reads) survives only inside the dead `_dispatch_round`. The production path (`_build_diverse_peer_contexts`) always adds base reach to citation share, so with zero citations it reduces to static ordering anyway. | superseded | simulation.py:769,840 |
-| <a id="p8-d-06"></a>`D-06` | Bracket-diverse peer selection: top-1 from the top N brackets, then fill by weight. Production now uses limit=10, min_brackets=4 via _build_diverse_peer_contexts. | partial | simulation.py:186,766,802 |
+| <a id="p8-d-06"></a>`D-06` | Bracket-diverse peer selection: top-1 from the top N brackets, then fill by weight. Superseded by seeded stratified sampling with a per-bracket cap ([adr-diverse-peer-context](#adr-diverse-peer-context)). | superseded | simulation.py (select_diverse_peers) |
 | <a id="p8-d-07"></a>`D-07` | Bracket aggregation computed in memory from the round's decisions. | active | simulation.py:107; state.py:35 |
 | <a id="p8-d-08"></a>`D-08` | BracketSummary frozen dataclass promoted into the simulation layer and carried on SimulationResult; CLI and UI share it. | active | cli.py:240,294,417; simulation.py:107,287,304,305,306,955,963,1105,1253,1410; state.py:35 |
 
@@ -749,7 +755,7 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-05"></a>F-05 | Anthropic provider defaulted to max_tokens=1024, truncating orchestrator output (now 8192 orchestrator / 2048 worker) | c99d00b | inference/factory.py:130 |
 | <a id="f-06"></a>F-06 | ReAct prompt tool names did not match the registry, so the consensus and flip sections were always missing | 90dd0f9 | tests/test_report.py:28 |
 | <a id="f-07"></a>F-07 | Advisory read the wrong entity-impact keys, so relevance ranking was dead; added `resolve_ticker` | 3d65f99 | advisory/engine.py:151; advisory/sector_map.py:86; tests/unit/test_advisory.py:615,619,632 |
-| <a id="f-08"></a>F-08 | Round 2 equal weights meant every reader got the same peers; fixed with a stable per-reader jitter | 7ae6a69 | simulation.py:166; tests/test_simulation.py:2085 |
+| <a id="f-08"></a>F-08 | Round 2 equal weights meant every reader got the same peers; fixed with a stable per-reader jitter. The jitter is gone: seeded per-reader sampling ([adr-diverse-peer-context](#adr-diverse-peer-context)) disperses readers by construction | 7ae6a69 | simulation.py (peer_rng); tests/test_peer_selection.py (test_equal_weights_disperse_across_readers) |
 | <a id="f-09"></a>F-09 | JSON brace scanner ignored strings, so `}` in a rationale dropped the vote | 9748dd5 | parsing.py:49; tests/test_parsing.py:96 |
 | <a id="f-10"></a>F-10 | OpenAI strict schema kept min/max, got a 400, and silently fell back to json_object | c99d00b | inference/schema.py:25; tests/inference/test_schema.py:150 |
 | <a id="f-11"></a>F-11 | Failed cloud calls leaked TPM reservation (follow-up in 9312419: refund only on failure) | c99d00b, 9312419 | inference/rate_limit.py:299; tests/inference/test_rate_limit.py:276 |
