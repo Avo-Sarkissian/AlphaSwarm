@@ -139,8 +139,11 @@ Contents
   - READ_POST edges are no longer written, which empties the report's `social_post_reach` section. See BACKLOG.
 
 ### <a id="adr-num-rounds"></a>Configurable cascade depth (2 or 3 rounds)
-- **Decision:** `ALPHASWARM_NUM_ROUNDS` accepts 2 or 3 and defaults to 3 (`config.py:446`).
+- **Decision:** `ALPHASWARM_NUM_ROUNDS` accepts 2 or 3 and defaults to 3 (`AppSettings.num_rounds`).
   - Round 1 is the uninfluenced prior and should not be touched.
+  - `num_rounds` is stamped on the Cycle when it is created (`create_cycle_with_seed_event`), so running and failed cycles carry it too. The completion metrics write the same value.
+  - Report and advisory reads resolve the final round inside Cypher with `coalesce(c.num_rounds, 3)`, because cycles from before 2026-10 that lack the property were all 3-round. The replay cycle list reports the same value as `round_count`.
+  - Prompts describe the rounds that ran: the ReAct report prompt says "final round", and the eager narrative prompt names the agent's round count. The CLI summary uses the last round that ran and reports convergence only for 3-round runs, since it compares R1→R2 flips with R2→R3 flips.
   - With 2 rounds, the round-3 result fields are empty, and completed-cycle listing relies on `Cycle.metrics_recorded_at`.
 - **Rationale:** Most flips happen in Round 2, and 2 rounds save about a third of wall time. Keep the default at 3 until the A/B comparison is done and the frontend stops hardcoding "/3" (see BACKLOG).
 
@@ -196,6 +199,7 @@ Contents
 ### <a id="adr-replaystore-separate"></a>ReplayStore is separate from StateStore
 - **Decision:** Replay builds its own `ReplayStore` (`state.py:323`) inside `ReplayManager`. While replay is active, the broadcaster reads it instead of live state. Replay and live simulation exclude each other (B4).
 - **Rationale:** Reusing StateStore would corrupt the live run. The rationale drain was destructive at the time, and the elapsed timer would restart.
+- **Read model (2026-10):** Replay shows every configured bracket in config order, with its display name. Bracket rows count BUY/SELL/HOLD only: `total` and the averages exclude PARSE_ERROR, so a replayed round matches the live frame's `compute_bracket_summaries`. The report's consensus summary, by contrast, gives PARSE_ERROR its own row ([adr-report-react](#adr-report-react)). Rationales come from `Decision.rationale` ([adr-neo4j-schema](#adr-neo4j-schema)).
 
 ### <a id="adr-neo4j-schema"></a>Neo4j graph model
 - **Decision:**
@@ -205,6 +209,8 @@ Contents
   - This supersedes Phase 4's planned Decision→Decision INFLUENCED_BY edge.
   - Writes are UNWIND batches. Sessions are opened per method. 100 shared Agent nodes.
   - The `neo4j` driver is pinned below 6.0.
+  - The Cycle stores `num_rounds` from creation ([adr-num-rounds](#adr-num-rounds)).
+  - Readers take rationale text from `Decision.rationale`. `RationaleEpisode.rationale` duplicates it and is still written, but replay no longer reads it (2026-10).
 - **Rationale:** Cycle-scoped edges keep reads fast without pruning history.
 
 ### <a id="adr-cycle-metrics"></a>Per-cycle run metrics on the Cycle node
@@ -252,6 +258,14 @@ Contents
   - Output is Jinja2 → markdown at `reports/{cycle_id}_report.md`.
   - An invariant test asserts that every tool named in the prompt exists in the dispatch registry (F-06, `tests/test_report.py:28`).
 - **Rationale:** Ollama's native tool calling was unreliable for Qwen models (2026-03 research). Markdown replaced the HTML export that was lost (see [§2](#2-historical-decisions-no-longer-in-code)).
+- **Update (2026-10):** Report reads return typed rows (the row TypedDicts in `graph.py`, such as `ConsensusSummaryRow` and `ShockImpactRow`), and templates render under Jinja `StrictUndefined`. A template that reads a key its query does not return now fails the report instead of rendering a blank column. Free text goes through the `md_cell` filter (pipes escaped, whitespace collapsed) and numbers through `num` (fixed digits, "—" for a missing value).
+  - Reads describe the final round ([adr-num-rounds](#adr-num-rounds)), and the timeline covers every round that ran. PARSE_ERROR has its own row in the consensus summary and its own column in the timeline, so the shares add up to 100%.
+  - Failed (PARSE_ERROR) agents are excluded from dissenters, bracket stances and averages, entity impact, and shock pivots. A bracket where every agent failed has no majority ("—").
+  - "Influence Weight" became `influence_share` = citations / active final-round agents, which is the [p8-d-01](#p8-d-01) edge weight.
+  - Signals in the typed report rows are upper-case (`BUY`, `SELL`, `HOLD`). Replay rows stay lower-case because they map onto `SignalType`.
+  - The shock section analyses only the earliest shock of a cycle. A second shock queued before Round 3 is not analysed.
+  - Entity impact counts only the cycle's own `MENTIONS` entities, once per (entity, decision) pair ([p11-d-08](#p11-d-08)).
+  - `social_post_reach` remains until the section is removed. It returns rows only for cycles with READ_POST edges (written before June 2026), and its template reads the query's `author_name`.
 
 ### <a id="adr-background-tasks"></a>Long LLM jobs: 202 + background task + polling
 - **Decision:** Report and advisory POSTs return 202 and run `asyncio` tasks.
@@ -424,7 +438,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p11-d-04"></a>`D-04` | RationaleEpisode linked 1:1 via (Decision)-[:HAS_EPISODE]->(RationaleEpisode). | active | graph.py:803 |
 | <a id="p11-d-06"></a>`D-06` | flip_type enum stored on each episode (NONE for round 1). | active | types.py:75 |
 | <a id="p11-d-07"></a>`D-07` | Episode properties: rationale, timestamp, peer_context_received, flip_type, round, cycle_id. | active | graph.py:803 |
-| <a id="p11-d-08"></a>`D-08` | Decision-[:REFERENCES]->Entity via case-insensitive substring match; no NLP dependency. | active | graph.py:872; tests/neo4j/test_graph_integration.py (test_references_edges_case_insensitive) |
+| <a id="p11-d-08"></a>`D-08` | Decision-[:REFERENCES]->Entity via case-insensitive substring match; no NLP dependency. The match is on the name only, so a REFERENCES edge can also reach a same-name entity of another type or cycle, and a seed that lists an entity twice writes duplicate MENTIONS and REFERENCES edges. Report entity impact therefore joins through the cycle's own `MENTIONS` and counts each (entity, decision) pair once (2026-10). | active | graph.py:872; tests/neo4j/test_graph_integration.py (test_references_edges_case_insensitive); tests/neo4j/test_report_reads.py (test_entity_impact_counts_each_decision_once_for_the_cycles_own_entities) |
 | <a id="p11-d-09"></a>`D-09` | REFERENCES written in the same post-round flush; entity names loaded once per cycle. | active | graph.py:872,919; simulation.py:1068 |
 | <a id="p11-d-10"></a>`D-10` | Post-simulation decision_narrative per agent written to Agent nodes (used by interviews/advisory). | active | graph.py:938; simulation.py:1441,1531,1544; tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc, test_write_decision_narratives_integration) |
 | <a id="p11-d-11"></a>`D-11` | Narratives generated eagerly as 100 worker calls after the last round. Lazy generation is an open backlog idea. | active | simulation.py:1441,1531,1544 |
