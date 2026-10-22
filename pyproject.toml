@@ -36,6 +36,8 @@ dev = [
     "pytest-socket==0.7.0",
     "hypothesis==6.152.1",
     "pytest-timeout>=2.4.0",
+    "types-psutil>=7.2.2.20260906",
+    "types-aiofiles>=25.1.0.20260518",
 ]
 
 [project.urls]
