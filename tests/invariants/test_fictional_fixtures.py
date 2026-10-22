@@ -24,6 +24,8 @@ FICTIONAL_FIXTURE_FILES: tuple[str, ...] = (
     "tests/test_holdings_loader.py",
     "tests/integration/test_holdings_route.py",
     "tests/test_holdings_validation.py",
+    "tests/test_example_holdings.py",
+    "examples/holdings.example.csv",
 )
 
 # A CSV data row inside a string literal: "<account>,<TICKER>,<qty>,..."
