@@ -41,6 +41,10 @@ class ShockAlreadyQueuedError(Exception):
     """Raised when inject_shock called while a shock is already queued."""
 
 
+class ShockWindowClosedError(Exception):
+    """Raised when a shock arrives after the last gated round has started."""
+
+
 class ReplayActiveError(Exception):
     """Raised when start() is called while a replay session is active."""
 
@@ -152,6 +156,7 @@ class SimulationManager:
             raise
         self._is_running = True
         self._pending_shock = None  # Reset shock state
+        self._app_state.state_store.set_pending_shock(None)
         log.info("simulation_started", seed_length=len(seed))
         self._task = asyncio.create_task(self._run(seed))
         self._task.add_done_callback(self._on_task_done)
@@ -293,6 +298,7 @@ class SimulationManager:
         self._is_running = False
         self._task = None
         self._pending_shock = None
+        self._app_state.state_store.set_pending_shock(None)
         logged_failure, self._logged_failure = self._logged_failure, None
         self._lock.release()
         if not task.cancelled() and task.exception() is None:
@@ -329,22 +335,31 @@ class SimulationManager:
         log.info("simulation_stop_requested")
 
     def inject_shock(self, shock_text: str) -> None:
-        """Queue a shock for the next simulation round.
+        """Queue a shock for the next gated round while the shock window is open.
 
-        Raises NoSimulationRunningError if no simulation is active.
-        Raises ShockAlreadyQueuedError if a shock is already pending.
+        Raises NoSimulationRunningError when idle, ShockWindowClosedError once the
+        last gated round has started (the text could never reach a prompt), and
+        ShockAlreadyQueuedError while an earlier shock is still pending.
         """
         if not self._is_running:
             raise NoSimulationRunningError("No simulation is running")
+        store = self._app_state.state_store
+        if not store.shock_window_open():
+            raise ShockWindowClosedError(
+                "The shock window is closed: the last round has already started"
+            )
         if self._pending_shock is not None:
             raise ShockAlreadyQueuedError("A shock is already queued")
         self._pending_shock = shock_text
+        store.set_pending_shock(shock_text)
         log.info("shock_queued", shock_length=len(shock_text))
 
     def consume_shock(self) -> str | None:
-        """Return and clear the pending shock text."""
+        """Return and clear the pending shock text (called by the round runner)."""
         shock = self._pending_shock
         self._pending_shock = None
+        if shock is not None:
+            self._app_state.state_store.set_pending_shock(None)
         return shock
 
     async def _run_on_complete(self, cycle_id: str) -> None:

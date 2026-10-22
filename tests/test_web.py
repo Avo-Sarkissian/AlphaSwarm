@@ -113,7 +113,8 @@ def test_health_endpoint() -> None:
         assert "simulation_phase" in data
         assert "memory_percent" in data
         assert "is_simulation_running" in data
-        assert data["status"] == "ok"
+        assert data["status"] == "degraded"  # test app: no Neo4j, no Ollama
+        assert data["components"]["neo4j"]["ok"] is False
         assert isinstance(data["simulation_phase"], str)
         assert isinstance(data["memory_percent"], float)
         assert data["is_simulation_running"] is False
@@ -1137,7 +1138,7 @@ def test_simulate_shock_queued_and_409() -> None:
             "inject_shock",
             new=MagicMock(side_effect=NoSimulationRunningError("No simulation is running")),
         ):
-            r = client.post("/api/simulate/shock", json={"shock_text": "crash"})
+            r = client.post("/api/simulate/shock", json={"shock_text": "market crash again"})
             assert r.status_code == 409
             data = r.json()
             assert data["detail"]["error"] == "no_simulation_running"

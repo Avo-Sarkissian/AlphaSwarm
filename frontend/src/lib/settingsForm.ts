@@ -5,7 +5,7 @@
 // localStorage. An empty api_key field means "keep the stored key".
 import { ApiError } from '../api/client';
 import type { ProviderPreset, ProviderType, RolePut, RoleView } from '../api/settings';
-import { parseErrorEnvelope } from './apiError';
+import { fieldErrors, parseErrorEnvelope } from './apiError';
 
 export interface RoleFormState {
   provider: ProviderType;
@@ -75,7 +75,11 @@ export function extractErrorDetail(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 409) return 'Stop the running simulation first.';
     const { message } = parseErrorEnvelope(e.body);
-    if (message) return message;
+    if (message) {
+      // A 422 names the fields it rejected; show them so the user knows what to fix.
+      const fields = fieldErrors(e.body).map((f) => (f.loc ? `${f.loc}: ${f.msg}` : f.msg));
+      return fields.length > 0 ? `${message} (${fields.join('; ')})` : message;
+    }
     if (typeof e.body === 'object' && e.body !== null) {
       const b = e.body as Record<string, unknown>;
       if (typeof b['detail'] === 'string') return b['detail'];

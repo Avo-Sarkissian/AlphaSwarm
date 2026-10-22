@@ -488,18 +488,13 @@ class TestPresetsInSettingsEndpoint:
 
         valid_providers = {pt.value for pt in ProviderType}
 
+        cfg = InferenceConfig(
+            orchestrator=RoleConfig(provider=ProviderType.OLLAMA, model="local-orch"),
+            worker=RoleConfig(provider=ProviderType.OLLAMA, model="local-worker"),
+        )
         with (
-            patch(
-                "alphaswarm.web.routes.settings.load_inference_config",
-                return_value=InferenceConfig(
-                    orchestrator=RoleConfig(
-                        provider=ProviderType.OLLAMA, model="local-orch"
-                    ),
-                    worker=RoleConfig(
-                        provider=ProviderType.OLLAMA, model="local-worker"
-                    ),
-                ),
-            ),
+            patch("alphaswarm.web.routes.settings.load_inference_config", return_value=cfg),
+            patch("alphaswarm.web.guards.load_inference_config", return_value=cfg),
             patch(
                 "alphaswarm.web.routes.settings._local_model_names",
                 new=AsyncMock(return_value=[]),

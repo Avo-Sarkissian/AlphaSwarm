@@ -21,6 +21,7 @@ from neo4j.exceptions import DriverError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from alphaswarm.errors import Neo4jUnavailableError
+from alphaswarm.readiness import NEO4J_FIX
 from alphaswarm.web.replay_manager import (
     NoReplayActiveError,
     ReplayAlreadyActiveError,
@@ -31,6 +32,7 @@ from alphaswarm.web.simulation_manager import (
     PostRunJobsInProgressError,
     ReplayActiveError,
     ShockAlreadyQueuedError,
+    ShockWindowClosedError,
     SimulationAlreadyRunningError,
 )
 
@@ -46,6 +48,7 @@ DOMAIN_ERROR_STATUS: dict[type[Exception], tuple[int, str]] = {
     PostRunJobsInProgressError: (409, "post_run_jobs_in_progress"),
     NoSimulationRunningError: (409, "no_simulation_running"),
     ShockAlreadyQueuedError: (409, "shock_already_queued"),
+    ShockWindowClosedError: (409, "shock_window_closed"),
     ReplayAlreadyActiveError: (409, "replay_already_active"),
     SimulationActiveError: (409, "simulation_in_progress"),
     NoReplayActiveError: (409, "no_replay_active"),
@@ -142,10 +145,7 @@ async def _graph_unavailable_handler(request: Request, exc: Exception) -> JSONRe
     )
     return _respond(
         503,
-        error_body(
-            "graph_unavailable",
-            "Neo4j is unavailable; start it with `docker compose up -d neo4j`",
-        ),
+        error_body("graph_unavailable", f"Neo4j is unavailable. {NEO4J_FIX}."),
     )
 
 

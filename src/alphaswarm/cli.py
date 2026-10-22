@@ -568,12 +568,15 @@ def _handle_run(
     context_fixture: ContextPacket | None = None,
     market_context: bool = True,
 ) -> None:
-    """Synchronous CLI handler -- creates AppState BEFORE event loop starts.
+    """Synchronous CLI handler: builds AppState, providers and controller, then asyncio.run().
 
-    Addresses review concern #2 (Codex HIGH): create_app_state() calls
-    run_until_complete() for Neo4j connectivity check, which is UNSAFE
-    inside a running event loop. This handler creates AppState synchronously
-    BEFORE asyncio.run() starts the loop.
+    These objects are built before the event loop exists, loop-bound ones
+    included: the StateStore and governor locks, queue and event, the cloud
+    rate limiter's semaphore, and the Neo4j async driver. That works because
+    asyncio primitives attach to a loop on first use (Python 3.10+) and the
+    driver opens no connection until it is used, and both first uses happen
+    inside asyncio.run(). Neo4j is first contacted there, by ensure_schema() in
+    _run_pipeline.
     """
     from alphaswarm.app import create_app_state
     from alphaswarm.config import load_inference_config

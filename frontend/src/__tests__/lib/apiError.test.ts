@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../api/client';
 import {
   errorMessage,
+  fieldErrors,
   formatApiError,
   isBackendUnreachable,
   parseErrorEnvelope,
@@ -32,6 +33,46 @@ describe('parseErrorEnvelope', () => {
       code: null,
       message: null,
     });
+  });
+});
+
+describe('fieldErrors', () => {
+  it('lists each rejected field without the leading body segment', () => {
+    const body = {
+      detail: {
+        error: 'validation_error',
+        message: 'Settings validation failed',
+        fields: [
+          {
+            loc: ['body', 'worker', 'model'],
+            msg: 'Input should be a valid string',
+            type: 'string_type',
+          },
+          {
+            loc: ['body', 'limits', 'ollama', 'max_in_flght'],
+            msg: 'Extra inputs are not permitted',
+            type: 'extra_forbidden',
+          },
+        ],
+      },
+    };
+    expect(fieldErrors(body)).toEqual([
+      { loc: 'worker.model', msg: 'Input should be a valid string' },
+      { loc: 'limits.ollama.max_in_flght', msg: 'Extra inputs are not permitted' },
+    ]);
+  });
+
+  it.each([null, 'text', { detail: 'Not Found' }, { detail: { fields: 'x' } }, { detail: {} }])(
+    'returns [] for %j',
+    (body) => {
+      expect(fieldErrors(body)).toEqual([]);
+    },
+  );
+
+  it('skips malformed entries', () => {
+    const fields = [null, { loc: 'body', msg: 'x' }, { loc: ['body', 'seed'], msg: 3 }];
+    const body = { detail: { fields } };
+    expect(fieldErrors(body)).toEqual([]);
   });
 });
 

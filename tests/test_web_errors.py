@@ -11,6 +11,7 @@ from neo4j.exceptions import ServiceUnavailable
 from pydantic import BaseModel, Field
 
 from alphaswarm.errors import Neo4jConnectionError, Neo4jUnavailableError
+from alphaswarm.readiness import NEO4J_FIX
 from alphaswarm.web.errors import ApiError, error_body, install_error_handlers
 from alphaswarm.web.replay_manager import NoReplayActiveError
 from alphaswarm.web.simulation_manager import SimulationAlreadyRunningError
@@ -99,6 +100,7 @@ def test_graph_errors_map_to_503(path: str) -> None:
     r = TestClient(_app()).get(path)
     assert r.status_code == 503
     assert r.json()["detail"]["error"] == "graph_unavailable"
+    assert NEO4J_FIX in r.json()["detail"]["message"]
     assert "/Users" not in r.text
 
 

@@ -2153,9 +2153,9 @@ class GraphStateManager:
 
         Args:
             cycle_id: Target cycle; must exist prior to this call.
-            shock_text: Raw shock text. The caller must cap its length
-                (docs/DECISIONS.md#hist-shock-max-len); currently NOT enforced,
-                see docs/BACKLOG.md item 1.2.
+            shock_text: Raw shock text. The caller caps its length: the web
+                route accepts 10-1000 characters (ShockText,
+                docs/DECISIONS.md#hist-shock-max-len).
             injected_before_round: 2 or 3 — the round that receives the shock.
 
         Raises:

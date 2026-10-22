@@ -104,7 +104,8 @@ async def load_inference_config_or_422(app_state: AppState) -> InferenceConfig:
     """Load the stored inference config off the loop; 422 (no path) when it is invalid.
 
     An unreadable file (OSError, e.g. no read permission) counts as invalid, so
-    callers that gate on the config fail closed.
+    callers that gate on the config fail closed. The Settings routes use this
+    guard too, so the message names the file's setting rather than Settings.
     """
     try:
         return await asyncio.to_thread(load_inference_config, app_state.settings)
@@ -112,7 +113,9 @@ async def load_inference_config_or_422(app_state: AppState) -> InferenceConfig:
         raise ApiError(
             422,
             "inference_config_invalid",
-            "The stored inference config is invalid; fix it in Settings or remove the stored file",
+            "The stored inference config is invalid, so Settings cannot open it. Fix or "
+            "delete the file named by ALPHASWARM_INFERENCE_CONFIG_PATH; without it the "
+            "local defaults apply.",
         ) from exc
 
 

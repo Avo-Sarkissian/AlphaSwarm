@@ -19,6 +19,7 @@ from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.manifest import current_git_revision
+from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers
@@ -53,8 +54,9 @@ async def _prepare_neo4j(graph_manager: GraphStateManager | None) -> bool:
     ensure_schema() also seeds the 100 Agent nodes every write MATCHes, so a
     fresh database persists nothing until it has run (docs/DECISIONS.md#p4-d-05).
     A down or misconfigured database must not stop the server from starting,
-    so driver and auth errors are logged (with the fix for that failure) and
-    reported as not ready.
+    so driver and auth errors are logged (with the fix for that failure, the
+    same text /api/health shows) and reported as not ready. Once the database
+    answers, /api/health applies the schema.
     """
     if graph_manager is None:
         return False
@@ -62,13 +64,7 @@ async def _prepare_neo4j(graph_manager: GraphStateManager | None) -> bool:
         await graph_manager.verify_connectivity()
         await graph_manager.ensure_schema()
     except (DriverError, Neo4jError) as exc:
-        fix = (
-            "set ALPHASWARM_NEO4J__PASSWORD in .env to the database's password, "
-            "then restart the server"
-            if isinstance(exc, Neo4jAuthError)
-            else "start Neo4j (docker compose up -d neo4j, or docker start <name> for a "
-            "container you created yourself), then restart the server"
-        )
+        fix = NEO4J_AUTH_FIX if isinstance(exc, Neo4jAuthError) else NEO4J_FIX
         log.warning(
             "neo4j_unavailable_at_startup",
             error_type=type(exc).__name__,
@@ -171,7 +167,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     here — never at module import time — to avoid the
     "Future attached to a different loop" error class.
     """
-    settings = AppSettings()
+    # create_app() stores the settings; the lifespan never builds AppSettings() itself,
+    # so tests and launchers control configuration explicitly (docs/DECISIONS.md#adr-web-lifespan).
+    settings: AppSettings = app.state.settings
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
@@ -215,6 +213,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.replay_manager = replay_manager
     app.state.connection_manager = connection_manager
     app.state.neo4j_ready = await _prepare_neo4j(app_state.graph_manager)
+    # (timestamp, components) cache for GET /api/health; None until the first probe.
+    app.state.health_components = None
     # Pin run provenance to the code this process loaded: cycles stamp this
     # revision even if HEAD moves before the first run (docs/DECISIONS.md#adr-cycle-metrics).
     await asyncio.to_thread(current_git_revision)
@@ -276,13 +276,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("lifespan_stopped")
 
 
-def create_app() -> FastAPI:
+def create_app(settings: AppSettings | None = None) -> FastAPI:
     """Create and configure the AlphaSwarm FastAPI application.
 
-    All stateful objects are created inside the lifespan function,
-    never at module import time.
+    ``settings`` is stored on ``app.state.settings`` and the lifespan reads it.
+    ``None`` keeps today's behaviour (environment plus ``.env``). All stateful
+    objects are still created inside the lifespan, never at import time.
     """
+    resolved = settings if settings is not None else AppSettings()
     app = FastAPI(title="AlphaSwarm", lifespan=lifespan)
+    app.state.settings = resolved
     install_error_handlers(app)
 
     # CSRF guard (CWE-352): the API is unauthenticated and localhost-only, so
@@ -290,7 +293,7 @@ def create_app() -> FastAPI:
     # in front of the whole app rejects non-GET requests carrying a foreign
     # Origin/Referer, covering all routers below plus any added later.
     # Header-less callers (curl, scripts/) are unaffected — see web/origin_guard.py.
-    install_origin_guard(app, AppSettings().http_allowed_origins)
+    install_origin_guard(app, resolved.http_allowed_origins)
 
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")
@@ -313,4 +316,16 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app()
+def __getattr__(name: str) -> FastAPI:
+    """Build the module-level ``app`` on first access (``uvicorn alphaswarm.web.app:app``).
+
+    Not at import: every ``alphaswarm.web`` import loads this module, and pytest
+    imports it while collecting, before its hermetic fixture runs. An app built
+    then would keep the operator's settings for its lifespan
+    (docs/DECISIONS.md#adr-web-lifespan).
+    """
+    if name != "app":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    built = create_app()
+    globals()["app"] = built  # later lookups find it directly and skip this hook
+    return built

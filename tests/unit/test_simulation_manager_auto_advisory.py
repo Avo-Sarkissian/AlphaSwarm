@@ -27,6 +27,7 @@ def _make_app_state() -> Any:
     state_store = SimpleNamespace(
         snapshot=MagicMock(return_value=SimpleNamespace(phase="complete")),
         set_phase=AsyncMock(),
+        set_pending_shock=MagicMock(),
     )
     return SimpleNamespace(
         settings=SimpleNamespace(

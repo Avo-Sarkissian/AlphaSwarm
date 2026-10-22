@@ -135,6 +135,7 @@ source_modules = [
     "alphaswarm.ollama_client",
     "alphaswarm.ollama_models",
     "alphaswarm.parsing",
+    "alphaswarm.readiness",
     "alphaswarm.report",
     "alphaswarm.security",
     "alphaswarm.security.hashing",

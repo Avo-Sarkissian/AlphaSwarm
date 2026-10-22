@@ -1,4 +1,4 @@
-// Onboarding — 2-step first-run flow (real-wired per D-12 / KR-41.6-04).
+// Onboarding — 2-step first-run flow (docs/DECISIONS.md#p41-6-d-12, docs/DECISIONS.md#kr-41-6-04).
 //
 // 2026-06-11: the old "Choose your model" step removed — it rendered a stale
 // hardcoded model list (qwen3:8b / llama3.3:70b era) and was render-only
@@ -12,15 +12,12 @@
 
 import { useEffect, useState } from 'react';
 import { Icon } from './icons';
-import { apiFetch, ApiError } from '../api/client';
+import { InlineError } from './InlineError';
+import { apiFetch } from '../api/client';
 import { useRunGate } from '../hooks/useRunGate';
-
-interface HealthResponse {
-  status: string;
-  simulation_phase?: string;
-  memory_percent?: number;
-  is_simulation_running?: boolean;
-}
+import { formatApiError } from '../lib/apiError';
+import { parseHealth, type HealthSummary } from '../lib/health';
+import { SEED_MAX_LENGTH, seedProblem } from '../lib/seed';
 
 interface OnboardingProps {
   onComplete: (seed: string) => void;
@@ -135,52 +132,68 @@ interface ObSeedStepProps {
 }
 
 function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProps) {
-  // null = loading; true = backend reachable; false = unreachable (KR-41.6-04 gate).
-  const [backendOk, setBackendOk] = useState<boolean | null>(null);
+  // Health gate (/api/health components): Run needs every required component ok. A degraded
+  // backend lists what is down with its fix; Re-check asks again without a reload
+  // (docs/DECISIONS.md#p41-6-d-12).
+  const [health, setHealth] = useState<HealthSummary | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  const [checkSeq, setCheckSeq] = useState(0);
+  const backendOk = health?.status === 'ok';
+  // False while the first answer, or the one a Re-check asked for, is outstanding.
+  const answered = health !== null || healthError !== null;
 
   // Run gate: cost confirmation for cloud/mixed runs, then simStart. It settles
   // on success, failure and cancel alike, so the button never stays on
-  // "Starting…".
+  // "Starting…". A run that did not start asks /api/health again, so the
+  // status line does not keep saying "ready" after the backend went away.
   const { requestRun, modal: runConfirmModal, error: runError, pending } = useRunGate({
     onSettled: (ok) => {
       if (ok) onComplete(seed.trim());
+      else setCheckSeq((n) => n + 1);
     },
   });
 
+  // Each answer replaces the previous one; until it arrives the last one stays on screen.
   useEffect(() => {
     let cancelled = false;
-    apiFetch<HealthResponse>('/api/health')
-      .then((h) => {
+    apiFetch<unknown>('/api/health')
+      .then((raw) => {
         if (cancelled) return;
-        setBackendOk(h.status === 'ok');
+        setHealth(parseHealth(raw));
         setHealthError(null);
       })
-      .catch((e) => {
+      .catch((e: unknown) => {
         if (cancelled) return;
-        setBackendOk(false);
-        if (e instanceof ApiError) {
-          setHealthError(`HTTP ${e.status}`);
-        } else {
-          setHealthError(e instanceof Error ? e.message : String(e));
-        }
+        setHealth(null);
+        setHealthError(formatApiError(e));
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [checkSeq]);
+
+  // Clears the last answer before asking again, so the status reads "Checking backend…".
+  const recheck = () => {
+    setHealth(null);
+    setHealthError(null);
+    setCheckSeq((n) => n + 1);
+  };
 
   const statusLabel =
-    backendOk === null
-      ? 'Checking backend…'
-      : backendOk
-      ? 'Backend OK · /api/health responded'
-      : `Backend unreachable${healthError ? ` · ${healthError}` : ''}`;
+    healthError !== null
+      ? `Backend unreachable · ${healthError}`
+      : health === null
+        ? 'Checking backend…'
+        : health.status === 'ok'
+          ? 'Backend ready · all required components OK'
+          : health.status === 'degraded'
+            ? `Backend degraded · ${health.down.length} component(s) need attention`
+            : 'Backend answered without a status · re-check';
+  const seedIssue = seedProblem(seed);
 
   const handleRun = () => {
-    const trimmed = seed.trim();
-    if (!trimmed || pending || backendOk !== true) return;
-    requestRun(trimmed);
+    if (seedIssue !== null || pending || !backendOk) return;
+    requestRun(seed.trim());
   };
 
   return (
@@ -193,10 +206,25 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
           extracts entities to shape each agent's context.
         </p>
 
-        <div className="ob-ollama-status" data-ok={backendOk === true}>
-          <span className={`ob-status-dot ${backendOk === true ? 'ok' : backendOk === false ? 'err' : ''}`} />
+        <div className="ob-ollama-status" data-ok={answered ? backendOk : undefined}>
+          <span className={`ob-status-dot ${backendOk ? 'ok' : answered ? 'err' : ''}`} />
           <span className="mono" style={{ fontSize: 12 }}>{statusLabel}</span>
+          {/* Always offered: a check can hang, and "ready" can go stale. */}
+          <button type="button" className="btn ghost ob-recheck" onClick={recheck} disabled={pending}>
+            Re-check
+          </button>
         </div>
+        {health !== null && health.down.length > 0 && (
+          <ul className="ob-health-down">
+            {health.down.map((c) => (
+              <li key={c.name}>
+                <span className="mono">{c.name}</span>
+                {c.detail && <span className="ob-health-detail"> — {c.detail}</span>}
+                {c.fix && <div className="ob-health-fix">{c.fix}</div>}
+              </li>
+            ))}
+          </ul>
+        )}
 
         <div className="ob-seed-input">
           <span className="ob-seed-prefix label">SEED ⟶</span>
@@ -205,6 +233,8 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
             placeholder="e.g. Fed announces emergency rate cut…"
+            maxLength={SEED_MAX_LENGTH}
+            aria-label="Seed rumor"
             disabled={pending}
           />
         </div>
@@ -227,28 +257,27 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
           </span>
         </div>
 
-        {runError && (
-          <div
-            className="ob-seed-hint"
-            style={{ color: 'var(--sell)', borderColor: 'var(--sell)' }}
-          >
-            <span>Run failed: {runError}</span>
-          </div>
-        )}
+        <InlineError error={runError} />
 
         <div className="ob-btns">
           <button className="btn ghost" onClick={onBack} disabled={pending}>← Back</button>
+          <button className="btn ghost" onClick={() => onComplete('')} disabled={pending}>
+            Skip to dashboard
+          </button>
           <button
             className="btn primary"
-            disabled={!seed.trim() || pending || backendOk !== true}
+            disabled={seedIssue !== null || pending || !backendOk}
+            title={seedIssue ?? undefined}
             onClick={handleRun}
           >
             <Icon name="play" />{' '}
             {pending
               ? 'Starting…'
-              : backendOk === false
-              ? 'Start backend first'
-              : 'Run first cycle'}
+              : healthError !== null
+                ? 'Start backend first'
+                : health !== null && !backendOk
+                  ? 'Fix the items above first'
+                  : 'Run first cycle'}
           </button>
         </div>
       </div>

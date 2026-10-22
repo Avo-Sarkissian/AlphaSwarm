@@ -155,13 +155,18 @@ npm --prefix frontend run dev                           # http://localhost:5173
 
 **Readiness check:**
 ```bash
-curl -s -o /dev/null -w "api %{http_code}\n" http://localhost:8000/api/health
+curl -s http://localhost:8000/api/health | python3 -c 'import sys,json; d=json.load(sys.stdin); print("api", d["status"]); [print("  %s: %s" % (n, "ok" if c["ok"] else "down (%s), not required" % c["detail"] if not c["required"] else "DOWN (%s); fix: %s" % (c["detail"], c["fix"]))) for n, c in d["components"].items()]'
 curl -s http://localhost:8000/api/holdings | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d["holdings"]),"positions") if "holdings" in d else print("FAILED:",d)'
 curl -s -o /dev/null -w "vite %{http_code}\n" http://localhost:5173
 curl -s -o /dev/null -w "ollama %{http_code}\n" http://localhost:11434/api/version
-docker compose ps        # neo4j healthy
+docker compose ps        # neo4j healthy (docker ps for a container you created yourself)
 grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -1
 ```
+
+Expect `api ok`. A component that is down but not required (Ollama and the
+aliases when both roles are cloud) does not degrade it. `/api/health` answers 200
+even when it is `degraded`, so read the status, not the HTTP code; each `DOWN`
+line prints its fix. `/api/health/live` only says the process answers.
 
 **Run a cycle.** Use a benchmark seed from `scripts/benchmark_seeds.json`; one
 that names a held company exercises the advisory. Then check:
@@ -185,7 +190,11 @@ that names a held company exercises the advisory. Then check:
 - [ ] Replay: start a past cycle; frames keep streaming (F-24); Forward stops at the cycle's real depth (F-12); live start is blocked during replay (B4). Reload the page during replay: the bar is still there and Exit replay works.
 - [ ] CycleHistory, Settings, Data Sources, and BracketDeepDive open as styled full-screen takeovers.
 - [ ] Double-clicking Run starts once (F-33).
-- [ ] Onboarding: stop the backend, clear `localStorage` key `as_onboarding_v1_complete`, and confirm the final step's run button is disabled and reads "Start backend first" (`onboarding.tsx:243-251`).
+- [ ] Onboarding. `/api/health` answers from a 5 s cache, so an answer can be up to 5 s old: when a Re-check still shows the previous state, wait 5 s and press Re-check again.
+  - Stop Neo4j (`docker compose stop neo4j`, or `docker stop <name>` for a container you created yourself), clear the `localStorage` key `as_onboarding_v1_complete` and reload the page.
+  - Click "Get started" and type a seed of at least 10 characters (or click an example). The step lists `neo4j` with its fix, and the run button reads "Fix the items above first" and stays disabled.
+  - Start Neo4j again (`docker compose start neo4j`, or `docker start <name>`) and wait until it accepts connections, which takes several seconds: `docker compose ps` shows it `healthy`, or `docker logs <name>` ends with `Started.` for your own container. Press Re-check: the status reads "Backend ready" and "Run first cycle" is enabled.
+  - Stop the backend and press Re-check: the status reads "Backend unreachable" and the button "Start backend first". Start the backend again before the next check.
 - [ ] Governor warning: when `governor_state` is `paused` or `crisis`, a dismissible banner appears over the dashboard (`app_v2.tsx:258-262, 507-533`). There is no way to force it from the UI: the DEV tweaks "Demo state → Mem ceiling" button is a no-op, and the old full-screen `MemoryPausedState` is dead code (BACKLOG 2.2).
 - [ ] If a shock is injected: the report's shock-impact section shows non-zero percentages and arrows (F-03).
 - [ ] `uv run python scripts/compare_cycles.py --limit 1` shows the new cycle's metrics. `r*_parse_errors` should be low.
@@ -216,10 +225,12 @@ uv run mypy src           # strict; must report "Success: no issues found"
 | `403` on POST/PUT from the UI | Origin guard on state-changing routes | Add the serving origin to `ALPHASWARM_HTTP_ALLOWED_ORIGINS` (JSON list) |
 | `/api/holdings` → `holdings_unavailable` (503); advisory never appears | The CSV is missing or malformed | Check the server log for `holdings_load_failed`, then fix the file: it is re-read when it changes, no restart needed. The path is `ALPHASWARM_HOLDINGS_CSV_PATH` (default `Schwab/holdings.csv`), resolved against the repo root |
 | Advisory GET returns 409 `advisory_generation_in_progress` | Generating | Wait; 404 now means no advisory exists (no holdings, or the run and its narratives have not finished yet) |
-| Advisory GET returns 500 `cloud_advisory_disabled` or `inference_config_invalid` | The orchestrator is a cloud or remote model without `allow_cloud_advisory`, or the inference config cannot be read. The advisory was refused (after a run, the report still runs) | Switch the orchestrator to a local Ollama model or set the opt-in in `.secrets/inference.json`; fix an invalid config in Settings |
+| Advisory GET returns 500 `cloud_advisory_disabled` or `inference_config_invalid` | The orchestrator is a cloud or remote model without `allow_cloud_advisory`, or the inference config cannot be read. The advisory was refused (after a run, the report still runs) | Switch the orchestrator to a local Ollama model or set the opt-in in `.secrets/inference.json`. For an invalid config, see the next row |
+| Settings shows "Failed to load inference settings" (422 `inference_config_invalid`) | The stored inference config (`ALPHASWARM_INFERENCE_CONFIG_PATH`, default `.secrets/inference.json`) is not valid JSON or no longer matches the config model. Settings can neither load it nor save over it | Fix the file by hand or delete it (the local defaults apply without it), then reopen Settings. It holds API keys: never paste its contents into an issue or a log |
 | `404 cycle_not_found` / `422 cycle_not_ready` / `409 simulation_running` | Unknown cycle, unfinished cycle, or a run in progress | Pick a complete cycle; wait for the run to finish |
 | `409 *_generation_in_progress` | The other orchestrator job (report/advisory) is running | Wait. The two jobs are serialized on purpose |
-| `409 post_run_jobs_in_progress` on Run | Advisory or report still running after the last run | Wait for the report to finish (`post_run_pipeline_completed` in the server log), then Run again. The UI shows this message in a RUN NOT STARTED banner |
+| `409 post_run_jobs_in_progress` on Run | Advisory or report still running after the last run | Wait for the report to finish (`post_run_pipeline_completed` in the server log), then Run again. The UI shows this message in an error row under the top bar, which × dismisses; on the onboarding seed step it appears above the buttons |
+| `/api/health` status `degraded` | A required component is down | `components.<name>.fix` holds the fix. Neo4j stopped: "Start Neo4j (docker compose up -d neo4j, or docker start <name> for a container you created yourself)"; once it answers, the next probe applies the schema, no restart needed. If your data lives in a container you created yourself (for example `neo4j`), `docker start` it: compose would start a second, empty `alphaswarm-neo4j`. Password rejected (`credentials rejected (AuthError)`): "Set ALPHASWARM_NEO4J__PASSWORD in .env to the database's password, then restart the server". Missing alias: `ollama create alphaswarm-worker -f modelfiles/Modelfile.worker` (or the orchestrator's). Ollama down: start it with `OLLAMA_USE_MLX=1` (§1) |
 | Graph empty during a round | Backend not streaming per-agent state, or an older backend still running | Restart the backend. Confirm `agent_states` keys in a WS frame |
 | Neo4j auth error at startup | `ALPHASWARM_NEO4J__PASSWORD` unset, or it differs from the initialized volume | README §3 "Migrating". `NEO4J_AUTH` only applies when a volume is first initialized |
 | `pytest` Neo4j tests all skipped | neo4j-test is not running | `scripts/neo4j_test.sh up`; add `--require-neo4j` to make a missing database fail instead of skip |
