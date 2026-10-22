@@ -9,13 +9,16 @@ helpers in ``asyncio.to_thread``.
 
 from __future__ import annotations
 
+import math
 import os
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from pathlib import Path
+from statistics import stdev
 from typing import Final, Literal, TypeVar
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -278,3 +281,91 @@ def ablation_subset(event_ids: Sequence[str], k: int = ABLATION_SUBSET_SIZE) -> 
     if len(pool) <= k:
         return tuple(pool)
     return tuple(sorted(random.Random(BOOT_SEED).sample(pool, k)))
+
+
+# --- Outcome labels (docs/DECISIONS.md#adr-eval-harness) -----------------------
+
+NEW_YORK: Final = ZoneInfo("America/New_York")
+SESSION_CLOSE: Final = time(16, 0)
+K_FLAT: Final = 0.5
+VOL_WINDOW: Final = 20
+VOL_FLOOR: Final = 1e-4
+HORIZON_DAYS: Final[dict[Horizon, int]] = {"1d": 1, "5d": 5}
+
+
+class InsufficientHistoryError(ValueError):
+    """Not enough sessions around an event to compute its label or fixture."""
+
+
+@dataclass(frozen=True)
+class PricePoint:
+    """One daily bar: session date, close and (optionally) volume."""
+
+    day: date
+    close: float
+    volume: int | None = None
+
+
+def session_close_utc(day: date) -> datetime:
+    """The 16:00 America/New_York close of *day* in UTC (DST-aware)."""
+    return datetime.combine(day, SESSION_CLOSE, tzinfo=NEW_YORK).astimezone(UTC)
+
+
+def base_index(days: Sequence[date], event_ts: datetime) -> int:
+    """Index of the last session whose close is at or before *event_ts* (days ascending)."""
+    index = -1
+    for i, day in enumerate(days):
+        if session_close_utc(day) > event_ts:
+            break
+        index = i
+    if index < 0:
+        raise InsufficientHistoryError("no session closed at or before the event")
+    return index
+
+
+def _direction(value: float, vol: float, sessions: int, k_flat: float) -> Direction:
+    if abs(value) < k_flat * vol * math.sqrt(sessions):
+        return "flat"
+    return "up" if value > 0 else "down"
+
+
+def compute_outcome(
+    event_id: str,
+    event_ts: datetime,
+    ticker: Sequence[PricePoint],
+    benchmark: Sequence[PricePoint],
+    *,
+    k_flat: float = K_FLAT,
+    vol_window: int = VOL_WINDOW,
+) -> OutcomeLabel:
+    """Market-adjusted 1- and 5-day abnormal returns with a volatility-scaled flat zone."""
+    t = {p.day: p.close for p in ticker if p.close > 0}
+    b = {p.day: p.close for p in benchmark if p.close > 0}
+    days = sorted(set(t) & set(b))
+    i0 = base_index(days, event_ts)
+    horizon = max(HORIZON_DAYS.values())
+    if i0 < vol_window:
+        raise InsufficientHistoryError(
+            f"{event_id}: needs {vol_window} sessions before the event, has {i0}"
+        )
+    if i0 + horizon >= len(days):
+        raise InsufficientHistoryError(
+            f"{event_id}: needs {horizon} sessions after the event, has {len(days) - 1 - i0}"
+        )
+
+    def abnormal(start: int, end: int) -> float:
+        ticker_ret = t[days[end]] / t[days[start]] - 1.0
+        bench_ret = b[days[end]] / b[days[start]] - 1.0
+        return ticker_ret - bench_ret
+
+    daily = [abnormal(i - 1, i) for i in range(i0 - vol_window + 1, i0 + 1)]
+    vol = max(stdev(daily), VOL_FLOOR)
+    abn = {h: abnormal(i0, i0 + n) for h, n in HORIZON_DAYS.items()}
+    return OutcomeLabel(
+        event_id=event_id,
+        abn_ret_1d=round(abn["1d"], 6),
+        abn_ret_5d=round(abn["5d"], 6),
+        vol_scale=round(vol, 6),
+        label_1d=_direction(abn["1d"], vol, HORIZON_DAYS["1d"], k_flat),
+        label_5d=_direction(abn["5d"], vol, HORIZON_DAYS["5d"], k_flat),
+    )
