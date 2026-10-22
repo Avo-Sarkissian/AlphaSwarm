@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "mode": "live",
+  "phase": "round_2",
+  "cycle_id": "00000000-0000-4000-8000-000000000001",
+  "num_rounds": 3,
+  "round_num": 2,
+  "agent_count": 100,
+  "agent_states": {
+    "institutions_01": {
+      "signal": "buy",
+      "confidence": 0.82
+    },
+    "sell_side_03": {
+      "signal": null,
+      "confidence": 0.0
+    },
+    "event_driven_05": {
+      "signal": "sell",
+      "confidence": 0.4
+    },
+    "degens_07": {
+      "signal": "parse_error",
+      "confidence": 0.0
+    },
+    "macro_02": {
+      "signal": "hold",
+      "confidence": 0.55
+    },
+    "shorts_02": {
+      "signal": "sell",
+      "confidence": 0.8
+    }
+  },
+  "elapsed_seconds": 754.25,
+  "governor_metrics": {
+    "current_slots": 16,
+    "active_count": 12,
+    "pressure_level": "green",
+    "memory_percent": 61.2,
+    "governor_state": "running",
+    "timestamp": 1500.0
+  },
+  "tps": 42.7,
+  "rationale_entries": [
+    {
+      "seq": 1,
+      "ts": 1790000010.0,
+      "agent_id": "quants_01",
+      "signal": "buy",
+      "rationale": "Momentum and volume confirm the premium",
+      "round_num": 1
+    },
+    {
+      "seq": 2,
+      "ts": 1790000015.0,
+      "agent_id": "shorts_02",
+      "signal": "sell",
+      "rationale": "Crowded long; fade the cascade",
+      "round_num": 2
+    }
+  ],
+  "bracket_summaries": [
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "buy_count": 4,
+      "sell_count": 3,
+      "hold_count": 3,
+      "total": 10,
+      "avg_confidence": 0.61,
+      "avg_sentiment": 0.1
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "buy_count": 5,
+      "sell_count": 2,
+      "hold_count": 3,
+      "total": 10,
+      "avg_confidence": 0.55,
+      "avg_sentiment": -0.2
+    }
+  ],
+  "data_source_audit": [
+    {
+      "ts": 1790000015.0,
+      "source": "yfinance",
+      "query": "ZZZT 1d OHLCV",
+      "result": "ok",
+      "used": true
+    }
+  ],
+  "edges_version": 0,
+  "jobs": {
+    "advisory": {
+      "state": "idle",
+      "cycle_id": null,
+      "error_code": null
+    },
+    "report": {
+      "state": "idle",
+      "cycle_id": null,
+      "error_code": null
+    }
+  },
+  "last_error": null,
+  "pending_shock": "ZZZT Holdings confirms the financing is fully committed.",
+  "applied_shocks": [
+    {
+      "text": "QQQX Robotics board rejects the offer as undervalued.",
+      "round_num": 2
+    }
+  ],
+  "shock_window_open": true
+}
