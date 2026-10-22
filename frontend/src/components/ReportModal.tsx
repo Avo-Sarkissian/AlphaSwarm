@@ -18,7 +18,7 @@ import { useCurrentCycle } from '../hooks/useCurrentCycle';
 import { usePolling } from '../hooks/usePolling';
 import { reportFetch, reportGenerate, reportPoll, type ReportContent } from '../api/report';
 import { ApiError } from '../api/client';
-import { parseErrorEnvelope } from '../lib/apiError';
+import { errorMessage, parseErrorEnvelope } from '../lib/apiError';
 import { shouldKeepPolling } from '../lib/reportPolling';
 import { renderMarkdown } from '../lib/markdown';
 import {
@@ -34,11 +34,6 @@ import { ConvergenceFlow, InfluenceChart, Moment, Followup } from './v2';
 // `content`, `generated_at`; we additionally tolerate a `report_markdown`
 // alias if the wire field name shifts.
 type ReportPayload = ReportContent & { report_markdown?: string };
-
-function errorText(e: unknown): string {
-  if (e instanceof ApiError) return parseErrorEnvelope(e.body).message ?? `HTTP ${e.status}`;
-  return e instanceof Error ? e.message : String(e);
-}
 
 function isReportRunning(e: unknown): boolean {
   return (
@@ -142,7 +137,7 @@ export function ReportModal({
           setGenerationKicked(true);
           return;
         }
-        setTriggerError(errorText(e));
+        setTriggerError(errorMessage(e));
       })
       .finally(() => setTriggerPending(false));
   };
@@ -242,7 +237,7 @@ export function ReportModal({
           {hadError && !report && (
             <div className="report-hero" style={{ padding: 24, color: 'var(--sell)' }}>
               Report failed:{' '}
-              {probeError ? errorText(probeError) : fetchError ? errorText(fetchError) : triggerError ?? 'unknown error'}
+              {probeError ? errorMessage(probeError) : fetchError ? errorMessage(fetchError) : triggerError ?? 'unknown error'}
             </div>
           )}
 

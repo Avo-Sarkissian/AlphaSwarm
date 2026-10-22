@@ -40,6 +40,7 @@ import { simStart, simStop } from '../api/simulation';
 import { useRunGate } from '../hooks/useRunGate';
 import { replayStart } from '../api/replay';
 import { normalizeBracketKey } from '../data';
+import { errorMessage } from '../lib/apiError';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
 // modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
 import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from './v2';
@@ -50,6 +51,35 @@ import { Settings } from './settings';
 // Plan 41.6-04 task 2 (W4): real ported components replace W2/W3 stub overlays.
 import { InterviewV2 } from './interview_v2';
 import { BracketDeepDive } from './bracket_deep';
+
+// A refused Run (for example 409 post_run_jobs_in_progress while the advisory and
+// report still hold the orchestrator after a run) shows the server's message here;
+// otherwise the button would look broken.
+function RunErrorBanner({ message, onDismiss, floating = false }: {
+  message: string;
+  onDismiss: () => void;
+  /** Over the idle overlay, which covers the whole viewport. */
+  floating?: boolean;
+}) {
+  return (
+    <div
+      role="alert"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px',
+        background: 'color-mix(in srgb, var(--sell) 10%, var(--bg-2))',
+        borderBottom: '1px solid color-mix(in srgb, var(--sell) 35%, transparent)',
+        ...(floating ? { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 } : {}),
+      }}
+    >
+      <span className="label" style={{ color: 'var(--sell)' }}>RUN NOT STARTED</span>
+      <span style={{ color: 'var(--text-2)', fontSize: 11 }}>{message}</span>
+      <div style={{ flex: 1 }} />
+      <button className="btn ghost" style={{ height: 22, padding: '0 8px' }} onClick={onDismiss}>
+        Dismiss
+      </button>
+    </div>
+  );
+}
 
 function BrandMark() {
   const nodes: [number, number][] = [[8,2],[4,8],[12,8],[2,14],[8,14],[14,14],[6,11],[10,11]];
@@ -383,14 +413,29 @@ export function App() {
     if (a) setUi(u => ({ ...u, interviewAgent: a }));
   };
 
+  // A refused start (409 post_run_jobs_in_progress after a run, 409 replay_active,
+  // ...) is shown in RunErrorBanner, on the local path and after a cloud confirm.
+  const [runError, setRunError] = useState<string | null>(null);
+  const startRun = async (s: string) => {
+    setRunError(null);
+    try {
+      await simStart(s);
+    } catch (err) {
+      setRunError(errorMessage(err));
+      // eslint-disable-next-line no-console
+      console.error('simStart failed', err);
+    }
+  };
+
   // Run gate: cost confirmation for cloud/mixed runs before simStart.
-  const { requestRun, modal: runConfirmModal } = useRunGate(simStart);
+  const { requestRun, modal: runConfirmModal } = useRunGate(startRun);
 
   // Topbar Run/Stop handlers wire to api/simulation via the gate.
   const onRun = async () => {
     try {
       await requestRun(seed);
     } catch (err) {
+      setRunError(errorMessage(err));
       // eslint-disable-next-line no-console
       console.error('simStart failed', err);
     }
@@ -423,6 +468,9 @@ export function App() {
           ollamaOk
           onShowHistory={() => setUi((u) => ({ ...u, historyOpen: true }))}
         />
+        {runError && (
+          <RunErrorBanner message={runError} onDismiss={() => setRunError(null)} floating />
+        )}
         {ui.historyOpen && (
           <CycleHistory
             onClose={() => setUi((u) => ({ ...u, historyOpen: false }))}
@@ -576,6 +624,8 @@ export function App() {
           </button>
         </div>
       )}
+
+      {runError && <RunErrorBanner message={runError} onDismiss={() => setRunError(null)} />}
 
       {/* Main */}
       <div className="main">
