@@ -309,3 +309,148 @@ async def test_read_rationale_entries_for_round(
             assert row["round_num"] == n
         by_round[f"round_{n}"] = rows
     assert_golden("reads/read_rationale_entries_for_round.json", by_round)
+
+
+# ---------------------------------------------------------------------------
+# Known bugs, pinned. Remove the marker in the commit that fixes the bug.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.xfail(
+    strict=True, reason="T2.2: shock bracket deltas never carry pre_dominant (fix: plan 06)"
+)
+async def test_shock_impact_bracket_deltas_carry_pre_dominant(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    result = await graph_reader.read_shock_impact(seeded_cycle.cycle_id)
+    assert result["bracket_deltas"]
+    assert all("pre_dominant" in delta for delta in result["bracket_deltas"])
+
+
+@pytest.mark.xfail(
+    strict=True, reason="T2.2: replay bracket rows have no total, so replay shows 0 (fix: plan 06)"
+)
+async def test_replay_bracket_rows_carry_total(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    rows = await graph_reader.read_bracket_narratives_for_round(seeded_cycle.cycle_id, 1)
+    assert rows
+    for row in rows:
+        decided = row["buy_count"] + row["sell_count"] + row["hold_count"]
+        assert row["total"] >= decided > 0
+
+
+@pytest.mark.xfail(
+    strict=True, reason="T2.3: failed agents are listed as key dissenters (fix: plan 06)"
+)
+async def test_key_dissenters_exclude_parse_errors(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    rows = await graph_reader.read_key_dissenters(seeded_cycle.cycle_id)
+    assert [r["agent_id"] for r in rows if r["signal"] == SignalType.PARSE_ERROR.value] == []
+
+
+@pytest.mark.xfail(
+    strict=True, reason="T2.3: a bracket with no valid decision gets a majority (fix: plan 06)"
+)
+async def test_empty_bracket_has_no_majority(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    rows = {
+        r["bracket"]: r for r in await graph_reader.read_bracket_narratives(seeded_cycle.cycle_id)
+    }
+    assert rows["allocators"]["majority"] is None
+
+
+@pytest.mark.xfail(
+    strict=True, reason="T2.3: consensus summary has no parse_error_count (fix: plan 06)"
+)
+async def test_consensus_summary_counts_parse_errors(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    row = await graph_reader.read_consensus_summary(seeded_cycle.cycle_id)
+    final = seeded_cycle.decisions[seeded_cycle.num_rounds]
+    assert row["parse_error_count"] == sum(1 for _, d in final if d.signal not in _VALID)
+
+
+@pytest.mark.xfail(
+    strict=True, reason="T2.3: round timeline has no parse_error_count (fix: plan 06)"
+)
+async def test_round_timeline_counts_parse_errors(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    rows = await graph_reader.read_round_timeline(seeded_cycle.cycle_id)
+    assert [r["parse_error_count"] for r in rows] == [
+        sum(1 for _, d in seeded_cycle.decisions[n] if d.signal not in _VALID)
+        for n in range(1, seeded_cycle.num_rounds + 1)
+    ]
+
+
+@pytest.mark.xfail(
+    strict=True, reason="T2.3: bracket averages include failed agents' 0.0 (fix: plan 06)"
+)
+async def test_bracket_averages_exclude_parse_errors(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    rows = {
+        r["bracket"]: r for r in await graph_reader.read_bracket_narratives(seeded_cycle.cycle_id)
+    }
+    bracket_of = _bracket_of(seeded_cycle)
+    degens = [
+        d.confidence
+        for agent_id, d in seeded_cycle.decisions[seeded_cycle.num_rounds]
+        if bracket_of[agent_id] == "degens" and d.signal in _VALID
+    ]
+    assert rows["degens"]["avg_confidence"] == pytest.approx(sum(degens) / len(degens))
+
+
+@pytest.mark.xfail(
+    strict=True, reason="T2.3: shock pivots count transitions to or from PARSE_ERROR (fix: plan 06)"
+)
+async def test_shock_pivots_exclude_parse_errors(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    result = await graph_reader.read_shock_impact(seeded_cycle.cycle_id)
+    failed = SignalType.PARSE_ERROR.value
+    assert [
+        p for p in result["pivot_agents"] if failed in (p["pre_signal"], p["post_signal"])
+    ] == []
+
+
+@pytest.mark.xfail(
+    strict=True, reason="T2.3: influence leaders lack influence_share = count/N (fix: plan 06)"
+)
+async def test_influence_leaders_report_influence_share(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    rows = await graph_reader.read_influence_leaders(seeded_cycle.cycle_id)
+    active = _active(seeded_cycle, seeded_cycle.num_rounds)
+    assert [r["influence_share"] for r in rows] == pytest.approx(
+        [count / active for _, count in HUB_CITATIONS[:10]]
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="T2.4: READ_POST is never written, so post reach is empty (fix: plan 06 deletes it)",
+)
+async def test_social_post_reach_has_rows(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    assert await graph_reader.read_social_post_reach(seeded_cycle.cycle_id) != []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="T2.8: entity impact aggregates every round, not the final one (fix: plan 06)",
+)
+async def test_entity_impact_counts_final_round_only(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    rows = await graph_reader.read_entity_impact(seeded_cycle.cycle_id)
+    final = seeded_cycle.decisions[seeded_cycle.num_rounds]
+    expected = {
+        e.name: sum(1 for _, d in final if e.name.lower() in d.rationale.lower())
+        for e in SEED_ENTITIES
+    }
+    assert {r["entity_name"]: r["mention_count"] for r in rows} == expected
