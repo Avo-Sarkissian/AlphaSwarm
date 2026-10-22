@@ -21,6 +21,28 @@ def _jobs(text: str) -> dict[str, str]:
     return {parts[i]: parts[i + 1] for i in range(1, len(parts), 2)}
 
 
+def test_ci_has_the_expected_jobs() -> None:
+    assert set(_jobs(_text(CI))) == {"lint", "backend-unit", "backend-neo4j", "frontend"}
+
+
+def test_every_job_is_time_boxed_and_locked() -> None:
+    text = _text(CI)
+    for name, job in _jobs(text).items():
+        assert "timeout-minutes: 15" in job, name
+    assert all("--locked" in line for line in re.findall(r"uv sync[^\n]*", text))
+    assert "\npermissions:\n  contents: read\n" in text
+    assert "cancel-in-progress: true" in text
+    assert "--ignore=" not in text
+
+
+def test_unit_job_gates_coverage_and_deselects_external_suites() -> None:
+    job = _jobs(_text(CI))["backend-unit"]
+    assert '-m "not neo4j and not live_network and not ollama"' in job
+    assert "--cov-branch" in job
+    assert "--cov-fail-under=85" in job
+    assert "-rxX" in job
+
+
 def test_neo4j_job_requires_the_database() -> None:
     job = _jobs(_text(CI))["backend-neo4j"]
     assert "image: neo4j:5.26-community" in job
@@ -44,3 +66,11 @@ def test_frontend_job_runs_eslint_before_the_unit_tests() -> None:
     job = _jobs(_text(CI))["frontend"]
     assert "run: npm run lint" in job
     assert job.index("run: npm run lint") < job.index("run: npx vitest run")
+
+
+def test_frontend_job_uses_node_22_and_audits_production_deps() -> None:
+    job = _jobs(_text(CI))["frontend"]
+    assert "node-version-file: frontend/.nvmrc" in job
+    assert "npm audit --omit=dev --audit-level=high" in job
+    assert "tsc -b --noEmit" not in job  # npm run build already runs tsc -b
+    assert (REPO / "frontend" / ".nvmrc").read_text(encoding="utf-8").strip() == "22"
