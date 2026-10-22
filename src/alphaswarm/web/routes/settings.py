@@ -322,6 +322,23 @@ def _merge_role(
     return RoleConfig.model_validate(raw)
 
 
+def _settings_validation_error(exc: ValidationError, *loc: str) -> ApiError:
+    """422 validation_error for a merged role or config, located from the request body.
+
+    The merge validates RoleConfig/InferenceConfig, whose error locations start at
+    that model ("model"); the *loc* prefix ("body", "worker") says which part of
+    the request failed, as the body check's own errors do. Input values are never
+    included.
+    """
+    errors = [{**err, "loc": (*loc, *err["loc"])} for err in exc.errors(include_input=False)]
+    return ApiError(
+        422,
+        "validation_error",
+        "Settings validation failed",
+        extra={"fields": validation_fields(errors)},
+    )
+
+
 # ---------------------------------------------------------------------------
 # GET /api/settings
 # ---------------------------------------------------------------------------
@@ -357,7 +374,8 @@ async def put_settings(body: SettingsUpdateRequest, request: Request) -> Setting
     """Update and persist the inference config.
 
     409 simulation_running during a run; 422 validation_error for an invalid body
-    or merged config (field locations only, never input values); 422
+    or merged config (field locations from the body, such as ["body", "worker",
+    "model"], never input values); 422
     inference_config_invalid when the stored file cannot be read; 500
     settings_save_failed when writing fails. Omitted keys keep their stored values;
     stored API keys are kept unless replaced (see _merge_role).
@@ -369,31 +387,31 @@ async def put_settings(body: SettingsUpdateRequest, request: Request) -> Setting
         )
     stored = await load_inference_config_or_422(app_state)
     merged: dict[str, Any] = stored.model_dump()
+    roles = (
+        ("orchestrator", stored.orchestrator, body.orchestrator),
+        ("worker", stored.worker, body.worker),
+    )
+    for name, stored_role, update in roles:
+        if update is None:
+            continue
+        try:
+            merged[name] = _merge_role(
+                stored_role, update.model_dump(exclude_unset=True, mode="json"),
+            ).model_dump()
+        except ValidationError as exc:
+            raise _settings_validation_error(exc, "body", name) from exc
+    if body.limits is not None:
+        merged["limits"] = {role: lim.model_dump() for role, lim in body.limits.items()}
+    if "spend_cap_usd" in body.model_fields_set:
+        merged["spend_cap_usd"] = body.spend_cap_usd
+    if body.pricing_overrides is not None:
+        merged["pricing_overrides"] = {
+            model: price.model_dump() for model, price in body.pricing_overrides.items()
+        }
     try:
-        if body.orchestrator is not None:
-            merged["orchestrator"] = _merge_role(
-                stored.orchestrator, body.orchestrator.model_dump(exclude_unset=True, mode="json"),
-            ).model_dump()
-        if body.worker is not None:
-            merged["worker"] = _merge_role(
-                stored.worker, body.worker.model_dump(exclude_unset=True, mode="json"),
-            ).model_dump()
-        if body.limits is not None:
-            merged["limits"] = {role: lim.model_dump() for role, lim in body.limits.items()}
-        if "spend_cap_usd" in body.model_fields_set:
-            merged["spend_cap_usd"] = body.spend_cap_usd
-        if body.pricing_overrides is not None:
-            merged["pricing_overrides"] = {
-                name: price.model_dump() for name, price in body.pricing_overrides.items()
-            }
         merged_cfg = InferenceConfig.model_validate(merged)
     except ValidationError as exc:
-        raise ApiError(
-            422,
-            "validation_error",
-            "Settings validation failed",
-            extra={"fields": validation_fields(exc.errors(include_input=False))},
-        ) from exc
+        raise _settings_validation_error(exc, "body") from exc
     try:
         await asyncio.to_thread(save_inference_config, merged_cfg, settings=app_state.settings)
     except OSError as exc:

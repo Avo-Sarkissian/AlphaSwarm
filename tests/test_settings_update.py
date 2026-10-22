@@ -107,6 +107,20 @@ def test_unknown_nested_key_is_422_and_nothing_is_saved(
     assert _saved(app) == before
 
 
+@pytest.mark.parametrize(("role", "field"), [("worker", "model"), ("orchestrator", "provider")])
+def test_merge_error_location_names_the_role(tmp_path: Path, role: str, field: str) -> None:
+    """A null that passes the body check but fails the merged RoleConfig says which role."""
+    app = _app(tmp_path)
+    with TestClient(app) as client:
+        before = _saved(app)
+        r = client.put("/api/settings", json={role: {field: None}})
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["error"] == "validation_error"
+    assert [f["loc"] for f in detail["fields"]] == [["body", role, field]]
+    assert _saved(app) == before
+
+
 def test_omitted_keys_keep_stored_values(tmp_path: Path) -> None:
     app = _app(tmp_path)
     with TestClient(app) as client:
