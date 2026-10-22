@@ -190,7 +190,7 @@ that names a held company exercises the advisory. Then check:
 - [ ] Replay: start a past cycle; frames keep streaming (F-24); Forward stops at the cycle's real depth (F-12); live start is blocked during replay (B4). Reload the page during replay: the bar is still there and Exit replay works.
 - [ ] CycleHistory, Settings, Data Sources, and BracketDeepDive open as styled full-screen takeovers.
 - [ ] Double-clicking Run starts once (F-33).
-- [ ] Onboarding: stop the backend, clear `localStorage` key `as_onboarding_v1_complete`, and confirm the final step's run button is disabled and reads "Start backend first" (`onboarding.tsx:243-251`).
+- [ ] Onboarding: stop Neo4j (`docker compose stop neo4j`, or `docker stop <name>` for a container you created yourself), clear the `localStorage` key `as_onboarding_v1_complete`, and confirm the final step lists `neo4j` with its fix command and the run button reads "Fix the items above first". After starting Neo4j again (`docker compose start neo4j`, or `docker start <name>`), Re-check enables it. With the backend stopped, the button reads "Start backend first".
 - [ ] Governor warning: when `governor_state` is `paused` or `crisis`, a dismissible banner appears over the dashboard (`app_v2.tsx:258-262, 507-533`). There is no way to force it from the UI: the DEV tweaks "Demo state → Mem ceiling" button is a no-op, and the old full-screen `MemoryPausedState` is dead code (BACKLOG 2.2).
 - [ ] If a shock is injected: the report's shock-impact section shows non-zero percentages and arrows (F-03).
 - [ ] `uv run python scripts/compare_cycles.py --limit 1` shows the new cycle's metrics. `r*_parse_errors` should be low.
