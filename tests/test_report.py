@@ -630,6 +630,26 @@ def test_entity_impact_template_escapes_pipes_and_newlines() -> None:
     assert row == "| ZZZT \\| QQQX JV | company | 0.00 | 1 | 1 | 0 | 0 |"
 
 
+def test_social_post_reach_template_reads_query_keys() -> None:
+    # Exactly the keys read_social_post_reach returns. Legacy cycles with READ_POST
+    # edges still produce such rows, and StrictUndefined must not fail them.
+    row = {
+        "post_id": "post-1",
+        "author_name": "Quants 1",
+        "bracket": "quants",
+        "signal": "buy",
+        "round_num": 1,
+        "content": "ZZZT Holdings | QQQX Robotics\nfictional deal chatter",
+        "reader_count": 12,
+    }
+    md = ReportAssembler().render_section("08_social_post_reach.j2", data=[row], cycle_id="c")
+    table_row = next(line for line in md.splitlines() if line.startswith("| 1 |"))
+    assert table_row == (
+        "| 1 | Quants 1 | quants | buy | 1 | 12 | "
+        "ZZZT Holdings \\| QQQX Robotics fictional deal chatter |"
+    )
+
+
 def test_signal_flip_template_empty_state() -> None:
     md = ReportAssembler().render_section("06_signal_flip_analysis.j2", data=[], cycle_id="c")
     assert "_No agent changed position between rounds._" in md
