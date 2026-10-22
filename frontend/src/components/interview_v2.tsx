@@ -9,12 +9,13 @@
 //     block (KR-41.1-11 non-streaming).
 //   - roundRationales mock REPLACED with useRationales() filtered by agent.id and
 //     grouped by round.
-//   - CitationGraph hardcoded cited/citedBy arrays REPLACED with fetchEdges() against
+//   - CitationGraph reads cites/citedBy for the round on screen from EdgesContext,
 //     the verified codex MEDIUM-7 semantics (source_id = citing, target_id = cited).
 //   - SignalTrajectory 3-round mock DERIVED from useRationales() per round, with '—'
 //     for missing rounds.
-//   - Cycle-stats panel partial fill per KR-41.6-09: out/in degree wired from edges;
-//     peer reads / shock impact / data sources render '—' (no live source).
+//   - Cycle-stats panel partial fill per docs/DECISIONS.md#kr-41-6-09: Cites /
+//     Cited by count the edges of the round on screen from EdgesContext; peer
+//     reads / shock impact / data sources render '—' (no live source).
 //
 // Note: response is rendered as plain text, NOT through markdown — per threat T-41.6-13.
 // If markdown render added later, gate behind same DOMPurify chain as AdvisoryV2/ReportModal.
@@ -22,10 +23,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Icon } from './icons';
 import { askAgent } from '../api/interview';
-import { fetchEdges, type Edge } from '../api/edges';
 import { useRationales } from '../context/RationalesContext';
-import { useCurrentCycle } from '../hooks/useCurrentCycle';
-import type { AgentView, RationaleView } from '../types';
+import { useEdgesCtx } from '../context/EdgesContext';
+import { signalClass, signalColor, signalLabel } from '../lib/signals';
+import type { AgentSignal, AgentView, RationaleView } from '../types';
 
 type RoundMap = Record<number, RationaleView[]>;
 
@@ -39,22 +40,12 @@ function SignalTrajectory({ agent, byRound }: SignalTrajectoryProps) {
     return [1, 2, 3].map((round) => {
       const list = byRound[round] ?? [];
       const r = list[list.length - 1]; // latest in round
-      if (r) {
-        // RationaleView carries the per-entry wire signal — use it so each
-        // round shows what the agent said THEN, not its current signal.
-        return {
-          round,
-          signal: r.signal,
-          conf: agent.confidence, // per-round confidence not in RationaleView; show current
-          present: true,
-        };
-      }
-      return { round, signal: agent.signal, conf: 0, present: false };
+      // RationaleView carries the per-entry wire signal: each round shows what
+      // the agent said THEN, not its current signal.
+      const signal: AgentSignal | null = r ? r.signal : null;
+      return { round, signal, conf: r ? agent.confidence : 0, present: r !== undefined };
     });
   }, [byRound, agent]);
-
-  const sigColor = (s: string) =>
-    s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : 'var(--hold)';
 
   return (
     <div className="iv2-trajectory">
@@ -67,13 +58,19 @@ function SignalTrajectory({ agent, byRound }: SignalTrajectoryProps) {
                 className="iv2-traj-bar"
                 style={{
                   height: rd.present ? `${rd.conf * 100}%` : '0%',
-                  background: rd.present ? sigColor(rd.signal) : 'var(--bg-3)',
-                  boxShadow: i === 2 && rd.present ? `0 0 8px ${sigColor(rd.signal)}` : 'none',
+                  background: rd.present ? signalColor(rd.signal) : 'var(--bg-3)',
+                  boxShadow:
+                    i === trajectory.length - 1 && rd.present
+                      ? `0 0 8px ${signalColor(rd.signal)}`
+                      : 'none',
                 }}
               />
             </div>
-            <div className="iv2-traj-signal" style={{ color: rd.present ? sigColor(rd.signal) : 'var(--text-3)' }}>
-              {rd.present ? rd.signal.toUpperCase() : '—'}
+            <div
+              className="iv2-traj-signal"
+              style={{ color: rd.present ? signalColor(rd.signal) : 'var(--text-3)' }}
+            >
+              {rd.present ? signalLabel(rd.signal) : '—'}
             </div>
             <div className="iv2-traj-label label">R{rd.round}</div>
             <div className="iv2-traj-conf mono">
@@ -143,14 +140,14 @@ function CitationGraph({ agent, cited, citedBy }: CitationGraphProps) {
         </defs>
         <circle
           cx={cx} cy={cy} r="10"
-          fill={agent.signal === 'buy' ? 'var(--buy)' : agent.signal === 'sell' ? 'var(--sell)' : 'var(--hold)'}
+          fill={signalColor(agent.signal)}
         />
         <text x={cx} y={cy + 3.5} textAnchor="middle" fill="#000" fontSize="6.5" fontWeight="700" fontFamily="JetBrains Mono">
           {agent.id}
         </text>
       </svg>
       <div className="iv2-cite-legend">
-        <div><span className="iv2-cite-dot cited" /> read {cited.length}</div>
+        <div><span className="iv2-cite-dot cited" /> cites {cited.length}</div>
         <div><span className="iv2-cite-dot citedby" /> cited by {citedBy.length}</div>
       </div>
     </div>
@@ -178,7 +175,7 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
     {
       role: 'agent',
       ts: nowTs(),
-      text: `${agent.bracketDisplay}. Round 3 close: ${agent.signal.toUpperCase()}, confidence ${(agent.confidence * 100).toFixed(0)}%.${
+      text: `${agent.bracketDisplay}. Round 3 close: ${signalLabel(agent.signal)}, confidence ${(agent.confidence * 100).toFixed(0)}%.${
         agent.flipped ? ' Flipped from Round 1.' : ''
       } Ask me about my reasoning.`,
     },
@@ -202,38 +199,11 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
     return m;
   }, [agentRationales]);
 
-  // Edges — fetch once when cycleId resolves; final round (3).
-  const { cycleId } = useCurrentCycle();
-  const [edges, setEdges] = useState<Edge[]>([]);
-  useEffect(() => {
-    if (!cycleId) return;
-    let cancelled = false;
-    fetchEdges(cycleId, 3)
-      .then((e) => {
-        if (!cancelled) setEdges(e);
-      })
-      .catch(() => {
-        if (!cancelled) setEdges([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [cycleId]);
-
-  // codex MEDIUM-7 — verified semantics:
-  //   source_id = citing agent; target_id = cited agent.
-  //   `cited`   = list of agents THIS agent cited (out-going citations from agent.id)
-  //               → edges where source_id === agent.id, take target_id
-  //   `citedBy` = list of agents who cited THIS agent (in-coming citations to agent.id)
-  //               → edges where target_id === agent.id, take source_id
-  const cited = useMemo(
-    () => edges.filter((e) => e.source_id === agent.id).map((e) => e.target_id),
-    [edges, agent.id],
-  );
-  const citedBy = useMemo(
-    () => edges.filter((e) => e.target_id === agent.id).map((e) => e.source_id),
-    [edges, agent.id],
-  );
+  // Citations of the round on screen, from the shared EdgesContext
+  // (source_id cites target_id; docs/DECISIONS.md#adr-neo4j-schema).
+  const { cites, citedBy: citedByMap } = useEdgesCtx();
+  const cited = cites.get(agent.id) ?? [];
+  const citedBy = citedByMap.get(agent.id) ?? [];
 
   // Auto-scroll log on new messages.
   useEffect(() => {
@@ -257,9 +227,6 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
     }
   };
 
-  const sigColor = (s: string) =>
-    s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : 'var(--hold)';
-
   // Generic suggested prompts (not bracket-specific — PERSONA dict removed per KR-41.6-03).
   const prompts = [
     'What drove your signal?',
@@ -276,7 +243,7 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
             <Icon name="close" />
           </button>
           <div className="iv2-agent-id">
-            <div className="iv2-id-pill" style={{ background: sigColor(agent.signal) }}>
+            <div className="iv2-id-pill" style={{ background: signalColor(agent.signal) }}>
               {agent.id}
             </div>
             <div>
@@ -285,10 +252,10 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
             </div>
           </div>
           <div
-            className={`rationale-signal sig-${agent.signal}`}
+            className={`rationale-signal ${signalClass(agent.signal)}`}
             style={{ marginLeft: 8, fontSize: 11 }}
           >
-            {agent.signal.toUpperCase()} {(agent.confidence * 100).toFixed(0)}%
+            {signalLabel(agent.signal)} {(agent.confidence * 100).toFixed(0)}%
           </div>
         </div>
         <div className="iv2-head-right">
@@ -308,8 +275,8 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
           <div className="iv2-stats">
             <div className="label" style={{ marginBottom: 8 }}>CYCLE STATS</div>
             {([
-              ['Out-degree', String(cited.length)],
-              ['In-degree', String(citedBy.length)],
+              ['Cites', String(cited.length)],
+              ['Cited by', String(citedBy.length)],
               // KR-41.6-09: peer reads / shock impact / data sources have no live source.
               ['Peer reads', '—'],
               ['Shock impact', '—'],
@@ -419,8 +386,8 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
                   <div key={`${round}-${i}`} className="iv2-round-block">
                     <div className="iv2-round-head">
                       <span className="iv2-round-num">Round {round}</span>
-                      <span className={`rationale-signal sig-${agent.signal}`}>
-                        {agent.signal.toUpperCase()}
+                      <span className={`rationale-signal ${signalClass(agent.signal)}`}>
+                        {signalLabel(agent.signal)}
                       </span>
                     </div>
                     <div className="iv2-round-text">{r.text}</div>

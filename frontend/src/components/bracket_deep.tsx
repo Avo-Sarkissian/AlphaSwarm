@@ -3,20 +3,21 @@
 //
 // Source: AlphaSwarm-2/src/bracket_deep.jsx (159 LOC, CDN-globals format).
 // Conversion notes:
-//   - influences mock dict (line 38) REPLACED with /api/edges aggregation.
+//   - Citation counts come from the shared EdgesContext (round on screen).
 //     Direction semantics per codex MEDIUM-7: source_id = citing, target_id = cited.
-//   - Live view (no edges yet) renders '—' for both out + in counts (KR-41.6-13).
+//   - Before round 2's edges exist (R1, seeding, idle) both counts render '—'.
 //   - Source's CDN-globals export DELETED — module export only (no global pollution).
 //   - agents prop is pre-filtered by caller (app_v2.tsx) per D-13:
 //       useAgents().agents.filter(a => a.bracket === bracket.bracket)
 //     So the inner `members` filter is now a no-op — kept defensive in case caller
 //     forgets to filter.
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Icon } from './icons';
-import { fetchEdges, type Edge } from '../api/edges';
-import { useCurrentCycle } from '../hooks/useCurrentCycle';
+import { useEdgesCtx } from '../context/EdgesContext';
 import { normalizeBracketKey } from '../data';
+import { signalClass, signalColor, signalLabel } from '../lib/signals';
+import { consensusLeader, tallySignals } from '../lib/tally';
 import type { AgentView } from '../types';
 
 const BRACKET_COLORS: Record<string, string> = {
@@ -76,59 +77,32 @@ export function BracketDeepDive({
     [members, sortBy],
   );
 
-  const buy = members.filter((a) => a.signal === 'buy').length;
-  const sell = members.filter((a) => a.signal === 'sell').length;
-  const hold = members.filter((a) => a.signal === 'hold').length;
-  const total = members.length || 1;
+  // Pending (null) and failed members are not HOLD; shares, the average and
+  // the histogram are over decided members only (docs/DECISIONS.md#adr-streaming-state).
+  const tally = tallySignals(members);
+  const lead = consensusLeader(tally);
+  const decided = members.filter(
+    (a) => a.signal === 'buy' || a.signal === 'sell' || a.signal === 'hold',
+  );
+  const pctOfDecided = (n: number) => (tally.decided > 0 ? (n / tally.decided) * 100 : 0);
   const flipped = members.filter((a) => a.flipped).length;
-  const avgConf = members.reduce((s, a) => s + a.confidence, 0) / total;
+  const avgConf =
+    decided.length > 0 ? decided.reduce((s, a) => s + a.confidence, 0) / decided.length : 0;
 
   // Confidence histogram buckets: 0–25, 25–50, 50–75, 75–100.
   const buckets = [0, 25, 50, 75].map((lo) => ({
     lo,
     hi: lo + 25,
-    count: members.filter((a) => a.confidence * 100 >= lo && a.confidence * 100 < lo + 25).length,
+    count: decided.filter((a) => a.confidence * 100 >= lo && a.confidence * 100 < lo + 25).length,
   }));
   const maxBucket = Math.max(...buckets.map((b) => b.count), 1);
 
   const color = BRACKET_COLORS[bracket.bracket] ?? 'var(--accent)';
-  const sigColor = (s: string) =>
-    s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : 'var(--hold)';
 
-  // Edges — aggregate per agent (codex MEDIUM-7 verified semantics):
-  //   source_id = citing agent; target_id = cited agent.
-  //   "out" (this agent cited N others)        → count edges where source_id === agent.id
-  //   "in"  (this agent was cited by N others) → count edges where target_id === agent.id
-  // Per KR-41.6-13 these counts are only meaningful post-cycle; live view shows '—'.
-  const { cycleId } = useCurrentCycle();
-  const [edges, setEdges] = useState<Edge[]>([]);
-  useEffect(() => {
-    if (!cycleId) return;
-    let cancelled = false;
-    fetchEdges(cycleId, 3)
-      .then((e) => {
-        if (!cancelled) setEdges(e);
-      })
-      .catch(() => {
-        if (!cancelled) setEdges([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [cycleId]);
-
-  const influences = useMemo(() => {
-    const m: Record<string, { out: number; in: number }> = {};
-    members.forEach((a) => {
-      m[a.id] = { out: 0, in: 0 };
-    });
-    edges.forEach((e) => {
-      if (m[e.source_id]) m[e.source_id].out += 1; // this agent cited someone
-      if (m[e.target_id]) m[e.target_id].in += 1; // this agent was cited
-    });
-    return m;
-  }, [edges, members]);
-
+  // Edges of the round on screen (EdgesContext): source_id cites target_id, so
+  // outDegree = citations this agent made, inDegree = times it was cited
+  // (docs/DECISIONS.md#adr-neo4j-schema). Before round 2's edges exist: '—'.
+  const { edges, inDegree, outDegree } = useEdgesCtx();
   const hasEdges = edges.length > 0;
 
   return (
@@ -143,9 +117,11 @@ export function BracketDeepDive({
         <div className="bd-head-meta">
           <span className="label">{members.length} AGENTS</span>
           <span className="label">·</span>
-          <span className="label" style={{ color: 'var(--buy)' }}>{buy} BUY</span>
-          <span className="label" style={{ color: 'var(--sell)' }}>{sell} SELL</span>
-          <span className="label" style={{ color: 'var(--hold)' }}>{hold} HOLD</span>
+          <span className="label" style={{ color: 'var(--buy)' }}>{tally.buy} BUY</span>
+          <span className="label" style={{ color: 'var(--sell)' }}>{tally.sell} SELL</span>
+          <span className="label" style={{ color: 'var(--hold)' }}>{tally.hold} HOLD</span>
+          {tally.thinking > 0 && <span className="label">{tally.thinking} PENDING</span>}
+          {tally.parseError > 0 && <span className="label">{tally.parseError} FAILED</span>}
           <span className="label">·</span>
           <span className="label">{flipped} FLIPPED</span>
         </div>
@@ -158,21 +134,21 @@ export function BracketDeepDive({
           <div className="bd-stat-section">
             <div className="label" style={{ marginBottom: 10 }}>SIGNAL DISTRIBUTION</div>
             <div className="bd-signal-bars">
-              {[
-                { sig: 'buy', n: buy },
-                { sig: 'sell', n: sell },
-                { sig: 'hold', n: hold },
-              ].map(({ sig, n }) => (
+              {([
+                { sig: 'buy', n: tally.buy },
+                { sig: 'sell', n: tally.sell },
+                { sig: 'hold', n: tally.hold },
+              ] as const).map(({ sig, n }) => (
                 <div key={sig} className="bd-sig-row">
                   <span className={`rationale-signal sig-${sig}`}>{sig.toUpperCase()}</span>
                   <div className="bd-sig-bar">
                     <div
                       className="bd-sig-fill"
-                      style={{ width: `${(n / total) * 100}%`, background: sigColor(sig) }}
+                      style={{ width: `${pctOfDecided(n)}%`, background: signalColor(sig) }}
                     />
                   </div>
-                  <span className="mono" style={{ fontSize: 13, color: sigColor(sig) }}>{n}</span>
-                  <span className="label">{((n / total) * 100).toFixed(0)}%</span>
+                  <span className="mono" style={{ fontSize: 13, color: signalColor(sig) }}>{n}</span>
+                  <span className="label">{pctOfDecided(n).toFixed(0)}%</span>
                 </div>
               ))}
             </div>
@@ -207,8 +183,8 @@ export function BracketDeepDive({
               <BdStat label="FLIPPED" value={`${flipped}/${members.length}`} />
               <BdStat
                 label="CONSENSUS"
-                value={buy >= sell && buy >= hold ? 'BUY' : sell >= hold ? 'SELL' : 'HOLD'}
-                tone={buy >= sell && buy >= hold ? 'buy' : sell >= hold ? 'sell' : 'hold'}
+                value={lead.signal ? lead.signal.toUpperCase() : '—'}
+                tone={lead.signal ?? undefined}
               />
             </div>
           </div>
@@ -234,7 +210,6 @@ export function BracketDeepDive({
           </div>
           <div className="bd-roster">
             {sorted.map((a) => {
-              const inf = influences[a.id];
               return (
                 <div
                   key={a.id}
@@ -242,14 +217,14 @@ export function BracketDeepDive({
                   onClick={() => onAgentInterview?.(a)}
                 >
                   <div className="bd-agent-id mono" style={{ color }}>{a.id}</div>
-                  <div className={`bd-agent-sig rationale-signal sig-${a.signal}`}>
-                    {(a.signal ?? 'hold').toUpperCase()}
+                  <div className={`bd-agent-sig rationale-signal ${signalClass(a.signal)}`}>
+                    {signalLabel(a.signal)}
                   </div>
                   <div className="bd-agent-conf">
                     <div className="bd-conf-bar">
                       <div
                         className="bd-conf-fill"
-                        style={{ width: `${a.confidence * 100}%`, background: sigColor(a.signal) }}
+                        style={{ width: `${a.confidence * 100}%`, background: signalColor(a.signal) }}
                       />
                     </div>
                     <span className="mono" style={{ fontSize: 10 }}>
@@ -257,12 +232,12 @@ export function BracketDeepDive({
                     </span>
                   </div>
                   <div className="bd-agent-inf label">
-                    {/* KR-41.6-13: influences only meaningful post-cycle; live = '—' */}
+                    {/* Citations of the round on screen; '—' until round 2's edges exist. */}
                     <span style={{ color: 'var(--accent)' }}>
-                      ↗{hasEdges ? inf?.out ?? 0 : '—'}
+                      ↗{hasEdges ? outDegree.get(a.id) ?? 0 : '—'}
                     </span>
                     <span style={{ color: 'var(--text-3)' }}>
-                      ↙{hasEdges ? inf?.in ?? 0 : '—'}
+                      ↙{hasEdges ? inDegree.get(a.id) ?? 0 : '—'}
                     </span>
                   </div>
                   {a.flipped ? <div className="bd-flip-tag label">FLIP</div> : null}

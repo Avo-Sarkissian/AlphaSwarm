@@ -75,19 +75,16 @@ async def _safe_agent_inference(
     the wave immediately so all 100 agents do not silently become PARSE_ERRORs
     burning 3 waves of failed calls before the operator notices.
 
-    Streams the resolved AgentDecision to state_store.update_agent_state
-    IMMEDIATELY upon successful inference so the WS broadcaster sees a
-    progressively-filling agent_states dict during the 14-18min round
-    dispatch (replaces the post-dispatch batch loop in simulation.py).
-    Skips the streaming write for PARSE_ERROR results so the broadcaster
-    keeps the prior round's signal (or "thinking" placeholder) instead of
-    flipping a failed agent into a misleading state.
+    Streams every resolved AgentDecision, PARSE_ERROR included, to
+    state_store.update_agent_state the moment the agent finishes, so the WS
+    broadcaster sees a progressively-filling agent_states dict and a failed
+    agent stops showing "thinking" (docs/DECISIONS.md#adr-streaming-state).
 
     Also (ITEM 4 of quick task 260512-jqn): after a successful inference,
     streams one RationaleEntry into state_store so the WS rationale feed
     populates progressively (1 → 100 over the round) instead of bulk-
-    arriving at end-of-round. PARSE_ERROR decisions skip the rationale
-    push as well so the feed stays clean.
+    arriving at end-of-round. PARSE_ERROR decisions skip only the rationale
+    push, so the feed carries reasoning, not error text.
 
     Returns:
         AgentDecision on success, or PARSE_ERROR AgentDecision on failure.
@@ -111,7 +108,7 @@ async def _safe_agent_inference(
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
     except Exception as e:
         log.warning("agent inference failed", agent_id=persona["agent_id"], error=str(e))
-        return AgentDecision(
+        decision = AgentDecision(
             signal=SignalType.PARSE_ERROR,
             confidence=0.0,
             sentiment=0.0,
@@ -119,33 +116,40 @@ async def _safe_agent_inference(
             error_kind="inference",
         )
 
-    # Streaming writes (success path only): agent_state + rationale together
-    # so the WS broadcaster sees a progressively-filling agent_states dict
-    # AND rationale feed instead of a 0->100 jump at end-of-round.
-    if state_store is not None and decision.signal is not SignalType.PARSE_ERROR:
-        await state_store.update_agent_state(
-            persona["agent_id"], decision.signal, decision.confidence,
-        )
-        # ITEM 4 — streaming rationale push. Lazy imports keep batch_dispatcher
-        # import-time minimal.
-        from alphaswarm.state import RationaleEntry
-        from alphaswarm.utils import sanitize_rationale
+    if state_store is None:
+        return decision
 
-        try:
-            await state_store.push_rationale(
-                RationaleEntry(
-                    agent_id=persona["agent_id"],
-                    signal=decision.signal,
-                    rationale=sanitize_rationale(decision.rationale, max_len=50),
-                    round_num=round_num,
-                )
-            )
-        except Exception as push_err:  # noqa: BLE001 - never fail dispatch on telemetry error
-            log.warning(
-                "rationale push failed (non-fatal)",
+    # Every resolved agent streams its state at once, failures included: a
+    # PARSE_ERROR agent must stop showing "thinking" and must not keep last
+    # round's signal (docs/DECISIONS.md#adr-streaming-state).
+    await state_store.update_agent_state(
+        persona["agent_id"], decision.signal, decision.confidence,
+    )
+    # The rationale feed carries reasoning only; a failure's text is an error
+    # message, so PARSE_ERROR decisions skip it.
+    if decision.signal is SignalType.PARSE_ERROR:
+        return decision
+
+    # ITEM 4 — streaming rationale push. Lazy imports keep batch_dispatcher
+    # import-time minimal.
+    from alphaswarm.state import RationaleEntry
+    from alphaswarm.utils import sanitize_rationale
+
+    try:
+        await state_store.push_rationale(
+            RationaleEntry(
                 agent_id=persona["agent_id"],
-                error=str(push_err),
+                signal=decision.signal,
+                rationale=sanitize_rationale(decision.rationale, max_len=50),
+                round_num=round_num,
             )
+        )
+    except Exception as push_err:  # noqa: BLE001 - never fail dispatch on telemetry error
+        log.warning(
+            "rationale push failed (non-fatal)",
+            agent_id=persona["agent_id"],
+            error=str(push_err),
+        )
 
     return decision
 

@@ -5,7 +5,7 @@
   "cycle_id": "00000000-0000-4000-8000-000000000002",
   "num_rounds": 2,
   "round_num": 2,
-  "agent_count": 100,
+  "agent_count": 5,
   "agent_states": {
     "institutions_01": {
       "signal": "buy",

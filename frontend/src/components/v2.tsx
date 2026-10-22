@@ -28,7 +28,9 @@ import { Icon } from './icons';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useConnection } from '../context/ConnectionContext';
 import { useAgents } from '../context/AgentsContext';
-import { useCurrentCycle } from '../hooks/useCurrentCycle';
+import { useFrameMeta } from '../context/FrameMetaContext';
+import { useLatestCompletedCycle } from '../hooks/useLatestCompletedCycle';
+import { defaultCycleId } from '../lib/defaultCycle';
 import { usePolling } from '../hooks/usePolling';
 import { useDataSourceAudit } from '../hooks/useDataSourceAudit';
 import { advisoryFetch, type AdvisoryContent } from '../api/advisory';
@@ -777,7 +779,11 @@ interface HoldingAnalysis {
 }
 
 export function AdvisoryV2({ onClose }: { onClose: () => void }) {
-  const { cycleId } = useCurrentCycle();
+  const meta = useFrameMeta();
+  const { cycleId: latestCompleted, loading: latestLoading } = useLatestCompletedCycle();
+  const cycleId = defaultCycleId(meta, latestCompleted);
+  // No cycle yet only means "none completed" once the lookup has answered.
+  const findingCycle = cycleId === null && latestLoading;
   const { agents: liveAgents } = useAgents();
   const liveAgentIds = useMemo(
     () => new Set(liveAgents.map((a) => a.id)),
@@ -927,7 +933,12 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="adv-body">
-        {!cycleId && (
+        {findingCycle && (
+          <div className="advisory-card">
+            <div className="label">Finding the latest completed cycle…</div>
+          </div>
+        )}
+        {!cycleId && !findingCycle && (
           <div className="advisory-card">
             <div className="label">No completed cycle to advise on.</div>
           </div>

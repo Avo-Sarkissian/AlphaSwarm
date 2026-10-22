@@ -28,7 +28,7 @@ def test_state_snapshot_defaults() -> None:
     snap = StateSnapshot()
     assert snap.phase == SimulationPhase.IDLE
     assert snap.round_num == 0
-    assert snap.agent_count == 100
+    assert snap.agent_count == 0
     assert snap.agent_states == {}
     assert snap.elapsed_seconds == 0.0
     assert snap.governor_metrics is None
@@ -541,3 +541,52 @@ async def test_finalizing_keeps_agent_signals() -> None:
     snap = store.snapshot()
     assert snap.phase is SimulationPhase.FINALIZING
     assert snap.agent_states["quants_01"] == AgentState(signal=SignalType.SELL, confidence=0.7)
+
+
+# ---------------------------------------------------------------------------
+# Canonical roster (docs/DECISIONS.md#adr-streaming-state)
+# ---------------------------------------------------------------------------
+
+
+async def test_begin_run_installs_ordered_pending_roster() -> None:
+    store = StateStore()
+    await store.update_agent_state("stale_99", SignalType.BUY, 0.9)
+    await store.begin_run(["quants_01", "degens_01", "macro_01"])
+    snap = store.snapshot()
+    assert list(snap.agent_states) == ["quants_01", "degens_01", "macro_01"]
+    assert set(snap.agent_states.values()) == {AgentState(signal=None, confidence=0.0)}
+    assert snap.agent_count == 3
+
+
+async def test_begin_run_keeps_the_first_position_of_a_duplicate() -> None:
+    store = StateStore()
+    await store.begin_run(["algos_01", "macro_01", "algos_01"])
+    assert list(store.snapshot().agent_states) == ["algos_01", "macro_01"]
+
+
+async def test_roster_order_survives_streaming_and_round_entry() -> None:
+    store = StateStore()
+    await store.begin_run(["quants_01", "degens_01", "macro_01"])
+    await store.update_agent_state("macro_01", SignalType.SELL, 0.7)
+    await store.update_agent_state("quants_01", SignalType.BUY, 0.6)
+    await store.set_phase(SimulationPhase.ROUND_2)
+    snap = store.snapshot()
+    assert list(snap.agent_states) == ["quants_01", "degens_01", "macro_01"]
+    assert snap.agent_states["macro_01"].signal is None
+
+
+def test_agent_count_is_zero_before_any_run() -> None:
+    assert StateStore().snapshot().agent_count == 0
+
+
+def test_replay_agent_count_counts_the_active_round() -> None:
+    signals: dict[tuple[str, int], AgentState] = {
+        ("quants_01", 1): AgentState(signal=SignalType.BUY, confidence=0.9),
+        ("degens_01", 1): AgentState(signal=SignalType.SELL, confidence=0.4),
+        ("quants_01", 2): AgentState(signal=SignalType.HOLD, confidence=0.5),
+    }
+    store = ReplayStore(cycle_id="00000000-0000-4000-8000-000000000001", signals=signals)
+    store.set_round(1)
+    assert store.snapshot().agent_count == 2
+    store.set_round(2)
+    assert store.snapshot().agent_count == 1

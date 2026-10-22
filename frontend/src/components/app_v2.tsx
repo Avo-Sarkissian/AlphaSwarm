@@ -5,15 +5,16 @@
 //
 // Wiring map:
 //   • useTelemetry() → tps / memMb / slotsUsed / slotsMax / elapsedSeconds /
-//     phase / running (replaces source's setInterval mock telemetry clock)
+//     governorState / phase (replaces source's setInterval mock telemetry clock)
 //   • useAgents() → agents (replaces source's design-mock agent builder)
-//   • useBrackets() → bracket summaries (replaces source's mock summariser)
+//   • bracketTallies(agents) → live bracket bars (lib/tally.ts)
 //   • useRationales() → rationale feed (replaces source's static fixture)
 //   • useConnection() → reconnectFailed gate for ErrorState
-//   • simStart(seed) / simStop() from api/simulation → Topbar Run/Stop
-//   • Lifecycle dispatch: ErrorState > SeedingState (phase=='initializing'/'seeding')
-//     > IdleState (phase=='idle' && !running)
-//     > running dashboard (Viz + KpiStrip + ConsensusRing + BracketList + RationaleFeed).
+//   • useRunGate() (cost gate, then simStart) and simStop() → RunControls;
+//     useAwaitRunFrame holds Run on "Starting…" until the run reaches the frame
+//   • Lifecycle (lib/lifecycle.ts, from the frame): the shell and topbar always
+//     render; IdleState / SeedingState are overlays inside .canvas-wrap; the
+//     ReplayBar mounts while mode === 'replay'; RunControls picks Run/Stop.
 //     Governor paused/crisis renders as a dismissible banner over the dashboard
 //     (the backend governor resumes on its own — no takeover, no simStart).
 //
@@ -31,17 +32,20 @@ import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
 import { IdleState, SeedingState, ErrorState } from './states';
 import { TweaksPanelLoader } from './TweaksPanelLoader';
 import { useAgents } from '../context/AgentsContext';
-import { useBrackets } from '../context/BracketContext';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useRationales } from '../context/RationalesContext';
 import { useConnection } from '../context/ConnectionContext';
 import { useEdgesCtx } from '../context/EdgesContext';
-import { simStart, simStop } from '../api/simulation';
+import { simStop } from '../api/simulation';
+import { useAwaitRunFrame } from '../hooks/useAwaitRunFrame';
 import { useRunGate } from '../hooks/useRunGate';
 import { replayStart } from '../api/replay';
 import { normalizeBracketKey } from '../data';
-import { errorMessage } from '../lib/apiError';
-import { phaseLabelFor, roundFromPhase } from '../lib/phase';
+import { rankInfluencers } from '../lib/influence';
+import { signalClass, signalLabel } from '../lib/signals';
+import { bracketTallies } from '../lib/tally';
+import { phaseLabelFor } from '../lib/phase';
+import { useRound, useRounds } from '../hooks/useRounds';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
 // modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
 import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from './v2';
@@ -52,35 +56,13 @@ import { Settings } from './settings';
 // Plan 41.6-04 task 2 (W4): real ported components replace W2/W3 stub overlays.
 import { InterviewV2 } from './interview_v2';
 import { BracketDeepDive } from './bracket_deep';
-
-// A refused Run (for example 409 post_run_jobs_in_progress while the advisory and
-// report still hold the orchestrator after a run) shows the server's message here;
-// otherwise the button would look broken.
-function RunErrorBanner({ message, onDismiss, floating = false }: {
-  message: string;
-  onDismiss: () => void;
-  /** Over the idle overlay, which covers the whole viewport. */
-  floating?: boolean;
-}) {
-  return (
-    <div
-      role="alert"
-      style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px',
-        background: 'color-mix(in srgb, var(--sell) 10%, var(--bg-2))',
-        borderBottom: '1px solid color-mix(in srgb, var(--sell) 35%, transparent)',
-        ...(floating ? { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 } : {}),
-      }}
-    >
-      <span className="label" style={{ color: 'var(--sell)' }}>RUN NOT STARTED</span>
-      <span style={{ color: 'var(--text-2)', fontSize: 11 }}>{message}</span>
-      <div style={{ flex: 1 }} />
-      <button className="btn ghost" style={{ height: 22, padding: '0 8px' }} onClick={onDismiss}>
-        Dismiss
-      </button>
-    </div>
-  );
-}
+import { InlineError } from './InlineError';
+import { RunErrorBanner } from './RunErrorBanner';
+import { RunControls } from './RunControls';
+import { useFrameMeta } from '../context/FrameMetaContext';
+import { formatApiError } from '../lib/apiError';
+import { lifecycleOf } from '../lib/lifecycle';
+import { SEED_MAX_LENGTH } from '../lib/seed';
 
 function BrandMark() {
   const nodes: [number, number][] = [[8,2],[4,8],[12,8],[2,14],[8,14],[14,14],[6,11],[10,11]];
@@ -107,7 +89,7 @@ function Tooltip({ info }: { info: TooltipInfo | null }) {
   return (
     <div className="tooltip" style={{ left: x + 14, top: y + 14 }}>
       <div className="t-head">{agent.id} <span style={{color:'var(--text-3)', fontSize:10}}>· {agent.bracketDisplay}</span></div>
-      <div className="t-row"><span>Signal</span><strong className={`sig-${agent.signal}`} style={{padding:'1px 5px'}}>{(agent.signal || 'hold').toUpperCase()}</strong></div>
+      <div className="t-row"><span>Signal</span><strong className={signalClass(agent.signal)} style={{padding:'1px 5px'}}>{signalLabel(agent.signal)}</strong></div>
       <div className="t-row"><span>Confidence</span><strong>{(agent.confidence*100).toFixed(0)}%</strong></div>
       <div className="t-row"><span>Flipped R1→R3</span><strong>{agent.flipped ? 'Yes' : 'No'}</strong></div>
       <div style={{marginTop:6, fontSize:10, color:'var(--text-3)'}}>Click to interview →</div>
@@ -233,14 +215,12 @@ function Legend() {
 interface UiState {
   shockOpen: boolean;
   cyclePickerOpen: boolean;
-  replayCycle: any | null; // cycle picked in CyclePickerModal (shown in ReplayBar)
   interviewAgent: any | null;
   interviewV2Agent: any | null;
   reportOpen: boolean;
   reportCycleId: string | null; // cycle picked in CycleHistory (null = current)
   advisoryOpen: boolean;
   dataSourcesOpen: boolean;
-  watchOpen: boolean;
   settingsOpen: boolean;
   historyOpen: boolean;
   bracketDeepDive: any | null;
@@ -254,13 +234,18 @@ interface UiState {
 export function App() {
   // Live data via 6-context tree (W1 Plan 01 wiring).
   const { agents } = useAgents();
-  const { brackets } = useBrackets();
   const { rationales } = useRationales();
   const { reconnectFailed, connected } = useConnection();
   const tel = useTelemetry();
+  const meta = useFrameMeta();
+  const lifecycle = lifecycleOf(meta);
   const { edges } = useEdgesCtx();
+  // Viz still takes [citing, cited] tuples; every other panel reads `edges`.
+  const edgePairs = useMemo<Array<[string, string]>>(
+    () => edges.map((e) => [e.source_id, e.target_id]),
+    [edges],
+  );
   const phase = tel.phase;
-  const running = tel.running;
   const tps = tel.telemetry.tps;
   const memMb = tel.telemetry.memMb;
   const slotsUsed = tel.telemetry.slotsUsed;
@@ -278,6 +263,7 @@ export function App() {
 
   // Local UI state — chrome only (no live data here).
   const [seed, setSeed] = useState<string>('');
+  const [actionError, setActionError] = useState<string | null>(null);
   const [layout, setLayout] = useState<'force' | 'radial' | 'grid'>('force');
   const [hintsDismissed, setHintsDismissed] = useState(false);
   const [tweaksOpen, setTweaksOpen] = useState(false);
@@ -291,14 +277,12 @@ export function App() {
   const [ui, setUi] = useState<UiState>({
     shockOpen: false,
     cyclePickerOpen: false,
-    replayCycle: null,
     interviewAgent: null,
     interviewV2Agent: null,
     reportOpen: false,
     reportCycleId: null,
     advisoryOpen: false,
     dataSourcesOpen: false,
-    watchOpen: false,
     settingsOpen: false,
     historyOpen: false,
     bracketDeepDive: null,
@@ -308,19 +292,20 @@ export function App() {
     comingSoon: null,
   });
 
-  // Context-shape → panel-shape adapters.
-  // BracketList expects {bracket, display_name, total, buy_count, sell_count, hold_count}.
-  // BracketSummaryView ships {bracket, display, total, buy, sell, hold}.
+  // Bracket bars come from the agents on screen, so they always describe the
+  // current round (wire bracket_summaries only arrive after a round ends);
+  // pending agents leave the rest of the bar blank.
   const summaries = useMemo(
-    () => brackets.map(b => ({
-      bracket: b.bracket,
-      display_name: b.display,
-      total: b.total,
-      buy_count: b.buy,
-      sell_count: b.sell,
-      hold_count: b.hold,
-    })),
-    [brackets],
+    () =>
+      bracketTallies(agents).map((b) => ({
+        bracket: b.bracket,
+        display_name: b.display,
+        total: b.total,
+        buy_count: b.tally.buy,
+        sell_count: b.tally.sell,
+        hold_count: b.tally.hold,
+      })),
+    [agents],
   );
   // RationaleFeed expects {agent, bracket, signal, round, text, cites}.
   // RationaleView ships {agentId, signal, round, text, citations, sources, ts}.
@@ -343,47 +328,27 @@ export function App() {
     [rationales, agents],
   );
 
-  // Top Influencers: rank by OUT-DEGREE when edges are available (post-cycle),
-  // fall back to confidence rank for live/early frames (KR-41.1-09).
-  const outDegree = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const [source] of edges) out[source] = (out[source] ?? 0) + 1;
-    return out;
-  }, [edges]);
+  // Top Influencers: agents cited by the most distinct peers in the round on
+  // screen (in-degree). Nothing to rank until round 2's edges exist.
   const hasEdges = edges.length > 0;
   const topInfluencers = useMemo(() => {
-    if (hasEdges) {
-      const maxOut = Math.max(1, ...Object.values(outDegree));
-      return [...agents]
-        .map(a => ({ a, deg: outDegree[a.id] ?? 0 }))
-        // Drop zero-out-degree agents so the OUT-DEGREE panel never shows "0"
-        // filler rows when fewer than 5 agents are edge sources (F-35). The
-        // topInfluencers.length === 0 render guard covers the empty case.
-        .filter(({ deg }) => deg > 0)
-        .sort((x, y) => y.deg - x.deg)
-        .slice(0, 5)
-        .map(({ a, deg }) => ({
-          id: a.id,
-          bracket: a.bracketDisplay,
-          out: deg,
-          barPct: Math.round((deg / maxOut) * 100),
-        }));
-    }
-    return [...agents]
-      .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 5)
-      .map(a => ({
-        id: a.id,
-        bracket: a.bracketDisplay,
-        out: Math.round(a.confidence * 100),
-        barPct: Math.round(a.confidence * 100),
-      }));
-  }, [agents, outDegree, hasEdges]);
+    const byId = new Map(agents.map((a) => [a.id, a]));
+    const ranked = rankInfluencers(agents, edges).slice(0, 5);
+    const max = Math.max(1, ...ranked.map((r) => r.citedBy));
+    return ranked.map((r) => ({
+      id: r.agentId,
+      bracket: byId.get(r.agentId)?.bracketDisplay ?? '',
+      citedBy: r.citedBy,
+      barPct: Math.round((r.citedBy / max) * 100),
+    }));
+  }, [agents, edges]);
 
-  // Header round and label from the backend phase string (lib/phase.ts);
-  // 'finalizing' keeps the last round instead of falling back to round 1.
-  const round = roundFromPhase(phase);
-  const phaseLabel = phaseLabelFor(phase, round);
+  // Round on screen from the frame (useRound), never parsed from the phase
+  // string, so replay and 2-round runs label correctly (lib/phase.ts).
+  const { numRounds } = useRounds();
+  const currentRound = useRound();
+  const round = currentRound ?? 1;
+  const phaseLabel = phaseLabelFor(phase, currentRound, numRounds);
   const phaseState: 'live' | 'complete' = phase === 'complete' ? 'complete' : 'live';
 
   const onAgentHover = (agent: any, e: any) => {
@@ -397,88 +362,35 @@ export function App() {
     if (a) setUi(u => ({ ...u, interviewAgent: a }));
   };
 
-  // A refused start (409 post_run_jobs_in_progress after a run, 409 replay_active,
-  // ...) is shown in RunErrorBanner, on the local path and after a cloud confirm.
-  const [runError, setRunError] = useState<string | null>(null);
-  const startRun = async (s: string) => {
-    setRunError(null);
-    try {
-      await simStart(s);
-    } catch (err) {
-      setRunError(errorMessage(err));
-      // eslint-disable-next-line no-console
-      console.error('simStart failed', err);
-    }
-  };
-
-  // Run gate: cost confirmation for cloud/mixed runs before simStart.
-  const { requestRun, modal: runConfirmModal } = useRunGate(startRun);
-
-  // Topbar Run/Stop handlers wire to api/simulation via the gate.
-  const onRun = async () => {
-    try {
-      await requestRun(seed);
-    } catch (err) {
-      setRunError(errorMessage(err));
-      // eslint-disable-next-line no-console
-      console.error('simStart failed', err);
-    }
-  };
+  // Run gate: cost confirmation for cloud/mixed runs, then simStart. It keeps
+  // the failure message and a pending flag for the Run control. After an
+  // accepted start, Run stays on "Starting…" until the run reaches the frame.
+  const runStart = useAwaitRunFrame(lifecycle);
+  const runGate = useRunGate({
+    onSettled: (ok) => {
+      if (ok) runStart.arm();
+    },
+  });
+  const runConfirmModal = runGate.modal;
+  // A run that reached SEEDING supersedes an earlier Run error, such as the
+  // 409 a second tab got.
+  const { clearError: clearRunError } = runGate;
+  useEffect(() => {
+    if (lifecycle === 'seeding') clearRunError();
+  }, [lifecycle, clearRunError]);
+  const onRun = () => runGate.requestRun(seed.trim());
   const onStop = async () => {
+    setActionError(null);
     try {
       await simStop();
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('simStop failed', err);
+      setActionError(formatApiError(err));
     }
   };
 
-  // Lifecycle dispatch — gate the dashboard render based on phase + telemetry.
-  // Priority: error > seeding > idle > running. Governor paused/crisis renders
-  // as a dismissible banner OVER the dashboard (not a takeover) — see below.
+  // Only a dead WebSocket replaces the dashboard; every other lifecycle renders the shell (overlays below).
   if (reconnectFailed) {
     return <ErrorState onRetry={() => window.location.reload()} />;
-  }
-  if (phase === 'initializing' || phase === 'seeding') {
-    return <SeedingState seed={seed} />;
-  }
-  if (phase === 'idle' && !running) {
-    return (
-      <>
-        <IdleState
-          seed={seed}
-          setSeed={setSeed}
-          onStart={onRun}
-          ollamaOk
-          onShowHistory={() => setUi((u) => ({ ...u, historyOpen: true }))}
-        />
-        {runError && (
-          <RunErrorBanner message={runError} onDismiss={() => setRunError(null)} floating />
-        )}
-        {ui.historyOpen && (
-          <CycleHistory
-            onClose={() => setUi((u) => ({ ...u, historyOpen: false }))}
-            onOpenReport={(c) =>
-              setUi((u) => ({
-                ...u,
-                historyOpen: false,
-                reportOpen: true,
-                reportCycleId: c.cycle_id,
-              }))
-            }
-          />
-        )}
-        {ui.reportOpen && (
-          <ReportModal
-            cycleId={ui.reportCycleId}
-            onClose={() =>
-              setUi((u) => ({ ...u, reportOpen: false, reportCycleId: null }))
-            }
-          />
-        )}
-        {runConfirmModal}
-      </>
-    );
   }
 
   return (
@@ -501,7 +413,13 @@ export function App() {
         <div style={{flex:1, minWidth:200, position:'relative', display:'flex', alignItems:'center', gap:6}}>
           <div className="seed-input" style={{flex:1}}>
             <span className="prefix">SEED ⟶</span>
-            <input value={seed} onChange={e => setSeed(e.target.value)} />
+            <input
+              value={seed}
+              onChange={e => setSeed(e.target.value)}
+              maxLength={SEED_MAX_LENGTH}
+              placeholder="Seed rumor…"
+              aria-label="Seed rumor"
+            />
             <span className="seed-entities">3 entities</span>
           </div>
           <button className="btn ghost-btn" title="Inspire — suggest a seed scenario"
@@ -509,11 +427,12 @@ export function App() {
             onClick={() => setUi(u => ({...u, seedSuggestOpen: !u.seedSuggestOpen}))}>✦</button>
         </div>
 
-        {running ? (
-          <button className="btn danger" onClick={onStop}><Icon name="stop" /> Stop</button>
-        ) : (
-          <button className="btn primary" onClick={onRun}><Icon name="play" /> Run</button>
-        )}
+        <RunControls
+          seed={seed}
+          pending={runGate.pending || runStart.awaiting}
+          onRun={onRun}
+          onStop={() => void onStop()}
+        />
 
         <ModelStatus />
 
@@ -578,6 +497,10 @@ export function App() {
         </div>
       </div>
 
+      <InlineError error={runGate.error} onDismiss={runGate.clearError} />
+      <InlineError error={actionError} onDismiss={() => setActionError(null)} />
+      <RunErrorBanner />
+
       {/* Signal Wire ticker — real ported component (DEV-only mock per KR-41.6-14) */}
       <SignalWire onInspect={() => setUi((u) => ({ ...u, dataSourcesOpen: true }))} />
 
@@ -609,8 +532,6 @@ export function App() {
         </div>
       )}
 
-      {runError && <RunErrorBanner message={runError} onDismiss={() => setRunError(null)} />}
-
       {/* Main */}
       <div className="main">
         {/* Left */}
@@ -630,19 +551,21 @@ export function App() {
           <div className="panel">
             <div className="panel-head">
               <span className="panel-title">Top Influencers</span>
-              <span className="label">{hasEdges ? 'OUT-DEGREE' : 'CONFIDENCE'}</span>
+              <span className="label">CITED BY</span>
             </div>
             <div className="panel-body" style={{fontFamily:'JetBrains Mono', fontSize:11}}>
               {topInfluencers.length === 0 ? (
                 <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 10 }}>
-                  no agents yet — waiting for first frame
+                  {hasEdges
+                    ? 'no citations in this round'
+                    : "influence appears once round 2's citations are written"}
                 </div>
               ) : topInfluencers.map(r => (
                 <div key={r.id} className="influencer-row">
                   <span className="infl-id" onClick={() => onCiteClick(r.id)}>{r.id}</span>
                   <span className="infl-bracket">{r.bracket}</span>
                   <div className="infl-bar"><span style={{width: `${r.barPct}%`}} /></div>
-                  <span className="infl-num">{r.out}</span>
+                  <span className="infl-num">{r.citedBy}</span>
                 </div>
               ))}
             </div>
@@ -675,7 +598,7 @@ export function App() {
           <div className="canvas-wrap">
             <Viz
               agents={agents}
-              edges={edges}
+              edges={edgePairs}
               layout={layout}
               direction="a"
               highlightId={ui.tooltip?.agent?.id}
@@ -694,6 +617,14 @@ export function App() {
                 <button className="btn ghost" style={{height:22, padding:'0 8px'}} onClick={() => setHintsDismissed(true)}>Got it</button>
               </div>
             )}
+            {lifecycle === 'idle' && (
+              <IdleState
+                seed={seed}
+                numRounds={numRounds}
+                onShowHistory={() => setUi((u) => ({ ...u, historyOpen: true }))}
+              />
+            )}
+            {lifecycle === 'seeding' && <SeedingState seed={seed} />}
           </div>
 
           <KpiStrip
@@ -754,12 +685,8 @@ export function App() {
       {ui.shockOpen && (
         <ShockDrawer onClose={() => setUi((u) => ({ ...u, shockOpen: false }))} />
       )}
-      {ui.watchOpen && (
-        <ReplayBar
-          cycle={ui.replayCycle}
-          onExit={() => setUi((u) => ({ ...u, watchOpen: false, replayCycle: null }))}
-        />
-      )}
+      {/* Replay is driven by the frame (mode), so the bar survives a reload. */}
+      {lifecycle === 'replay' && <ReplayBar />}
       {ui.reportOpen && (
         <ReportModal
           cycleId={ui.reportCycleId}
@@ -802,16 +729,11 @@ export function App() {
         <CyclePickerModal
           onClose={() => setUi((u) => ({ ...u, cyclePickerOpen: false }))}
           onPick={async (cycle: any) => {
-            // Start backend replay for the picked cycle, THEN show the bar.
-            // Errors (e.g. 409 replay already active) propagate back to the
-            // picker, which console.logs + surfaces them in its err label.
+            // Start the backend replay; the bar appears as soon as frames switch
+            // to mode 'replay'. Errors (e.g. 409 replay already active) propagate
+            // back to the picker, which shows them in its error label.
             await replayStart(cycle.cycle_id);
-            setUi((u) => ({
-              ...u,
-              cyclePickerOpen: false,
-              watchOpen: true,
-              replayCycle: cycle,
-            }));
+            setUi((u) => ({ ...u, cyclePickerOpen: false }));
           }}
         />
       )}

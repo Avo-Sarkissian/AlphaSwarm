@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Final, Literal
 
@@ -122,7 +123,7 @@ class StateSnapshot:
 
     phase: SimulationPhase = SimulationPhase.IDLE
     round_num: int = 0
-    agent_count: int = 100
+    agent_count: int = 0  # len(roster); begin_run installs it at SEEDING
     agent_states: dict[str, AgentState] = field(default_factory=dict)
     elapsed_seconds: float = 0.0
     governor_metrics: GovernorMetrics | None = None
@@ -213,6 +214,22 @@ class StateStore:
         """Write a single agent's decision. Called per-agent, not per-round (D-02)."""
         async with self._lock:
             self._agent_states[agent_id] = AgentState(signal=signal, confidence=confidence)
+
+    async def begin_run(self, agent_ids: Sequence[str]) -> None:
+        """Install the canonical roster for a new run, in config order, all pending.
+
+        Called by run_simulation right after set_phase(SEEDING). From then on
+        every snapshot carries the same agents in the same order, each with
+        signal=None until its first decision streams in, so the UI shows a
+        stable, complete set of nodes from the first frame of a run
+        (docs/DECISIONS.md#adr-streaming-state). Ids from a previous run that
+        are not in the roster disappear; a duplicate id keeps its first position.
+        """
+        async with self._lock:
+            self._agent_states = {
+                agent_id: AgentState(signal=None, confidence=0.0)
+                for agent_id in dict.fromkeys(agent_ids)
+            }
 
     async def set_phase(self, phase: SimulationPhase) -> None:
         """Update simulation phase. Resets agent signals to "thinking" on round transitions.
@@ -350,7 +367,7 @@ class StateStore:
         return StateSnapshot(
             phase=self._phase,
             round_num=self._round_num,
-            agent_count=100,
+            agent_count=len(self._agent_states),
             agent_states=dict(self._agent_states),
             elapsed_seconds=(
                 self._final_elapsed
@@ -521,7 +538,7 @@ class ReplayStore:
         return StateSnapshot(
             phase=SimulationPhase.REPLAY,
             round_num=self._current_round,
-            agent_count=100,
+            agent_count=len(agent_states),
             agent_states=agent_states,
             elapsed_seconds=0.0,
             governor_metrics=None,

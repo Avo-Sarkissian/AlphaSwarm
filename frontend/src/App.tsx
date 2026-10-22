@@ -18,7 +18,6 @@ const ONBOARDING_FLAG = 'as_onboarding_v1_complete';
 export function App() {
   // useWebSocket() ABOVE the gate per Pitfall #6 — keeps WS open across onboarding.
   const { connected, reconnectFailed, lastFrame } = useWebSocket();
-  const round = lastFrame?.roundNum ?? null;
 
   // Onboarding gate (D-12). Full Onboarding component arrives in W4.
   // codex LOW-9 + gemini #6: derive initial state from BOTH the dev-skip env var
@@ -59,7 +58,7 @@ export function App() {
 
   return (
     <FrameProviders frame={lastFrame} connected={connected} reconnectFailed={reconnectFailed}>
-      <EdgesProvider round={round}>
+      <EdgesProvider>
         <DashboardShell />
       </EdgesProvider>
     </FrameProviders>

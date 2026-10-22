@@ -2,24 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Final
-
-import fastapi
 import structlog
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 from alphaswarm.web.guards import require_graph
-from alphaswarm.web.params import CYCLE_ID_PATTERN
+from alphaswarm.web.params import CycleId
 
 log = structlog.get_logger(component="web.edges")
 
 router = APIRouter()
-
-# "current" (the latest cycle) is still accepted until the frontend keys edge
-# fetches by the frame's cycle id; any other value must be a cycle uuid.
-EDGES_CYCLE_ID_PATTERN: Final = rf"^(?:current|{CYCLE_ID_PATTERN[1:-1]})$"
-EdgesCycleId = Annotated[str, fastapi.Path(pattern=EDGES_CYCLE_ID_PATTERN)]
 
 
 class EdgeItem(BaseModel):
@@ -39,16 +31,14 @@ class EdgesResponse(BaseModel):
 @router.get("/edges/{cycle_id}", response_model=EdgesResponse)
 async def get_edges(
     request: Request,
-    cycle_id: EdgesCycleId,
+    cycle_id: CycleId,
     round: int = Query(..., alias="round", ge=1, le=3),
 ) -> EdgesResponse:
-    """Return INFLUENCED_BY edges for *cycle_id* and *round*; 503 without Neo4j."""
+    """Return INFLUENCED_BY edges for *cycle_id* and *round*; 503 without Neo4j.
+
+    The dashboard keys every fetch on the frame's cycle id, so the former
+    "current" alias (newest completed cycle) is gone and fails validation (422).
+    """
     graph = require_graph(request.app.state.app_state)
-    resolved = cycle_id
-    if cycle_id == "current":
-        latest = await graph.read_latest_cycle_id()
-        if latest is None:
-            return EdgesResponse(edges=[])
-        resolved = latest
-    edges = await graph.read_influence_edges(resolved, round)
+    edges = await graph.read_influence_edges(cycle_id, round)
     return EdgesResponse(edges=[EdgeItem(**e) for e in edges])

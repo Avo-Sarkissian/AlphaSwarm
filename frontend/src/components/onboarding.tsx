@@ -13,7 +13,6 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './icons';
 import { apiFetch, ApiError } from '../api/client';
-import { simStart } from '../api/simulation';
 import { useRunGate } from '../hooks/useRunGate';
 
 interface HealthResponse {
@@ -136,16 +135,17 @@ interface ObSeedStepProps {
 }
 
 function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProps) {
-  const [runError, setRunError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<boolean>(false);
   // null = loading; true = backend reachable; false = unreachable (KR-41.6-04 gate).
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
 
-  // Run gate: handles cost confirmation for cloud/mixed runs before simStart.
-  const { requestRun, modal: runConfirmModal } = useRunGate(async (s: string) => {
-    await simStart(s);
-    onComplete(s);
+  // Run gate: cost confirmation for cloud/mixed runs, then simStart. It settles
+  // on success, failure and cancel alike, so the button never stays on
+  // "Starting…".
+  const { requestRun, modal: runConfirmModal, error: runError, pending } = useRunGate({
+    onSettled: (ok) => {
+      if (ok) onComplete(seed.trim());
+    },
   });
 
   useEffect(() => {
@@ -177,23 +177,10 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
       ? 'Backend OK · /api/health responded'
       : `Backend unreachable${healthError ? ` · ${healthError}` : ''}`;
 
-  const handleRun = async () => {
+  const handleRun = () => {
     const trimmed = seed.trim();
-    // Guard re-entry: also block when the run-gate modal is pending (cloud/mixed path).
-    if (!trimmed || busy || backendOk !== true) return;
-    setBusy(true);
-    setRunError(null);
-    try {
-      await requestRun(trimmed);
-      // LOCAL path: requestRun resolves after simStart — reset busy so the
-      // button returns to normal state if the component stays mounted.
-      // CLOUD/MIXED path: requestRun resolves immediately after opening the
-      // modal; busy stays true to keep the Run button disabled while the
-      // confirm dialog is up. The modal's own busy tracks "Starting…".
-    } catch (e) {
-      setRunError(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-    }
+    if (!trimmed || pending || backendOk !== true) return;
+    requestRun(trimmed);
   };
 
   return (
@@ -218,14 +205,14 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
             placeholder="e.g. Fed announces emergency rate cut…"
-            disabled={busy}
+            disabled={pending}
           />
         </div>
 
         <div className="ob-seed-examples">
           <div className="label" style={{ marginBottom: 8 }}>OR TRY ONE OF THESE</div>
           {seeds.map((s) => (
-            <button key={s} className="ob-example" onClick={() => setSeed(s)} disabled={busy}>
+            <button key={s} className="ob-example" onClick={() => setSeed(s)} disabled={pending}>
               "{s}"
             </button>
           ))}
@@ -250,14 +237,14 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
         )}
 
         <div className="ob-btns">
-          <button className="btn ghost" onClick={onBack} disabled={busy}>← Back</button>
+          <button className="btn ghost" onClick={onBack} disabled={pending}>← Back</button>
           <button
             className="btn primary"
-            disabled={!seed.trim() || busy || backendOk !== true}
-            onClick={() => void handleRun()}
+            disabled={!seed.trim() || pending || backendOk !== true}
+            onClick={handleRun}
           >
             <Icon name="play" />{' '}
-            {busy
+            {pending
               ? 'Starting…'
               : backendOk === false
               ? 'Start backend first'

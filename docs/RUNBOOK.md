@@ -134,8 +134,10 @@ npm --prefix frontend run dev                           # http://localhost:5173
   `frontend/dist/` is gitignored, so build it first (README Quick Start). Without a build, use :5173.
 - Uvicorn does not hot-reload Python changes in this setup. **Restart the
   backend** after backend edits, and hard-refresh the browser for frontend edits.
-- Fast smoke runs: `ALPHASWARM_NUM_ROUNDS=2`. The UI still shows "/3"
-  (BACKLOG 1.4).
+- With the backend stopped, actions on :5173 show "Cannot reach the backend. Is it running
+  on port 8000?": the dev proxy answers 502 `backend_unreachable` and logs `http proxy error`.
+- Fast smoke runs: `ALPHASWARM_NUM_ROUNDS=2`. The phase pill, replay bar and edges follow
+  the frame's `num_rounds`; a few labels still show "/3" until BACKLOG 1.4 closes.
 - Headless run with live progress output: `uv run python -m alphaswarm run "<rumor>"`.
   It honors `.secrets/inference.json` since 342b285.
 
@@ -167,21 +169,24 @@ that names a held company exercises the advisory. Then check:
 - [ ] Dots appear within about 30 s of Round 1 and fill in progressively, with dim "thinking" dots for agents still working. At a round change, dots do not vanish.
 - [ ] KPI strip ticks (5 Hz). PARALLEL SLOTS shows live used/max. RAM% is non-zero even when idle.
 - [ ] Rationale feed fills live during the round, and R3 entries remain after completion.
+- [ ] During R3, DevTools → Network shows `/api/edges/<this run's cycle_id>?round=2`, never the previous cycle's id.
+- [ ] Restart the backend: the dashboard shell (Settings, replay, reports) is usable while idle.
+- [ ] Press Run while the report is generating: the button reads "Report generating…" and is disabled.
 - [ ] Signal Wire shows real yfinance/RSS calls, not the DEV mock seed.
-- [ ] Bracket bars update after each round.
+- [ ] Bracket bars fill in live during each round (pending agents leave the bar blank). At each round start the ring reads PENDING and the KPI "0/100 decided", never "HOLD 100%".
 - [ ] After completion:
-  - Top Influencers switches to OUT-DEGREE with no "0" filler rows (F-35).
+  - Top Influencers reads CITED BY and ranks by citations received.
   - The top strip shows "N active edges".
   - `/api/edges/<cycle>?round=3` is non-empty.
 - [ ] The post-run pipeline runs. With holdings loaded, `advisory/<cycle>_advisory.json` appears first; the server log then shows `post_run_pipeline_completed` with `report=ran` (and `advisory=ran`, or a `skipped_*` value naming why the advisory did not run).
 - [ ] AdvisoryV2 has one row per holding, and the Overview tiles show real values.
 - [ ] The report then auto-generates at `reports/<cycle>_report.md`. It contains global consensus **and** signal-flip sections (F-06), a minority of dissenters rather than all 100 (F-01), and only real flips (F-02). The "social post reach" section is currently empty (BACKLOG 1.1).
 - [ ] InterviewV2 gives a real answer from `/api/interview/<agent>`.
-- [ ] Replay: start a past cycle; frames keep streaming (F-24); Forward stops at the cycle's real depth (F-12); live start is blocked during replay (B4).
+- [ ] Replay: start a past cycle; frames keep streaming (F-24); Forward stops at the cycle's real depth (F-12); live start is blocked during replay (B4). Reload the page during replay: the bar is still there and Exit replay works.
 - [ ] CycleHistory, Settings, Data Sources, and BracketDeepDive open as styled full-screen takeovers.
 - [ ] Double-clicking Run starts once (F-33).
-- [ ] Onboarding: stop the backend, clear `localStorage` key `as_onboarding_v1_complete`, and confirm the final step's run button is disabled and reads "Start backend first" (`onboarding.tsx:256-264`).
-- [ ] Governor warning: when `governor_state` is `paused` or `crisis`, a dismissible banner appears over the dashboard (`app_v2.tsx:238-246, 552-554`). There is no way to force it from the UI: the DEV tweaks "Demo state → Mem ceiling" button is a no-op, and the old full-screen `MemoryPausedState` is dead code (BACKLOG 2.2).
+- [ ] Onboarding: stop the backend, clear `localStorage` key `as_onboarding_v1_complete`, and confirm the final step's run button is disabled and reads "Start backend first" (`onboarding.tsx:243-251`).
+- [ ] Governor warning: when `governor_state` is `paused` or `crisis`, a dismissible banner appears over the dashboard (`app_v2.tsx:258-262, 507-533`). There is no way to force it from the UI: the DEV tweaks "Demo state → Mem ceiling" button is a no-op, and the old full-screen `MemoryPausedState` is dead code (BACKLOG 2.2).
 - [ ] If a shock is injected: the report's shock-impact section shows non-zero percentages and arrows (F-03).
 - [ ] `uv run python scripts/compare_cycles.py --limit 1` shows the new cycle's metrics. `r*_parse_errors` should be low.
 

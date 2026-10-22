@@ -12,6 +12,7 @@
 // them downstream, restoring the deterministic layout.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BRACKETS, normalizeBracketKey } from '../data';
+import { signalColor } from '../lib/signals';
 
 // Backend BracketKey is PascalCase ('Quants', 'SellSide', 'EventDriven')
 // while BRACKETS const values are snake_case ('quants', 'sell_side', 'event_driven').
@@ -138,9 +139,6 @@ export function Viz({ agents: rawAgents, edges: rawEdges = /** @type {Array<[str
     return () => ro.disconnect();
   }, []);
 
-  // parse_error gets a distinct muted treatment (not coerced to hold color).
-  const sigColor = (s) => s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : s === 'parse_error' ? 'var(--text-3)' : 'var(--hold)';
-
   const gridData = useMemo(
     () => (layout === 'grid' ? layoutGrid(agents, size.w, size.h) : null),
     [agents, layout, size.w, size.h],
@@ -243,7 +241,7 @@ export function Viz({ agents: rawAgents, edges: rawEdges = /** @type {Array<[str
         <g>
           {agents.map(a => {
             const p = positions[a.id]; if (!p) return null;
-            const color = sigColor(a.signal);
+            const color = signalColor(a.signal); // pending and failed are never HOLD-coloured
             const r = a.radius * 0.7 + (layout === 'grid' ? 6 : 0);
             const isHL = highlightId === a.id;
             if (layout === 'grid') {

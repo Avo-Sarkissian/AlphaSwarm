@@ -11,27 +11,10 @@ import { useState, useEffect } from 'react';
 import { Icon } from './icons';
 import { simShock } from '../api/simulation';
 import { listCycles, replayAdvance, replayStop } from '../api/replay';
-import { ApiError } from '../api/client';
-import { useConnection } from '../context/ConnectionContext';
-
-// ─── Helpers ─────────────────────────────────────────────────────────────
-
-function formatApiError(e) {
-  if (e instanceof ApiError) {
-    const detail =
-      e.body && typeof e.body === 'object' && 'detail' in e.body
-        ? e.body.detail
-        : null;
-    const message =
-      typeof detail === 'string'
-        ? detail
-        : detail && typeof detail === 'object' && 'message' in detail
-        ? detail.message
-        : null;
-    return message ? `HTTP ${e.status} — ${message}` : `HTTP ${e.status}`;
-  }
-  return String((e && e.message) || e || 'unknown error');
-}
+import { useFrameMeta } from '../context/FrameMetaContext';
+import { useRounds } from '../hooks/useRounds';
+import { formatApiError } from '../lib/apiError';
+import { InlineError } from './InlineError';
 
 // ─── ShockDrawer ─────────────────────────────────────────────────────────
 // Backend body: { shock_text: string }. The drawer builds the string from
@@ -133,71 +116,44 @@ export function ShockDrawer({ onClose }) {
 }
 
 // ─── ReplayBar ───────────────────────────────────────────────────────────
-// KR-41.1-06: Rewind disabled — backend exposes advance/stop only.
-
-export function ReplayBar({ cycle, onExit }) {
-  // Round comes from the frame's roundNum (Connection lastFrame) — phase is a
-  // string ('replay'/'round_N'/'complete'), so Number(phase) was always NaN
-  // and the progress track never moved. Fall back to 1 when unknown.
-  const { lastFrame } = useConnection();
-  const frameRound = lastFrame?.roundNum;
-  const round =
-    typeof frameRound === 'number' && frameRound >= 1
-      ? Math.min(frameRound, 3)
-      : lastFrame?.phase === 'complete'
-      ? 3
-      : 1;
+// Driven entirely by the frame (mode === 'replay' decides whether the app
+// mounts it), so it survives a page reload: the backend replay is the source
+// of truth, not local UI state. Rewind has no backend endpoint yet
+// (docs/DECISIONS.md#kr-41-1-06).
+export function ReplayBar() {
+  const { cycleId } = useFrameMeta();
+  const { rounds, numRounds, currentRound } = useRounds();
+  const round = currentRound ?? 1;
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
 
-  async function onForward() {
+  async function run(action) {
     if (busy) return;
     setBusy(true);
+    setErr(null);
     try {
-      await replayAdvance();
+      await action();
     } catch (e) {
-      // KR-41.1-08: errors console.logged; structured error stream deferred.
-      // eslint-disable-next-line no-console
-      console.error('replay advance failed', e);
+      setErr(formatApiError(e));
     } finally {
       setBusy(false);
     }
-  }
-
-  async function onExitReplay() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await replayStop();
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('replay stop failed', e);
-    } finally {
-      setBusy(false);
-    }
-    if (onExit) onExit();
   }
 
   return (
     <div className="replay-bar">
       <div className="label" style={{ color: 'var(--accent)' }}>
-        <Icon name="replay" size={11} /> REPLAY · {cycle?.cycle_id ?? cycle?.id ?? ''}
+        <Icon name="replay" size={11} /> REPLAY · {cycleId ?? ''}
       </div>
-      {/* KR-41.1-06: Rewind disabled — no backend endpoint yet. */}
-      <button
-        className="btn ghost"
-        disabled
-        title="Rewind not supported (KR-41.1-06)"
-      >
+      {/* Disabled until the backend can rewind (docs/DECISIONS.md#kr-41-1-06). */}
+      <button className="btn ghost" disabled title="Rewind is not supported yet">
         <Icon name="rewind" />
       </button>
       <div className="replay-track">
-        <div className="replay-fill" style={{ width: `${(round / 3) * 100}%` }} />
+        <div className="replay-fill" style={{ width: `${(round / numRounds) * 100}%` }} />
         <div className="replay-ticks">
-          {['SEED', 'R1', 'R2', 'R3'].map((t, i) => (
-            <span
-              key={t}
-              style={{ color: i <= round ? 'var(--accent)' : 'var(--text-3)' }}
-            >
+          {['SEED', ...rounds.map((r) => `R${r}`)].map((t, i) => (
+            <span key={t} style={{ color: i <= round ? 'var(--accent)' : 'var(--text-3)' }}>
               {t}
             </span>
           ))}
@@ -205,14 +161,16 @@ export function ReplayBar({ cycle, onExit }) {
       </div>
       <button
         className="btn ghost"
-        onClick={onForward}
-        disabled={busy || round >= 3}
+        aria-label="Next round"
+        onClick={() => run(replayAdvance)}
+        disabled={busy || round >= numRounds}
       >
         <Icon name="forward" />
       </button>
-      <button className="btn" onClick={onExitReplay} disabled={busy}>
+      <button className="btn" onClick={() => run(replayStop)} disabled={busy}>
         Exit replay
       </button>
+      <InlineError error={err} onDismiss={() => setErr(null)} />
     </div>
   );
 }

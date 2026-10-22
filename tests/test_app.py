@@ -30,7 +30,20 @@ def test_create_app_state(monkeypatch: pytest.MonkeyPatch) -> None:
     assert app_state.settings.app_name == "AlphaSwarm"
     assert len(app_state.personas) == 100
     assert app_state.governor.current_limit == 8
-    assert app_state.state_store.snapshot().agent_count == 100
+    # No run has started, so the roster is empty (begin_run installs it at SEEDING).
+    assert app_state.state_store.snapshot().agent_count == 0
+
+
+def test_create_app_state_publishes_the_configured_round_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The idle frame carries ALPHASWARM_NUM_ROUNDS before any run has started."""
+    clear_alphaswarm_env(monkeypatch)
+    monkeypatch.setenv("ALPHASWARM_NUM_ROUNDS", "2")
+
+    app_state = create_app_state(AppSettings(), generate_personas(load_bracket_configs()))
+
+    assert app_state.state_store.snapshot().num_rounds == 2
 
 
 def test_main_entry_point(

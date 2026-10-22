@@ -1,5 +1,8 @@
-// v2 states — idle, seeding, memory-paused, error, empty-cycles.
-// Each is a full-canvas overlay that replaces the force graph.
+// v2 states — idle, seeding, memory-paused, error.
+// Idle and seeding are overlays inside the dashboard canvas (.canvas-wrap);
+// the shell stays visible around them. ErrorState replaces the dashboard when
+// the WebSocket gives up. MemoryPausedState is not mounted (a governor pause
+// shows a dismissible banner instead).
 //
 // Lifted from AlphaSwarm-2/src/states.jsx (W2 Plan 41.6-02 task 2) and
 // converted to ES modules per D-03. Sourced design's BRACKETS reference is
@@ -9,13 +12,12 @@ import { Icon } from './icons';
 import { BRACKETS } from '../data';
 
 // ─── IDLE ─────────────────────────────────────────────────────────────
-// Pre-seed state: system ready, waiting for user to enter a seed + Run.
-// SystemCheck rows: Ollama RAM matches CLAUDE.md M1 Max 64GB target;
-// Agents/brackets derived from BRACKETS (CONTRACT §6 source of truth);
-// Data sources discloses mocked status (KR-41.1-02); Storage drops the
-// fabricated byte count. KR-41.6-11 partial closure — full live probes
-// (real Ollama health, disk usage) still pending W4 Onboarding wiring.
-export function IdleState({ seed, setSeed, onStart, ollamaOk = true, onShowHistory }) {
+// Overlay inside the dashboard canvas while idle: the topbar (seed, Run,
+// Settings, replay) stays usable above it. The seed is entered in
+// the topbar only. SystemCheck rows are static design copy until they are
+// fed from /api/health (docs/DECISIONS.md#kr-41-6-11); the Data sources row
+// says the feed is mocked (docs/DECISIONS.md#kr-41-1-02).
+export function IdleState({ seed, numRounds, onShowHistory }) {
   const totalPersonas = BRACKETS.reduce((sum, b) => sum + b.count, 0);
   return (
     <div className="state-overlay">
@@ -28,7 +30,7 @@ export function IdleState({ seed, setSeed, onStart, ollamaOk = true, onShowHisto
         <div className="state-sub">
           {seed
             ? `Seed staged: "${seed}". Press Run when ready.`
-            : 'Enter a market-moving scenario as a seed. 100 agents will be spawned across 10 brackets and deliberate across 3 rounds.'}
+            : `Enter a market-moving scenario in the seed bar above. ${totalPersonas} agents across ${BRACKETS.length} brackets will deliberate over ${numRounds} rounds.`}
         </div>
         {onShowHistory && (
           <button
@@ -41,31 +43,8 @@ export function IdleState({ seed, setSeed, onStart, ollamaOk = true, onShowHisto
             <span>Browse previous runs</span>
           </button>
         )}
-        {/* Optional inline seed editor + Run handler — used when the parent
-            wants to mount IdleState as a true pre-run gate. The Topbar's
-            seed input is the canonical entry; these props are no-ops if not
-            supplied. KR-41.6-11: SystemCheck rows below are design copy. */}
-        {setSeed && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '12px 0' }}>
-            <input
-              value={seed || ''}
-              onChange={(e) => setSeed(e.target.value)}
-              placeholder="Seed rumor…"
-              style={{
-                flex: 1, padding: '6px 10px', background: 'var(--bg-2)',
-                border: '1px solid var(--border-2)', color: 'var(--text)',
-                fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
-              }}
-            />
-            {onStart && (
-              <button className="btn primary" onClick={onStart}>
-                <Icon name="play" /> Run
-              </button>
-            )}
-          </div>
-        )}
         <div className="idle-grid">
-          <SystemCheck label="Ollama" value="qwen3.6:35b-a3b-nvfp4 (MLX) · 64GB RAM" ok={ollamaOk} />
+          <SystemCheck label="Ollama" value="qwen3.6:35b-a3b-nvfp4 (MLX) · 64GB RAM" ok />
           <SystemCheck label="Agents" value={`${totalPersonas} personas · ${BRACKETS.length} brackets`} ok />
           <SystemCheck label="Data sources" value="mocked · pending live wire" ok />
           <SystemCheck label="Storage" value="~/.alphaswarm" ok />
@@ -88,7 +67,8 @@ function SystemCheck({ label, value, ok }) {
 }
 
 // ─── SEEDING ──────────────────────────────────────────────────────────
-// Spawning 100 agents: show cascade of agent IDs lighting up by bracket.
+// Overlay inside the dashboard canvas while seeding; the spawn timer is cosmetic
+// until it is replaced with honest phase text.
 export function SeedingState({ seed }) {
   const [n, setN] = useState(0);
   useEffect(() => {

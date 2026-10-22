@@ -2,16 +2,13 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from '../api/client';
 import type { CycleMeta } from '../types';
 
-// GET /api/simulate/status is NOT implemented. Derive cycleId from the first
-// entry of /api/replay/cycles (newest first). Poll every 5s.
+// Newest completed cycle from GET /api/replay/cycles (newest first), polled
+// every 5 s while at least one consumer is mounted. It is only the default
+// for report/advisory pickers (see lib/defaultCycle.ts); the live dashboard
+// keys everything on the frame's cycle_id.
 //
-// Module-level singleton: ONE interval shared by all consumers. Replaces the
-// previous per-consumer usePolling() approach (each consumer was creating its
-// own interval AND firing an immediate tick on mount, producing 8x rapid
-// requests with 4 consumers under React StrictMode double-mount).
-//
-// Public return shape preserved byte-identical for EdgesContext, ReportModal,
-// AdvisoryV2 (the existing destructure consumers).
+// Module-level singleton: one interval shared by all consumers, so React
+// StrictMode double-mounts do not multiply requests.
 
 interface CycleState {
   cycleId: string | null;
@@ -56,9 +53,17 @@ async function tick() {
   return inFlight;
 }
 
+// What a consumer mounting now should see. With no loop running, the mount
+// starts a fresh lookup, so the cached answer may be stale until it lands.
+function mountSnapshot(): CycleState {
+  return intervalId === null ? { ...state, loading: true } : state;
+}
+
 function ensureLoop() {
   if (intervalId !== null) return;
-  // Immediate first fetch ONCE per interval lifecycle.
+  // Immediate first fetch ONCE per interval lifecycle; until it answers,
+  // consumers see loading (a cycle may have completed since the last loop).
+  state = { ...state, loading: true };
   void tick();
   intervalId = setInterval(() => void tick(), INTERVAL_MS);
 }
@@ -71,8 +76,8 @@ function teardownIfIdle() {
   }
 }
 
-export function useCurrentCycle() {
-  const [snap, setSnap] = useState<CycleState>(state);
+export function useLatestCompletedCycle() {
+  const [snap, setSnap] = useState<CycleState>(mountSnapshot);
 
   useEffect(() => {
     subscribers.add(setSnap);

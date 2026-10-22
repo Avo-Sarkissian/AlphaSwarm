@@ -14,7 +14,9 @@
 // every other error ends the poll and its envelope message is shown.
 import { useState, useMemo, useEffect } from 'react';
 import { Icon } from './icons';
-import { useCurrentCycle } from '../hooks/useCurrentCycle';
+import { useFrameMeta } from '../context/FrameMetaContext';
+import { useLatestCompletedCycle } from '../hooks/useLatestCompletedCycle';
+import { defaultCycleId } from '../lib/defaultCycle';
 import { usePolling } from '../hooks/usePolling';
 import { reportFetch, reportGenerate, reportPoll, type ReportContent } from '../api/report';
 import { ApiError } from '../api/client';
@@ -46,12 +48,15 @@ export function ReportModal({
   cycleId: cycleIdProp,
   onClose,
 }: {
-  /** Explicit cycle to report on (e.g. picked in CycleHistory). Defaults to the current/newest cycle. */
+  /** Explicit cycle to report on (e.g. picked in CycleHistory). Defaults to defaultCycleId(). */
   cycleId?: string | null;
   onClose: () => void;
 }) {
-  const { cycleId: currentCycleId } = useCurrentCycle();
-  const cycleId = cycleIdProp ?? currentCycleId;
+  const meta = useFrameMeta();
+  const { cycleId: latestCompleted, loading: latestLoading } = useLatestCompletedCycle();
+  const cycleId = cycleIdProp ?? defaultCycleId(meta, latestCompleted);
+  // No cycle yet only means "none completed" once the lookup has answered.
+  const findingCycle = cycleId === null && latestLoading;
 
   // UX contract: the modal NEVER auto-kicks generation. On open, GET the report:
   //   - 200 -> show it
@@ -185,7 +190,12 @@ export function ReportModal({
         </div>
 
         <div className="modal-body no-pad report rv2-scroll">
-          {!cycleId && (
+          {findingCycle && (
+            <div className="report-hero" style={{ padding: 24 }}>
+              <div className="label">Finding the latest completed cycle…</div>
+            </div>
+          )}
+          {!cycleId && !findingCycle && (
             <div className="report-hero" style={{ padding: 24 }}>
               <div className="label">No completed cycle to report on.</div>
             </div>

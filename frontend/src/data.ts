@@ -1,7 +1,7 @@
 // src/data.ts — only the BRACKETS constant per D-14.
 // All mock data generators (PRNG, agent factory, bracket summary factory,
 // the global window assignment) from AlphaSwarm-2/src/data.jsx are NOT lifted.
-// Live data flows through useAgents()/useBrackets()/useRationales() contexts.
+// Live data flows through the useAgents()/useRationales() contexts.
 //
 // Source: AlphaSwarm-2/src/data.jsx lines 3-14 (BRACKETS array literal only).
 

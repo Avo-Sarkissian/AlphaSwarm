@@ -1,103 +1,118 @@
-// useRunGate — shared gate for the Run action across onboarding and app_v2.
+// useRunGate — the one Run path for onboarding and the dashboard.
 //
-// Design rationale (Task 20):
-//   - LOCAL mode: calls simStartFn immediately, no modal, no extra blocking.
-//   - CLOUD / MIXED mode: fetches a cost estimate, shows RunConfirmModal, and
-//     only calls simStartFn after the user confirms.
+//   - LOCAL mode: starts at once, no modal.
+//   - CLOUD / MIXED mode: shows RunConfirmModal with the cost estimate and
+//     starts only on Confirm. When the estimate fails the modal still opens
+//     ("estimate unavailable — run anyway?"), so a cloud run never starts
+//     without a chance to cancel.
+//   - Backend unreachable (the estimate request never got an answer): stops
+//     with the reachability hint; there is nothing to confirm or start.
 //
-// Estimate-failure UX choice:
-//   On getEstimate() failure we show the RunConfirmModal with an
-//   "estimate unavailable, run anyway?" message instead of proceeding silently.
-//   Rationale: a cloud run should never start without giving the user a chance
-//   to cancel — a hidden estimate failure that auto-launches could incur
-//   unexpected cost. Logging a console.warn is sufficient telemetry; blocking
-//   the user on a network error is not acceptable, so the modal still allows
-//   Confirm. If the user is confident, they can still run.
-import { ReactNode, useRef, useState } from 'react';
+// The gate owns simStart. It never rejects: failures become `error` (via
+// formatApiError) and every request ends in onSettled(ok) — success, failure
+// and cancel alike — so callers can reset their own state.
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { RunConfirmModal } from '../components/run_confirm';
-import { getEstimate, RunEstimate } from '../api/settings';
+import { getEstimate, type RunEstimate } from '../api/settings';
+import { simStart } from '../api/simulation';
+import { formatApiError, isBackendUnreachable } from '../lib/apiError';
 import { gateDecide } from '../lib/runGate';
 
-export interface RunGateState {
-  /** Call this instead of simStart directly. */
-  requestRun: (seed: string) => Promise<void>;
-  /** Render this in the component's JSX (null when no modal is needed). */
-  modal: ReactNode;
+export interface RunGateOptions {
+  onSettled?: (ok: boolean) => void;
 }
 
-/**
- * Wraps a simStartFn with an optional pre-run cost confirmation step.
- *
- * LOCAL mode → simStartFn called immediately, modal is always null.
- * CLOUD/MIXED mode → modal shown with estimate; Confirm → simStartFn called.
- * Estimate failure → modal shown with "estimate unavailable" message.
- */
-export function useRunGate(
-  simStartFn: (seed: string) => Promise<unknown>,
-): RunGateState {
-  // null = closed; non-null = modal open with this estimate (or undefined for failed estimate)
-  const [pending, setPending] = useState<{
-    seed: string;
-    estimate: RunEstimate | null;
-  } | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Re-entrancy guard (ref, not state, so it is checked synchronously before
-  // the getEstimate await). The Run button is not disabled during that
-  // round-trip — `running` only flips after a WS frame arrives — so a fast
-  // double-click would otherwise fire requestRun twice and, in LOCAL mode,
-  // start the simulation twice (F-33).
-  const requestingRef = useRef(false);
+export interface RunGateState {
+  /** Start a run for this seed; the result arrives through error/pending/onSettled. */
+  requestRun(seed: string): void;
+  /** Render this in the component's JSX (null when no confirmation is open). */
+  modal: ReactNode;
+  error: string | null;
+  pending: boolean;
+  /** Forget `error` (the error row's Dismiss; also once a run is under way). */
+  clearError(): void;
+}
 
-  const requestRun = async (seed: string): Promise<void> => {
-    if (requestingRef.current) return;
-    requestingRef.current = true;
-    try {
-      let estimate: RunEstimate | null = null;
-      let estimateFailed = false;
+export function useRunGate(opts: RunGateOptions = {}): RunGateState {
+  // Latest callbacks for the async flow, refreshed after every render (never
+  // written during render).
+  const optsRef = useRef(opts);
+  useEffect(() => {
+    optsRef.current = opts;
+  });
+  const [confirm, setConfirm] = useState<{ seed: string; estimate: RunEstimate | null } | null>(
+    null,
+  );
+  const [starting, setStarting] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Synchronous re-entrancy guard: `pending` only updates on the next render,
+  // so a fast double-click would otherwise start twice in LOCAL mode
+  // (docs/DECISIONS.md#f-33).
+  const inFlight = useRef(false);
+
+  const settle = useCallback((ok: boolean, failure?: unknown) => {
+    inFlight.current = false;
+    setPending(false);
+    setStarting(false);
+    setConfirm(null);
+    if (failure !== undefined) setError(formatApiError(failure));
+    optsRef.current.onSettled?.(ok);
+  }, []);
+
+  const start = useCallback(
+    async (seed: string) => {
+      setStarting(true);
       try {
-        estimate = await getEstimate();
-      } catch (err) {
-        // Estimate failure: the modal still opens so the user can cancel.
-        // eslint-disable-next-line no-console
-        console.warn('[useRunGate] getEstimate failed; showing modal without estimate', err);
-        estimateFailed = true;
+        await simStart(seed);
+        settle(true);
+      } catch (e) {
+        settle(false, e);
       }
+    },
+    [settle],
+  );
 
-      const decision = gateDecide(estimate, estimateFailed);
-      if (decision.action === 'start_direct') {
-        await simStartFn(seed);
-        return;
-      }
-      setPending({ seed, estimate: decision.estimate });
-    } finally {
-      requestingRef.current = false;
-    }
-  };
+  const requestRun = useCallback(
+    (seed: string) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      setPending(true);
+      setError(null);
+      void (async () => {
+        let estimate: RunEstimate | null = null;
+        let estimateFailed = false;
+        try {
+          estimate = await getEstimate();
+        } catch (e) {
+          if (isBackendUnreachable(e)) {
+            settle(false, e);
+            return;
+          }
+          estimateFailed = true;
+        }
+        const decision = gateDecide(estimate, estimateFailed);
+        if (decision.action === 'start_direct') {
+          await start(seed);
+          return;
+        }
+        setConfirm({ seed, estimate: decision.estimate });
+      })();
+    },
+    [settle, start],
+  );
 
-  const handleConfirm = async (): Promise<void> => {
-    if (!pending) return;
-    setBusy(true);
-    try {
-      await simStartFn(pending.seed);
-    } finally {
-      setBusy(false);
-      setPending(null);
-    }
-  };
-
-  const handleCancel = (): void => {
-    setPending(null);
-  };
+  const clearError = useCallback(() => setError(null), []);
 
   const modal: ReactNode =
-    pending !== null ? (
+    confirm !== null ? (
       <RunConfirmModal
-        estimate={pending.estimate}
-        onConfirm={() => void handleConfirm()}
-        onCancel={handleCancel}
-        busy={busy}
+        estimate={confirm.estimate}
+        busy={starting}
+        onConfirm={() => void start(confirm.seed)}
+        onCancel={() => settle(false)}
       />
     ) : null;
 
-  return { requestRun, modal };
+  return { requestRun, modal, error, pending, clearError };
 }
