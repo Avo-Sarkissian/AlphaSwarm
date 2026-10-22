@@ -14,6 +14,11 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.neo4j
 
 
+# Cycle ids this module protected. Only these are released again; the session-scoped
+# seeded cycles stay protected for the whole session.
+_HARNESS_CYCLES: list[str] = []
+
+
 async def test_neo4j_items_get_sockets_and_the_session_loop(
     request: pytest.FixtureRequest, neo4j_test_driver: AsyncDriver
 ) -> None:
@@ -36,6 +41,7 @@ async def test_graph_manager_test_keeps_protected_cycles(
         rumor, SeedEvent(raw_rumor=rumor, entities=[], overall_sentiment=0.0)
     )
     NEO4J_PROTECTED_CYCLES.add(cycle_id)
+    _HARNESS_CYCLES.append(cycle_id)
     # The next test checks it is still there after this test's teardown.
 
 
@@ -44,12 +50,13 @@ async def test_protected_cycle_survived_the_previous_teardown(
 ) -> None:
     from tests.conftest import NEO4J_PROTECTED_CYCLES
 
-    assert NEO4J_PROTECTED_CYCLES, "the previous test must run first (same module, in order)"
+    assert _HARNESS_CYCLES, "the previous test must run first (same module, in order)"
     async with neo4j_test_driver.session(database="neo4j") as session:
         result = await session.run(
             "MATCH (c:Cycle) WHERE c.cycle_id IN $ids RETURN count(c) AS n",
-            ids=sorted(NEO4J_PROTECTED_CYCLES),
+            ids=sorted(_HARNESS_CYCLES),
         )
         record = await result.single()
-    assert record is not None and record["n"] == len(NEO4J_PROTECTED_CYCLES)
-    NEO4J_PROTECTED_CYCLES.clear()
+    assert record is not None and record["n"] == len(_HARNESS_CYCLES)
+    NEO4J_PROTECTED_CYCLES.difference_update(_HARNESS_CYCLES)
+    _HARNESS_CYCLES.clear()

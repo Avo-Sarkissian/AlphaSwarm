@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from alphaswarm.graph import GraphStateManager
     from alphaswarm.types import AgentPersona, BracketConfig
+    from tests.support.seed_builder import SeededCycle
 
 
 # ---------------------------------------------------------------------------
@@ -337,3 +338,30 @@ async def graph_manager_test(
         for query in _SCOPED_CLEANUP:
             result = await session.run(query, keep=keep)
             await result.consume()
+
+
+# ---------------------------------------------------------------------------
+# Seeded cycle for read-model and report golden tests
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def seeded_cycle(neo4j_test_driver: AsyncDriver) -> SeededCycle:
+    """Session-scoped 3-round cycle in neo4j-test, written through the real write API.
+
+    Built once (deterministic content, see tests/support/seed_builder.py) and protected
+    from graph_manager_test's function-scoped cleanup. neo4j_test_driver's session teardown
+    wipes the throwaway database afterwards.
+    """
+    from alphaswarm.graph import GraphStateManager
+    from tests.support.seed_builder import build_seeded_cycle
+
+    gm = GraphStateManager(
+        driver=neo4j_test_driver,
+        personas=generate_personas(load_bracket_configs()),
+        database=NEO4J_TEST_DATABASE,
+    )
+    await gm.ensure_schema()
+    seeded = await build_seeded_cycle(gm, num_rounds=3)
+    NEO4J_PROTECTED_CYCLES.add(seeded.cycle_id)
+    return seeded
