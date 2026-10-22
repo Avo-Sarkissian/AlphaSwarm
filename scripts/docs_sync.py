@@ -442,11 +442,11 @@ def _resume_quality(rows: Mapping[str, HeadlineRow]) -> str:
     coverage = _measured(rows, "backend_coverage")
     frontend = _measured(rows, "frontend_tests")
     contracts = _measured(rows, "import_contracts")
-    gates = "gated mypy strict, ruff, ESLint and " + (
-        f"{contracts} import-linter contracts"
-        if contracts is not None
-        else "import-linter contracts"
-    )
+    if contracts is None:
+        imports = "import-linter contracts"
+    else:
+        imports = f"{contracts} import-linter contract{'' if contracts == '1' else 's'}"
+    gates = f"gated mypy strict, ruff, ESLint and {imports}"
     if tests is not None and coverage is not None and frontend is not None:
         lead = (
             f"Raised the quality bar to {tests} backend tests ({coverage} coverage) and {frontend} "

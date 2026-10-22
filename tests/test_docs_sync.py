@@ -284,6 +284,12 @@ def test_resume_falls_back_when_values_are_not_measured(ds: ModuleType) -> None:
     assert "a static read-only demo build" in text
 
 
+def test_resume_counts_a_single_import_linter_contract(ds: ModuleType) -> None:
+    one = ds.render_resume(_rows(ds, import_contracts="1"), DEFAULT_BRACKETS)
+    assert "and 1 import-linter contract;" in one
+    assert "and 5 import-linter contracts;" in ds.render_resume(_rows(ds), DEFAULT_BRACKETS)
+
+
 def test_resume_never_claims_the_github_contribution_graph(ds: ModuleType) -> None:
     assert "contribution" not in ds.render_resume(_rows(ds), DEFAULT_BRACKETS).lower()
 
