@@ -54,3 +54,24 @@ describe('BracketDeepDive edges', () => {
     expect(screen.getAllByText('↗—')).toHaveLength(2);
   });
 });
+
+describe('BracketDeepDive tallies', () => {
+  it('reports pending and failed members and shares over decided ones', () => {
+    render(
+      <BracketDeepDive
+        bracket={SELL_SIDE}
+        agents={[
+          makeAgent('sell_side_01', 'buy', 0.8),
+          makeAgent('sell_side_02', null, 0), // the store holds pending agents at confidence 0
+          makeAgent('sell_side_03', 'parse_error', 0),
+          makeAgent('sell_side_04', 'sell', 0.6),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('1 PENDING')).not.toBeNull();
+    expect(screen.queryByText('1 FAILED')).not.toBeNull();
+    expect(screen.getAllByText('50%')).toHaveLength(2);
+    expect(screen.queryByText('AVG CONF')?.parentElement?.textContent).toContain('70%');
+  });
+});

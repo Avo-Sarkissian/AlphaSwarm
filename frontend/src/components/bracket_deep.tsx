@@ -17,6 +17,7 @@ import { Icon } from './icons';
 import { useEdgesCtx } from '../context/EdgesContext';
 import { normalizeBracketKey } from '../data';
 import { signalClass, signalColor, signalLabel } from '../lib/signals';
+import { consensusLeader, tallySignals } from '../lib/tally';
 import type { AgentView } from '../types';
 
 const BRACKET_COLORS: Record<string, string> = {
@@ -76,24 +77,27 @@ export function BracketDeepDive({
     [members, sortBy],
   );
 
-  const buy = members.filter((a) => a.signal === 'buy').length;
-  const sell = members.filter((a) => a.signal === 'sell').length;
-  const hold = members.filter((a) => a.signal === 'hold').length;
-  const total = members.length || 1;
+  // Pending (null) and failed members are not HOLD; shares, the average and
+  // the histogram are over decided members only (docs/DECISIONS.md#adr-streaming-state).
+  const tally = tallySignals(members);
+  const lead = consensusLeader(tally);
+  const decided = members.filter(
+    (a) => a.signal === 'buy' || a.signal === 'sell' || a.signal === 'hold',
+  );
+  const pctOfDecided = (n: number) => (tally.decided > 0 ? (n / tally.decided) * 100 : 0);
   const flipped = members.filter((a) => a.flipped).length;
-  const avgConf = members.reduce((s, a) => s + a.confidence, 0) / total;
+  const avgConf =
+    decided.length > 0 ? decided.reduce((s, a) => s + a.confidence, 0) / decided.length : 0;
 
   // Confidence histogram buckets: 0–25, 25–50, 50–75, 75–100.
   const buckets = [0, 25, 50, 75].map((lo) => ({
     lo,
     hi: lo + 25,
-    count: members.filter((a) => a.confidence * 100 >= lo && a.confidence * 100 < lo + 25).length,
+    count: decided.filter((a) => a.confidence * 100 >= lo && a.confidence * 100 < lo + 25).length,
   }));
   const maxBucket = Math.max(...buckets.map((b) => b.count), 1);
 
   const color = BRACKET_COLORS[bracket.bracket] ?? 'var(--accent)';
-  const sigColor = (s: string) =>
-    s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : 'var(--hold)';
 
   // Edges of the round on screen (EdgesContext): source_id cites target_id, so
   // outDegree = citations this agent made, inDegree = times it was cited
@@ -113,9 +117,11 @@ export function BracketDeepDive({
         <div className="bd-head-meta">
           <span className="label">{members.length} AGENTS</span>
           <span className="label">·</span>
-          <span className="label" style={{ color: 'var(--buy)' }}>{buy} BUY</span>
-          <span className="label" style={{ color: 'var(--sell)' }}>{sell} SELL</span>
-          <span className="label" style={{ color: 'var(--hold)' }}>{hold} HOLD</span>
+          <span className="label" style={{ color: 'var(--buy)' }}>{tally.buy} BUY</span>
+          <span className="label" style={{ color: 'var(--sell)' }}>{tally.sell} SELL</span>
+          <span className="label" style={{ color: 'var(--hold)' }}>{tally.hold} HOLD</span>
+          {tally.thinking > 0 && <span className="label">{tally.thinking} PENDING</span>}
+          {tally.parseError > 0 && <span className="label">{tally.parseError} FAILED</span>}
           <span className="label">·</span>
           <span className="label">{flipped} FLIPPED</span>
         </div>
@@ -128,21 +134,21 @@ export function BracketDeepDive({
           <div className="bd-stat-section">
             <div className="label" style={{ marginBottom: 10 }}>SIGNAL DISTRIBUTION</div>
             <div className="bd-signal-bars">
-              {[
-                { sig: 'buy', n: buy },
-                { sig: 'sell', n: sell },
-                { sig: 'hold', n: hold },
-              ].map(({ sig, n }) => (
+              {([
+                { sig: 'buy', n: tally.buy },
+                { sig: 'sell', n: tally.sell },
+                { sig: 'hold', n: tally.hold },
+              ] as const).map(({ sig, n }) => (
                 <div key={sig} className="bd-sig-row">
                   <span className={`rationale-signal sig-${sig}`}>{sig.toUpperCase()}</span>
                   <div className="bd-sig-bar">
                     <div
                       className="bd-sig-fill"
-                      style={{ width: `${(n / total) * 100}%`, background: sigColor(sig) }}
+                      style={{ width: `${pctOfDecided(n)}%`, background: signalColor(sig) }}
                     />
                   </div>
-                  <span className="mono" style={{ fontSize: 13, color: sigColor(sig) }}>{n}</span>
-                  <span className="label">{((n / total) * 100).toFixed(0)}%</span>
+                  <span className="mono" style={{ fontSize: 13, color: signalColor(sig) }}>{n}</span>
+                  <span className="label">{pctOfDecided(n).toFixed(0)}%</span>
                 </div>
               ))}
             </div>
@@ -177,8 +183,8 @@ export function BracketDeepDive({
               <BdStat label="FLIPPED" value={`${flipped}/${members.length}`} />
               <BdStat
                 label="CONSENSUS"
-                value={buy >= sell && buy >= hold ? 'BUY' : sell >= hold ? 'SELL' : 'HOLD'}
-                tone={buy >= sell && buy >= hold ? 'buy' : sell >= hold ? 'sell' : 'hold'}
+                value={lead.signal ? lead.signal.toUpperCase() : '—'}
+                tone={lead.signal ?? undefined}
               />
             </div>
           </div>

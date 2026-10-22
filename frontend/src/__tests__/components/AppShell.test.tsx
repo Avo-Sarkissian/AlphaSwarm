@@ -70,3 +70,15 @@ describe('Top Influencers', () => {
     expect(panel.textContent).toContain('influence appears once round 2');
   });
 });
+
+describe('Brackets panel', () => {
+  it('derives the bars from the agents on screen, leaving pending agents blank', () => {
+    renderAt(<DashboardShell />, 'live', {
+      agents: [makeAgent('sell_side_01', 'buy'), makeAgent('sell_side_02', null)],
+    });
+    const row = screen.getByText('sell_side').closest('.bracket-row') as HTMLElement;
+    expect(row.querySelector('.bracket-count')?.textContent).toBe('2');
+    expect((row.querySelector('.b-buy') as HTMLElement).style.width).toBe('50%');
+    expect((row.querySelector('.b-hold') as HTMLElement).style.width).toBe('0%');
+  });
+});

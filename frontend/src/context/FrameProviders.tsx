@@ -3,7 +3,6 @@
 import type { ReactNode } from 'react';
 import type { StateFrame } from '../types';
 import { AgentsProvider } from './AgentsContext';
-import { BracketProvider } from './BracketContext';
 import { ConnectionProvider } from './ConnectionContext';
 import { FrameMetaProvider } from './FrameMetaContext';
 import { RationalesProvider } from './RationalesContext';
@@ -25,9 +24,7 @@ export function FrameProviders({
       <FrameMetaProvider frame={frame}>
         <TelemetryProvider frame={frame}>
           <AgentsProvider frame={frame}>
-            <BracketProvider frame={frame}>
-              <RationalesProvider frame={frame}>{children}</RationalesProvider>
-            </BracketProvider>
+            <RationalesProvider frame={frame}>{children}</RationalesProvider>
           </AgentsProvider>
         </TelemetryProvider>
       </FrameMetaProvider>

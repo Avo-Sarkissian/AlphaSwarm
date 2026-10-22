@@ -7,7 +7,7 @@
 //   • useTelemetry() → tps / memMb / slotsUsed / slotsMax / elapsedSeconds /
 //     phase / running (replaces source's setInterval mock telemetry clock)
 //   • useAgents() → agents (replaces source's design-mock agent builder)
-//   • useBrackets() → bracket summaries (replaces source's mock summariser)
+//   • bracketTallies(agents) → live bracket bars (lib/tally.ts)
 //   • useRationales() → rationale feed (replaces source's static fixture)
 //   • useConnection() → reconnectFailed gate for ErrorState
 //   • simStart(seed) / simStop() from api/simulation → Topbar Run/Stop
@@ -31,7 +31,6 @@ import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
 import { IdleState, SeedingState, ErrorState } from './states';
 import { TweaksPanelLoader } from './TweaksPanelLoader';
 import { useAgents } from '../context/AgentsContext';
-import { useBrackets } from '../context/BracketContext';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useRationales } from '../context/RationalesContext';
 import { useConnection } from '../context/ConnectionContext';
@@ -43,6 +42,7 @@ import { normalizeBracketKey } from '../data';
 import { errorMessage } from '../lib/apiError';
 import { rankInfluencers } from '../lib/influence';
 import { signalClass, signalLabel } from '../lib/signals';
+import { bracketTallies } from '../lib/tally';
 import { phaseLabelFor, roundFromPhase } from '../lib/phase';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
 // modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
@@ -256,7 +256,6 @@ interface UiState {
 export function App() {
   // Live data via 6-context tree (W1 Plan 01 wiring).
   const { agents } = useAgents();
-  const { brackets } = useBrackets();
   const { rationales } = useRationales();
   const { reconnectFailed, connected } = useConnection();
   const tel = useTelemetry();
@@ -315,19 +314,20 @@ export function App() {
     comingSoon: null,
   });
 
-  // Context-shape → panel-shape adapters.
-  // BracketList expects {bracket, display_name, total, buy_count, sell_count, hold_count}.
-  // BracketSummaryView ships {bracket, display, total, buy, sell, hold}.
+  // Bracket bars come from the agents on screen, so they always describe the
+  // current round (wire bracket_summaries only arrive after a round ends);
+  // pending agents leave the rest of the bar blank.
   const summaries = useMemo(
-    () => brackets.map(b => ({
-      bracket: b.bracket,
-      display_name: b.display,
-      total: b.total,
-      buy_count: b.buy,
-      sell_count: b.sell,
-      hold_count: b.hold,
-    })),
-    [brackets],
+    () =>
+      bracketTallies(agents).map((b) => ({
+        bracket: b.bracket,
+        display_name: b.display,
+        total: b.total,
+        buy_count: b.tally.buy,
+        sell_count: b.tally.sell,
+        hold_count: b.tally.hold,
+      })),
+    [agents],
   );
   // RationaleFeed expects {agent, bracket, signal, round, text, cites}.
   // RationaleView ships {agentId, signal, round, text, citations, sources, ts}.

@@ -3,6 +3,8 @@
 // to native ES modules per D-03 (panel components were attached as globals
 // before the conversion).
 
+import { consensusLeader, tallySignals } from '../lib/tally';
+
 export function BracketList({ summaries, onClick }) {
   const isEmpty =
     !summaries ||
@@ -74,10 +76,11 @@ export function RationaleFeed({ rationales, onAgentClick, onCiteClick }) {
 }
 
 export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round }) {
-  const buy = agents.filter(a => a.signal === 'buy').length;
-  const sell = agents.filter(a => a.signal === 'sell').length;
-  const hold = agents.filter(a => a.signal === 'hold').length;
-  const total = Math.max(1, agents.length); // guard div-by-zero when frame has no agents yet
+  // Pending (null) and failed (parse_error) agents are never HOLD; the share is
+  // over decided agents only (docs/DECISIONS.md#adr-streaming-state).
+  const tally = tallySignals(agents);
+  const lead = consensusLeader(tally);
+  const failed = tally.parseError > 0 ? ` · ${tally.parseError} failed` : '';
   // Live governor slot budget (governor_metrics.current_slots) when present;
   // fall back to the design default of 16 before the first real frame.
   const slotCap = slotsMax > 0 ? slotsMax : 16;
@@ -86,15 +89,15 @@ export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round }) 
   return (
     <div className="kpi-strip">
       <div className="kpi">
-        <span className="kpi-label">Consensus</span>
+        <span className="kpi-label">Consensus · {tally.decided}/{agents.length} decided{failed}</span>
         <span className="kpi-value">
-          {buy >= sell && buy >= hold ? 'BUY' : sell >= hold ? 'SELL' : 'HOLD'}
-          <small>{Math.round(Math.max(buy, sell, hold)/total*100)}%</small>
+          {lead.signal ? lead.signal.toUpperCase() : '—'}
+          <small>{lead.signal ? `${lead.pct}%` : 'pending'}</small>
         </span>
         <div className="composition">
-          <div className="comp-buy"  style={{ flex: buy  }}>{buy}</div>
-          <div className="comp-sell" style={{ flex: sell }}>{sell}</div>
-          <div className="comp-hold" style={{ flex: hold }}>{hold}</div>
+          <div className="comp-buy"  style={{ flex: tally.buy  }}>{tally.buy}</div>
+          <div className="comp-sell" style={{ flex: tally.sell }}>{tally.sell}</div>
+          <div className="comp-hold" style={{ flex: tally.hold }}>{tally.hold}</div>
         </div>
       </div>
       <div className="kpi">
@@ -127,17 +130,15 @@ export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round }) 
 }
 
 export function ConsensusRing({ agents }) {
-  const buy = agents.filter(a => a.signal === 'buy').length;
-  const sell = agents.filter(a => a.signal === 'sell').length;
-  const hold = agents.filter(a => a.signal === 'hold').length;
+  const tally = tallySignals(agents);
+  const lead = consensusLeader(tally);
+  // Arcs span the whole roster, so agents still thinking leave a visible gap.
   const total = Math.max(1, agents.length);
   const R = 48, C = 2 * Math.PI * R;
-  const buyLen = (buy/total)*C;
-  const sellLen = (sell/total)*C;
-  const holdLen = (hold/total)*C;
-  const leader = buy >= sell && buy >= hold ? 'BUY' : sell >= hold ? 'SELL' : 'HOLD';
-  const leadPct = Math.round(Math.max(buy,sell,hold)/total*100);
-  const leadColor = leader === 'BUY' ? 'var(--buy)' : leader === 'SELL' ? 'var(--sell)' : 'var(--hold)';
+  const buyLen = (tally.buy/total)*C;
+  const sellLen = (tally.sell/total)*C;
+  const holdLen = (tally.hold/total)*C;
+  const leadColor = lead.signal ? `var(--${lead.signal})` : 'var(--text-3)';
   return (
     <svg className="consensus-ring" viewBox="0 0 120 120">
       <circle cx="60" cy="60" r={R} fill="none" stroke="var(--border)" strokeWidth="8" />
@@ -146,9 +147,12 @@ export function ConsensusRing({ agents }) {
         <circle cx="60" cy="60" r={R} stroke="var(--sell)" strokeDasharray={`${sellLen} ${C}`} strokeDashoffset={-buyLen} />
         <circle cx="60" cy="60" r={R} stroke="var(--hold)" strokeDasharray={`${holdLen} ${C}`} strokeDashoffset={-(buyLen+sellLen)} />
       </g>
-      <text x="60" y="56" className="mid" fontSize="10" fill="var(--text-3)" letterSpacing="0.14em">CONSENSUS</text>
-      <text x="60" y="72" className="mid" fontSize="18" fontWeight="700" fill={leadColor}>{leader}</text>
-      <text x="60" y="86" className="mid" fontSize="10" fill="var(--text-2)">{leadPct}%</text>
+      <text x="60" y="52" className="mid" fontSize="10" fill="var(--text-3)" letterSpacing="0.14em">CONSENSUS</text>
+      <text x="60" y="68" className="mid" fontSize={lead.signal ? 18 : 13} fontWeight="700" fill={leadColor}>
+        {lead.signal ? lead.signal.toUpperCase() : 'PENDING'}
+      </text>
+      <text x="60" y="81" className="mid" fontSize="10" fill="var(--text-2)">{lead.signal ? `${lead.pct}%` : '—'}</text>
+      <text x="60" y="93" className="mid" fontSize="8" fill="var(--text-3)">{tally.decided}/{agents.length} decided</text>
     </svg>
   );
 }
