@@ -34,3 +34,40 @@ describe('Onboarding run', () => {
     expect(onComplete).not.toHaveBeenCalled();
   });
 });
+
+describe('Onboarding health gate', () => {
+  // Cloud mode with Neo4j stopped: only Neo4j is required, so only Neo4j is down.
+  const neo4jDown = {
+    status: 'degraded',
+    components: {
+      neo4j: {
+        ok: false,
+        required: true,
+        detail: 'unreachable (ServiceUnavailable)',
+        fix: 'Start Neo4j (docker compose up -d neo4j)',
+        missing: [],
+      },
+      ollama: { ok: false, required: false, detail: 'unreachable (ConnectError)', fix: null, missing: [] },
+      aliases: {
+        ok: false,
+        required: false,
+        detail: 'not checked: Ollama is not reachable',
+        fix: null,
+        missing: [],
+      },
+    },
+  };
+
+  it('reports a degraded backend as degraded, names what is down and keeps Run disabled', async () => {
+    stubFetchRoutes({ 'GET /api/health': { body: neo4jDown } });
+    render(<Onboarding onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    expect(await screen.findByText(/Backend degraded/)).toBeDefined();
+    expect(screen.queryByText(/Backend unreachable/)).toBeNull();
+    expect(screen.getAllByText(/neo4j/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/ollama|aliases/i)).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText(/Fed announces/), { target: { value: SEED } });
+    const run = screen.getByRole('button', { name: /fix the items above first/i });
+    expect((run as HTMLButtonElement).disabled).toBe(true);
+  });
+});

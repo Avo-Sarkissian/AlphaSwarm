@@ -20,6 +20,7 @@ interface HealthResponse {
   simulation_phase?: string;
   memory_percent?: number;
   is_simulation_running?: boolean;
+  components?: Record<string, { ok?: boolean; required?: boolean }>;
 }
 
 interface OnboardingProps {
@@ -135,9 +136,12 @@ interface ObSeedStepProps {
 }
 
 function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProps) {
-  // null = loading; true = backend reachable; false = unreachable (KR-41.6-04 gate).
+  // null = loading; true = every required component ok; false = unreachable or degraded
+  // (docs/DECISIONS.md#kr-41-6-04).
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  // Required components /api/health reports down; null unless its status is "degraded".
+  const [degradedDown, setDegradedDown] = useState<string[] | null>(null);
 
   // Run gate: cost confirmation for cloud/mixed runs, then simStart. It settles
   // on success, failure and cancel alike, so the button never stays on
@@ -154,6 +158,13 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
       .then((h) => {
         if (cancelled) return;
         setBackendOk(h.status === 'ok');
+        setDegradedDown(
+          h.status === 'degraded'
+            ? Object.entries(h.components ?? {})
+                .filter(([, c]) => c.required !== false && c.ok !== true)
+                .map(([name]) => name)
+            : null,
+        );
         setHealthError(null);
       })
       .catch((e) => {
@@ -175,6 +186,8 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
       ? 'Checking backend…'
       : backendOk
       ? 'Backend OK · /api/health responded'
+      : degradedDown !== null
+      ? `Backend degraded${degradedDown.length > 0 ? ` · down: ${degradedDown.join(', ')}` : ''}`
       : `Backend unreachable${healthError ? ` · ${healthError}` : ''}`;
 
   const handleRun = () => {
@@ -246,6 +259,8 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
             <Icon name="play" />{' '}
             {pending
               ? 'Starting…'
+              : degradedDown !== null
+              ? 'Fix the items above first'
               : backendOk === false
               ? 'Start backend first'
               : 'Run first cycle'}
