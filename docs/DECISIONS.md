@@ -264,10 +264,11 @@ Contents
 
 ### <a id="adr-streaming-state"></a>Live state streams per agent; frames are never empty mid-round
 - **Decision:**
-  - `_safe_agent_inference` writes `update_agent_state` and `push_rationale` as each agent resolves (`batch_dispatcher.py:105-126`).
-  - On round entry, `StateStore.set_phase` keeps agent keys and resets signals to `None`, which the UI renders as "thinking" (`state.py:143-185`).
+  - At SEEDING, `run_simulation` calls `StateStore.begin_run(agent_ids)`: the run's roster in config order, every agent pending (`signal=None`). Every frame from then on carries that roster in that order, and `agent_count` is its size (`state.py`).
+  - `_safe_agent_inference` writes `update_agent_state` for every resolved agent the moment it finishes, PARSE_ERROR included, and pushes a rationale entry only for real decisions (`batch_dispatcher.py`).
+  - On round entry, `StateStore.set_phase` keeps agent keys and resets signals to `None`. The UI renders `None` as pending ("thinking"), never as HOLD; every tally counts decided agents only (`frontend/src/lib/tally.ts`).
   - Rationales live in a persistent `deque(maxlen=50)` and are not drained.
-- **Rationale:** Rounds take minutes. The TUI-era "clear and batch-write after the round" contract made the 5 Hz UI look frozen (debug session `ws-agent-states-not-emitted-mid-sim`, fixed in fe366ce, 1da741e, and 0003375).
+- **Rationale:** Rounds take minutes. The TUI-era "clear and batch-write after the round" contract made the 5 Hz UI look frozen (debug session `ws-agent-states-not-emitted-mid-sim`, fixed in fe366ce, 1da741e, and 0003375). Counting pending agents as HOLD made every round open at "HOLD 100%", and unwritten failures pulsed "thinking" forever (fixed Oct 2026).
 
 ### <a id="adr-ws-broadcaster"></a>WebSocket broadcaster: versioned StateFrame at 5 Hz, drop-oldest per client
 - **Decision:**
@@ -372,7 +373,9 @@ Contents
 ### <a id="adr-frontend-quant-terminal"></a>Frontend: React + TS "Quant Terminal"
 - **Decision:**
   - React 19 + Vite 6 + TypeScript, ported from the AlphaSwarm-2 design export (Phase 41.6).
-  - Seven split React contexts (Connection, FrameMeta, Telemetry, Agents, Bracket, Rationales, Edges) so 5 Hz frames do not re-render everything.
+  - Split React contexts (Connection, Telemetry, Agents, Rationales, Edges, FrameMeta) so 5 Hz frames do not re-render everything. Influence edges load once per (cycle, round, edges_version) through `EdgesContext`, keyed on the frame's cycle id, and every panel reads that one copy.
+  - The lifecycle (idle, seeding, live, complete, replay) comes from the frame, so the shell, Run/Stop and the replay bar look the same after a reload; idle and seeding are overlays inside the canvas.
+  - While the post-run advisory/report jobs hold the orchestrator (frame `jobs`), Run is disabled and reads "Report generating…" / "Advisory generating…": a new run would evict the orchestrator mid-report. The backend refuses the start with 409 `post_run_jobs_in_progress` anyway (decided Oct 2026 under the owner's delegation; contracts' recommendation).
   - Deterministic SVG agent layout instead of d3-force ([KR-41.1-01](#kr-41-1-01)).
   - Design mocks are loaded only through DEV-only dynamic imports, and a production grep gate keeps them out of `dist` ([KR-41.6-14](#kr-41-6-14)).
   - Tests and lint (`frontend/TESTING.md`): vitest runs pure tests in node and hook/component tests on happy-dom with React Testing Library; backend-written golden frames pin the wire contract ([adr-ws-broadcaster](#adr-ws-broadcaster)); ESLint (typescript-eslint, react-hooks; jsx-a11y at `warn` until the accessibility pass) runs in CI. ESLint stays on 9.x while eslint-plugin-jsx-a11y supports nothing newer.
@@ -746,7 +749,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p41-6-d-03"></a>`D-03` | Convert the CDN-globals JSX design export to native ES modules. | active | fe/components/app_v2.tsx:4; fe/components/history.tsx:4; fe/components/icons.jsx:3; fe/components/panels.jsx:3; fe/components/settings.tsx:3; fe/components/states.jsx:5; fe/components/tweaks.jsx:3; fe/components/v2.tsx:5; fe/components/viz.jsx:3 |
-| <a id="p41-6-d-07"></a>`D-07` | App shell = seven-context provider tree (Connection, FrameMeta, Telemetry, Agents, Bracket, Rationales, Edges). Revised 2026-10 (six contexts until FrameMeta took the frame identity, [adr-frontend-quant-terminal](#adr-frontend-quant-terminal)). | revised | fe/App.tsx:1; fe/components/app_v2.tsx:4 |
+| <a id="p41-6-d-07"></a>`D-07` | App shell = split context providers (Connection, Telemetry, Agents, Rationales, Edges, FrameMeta); bracket bars derive from agents, BracketContext removed (Oct 2026). | revised | fe/App.tsx:1; fe/components/app_v2.tsx:4 |
 | <a id="p41-6-d-08"></a>`D-08` | AdvisoryV2: derive what the backend supports, stub the rest (stubs tracked as KRs). | active | fe/components/modals.jsx:9; fe/components/v2.tsx:17,743,810,838,1044; fe/lib/advisoryParse.ts:2,24,51 |
 | <a id="p41-6-d-09"></a>`D-09` | Render portfolio_outlook markdown via renderMarkdown(). | active | fe/components/v2.tsx:18,743,974; fe/lib/advisoryParse.ts:2,11; fe/lib/markdown.ts:3 |
 | <a id="p41-6-d-10"></a>`D-10` | AdvisoryV2 keeps four tabs; Holdings and Overview share items[]. | active | fe/components/v2.tsx:18,743,1012 |
@@ -785,7 +788,7 @@ Status checked against current code.
 | <a id="kr-41-1-06"></a>KR-41.1-06 | Replay Rewind disabled (no endpoint) | open | fe/components/modals.jsx:136,185,189 |
 | <a id="kr-41-1-07"></a>KR-41.1-07 | CycleHistory consensus/flips/duration/shocks show "—" (`/api/replay/cycles` is minimal) | open; now cheap, because the Cycle node carries these metrics ([adr-cycle-metrics](#adr-cycle-metrics)) but `CycleItem` (`web/routes/replay.py:22-28`) does not expose them | fe/api/replay.ts:3; fe/components/history.tsx:9,158,269 |
 | <a id="kr-41-1-08"></a>KR-41.1-08 | Error log lines are design copy (no structured error stream) | open | fe/components/history.tsx:56; fe/components/modals.jsx:158,234,309; fe/components/states.jsx:176,198 |
-| <a id="kr-41-1-09"></a>KR-41.1-09 | Top Influencers ranked by confidence during live view | partial: switches to OUT-DEGREE from `/api/edges` after the cycle (b116ddc) | fe/components/app_v2.tsx:316 |
+| <a id="kr-41-1-09"></a>KR-41.1-09 | Top Influencers ranked by confidence during live view | **closed** (2026-10): ranked by citations received (CITED BY, `rankInfluencers`) for the round on screen from round 2's edges on; an empty-state line before that, no confidence fallback | fe/lib/influence.ts; fe/components/app_v2.tsx |
 | <a id="kr-41-1-10"></a>KR-41.1-10 | Rationale `citations`/`sources` stubbed `[]` (RationaleEntry has no `cited_agents`) | open | fe/adapter/frame.ts:226,227; fe/components/app_v2.tsx:298; fe/types.ts:59,60 |
 | <a id="kr-41-1-11"></a>KR-41.1-11 | Interview is non-streaming (single POST) | open | fe/api/interview.ts:2; fe/components/interview_v2.tsx:2,9 |
 | <a id="kr-41-6-01"></a>KR-41.6-01 | AdvisoryV2 shares/basis/last/sentiment shown as "—" (not on AdvisoryItem) | open (holdings API has qty/cost_basis, so a client-side join could fill two of them) | fe/components/v2.tsx:838,1044,1054,1206; fe/lib/advisoryParse.ts:9 |
@@ -800,7 +803,7 @@ Status checked against current code.
 | <a id="kr-41-6-10"></a>KR-41.6-10 | AdvisoryV2 "agents" count is a regex heuristic over rationale text, strictly intersected with live IDs | active (heuristic) | fe/components/v2.tsx:19,836; fe/lib/advisoryParse.ts:51,66 |
 | <a id="kr-41-6-11"></a>KR-41.6-11 | IdleState SystemCheck rows are static copy | open | fe/components/states.jsx:16,47 |
 | <a id="kr-41-6-12"></a>KR-41.6-12 | ReportModal rich sections render only when an explicit `## Section` heading parses; otherwise omitted | active (policy) | fe/components/ReportModal.tsx:6,238; fe/components/v2.tsx:843; fe/lib/advisoryParse.ts:9 |
-| <a id="kr-41-6-13"></a>KR-41.6-13 | BracketDeepDive influence counts only after the cycle ("—" live) | open | fe/api/edges.ts:4; fe/components/bracket_deep.tsx:2,8,102,260 |
+| <a id="kr-41-6-13"></a>KR-41.6-13 | BracketDeepDive influence counts only after the cycle ("—" live) | **closed** (2026-10): counts come from the shared EdgesContext for the round on screen, live from round 2's edges on; "—" only before they exist | fe/hooks/useCycleEdges.ts; fe/components/bracket_deep.tsx |
 | <a id="kr-41-6-14"></a>KR-41.6-14 | Mocks loaded only through DEV-only dynamic import; production grep gate keeps them out of `dist` | active (policy) | fe/components/app_v2.tsx:549; fe/components/v2.tsx:11,42,82,112,183,400,409,452; fe/hooks/useDataSourceAudit.ts:8 |
 
 ---
