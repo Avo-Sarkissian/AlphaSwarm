@@ -18,6 +18,7 @@ from tests.engine.scenario import (
     scenario_summary,
 )
 from tests.inference.fakes import ScriptedProvider
+from tests.support.golden import assert_golden
 
 THREE_ROUND_PHASES = [
     SimulationPhase.IDLE,
@@ -45,7 +46,6 @@ def _summary(
     graph: MagicMock,
     personas: list[AgentPersona],
 ) -> dict[str, object]:
-    """Domain-level run summary; the scenario goldens compare against it once they land."""
     return scenario_summary(store=store, worker=worker, graph=graph, personas=personas)
 
 
@@ -64,6 +64,10 @@ async def test_three_round_scenario(
     assert (metrics["num_rounds"], metrics["r2_flips"], metrics["r3_flips"]) == (3, 65, 71)
     assert (metrics["final_buy"], metrics["final_sell"], metrics["final_hold"]) == (35, 26, 39)
     assert all(_user_messages(scripted_worker, r) == {SCENARIO_RUMOR} for r in (1, 2, 3))
+    assert_golden(
+        "scenarios/three_rounds.json",
+        _summary(scenario_store, scripted_worker, fake_graph, all_personas),
+    )
 
 
 async def test_two_round_scenario(
@@ -81,6 +85,10 @@ async def test_two_round_scenario(
     metrics = _metrics(fake_graph)
     assert (metrics["num_rounds"], metrics["r2_flips"], metrics["r3_flips"]) == (2, 65, 0)
     assert (metrics["final_buy"], metrics["final_sell"], metrics["final_hold"]) == (37, 26, 37)
+    assert_golden(
+        "scenarios/two_rounds.json",
+        _summary(scenario_store, scripted_worker, fake_graph, all_personas),
+    )
 
 
 async def test_shock_before_round_2(
@@ -96,6 +104,10 @@ async def test_shock_before_round_2(
     fake_graph.write_shock_event.assert_awaited_once_with(
         SCENARIO_CYCLE_ID, SCENARIO_SHOCK_TEXT, injected_before_round=2
     )
+    assert_golden(
+        "scenarios/shock_before_r2.json",
+        _summary(scenario_store, scripted_worker, fake_graph, all_personas),
+    )
 
 
 async def test_shock_before_round_3(
@@ -110,6 +122,10 @@ async def test_shock_before_round_3(
     assert _user_messages(scripted_worker, 3) == {SCENARIO_RUMOR + SHOCK_SUFFIX}
     fake_graph.write_shock_event.assert_awaited_once_with(
         SCENARIO_CYCLE_ID, SCENARIO_SHOCK_TEXT, injected_before_round=3
+    )
+    assert_golden(
+        "scenarios/shock_before_r3.json",
+        _summary(scenario_store, scripted_worker, fake_graph, all_personas),
     )
 
 
