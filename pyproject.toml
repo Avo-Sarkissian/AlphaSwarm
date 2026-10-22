@@ -142,6 +142,7 @@ source_modules = [
     "alphaswarm.web.connection_manager",
     "alphaswarm.web.errors",
     "alphaswarm.web.origin_guard",
+    "alphaswarm.web.params",
     "alphaswarm.web.replay_manager",
     "alphaswarm.web.simulation_manager",
     "alphaswarm.web.routes",
