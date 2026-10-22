@@ -183,7 +183,8 @@ class StateStore:
             "advisory": JobStatus(),
             "report": JobStatus(),
         }
-        # Shock state: num_rounds bounds the shock window; applied shocks are run-scoped.
+        # Shock state: num_rounds bounds the shock window and must be set before
+        # SEEDING, which keeps it; applied shocks are run-scoped.
         self._num_rounds: int = 3
         self._pending_shock: str | None = None
         self._applied_shocks: list[AppliedShock] = []
@@ -224,6 +225,8 @@ class StateStore:
                 self._bracket_summaries = ()
                 self._rationale_window.clear()
                 self._applied_shocks.clear()
+                # Not _num_rounds: it must be set before SEEDING, and a reset here
+                # would reopen the shock window in the last round of a 2-round run.
                 self._agent_states = {
                     aid: AgentState(signal=None, confidence=0.0)
                     for aid in self._agent_states
@@ -376,7 +379,11 @@ class StateStore:
         return JobsSnapshot(advisory=self._jobs["advisory"], report=self._jobs["report"])
 
     def set_num_rounds(self, n: int) -> None:
-        """Record the run's round count (bounds the shock window)."""
+        """Record the run's round count, which bounds the shock window.
+
+        Call it before SEEDING; SEEDING keeps it. Until it is called the window
+        assumes 3 rounds.
+        """
         self._num_rounds = n
 
     def set_pending_shock(self, text: str | None) -> None:

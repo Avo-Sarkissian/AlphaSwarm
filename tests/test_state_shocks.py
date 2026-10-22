@@ -36,6 +36,17 @@ async def test_shock_window_by_phase(num_rounds: int, phase: P, expected: bool) 
     assert store.snapshot().shock_window_open is expected
 
 
+async def test_seeding_keeps_the_round_count_set_before_the_run() -> None:
+    """A reset in SEEDING would reopen the window in the last round of a 2-round run."""
+    store = StateStore()
+    store.set_num_rounds(2)
+    seen: list[bool] = []
+    for phase in (P.SEEDING, P.ROUND_1, P.ROUND_2, P.FINALIZING, P.COMPLETE):
+        await store.set_phase(phase)
+        seen.append(store.snapshot().shock_window_open)
+    assert seen == [True, True, False, False, False]
+
+
 def test_pending_and_applied_shocks_appear_in_the_snapshot() -> None:
     store = StateStore()
     store.set_pending_shock("Fed cuts 50bp at emergency session")
