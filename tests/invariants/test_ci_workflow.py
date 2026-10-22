@@ -28,3 +28,12 @@ def test_neo4j_job_requires_the_database() -> None:
     assert "7688:7687" in job
     assert "-m neo4j --require-neo4j" in job
     assert "-rxX" in job
+
+
+def test_lint_job_runs_the_static_gates() -> None:
+    job = _jobs(_text(CI))["lint"]
+    for command in (
+        "uv run mypy src",
+        "uv run lint-imports",
+    ):
+        assert command in job, command
