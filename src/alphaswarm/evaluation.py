@@ -9,14 +9,16 @@ helpers in ``asyncio.to_thread``.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import random
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from pathlib import Path
-from statistics import stdev
+from statistics import NormalDist, fmean, stdev
 from typing import Final, Literal, TypeVar
 from zoneinfo import ZoneInfo
 
@@ -369,3 +371,285 @@ def compute_outcome(
         label_1d=_direction(abn["1d"], vol, HORIZON_DAYS["1d"], k_flat),
         label_5d=_direction(abn["5d"], vol, HORIZON_DAYS["5d"], k_flat),
     )
+
+
+# --- Scoring (docs/DECISIONS.md#adr-eval-harness) ------------------------------
+
+CLIP_EPS: Final = 0.01
+N_BOOT: Final = 2000
+ALPHA: Final = 0.05
+RELIABILITY_BINS: Final = 5
+
+
+def p_up(score: float) -> float:
+    """Probability of an up move implied by a score in [-1, 1]."""
+    return min(1.0, max(0.0, (1.0 + score) / 2.0))
+
+
+def brier(prob_up: float, up: bool) -> float:
+    return (prob_up - (1.0 if up else 0.0)) ** 2
+
+
+def log_loss(prob_up: float, up: bool, *, eps: float = CLIP_EPS) -> float:
+    p = min(max(prob_up, eps), 1.0 - eps)
+    return -math.log(p if up else 1.0 - p)
+
+
+def wilson_interval(successes: int, n: int, *, alpha: float = ALPHA) -> tuple[float, float] | None:
+    """Wilson score interval for a binomial rate; None when n is 0."""
+    if n <= 0:
+        return None
+    z = NormalDist().inv_cdf(1.0 - alpha / 2.0)
+    phat = successes / n
+    denom = 1.0 + z * z / n
+    centre = (phat + z * z / (2 * n)) / denom
+    half = z * math.sqrt(phat * (1.0 - phat) / n + z * z / (4 * n * n)) / denom
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def average_ranks(values: Sequence[float]) -> list[float]:
+    """1-based ranks; ties share the average of their positions."""
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    ranks = [0.0] * len(values)
+    start = 0
+    while start < len(order):
+        end = start
+        while end + 1 < len(order) and values[order[end + 1]] == values[order[start]]:
+            end += 1
+        for k in range(start, end + 1):
+            ranks[order[k]] = (start + end) / 2.0 + 1.0
+        start = end + 1
+    return ranks
+
+
+def spearman_rho(xs: Sequence[float], ys: Sequence[float]) -> float | None:
+    """Spearman correlation; None for fewer than 3 points or a constant series."""
+    if len(xs) != len(ys):
+        raise ValueError("spearman_rho needs equal-length sequences")
+    if len(xs) < 3:
+        return None
+    rx, ry = average_ranks(xs), average_ranks(ys)
+    mx, my = fmean(rx), fmean(ry)
+    sxy = sum((a - mx) * (b - my) for a, b in zip(rx, ry, strict=True))
+    sxx = sum((a - mx) ** 2 for a in rx)
+    syy = sum((b - my) ** 2 for b in ry)
+    if sxx == 0.0 or syy == 0.0:
+        return None
+    return sxy / math.sqrt(sxx * syy)
+
+
+@dataclass(frozen=True)
+class ReliabilityBin:
+    lo: float
+    hi: float
+    n: int
+    mean_p: float | None
+    freq: float | None
+
+
+def reliability_bins(
+    pairs: Sequence[tuple[float, bool]], *, n_bins: int = RELIABILITY_BINS
+) -> list[ReliabilityBin]:
+    """Equal-width bins of forecast P(up) with the observed up frequency."""
+    bins: list[ReliabilityBin] = []
+    for b in range(n_bins):
+        lo, hi = b / n_bins, (b + 1) / n_bins
+        last = b == n_bins - 1
+        members = [(p, up) for p, up in pairs if lo <= p < hi or (last and p == 1.0)]
+        if members:
+            mean_p = fmean(p for p, _ in members)
+            freq = sum(1 for _, up in members if up) / len(members)
+            bins.append(ReliabilityBin(lo, hi, len(members), mean_p, freq))
+        else:
+            bins.append(ReliabilityBin(lo, hi, 0, None, None))
+    return bins
+
+
+@dataclass(frozen=True)
+class Interval:
+    """Mean of all units with a percentile bootstrap interval over clusters."""
+
+    mean: float
+    lo: float | None
+    hi: float | None
+    n_clusters: int
+    n_units: int
+
+
+def _quantile(sorted_values: Sequence[float], q: float) -> float:
+    position = q * (len(sorted_values) - 1)
+    lower, upper = math.floor(position), math.ceil(position)
+    frac = position - lower
+    return sorted_values[lower] + (sorted_values[upper] - sorted_values[lower]) * frac
+
+
+def cluster_bootstrap(
+    clusters: Mapping[str, Sequence[float]],
+    *,
+    rng: random.Random,
+    n_boot: int = N_BOOT,
+    alpha: float = ALPHA,
+) -> Interval | None:
+    """Resample clusters (events) with replacement; None without data, no interval for one."""
+    keys = sorted(k for k, values in clusters.items() if values)
+    if not keys:
+        return None
+    units = [x for k in keys for x in clusters[k]]
+    mean = fmean(units)
+    if len(keys) < 2:
+        return Interval(mean, None, None, len(keys), len(units))
+    stats: list[float] = []
+    for _ in range(n_boot):
+        sample = [x for _ in keys for x in clusters[rng.choice(keys)]]
+        stats.append(fmean(sample))
+    stats.sort()
+    return Interval(
+        mean,
+        _quantile(stats, alpha / 2.0),
+        _quantile(stats, 1.0 - alpha / 2.0),
+        len(keys),
+        len(units),
+    )
+
+
+def boot_rng(purpose: str) -> random.Random:
+    """Seeded per table cell, so the same data always yields the same interval."""
+    digest = hashlib.blake2b(f"{BOOT_SEED}:{purpose}".encode(), digest_size=8).digest()
+    return random.Random(int.from_bytes(digest, "big"))
+
+
+def lean3(score: float, deadband: float) -> Direction:
+    """Net-score lean as a direction: up above the deadband, down below its negative."""
+    if score > deadband:
+        return "up"
+    if score < -deadband:
+        return "down"
+    return "flat"
+
+
+@dataclass(frozen=True)
+class ForecasterResult:
+    forecaster: str
+    horizon: Horizon
+    n_events: int
+    n_directional: int
+    hits: int
+    hit_rate: float | None
+    hit_ci: tuple[float, float] | None
+    brier: float | None
+    log_loss: float | None
+    spearman: float | None
+    accuracy3: float | None
+
+
+def mean_by_event(rows: Iterable[tuple[str, float]]) -> dict[str, float]:
+    """Average the per-seed scores of each event."""
+    grouped: dict[str, list[float]] = defaultdict(list)
+    for event_id, score in rows:
+        grouped[event_id].append(score)
+    return {event_id: fmean(values) for event_id, values in grouped.items()}
+
+
+def score_forecaster(
+    name: str,
+    scores: Mapping[str, float],
+    labels: Mapping[str, OutcomeLabel],
+    horizon: Horizon,
+    *,
+    deadband: float,
+) -> ForecasterResult:
+    """Hit rate, Brier, log loss, Spearman and 3-class accuracy over labelled events."""
+    events = sorted(e for e in scores if e in labels)
+    directional = [e for e in events if labels[e].label(horizon) != "flat"]
+    hits = 0
+    briers: list[float] = []
+    losses: list[float] = []
+    for e in directional:
+        up = labels[e].label(horizon) == "up"
+        s = scores[e]
+        if (s > 0 and up) or (s < 0 and not up):
+            hits += 1
+        briers.append(brier(p_up(s), up))
+        losses.append(log_loss(p_up(s), up))
+    rho = (
+        spearman_rho([scores[e] for e in events], [labels[e].abn_ret(horizon) for e in events])
+        if events
+        else None
+    )
+    accuracy3 = (
+        fmean(
+            1.0 if lean3(scores[e], deadband) == labels[e].label(horizon) else 0.0 for e in events
+        )
+        if events
+        else None
+    )
+    return ForecasterResult(
+        forecaster=name,
+        horizon=horizon,
+        n_events=len(events),
+        n_directional=len(directional),
+        hits=hits,
+        hit_rate=hits / len(directional) if directional else None,
+        hit_ci=wilson_interval(hits, len(directional)),
+        brier=fmean(briers) if briers else None,
+        log_loss=fmean(losses) if losses else None,
+        spearman=rho,
+        accuracy3=accuracy3,
+    )
+
+
+def brier_by_event(
+    scores: Mapping[str, float], labels: Mapping[str, OutcomeLabel], horizon: Horizon
+) -> dict[str, float]:
+    """Per-event Brier score on directional events only."""
+    return {
+        e: brier(p_up(s), labels[e].label(horizon) == "up")
+        for e, s in scores.items()
+        if e in labels and labels[e].label(horizon) != "flat"
+    }
+
+
+def paired_difference(
+    a: Mapping[str, float], b: Mapping[str, float], *, rng: random.Random
+) -> Interval | None:
+    """Mean of a - b over the events both cover, bootstrapped over events."""
+    common = sorted(set(a) & set(b))
+    return cluster_bootstrap({e: [a[e] - b[e]] for e in common}, rng=rng)
+
+
+def fmt(value: float | None, spec: str = ".3f") -> str:
+    return "n/a" if value is None else format(value, spec)
+
+
+def fmt_interval(interval: Interval | None, spec: str = "+.3f") -> str:
+    if interval is None:
+        return "n/a"
+    if interval.lo is None or interval.hi is None:
+        return f"{interval.mean:{spec}} [n/a]"
+    return f"{interval.mean:{spec}} [{interval.lo:{spec}}, {interval.hi:{spec}}]"
+
+
+def fmt_rate(rate: float | None, ci: tuple[float, float] | None) -> str:
+    if rate is None or ci is None:
+        return "n/a"
+    return f"{rate:.2f} [{ci[0]:.2f}, {ci[1]:.2f}]"
+
+
+def verdict(interval: Interval | None) -> str:
+    """Pre-registered claim rule for a difference swarm - other.
+
+    See docs/DECISIONS.md#adr-eval-harness.
+    """
+    if interval is None or interval.lo is None or interval.hi is None:
+        return "insufficient data"
+    if interval.hi < 0:
+        return "swarm better"
+    if interval.lo > 0:
+        return "swarm worse"
+    return "inconclusive"
+
+
+def markdown_table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
+    lines = ["| " + " | ".join(header) + " |", "|" + "|".join("---" for _ in header) + "|"]
+    lines.extend("| " + " | ".join(row) + " |" for row in rows)
+    return "\n".join(lines) + "\n"
