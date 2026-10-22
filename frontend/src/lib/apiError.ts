@@ -27,3 +27,24 @@ export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) return parseErrorEnvelope(e.body).message ?? `HTTP ${e.status}`;
   return e instanceof Error ? e.message : String(e);
 }
+
+/**
+ * One readable sentence for any failed API call: the backend
+ * envelope's message, else its code and status; a network failure (fetch
+ * rejects with TypeError) becomes a reachability hint. Duck-typed on
+ * {status, body} instead of importing ApiError, so api/client.ts can import
+ * this module later without an import cycle.
+ */
+export function formatApiError(err: unknown): string {
+  if (typeof err === 'object' && err !== null && 'status' in err && 'body' in err) {
+    const status = (err as { status: unknown }).status;
+    const { code, message } = parseErrorEnvelope((err as { body: unknown }).body);
+    if (message) return message;
+    const statusText = typeof status === 'number' ? ` (HTTP ${status})` : '';
+    if (code) return `${code.replace(/_/g, ' ')}${statusText}`;
+    return `Request failed${statusText}`;
+  }
+  if (err instanceof TypeError) return 'Cannot reach the backend. Is it running on port 8000?';
+  if (err instanceof Error && err.message) return err.message;
+  return 'Something went wrong.';
+}
