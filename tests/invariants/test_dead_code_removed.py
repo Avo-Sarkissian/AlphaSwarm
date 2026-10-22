@@ -33,3 +33,12 @@ def test_dead_graph_methods_are_gone() -> None:
     dead = ("create_cycle", "read_ranked_posts", "write_read_post_edges", "read_peer_decisions")
     for name in dead:
         assert not hasattr(graph.GraphStateManager, name), f"GraphStateManager.{name} is back"
+
+
+def test_ollama_generate_and_parse_error_are_gone() -> None:
+    import alphaswarm.errors as errors
+    from alphaswarm.ollama_client import OllamaClient
+
+    assert not hasattr(OllamaClient, "generate"), "narratives use provider.chat"
+    assert not hasattr(OllamaClient, "_generate_with_backoff")
+    assert not hasattr(errors, "ParseError"), "parse failures are PARSE_ERROR decisions"

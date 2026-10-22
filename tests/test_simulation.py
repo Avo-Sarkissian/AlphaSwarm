@@ -99,10 +99,8 @@ def mock_settings() -> AppSettings:
 
 @pytest.fixture()
 def mock_ollama_client() -> MagicMock:
-    """Mock OllamaClient. generate() is AsyncMock so narrative generation tests don't fail."""
-    client = MagicMock()
-    client.generate = AsyncMock(return_value={"response": "test narrative"})
-    return client
+    """Mock OllamaClient (only passed through to providers in these tests)."""
+    return MagicMock()
 
 
 @pytest.fixture()
