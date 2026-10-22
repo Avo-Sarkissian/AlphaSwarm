@@ -421,6 +421,10 @@ Contents
   - The API-key file and its directory are created owner-only (CWE-276).
 - **Commits:** 53e5954, 72d55a9, 45c7827, 1e7a8ee, e353716, 820b8fe.
 
+### <a id="adr-docs-sync"></a>Measured numbers have one home; the docs copy them by script
+- **Decision:** Every measured number the README, the CHANGELOG and the résumé bullets show lives once, in the headline table of `docs/experiments.md`. `scripts/docs_sync.py` renders the README's results, quality and run-time tables, the bracket table from `DEFAULT_BRACKETS`, the demo link, the screenshot gallery (from `docs/media/captures.json`), the CHANGELOG results and the résumé bullets in `docs/HISTORY.md`. `tests/test_docs_sync.py` fails when any copy is stale.
+- **Rationale:** The October 2026 audit found a README that contradicted the code in a dozen places, and screenshots that showed mock data. Generated copies turn drift into a test failure instead of a reviewer's job.
+
 ---
 
 ## 2. Historical decisions no longer in code
