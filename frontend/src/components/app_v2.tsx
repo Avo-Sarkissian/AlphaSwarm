@@ -697,12 +697,7 @@ export function App() {
       {ui.shockOpen && (
         <ShockDrawer onClose={() => setUi((u) => ({ ...u, shockOpen: false }))} />
       )}
-      {ui.watchOpen && (
-        <ReplayBar
-          cycle={ui.replayCycle}
-          onExit={() => setUi((u) => ({ ...u, watchOpen: false, replayCycle: null }))}
-        />
-      )}
+      {ui.watchOpen && <ReplayBar />}
       {ui.reportOpen && (
         <ReportModal
           cycleId={ui.reportCycleId}
