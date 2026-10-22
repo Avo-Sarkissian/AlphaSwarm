@@ -95,6 +95,29 @@ def test_run_error_messages_use_structured_fields() -> None:
     assert "read_round_timeline" in graph.message
 
 
+def test_governor_crisis_message_names_the_cause() -> None:
+    timeout = run_error_from_exception(
+        GovernorCrisisError(
+            "Governor crisis timeout after 301.0s with no successful inference",
+            duration_seconds=301.0,
+        ),
+        round_num=2,
+    )
+    assert "after 301 s of sustained memory pressure" in timeout.message
+    # A failed monitor loop aborts with no crisis duration; that is not memory pressure.
+    dead_monitor = run_error_from_exception(
+        GovernorCrisisError(
+            "Memory monitor loop terminated unexpectedly: sysctl died",
+            duration_seconds=0.0,
+        ),
+        round_num=2,
+    )
+    assert dead_monitor.code == "governor_crisis"
+    assert "memory monitor stopped" in dead_monitor.message
+    assert "pressure" not in dead_monitor.message
+    assert "sysctl" not in dead_monitor.message
+
+
 def test_unknown_exception_text_never_reaches_the_message() -> None:
     leaky = RuntimeError("open /Users/someone/.secrets/inference.json failed: sk-test-SECRET-1234")
     err = run_error_from_exception(leaky, round_num=None)

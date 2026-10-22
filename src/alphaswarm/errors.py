@@ -107,8 +107,9 @@ class GovernorCrisisError(Exception):
     (docs/DECISIONS.md#p3-d-07), or a dead memory monitor.
 
     Attributes:
-        duration_seconds: How long the crisis lasted before the abort
-            (0.0 when the monitor died outside a crisis).
+        duration_seconds: How long the crisis lasted before the abort. Always
+            0.0 when the monitor loop failed, and when the monitor died outside
+            a crisis.
     """
 
     def __init__(self, message: str, *, duration_seconds: float = 0.0) -> None:
@@ -268,10 +269,17 @@ def _describe(exc: BaseException) -> tuple[RunErrorCode, str]:
             f"{exc.model}. Update the API key in Settings.",
         )
     if isinstance(exc, GovernorCrisisError):
+        if exc.duration_seconds > 0:
+            return (
+                "governor_crisis",
+                f"The memory governor aborted the run after {exc.duration_seconds:.0f} s "
+                "of sustained memory pressure.",
+            )
+        # No crisis was timed, so the abort came from the memory monitor dying.
         return (
             "governor_crisis",
-            f"The memory governor aborted the run after {exc.duration_seconds:.0f} s "
-            "of sustained memory pressure.",
+            "The memory governor aborted the run because its memory monitor stopped. "
+            "See the server log for details.",
         )
     if isinstance(exc, RoundFailedError):
         return (
