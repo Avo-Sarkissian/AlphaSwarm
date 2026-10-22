@@ -642,3 +642,9 @@ def test_strict_undefined_raises_on_missing_row_key() -> None:
            "buy_mentions": 1, "sell_mentions": 1, "hold_mentions": 0}  # entity_type missing
     with pytest.raises(UndefinedError, match="entity_type"):
         ReportAssembler().render_section("07_entity_impact.j2", data=[row], cycle_id="c")
+
+
+def test_react_prompt_says_final_round_not_round_3() -> None:
+    assert "Round 3" not in REACT_SYSTEM_PROMPT
+    assert "rounds 1-3" not in REACT_SYSTEM_PROMPT
+    assert "final round" in REACT_SYSTEM_PROMPT
