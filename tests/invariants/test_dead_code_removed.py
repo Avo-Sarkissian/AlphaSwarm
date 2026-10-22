@@ -56,3 +56,12 @@ def test_report_sentinel_and_missing_template_mapping_are_gone() -> None:
     assert not hasattr(report, "write_sentinel"), "nothing reads .alphaswarm/last_report.json"
     assert "portfolio_impact" not in report.TOOL_TO_TEMPLATE, "10_portfolio_impact.j2 never existed"
     assert "portfolio_impact" not in report.SECTION_ORDER
+
+
+def test_advisory_prompt_accepts_only_top_holdings() -> None:
+    from alphaswarm.advisory.prompt import build_advisory_prompt
+
+    params = inspect.signature(build_advisory_prompt).parameters
+    assert "holdings" not in params, "legacy kwarg"
+    assert "rest_holdings" not in params, "rest holdings never reach the LLM"
+    assert params["top_holdings"].default is inspect.Parameter.empty
