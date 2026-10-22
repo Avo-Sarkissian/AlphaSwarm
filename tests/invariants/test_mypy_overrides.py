@@ -1,4 +1,4 @@
-"""mypy overrides only shrink: no module outside the original list may be exempted."""
+"""mypy overrides only shrink: the exempt modules are exactly ALLOWED_OVERRIDES."""
 
 from __future__ import annotations
 
@@ -8,17 +8,15 @@ from typing import Any
 
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
-# Modules that carried strict-mode errors when mypy was first gated in CI. Entries leave
-# this set (and pyproject.toml) as each module is cleaned up; nothing is ever added.
+# Modules that still carry strict-mode errors and have an ignore_errors override in
+# pyproject.toml. An entry leaves this set in the change that removes its override, as
+# its module is cleaned up; nothing is ever added.
 ALLOWED_OVERRIDES = frozenset(
     {
         "alphaswarm.cli",
         "alphaswarm.graph",
-        "alphaswarm.report",
         "alphaswarm.simulation",
-        "alphaswarm.web.broadcaster",
         "alphaswarm.web.routes.advisory",
-        "alphaswarm.web.routes.health",
         "alphaswarm.web.routes.interview",
         "alphaswarm.web.simulation_manager",
     }
@@ -41,6 +39,15 @@ def _overridden() -> set[str]:
 
 def test_mypy_overrides_only_shrink() -> None:
     assert _overridden() <= ALLOWED_OVERRIDES
+
+
+def test_every_allowed_module_is_still_overridden() -> None:
+    """A module leaves ALLOWED_OVERRIDES in the change that removes its override."""
+    stale = ALLOWED_OVERRIDES - _overridden()
+    assert not stale, (
+        f"{sorted(stale)} have no ignore_errors override in pyproject.toml any more; "
+        "delete them from ALLOWED_OVERRIDES so their exemption cannot come back"
+    )
 
 
 def test_mypy_stays_strict() -> None:
