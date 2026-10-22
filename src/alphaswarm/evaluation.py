@@ -1,4 +1,4 @@
-"""Point-in-time evaluation: records, outcome labels and forecast scoring (P7.7, P7.8).
+"""Point-in-time evaluation: records, outcome labels and forecast scoring.
 
 Pure functions plus small synchronous file helpers: no network, no Neo4j, no event
 loop. The scripts under the repo-root ``eval/`` directory fetch prices, launch runs
@@ -268,8 +268,9 @@ _SIGN: Final[dict[SignalType, int]] = {SignalType.BUY: 1, SignalType.HOLD: 0, Si
 def headcount_score(decisions: Sequence[AgentDecision]) -> tuple[float, int]:
     """Mean signed confidence over valid votes, and the number of valid votes.
 
-    Same formula as the headcount net-score formula (S = sum(s * c) / n,
-    PARSE_ERROR excluded) for votes without a persona.
+    The headcount net score S = sum(s * c) / n, with s = +1 for BUY, 0 for HOLD and -1
+    for SELL and c the confidence: PARSE_ERROR is excluded and every valid vote counts
+    once, with no persona or influence weight.
     """
     votes = [d for d in decisions if d.signal in _SIGN]
     if not votes:

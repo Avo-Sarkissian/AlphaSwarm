@@ -1,4 +1,4 @@
-"""Eval records, JSONL helpers and run identity (P7.7; docs/DECISIONS.md#adr-eval-harness)."""
+"""Eval records, JSONL helpers and run identity (docs/DECISIONS.md#adr-eval-harness)."""
 
 from __future__ import annotations
 
