@@ -207,17 +207,29 @@ class ResourceGovernor:
         self._active_count += 1
 
     def _check_monitor_alive(self) -> None:
-        """Raise if the monitor task has died with an error."""
+        """Raise GovernorCrisisError if the monitor task has died with an error.
+
+        _monitor_loop already turns its own failures into GovernorCrisisError,
+        so that instance is re-raised unchanged. Any other exception is wrapped,
+        carrying the crisis duration so far when a crisis was in progress.
+        """
         if self._monitor_task is None or not self._monitor_task.done():
             return
         try:
             exc = self._monitor_task.exception()
         except asyncio.CancelledError:
             return  # Normal cancellation from stop_monitoring
-        if exc is not None:
-            raise GovernorCrisisError(
-                "Monitor task died — cannot acquire slot",
-            ) from exc
+        if exc is None:
+            return
+        if isinstance(exc, GovernorCrisisError):
+            raise exc
+        duration = (
+            time.monotonic() - self._crisis_start if self._crisis_start is not None else 0.0
+        )
+        raise GovernorCrisisError(
+            "Monitor task died — cannot acquire slot",
+            duration_seconds=duration,
+        ) from exc
 
     def release(self, *, success: bool = True, result_tokens: int | None = None) -> None:
         """Release a concurrency slot.

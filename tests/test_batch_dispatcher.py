@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1153,3 +1153,46 @@ async def test_auth_error_propagates_not_parse_error(
     assert len(auth_errors) > 0, (
         "AuthError was swallowed — it must propagate so the wave halts immediately"
     )
+
+
+# ---------------------------------------------------------------------------
+# T1.1: a dead memory monitor stops the wave instead of yielding PARSE_ERRORs
+# ---------------------------------------------------------------------------
+
+
+async def test_dead_monitor_aborts_the_wave_with_governor_crisis(
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """Every agent hits GovernorCrisisError in acquire(); none reaches the model.
+
+    dispatch_wave runs inside asyncio.TaskGroup, so the errors arrive wrapped in
+    an ExceptionGroup until T1.2 unwraps hard-stop errors; that change tightens
+    this assertion to a bare GovernorCrisisError.
+    """
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    settings = GovernorSettings(baseline_parallel=4, check_interval_seconds=0.5)
+    governor = ResourceGovernor(settings)
+    governor._monitor = MagicMock()
+    governor._monitor.read_combined = AsyncMock(side_effect=RuntimeError("sysctl died"))
+    await governor.start_monitoring()
+    assert governor._monitor_task is not None
+    await asyncio.wait({governor._monitor_task})
+    provider = _fake_provider(n=len(sample_personas))
+
+    with (
+        patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(ExceptionGroup) as exc_info,
+    ):
+        await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            provider=provider,
+            user_message="test",
+            settings=settings,
+        )
+
+    assert exc_info.value.exceptions
+    assert all(isinstance(e, GovernorCrisisError) for e in exc_info.value.exceptions)
+    assert provider.calls == []
+    await governor.stop_monitoring()

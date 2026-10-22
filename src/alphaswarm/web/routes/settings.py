@@ -363,6 +363,9 @@ async def put_settings(
                 "pricing_overrides",
                 {k: v.model_dump() for k, v in stored.pricing_overrides.items()},
             ),
+            # Not editable from the Settings UI yet: keep the stored opt-in so a
+            # save never silently changes the advisory privacy setting.
+            "allow_cloud_advisory": stored.allow_cloud_advisory,
         }
 
         merged_cfg = InferenceConfig.model_validate(merged_dict)
@@ -373,7 +376,7 @@ async def put_settings(
         ) from exc
 
     try:
-        await asyncio.to_thread(save_inference_config, merged_cfg)
+        await asyncio.to_thread(save_inference_config, merged_cfg, settings=app_state.settings)
     except OSError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

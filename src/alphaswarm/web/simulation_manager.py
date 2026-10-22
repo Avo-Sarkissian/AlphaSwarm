@@ -21,6 +21,17 @@ if TYPE_CHECKING:
 log = structlog.get_logger(component="web.simulation_manager")
 
 
+def _error_code(resp: httpx.Response) -> str | None:
+    """Return the `detail.error` code of an error response, or None."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    detail = body.get("detail") if isinstance(body, dict) else None
+    code = detail.get("error") if isinstance(detail, dict) else None
+    return code if isinstance(code, str) else None
+
+
 async def _auto_trigger_advisory(app: FastAPI, cycle_id: str) -> None:
     """POST /api/advisory/{cycle_id} in-process after simulation completes.
 
@@ -37,6 +48,10 @@ async def _auto_trigger_advisory(app: FastAPI, cycle_id: str) -> None:
             resp = await client.post(f"/api/advisory/{cycle_id}")
         if resp.status_code == 202:
             log.info("auto_advisory_trigger_accepted", cycle_id=cycle_id)
+        elif resp.status_code == 409 and _error_code(resp) == "cloud_advisory_disabled":
+            # Cloud orchestrator without the opt-in: the portfolio stays local
+            # (docs/DECISIONS.md#adr-advisory-pipeline).
+            log.info("auto_advisory_skipped_cloud", cycle_id=cycle_id)
         elif resp.status_code == 409:
             log.info("auto_advisory_trigger_skipped_conflict", cycle_id=cycle_id)
         elif resp.status_code == 503:
@@ -263,7 +278,7 @@ class SimulationManager:
             log.info("simulation_cancelled")
         else:
             exc = task.exception()
-            log.error("simulation_failed", error=str(exc))
+            log.error("simulation_failed", error=str(exc), exc_info=exc)
 
     def stop(self) -> None:
         """Stop the running simulation by cancelling the background task.

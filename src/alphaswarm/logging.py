@@ -42,6 +42,7 @@ from collections.abc import Mapping, MutableMapping
 from typing import Any
 
 import structlog
+from structlog.tracebacks import ExceptionDictTransformer
 
 from alphaswarm.security.hashing import sha256_first8
 
@@ -227,22 +228,35 @@ def configure_logging(log_level: str = "INFO", json_output: bool = True) -> None
         log_level: Python log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL).
         json_output: If True, output JSON lines. If False, use colored console output.
     """
-    shared_processors: list[structlog.types.Processor] = [
+    processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,  # MUST be first processor
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
         structlog.dev.set_exc_info,
-        pii_redaction_processor,  # Phase 37 (ISOL-04): BEFORE renderer (Pitfall 1)
     ]
 
+    # Tracebacks never include local variables: frames hold API keys, prompts
+    # and portfolio objects (docs/DECISIONS.md#adr-holdings-isolation). structlog's
+    # stock dict_tracebacks and its default (Rich) console formatter both use
+    # show_locals=True, so neither is used.
     if json_output:
-        shared_processors.append(structlog.processors.JSONRenderer())
+        # Turn exc_info into a structured "exception" list before redaction, so
+        # the redactor also walks the traceback. Without this, JSONRenderer only
+        # emits "exc_info": true and the stack is lost.
+        processors.append(
+            structlog.processors.ExceptionRenderer(ExceptionDictTransformer(show_locals=False))
+        )
+        processors.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer
+        processors.append(structlog.processors.JSONRenderer())
     else:
-        shared_processors.append(structlog.dev.ConsoleRenderer())
+        processors.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer
+        processors.append(
+            structlog.dev.ConsoleRenderer(exception_formatter=structlog.dev.plain_traceback)
+        )
 
     structlog.configure(
-        processors=shared_processors,
+        processors=processors,
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(logging, log_level.upper(), logging.INFO)
         ),

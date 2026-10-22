@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 
+from alphaswarm.config import AppSettings
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.types import SimulationPhase
 from alphaswarm.web.routes.advisory import router as advisory_router
@@ -59,9 +60,10 @@ def _make_app(
 
     state_snapshot = SimpleNamespace(phase=phase)
     state_store = SimpleNamespace(snapshot=lambda: state_snapshot)
-    settings = SimpleNamespace(
-        ollama=SimpleNamespace(orchestrator_model_alias="alphaswarm-orchestrator"),
-    )
+    # Real settings: hermetic_env points the inference config at a missing file
+    # (local defaults, so the cloud-advisory guard allows the call) and the
+    # holdings CSV at a path that never exists.
+    settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
     app_state = SimpleNamespace(
         settings=settings,
         state_store=state_store,

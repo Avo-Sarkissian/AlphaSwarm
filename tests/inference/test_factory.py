@@ -20,6 +20,7 @@ from alphaswarm.inference.anthropic_provider import AnthropicProvider
 from alphaswarm.inference.budget import BudgetTrackingProvider
 from alphaswarm.inference.factory import (
     BuiltProviders,
+    advisory_allowed,
     build_controller,
     build_providers,
     inference_mode,
@@ -354,3 +355,28 @@ class TestBuildControllerCloud:
         assert isinstance(ctrl, RateLimitController)
         # ProviderLimits default max_in_flight is 24
         assert ctrl._max_in_flight == 24
+
+
+# ---------------------------------------------------------------------------
+# advisory_allowed (docs/DECISIONS.md#adr-advisory-pipeline): no portfolio to a cloud orchestrator
+# without the explicit opt-in
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("orchestrator", "worker", "opt_in", "allowed"),
+    [
+        (_ollama_role(), _ollama_role(), False, True),
+        (_ollama_role(), _anthropic_role(), False, True),  # mixed, local orchestrator
+        (_anthropic_role(), _ollama_role(), False, False),  # mixed, cloud orchestrator
+        (_anthropic_role(), _anthropic_role(), False, False),
+        (_openai_role(), _openai_role(), False, False),
+        (_anthropic_role(), _anthropic_role(), True, True),
+    ],
+    ids=["local", "mixed-local-orch", "mixed-cloud-orch", "cloud", "openai", "cloud-opted-in"],
+)
+def test_advisory_allowed(
+    orchestrator: RoleConfig, worker: RoleConfig, opt_in: bool, allowed: bool
+) -> None:
+    cfg = InferenceConfig(orchestrator=orchestrator, worker=worker, allow_cloud_advisory=opt_in)
+    assert advisory_allowed(cfg) is allowed

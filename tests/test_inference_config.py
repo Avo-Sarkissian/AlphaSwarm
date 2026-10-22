@@ -22,6 +22,7 @@ from alphaswarm.config import (
     ModelPrice,
     ProviderLimits,
     ProviderType,
+    RoleConfig,
     default_inference_config,
     load_inference_config,
     masked_config,
@@ -463,3 +464,91 @@ def test_masked_config_spend_cap_included() -> None:
 
     # Decimals serialized as strings in JSON-safe dict
     assert str(result["spend_cap_usd"]) == "50.00"
+
+
+# ---------------------------------------------------------------------------
+# Injectable config path: tests never read the real file
+# (docs/DECISIONS.md#adr-tests-scoped-cleanup)
+# ---------------------------------------------------------------------------
+
+
+def _cloud_cfg() -> InferenceConfig:
+    """A cloud-only config with a fictional key."""
+    role = RoleConfig(
+        provider=ProviderType.ANTHROPIC, model="claude-fictional", api_key="sk-fictional-0000"
+    )
+    return InferenceConfig(orchestrator=role, worker=role)
+
+
+def test_inference_config_path_defaults_to_the_secrets_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ALPHASWARM_INFERENCE_CONFIG_PATH", raising=False)
+    settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.inference_config_path == Path(".secrets/inference.json")
+
+
+def test_inference_config_path_reads_the_env_var(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    target = tmp_path / "custom.json"
+    monkeypatch.setenv("ALPHASWARM_INFERENCE_CONFIG_PATH", str(target))
+    settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.inference_config_path == target
+
+
+def test_load_reads_the_settings_path_when_no_path_is_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)  # a CWD-relative default can never reach the real file
+    target = tmp_path / "inference.json"
+    save_inference_config(_cloud_cfg(), target)
+    settings = AppSettings(_env_file=None, inference_config_path=target)  # type: ignore[call-arg]
+    assert load_inference_config(settings).orchestrator.provider == ProviderType.ANTHROPIC
+
+
+def test_save_writes_the_settings_path_when_no_path_is_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "nested" / "inference.json"
+    settings = AppSettings(_env_file=None, inference_config_path=target)  # type: ignore[call-arg]
+    save_inference_config(_cloud_cfg(), settings=settings)
+    assert target.is_file()
+    assert load_inference_config(settings).worker.provider == ProviderType.ANTHROPIC
+
+
+def test_an_explicit_path_wins_over_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    from_settings = tmp_path / "from_settings.json"
+    explicit = tmp_path / "explicit.json"
+    settings = AppSettings(  # type: ignore[call-arg]
+        _env_file=None, inference_config_path=from_settings
+    )
+    save_inference_config(_cloud_cfg(), explicit, settings=settings)
+    assert explicit.is_file()
+    assert not from_settings.exists()
+    assert load_inference_config(settings, explicit).orchestrator.provider == ProviderType.ANTHROPIC
+    assert load_inference_config(settings).orchestrator.provider == ProviderType.OLLAMA
+
+
+def test_allow_cloud_advisory_defaults_off_and_round_trips(tmp_path: Path) -> None:
+    dest = tmp_path / "inference.json"
+    assert _cloud_cfg().allow_cloud_advisory is False
+    save_inference_config(_cloud_cfg().model_copy(update={"allow_cloud_advisory": True}), dest)
+    assert load_inference_config(AppSettings(_env_file=None), dest).allow_cloud_advisory is True  # type: ignore[call-arg]
+
+
+def test_a_config_file_written_before_the_flag_existed_loads_with_the_flag_off(
+    tmp_path: Path,
+) -> None:
+    dest = tmp_path / "inference.json"
+    dest.write_text(
+        '{"orchestrator": {"provider": "anthropic", "model": "claude-fictional", '
+        '"api_key": "sk-fictional-2222"}, '
+        '"worker": {"provider": "ollama", "model": "alphaswarm-worker"}}',
+        encoding="utf-8",
+    )
+    assert load_inference_config(AppSettings(_env_file=None), dest).allow_cloud_advisory is False  # type: ignore[call-arg]
