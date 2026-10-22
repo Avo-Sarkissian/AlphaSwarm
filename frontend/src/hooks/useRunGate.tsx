@@ -16,6 +16,7 @@
 import { ReactNode, useRef, useState } from 'react';
 import { RunConfirmModal } from '../components/run_confirm';
 import { getEstimate, RunEstimate } from '../api/settings';
+import { gateDecide } from '../lib/runGate';
 
 export interface RunGateState {
   /** Call this instead of simStart directly. */
@@ -52,24 +53,22 @@ export function useRunGate(
     requestingRef.current = true;
     try {
       let estimate: RunEstimate | null = null;
+      let estimateFailed = false;
       try {
         estimate = await getEstimate();
       } catch (err) {
-        // Estimate failure: show modal with null estimate so user can still cancel.
+        // Estimate failure: the modal still opens so the user can cancel.
         // eslint-disable-next-line no-console
         console.warn('[useRunGate] getEstimate failed; showing modal without estimate', err);
-        setPending({ seed, estimate: null });
-        return;
+        estimateFailed = true;
       }
 
-      if (estimate.mode === 'local') {
-        // Local mode: start immediately without a modal.
+      const decision = gateDecide(estimate, estimateFailed);
+      if (decision.action === 'start_direct') {
         await simStartFn(seed);
         return;
       }
-
-      // Cloud or mixed: open confirmation modal.
-      setPending({ seed, estimate });
+      setPending({ seed, estimate: decision.estimate });
     } finally {
       requestingRef.current = false;
     }
