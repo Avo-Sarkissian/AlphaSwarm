@@ -228,6 +228,31 @@ class ReportEngine:
 
 TEMPLATE_DIR = Path(__file__).parent / "templates" / "report"
 
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def md_cell(value: object) -> str:
+    """Make free text safe for one markdown table cell.
+
+    Collapses every whitespace run (including newlines) to one space and
+    escapes backslashes and pipes, so a shock text or entity name can never
+    split a row. None renders as an empty string.
+    """
+    if value is None:
+        return ""
+    text = _WHITESPACE_RE.sub(" ", str(value)).strip()
+    return text.replace("\\", "\\\\").replace("|", "\\|")
+
+
+def num(value: object, digits: int = 2) -> str:
+    """Fixed-digit number for report cells; None renders as an em dash."""
+    if value is None:
+        return "—"
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"num filter expects a number, got {type(value).__name__}")
+    return f"{float(value):.{digits}f}"
+
+
 TOOL_TO_TEMPLATE: dict[str, str] = {
     "bracket_summary": "01_consensus_summary.j2",
     "round_timeline": "02_round_timeline.j2",
@@ -270,6 +295,8 @@ class ReportAssembler:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        self._env.filters["md_cell"] = md_cell
+        self._env.filters["num"] = num
 
     def render_section(
         self,

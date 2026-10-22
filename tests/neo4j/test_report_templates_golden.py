@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from alphaswarm.report import TEMPLATE_DIR, ReportAssembler
+from alphaswarm.report import TEMPLATE_DIR, ReportAssembler, md_cell, num
 from tests.support.golden import assert_golden
 
 if TYPE_CHECKING:
@@ -48,13 +48,16 @@ _SHARE_RE = re.compile(r"^\| [A-Z_ ]+ \| \d+ \| (?P<share>\d+\.\d)% \|$", re.MUL
 
 
 def _strict_env() -> Environment:
-    return Environment(
+    env = Environment(
         loader=FileSystemLoader(str(TEMPLATE_DIR)),
         autoescape=False,
         trim_blocks=True,
         lstrip_blocks=True,
         undefined=StrictUndefined,
     )
+    env.filters["md_cell"] = md_cell
+    env.filters["num"] = num
+    return env
 
 
 def _table_rows(markdown: str) -> list[list[str]]:

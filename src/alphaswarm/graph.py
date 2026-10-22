@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import structlog
 from neo4j.exceptions import Neo4jError
@@ -50,6 +50,126 @@ class RankedPost:
     confidence: float
     content: str
     influence_weight: float
+    round_num: int
+
+
+# ---------------------------------------------------------------------------
+# Read-model rows returned by the read_* queries. Templates and consumers read
+# only these keys; mypy catches drift (docs/DECISIONS.md#adr-report-react).
+# ---------------------------------------------------------------------------
+
+
+class ConsensusSummaryRow(TypedDict):
+    """Final-round counts; total = buy + sell + hold + parse_error."""
+
+    buy_count: int
+    sell_count: int
+    hold_count: int
+    parse_error_count: int
+    total: int
+
+
+class RoundTimelineRow(TypedDict):
+    round_num: int
+    buy_count: int
+    sell_count: int
+    hold_count: int
+    parse_error_count: int
+    total: int
+
+
+class BracketNarrativeRow(TypedDict):
+    """Final-round stance per bracket; totals and averages exclude parse errors."""
+
+    bracket: str
+    display_name: str
+    buy_count: int
+    sell_count: int
+    hold_count: int
+    total: int
+    avg_confidence: float
+    avg_sentiment: float
+    majority: str | None
+
+
+class KeyDissenterRow(TypedDict):
+    agent_id: str
+    name: str
+    bracket: str
+    signal: str
+    bracket_majority: str
+
+
+class InfluenceLeaderRow(TypedDict):
+    agent_id: str
+    name: str
+    bracket: str
+    citation_count: int
+    influence_share: float
+
+
+class SignalFlipRow(TypedDict):
+    agent_id: str
+    name: str
+    bracket: str
+    round_num: int
+    flip_type: str
+    final_signal: str
+
+
+class EntityImpactRow(TypedDict):
+    entity_name: str
+    entity_type: str
+    avg_sentiment: float
+    mention_count: int
+    buy_mentions: int
+    sell_mentions: int
+    hold_mentions: int
+
+
+class ShockImpactRow(TypedDict):
+    """bracket_pivots entries: bracket, display_name, comparable, pivots,
+    pre_dominant, post_dominant, pre_buy_pct, post_buy_pct, delta_buy_pct,
+    dominant_arrow, agents (list of {agent_id, pre_signal, post_signal})."""
+
+    shock_text: str
+    injected_before_round: int
+    pre_dominant: str | None
+    post_dominant: str | None
+    pivot_count: int
+    pivot_rate: float
+    bracket_pivots: list[dict[str, object]]
+
+
+class InfluenceEdgeRow(TypedDict):
+    source_id: str  # citing agent
+    target_id: str  # cited agent
+    weight: float
+
+
+class CompletedCycleRow(TypedDict):
+    cycle_id: str
+    created_at: str
+    seed_rumor: str
+    round_count: int
+
+
+class BracketRoundRow(TypedDict):
+    """Replay per-round bracket row; totals and averages exclude parse errors."""
+
+    bracket: str
+    buy_count: int
+    sell_count: int
+    hold_count: int
+    total: int
+    avg_confidence: float
+    avg_sentiment: float
+
+
+class RationaleRoundRow(TypedDict):
+    agent_id: str
+    signal: str
+    rationale: str
     round_num: int
 
 

@@ -608,3 +608,46 @@ def test_shock_impact_template_renders_pivot_list() -> None:
     assert "Agent Pivot List" in result
     assert "a01" in result
     assert "a02" in result
+
+
+class TestReportFilters:
+    def test_md_cell_escapes_pipes_and_collapses_whitespace(self) -> None:
+        from alphaswarm.report import md_cell
+
+        assert md_cell("ZZZT | QQQX\nmerger\r\n  talks ") == "ZZZT \\| QQQX merger talks"
+
+    def test_md_cell_escapes_backslash_before_pipe(self) -> None:
+        from alphaswarm.report import md_cell
+
+        assert md_cell("a\\|b") == "a\\\\\\|b"
+
+    def test_md_cell_none_is_empty(self) -> None:
+        from alphaswarm.report import md_cell
+
+        assert md_cell(None) == ""
+
+    def test_num_formats_fixed_digits(self) -> None:
+        from alphaswarm.report import num
+
+        assert num(0.12345) == "0.12"
+        assert num(3, 1) == "3.0"
+        assert num(-50) == "-50.00"
+
+    def test_num_none_is_dash(self) -> None:
+        from alphaswarm.report import num
+
+        assert num(None) == "—"
+
+    @pytest.mark.parametrize("bad", ["0.5", True, [1]])
+    def test_num_rejects_non_numbers(self, bad: object) -> None:
+        from alphaswarm.report import num
+
+        with pytest.raises(TypeError, match="num filter expects a number"):
+            num(bad)
+
+    def test_filters_registered_on_assembler(self) -> None:
+        from alphaswarm.report import ReportAssembler, md_cell, num
+
+        env = ReportAssembler()._env
+        assert env.filters["md_cell"] is md_cell
+        assert env.filters["num"] is num
