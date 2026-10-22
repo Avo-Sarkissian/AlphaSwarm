@@ -103,3 +103,16 @@ async def test_invalid_inference_config_is_422_without_path(
         await load_inference_config_or_422(_state())
     assert (exc.value.status, exc.value.code) == (422, "inference_config_invalid")
     assert "/Users" not in exc.value.message
+
+
+async def test_unreadable_inference_config_is_422_without_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _denied(settings: object) -> object:
+        raise PermissionError(13, "Permission denied", "/Users/someone/.secrets/x.json")
+
+    monkeypatch.setattr("alphaswarm.web.guards.load_inference_config", _denied)
+    with pytest.raises(ApiError) as exc:
+        await load_inference_config_or_422(_state())
+    assert (exc.value.status, exc.value.code) == (422, "inference_config_invalid")
+    assert "/Users" not in exc.value.message

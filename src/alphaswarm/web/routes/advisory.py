@@ -5,32 +5,40 @@ Mirrors web/routes/report.py line-for-line:
   - T-36-15 equivalent: done_callback records failures into
     app.state.advisory_generation_error[cycle_id] so GET returns 500 and the
     Vue client can stop polling instead of waiting out the 10-minute cap.
-  - T-36-16 equivalent (accepted LOW): write_truncation window on rewrite.
+  - Writes are atomic (fsutil.atomic_write_text, owner-only).
 
-Pitfall 4 (Phase 41 RESEARCH): 409 CONFLICT when either report_task or
-advisory_task is in flight, preventing orchestrator-model starvation.
+The report/advisory cross-guard lives in web/guards.require_orchestrator_free.
 """
 from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import aiofiles
 import aiofiles.os
 import httpx
 import structlog
-from fastapi import APIRouter, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, Request, status
 from pydantic import BaseModel
 
 from alphaswarm.advisory import synthesize
 from alphaswarm.config import ProviderType, load_inference_config
+from alphaswarm.fsutil import atomic_write_text
 from alphaswarm.inference.factory import advisory_block_reason, build_providers
-from alphaswarm.types import SimulationPhase
-from alphaswarm.web.routes.report import _validate_cycle_id  # single-source-of-truth regex guard
+from alphaswarm.state import JobStatus
+from alphaswarm.web.errors import ApiError
+from alphaswarm.web.guards import (
+    load_inference_config_or_422,
+    require_complete_cycle,
+    require_orchestrator_free,
+    running_job_cycle,
+)
+from alphaswarm.web.params import CycleId
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from alphaswarm.app import AppState
     from alphaswarm.config import InferenceConfig
     from alphaswarm.holdings.types import PortfolioSnapshot
@@ -38,8 +46,6 @@ if TYPE_CHECKING:
 log = structlog.get_logger(component="web.advisory")
 
 router = APIRouter()
-
-ADVISORY_DIR = Path("advisory")
 
 # Strong references to chained report-generation tasks. The advisory done-callback
 # is SYNC and only receives (cycle_id, app) — no `self` — so the ref set cannot
@@ -117,24 +123,6 @@ def _orchestrator_block_reason(cfg: InferenceConfig, app_state: AppState) -> str
     return advisory_block_reason(cfg, ollama_base_url=client.base_url)
 
 
-async def _advisory_permitted(app_state: AppState) -> bool:
-    """True when the saved config lets the advisory run.
-
-    An unreadable config (invalid JSON or schema -> ValueError; no read
-    permission -> OSError) fails closed.
-    """
-    try:
-        cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
-    except (ValueError, OSError) as exc:
-        log.warning("advisory_blocked_config_unreadable", error_type=type(exc).__name__)
-        return False
-    reason = _orchestrator_block_reason(cfg, app_state)
-    if reason is not None:
-        log.warning("advisory_blocked_cloud_disabled", reason=reason)
-        return False
-    return True
-
-
 async def _refuse_remote_ollama_model(
     cfg: InferenceConfig, app_state: AppState, cycle_id: str
 ) -> None:
@@ -170,255 +158,181 @@ class GenerateAdvisoryResponse(BaseModel):
     cycle_id: str
 
 
+def advisory_dir(app_state: AppState) -> Path:
+    """Absolute advisory directory: settings.advisory_dir anchored at the project root."""
+    return app_state.settings.resolve_path(app_state.settings.advisory_dir)
+
+
+def _record_refusal(app: FastAPI, cycle_id: str, error: ApiError) -> None:
+    """Record a refused POST like a refused job, so GET answers with its code.
+
+    With nothing recorded GET answers 404, which the UI shows as "still
+    generating" until its poll times out.
+    """
+    _record_advisory_failure(app, cycle_id, error.code, error.message)
+
+
 @router.post(
     "/advisory/{cycle_id}",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=GenerateAdvisoryResponse,
 )
-async def generate_advisory(cycle_id: str, request: Request) -> GenerateAdvisoryResponse:
-    """Spawn advisory synthesis as a background task (ADVIS-02, D-09).
+async def generate_advisory(cycle_id: CycleId, request: Request) -> GenerateAdvisoryResponse:
+    """Start advisory synthesis for a complete cycle (ADVIS-02).
 
-    Guards (in order):
-      400: invalid cycle_id (D-12)
-      503: graph_manager / ollama_client / model_manager is None
-      409: cloud or remote orchestrator without allow_cloud_advisory
-           (cloud_advisory_disabled)
-      503: portfolio_snapshot is None (holdings CSV unavailable — RESEARCH OQ-3)
-      409: phase != COMPLETE
-      409: report_task or advisory_task in flight (D-08, Pitfall 4)
+    In order: 404/422/409 from the cycle gate; 422 inference_config_invalid
+    (fails closed) or 409 cloud_advisory_disabled for a cloud or remote
+    orchestrator without the opt-in, both before the holdings are touched
+    (docs/DECISIONS.md#adr-advisory-pipeline); 503 without holdings; 409 while
+    the orchestrator slot is taken.
     """
-    _validate_cycle_id(cycle_id)
-
     app_state: AppState = request.app.state.app_state
-    graph_manager = app_state.graph_manager
-    ollama_client = app_state.ollama_client
-    model_manager = app_state.model_manager
-
-    if graph_manager is None or ollama_client is None or model_manager is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": "services_unavailable",
-                "message": "Neo4j, Ollama, or ModelManager is not connected",
-            },
+    await require_complete_cycle(app_state, request.app.state.sim_manager, cycle_id)
+    try:
+        cfg = await load_inference_config_or_422(app_state)
+    except ApiError as exc:
+        log.warning(
+            "advisory_blocked_config_unreadable",
+            cycle_id=cycle_id,
+            error_type=type(exc.__cause__).__name__,
         )
-
-    # Never send the portfolio to a cloud or remote orchestrator without the opt-in
-    # (docs/DECISIONS.md#adr-advisory-pipeline). Checked before the holdings
-    # are touched, including the lazy reload below.
-    if not await _advisory_permitted(app_state):
-        # Record the refusal like a refused job: with nothing recorded, GET answers
-        # 404, which the UI shows as "still generating" until its poll times out.
-        refusals: dict[str, dict[str, str]] | None = getattr(
-            request.app.state, "advisory_generation_error", None
-        )
-        if refusals is None:
-            refusals = request.app.state.advisory_generation_error = {}
-        refusals[cycle_id] = {
-            "error": "cloud_advisory_disabled",
-            "message": _CLOUD_ADVISORY_MESSAGE,
-        }
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "cloud_advisory_disabled", "message": _CLOUD_ADVISORY_MESSAGE},
-        )
-
-    portfolio: PortfolioSnapshot | None = getattr(
-        request.app.state, "portfolio_snapshot", None,
-    )
+        _record_refusal(request.app, cycle_id, exc)
+        raise
+    reason = _orchestrator_block_reason(cfg, app_state)
+    if reason is not None:
+        log.warning("advisory_blocked_cloud_disabled", cycle_id=cycle_id, reason=reason)
+        refusal = ApiError(409, "cloud_advisory_disabled", _CLOUD_ADVISORY_MESSAGE)
+        _record_refusal(request.app, cycle_id, refusal)
+        raise refusal
+    portfolio: PortfolioSnapshot | None = await request.app.state.portfolio_cache.get()
     if portfolio is None:
-        # Lazy reload: if the startup load failed (CSV missing at boot, race
-        # condition, transient FS error) AND the file is now readable, try
-        # loading it on the fly so a stale backend doesn't permanently block
-        # auto-advisory. This makes the auto-trigger path resilient across
-        # the "backend started before CSV existed" failure mode that produced
-        # consecutive cycles with no advisory file.
-        try:
-            from alphaswarm.web.routes.holdings import load_portfolio_snapshot
-
-            reloaded = await asyncio.to_thread(
-                load_portfolio_snapshot, app_state.settings.holdings_csv_path,
-            )
-            if reloaded is not None:
-                request.app.state.portfolio_snapshot = reloaded
-                app_state.portfolio_snapshot = reloaded
-                portfolio = reloaded
-                log.info(
-                    "portfolio_snapshot_lazy_reloaded",
-                    holdings_count=len(reloaded.holdings),
-                    cycle_id=cycle_id,
-                )
-        except Exception:
-            log.exception("portfolio_snapshot_lazy_reload_failed", cycle_id=cycle_id)
-        if portfolio is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={
-                    "error": "holdings_unavailable",
-                    "message": "Portfolio snapshot was not loaded — check holdings CSV path",
-                },
-            )
-
-    snap = app_state.state_store.snapshot()
-    if snap.phase != SimulationPhase.COMPLETE:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "advisory_unavailable",
-                "message": "Advisories can only be generated after a simulation completes",
-                "current_phase": snap.phase.value,
-            },
+        raise ApiError(
+            503, "holdings_unavailable", "Holdings file could not be loaded; see the server log",
         )
-
-    # Pitfall 4: serialize orchestrator model consumers.
-    existing_report = getattr(request.app.state, "report_task", None)
-    if existing_report is not None and not existing_report.done():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "report_generation_in_progress",
-                "message": "A report generation is already running — retry when it completes",
-            },
-        )
-    existing_advisory = getattr(request.app.state, "advisory_task", None)
-    if existing_advisory is not None and not existing_advisory.done():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "advisory_generation_in_progress",
-                "message": "An advisory generation is already running",
-            },
-        )
-
-    # Ensure error dict exists; clear any stale entry for this cycle (D-13).
-    if (
-        not hasattr(request.app.state, "advisory_generation_error")
-        or request.app.state.advisory_generation_error is None
-    ):
-        request.app.state.advisory_generation_error = {}
-    errors: dict[str, dict[str, str]] = request.app.state.advisory_generation_error
-    errors.pop(cycle_id, None)
-
-    task = asyncio.create_task(_run_advisory_synthesis(app_state, cycle_id, portfolio))
-    request.app.state.advisory_task = task
-    app_ref = request.app
-    task.add_done_callback(lambda t: _on_advisory_task_done(t, cycle_id, app_ref))
-
+    require_orchestrator_free(app_state)
+    start_advisory_job(request.app, cycle_id, portfolio)
     log.info(
-        "advisory_generation_started",
-        cycle_id=cycle_id,
-        holdings_count=len(portfolio.holdings),
+        "advisory_generation_started", cycle_id=cycle_id, holdings_count=len(portfolio.holdings),
     )
     return GenerateAdvisoryResponse(status="accepted", cycle_id=cycle_id)
 
 
 @router.get("/advisory/{cycle_id}")
-async def get_advisory(cycle_id: str, request: Request) -> dict[str, Any]:
-    """Return the advisory JSON payload for a cycle (D-10).
-
-      200: file exists -> parsed JSON body
-      404: file absent AND no recorded error
-      500: app.state.advisory_generation_error[cycle_id] present (done_callback captured)
-      400: invalid cycle_id (D-12)
-    """
-    _validate_cycle_id(cycle_id)
-
-    path = ADVISORY_DIR / f"{cycle_id}_advisory.json"
-    exists = await aiofiles.os.path.exists(path)
-
-    if not exists:
-        errors: dict[str, dict[str, str]] = (
-            getattr(request.app.state, "advisory_generation_error", {}) or {}
+async def get_advisory(cycle_id: CycleId, request: Request) -> dict[str, Any]:
+    """200 with the JSON; 409 while this cycle's job runs; 500 after a recorded
+    failure; 404 when no advisory exists."""
+    app_state = request.app.state.app_state
+    if running_job_cycle(app_state, "advisory") == cycle_id:
+        raise ApiError(
+            409,
+            "advisory_generation_in_progress",
+            "The advisory for this cycle is being generated",
+            extra={"cycle_id": cycle_id},
         )
-        recorded = errors.get(cycle_id)
+    path = advisory_dir(app_state) / f"{cycle_id}_advisory.json"
+    if not await aiofiles.os.path.exists(path):
+        recorded = _advisory_errors(request.app).get(cycle_id)
         if recorded is not None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "error": recorded.get("error", "advisory_generation_failed"),
-                    "message": recorded.get("message", "Advisory generation failed"),
-                    "cycle_id": cycle_id,
-                },
+            raise ApiError(
+                500,
+                recorded.get("error", "advisory_generation_failed"),
+                recorded.get("message", "Advisory generation failed"),
+                extra={"cycle_id": cycle_id},
             )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "advisory_not_found",
-                "message": f"No advisory exists for cycle {cycle_id}",
-            },
-        )
-
+        raise ApiError(404, "advisory_not_found", f"No advisory exists for cycle {cycle_id}")
     async with aiofiles.open(path, encoding="utf-8") as f:
         content = await f.read()
-
     payload: dict[str, Any] = json.loads(content)
     log.info("advisory_served", cycle_id=cycle_id, bytes=len(content))
     return payload
 
 
-def _on_advisory_task_done(
-    task: asyncio.Task[Any], cycle_id: str, app: FastAPI,
-) -> None:
-    """Done-callback mirroring _on_report_task_done (D-13, T-36-15 pattern).
+def start_advisory_job(
+    app: FastAPI, cycle_id: str, portfolio: PortfolioSnapshot,
+) -> asyncio.Task[None]:
+    """Start advisory synthesis as a tracked task and mark the advisory job running.
 
-    MUST NOT raise — FastAPI's loop would swallow it.
+    Shared by POST /api/advisory/{id} and the post-run pipeline; callers have
+    already checked the cycle, the holdings, the cloud opt-in and the slot.
     """
-    if task.cancelled():
-        try:
-            errors = getattr(app.state, "advisory_generation_error", None)
-            if errors is None:
-                app.state.advisory_generation_error = {}
-                errors = app.state.advisory_generation_error
-            errors[cycle_id] = {
-                "error": "advisory_generation_failed",
-                "message": "cancelled",
-            }
-            log.warning("advisory_task_cancelled", cycle_id=cycle_id)
-        except Exception:  # defensive
-            pass
-        return
+    app_state: AppState = app.state.app_state
+    _advisory_errors(app).pop(cycle_id, None)
+    task: asyncio.Task[None] = asyncio.create_task(
+        _run_advisory_synthesis(app_state, cycle_id, portfolio), name=f"advisory_{cycle_id}",
+    )
+    app.state.advisory_task = task
+    app_state.state_store.set_job_status("advisory", JobStatus("running", cycle_id))
+    task.add_done_callback(lambda t: _on_advisory_task_done(t, cycle_id, app))
+    return task
 
-    exc = task.exception()
-    if exc is None:
-        log.info("advisory_task_completed", cycle_id=cycle_id)
-        # SUCCESS branch only: the orchestrator is warm and the cycle is COMPLETE,
-        # so chain report generation off the same cycle. Hold a strong ref (the
-        # loop keeps only weak refs to bare tasks). MUST NOT raise — the callback
-        # body is swallowed by the loop, so wrap defensively like the other branches.
-        try:
-            chain = asyncio.create_task(
-                _auto_trigger_report(app, cycle_id),
-                name=f"auto_report_{cycle_id}",
-            )
-            _report_chain_tasks.add(chain)
-            chain.add_done_callback(_report_chain_tasks.discard)
-        except Exception:  # defensive — never let the done-callback raise
-            log.error("auto_report_chain_schedule_failed", cycle_id=cycle_id)
-        return
 
+def _advisory_errors(app: FastAPI) -> dict[str, dict[str, str]]:
+    """The per-cycle failure records GET reads, created on first use."""
+    errors: dict[str, dict[str, str]] | None = getattr(
+        app.state, "advisory_generation_error", None,
+    )
+    if errors is None:
+        errors = {}
+        app.state.advisory_generation_error = errors
+    return errors
+
+
+def _record_advisory_failure(app: FastAPI, cycle_id: str, code: str, message: str) -> None:
+    _advisory_errors(app)[cycle_id] = {"error": code, "message": message}
+
+
+def _set_advisory_status(app: FastAPI, job_status: JobStatus) -> None:
+    app_state = getattr(app.state, "app_state", None)
+    if app_state is not None:
+        app_state.state_store.set_job_status("advisory", job_status)
+
+
+def _on_advisory_task_done(task: asyncio.Task[Any], cycle_id: str, app: FastAPI) -> None:
+    """Record the outcome for GET and the job status. Must never raise.
+
+    Messages carry the exception class only, or the fixed sentence of a
+    CloudAdvisoryDisabledError: advisory exceptions can mention tickers, which
+    must not reach HTTP responses (docs/DECISIONS.md#adr-holdings-isolation).
+    """
     try:
-        errors = getattr(app.state, "advisory_generation_error", None)
-        if errors is None:
-            app.state.advisory_generation_error = {}
-            errors = app.state.advisory_generation_error
-        code = (
-            "cloud_advisory_disabled"
-            if isinstance(exc, CloudAdvisoryDisabledError)
-            else "advisory_generation_failed"
-        )
-        errors[cycle_id] = {
-            "error": code,
-            "message": str(exc) or exc.__class__.__name__,
-        }
+        if task.cancelled():
+            _record_advisory_failure(
+                app, cycle_id, "advisory_generation_failed", "Advisory generation was cancelled",
+            )
+            _set_advisory_status(app, JobStatus("failed", cycle_id, "advisory_generation_failed"))
+            log.warning("advisory_task_cancelled", cycle_id=cycle_id)
+            return
+        exc = task.exception()
+        if exc is None:
+            _set_advisory_status(app, JobStatus("idle", cycle_id))
+            log.info("advisory_task_completed", cycle_id=cycle_id)
+            _schedule_report_chain(app, cycle_id)
+            return
+        if isinstance(exc, CloudAdvisoryDisabledError):
+            # The job re-checked the config or asked the server and refused; its
+            # messages are fixed module constants, so they are safe to return.
+            code, message = "cloud_advisory_disabled", str(exc) or _CLOUD_ADVISORY_MESSAGE
+        else:
+            code = "advisory_generation_failed"
+            message = f"Advisory generation failed ({exc.__class__.__name__})"
+        _record_advisory_failure(app, cycle_id, code, message)
+        _set_advisory_status(app, JobStatus("failed", cycle_id, code))
+        # Event name and exc_info are pinned by tests/test_task_failure_logging.py.
         log.error(
             "advisory_task_exception_recorded",
             cycle_id=cycle_id,
-            error=str(exc),
             exc_type=exc.__class__.__name__,
             exc_info=exc,
         )
-    except Exception:
-        log.error("advisory_task_exception_record_failed", cycle_id=cycle_id)
+    except Exception:  # a done-callback must never raise
+        log.exception("advisory_task_done_callback_failed", cycle_id=cycle_id)
+
+
+def _schedule_report_chain(app: FastAPI, cycle_id: str) -> None:
+    """Temporary: keep the advisory -> report chain until the post-run pipeline lands."""
+    chain = asyncio.create_task(_auto_trigger_report(app, cycle_id), name=f"auto_report_{cycle_id}")
+    _report_chain_tasks.add(chain)
+    chain.add_done_callback(_report_chain_tasks.discard)
 
 
 async def _run_advisory_synthesis(
@@ -467,10 +381,10 @@ async def _run_advisory_synthesis(
             provider=provider,
         )
 
-        await aiofiles.os.makedirs(ADVISORY_DIR, exist_ok=True)
-        output_path = ADVISORY_DIR / f"{cycle_id}_advisory.json"
-        async with aiofiles.open(output_path, "w", encoding="utf-8") as f:
-            await f.write(report_obj.model_dump_json(indent=2))
+        output_path = advisory_dir(app_state) / f"{cycle_id}_advisory.json"
+        await asyncio.to_thread(
+            atomic_write_text, output_path, report_obj.model_dump_json(indent=2),
+        )
 
         log.info(
             "advisory_generation_complete",

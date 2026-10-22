@@ -111,7 +111,8 @@ def make_route_app(
             with_neo4j=False,
         )
         app_state.graph_manager = graph  # type: ignore[assignment]
-        app_state.ollama_client = MagicMock()
+        # A loopback host, so the advisory's cloud guard sees a local Ollama server.
+        app_state.ollama_client = MagicMock(base_url="http://127.0.0.1:11434")
         app_state.model_manager = MagicMock()
         app.state.interview_sessions = {}
         app.state.report_task = None

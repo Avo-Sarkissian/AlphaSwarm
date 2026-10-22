@@ -1,365 +1,330 @@
-"""Unit tests for POST/GET /api/advisory/{cycle_id} (ADVIS-02)."""
+"""POST/GET /api/advisory/{cycle_id} (docs/DECISIONS.md#adr-background-tasks)."""
+
 from __future__ import annotations
 
 import asyncio
 import json
+import os
+import stat
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import alphaswarm.web.routes.advisory as advisory_module
-from alphaswarm.config import (
-    AppSettings,
-    InferenceConfig,
-    ProviderType,
-    RoleConfig,
-)
+from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
+from alphaswarm.errors import Neo4jUnavailableError
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
-from alphaswarm.types import SimulationPhase
-from alphaswarm.web.routes.advisory import (
-    _on_advisory_task_done,
-    _report_chain_tasks,
-)
+from alphaswarm.inference.budget import BudgetMeter
+from alphaswarm.inference.factory import BuiltProviders
+from alphaswarm.state import JobStatus, StateStore
 from alphaswarm.web.routes.advisory import router as advisory_router
+from tests.support.web_app import (
+    CYCLE_A,
+    CYCLE_B,
+    CYCLE_UNKNOWN,
+    FakeCycleGraph,
+    make_route_app,
+    route_test_settings,
+)
+
+_REAL_SYNTHESIS = advisory_module._run_advisory_synthesis
 
 
-def _fake_portfolio() -> PortfolioSnapshot:
+def _portfolio() -> PortfolioSnapshot:
     return PortfolioSnapshot(
-        holdings=(Holding(ticker="AAPL", qty=Decimal("10"), cost_basis=Decimal("100")),),
+        holdings=(Holding(ticker="ZZZT", qty=Decimal("12.3456"), cost_basis=Decimal("1234.56")),),
         as_of=datetime.now(UTC),
         account_number_hash="cafebabe",
     )
 
 
-def _make_app(
-    *,
-    phase: SimulationPhase = SimulationPhase.COMPLETE,
-    portfolio: PortfolioSnapshot | None = None,
-    services_available: bool = True,
-    report_task: Any = None,
-    advisory_task: Any = None,
-    advisory_error: dict[str, dict[str, str]] | None = None,
-) -> FastAPI:
-    app = FastAPI()
-    app.include_router(advisory_router, prefix="/api")
-
-    # Build app_state surface the route reads
-    state_snapshot = SimpleNamespace(phase=phase)
-    state_store = SimpleNamespace(snapshot=lambda: state_snapshot)
-    # Real settings: hermetic_env points the inference config at a missing file
-    # (local defaults, so the cloud-advisory guard allows the call) and the
-    # holdings CSV at a path that never exists.
-    settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
-    app_state = SimpleNamespace(
-        settings=settings,
-        state_store=state_store,
-        graph_manager=object() if services_available else None,
-        ollama_client=(
-            SimpleNamespace(base_url="http://127.0.0.1:11434") if services_available else None
-        ),
-        model_manager=object() if services_available else None,
-    )
-
-    app.state.app_state = app_state
-    app.state.portfolio_snapshot = portfolio
-    app.state.report_task = report_task
-    app.state.advisory_task = advisory_task
-    app.state.advisory_generation_error = advisory_error or {}
-    return app
-
-
 @pytest.fixture(autouse=True)
-def _neutralize_background_task(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent real synthesize() from running in route tests."""
+def _blocked_synthesis(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _blocked(app_state: Any, cycle_id: str, portfolio: Any) -> None:
+        await asyncio.Event().wait()
 
-    async def _noop(app_state: Any, cycle_id: str, portfolio: PortfolioSnapshot) -> None:
-        await asyncio.sleep(0)
+    monkeypatch.setattr(advisory_module, "_run_advisory_synthesis", _blocked)
 
-    monkeypatch.setattr(
-        "alphaswarm.web.routes.advisory._run_advisory_synthesis",
-        _noop,
+
+def _app(
+    tmp_path: Path,
+    *,
+    graph: FakeCycleGraph | None = None,
+    portfolio: object | None = None,
+) -> FastAPI:
+    return make_route_app(
+        advisory_router,
+        settings=route_test_settings(tmp_path),
+        graph=graph if graph is not None else FakeCycleGraph({CYCLE_A: "complete"}),
+        portfolio=portfolio,
     )
 
 
-# ---------------- POST tests --------------------------------------------
+def _store(app: FastAPI) -> StateStore:
+    store: StateStore = app.state.app_state.state_store
+    return store
 
 
-def test_post_advisory_202() -> None:
-    app = _make_app(portfolio=_fake_portfolio())
-    client = TestClient(app)
-    r = client.post("/api/advisory/cycle_01")
-    assert r.status_code == 202
-    body = r.json()
-    assert body == {"status": "accepted", "cycle_id": "cycle_01"}
-    # Task slot populated
-    assert app.state.advisory_task is not None
+def test_post_202_for_complete_cycle_while_phase_is_idle(tmp_path: Path) -> None:
+    app = _app(tmp_path, portfolio=_portfolio())
+    with TestClient(app) as client:
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+        assert r.status_code == 202
+        assert r.json() == {"status": "accepted", "cycle_id": CYCLE_A}
+        assert _store(app).job_statuses().advisory == JobStatus("running", CYCLE_A)
+        assert isinstance(app.state.advisory_task, asyncio.Task)
 
 
-def test_post_advisory_503_no_services() -> None:
-    app = _make_app(portfolio=_fake_portfolio(), services_available=False)
-    r = TestClient(app).post("/api/advisory/cycle_01")
-    assert r.status_code == 503
-    assert r.json()["detail"]["error"] == "services_unavailable"
+def test_post_404_for_unknown_cycle_starts_nothing(tmp_path: Path) -> None:
+    app = _app(tmp_path, portfolio=_portfolio())
+    with TestClient(app) as client:
+        r = client.post(f"/api/advisory/{CYCLE_UNKNOWN}")
+        assert r.status_code == 404
+        assert r.json()["detail"]["error"] == "cycle_not_found"
+        assert app.state.advisory_task is None
 
 
-def test_post_advisory_503_no_portfolio() -> None:
-    app = _make_app(portfolio=None)
-    r = TestClient(app).post("/api/advisory/cycle_01")
+def test_post_422_for_unfinished_cycle(tmp_path: Path) -> None:
+    graph = FakeCycleGraph({CYCLE_A: "running"})
+    with TestClient(_app(tmp_path, graph=graph, portfolio=_portfolio())) as client:
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+    assert r.status_code == 422
+    assert r.json()["detail"]["error"] == "cycle_not_ready"
+
+
+def test_post_409_while_a_simulation_runs(tmp_path: Path) -> None:
+    app = _app(tmp_path, portfolio=_portfolio())
+    with TestClient(app) as client:
+        app.state.sim_manager._is_running = True
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "simulation_running"
+
+
+def test_post_503_without_holdings(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path, portfolio=None)) as client:
+        r = client.post(f"/api/advisory/{CYCLE_A}")
     assert r.status_code == 503
     assert r.json()["detail"]["error"] == "holdings_unavailable"
 
 
-def test_post_advisory_409_wrong_phase() -> None:
-    app = _make_app(phase=SimulationPhase.ROUND_2, portfolio=_fake_portfolio())
-    r = TestClient(app).post("/api/advisory/cycle_01")
-    assert r.status_code == 409
-    detail = r.json()["detail"]
-    assert detail["error"] == "advisory_unavailable"
-    assert detail["current_phase"] == "round_2"
-
-
-def test_post_advisory_409_report_in_progress() -> None:
-    fake_task = SimpleNamespace(done=lambda: False)
-    app = _make_app(portfolio=_fake_portfolio(), report_task=fake_task)
-    r = TestClient(app).post("/api/advisory/cycle_01")
-    assert r.status_code == 409
-    assert r.json()["detail"]["error"] == "report_generation_in_progress"
-
-
-def test_post_advisory_409_conflict() -> None:
-    fake_task = SimpleNamespace(done=lambda: False)
-    app = _make_app(portfolio=_fake_portfolio(), advisory_task=fake_task)
-    r = TestClient(app).post("/api/advisory/cycle_01")
-    assert r.status_code == 409
-    assert r.json()["detail"]["error"] == "advisory_generation_in_progress"
-
-
-def test_post_advisory_400_bad_cycle_id() -> None:
-    app = _make_app(portfolio=_fake_portfolio())
-    r = TestClient(app).post("/api/advisory/..%2Fetc")
-    # Either 400 from the regex guard OR 404 from FastAPI path parsing — both
-    # indicate the path-traversal attempt did NOT reach the handler with
-    # a dangerous cycle_id. Accept 400 (preferred) and also tolerate 404
-    # for path encoding edge cases at the framework layer.
-    assert r.status_code in (400, 404)
-    if r.status_code == 400:
-        assert r.json()["detail"]["error"] == "invalid_cycle_id"
-
-
-def test_post_advisory_400_bad_cycle_id_simple() -> None:
-    app = _make_app(portfolio=_fake_portfolio())
-    # Unambiguous invalid cycle_id: contains a dot (outside the [a-zA-Z0-9_-] charset)
-    r = TestClient(app).post("/api/advisory/bad.id")
-    assert r.status_code == 400
-    assert r.json()["detail"]["error"] == "invalid_cycle_id"
-
-
-# ---------------- GET tests --------------------------------------------
-
-
-def test_get_advisory_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Redirect ADVISORY_DIR to tmp_path for isolation
-    monkeypatch.setattr(
-        "alphaswarm.web.routes.advisory.ADVISORY_DIR", tmp_path,
+def _cloud_app(tmp_path: Path, *, opt_in: bool, portfolio: object | None) -> FastAPI:
+    """App whose stored config uses a cloud orchestrator, with the opt-in flag set or not."""
+    settings = route_test_settings(tmp_path)
+    cloud = InferenceConfig(
+        orchestrator=RoleConfig(
+            provider=ProviderType.ANTHROPIC, model="claude-test", api_key="sk-x",
+        ),
+        worker=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker"),
+        allow_cloud_advisory=opt_in,
     )
-    payload = {
-        "cycle_id": "cycle_01",
-        "generated_at": "2026-04-19T22:00:00+00:00",
-        "portfolio_outlook": "Mildly bullish.",
-        "items": [],
-        "total_holdings": 3,
-        "affected_holdings": 0,
-    }
-    (tmp_path / "cycle_01_advisory.json").write_text(json.dumps(payload))
+    save_inference_config(cloud, settings.inference_config_path)
+    return make_route_app(
+        advisory_router, settings=settings,
+        graph=FakeCycleGraph({CYCLE_A: "complete"}), portfolio=portfolio,
+    )
 
-    app = _make_app(portfolio=_fake_portfolio())
-    r = TestClient(app).get("/api/advisory/cycle_01")
+
+def test_post_409_for_cloud_orchestrator_without_opt_in(tmp_path: Path) -> None:
+    app = _cloud_app(tmp_path, opt_in=False, portfolio=_portfolio())
+    with TestClient(app) as client:
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+        assert r.status_code == 409
+        assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
+        assert app.state.advisory_task is None
+
+
+def test_cloud_guard_runs_before_the_holdings_are_touched(tmp_path: Path) -> None:
+    """Refuse before reading the holdings (docs/DECISIONS.md#adr-advisory-pipeline)."""
+    app = _cloud_app(tmp_path, opt_in=False, portfolio=None)
+    with TestClient(app) as client:
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+        assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
+        assert app.state.portfolio_cache.get_calls == 0
+
+
+def test_post_202_for_cloud_orchestrator_with_opt_in(tmp_path: Path) -> None:
+    app = _cloud_app(tmp_path, opt_in=True, portfolio=_portfolio())
+    with TestClient(app) as client:
+        assert client.post(f"/api/advisory/{CYCLE_A}").status_code == 202
+
+
+def test_unreadable_inference_config_fails_closed_without_path(tmp_path: Path) -> None:
+    settings = route_test_settings(tmp_path)
+    settings.inference_config_path.write_text("{not json", encoding="utf-8")
+    app = make_route_app(
+        advisory_router, settings=settings,
+        graph=FakeCycleGraph({CYCLE_A: "complete"}), portfolio=_portfolio(),
+    )
+    with TestClient(app) as client:
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+        assert r.status_code == 422
+        assert r.json()["detail"]["error"] == "inference_config_invalid"
+        assert str(tmp_path) not in r.text
+        assert app.state.advisory_task is None
+        assert app.state.portfolio_cache.get_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("kind", "code"),
+    [("report", "report_generation_in_progress"), ("advisory", "advisory_generation_in_progress")],
+)
+def test_post_409_when_the_orchestrator_is_busy(tmp_path: Path, kind: str, code: str) -> None:
+    app = _app(tmp_path, portfolio=_portfolio())
+    with TestClient(app) as client:
+        _store(app).set_job_status(kind, JobStatus("running", CYCLE_B))  # type: ignore[arg-type]
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == code
+
+
+def test_post_503_when_neo4j_is_down(tmp_path: Path) -> None:
+    graph = FakeCycleGraph(error=Neo4jUnavailableError("down", op="read_cycle_status"))
+    with TestClient(_app(tmp_path, graph=graph, portfolio=_portfolio())) as client:
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+    assert r.status_code == 503
+
+
+@pytest.mark.parametrize("bad", ["cycle_01", "bad.id", f"{CYCLE_A}%0A"])
+def test_malformed_ids_are_422(tmp_path: Path, bad: str) -> None:
+    with TestClient(_app(tmp_path, portfolio=_portfolio())) as client:
+        assert client.post(f"/api/advisory/{bad}").status_code == 422
+        assert client.get(f"/api/advisory/{bad}").status_code == 422
+
+
+def test_get_200_reads_from_settings_dir_not_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "advisory").mkdir()
+    payload = {"cycle_id": CYCLE_A, "items": []}
+    (tmp_path / "advisory" / f"{CYCLE_A}_advisory.json").write_text(json.dumps(payload))
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    with TestClient(_app(tmp_path)) as client:
+        r = client.get(f"/api/advisory/{CYCLE_A}")
     assert r.status_code == 200
     assert r.json() == payload
 
 
-def test_get_advisory_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "alphaswarm.web.routes.advisory.ADVISORY_DIR", tmp_path,
+def test_get_404_500_and_409(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    with TestClient(app) as client:
+        assert client.get(f"/api/advisory/{CYCLE_A}").json()["detail"]["error"] == (
+            "advisory_not_found"
+        )
+        app.state.advisory_generation_error = {
+            CYCLE_A: {
+                "error": "advisory_generation_failed",
+                "message": "Advisory generation failed",
+            },
+        }
+        failed = client.get(f"/api/advisory/{CYCLE_A}")
+        assert failed.status_code == 500
+        assert failed.json()["detail"]["cycle_id"] == CYCLE_A
+        _store(app).set_job_status("advisory", JobStatus("running", CYCLE_A))
+        running = client.get(f"/api/advisory/{CYCLE_A}")
+        assert running.status_code == 409
+        assert running.json()["detail"]["error"] == "advisory_generation_in_progress"
+
+
+async def test_done_callback_failure_records_class_name_only() -> None:
+    app = FastAPI()
+    app.state.app_state = SimpleNamespace(state_store=StateStore())
+    app.state.advisory_generation_error = {}
+
+    async def _fail() -> None:
+        raise ValueError("ZZZT leaked into an exception message")
+
+    task = asyncio.create_task(_fail())
+    with pytest.raises(ValueError):
+        await task
+    advisory_module._on_advisory_task_done(task, CYCLE_A, app)
+    assert app.state.advisory_generation_error[CYCLE_A] == {
+        "error": "advisory_generation_failed",
+        "message": "Advisory generation failed (ValueError)",
+    }
+    assert app.state.app_state.state_store.job_statuses().advisory == JobStatus(
+        "failed", CYCLE_A, "advisory_generation_failed",
     )
-    app = _make_app(portfolio=_fake_portfolio())
-    r = TestClient(app).get("/api/advisory/cycle_missing")
-    assert r.status_code == 404
-    assert r.json()["detail"]["error"] == "advisory_not_found"
 
 
-def test_get_advisory_500_after_failure(
+class _FakeProvider:
+    role = "orchestrator"
+    model = "fake-orch"
+
+    async def prepare(self) -> None:
+        return None
+
+    async def teardown(self) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
+
+
+class _FakeReport:
+    affected_holdings = 1
+
+    def model_dump_json(self, *, indent: int) -> str:
+        return json.dumps({"cycle_id": CYCLE_A, "items": []}, indent=indent)
+
+
+async def test_synthesis_writes_atomically_into_advisory_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "alphaswarm.web.routes.advisory.ADVISORY_DIR", tmp_path,
+    provider = _FakeProvider()
+    built = BuiltProviders(
+        orchestrator=provider,  # type: ignore[arg-type]
+        worker=provider,  # type: ignore[arg-type]
+        budget_meter=BudgetMeter(None, {}),
     )
-    app = _make_app(
-        portfolio=_fake_portfolio(),
-        advisory_error={
-            "cycle_01": {
-                "error": "advisory_generation_failed",
-                "message": "boom",
-            },
-        },
+
+    async def _synthesize(**_: Any) -> _FakeReport:
+        return _FakeReport()
+
+    # load_inference_config is not patched: route_test_settings points it at a missing
+    # file, so the job's cloud re-check sees the local default config.
+    monkeypatch.setattr(advisory_module, "build_providers", lambda *a, **k: built)
+    monkeypatch.setattr(advisory_module, "synthesize", _synthesize)
+    # The job asks the shared client for its host and whether the model runs remotely.
+    client = SimpleNamespace(
+        base_url="http://127.0.0.1:11434", is_remote_model=AsyncMock(return_value=False),
     )
-    r = TestClient(app).get("/api/advisory/cycle_01")
-    assert r.status_code == 500
-    detail = r.json()["detail"]
-    assert detail["error"] == "advisory_generation_failed"
-    assert detail["message"] == "boom"
-    assert detail["cycle_id"] == "cycle_01"
-
-
-def test_get_advisory_400_bad_cycle_id() -> None:
-    app = _make_app(portfolio=_fake_portfolio())
-    r = TestClient(app).get("/api/advisory/bad.id")
-    assert r.status_code == 400
-    assert r.json()["detail"]["error"] == "invalid_cycle_id"
-
-
-# ---------------- Report auto-trigger chain (quick-260611-rlx) -----------
-
-
-async def _drain_report_chain() -> None:
-    """Await + clear any chain tasks the done-callback scheduled."""
-    for task in list(_report_chain_tasks):
-        try:
-            await task
-        except Exception:  # pragma: no cover - defensive in teardown
-            pass
-    _report_chain_tasks.clear()
-
-
-async def test_advisory_done_success_schedules_report(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """SUCCESS branch (not cancelled, no exception) schedules _auto_trigger_report
-    via asyncio.create_task with a strong module-level reference."""
-    app = _make_app(portfolio=_fake_portfolio())
-    fake_trigger = AsyncMock()
-    monkeypatch.setattr(advisory_module, "_auto_trigger_report", fake_trigger)
-
-    task = MagicMock(spec=asyncio.Task)
-    task.cancelled.return_value = False
-    task.exception.return_value = None
-
-    _on_advisory_task_done(task, "cycle_01", app)
-    # Let the scheduled chain task start + run to completion.
-    await asyncio.sleep(0)
-    await _drain_report_chain()
-
-    fake_trigger.assert_awaited_once_with(app, "cycle_01")
-
-
-async def test_advisory_done_failure_no_report(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILURE branch (exception present) does NOT schedule a report task."""
-    app = _make_app(portfolio=_fake_portfolio())
-    fake_trigger = AsyncMock()
-    monkeypatch.setattr(advisory_module, "_auto_trigger_report", fake_trigger)
-
-    task = MagicMock(spec=asyncio.Task)
-    task.cancelled.return_value = False
-    task.exception.return_value = RuntimeError("synthesis blew up")
-
-    _on_advisory_task_done(task, "cycle_01", app)
-    await asyncio.sleep(0)
-    await _drain_report_chain()
-
-    fake_trigger.assert_not_called()
-
-
-async def test_advisory_done_cancelled_no_report(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """CANCEL branch does NOT schedule a report task."""
-    app = _make_app(portfolio=_fake_portfolio())
-    fake_trigger = AsyncMock()
-    monkeypatch.setattr(advisory_module, "_auto_trigger_report", fake_trigger)
-
-    task = MagicMock(spec=asyncio.Task)
-    task.cancelled.return_value = True
-
-    _on_advisory_task_done(task, "cycle_01", app)
-    await asyncio.sleep(0)
-    await _drain_report_chain()
-
-    fake_trigger.assert_not_called()
-
-
-# ------ Cloud-advisory guard (docs/DECISIONS.md#adr-advisory-pipeline) ------
-
-
-def _cloud_cfg(*, opt_in: bool) -> InferenceConfig:
-    role = RoleConfig(
-        provider=ProviderType.ANTHROPIC, model="claude-fictional", api_key="sk-fictional-3333"
+    app_state = SimpleNamespace(
+        settings=route_test_settings(tmp_path),
+        graph_manager=object(),
+        ollama_client=client,
+        model_manager=object(),
     )
-    return InferenceConfig(orchestrator=role, worker=role, allow_cloud_advisory=opt_in)
+    await _REAL_SYNTHESIS(app_state, CYCLE_A, _portfolio())  # type: ignore[arg-type]
+    out = tmp_path / "advisory" / f"{CYCLE_A}_advisory.json"
+    assert json.loads(out.read_text(encoding="utf-8"))["cycle_id"] == CYCLE_A
+    assert sorted(p.name for p in out.parent.iterdir()) == [out.name]
+    if os.name == "posix":
+        assert stat.S_IMODE(out.stat().st_mode) == 0o600
 
 
-def test_post_advisory_409_for_a_cloud_orchestrator_without_opt_in(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        advisory_module, "load_inference_config", lambda _s: _cloud_cfg(opt_in=False)
-    )
-    app = _make_app(portfolio=_fake_portfolio())
-
-    r = TestClient(app).post("/api/advisory/cycle_01")
-
-    assert r.status_code == 409
-    assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
-    assert app.state.advisory_task is None
+# ------ Cloud-advisory guard: host and model checks at the route ------
+# (docs/DECISIONS.md#adr-advisory-pipeline)
 
 
-def test_the_cloud_guard_runs_before_the_holdings_are_touched(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        advisory_module, "load_inference_config", lambda _s: _cloud_cfg(opt_in=False)
-    )
-    reloads: list[Any] = []
-    monkeypatch.setattr(
-        "alphaswarm.web.routes.holdings.load_portfolio_snapshot", lambda p: reloads.append(p)
-    )
-    app = _make_app(portfolio=None)
-
-    r = TestClient(app).post("/api/advisory/cycle_01")
-
-    assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
-    assert reloads == []
-
-
-def test_post_advisory_202_for_a_cloud_orchestrator_with_opt_in(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        advisory_module, "load_inference_config", lambda _s: _cloud_cfg(opt_in=True)
-    )
-    app = _make_app(portfolio=_fake_portfolio())
-
-    assert TestClient(app).post("/api/advisory/cycle_01").status_code == 202
-
-
-def _ollama_cfg(model: str, *, opt_in: bool) -> InferenceConfig:
+def _ollama_cfg_app(tmp_path: Path, model: str, *, opt_in: bool) -> FastAPI:
+    settings = route_test_settings(tmp_path)
     role = RoleConfig(provider=ProviderType.OLLAMA, model=model)
-    return InferenceConfig(orchestrator=role, worker=role, allow_cloud_advisory=opt_in)
-
-
-def _with_ollama_host(app: FastAPI, base_url: str) -> FastAPI:
-    """Point the shared OllamaClient at *base_url*. The settings keep their local
-    default, so these tests also show the guard reads the client's real host."""
-    app.state.app_state.ollama_client = SimpleNamespace(base_url=base_url)
-    return app
+    cfg = InferenceConfig(orchestrator=role, worker=role, allow_cloud_advisory=opt_in)
+    save_inference_config(cfg, settings.inference_config_path)
+    return make_route_app(
+        advisory_router, settings=settings,
+        graph=FakeCycleGraph({CYCLE_A: "complete"}), portfolio=_portfolio(),
+    )
 
 
 @pytest.mark.parametrize(
@@ -374,68 +339,77 @@ def _with_ollama_host(app: FastAPI, base_url: str) -> FastAPI:
 )
 @pytest.mark.parametrize("opt_in", [False, True], ids=["no-opt-in", "opted-in"])
 def test_a_cloud_or_remote_ollama_orchestrator_needs_the_opt_in(
-    monkeypatch: pytest.MonkeyPatch, model: str, ollama_host: str, opt_in: bool
+    tmp_path: Path, model: str, ollama_host: str, opt_in: bool,
 ) -> None:
-    monkeypatch.setattr(
-        advisory_module, "load_inference_config", lambda _s: _ollama_cfg(model, opt_in=opt_in)
-    )
-    app = _with_ollama_host(_make_app(portfolio=_fake_portfolio()), ollama_host)
+    """The guard reads the host the shared OllamaClient really connects to."""
+    app = _ollama_cfg_app(tmp_path, model, opt_in=opt_in)
+    with TestClient(app) as client:
+        app.state.app_state.ollama_client = SimpleNamespace(base_url=ollama_host)
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+        if opt_in:
+            assert r.status_code == 202
+        else:
+            assert r.status_code == 409
+            assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
+            assert "remote" in r.json()["detail"]["message"]
+            assert app.state.advisory_task is None
 
-    r = TestClient(app).post("/api/advisory/cycle_01")
 
-    if opt_in:
-        assert r.status_code == 202
-    else:
+def test_no_ollama_client_fails_closed(tmp_path: Path) -> None:
+    app = _app(tmp_path, portfolio=_portfolio())
+    with TestClient(app) as client:
+        app.state.app_state.ollama_client = None
+        r = client.post(f"/api/advisory/{CYCLE_A}")
         assert r.status_code == 409
         assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
-        assert "remote" in r.json()["detail"]["message"]
+        assert app.state.portfolio_cache.get_calls == 0
+
+
+def test_a_permission_denied_config_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _denied(_settings: Any) -> InferenceConfig:
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr("alphaswarm.web.guards.load_inference_config", _denied)
+    app = _app(tmp_path, portfolio=_portfolio())
+    with TestClient(app) as client:
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+        assert r.status_code == 422
+        assert r.json()["detail"]["error"] == "inference_config_invalid"
         assert app.state.advisory_task is None
+        assert app.state.portfolio_cache.get_calls == 0
 
 
-def test_a_local_ollama_orchestrator_needs_no_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        advisory_module,
-        "load_inference_config",
-        lambda _s: _ollama_cfg("alphaswarm-orchestrator", opt_in=False),
-    )
-    app = _with_ollama_host(_make_app(portfolio=_fake_portfolio()), "http://127.0.0.1:11434")
-
-    assert TestClient(app).post("/api/advisory/cycle_01").status_code == 202
-
-
-@pytest.mark.parametrize(
-    "error",
-    [ValueError("Failed to parse inference config"), PermissionError("permission denied")],
-    ids=["corrupt", "no-permission"],
-)
-def test_an_unreadable_inference_config_fails_closed(
-    monkeypatch: pytest.MonkeyPatch, error: Exception
-) -> None:
-    def _broken(_settings: Any) -> InferenceConfig:
-        raise error
-
-    monkeypatch.setattr(advisory_module, "load_inference_config", _broken)
-    app = _make_app(portfolio=_fake_portfolio())
-
-    r = TestClient(app).post("/api/advisory/cycle_01")
-
-    assert r.status_code == 409
-    assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
-
-
-def test_a_refused_post_is_recorded_so_get_stops_reporting_pending(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """GET answers 404 ("still generating" in the UI) when nothing is recorded, so a
-    cloud refusal is recorded like a refused job and GET returns its code."""
-    monkeypatch.setattr(
-        advisory_module, "load_inference_config", lambda _s: _cloud_cfg(opt_in=False)
-    )
-    monkeypatch.setattr("alphaswarm.web.routes.advisory.ADVISORY_DIR", tmp_path)
-    client = TestClient(_make_app(portfolio=_fake_portfolio()))
-
-    assert client.post("/api/advisory/cycle_01").status_code == 409
-    r = client.get("/api/advisory/cycle_01")
-
+def test_a_refused_post_is_recorded_so_get_stops_reporting_pending(tmp_path: Path) -> None:
+    """GET answers 404 (shown as "still generating") when nothing is recorded, so a
+    refusal is recorded like a refused job and GET returns its code."""
+    app = _cloud_app(tmp_path, opt_in=False, portfolio=_portfolio())
+    with TestClient(app) as client:
+        assert client.post(f"/api/advisory/{CYCLE_A}").status_code == 409
+        r = client.get(f"/api/advisory/{CYCLE_A}")
     assert r.status_code == 500
     assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
+
+
+async def test_a_refused_job_keeps_its_own_fixed_message() -> None:
+    """A job refused by the /api/show check keeps that check's message, not the generic one."""
+    app = FastAPI()
+    app.state.app_state = SimpleNamespace(state_store=StateStore())
+
+    async def _refused() -> None:
+        raise advisory_module.CloudAdvisoryDisabledError(
+            advisory_module._MODEL_CHECK_FAILED_MESSAGE,
+        )
+
+    task = asyncio.create_task(_refused())
+    with pytest.raises(advisory_module.CloudAdvisoryDisabledError):
+        await task
+    advisory_module._on_advisory_task_done(task, CYCLE_A, app)
+    assert app.state.advisory_generation_error[CYCLE_A] == {
+        "error": "cloud_advisory_disabled",
+        "message": advisory_module._MODEL_CHECK_FAILED_MESSAGE,
+    }
+    assert app.state.app_state.state_store.job_statuses().advisory == JobStatus(
+        "failed", CYCLE_A, "cloud_advisory_disabled",
+    )

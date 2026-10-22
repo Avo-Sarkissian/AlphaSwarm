@@ -84,10 +84,14 @@ async def require_complete_cycle(
 
 
 async def load_inference_config_or_422(app_state: AppState) -> InferenceConfig:
-    """Load the stored inference config off the loop; 422 (no path) when it is invalid."""
+    """Load the stored inference config off the loop; 422 (no path) when it is invalid.
+
+    An unreadable file (OSError, e.g. no read permission) counts as invalid, so
+    callers that gate on the config fail closed.
+    """
     try:
         return await asyncio.to_thread(load_inference_config, app_state.settings)
-    except ValueError as exc:
+    except (ValueError, OSError) as exc:
         raise ApiError(
             422,
             "inference_config_invalid",

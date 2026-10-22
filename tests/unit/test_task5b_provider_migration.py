@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -24,6 +25,7 @@ import pytest
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from tests.inference.fakes import FakeInferenceProvider
+from tests.support.web_app import route_test_settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -353,7 +355,7 @@ class TestAdvisoryRouteBuildsProvider:
 
     @pytest.mark.asyncio
     async def test_run_advisory_calls_provider_prepare_and_teardown(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """_run_advisory_synthesis must call provider.prepare() and provider.teardown()
         via the build_providers seam (honours InferenceConfig, not hardcoded Ollama)."""
@@ -403,7 +405,7 @@ class TestAdvisoryRouteBuildsProvider:
         )
 
         app_state = SimpleNamespace(
-            settings=MagicMock(),
+            settings=route_test_settings(tmp_path),
             graph_manager=_FakeGraphManager(),
             ollama_client=MagicMock(),
             model_manager=AsyncMock(),
@@ -415,6 +417,7 @@ class TestAdvisoryRouteBuildsProvider:
 
         assert prepare_called == [True], "provider.prepare() not called"
         assert teardown_called == [True], "provider.teardown() not called in finally"
+        assert (tmp_path / "advisory" / "c1_advisory.json").is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -467,8 +470,6 @@ class TestReportRouteBuildsProvider:
         )
 
         from types import SimpleNamespace
-
-        from tests.support.web_app import route_test_settings
 
         app_state = SimpleNamespace(
             settings=route_test_settings(tmp_path),  # the report is written under tmp_path
