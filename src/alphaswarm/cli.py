@@ -3,7 +3,7 @@
 Usage:
     python -m alphaswarm                  # Print startup banner (legacy)
     python -m alphaswarm inject "rumor"   # Inject a seed rumor
-    python -m alphaswarm run "rumor"      # Run full 3-round simulation
+    python -m alphaswarm run "rumor"      # Run a full simulation (ALPHASWARM_NUM_ROUNDS)
 """
 
 from __future__ import annotations
@@ -333,6 +333,8 @@ def _print_shift_analysis(
     shift: ShiftMetrics,
     prev_round: int,
     curr_round: int,
+    *,
+    agent_count: int,
 ) -> None:
     """Print signal transition counts and per-bracket confidence drift.
 
@@ -360,7 +362,7 @@ def _print_shift_analysis(
             left_str = f"  {left_key}: {left_count:>2}"
             right_str = f"{right_key}: {right_count:>2}"
             print(f"{left_str}      {right_str}")
-        print(f"  Total agents shifted: {shift.agents_shifted}/100")
+        print(f"  Total agents shifted: {shift.agents_shifted}/{agent_count}")
 
     bracket_deltas = dict(shift.bracket_confidence_delta)
     if bracket_deltas:
@@ -382,53 +384,46 @@ def _print_simulation_summary(
     result: SimulationResult,
     personas: list[AgentPersona],
     brackets: list[BracketConfig],
+    *,
+    num_rounds: int,
 ) -> None:
-    """Print the final simulation summary with convergence indicator.
+    """Print the final summary from the last round that ran.
 
-    Convergence logic (addresses Codex review equal-flips edge case):
-    - Yes: Round 2->3 flips < Round 1->2 flips ("flips decreased between rounds")
-    - No:  Round 2->3 flips > Round 1->2 flips ("flips increased between rounds")
-    - No:  Round 2->3 flips == Round 1->2 flips ("flips unchanged between rounds")
+    Convergence compares R1->R2 with R2->R3 flips, so it is only reported for
+    3-round runs (docs/DECISIONS.md#adr-num-rounds).
     """
-    r2_flips = result.round2_shifts.total_flips
-    r3_flips = result.round3_shifts.total_flips
-    total_flips = r2_flips + r3_flips
+    from alphaswarm.simulation import compute_bracket_summaries
 
-    if r3_flips < r2_flips:
-        convergence_label = "Yes"
-        convergence_detail = "flips decreased between rounds"
-    elif r3_flips > r2_flips:
-        convergence_label = "No"
-        convergence_detail = "flips increased between rounds"
+    final_round = 3 if num_rounds >= 3 else 2
+    r2_flips = result.round2_shifts.total_flips
+    if final_round == 3:
+        r3_flips = result.round3_shifts.total_flips
+        flips_line = f"{r2_flips} (R1->R2) + {r3_flips} (R2->R3) = {r2_flips + r3_flips} total"
+        if r3_flips < r2_flips:
+            convergence = "Yes (flips decreased between rounds)"
+        elif r3_flips > r2_flips:
+            convergence = "No (flips increased between rounds)"
+        else:
+            convergence = "No (flips unchanged between rounds)"
+        final_decisions = result.round3_decisions
+        final_summaries = result.round3_summaries
     else:
-        convergence_label = "No"
-        convergence_detail = "flips unchanged between rounds"
+        flips_line = f"{r2_flips} (R1->R2) = {r2_flips} total"
+        convergence = "n/a (needs 3 rounds)"
+        final_decisions = result.round2_decisions
+        final_summaries = result.round2_summaries
 
     print(f"{'='*60}")
     print("  Simulation Complete")
     print(f"{'='*60}")
     print(f"  Cycle ID:       {result.cycle_id}")
-    print("  Total Rounds:   3")
-    print(f"  Signal Flips:   {r2_flips} (R1->R2) + {r3_flips} (R2->R3) = {total_flips} total")
-    print(f"  Convergence:    {convergence_label} ({convergence_detail})")
-
-    # Final Consensus Distribution (Round 3 decisions)
-    print("\n  Final Consensus Distribution")
+    print(f"  Total Rounds:   {final_round}")
+    print(f"  Signal Flips:   {flips_line}")
+    print(f"  Convergence:    {convergence}")
+    print(f"\n  Final Consensus Distribution (Round {final_round})")
     print(f"  {'-'*40}")
-    # Use promoted BracketSummary from SimulationResult (D-08)
-    if result.round3_summaries:
-        _print_bracket_table_from_summaries(result.round3_summaries)
-    else:
-        # Fallback for backward compatibility (pre-Phase 8 results or empty summaries)
-        decisions_list = list(result.round3_decisions)
-        bracket_data = _aggregate_brackets(decisions_list, personas, brackets)
-        print(f"  {'Bracket':<15} {'BUY':>5} {'SELL':>5} {'HOLD':>5} {'Avg Conf':>10}")
-        print(f"  {'-'*15} {'-'*5} {'-'*5} {'-'*5} {'-'*10}")
-        for name, data in bracket_data.items():
-            print(
-                f"  {name:<15} {data['BUY']:>5} {data['SELL']:>5} "
-                f"{data['HOLD']:>5} {data['avg_conf']:>10.2f}"
-            )
+    summaries = final_summaries or compute_bracket_summaries(final_decisions, personas, brackets)
+    _print_bracket_table_from_summaries(summaries)
     print(f"{'='*60}")
 
 
@@ -465,13 +460,14 @@ def _make_round_complete_handler(
                 event.shift,
                 event.round_num - 1,
                 event.round_num,
+                agent_count=len(personas),
             )
 
     return handler
 
 
 # ---------------------------------------------------------------------------
-# Async pipeline (owns schema, full 3-round simulation, final summary, cleanup)
+# Async pipeline (owns schema, multi-round simulation, final summary, cleanup)
 # ---------------------------------------------------------------------------
 
 
@@ -486,7 +482,7 @@ async def _run_pipeline(
     worker_provider: InferenceProvider | None = None,
     controller: ConcurrencyController | None = None,
 ) -> None:
-    """Async pipeline: schema -> full 3-round simulation -> final summary.
+    """Async pipeline: schema -> multi-round simulation -> final summary.
 
     Per D-17: _run_pipeline calls run_simulation() instead of run_round1().
     Per D-14: reports print DURING simulation via on_round_complete callback.
@@ -512,7 +508,7 @@ async def _run_pipeline(
     try:
         await app.graph_manager.ensure_schema()
 
-        print("Starting 3-round simulation...")
+        print(f"Starting {settings.num_rounds}-round simulation...")
 
         # Create callback for progressive per-round output
         handler = _make_round_complete_handler(personas, brackets)
@@ -540,7 +536,7 @@ async def _run_pipeline(
         )
 
         # Final summary (only this prints AFTER run_simulation returns)
-        _print_simulation_summary(result, personas, brackets)
+        _print_simulation_summary(result, personas, brackets, num_rounds=settings.num_rounds)
 
     finally:
         # Close injected cloud providers (httpx/anthropic clients). OllamaProvider
@@ -842,7 +838,9 @@ def main() -> None:
     inject_parser = subparsers.add_parser("inject", help="Inject a seed rumor")
     inject_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
 
-    run_parser = subparsers.add_parser("run", help="Run full 3-round simulation")
+    run_parser = subparsers.add_parser(
+        "run", help="Run a full simulation (ALPHASWARM_NUM_ROUNDS=2|3 rounds)"
+    )
     run_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
 
     report_parser = subparsers.add_parser("report", help="Generate post-simulation analysis report")
