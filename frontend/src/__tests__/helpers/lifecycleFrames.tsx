@@ -2,10 +2,11 @@
 // lifecycle states. Built on renderWithFrame, whose `frame`
 // overrides reach useFrameMeta(), useConnection().lastFrame and every other
 // frame-derived context.
+import type { RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import type { StateFrame } from '../../types';
 import { TEST_CYCLE_ID } from './frameMeta';
-import { renderWithFrame } from './renderWithFrame';
+import { renderWithFrame, withFrame } from './renderWithFrame';
 
 export { TEST_CYCLE_ID };
 
@@ -32,4 +33,14 @@ export function renderAt(
   overrides: Partial<StateFrame> = {},
 ) {
   return renderWithFrame(ui, { frame: frameAt(state, overrides) });
+}
+
+/** The next frame arrives: same component tree (state kept), another lifecycle state. */
+export function rerenderAt(
+  view: RenderResult,
+  ui: ReactElement,
+  state: LifecycleName,
+  overrides: Partial<StateFrame> = {},
+) {
+  view.rerender(withFrame(ui, { frame: frameAt(state, overrides) }));
 }

@@ -36,6 +36,7 @@ import { useRationales } from '../context/RationalesContext';
 import { useConnection } from '../context/ConnectionContext';
 import { useEdgesCtx } from '../context/EdgesContext';
 import { simStop } from '../api/simulation';
+import { useAwaitRunFrame } from '../hooks/useAwaitRunFrame';
 import { useRunGate } from '../hooks/useRunGate';
 import { replayStart } from '../api/replay';
 import { normalizeBracketKey } from '../data';
@@ -361,9 +362,21 @@ export function App() {
   };
 
   // Run gate: cost confirmation for cloud/mixed runs, then simStart. It keeps
-  // the failure message and a pending flag for the Run control.
-  const runGate = useRunGate();
+  // the failure message and a pending flag for the Run control. After an
+  // accepted start, Run stays on "Starting…" until the run reaches the frame.
+  const runStart = useAwaitRunFrame(lifecycle);
+  const runGate = useRunGate({
+    onSettled: (ok) => {
+      if (ok) runStart.arm();
+    },
+  });
   const runConfirmModal = runGate.modal;
+  // A run that reached SEEDING supersedes an earlier Run error, such as the
+  // 409 a second tab got.
+  const { clearError: clearRunError } = runGate;
+  useEffect(() => {
+    if (lifecycle === 'seeding') clearRunError();
+  }, [lifecycle, clearRunError]);
   const onRun = () => runGate.requestRun(seed.trim());
   const onStop = async () => {
     setActionError(null);
@@ -415,7 +428,7 @@ export function App() {
 
         <RunControls
           seed={seed}
-          pending={runGate.pending}
+          pending={runGate.pending || runStart.awaiting}
           onRun={onRun}
           onStop={() => void onStop()}
         />

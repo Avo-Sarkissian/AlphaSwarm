@@ -15,11 +15,16 @@ export interface RenderWithFrameOptions {
   raw?: unknown;
 }
 
-export function renderWithFrame(ui: ReactElement, opts: RenderWithFrameOptions = {}): RenderResult {
+/** `ui` inside FrameProviders on the frame `opts` describes (for render or rerender). */
+export function withFrame(ui: ReactElement, opts: RenderWithFrameOptions = {}): ReactElement {
   const frame: StateFrame = { ...adaptSnapshot(opts.raw ?? liveFrame), ...opts.frame };
-  return render(
+  return (
     <FrameProviders frame={frame} connected reconnectFailed={false}>
       {ui}
-    </FrameProviders>,
+    </FrameProviders>
   );
+}
+
+export function renderWithFrame(ui: ReactElement, opts: RenderWithFrameOptions = {}): RenderResult {
+  return render(withFrame(ui, opts));
 }

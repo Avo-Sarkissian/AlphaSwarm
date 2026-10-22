@@ -3,12 +3,12 @@
 // widgets that poll or load DEV mocks, and Settings. Edges come from a
 // controllable EdgesContext stub.
 import type { ReactNode } from 'react';
-import { cleanup, fireEvent, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App as DashboardShell } from '../../components/app_v2';
 import { makeAgent } from '../helpers/agents';
 import { stubFetchRoutes } from '../helpers/fetchRoutes';
-import { renderAt } from '../helpers/lifecycleFrames';
+import { renderAt, rerenderAt } from '../helpers/lifecycleFrames';
 import type { StateFrame } from '../../types';
 
 const SEED = 'ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.';
@@ -158,6 +158,42 @@ describe('run failures', () => {
     expect(row).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss error' }));
     expect(screen.queryByText('Simulation already running')).toBeNull();
+    expect(screen.getByRole('button', { name: /^run$/i })).toHaveProperty('disabled', false);
+  });
+
+  it('clears a Run error once a run reaches SEEDING', async () => {
+    stubFetchRoutes({
+      'GET /api/settings/estimate': { body: LOCAL_ESTIMATE },
+      'POST /api/simulate/start': ALREADY_RUNNING,
+    });
+    const view = renderAt(<DashboardShell />, 'idle');
+    pressRun();
+    await screen.findByText('Simulation already running');
+    rerenderAt(view, <DashboardShell />, 'seeding');
+    expect(screen.queryByText('Simulation already running')).toBeNull();
+  });
+});
+
+describe('starting a run', () => {
+  it('keeps Run on Starting… until the run reaches the frame', async () => {
+    const fetchMock = stubFetchRoutes({
+      'GET /api/settings/estimate': { body: LOCAL_ESTIMATE },
+      'POST /api/simulate/start': { body: { status: 'accepted', message: 'Simulation started' } },
+    });
+    const starts = () => fetchMock.mock.calls.filter(([url]) => url === '/api/simulate/start');
+    const view = renderAt(<DashboardShell />, 'idle');
+    pressRun();
+    await waitFor(() => expect(starts()).toHaveLength(1));
+    // Let the accepted answer settle the gate while the frame still says idle.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    const button = screen.getByRole('button', { name: /starting/i });
+    expect(button).toHaveProperty('disabled', true);
+    fireEvent.click(button);
+    rerenderAt(view, <DashboardShell />, 'seeding');
+    expect(screen.queryByRole('button', { name: /stop/i })).not.toBeNull();
+    expect(starts()).toHaveLength(1);
+    // A run that fails at SEEDING drops back to idle: Run is usable at once.
+    rerenderAt(view, <DashboardShell />, 'idle');
     expect(screen.getByRole('button', { name: /^run$/i })).toHaveProperty('disabled', false);
   });
 });
