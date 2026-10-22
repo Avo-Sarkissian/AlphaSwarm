@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections import Counter
 
-import pytest
-
 from alphaswarm.types import AgentPersona
 from tests.engine.scenario import RunScenario, round_calls
 from tests.inference.fakes import ScriptedProvider
@@ -14,11 +12,6 @@ MAX_BRACKET_SLOT_SHARE = 0.35
 MIN_READER_VISIBILITY = 0.15
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T8.1: deterministic peer selection gives Sell-Side 70% of round-2 slots and "
-    "hides 6 brackets (fix: plan 08)",
-)
 async def test_round_2_peer_exposure_is_spread_across_brackets(
     run_scenario: RunScenario,
     scripted_worker: ScriptedProvider,

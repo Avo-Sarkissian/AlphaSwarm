@@ -121,6 +121,7 @@ source_modules = [
     "alphaswarm.ingestion.rss_provider",
     "alphaswarm.interview",
     "alphaswarm.logging",
+    "alphaswarm.manifest",
     "alphaswarm.memory_monitor",
     "alphaswarm.ollama_client",
     "alphaswarm.ollama_models",

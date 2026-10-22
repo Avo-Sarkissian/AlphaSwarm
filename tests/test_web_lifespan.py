@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from neo4j.exceptions import AuthError as Neo4jAuthError
 from neo4j.exceptions import ServiceUnavailable
 
+import alphaswarm.manifest as manifest
 import alphaswarm.web.app as web_app
 import alphaswarm.web.routes.holdings as holdings_routes
 
@@ -33,6 +34,16 @@ def _reset_structlog() -> Iterator[None]:
 def _no_holdings_csv(monkeypatch: pytest.MonkeyPatch) -> None:
     """The lifespan must never read the real holdings CSV during tests."""
     monkeypatch.setattr(holdings_routes, "load_portfolio_snapshot", lambda _path: None)
+
+
+@pytest.fixture(autouse=True)
+def _git_heads(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[tuple[str, bool]]]:
+    """Stand-in git state, newest last: no git subprocess runs and no state leaks out."""
+    heads = [("a" * 40, False)]
+    monkeypatch.setattr(manifest, "git_revision", lambda _root: heads[-1])
+    manifest.current_git_revision.cache_clear()
+    yield heads
+    manifest.current_git_revision.cache_clear()
 
 
 def _fake_graph_manager(verify_error: BaseException | None = None) -> MagicMock:
@@ -102,6 +113,18 @@ def test_lifespan_without_a_graph_manager_is_not_ready(monkeypatch: pytest.Monke
 
     with TestClient(web_app.create_app()) as client:
         assert client.app.state.neo4j_ready is False  # type: ignore[attr-defined]
+
+
+def test_lifespan_pins_the_git_revision_it_started_from(
+    monkeypatch: pytest.MonkeyPatch, _git_heads: list[tuple[str, bool]]
+) -> None:
+    """A commit after startup does not relabel the code the server is running."""
+    _use_graph_manager(monkeypatch, _fake_graph_manager())
+
+    with TestClient(web_app.create_app()):
+        _git_heads.append(("b" * 40, True))  # the owner commits while the server runs
+
+        assert manifest.current_git_revision() == ("a" * 40, False)
 
 
 class _RecordingLog:

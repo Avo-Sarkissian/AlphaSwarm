@@ -85,8 +85,9 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - RationaleEpisode and REFERENCES records;
    - bracket summaries.
 5. **Rounds 2..N.** An optional shock goes in first. Peer contexts are built in memory, per reader, by `_build_diverse_peer_contexts`:
-   - each candidate's weight is base reach plus global citation share, plus 0.3 if the reader cited that agent last round;
-   - `select_diverse_peers` takes at least 4 brackets, with blake2b tie-breaks.
+   - each candidate's weight is base reach plus global citation share, plus `SimulationSettings.personal_boost` (0.3) if the reader cited that agent last round;
+   - `select_diverse_peers` samples peers by weight with a per-reader `peer_rng(cycle_id, reader, round)`: at least 4 brackets, at most 3 peers per bracket, shuffled display order;
+   - the builder returns each reader's rendered peer ids, which `run_simulation` stamps on the Cycle as `r{n}_exposure_*` metrics next to the run provenance (models, provider mode, git SHA).
 
    The round is then dispatched, checked against the same round-abort rule, and persisted, and `compute_influence_edges` writes `INFLUENCED_BY {round, weight}`.
 6. **Finalize.**

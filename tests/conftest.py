@@ -393,3 +393,20 @@ async def seeded_cycle(
     seeded = await build_seeded_cycle(gm, num_rounds=3)
     NEO4J_PROTECTED_CYCLES.add(seeded.cycle_id)
     return seeded
+
+
+FIXED_GIT_SHA: Final = "0" * 40
+
+
+@pytest.fixture(autouse=True)
+def fixed_git_revision(monkeypatch: pytest.MonkeyPatch) -> tuple[str, bool]:
+    """Pin the git state run_simulation stamps into cycle metrics.
+
+    Keeps run_simulation tests and scenario goldens independent of the
+    checkout's HEAD and dirty state, and keeps git subprocesses out of the
+    suite. tests/test_manifest.py calls alphaswarm.manifest directly and is
+    unaffected; a test may override the value with its own monkeypatch.
+    """
+    value = (FIXED_GIT_SHA, False)
+    monkeypatch.setattr("alphaswarm.simulation.current_git_revision", lambda: value)
+    return value

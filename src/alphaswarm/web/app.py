@@ -18,6 +18,7 @@ from starlette.staticfiles import StaticFiles
 from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
+from alphaswarm.manifest import current_git_revision
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers
@@ -214,6 +215,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.replay_manager = replay_manager
     app.state.connection_manager = connection_manager
     app.state.neo4j_ready = await _prepare_neo4j(app_state.graph_manager)
+    # Pin run provenance to the code this process loaded: cycles stamp this
+    # revision even if HEAD moves before the first run (docs/DECISIONS.md#adr-cycle-metrics).
+    await asyncio.to_thread(current_git_revision)
 
     # Holdings are loaded eagerly (docs/DECISIONS.md#p39-d-07) and reloaded when the
     # CSV's mtime changes; the cache stays on app.state, never on AppState.

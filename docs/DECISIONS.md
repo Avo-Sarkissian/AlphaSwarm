@@ -129,14 +129,92 @@ Contents
 ### <a id="adr-influence-weight-reach"></a>`influence_weight_base` means narrative reach, not capital
 - **Decision:** Weights span 0.45-0.75, and Sell-Side and Narrators rank highest on purpose.
 - **Rationale:** Peer visibility, not assets under management, determines whose rationale others read.
+- **In the peer sampler:** Sell-Side and Narrators are the brackets seen most often per agent. Below them, the bracket floor and the per-bracket cap make weight a rough order only ([adr-diverse-peer-context](#adr-diverse-peer-context)).
 
-### <a id="adr-diverse-peer-context"></a>Peer context is built in memory per reader, with a bracket-diversity guarantee
-- **Decision:** `_build_diverse_peer_contexts` (`simulation.py:427`) builds each reader's peer context. It is the production path since the June 2026 overhaul.
-  - Per-reader weight = base reach + global citation share + 0.3 if the reader cited that author last round.
-  - `select_diverse_peers` guarantees at least 4 brackets among 10 peers, best effort (`simulation.py:433-434` passes `limit=10, min_brackets=4`; the function's own defaults are 5 and 3).
-  - A deterministic blake2b tie-break, `_stable_peer_jitter` (F-08), stops equal-weight Round 2 readers from all picking the same peers.
-  - The format is `[agent_id|bracket] SIGNAL (conf)`, so agents can cite IDs (`simulation.py:388-400`).
-- **Rationale:** The old `read_ranked_posts` path showed all 100 agents the same authority top-10 (SWEEP-260528 §3.3), and also cost 100 sequential Neo4j reads per round.
+### <a id="adr-diverse-peer-context"></a>Peer context is built in memory per reader, by seeded stratified sampling
+- **Decision:** `_build_diverse_peer_contexts` (`simulation.py`) builds each reader's peer context in memory and returns the ids of the peers it rendered (the reader's *exposure*). It is the production path since the June 2026 overhaul; seeded sampling replaced the deterministic fill in October 2026.
+  - Per-reader weight = base reach + global citation share + `SimulationSettings.personal_boost` (default 0.3) if the reader cited that author last round. The boost raises a cited author's odds; it no longer guarantees a slot. Only an ablation (0 / 0.05 / 0.3) may change the default.
+  - `select_diverse_peers` samples without replacement, weighted by that score (Efraimidis–Spirakis keys `u ** (1/w)`, computed as `log(u)/w`): first `min_brackets` brackets (default 4), each weighted by the summed weight of its candidates, with one peer each (a weighted draw over agents that skips brackets already chosen); then the remaining slots, with at most `bracket_cap` peers (default 3) from any one bracket. The cap is hard, so a reader gets fewer than `peer_limit` (default 10) peers when few brackets are eligible. The reader and previous-round PARSE_ERROR agents are never shown. Non-finite or non-positive weights have no reach: whatever their draw, they sort behind every positive weight (in random order among themselves) instead of raising.
+  - The final list is shuffled, so no bracket owns position 1.
+  - Randomness comes only from `peer_rng(run_seed, reader, round)` (blake2b, never the process-salted `hash()`); `run_seed` is the cycle id (`peer_seed_source = "cycle_id"`).
+  - Knobs: `ALPHASWARM_SIMULATION__PEER_LIMIT`, `__MIN_BRACKETS`, `__BRACKET_CAP`, `__PERSONAL_BOOST`, `__PEER_BUDGET_CHARS` (defaults 10 / 4 / 3 / 0.3 / 4000).
+  - The format is `[agent_id|bracket] SIGNAL (conf)`, so agents can cite IDs. Peers cut by the character budget do not count as exposure.
+  - Each peer round's exposure is summarized in the cycle metrics (`r{n}_exposure_<bracket>`, `r{n}_readers_seeing_<bracket>`, `r{n}_distinct_peers_shown`) with `peer_selection_version = 2`; `scripts/peer_exposure.py` prints them, with slots per agent and the cycle's peer knobs, and checks them.
+- **Rationale:** "Reach" means the probability of being seen, not a monopoly.
+  - *Legacy fill:* base weights are constant per bracket, so the top-weight fill was deterministic. It selected 7 Sell-Side, 1 Narrator, 1 Institution and 1 Event-Driven peer for every reader, put Sell-Side at position 1, and never showed six brackets. The character budget then cut the feeds short: in the *before* cycle below, readers saw about 5.6 peers each in R2 (2.6 of them Sell-Side), and only 46 (R2) and 45 (R3) agents were ever visible.
+  - *Per-agent reach:* sampling hears every bracket and keeps the top of the reach order. Phase 1 weights a bracket by its members' summed weight, so Sell-Side and Narrators (the two highest weights) are still the brackets seen most often per agent. Below them, the bracket floor lifts small brackets and the per-bracket cap trims large ones, so weight orders the rest only roughly. Offline R2 selections on the production roster over 300 run seeds, in readers who saw an average member: Sell-Side 12.2, Narrators 12.1, Allocators 11.6, Shorts 11.0, Event-Driven 10.3, Macro 10.2, Institutions 9.4, Quants 9.3, Algos 8.5, Degens 8.2. `test_highest_reach_brackets_are_seen_most_per_agent` pins the top two. The gaps are small next to one cycle's noise. Replaying the *after* cycle's own Round 1 rationales over 200 run seeds gives rendered R2 means of Sell-Side 7.4, Narrators 7.3 and Allocators 7.1 per agent, with a per-cycle standard deviation of 0.7-1.2. That cycle's own column (Allocators 8.2, Sell-Side 7.2, Narrators 6.9) is within that noise.
+  - Weighting Phase 1 by each bracket's best member instead, as a never-merged draft did, put Allocators first per agent (13.7, against Narrators 12.3 and Sell-Side 12.0). Its after cycle `c446284f-a40e-4527-b55e-2f9030d348a5` also passed the invariant.
+  - Building in memory also replaced the `read_ranked_posts` path, which showed all 100 agents the same authority top-10 (SWEEP-260528 §3.3) and cost 100 sequential Neo4j reads per round.
+- **Invariant (tested in `tests/test_peer_selection.py`):** on `generate_personas(DEFAULT_BRACKETS)`, no bracket takes more than 35% of a round's slots and every bracket is visible to at least 15% of readers, in R2 and in an R3 worst case where everyone cited the same two Sell-Side agents.
+- **Superseded:** the deterministic fill ([p8-d-06](#p8-d-06)) and the `_stable_peer_jitter` tie-break ([f-08](#f-08)); per-reader seeded sampling disperses equal-weight readers by construction.
+- **Evidence (benchmark seed `apple-anthropic`, 3 rounds, one inference configuration for both cycles):**
+  - *Before* (legacy selector, `peer_selection_version` 1): cycle `5c59c533-e841-40fb-91ca-071ac239c1ab`, git `8ae04cac`, mode `local`, worker `alphaswarm-worker`, parse errors R2 `0` / R3 `0`; `peers: limit=10 min_brackets=4 bracket_cap=- personal_boost=0.3 budget_chars=4000 seed_source=-` (the cycle predates the `peer_bracket_cap` and `peer_seed_source` keys).
+
+    | bracket | slots | per agent | slot % | readers % | citations % |
+    |---|---|---|---|---|---|
+    | institutions | 100 | 5.6 | 18.0% | 100% | 20.5% |
+    | sell_side | 256 | 25.6 | 46.0% | 100% | 46.7% |
+    | event_driven | 100 | 10.0 | 18.0% | 100% | 23.5% |
+    | quants | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | degens | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | narrators | 100 | 12.5 | 18.0% | 100% | 9.3% |
+    | algos | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | macro | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | shorts | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | allocators | 0 | 0.0 | 0.0% | 0% | 0.0% |
+
+    R2: distinct peers shown 46/100; max slot share 46.0% (limit 35%); min readers 0% (limit 15%) -> FAIL
+
+    | bracket | slots | per agent | slot % | readers % | citations % |
+    |---|---|---|---|---|---|
+    | institutions | 100 | 5.6 | 16.9% | 100% | 24.9% |
+    | sell_side | 290 | 29.0 | 49.2% | 100% | 44.4% |
+    | event_driven | 100 | 10.0 | 16.9% | 100% | 23.9% |
+    | quants | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | degens | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | narrators | 100 | 12.5 | 16.9% | 100% | 6.8% |
+    | algos | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | macro | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | shorts | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | allocators | 0 | 0.0 | 0.0% | 0% | 0.0% |
+
+    R3: distinct peers shown 45/100; max slot share 49.2% (limit 35%); min readers 0% (limit 15%) -> FAIL
+
+  - *After* (seeded stratified sampling, `peer_selection_version` 2): cycle `10d9419f-9ed6-4d2a-9842-e6e208a65d62`, git `032d3982`, mode `local`, worker `alphaswarm-worker`, parse errors R2 `0` / R3 `0`; `peers: limit=10 min_brackets=4 bracket_cap=3 personal_boost=0.3 budget_chars=4000 seed_source=cycle_id`.
+
+    | bracket | slots | per agent | slot % | readers % | citations % |
+    |---|---|---|---|---|---|
+    | institutions | 93 | 5.2 | 15.2% | 72% | 25.0% |
+    | sell_side | 72 | 7.2 | 11.8% | 59% | 4.0% |
+    | event_driven | 67 | 6.7 | 11.0% | 56% | 13.4% |
+    | quants | 60 | 5.0 | 9.8% | 51% | 13.4% |
+    | degens | 80 | 5.3 | 13.1% | 66% | 4.9% |
+    | narrators | 55 | 6.9 | 9.0% | 49% | 8.0% |
+    | algos | 50 | 6.2 | 8.2% | 41% | 3.6% |
+    | macro | 52 | 7.4 | 8.5% | 49% | 10.3% |
+    | shorts | 41 | 5.9 | 6.7% | 40% | 11.2% |
+    | allocators | 41 | 8.2 | 6.7% | 37% | 6.2% |
+
+    R2: distinct peers shown 100/100; max slot share 15.2% (limit 35%); min readers 37% (limit 15%) -> PASS
+
+    | bracket | slots | per agent | slot % | readers % | citations % |
+    |---|---|---|---|---|---|
+    | institutions | 113 | 6.3 | 17.9% | 77% | 26.3% |
+    | sell_side | 79 | 7.9 | 12.5% | 62% | 7.5% |
+    | event_driven | 69 | 6.9 | 11.0% | 60% | 16.5% |
+    | quants | 70 | 5.8 | 11.1% | 54% | 14.3% |
+    | degens | 75 | 5.0 | 11.9% | 60% | 1.9% |
+    | narrators | 67 | 8.4 | 10.6% | 58% | 7.9% |
+    | algos | 44 | 5.5 | 7.0% | 40% | 3.4% |
+    | macro | 41 | 5.9 | 6.5% | 40% | 7.5% |
+    | shorts | 55 | 7.9 | 8.7% | 49% | 11.7% |
+    | allocators | 17 | 3.4 | 2.7% | 16% | 3.0% |
+
+    R3: distinct peers shown 100/100; max slot share 17.9% (limit 35%); min readers 16% (limit 15%) -> PASS
+
+  - *R3 margin:* Allocators were seen by 16% of R3 readers, just above the 15% floor. This cycle drew badly; it is not the typical outcome. Rebuilding R3 from the cycle's stored R2 decisions reproduces the recorded exposure exactly. Of the 45 Allocators selected, 31 fell in display positions 6-9 (18 expected), which the character budget cuts. Replaying the same decisions over 1,000 other run seeds gives a mean R3 minimum of 32.7% (worst 17%, never below 15%).
+  - *Summary:* R2 max slot share `46.0%` → `15.2%`; R2 min readers `0%` → `37%`; R3 `49.2%` → `17.9%` and `0%` → `16%`; distinct peers shown R2 `46` → `100`, R3 `45` → `100`; Sell-Side share of R2 citations `46.7%` → `4.0%`. Flips and final distribution (context, not a gate) are in `scripts/compare_cycles.py` for both cycles.
+
 - **Leftovers:**
   - `read_ranked_posts`, `_dispatch_round`, and `read_peer_decisions` are dead code.
   - READ_POST edges are no longer written, which empties the report's `social_post_reach` section. See BACKLOG.
@@ -218,6 +296,7 @@ Contents
 
 ### <a id="adr-cycle-metrics"></a>Per-cycle run metrics on the Cycle node
 - **Decision:** At the end of a run, `write_cycle_metrics` stamps durations, flips, parse errors, `r{n}_inference_errors` (the subset of `r{n}_parse_errors` whose `error_kind` is `"inference"`, for the rounds actually run), `final_round` and the final distribution onto the Cycle node (`graph.py`). `metrics_recorded_at` marks a cycle as complete for listing (`graph.py`, `read_completed_cycles`) and for the report, advisory and interview gates (`read_cycle_status`, which also accepts a round-3 decision until cycles store a status). Compare runs with `scripts/compare_cycles.py` against `scripts/benchmark_seeds.json`.
+- **Provenance and peer keys:** each cycle also records `orchestrator_provider` / `worker_provider` (`ollama` for local providers, `cloud` otherwise; the model id identifies the cloud provider), `orchestrator_model`, `worker_model`, `inference_mode` (`local` / `cloud` / `mixed`), `git_sha` (empty when unknown) and `git_dirty` (omitted when unknown, because a Neo4j property cannot be null), the effective peer parameters (`peer_selection_version`, `peer_limit`, `peer_min_brackets`, `peer_bracket_cap`, `peer_budget_chars`, `peer_personal_boost`, `peer_seed_source`) and the per-round exposure keys from [adr-diverse-peer-context](#adr-diverse-peer-context). Older cycles lack these keys, so every reader must tolerate missing keys. `git_revision` lives in `alphaswarm/manifest.py`; `current_git_revision` reads it once per process, and the web lifespan makes that read at startup, so a server stamps the revision whose code it runs even after a later commit.
 - **Rationale:** A/B experiments (rounds, peers, models) need durable numbers. All history before June 2026 was lost (see [adr-tests-scoped-cleanup](#adr-tests-scoped-cleanup)).
 
 ### <a id="adr-holdings-isolation"></a>Holdings isolation: the swarm never sees the portfolio
@@ -411,8 +490,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p8-d-02"></a>`D-02` | Compute influence edges after each round so topology shapes the next round. R1 computation since removed (SWEEP B-5); R3 computation added (260512-jqn ITEM 2). | partial | graph.py:980,1059; simulation.py:954 |
 | <a id="p8-d-03"></a>`D-03` | Every citation pair produces an edge; no threshold. Edge weight is the target's citation share. | active | graph.py:980 |
 | <a id="p8-d-04"></a>`D-04` | Weights are cumulative across rounds (round <= up_to_round). | active | graph.py:980,984,1058; simulation.py:961,1242,1400 |
-| <a id="p8-d-05"></a>`D-05` | Cold start: when no citations exist, fall back to static influence_weight_base. The explicit fallback (sequential `read_peer_decisions` reads) survives only inside the dead `_dispatch_round`. The production path (`_build_diverse_peer_contexts`) always adds base reach to citation share, so with zero citations it reduces to static ordering anyway. | superseded | simulation.py:769,840 |
-| <a id="p8-d-06"></a>`D-06` | Bracket-diverse peer selection: top-1 from the top N brackets, then fill by weight. Production now uses limit=10, min_brackets=4 via _build_diverse_peer_contexts. | partial | simulation.py:186,766,802 |
+| <a id="p8-d-05"></a>`D-05` | Cold start: when no citations exist, fall back to static influence_weight_base. The explicit fallback (sequential `read_peer_decisions` reads) survives only inside the dead `_dispatch_round`. The production path (`_build_diverse_peer_contexts`) always adds base reach to citation share, so with zero citations it samples by base reach alone ([adr-diverse-peer-context](#adr-diverse-peer-context)); no static ordering remains. | superseded | simulation.py (`_dispatch_round`, `_build_diverse_peer_contexts`) |
+| <a id="p8-d-06"></a>`D-06` | Bracket-diverse peer selection: top-1 from the top N brackets, then fill by weight. Superseded by seeded stratified sampling with a per-bracket cap ([adr-diverse-peer-context](#adr-diverse-peer-context)). | superseded | simulation.py (select_diverse_peers) |
 | <a id="p8-d-07"></a>`D-07` | Bracket aggregation computed in memory from the round's decisions. | active | simulation.py:107; state.py:35 |
 | <a id="p8-d-08"></a>`D-08` | BracketSummary frozen dataclass promoted into the simulation layer and carried on SimulationResult; CLI and UI share it. | active | cli.py:240,294,417; simulation.py:107,287,304,305,306,955,963,1105,1253,1410; state.py:35 |
 
@@ -737,7 +816,7 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-05"></a>F-05 | Anthropic provider defaulted to max_tokens=1024, truncating orchestrator output (now 8192 orchestrator / 2048 worker) | c99d00b | inference/factory.py:130 |
 | <a id="f-06"></a>F-06 | ReAct prompt tool names did not match the registry, so the consensus and flip sections were always missing | 90dd0f9 | tests/test_report.py:28 |
 | <a id="f-07"></a>F-07 | Advisory read the wrong entity-impact keys, so relevance ranking was dead; added `resolve_ticker` | 3d65f99 | advisory/engine.py:151; advisory/sector_map.py:86; tests/unit/test_advisory.py:615,619,632 |
-| <a id="f-08"></a>F-08 | Round 2 equal weights meant every reader got the same peers; fixed with a stable per-reader jitter | 7ae6a69 | simulation.py:166; tests/test_simulation.py:2085 |
+| <a id="f-08"></a>F-08 | Round 2 equal weights meant every reader got the same peers; fixed with a stable per-reader jitter. The jitter is gone: seeded per-reader sampling ([adr-diverse-peer-context](#adr-diverse-peer-context)) disperses readers by construction | 7ae6a69 | simulation.py (peer_rng); tests/test_peer_selection.py (test_equal_weights_disperse_across_readers) |
 | <a id="f-09"></a>F-09 | JSON brace scanner ignored strings, so `}` in a rationale dropped the vote | 9748dd5 | parsing.py:49; tests/test_parsing.py:96 |
 | <a id="f-10"></a>F-10 | OpenAI strict schema kept min/max, got a 400, and silently fell back to json_object | c99d00b | inference/schema.py:25; tests/inference/test_schema.py:150 |
 | <a id="f-11"></a>F-11 | Failed cloud calls leaked TPM reservation (follow-up in 9312419: refund only on failure) | c99d00b, 9312419 | inference/rate_limit.py:299; tests/inference/test_rate_limit.py:276 |
