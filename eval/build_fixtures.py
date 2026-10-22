@@ -4,8 +4,9 @@
     uv run python eval/build_fixtures.py                          # every event without a fixture
     uv run python eval/build_fixtures.py --events evt-001,evt-002 --force
 
-Per event: the last close and volume whose 16:00 New York session ended at or before
-the event timestamp (yfinance, split-adjusted; bars after it are dropped) and the
+Per event: the last close and volume whose New York session (16:00, or 13:00 on an NYSE
+early-close day) ended at or before the event timestamp (yfinance, split-adjusted; bars
+after it are dropped) and the
 curated headlines in eval/headlines/<event_id>.jsonl published before the event (the
 5 most recent: the market block renders no more per entity).
 Writes eval/fixtures/<event_id>.json and the anonymized <event_id>.anon.json.

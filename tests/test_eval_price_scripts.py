@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,16 @@ def test_fixture_never_keeps_a_bar_after_the_event() -> None:
     ((ticker, _, end, auto_adjust),) = download.requests
     assert ticker == "ZZZT" and auto_adjust is False
     assert end == PRICE_DAYS[22] + timedelta(days=1)  # never asks beyond the event's own day
+
+
+def test_fixture_after_an_early_close_keeps_that_session() -> None:
+    event = make_event(1, when=datetime(2025, 11, 28, 19, 0, tzinfo=UTC))  # 14:00 EST
+    bars = [
+        PricePoint(day=date(2025, 11, 26), close=10.0, volume=1),
+        PricePoint(day=date(2025, 11, 28), close=11.0, volume=2),  # closed at 13:00 EST
+    ]
+    packet = build_fixtures.fixture_for(event, FakeDownload({"ZZZT": bars}), [])
+    assert (packet.market[0].price, packet.market[0].volume) == (Decimal("11.00"), 2)
 
 
 def test_only_headlines_published_before_the_event_are_kept() -> None:

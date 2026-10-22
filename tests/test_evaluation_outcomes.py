@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 
@@ -61,6 +61,29 @@ def test_base_close_follows_new_york_sessions_and_dst() -> None:
     assert base_index(march, datetime(2026, 3, 9, 19, 59, tzinfo=UTC)) == 0
     with pytest.raises(InsufficientHistoryError):
         base_index(march, datetime(2026, 3, 6, 15, 0, tzinfo=UTC))
+
+
+@pytest.mark.parametrize(
+    ("day", "close_utc_hour"),
+    [
+        (date(2023, 7, 3), 17),  # Monday before Independence Day: 13:00 EDT
+        (date(2025, 7, 3), 17),  # Thursday before Independence Day
+        (date(2025, 11, 28), 18),  # day after Thanksgiving: 13:00 EST
+        (date(2026, 11, 27), 18),
+        (date(2025, 12, 24), 18),  # Christmas Eve on a Wednesday
+        (date(2026, 7, 2), 20),  # July 3 2026 is the observed holiday: a full session
+        (date(2025, 11, 26), 21),  # the day before Thanksgiving is a full session
+        (date(2022, 12, 23), 21),  # Christmas Eve on a Saturday: no early close
+    ],
+)
+def test_early_close_days_close_at_13_00_new_york(day: date, close_utc_hour: int) -> None:
+    assert session_close_utc(day) == datetime.combine(day, time(close_utc_hour), tzinfo=UTC)
+
+
+def test_an_event_after_an_early_close_uses_that_session() -> None:
+    days = [date(2025, 11, 26), date(2025, 11, 28), date(2025, 12, 1)]
+    assert base_index(days, datetime(2025, 11, 28, 19, 0, tzinfo=UTC)) == 1  # 14:00 EST
+    assert base_index(days, datetime(2025, 11, 28, 17, 59, tzinfo=UTC)) == 0  # 12:59 EST
 
 
 @pytest.mark.parametrize(("move", "label"), [(0.05, "up"), (-0.05, "down"), (0.002, "flat")])

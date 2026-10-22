@@ -16,7 +16,7 @@ import random
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from statistics import NormalDist, fmean, stdev
 from typing import Final, Literal, TypeVar
@@ -289,6 +289,7 @@ def ablation_subset(event_ids: Sequence[str], k: int = ABLATION_SUBSET_SIZE) -> 
 
 NEW_YORK: Final = ZoneInfo("America/New_York")
 SESSION_CLOSE: Final = time(16, 0)
+EARLY_CLOSE: Final = time(13, 0)
 K_FLAT: Final = 0.5
 VOL_WINDOW: Final = 20
 VOL_FLOOR: Final = 1e-4
@@ -320,9 +321,22 @@ def points_from_rows(rows: Iterable[tuple[date, float, float | None]]) -> list[P
     return sorted(points, key=lambda p: p.day)
 
 
+def is_early_close(day: date) -> bool:
+    """The NYSE's regular 13:00 closes: the day after Thanksgiving, and July 3 and
+    December 24 from Monday to Thursday (on a Friday each is the observed holiday)."""
+    if (day.month, day.day) in ((7, 3), (12, 24)):
+        return day.weekday() < 4
+    if day.month != 11:
+        return False
+    first = date(day.year, 11, 1)
+    thanksgiving = first + timedelta(days=(3 - first.weekday()) % 7 + 21)
+    return day == thanksgiving + timedelta(days=1)
+
+
 def session_close_utc(day: date) -> datetime:
-    """The 16:00 America/New_York close of *day* in UTC (DST-aware)."""
-    return datetime.combine(day, SESSION_CLOSE, tzinfo=NEW_YORK).astimezone(UTC)
+    """The America/New_York close of *day* in UTC (DST-aware): 16:00, 13:00 on an early close."""
+    close = EARLY_CLOSE if is_early_close(day) else SESSION_CLOSE
+    return datetime.combine(day, close, tzinfo=NEW_YORK).astimezone(UTC)
 
 
 def base_index(days: Sequence[date], event_ts: datetime) -> int:

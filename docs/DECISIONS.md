@@ -314,6 +314,7 @@ Contents
   - Baselines in cost order: the orchestrator's `overall_sentiment`, the Round 1 aggregate of the same cycles, one worker call sampled 5 times, and compute-matched self-consistency. The Narrators bracket is scored separately as well as inside the swarm.
   - Metrics, thresholds and gate rules are pre-registered in `docs/methodology.md` before any run.
 - **Rationale:** Without ground truth nothing shows that 100 interacting personas beat one model, and live data providers would leak post-event prices and headlines into a historical replay.
+- **Sessions (2026-10):** An event's base close, for its label and its fixture, is the last session close at or before the event. Sessions close at 16:00 New York time, or at 13:00 on the NYSE's regular early-close days: the day after Thanksgiving, and July 3 and December 24 from Monday to Thursday (`alphaswarm.evaluation.session_close_utc`). Without the early close, an event between 13:00 and 16:00 on such a day would take the previous session as its base, so the 1-day label would measure a move that ended before the event. Decided 2026-10 under the owner's delegation.
 
 ### <a id="adr-holdings-isolation"></a>Holdings isolation: the swarm never sees the portfolio
 - **Decision:** Portfolio data never enters swarm prompts, Neo4j, WebSocket frames, or logs. It reaches only the post-simulation advisory call. Enforcement:
