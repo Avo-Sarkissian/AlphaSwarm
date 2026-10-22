@@ -49,7 +49,7 @@ async def _auto_trigger_advisory(app: FastAPI, cycle_id: str) -> None:
         if resp.status_code == 202:
             log.info("auto_advisory_trigger_accepted", cycle_id=cycle_id)
         elif resp.status_code == 409 and _error_code(resp) == "cloud_advisory_disabled":
-            # Cloud orchestrator without the opt-in: the portfolio stays local
+            # Cloud or remote orchestrator without the opt-in: the portfolio stays local
             # (docs/DECISIONS.md#adr-advisory-pipeline).
             log.info("auto_advisory_skipped_cloud", cycle_id=cycle_id)
         elif resp.status_code == 409:

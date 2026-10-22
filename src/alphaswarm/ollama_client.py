@@ -50,13 +50,58 @@ class OllamaClient:
         # only covers memory pressure, not stuck inference. A timed-out
         # agent surfaces as PARSE_ERROR via _safe_agent_inference instead
         # of hanging the simulation. None disables the cap (tests only).
-        self._client = AsyncClient(host=base_url, timeout=request_timeout_seconds)
+        #
+        # trust_env=False: httpx would otherwise send requests through any
+        # HTTP_PROXY/ALL_PROXY or macOS system proxy, with no automatic
+        # localhost bypass, so a "local" Ollama call (and the advisory's
+        # portfolio prompt) could reach a proxy on another machine.
+        # follow_redirects=False: a process on the Ollama port cannot redirect
+        # a request body to another host. Ollama itself never redirects
+        # (docs/DECISIONS.md#adr-advisory-pipeline).
+        self._client = AsyncClient(
+            host=base_url,
+            timeout=request_timeout_seconds,
+            trust_env=False,
+            follow_redirects=False,
+        )
         self._base_url = base_url
 
     @property
     def raw_client(self) -> AsyncClient:
         """Access underlying AsyncClient for model management (ps, create, etc)."""
         return self._client
+
+    @property
+    def base_url(self) -> str:
+        """The host this client really connects to.
+
+        Read from the underlying httpx client, after ollama resolved the
+        configured host (or ``OLLAMA_HOST`` when it is empty), so a locality
+        check sees the same value as the connection.
+        """
+        return str(self._http.base_url)
+
+    @property
+    def _http(self) -> httpx.AsyncClient:
+        # ollama.AsyncClient keeps its httpx client in ``_client`` (0.4 to 0.6).
+        http: httpx.AsyncClient = self._client._client
+        return http
+
+    async def is_remote_model(self, model: str) -> bool:
+        """True when the Ollama server runs *model* remotely (an Ollama cloud model).
+
+        Newer servers answer ``/api/show`` for a cloud model, or an alias whose
+        Modelfile is ``FROM`` one, with ``remote_host``/``remote_model``.
+        ollama-python 0.6 drops those fields from ``ShowResponse``, so this reads
+        the raw JSON. Any transport, HTTP or decoding error is raised, never read
+        as "local", so callers can fail closed.
+        """
+        response = await self._http.post("/api/show", json={"model": model})
+        response.raise_for_status()
+        body = response.json()
+        if not isinstance(body, dict):
+            raise ValueError("unexpected /api/show response shape")
+        return bool(body.get("remote_host") or body.get("remote_model"))
 
     async def chat(
         self,

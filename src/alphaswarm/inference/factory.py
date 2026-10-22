@@ -6,6 +6,11 @@ the right ``ConcurrencyController`` for swarm execution.
 Public surface:
     inference_mode  — classify cfg as "local" | "cloud" | "mixed"
     advisory_allowed — may the advisory send portfolio data to the orchestrator?
+    advisory_block_reason — which check refuses the advisory (None when allowed)
+    is_local_ollama — does an Ollama model + host keep data on this machine?
+    is_cloud_ollama_model — is this an Ollama cloud model name?
+    is_loopback_url — does this Ollama host name this machine?
+    effective_ollama_host — the host ollama.AsyncClient resolves for a base_url
     BuiltProviders  — frozen dataclass holding the two providers + shared meter
     build_providers — construct providers from cfg, wrapping cloud ones in budget guard
     build_controller — select ResourceGovernor (local) or RateLimitController (cloud)
@@ -13,8 +18,12 @@ Public surface:
 
 from __future__ import annotations
 
+import ipaddress
+import os
+import re
 from dataclasses import dataclass
 from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 
 from alphaswarm.config import InferenceConfig, ProviderLimits, ProviderType
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
@@ -53,14 +62,112 @@ def inference_mode(cfg: InferenceConfig) -> Literal["local", "cloud", "mixed"]:
     return "mixed"
 
 
-def advisory_allowed(cfg: InferenceConfig) -> bool:
+# ---------------------------------------------------------------------------
+# Local vs. off-machine Ollama (docs/DECISIONS.md#adr-advisory-pipeline)
+# ---------------------------------------------------------------------------
+
+# Where ollama.AsyncClient connects when given no host and OLLAMA_HOST is unset.
+_OLLAMA_DEFAULT_HOST = "http://127.0.0.1:11434"
+
+
+def is_cloud_ollama_model(model: str) -> bool:
+    """True for an Ollama cloud model, which Ollama runs on ollama.com.
+
+    Ollama names its cloud models with a ``-cloud`` tag suffix
+    (``gpt-oss:120b-cloud``) or a bare ``cloud`` tag (``glm-4.6:cloud``). To
+    fail closed on other spellings, any dash- or colon-separated part of the
+    name or tag that is exactly ``cloud`` counts: ``my-model-cloud``,
+    ``my-model-cloud:latest`` and ``qwen3:cloud-preview`` do, ``cloudy-model``
+    does not. An alias built from a Modelfile whose ``FROM`` is a cloud model
+    cannot be detected from its name; the advisory job asks the server
+    (``OllamaClient.is_remote_model``).
+    """
+    name = model.strip().lower().rsplit("/", 1)[-1].split("@", 1)[0]
+    return "cloud" in re.split(r"[-:]", name)
+
+
+def is_loopback_url(url: str) -> bool:
+    """True when *url* names this machine: localhost, 127.0.0.0/8 or ::1.
+
+    Parsed like ollama's ``_parse_host``: the scheme is optional and an empty
+    host means 127.0.0.1. Anything unparseable, any other name or address
+    (including the 0.0.0.0 bind address) is treated as remote.
+    """
+    text = url.strip()
+    if "://" not in text:
+        text = f"http://{text}"
+    try:
+        parts = urlsplit(text)
+        _ = parts.port  # raises ValueError on a malformed port
+    except ValueError:
+        return False
+    host = (parts.hostname or "").rstrip(".")
+    if not host:
+        return True
+    if host == "localhost":
+        return True
+    try:
+        addr = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped.is_loopback
+    return addr.is_loopback
+
+
+def effective_ollama_host(base_url: str | None) -> str:
+    """The host ``ollama.AsyncClient(host=base_url)`` really connects to.
+
+    The client uses ``host or OLLAMA_HOST`` and falls back to 127.0.0.1:11434.
+    """
+    return base_url or os.environ.get("OLLAMA_HOST") or _OLLAMA_DEFAULT_HOST
+
+
+def is_local_ollama(model: str, base_url: str | None) -> bool:
+    """True when *model* on the Ollama server at *base_url* keeps data on this machine."""
+    return not is_cloud_ollama_model(model) and is_loopback_url(effective_ollama_host(base_url))
+
+
+AdvisoryBlockReason = Literal[
+    "cloud_provider", "role_base_url_remote", "cloud_model", "remote_host"
+]
+
+
+def advisory_block_reason(
+    cfg: InferenceConfig, *, ollama_base_url: str | None
+) -> AdvisoryBlockReason | None:
+    """Which check refuses the advisory, or None when it may run.
+
+    Without the explicit ``allow_cloud_advisory`` opt-in, only a local Ollama
+    orchestrator is allowed: provider Ollama, not an Ollama cloud model, and a
+    loopback server (docs/DECISIONS.md#adr-advisory-pipeline).
+
+    ``ollama_base_url`` is the host of the shared OllamaClient that
+    OllamaProvider sends through (``OllamaClient.base_url``). The role's own
+    ``base_url`` is checked as well, so a remote one fails closed even though
+    the provider does not use it today. The reason is for logs, so the user can
+    tell which setting to fix.
+    """
+    if cfg.allow_cloud_advisory:
+        return None
+    orchestrator = cfg.orchestrator
+    if orchestrator.provider != ProviderType.OLLAMA:
+        return "cloud_provider"
+    if orchestrator.base_url and not is_loopback_url(orchestrator.base_url):
+        return "role_base_url_remote"
+    if is_cloud_ollama_model(orchestrator.model):
+        return "cloud_model"
+    if not is_loopback_url(effective_ollama_host(ollama_base_url)):
+        return "remote_host"
+    return None
+
+
+def advisory_allowed(cfg: InferenceConfig, *, ollama_base_url: str | None) -> bool:
     """True when the advisory may send portfolio data to the orchestrator.
 
-    A local (Ollama) orchestrator is always allowed. A cloud orchestrator needs
-    the explicit ``allow_cloud_advisory`` opt-in
-    (docs/DECISIONS.md#adr-advisory-pipeline).
+    See ``advisory_block_reason`` for the rule.
     """
-    return cfg.orchestrator.provider == ProviderType.OLLAMA or bool(cfg.allow_cloud_advisory)
+    return advisory_block_reason(cfg, ollama_base_url=ollama_base_url) is None
 
 
 # ---------------------------------------------------------------------------

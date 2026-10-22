@@ -15,7 +15,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import alphaswarm.web.routes.advisory as advisory_module
-from alphaswarm.config import AppSettings, InferenceConfig, ProviderType, RoleConfig
+from alphaswarm.config import (
+    AppSettings,
+    InferenceConfig,
+    ProviderType,
+    RoleConfig,
+)
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.types import SimulationPhase
 from alphaswarm.web.routes.advisory import (
@@ -56,7 +61,9 @@ def _make_app(
         settings=settings,
         state_store=state_store,
         graph_manager=object() if services_available else None,
-        ollama_client=object() if services_available else None,
+        ollama_client=(
+            SimpleNamespace(base_url="http://127.0.0.1:11434") if services_available else None
+        ),
         model_manager=object() if services_available else None,
     )
 
@@ -339,6 +346,59 @@ def test_post_advisory_202_for_a_cloud_orchestrator_with_opt_in(
         advisory_module, "load_inference_config", lambda _s: _cloud_cfg(opt_in=True)
     )
     app = _make_app(portfolio=_fake_portfolio())
+
+    assert TestClient(app).post("/api/advisory/cycle_01").status_code == 202
+
+
+def _ollama_cfg(model: str, *, opt_in: bool) -> InferenceConfig:
+    role = RoleConfig(provider=ProviderType.OLLAMA, model=model)
+    return InferenceConfig(orchestrator=role, worker=role, allow_cloud_advisory=opt_in)
+
+
+def _with_ollama_host(app: FastAPI, base_url: str) -> FastAPI:
+    """Point the shared OllamaClient at *base_url*. The settings keep their local
+    default, so these tests also show the guard reads the client's real host."""
+    app.state.app_state.ollama_client = SimpleNamespace(base_url=base_url)
+    return app
+
+
+@pytest.mark.parametrize(
+    ("model", "ollama_host"),
+    [
+        ("gpt-oss:120b-cloud", "http://localhost:11434"),
+        ("glm-4.6:cloud", "http://localhost:11434"),
+        ("alphaswarm-orchestrator", "http://192.168.1.20:11434"),
+        ("alphaswarm-orchestrator", "https://ollama.com"),
+    ],
+    ids=["cloud-model-dash", "cloud-model-colon", "lan-host", "ollama-com"],
+)
+@pytest.mark.parametrize("opt_in", [False, True], ids=["no-opt-in", "opted-in"])
+def test_a_cloud_or_remote_ollama_orchestrator_needs_the_opt_in(
+    monkeypatch: pytest.MonkeyPatch, model: str, ollama_host: str, opt_in: bool
+) -> None:
+    monkeypatch.setattr(
+        advisory_module, "load_inference_config", lambda _s: _ollama_cfg(model, opt_in=opt_in)
+    )
+    app = _with_ollama_host(_make_app(portfolio=_fake_portfolio()), ollama_host)
+
+    r = TestClient(app).post("/api/advisory/cycle_01")
+
+    if opt_in:
+        assert r.status_code == 202
+    else:
+        assert r.status_code == 409
+        assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
+        assert "remote" in r.json()["detail"]["message"]
+        assert app.state.advisory_task is None
+
+
+def test_a_local_ollama_orchestrator_needs_no_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        advisory_module,
+        "load_inference_config",
+        lambda _s: _ollama_cfg("alphaswarm-orchestrator", opt_in=False),
+    )
+    app = _with_ollama_host(_make_app(portfolio=_fake_portfolio()), "http://127.0.0.1:11434")
 
     assert TestClient(app).post("/api/advisory/cycle_01").status_code == 202
 
