@@ -26,7 +26,7 @@ from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.routes.advisory import router as advisory_router
 from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
-from alphaswarm.web.routes.holdings import load_portfolio_snapshot
+from alphaswarm.web.routes.holdings import PortfolioCache
 from alphaswarm.web.routes.holdings import router as holdings_router
 from alphaswarm.web.routes.interview import router as interview_router
 from alphaswarm.web.routes.replay import router as replay_router
@@ -169,15 +169,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.connection_manager = connection_manager
     app.state.neo4j_ready = await _prepare_neo4j(app_state.graph_manager)
 
-    # Phase 39 D-07, D-08 + CLAUDE.md Hard Constraint 1: eager-load holdings
-    # snapshot off the event loop via asyncio.to_thread. The synchronous
-    # load_portfolio_snapshot uses csv.DictReader + Path.open (blocking I/O)
-    # and catches HoldingsLoadError internally, returning None on failure.
-    # Using asyncio.to_thread keeps the lifespan compliant with the "no
-    # blocking I/O on the main event loop" hard constraint (review closure:
-    # Codex MEDIUM). On None, GET /api/holdings surfaces 503 while the
-    # broadcaster below still starts (D-08 success criterion 4).
-    app.state.portfolio_snapshot = await asyncio.to_thread(load_portfolio_snapshot, settings.holdings_csv_path)  # noqa: E501
+    # Holdings are loaded eagerly (docs/DECISIONS.md#p39-d-07) and reloaded when the
+    # CSV's mtime changes; the cache stays on app.state, never on AppState.
+    portfolio_cache = PortfolioCache(settings.resolve_path(settings.holdings_csv_path))
+    await portfolio_cache.get()
+    app.state.portfolio_cache = portfolio_cache
 
     # Phase 40 D-10: construct Yahoo Finance + RSS providers once at startup.
     # Both __init__ methods are synchronous and do no network I/O (lazy fetch).

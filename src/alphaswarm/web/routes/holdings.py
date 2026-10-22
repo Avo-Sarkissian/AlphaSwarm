@@ -6,19 +6,18 @@ whitelist entry lives in `tests/invariants/test_importlinter_coverage.py`
 (`_KNOWN_NON_SOURCE`). Adding this module to `pyproject.toml` `source_modules`
 would break `test_source_modules_does_not_list_whitelisted_packages`.
 
-The `load_portfolio_snapshot` helper (synchronous, at module scope) lives here
+`PortfolioCache` and its synchronous `load_portfolio_snapshot` helper live here
 specifically so that `alphaswarm.web.app` — which IS in `source_modules` and
-therefore cannot import `alphaswarm.holdings.*` — can call it via
-`await asyncio.to_thread(load_portfolio_snapshot, ...)` at lifespan startup.
-This is the D-04 whitelist indirection architecture; see Task 3 of Plan 39-02
-for the lifespan wiring and the Codex HIGH review closure notes.
+therefore cannot import `alphaswarm.holdings.*` — can build the cache at
+lifespan startup; the cache runs the helper via `asyncio.to_thread`. This is
+the D-04 whitelist indirection architecture.
 
 Decisions implemented:
 - D-06: response shape = account_number_hash + as_of (ISO-8601) + holdings list;
         Decimal fields serialized as strings to avoid float precision loss.
-- D-07: handler reads request.app.state.portfolio_snapshot ONLY — no CSV I/O at
-        request time. `load_portfolio_snapshot` is called ONCE at lifespan.
-- D-08: portfolio_snapshot is None (lifespan loader failed) → 503 with a
+- D-07 (revised): the handler reads app.state.portfolio_cache, which reloads the
+        CSV when its mtime changes; no parse happens unless the file changed.
+- D-08: PortfolioCache.get() returns None (file missing or malformed) → 503 with a
         FastAPI-wrapped generic body `{"detail": {"error": "holdings_unavailable",
         "message": "..."}}`. The raw exception and filesystem path are logged
         server-side by `load_portfolio_snapshot` — the client sees only
@@ -26,7 +25,7 @@ Decisions implemented:
         threat model).
 
 Review closures:
-- Codex HIGH (import boundary): `web/app.py` imports `load_portfolio_snapshot`
+- Codex HIGH (import boundary): `web/app.py` imports `PortfolioCache`
   from THIS module, not from `alphaswarm.holdings.*`. `uv run lint-imports` is
   an explicit verify-before-code gate in Task 3.
 - Codex MEDIUM (503 body FastAPI wrapping): `HTTPException(detail={...})`
@@ -36,6 +35,8 @@ Review closures:
 
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime
 from pathlib import Path
 
 import structlog
@@ -48,6 +49,49 @@ from alphaswarm.holdings.loader import HoldingsLoader, HoldingsLoadError
 log = structlog.get_logger(component="web.holdings")
 
 router = APIRouter()
+
+
+class PortfolioCache:
+    """Holdings snapshot that reloads when the CSV's mtime changes.
+
+    Lives at ``app.state.portfolio_cache`` and is never assigned onto AppState
+    (docs/DECISIONS.md#adr-holdings-isolation). The stat and the parse run in a
+    worker thread; a malformed file yields None until the file changes again.
+    """
+
+    def __init__(self, csv_path: Path) -> None:
+        self._csv_path = csv_path
+        self._lock = asyncio.Lock()
+        self._mtime_ns: int | None = None
+        self._snapshot: PortfolioSnapshot | None = None
+
+    @property
+    def holdings_as_of(self) -> datetime | None:
+        """``as_of`` of the current snapshot, or None when none is loaded."""
+        return self._snapshot.as_of if self._snapshot is not None else None
+
+    async def get(self) -> PortfolioSnapshot | None:
+        """Current snapshot, re-reading the CSV first when its mtime changed."""
+        async with self._lock:
+            mtime_ns = await asyncio.to_thread(_mtime_ns, self._csv_path)
+            if mtime_ns is None:
+                if self._mtime_ns is not None:
+                    log.warning("holdings_file_disappeared")
+                self._snapshot = None
+                self._mtime_ns = None
+                return None
+            if mtime_ns != self._mtime_ns:
+                self._snapshot = await asyncio.to_thread(load_portfolio_snapshot, self._csv_path)
+                self._mtime_ns = mtime_ns
+                log.info("holdings_snapshot_reloaded", loaded=self._snapshot is not None)
+            return self._snapshot
+
+
+def _mtime_ns(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
 
 
 class HoldingOut(BaseModel):
@@ -73,22 +117,21 @@ class HoldingsResponse(BaseModel):
 
 @router.get("/holdings", response_model=HoldingsResponse)
 async def get_holdings(request: Request) -> HoldingsResponse:
-    """Return the cached PortfolioSnapshot loaded at lifespan startup (D-07).
+    """Return the PortfolioSnapshot from app.state.portfolio_cache (D-07).
 
     Raises:
         HTTPException(503, detail={"error": "holdings_unavailable", ...}): when
-            `request.app.state.portfolio_snapshot is None`, which means the
-            lifespan `load_portfolio_snapshot` helper caught `HoldingsLoadError`
-            and returned None (D-08). FastAPI wraps `detail` under a top-level
+            `PortfolioCache.get()` returns None: the file is missing, or
+            `load_portfolio_snapshot` caught `HoldingsLoadError` (D-08).
+            FastAPI wraps `detail` under a top-level
             `detail` key — the actual wire shape is
             `{"detail": {"error": "holdings_unavailable", "message": "..."}}`.
             The 503 body is intentionally generic — the raw filesystem path
             and HoldingsLoadError message are logged server-side but NEVER
             returned in the response (T-39-06; review closure Codex MEDIUM).
     """
-    snapshot: PortfolioSnapshot | None = getattr(
-        request.app.state, "portfolio_snapshot", None,
-    )
+    cache: PortfolioCache = request.app.state.portfolio_cache
+    snapshot = await cache.get()
     if snapshot is None:
         # Generic body — no path, no exception text. See T-39-06.
         log.warning("holdings_unavailable_requested")
@@ -96,7 +139,7 @@ async def get_holdings(request: Request) -> HoldingsResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "error": "holdings_unavailable",
-                "message": "Holdings file could not be loaded at startup",
+                "message": "Holdings file could not be loaded",
             },
         )
 
@@ -115,23 +158,21 @@ async def get_holdings(request: Request) -> HoldingsResponse:
 
 
 def load_portfolio_snapshot(csv_path: Path) -> PortfolioSnapshot | None:
-    """Lifespan-only synchronous helper: load the Schwab CSV into a PortfolioSnapshot.
+    """Synchronous helper behind PortfolioCache: load the CSV into a PortfolioSnapshot.
 
     Lives in the route module (on the D-04 `_KNOWN_NON_SOURCE` whitelist) so
-    `alphaswarm.web.app` — which is in importlinter `source_modules` — can
-    import and call this function without importing `alphaswarm.holdings.*`
-    directly. This is the indirection layer that keeps the importlinter
-    forbidden contract satisfied while still allowing eager startup loading.
+    `alphaswarm.web.app` — which is in importlinter `source_modules` — never
+    imports `alphaswarm.holdings.*` directly. This is the indirection layer that
+    keeps the importlinter forbidden contract satisfied while still allowing
+    eager startup loading.
 
     The function is SYNCHRONOUS: it uses `csv.DictReader`, `Decimal(str)`, and
-    `Path.open()` — all blocking I/O. The FastAPI lifespan in `web/app.py` MUST
-    offload this call via `await asyncio.to_thread(load_portfolio_snapshot, path)`
-    to satisfy CLAUDE.md Hard Constraint 1 ("no blocking I/O on the main event
-    loop"). See Task 3 of Plan 39-02 for the to_thread wiring (review closure
-    for Codex MEDIUM).
+    `Path.open()` — all blocking I/O. `PortfolioCache.get()` MUST offload this
+    call via `await asyncio.to_thread(load_portfolio_snapshot, path)` to satisfy
+    CLAUDE.md Hard Constraint 1 ("no blocking I/O on the main event loop").
 
     Returns:
-        PortfolioSnapshot on success — caller stores on app.state.portfolio_snapshot.
+        PortfolioSnapshot on success — PortfolioCache keeps it.
         None on `HoldingsLoadError` — caller stores None; GET /api/holdings
         returns 503 (D-08). The exception is NEVER re-raised from this helper.
 
