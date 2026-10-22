@@ -332,8 +332,11 @@ def test_simulation_settings_env_override(monkeypatch: pytest.MonkeyPatch) -> No
         ("ALPHASWARM_SIMULATION__MIN_BRACKETS", "-1"),
         ("ALPHASWARM_SIMULATION__MIN_BRACKETS", "11"),
         ("ALPHASWARM_SIMULATION__BRACKET_CAP", "0"),
+        ("ALPHASWARM_SIMULATION__BRACKET_CAP", "11"),
+        ("ALPHASWARM_SIMULATION__PERSONAL_BOOST", "-0.1"),
         ("ALPHASWARM_SIMULATION__PERSONAL_BOOST", "1.5"),
         ("ALPHASWARM_SIMULATION__PEER_BUDGET_CHARS", "100"),
+        ("ALPHASWARM_SIMULATION__PEER_BUDGET_CHARS", "16001"),
     ],
 )
 def test_simulation_settings_rejects_out_of_range(
