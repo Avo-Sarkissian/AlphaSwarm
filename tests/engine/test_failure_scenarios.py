@@ -214,10 +214,13 @@ async def test_phase_sequence_includes_finalizing(
 ) -> None:
     store = RecordingStateStore()
     await run_case(
-        settings=scenario_settings, graph=graph,
+        settings=scenario_settings,
+        graph=graph,
         worker=ScriptedProvider(personas=all_personas),
-        personas=all_personas, brackets=all_brackets,
-        state_store=store, generate_narratives=True,
+        personas=all_personas,
+        brackets=all_brackets,
+        state_store=store,
+        generate_narratives=True,
     )
     assert store.phases == [
         SimulationPhase.IDLE,
