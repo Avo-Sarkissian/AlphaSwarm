@@ -53,9 +53,17 @@ async function tick() {
   return inFlight;
 }
 
+// What a consumer mounting now should see. With no loop running, the mount
+// starts a fresh lookup, so the cached answer may be stale until it lands.
+function mountSnapshot(): CycleState {
+  return intervalId === null ? { ...state, loading: true } : state;
+}
+
 function ensureLoop() {
   if (intervalId !== null) return;
-  // Immediate first fetch ONCE per interval lifecycle.
+  // Immediate first fetch ONCE per interval lifecycle; until it answers,
+  // consumers see loading (a cycle may have completed since the last loop).
+  state = { ...state, loading: true };
   void tick();
   intervalId = setInterval(() => void tick(), INTERVAL_MS);
 }
@@ -69,7 +77,7 @@ function teardownIfIdle() {
 }
 
 export function useLatestCompletedCycle() {
-  const [snap, setSnap] = useState<CycleState>(state);
+  const [snap, setSnap] = useState<CycleState>(mountSnapshot);
 
   useEffect(() => {
     subscribers.add(setSnap);

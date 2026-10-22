@@ -780,8 +780,10 @@ interface HoldingAnalysis {
 
 export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   const meta = useFrameMeta();
-  const { cycleId: latestCompleted } = useLatestCompletedCycle();
+  const { cycleId: latestCompleted, loading: latestLoading } = useLatestCompletedCycle();
   const cycleId = defaultCycleId(meta, latestCompleted);
+  // No cycle yet only means "none completed" once the lookup has answered.
+  const findingCycle = cycleId === null && latestLoading;
   const { agents: liveAgents } = useAgents();
   const liveAgentIds = useMemo(
     () => new Set(liveAgents.map((a) => a.id)),
@@ -931,7 +933,12 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="adv-body">
-        {!cycleId && (
+        {findingCycle && (
+          <div className="advisory-card">
+            <div className="label">Finding the latest completed cycle…</div>
+          </div>
+        )}
+        {!cycleId && !findingCycle && (
           <div className="advisory-card">
             <div className="label">No completed cycle to advise on.</div>
           </div>

@@ -53,8 +53,10 @@ export function ReportModal({
   onClose: () => void;
 }) {
   const meta = useFrameMeta();
-  const { cycleId: latestCompleted } = useLatestCompletedCycle();
+  const { cycleId: latestCompleted, loading: latestLoading } = useLatestCompletedCycle();
   const cycleId = cycleIdProp ?? defaultCycleId(meta, latestCompleted);
+  // No cycle yet only means "none completed" once the lookup has answered.
+  const findingCycle = cycleId === null && latestLoading;
 
   // UX contract: the modal NEVER auto-kicks generation. On open, GET the report:
   //   - 200 -> show it
@@ -188,7 +190,12 @@ export function ReportModal({
         </div>
 
         <div className="modal-body no-pad report rv2-scroll">
-          {!cycleId && (
+          {findingCycle && (
+            <div className="report-hero" style={{ padding: 24 }}>
+              <div className="label">Finding the latest completed cycle…</div>
+            </div>
+          )}
+          {!cycleId && !findingCycle && (
             <div className="report-hero" style={{ padding: 24 }}>
               <div className="label">No completed cycle to report on.</div>
             </div>
