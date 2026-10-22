@@ -75,9 +75,8 @@ class OllamaProvider:
     async def prepare(self) -> None:
         """Load the model into Ollama memory via the model manager.
 
-        When ``model_manager`` is ``None`` (e.g. the legacy ``_dispatch_round``
-        fallback path), this is a safe no-op: model lifecycle is the caller's
-        responsibility.
+        When ``model_manager`` is ``None``, this is a safe no-op: model
+        lifecycle is the caller's responsibility.
         """
         if self._model_manager is None:
             logger.debug("prepare_skipped_no_manager", model=self.model)

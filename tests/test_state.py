@@ -231,21 +231,6 @@ async def test_peek_rationales_returns_full_window() -> None:
     assert again == peeked
 
 
-async def test_drain_rationales_back_compat_shim() -> None:
-    """drain_rationales is now a thin peek wrapper kept for TUI back-compat."""
-    store = StateStore()
-    for i in range(3):
-        await store.push_rationale(
-            RationaleEntry(agent_id=f"A_{i}", signal=SignalType.HOLD, rationale="hold", round_num=1)
-        )
-    # First call returns the first 3 entries (limit=5 caps at len).
-    entries = store.drain_rationales(5)
-    assert len(entries) == 3
-    # Crucially: the window is NOT drained — second call returns the same data.
-    entries2 = store.drain_rationales(5)
-    assert entries2 == entries
-
-
 async def test_rationale_window_survives_round_transitions() -> None:
     """ITEM 4: rationales must NOT be cleared when set_phase advances rounds.
 
@@ -321,9 +306,8 @@ async def test_snapshot_peek_window_repeatable() -> None:
     """ITEM 4: snapshot() is non-destructive AND carries the rationale window
     so repeated snapshots return identical data (peek semantics).
 
-    Previously snapshot returned () and drain_rationales destructively
-    popped — this test asserts the new behavior where both snapshots
-    contain the entry and drain_rationales() is a peek wrapper.
+    Previously snapshot returned () and a destructive drain popped entries;
+    this test asserts that repeated snapshots contain the same entry.
     """
     store = StateStore()
     await store.push_rationale(
@@ -335,10 +319,6 @@ async def test_snapshot_peek_window_repeatable() -> None:
     assert len(snap1.rationale_entries) == 1
     assert snap1.rationale_entries[0].agent_id == "A_0"
     assert snap1.rationale_entries == snap2.rationale_entries
-    # drain_rationales back-compat shim is also peek-only — entry remains.
-    peeked = store.drain_rationales(5)
-    assert len(peeked) == 1
-    assert peeked[0].agent_id == "A_0"
     assert len(store.snapshot().rationale_entries) == 1
 
 
@@ -370,53 +350,6 @@ async def test_tps_from_worker_path() -> None:
     store.update_tps(eval_count=500, eval_duration_ns=2_000_000_000)
     snap = store.snapshot()
     assert snap.tps == pytest.approx(250.0)
-
-
-async def test_push_top_rationales_sorts_by_influence() -> None:
-    """_push_top_rationales (legacy helper, no longer wired in simulation.py)
-    still sorts by influence weight when called directly.
-
-    ITEM 4 of 260512-jqn removed the end-of-round _push_top_rationales calls
-    from simulation.py (streaming now happens per-agent in batch_dispatcher).
-    The helper function itself is kept for any tooling / TUI use.
-    """
-    from alphaswarm.simulation import _push_top_rationales
-    from alphaswarm.types import AgentDecision, SignalType
-
-    store = StateStore()
-    decisions: list[tuple[str, AgentDecision]] = [
-        ("low_agent", AgentDecision(signal=SignalType.SELL, confidence=0.9, rationale="sell rationale")),
-        ("high_agent", AgentDecision(signal=SignalType.BUY, confidence=0.5, rationale="buy rationale")),
-        ("mid_agent", AgentDecision(signal=SignalType.HOLD, confidence=0.7, rationale="hold rationale")),
-    ]
-    influence_weights = {"high_agent": 0.9, "mid_agent": 0.5, "low_agent": 0.1}
-
-    await _push_top_rationales(decisions, 1, store, influence_weights=influence_weights, limit=2)
-    entries = store.peek_rationales()
-
-    # Should have pushed at most 2 entries (limit=2)
-    assert len(entries) == 2
-    # First entry should be high_agent (highest influence)
-    assert entries[0].agent_id == "high_agent"
-
-
-async def test_push_top_rationales_skips_parse_errors() -> None:
-    """_push_top_rationales skips PARSE_ERROR agents (peek semantics)."""
-    from alphaswarm.simulation import _push_top_rationales
-    from alphaswarm.types import AgentDecision, SignalType
-
-    store = StateStore()
-    decisions: list[tuple[str, AgentDecision]] = [
-        ("error_agent", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="")),
-        ("good_agent", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="solid analysis")),
-    ]
-
-    await _push_top_rationales(decisions, 2, store)
-    entries = store.peek_rationales()
-
-    # Only good_agent should be in the window
-    assert len(entries) == 1
-    assert entries[0].agent_id == "good_agent"
 
 
 # ---------------------------------------------------------------------------

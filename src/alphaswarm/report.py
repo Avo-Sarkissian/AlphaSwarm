@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import aiofiles
 import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
@@ -265,7 +264,6 @@ TOOL_TO_TEMPLATE: dict[str, str] = {
     "signal_flip_analysis": "06_signal_flip_analysis.j2",
     "entity_impact": "07_entity_impact.j2",
     "social_post_reach": "08_social_post_reach.j2",
-    "portfolio_impact": "10_portfolio_impact.j2",
     "shock_impact": "11_shock_impact.j2",
 }
 
@@ -279,7 +277,6 @@ SECTION_ORDER: list[str] = [
     "signal_flip_analysis",
     "entity_impact",
     "social_post_reach",
-    "portfolio_impact",
     "shock_impact",
 ]
 
@@ -370,31 +367,3 @@ async def write_report(path: Path, content: str) -> None:
     one, never a truncated file (docs/DECISIONS.md#adr-background-tasks).
     """
     await asyncio.to_thread(atomic_write_text, path, content)
-
-
-async def write_sentinel(
-    cycle_id: str,
-    report_path: str,
-    *,
-    sentinel_dir: Path | None = None,
-) -> None:
-    """Write sentinel JSON file for TUI polling (per D-05).
-
-    Creates .alphaswarm/last_report.json (or sentinel_dir/last_report.json
-    when sentinel_dir is provided for test injection).
-
-    Args:
-        cycle_id: The simulation cycle ID.
-        report_path: String path to the generated report file.
-        sentinel_dir: Override sentinel directory (default: Path('.alphaswarm')).
-    """
-    directory = sentinel_dir if sentinel_dir is not None else Path(".alphaswarm")
-    directory.mkdir(parents=True, exist_ok=True)
-    sentinel_file = directory / "last_report.json"
-    payload = {
-        "cycle_id": cycle_id,
-        "path": report_path,
-        "generated_at": datetime.datetime.now(tz=datetime.UTC).isoformat(),
-    }
-    async with aiofiles.open(sentinel_file, "w", encoding="utf-8") as f:
-        await f.write(json.dumps(payload))

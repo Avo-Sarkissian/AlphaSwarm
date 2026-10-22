@@ -2,7 +2,7 @@
 
 Agents push EpisodeRecords into an asyncio.Queue as they complete inference.
 A single flush() call drains the queue and delegates batch writes to
-GraphStateManager. TUI sees per-agent updates immediately via StateStore;
+GraphStateManager. The UI sees per-agent updates immediately via StateStore;
 Neo4j receives efficient batch writes at round boundaries.
 
 ORDERING CONSTRAINT: flush() MUST be called AFTER write_decisions() completes.

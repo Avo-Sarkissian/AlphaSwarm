@@ -25,7 +25,7 @@ from pydantic import ValidationError
 from alphaswarm.advisory.prompt import build_advisory_prompt
 from alphaswarm.advisory.sector_map import lookup as sector_lookup
 from alphaswarm.advisory.sector_map import resolve_ticker
-from alphaswarm.advisory.types import AdvisoryReport
+from alphaswarm.advisory.types import AdvisoryItem, AdvisoryReport
 from alphaswarm.holdings.types import PortfolioSnapshot
 from alphaswarm.inference.types import InferenceMessage
 
@@ -129,15 +129,12 @@ async def synthesize(
         graph_manager.read_entity_impact(cycle_id),
     )
 
-    # Seed rumor retrieval — if the graph manager exposes read_cycle_seed, use it;
-    # otherwise fall back to empty string.
+    # The seed rumor only adds context; a failed read must not block the advisory.
     seed_rumor = ""
-    read_seed = getattr(graph_manager, "read_cycle_seed", None)
-    if read_seed is not None:
-        try:
-            seed_rumor = await read_seed(cycle_id) or ""
-        except Exception:  # noqa: BLE001 - defensive; synthesize still runs without seed text
-            log.warning("advisory_seed_fetch_failed", cycle_id=cycle_id)
+    try:
+        seed_rumor = await graph_manager.read_cycle_seed(cycle_id) or ""
+    except Exception:  # noqa: BLE001 - synthesize still runs without seed text
+        log.warning("advisory_seed_fetch_failed", cycle_id=cycle_id)
 
     _total_cb = sum(
         (h.cost_basis if h.cost_basis is not None else Decimal("0"))
@@ -193,9 +190,6 @@ async def synthesize(
         provider=provider,
         messages=messages,
     )
-
-    # Local import: avoid circularity at module load.
-    from alphaswarm.advisory.types import AdvisoryItem
 
     # Coverage is keyed by unique upper-cased TICKER, not by Holding row — the
     # portfolio holds one Holding per lot, and MRVL/QQQ appear in both taxable

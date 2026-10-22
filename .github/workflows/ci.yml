@@ -35,6 +35,9 @@ jobs:
       - name: import-linter
         run: uv run lint-imports
 
+      - name: vulture (dead code)
+        run: uv run vulture src vulture_whitelist.py --min-confidence 80
+
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 15

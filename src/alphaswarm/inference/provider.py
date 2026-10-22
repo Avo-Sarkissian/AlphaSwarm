@@ -26,9 +26,10 @@ class InferenceProvider(Protocol):
         2. Call ``await provider.prepare()`` before the first ``chat`` call to
            warm up connections, load models, etc.
         3. Issue any number of ``await provider.chat(...)`` calls.
-        4. Call ``await provider.teardown()`` or ``await provider.aclose()``
-           when done.  ``aclose`` is an alias for use with ``async with``
-           context managers.
+        4. Call ``await provider.teardown()`` to release the model (Ollama
+           unloads it; cloud providers do nothing), then ``await
+           provider.aclose()`` to close any HTTP client the provider created.
+           The two are not aliases.
 
     Attributes:
         role: Whether this provider acts as ORCHESTRATOR or WORKER.
@@ -51,9 +52,10 @@ class InferenceProvider(Protocol):
         ...
 
     async def teardown(self) -> None:
-        """Release provider resources (unload model, close sessions, etc.).
+        """Release the model ``prepare`` loaded (Ollama unloads it; cloud providers do nothing).
 
-        Symmetric to ``prepare``.  After teardown, ``chat`` must not be called.
+        Symmetric to ``prepare``: after teardown, ``chat`` must not be called until
+        ``prepare`` runs again. HTTP clients stay open; ``aclose`` closes them.
         """
         ...
 
@@ -89,5 +91,5 @@ class InferenceProvider(Protocol):
         ...
 
     async def aclose(self) -> None:
-        """Alias for ``teardown`` to support async context manager protocol."""
+        """Close client resources this provider owns (not an alias for ``teardown``)."""
         ...

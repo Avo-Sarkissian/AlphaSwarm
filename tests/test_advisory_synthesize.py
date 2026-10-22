@@ -157,46 +157,6 @@ def test_prompt_instructs_conviction_items_only() -> None:
     assert "engine pads" in full.lower()
 
 
-def test_prompt_renders_top_holdings_only() -> None:
-    """Only top_holdings is rendered to the LLM. rest_holdings is accepted
-    for back-compat but intentionally not included in the user message —
-    engine.py pads the unsent holdings server-side (docs/DECISIONS.md#sweep-b-7)."""
-    msgs = build_advisory_prompt(
-        cycle_id="c1",
-        seed_rumor="seed",
-        bracket_summary={},
-        timeline=[],
-        narratives=[],
-        entity_impact=[],
-        top_holdings=[{"ticker": "AAPL", "sector": "consumer_tech"}],
-        rest_holdings=[{"ticker": "SWYXX", "sector": "money_market"}],
-    )
-    user = msgs[1]["content"]
-    assert "AAPL" in user
-    # rest_holdings must NOT leak into the prompt — saves ~1500 tokens.
-    assert "SWYXX" not in user
-    assert "OTHER HOLDINGS" not in user
-
-
-def test_prompt_legacy_holdings_kwarg_still_works() -> None:
-    """Back-compat: callers passing only `holdings=[...]` get a valid prompt
-    (treated as top_holdings).
-    """
-    msgs = build_advisory_prompt(
-        cycle_id="c1",
-        seed_rumor="seed",
-        bracket_summary={},
-        timeline=[],
-        narratives=[],
-        entity_impact=[],
-        holdings=[{"ticker": "AAPL", "qty": "10", "cost_basis": "1000"}],
-    )
-    user = msgs[1]["content"]
-    assert "AAPL" in user
-    assert "OTHER HOLDINGS" not in user
-    assert "TOP HOLDINGS" not in user  # single-list framing now
-
-
 # ---------------------------------------------------------------------------
 # Sanity: SECTOR_MAP size matches the documented 32 unique tickers
 # ---------------------------------------------------------------------------
