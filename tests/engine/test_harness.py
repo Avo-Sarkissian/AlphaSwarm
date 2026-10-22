@@ -57,5 +57,7 @@ async def test_forbid_real_sleep_records_positive_delays(forbid_real_sleep: list
 async def test_fake_graph_rejects_calls_that_break_the_real_signature(
     fake_graph: MagicMock,
 ) -> None:
-    with pytest.raises(TypeError):
-        await fake_graph.write_decisions([], "cycle", 1, "unexpected-extra-positional")
+    # write_cycle_metrics has no side_effect, so only the autospec can refuse the call;
+    # the match keeps an unrelated TypeError (awaiting a plain MagicMock) from passing.
+    with pytest.raises(TypeError, match="missing a required argument: 'metrics'"):
+        await fake_graph.write_cycle_metrics("cycle")
