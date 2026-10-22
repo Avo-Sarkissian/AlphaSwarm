@@ -633,3 +633,12 @@ def test_entity_impact_template_escapes_pipes_and_newlines() -> None:
 def test_signal_flip_template_empty_state() -> None:
     md = ReportAssembler().render_section("06_signal_flip_analysis.j2", data=[], cycle_id="c")
     assert "_No agent changed position between rounds._" in md
+
+
+def test_strict_undefined_raises_on_missing_row_key() -> None:
+    from jinja2.exceptions import UndefinedError
+
+    row = {"entity_name": "ZZZT Holdings", "avg_sentiment": 0.4, "mention_count": 2,
+           "buy_mentions": 1, "sell_mentions": 1, "hold_mentions": 0}  # entity_type missing
+    with pytest.raises(UndefinedError, match="entity_type"):
+        ReportAssembler().render_section("07_entity_impact.j2", data=[row], cycle_id="c")

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import aiofiles
 import structlog
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 if TYPE_CHECKING:
     from alphaswarm.inference.provider import InferenceProvider
@@ -291,9 +291,13 @@ class ReportAssembler:
     def __init__(self) -> None:
         self._env = Environment(
             loader=FileSystemLoader(str(TEMPLATE_DIR)),
-            autoescape=False,  # markdown output, not HTML (per RESEARCH anti-pattern note)
+            autoescape=False,  # markdown output, not HTML
             trim_blocks=True,
             lstrip_blocks=True,
+            # A template that reads a key the row does not have must fail the
+            # report instead of rendering a blank column
+            # (docs/DECISIONS.md#adr-report-react).
+            undefined=StrictUndefined,
         )
         self._env.filters["md_cell"] = md_cell
         self._env.filters["num"] = num
