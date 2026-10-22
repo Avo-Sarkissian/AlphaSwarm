@@ -103,6 +103,30 @@ async def test_control_readers_see_no_peers_in_rounds_two_and_three(
         )
 
 
+async def test_holdout_exposure_metrics_count_only_rendered_peers(
+    run_scenario: RunScenario,
+    scripted_worker: ScriptedProvider,
+    fake_graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+) -> None:
+    """Exposure is what a prompt rendered, so control readers add no slots and no readers."""
+    scenario_settings.simulation = SimulationSettings(control_fraction=0.2)
+    await run_scenario()
+    metrics = _metrics(fake_graph)
+    bracket_of = {p.id: p.bracket.value for p in all_personas}
+
+    for n in (2, 3):
+        shown = [call.shown_peer_ids for call in round_calls(scripted_worker, n)]
+        slots = Counter(bracket_of[pid] for ids in shown for pid in ids)
+        readers = Counter(b for ids in shown for b in {bracket_of[pid] for pid in ids})
+        assert sum(1 for ids in shown if ids) == 80  # the 20 control readers saw none
+        for bracket in set(bracket_of.values()):
+            assert metrics[f"r{n}_exposure_{bracket}"] == slots[bracket]
+            assert metrics[f"r{n}_readers_seeing_{bracket}"] == readers[bracket]
+        assert metrics[f"r{n}_distinct_peers_shown"] == len({p for ids in shown for p in ids})
+
+
 async def test_without_a_holdout_every_flip_is_treated(
     run_scenario: RunScenario, fake_graph: MagicMock, scenario_settings: AppSettings
 ) -> None:
