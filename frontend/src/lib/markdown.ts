@@ -8,8 +8,16 @@
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
+// The markdown is written by an LLM. DOMPurify's defaults already strip script
+// vectors; also forbid <style>, <form> and inline style attributes so model output
+// can neither restyle the dashboard nor render a convincing fake form.
+const SANITIZE_CONFIG = {
+  FORBID_TAGS: ['style', 'form'],
+  FORBID_ATTR: ['style'],
+};
+
 export function renderMarkdown(source: string): string {
   if (!source) return '';
   const rawHtml = marked.parse(source, { async: false });
-  return DOMPurify.sanitize(typeof rawHtml === 'string' ? rawHtml : '');
+  return DOMPurify.sanitize(typeof rawHtml === 'string' ? rawHtml : '', SANITIZE_CONFIG);
 }
