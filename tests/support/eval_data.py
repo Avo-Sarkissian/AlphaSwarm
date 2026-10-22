@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Final
 
-from alphaswarm.evaluation import EvalEvent
+from alphaswarm.evaluation import EvalEvent, PricePoint
 
 TICKERS: Final[tuple[str, ...]] = ("ZZZT", "QQQX", "XQZW", "ZQXY", "QZZX")
 CATEGORIES: Final[tuple[str, ...]] = ("m_and_a", "earnings", "guidance", "regulatory", "product")
@@ -48,3 +48,34 @@ def make_events(count: int) -> list[EvalEvent]:
 def write_events(path: Path, events: Sequence[EvalEvent]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(event.model_dump_json() + "\n" for event in events), encoding="utf-8")
+
+
+def business_days(start: date, count: int) -> list[date]:
+    days: list[date] = []
+    day = start
+    while len(days) < count:
+        if day.weekday() < 5:
+            days.append(day)
+        day += timedelta(days=1)
+    return days
+
+
+PRICE_DAYS: Final = business_days(date(2026, 1, 5), 30)  # [21] = 2026-02-03, [22] = 2026-02-04
+PREMARKET_EVENT: Final = datetime(2026, 2, 4, 13, 0, tzinfo=UTC)  # 08:00 EST on PRICE_DAYS[22]
+
+
+def alternating_series(move: float, *, days: Sequence[date] = PRICE_DAYS) -> list[PricePoint]:
+    """+1%/-1% daily up to index 21, *move* on index 22, flat afterwards (volume 1000 + index)."""
+    closes = [100.0]
+    for i in range(1, 22):
+        closes.append(closes[-1] * (1.01 if i % 2 else 0.99))
+    closes.append(closes[-1] * (1.0 + move))
+    closes.extend([closes[-1]] * (len(days) - len(closes)))
+    return [
+        PricePoint(day=d, close=c, volume=1000 + i)
+        for i, (d, c) in enumerate(zip(days, closes, strict=True))
+    ]
+
+
+def flat_series(level: float = 100.0, *, days: Sequence[date] = PRICE_DAYS) -> list[PricePoint]:
+    return [PricePoint(day=d, close=level) for d in days]

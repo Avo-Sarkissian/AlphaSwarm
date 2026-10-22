@@ -308,6 +308,18 @@ class PricePoint:
     volume: int | None = None
 
 
+def points_from_rows(rows: Iterable[tuple[date, float, float | None]]) -> list[PricePoint]:
+    """Daily bars from (day, close, volume) rows, ascending; NaN or non-positive closes skipped."""
+    points: list[PricePoint] = []
+    for day, close, volume in rows:
+        value = float(close)
+        if math.isnan(value) or value <= 0:
+            continue
+        shares = None if volume is None or math.isnan(float(volume)) else int(volume)
+        points.append(PricePoint(day=day, close=value, volume=shares))
+    return sorted(points, key=lambda p: p.day)
+
+
 def session_close_utc(day: date) -> datetime:
     """The 16:00 America/New_York close of *day* in UTC (DST-aware)."""
     return datetime.combine(day, SESSION_CLOSE, tzinfo=NEW_YORK).astimezone(UTC)
