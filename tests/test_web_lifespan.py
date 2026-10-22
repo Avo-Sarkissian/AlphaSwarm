@@ -4,8 +4,9 @@ The app is built with create_app(settings) and a fake graph manager: no Neo4j,
 no Ollama. Startup verifies Neo4j, then applies the schema; the server keeps
 serving when Neo4j is down or rejects the password; no graph manager means not
 ready. The tests also pin the settings identity, a running broadcaster, health
-and the shutdown order (docs/DECISIONS.md#adr-web-lifespan). The settings point
-every file path at tmp_path, so the lifespan never reads Schwab/ or .secrets/.
+and the shutdown order (docs/DECISIONS.md#adr-web-lifespan). The settings put
+every path setting under tmp_path (route_test_settings), so the lifespan never
+reads Schwab/ or .secrets/ and never writes to reports/ or advisory/.
 Extend this file in place; do not add a second one.
 """
 
@@ -23,6 +24,7 @@ import structlog
 from fastapi import FastAPI
 from neo4j.exceptions import AuthError as Neo4jAuthError
 from neo4j.exceptions import ServiceUnavailable
+from pydantic import BaseModel
 
 import alphaswarm.manifest as manifest
 import alphaswarm.web.app as web_app
@@ -31,6 +33,7 @@ from alphaswarm.config import AppSettings
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.types import AgentPersona
 from alphaswarm.web.simulation_manager import SimulationManager
+from tests.support.web_app import route_test_settings
 
 
 @pytest.fixture(autouse=True)
@@ -62,11 +65,8 @@ class LifespanProbe:
 
 @pytest.fixture
 def lifespan_settings(tmp_path: Path) -> AppSettings:
-    return AppSettings(  # type: ignore[call-arg]
-        _env_file=None,
-        holdings_csv_path=tmp_path / "absent-holdings.csv",
-        inference_config_path=tmp_path / "inference.json",
-    )
+    """Every path setting under tmp_path; the holdings CSV is never created."""
+    return route_test_settings(tmp_path)
 
 
 @pytest.fixture
@@ -272,3 +272,31 @@ async def test_lifespan_wires_post_run_and_holdings(probe: LifespanProbe) -> Non
             JobStatus("running", "00000000-0000-4000-8000-0000000000a1"),
         )
         assert app.state.sim_manager._orchestrator_busy() is True
+
+
+def _path_settings(model: BaseModel, prefix: str = "") -> dict[str, Path]:
+    """Every Path-valued setting of *model*, nested models included, by dotted name."""
+    found: dict[str, Path] = {}
+    for name, value in model:
+        if isinstance(value, Path):
+            found[f"{prefix}{name}"] = value
+        elif isinstance(value, BaseModel):
+            found.update(_path_settings(value, f"{prefix}{name}."))
+    return found
+
+
+def test_every_path_setting_points_under_tmp_path(
+    lifespan_settings: AppSettings, tmp_path: Path
+) -> None:
+    """The lifespan reads the holdings CSV and the inference config, and the post-run
+    jobs write to reports_dir and advisory_dir: none of them may reach the repo's
+    Schwab/, .secrets/, reports/ or advisory/."""
+    paths = _path_settings(lifespan_settings)
+    expected = {"holdings_csv_path", "inference_config_path", "reports_dir", "advisory_dir"}
+    assert expected <= set(paths)
+    outside = {
+        name: path
+        for name, path in paths.items()
+        if not lifespan_settings.resolve_path(path).is_relative_to(tmp_path)
+    }
+    assert outside == {}
