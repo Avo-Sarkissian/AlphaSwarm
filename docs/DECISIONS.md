@@ -324,7 +324,7 @@ Contents
   3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)). Tracebacks are rendered without local variables in both modes (JSON: `ExceptionDictTransformer(show_locals=False)` before the redactor; console: `plain_traceback`), so frames never leak keys or portfolio objects (2026-10).
   4. Holdings are loaded into memory at lifespan startup (`PortfolioCache`, re-read when the CSV changes) and never persisted ([p39-d-07](#p39-d-07)).
 - **Rationale:** Uncontaminated consensus, plus privacy for real brokerage data.
-- **Gate:** `uv run lint-imports` runs in the CI `lint` job (next to strict mypy) and as a pre-commit hook, and `tests/invariants/test_importlinter_contract.py` runs it inside pytest. Ruff is not gated yet.
+- **Gate:** `uv run lint-imports` runs in the CI `lint` job (next to strict mypy and vulture) and as a pre-commit hook, and `tests/invariants/test_importlinter_contract.py` runs it inside pytest. Ruff is not gated yet.
 
 ### <a id="adr-provider-never-raise"></a>Market/news providers never raise
 - **Decision:** `MarketDataProvider` and `NewsProvider` use batch-first signatures. Failures become `staleness="fetch_failed"` slices. Fakes live next to the protocols ([p37-d-17](#p37-d-17)..[p37-d-20](#p37-d-20)).
