@@ -1198,6 +1198,11 @@ async def run_simulation(
     `market_context=None` (backward compatible). Rounds 2-3 are NOT affected
     (D-06 keeps market context Round 1 only).
 
+    A context_fixture (a point-in-time ContextPacket for evaluation runs,
+    docs/DECISIONS.md#adr-eval-harness) takes precedence over both providers:
+    it is formatted directly, the providers are never called, and
+    `context_fixture_used` is logged instead.
+
     Lifecycle:
     1. run_round1() handles SEEDING + ROUND_1 (owns its own governor session per D-06)
     2. Phase 40 context assembly: inject_seed -> asyncio.gather(get_prices + get_headlines)

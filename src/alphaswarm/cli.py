@@ -4,6 +4,8 @@ Usage:
     python -m alphaswarm                  # Print startup banner (legacy)
     python -m alphaswarm inject "rumor"   # Inject a seed rumor
     python -m alphaswarm run "rumor"      # Run a full simulation (ALPHASWARM_NUM_ROUNDS)
+    python -m alphaswarm run "rumor" --context-fixture PATH  # point-in-time market block
+    python -m alphaswarm run "rumor" --no-market-context     # no market block, no live fetch
 """
 
 from __future__ import annotations
