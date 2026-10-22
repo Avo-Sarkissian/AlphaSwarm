@@ -204,7 +204,7 @@ async def dispatch_wave(
         signal=PARSE_ERROR.
 
     Raises:
-        ValueError: If peer_contexts length does not match personas length.
+        ValueError: If peer_contexts or own_priors length does not match personas length.
         GovernorCrisisError: If any agent hits a governor crisis.
         BudgetExceededError: If the spend cap is exceeded; halts the wave so
             completed rounds remain persisted and no further spend occurs.

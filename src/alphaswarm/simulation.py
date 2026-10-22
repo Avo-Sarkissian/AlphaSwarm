@@ -215,9 +215,11 @@ def own_prior_line(decision: AgentDecision | None, source_round: int) -> str | N
     """The reader's own previous decision as one sanitized line, or None.
 
     None for a missing or PARSE_ERROR decision, so a failure never appears as a
-    position. The rationale is model output: whitespace collapses into one line,
-    control characters go, "<"/">" are dropped and "[" "]" become "(" ")" so no
-    fence tag or [agent_id] token can be forged (docs/DECISIONS.md#adr-diverse-peer-context).
+    position. The rationale is model output: control characters go, whitespace
+    collapses into one line and the text is cut at 300 characters ("..." marks a
+    cut). Then "<"/">" are dropped and "[" "]" become "(" ")", so no fence tag or
+    [agent_id] token can be forged, and double quotes become single quotes, so a
+    quoted field stays unambiguous (docs/DECISIONS.md#adr-diverse-peer-context).
     """
     if decision is None or decision.signal == SignalType.PARSE_ERROR:
         return None
