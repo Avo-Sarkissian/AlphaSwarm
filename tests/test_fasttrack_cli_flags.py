@@ -50,10 +50,18 @@ def test_plain_run_passes_no_keywords(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _capture(monkeypatch, ["run", RUMOR]) == {"rumor": RUMOR}
 
 
-def test_invalid_fixture_exits_2(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(
-        sys, "argv", ["alphaswarm", "run", RUMOR, "--context-fixture", str(tmp_path / "x.json")]
-    )
+@pytest.mark.parametrize("content", [None, "{}"], ids=["missing", "not_a_packet"])
+def test_invalid_fixture_exits_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str | None
+) -> None:
+    """A bad fixture is a usage error while parsing: the run handler never starts."""
+    path = tmp_path / "x.json"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    handled: list[str] = []
+    monkeypatch.setattr(cli, "_handle_run", lambda rumor, **kw: handled.append(rumor))
+    monkeypatch.setattr(sys, "argv", ["alphaswarm", "run", RUMOR, "--context-fixture", str(path)])
     with pytest.raises(SystemExit) as exc_info:
         cli.main()
     assert exc_info.value.code == 2
+    assert handled == []
