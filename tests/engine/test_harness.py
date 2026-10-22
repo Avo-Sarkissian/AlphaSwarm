@@ -26,6 +26,7 @@ FULL_RUN = [
     SimulationPhase.ROUND_1,
     SimulationPhase.ROUND_2,
     SimulationPhase.ROUND_3,
+    SimulationPhase.FINALIZING,
     SimulationPhase.COMPLETE,
 ]
 

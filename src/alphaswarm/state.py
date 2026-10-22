@@ -10,7 +10,7 @@ import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Final, Literal
 
 from alphaswarm.data_audit import DataSourceAuditBuffer, DataSourceAuditEntry
 from alphaswarm.errors import RunError
@@ -98,6 +98,21 @@ class JobsSnapshot:
 
 
 @dataclass(frozen=True)
+class AppliedShock:
+    """A shock that entered the prompts, and the round it was first applied before."""
+
+    text: str
+    round_num: int
+
+
+_ROUND_OF_PHASE: Final[dict[SimulationPhase, int]] = {
+    SimulationPhase.ROUND_1: 1,
+    SimulationPhase.ROUND_2: 2,
+    SimulationPhase.ROUND_3: 3,
+}
+
+
+@dataclass(frozen=True)
 class StateSnapshot:
     """Immutable snapshot for TUI consumption."""
 
@@ -118,6 +133,10 @@ class StateSnapshot:
     # Typed, UI-safe description of the last failed run; cleared when a new
     # run starts (docs/DECISIONS.md#adr-taskgroup-dispatch).
     last_error: RunError | None = None
+    # Shock state, broadcast via asdict (docs/DECISIONS.md#adr-ws-broadcaster).
+    pending_shock: str | None = None
+    applied_shocks: tuple[AppliedShock, ...] = ()
+    shock_window_open: bool = False
 
 
 class StateStore:
@@ -164,6 +183,11 @@ class StateStore:
             "advisory": JobStatus(),
             "report": JobStatus(),
         }
+        # Shock state: num_rounds bounds the shock window and must be set before
+        # SEEDING, which keeps it; applied shocks are run-scoped.
+        self._num_rounds: int = 3
+        self._pending_shock: str | None = None
+        self._applied_shocks: list[AppliedShock] = []
 
     async def update_agent_state(
         self,
@@ -200,6 +224,9 @@ class StateStore:
                 self._cumulative_eval_ns = 0
                 self._bracket_summaries = ()
                 self._rationale_window.clear()
+                self._applied_shocks.clear()
+                # Not _num_rounds: it must be set before SEEDING, and a reset here
+                # would reopen the shock window in the last round of a 2-round run.
                 self._agent_states = {
                     aid: AgentState(signal=None, confidence=0.0)
                     for aid in self._agent_states
@@ -309,6 +336,9 @@ class StateStore:
             bracket_summaries=self._bracket_summaries,
             data_source_audit=self._data_source_audit.snapshot(),
             last_error=self._last_error,
+            pending_shock=self._pending_shock,
+            applied_shocks=tuple(self._applied_shocks),
+            shock_window_open=self.shock_window_open(),
         )
 
     def peek_rationales(self) -> tuple[RationaleEntry, ...]:
@@ -347,6 +377,39 @@ class StateStore:
     def job_statuses(self) -> JobsSnapshot:
         """Return both job statuses."""
         return JobsSnapshot(advisory=self._jobs["advisory"], report=self._jobs["report"])
+
+    def set_num_rounds(self, n: int) -> None:
+        """Record the run's round count, which bounds the shock window.
+
+        Call it before SEEDING; SEEDING keeps it. Until it is called the window
+        assumes 3 rounds.
+        """
+        self._num_rounds = n
+
+    def set_pending_shock(self, text: str | None) -> None:
+        """Record the shock queued for the next round, or None when none is queued.
+
+        The store does not watch the shock queue: pending_shock shows only what
+        the queue's owner last passed here.
+        """
+        self._pending_shock = text
+
+    def record_applied_shock(self, text: str, round_num: int) -> None:
+        """Record a shock that was applied before *round_num*."""
+        self._applied_shocks.append(AppliedShock(text=text, round_num=round_num))
+
+    def shock_window_open(self) -> bool:
+        """True while a queued shock can still reach a later round.
+
+        Open during SEEDING and during ROUND_k while k < num_rounds; closed once
+        the last gated round has started, and in FINALIZING, COMPLETE, IDLE and
+        REPLAY. The phase number, not round_num, is used so the window closes at
+        the same instant the runner moves to the last round.
+        """
+        if self._phase == SimulationPhase.SEEDING:
+            return True
+        current = _ROUND_OF_PHASE.get(self._phase)
+        return current is not None and current < self._num_rounds
 
     # ------------------------------------------------------------------
     # ITEM 5 of quick task 260512-jqn — data-provider audit pass-through

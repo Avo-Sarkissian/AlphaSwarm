@@ -1078,8 +1078,10 @@ async def run_simulation(
 ) -> SimulationResult:
     """Execute the full 3-round simulation pipeline (D-04).
 
-    Phase transitions (D-07): IDLE -> SEEDING -> ROUND_1 -> ROUND_2 -> ROUND_3 -> COMPLETE
-    Logged via structlog, not persisted to StateStore.
+    Phase transitions (docs/DECISIONS.md#p7-d-07):
+    IDLE -> SEEDING -> ROUND_1 .. ROUND_N -> FINALIZING -> COMPLETE
+    Each transition is logged and, when state_store is given, set on it with
+    StateStore.set_phase, which drives the UI.
 
     Progressive output (addresses Gemini/Codex review): fires on_round_complete
     callback after each round finishes, enabling CLI to print reports in real time.
@@ -1612,6 +1614,14 @@ async def run_simulation(
                     ))
 
                 r3_seconds = time.monotonic() - r3_start
+
+            # FINALIZING: every round is persisted; narratives (while still
+            # eager) and metrics follow, so the UI no longer sits on the last
+            # round's label (docs/DECISIONS.md#p7-d-07).
+            phase = SimulationPhase.FINALIZING
+            logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
+            if state_store is not None:
+                await state_store.set_phase(SimulationPhase.FINALIZING)
 
             # Phase 11: Post-simulation narrative generation (D-10, D-11)
             # Worker model is still loaded here -- generate before unload

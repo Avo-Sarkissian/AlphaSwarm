@@ -148,6 +148,28 @@ async def test_failure_outside_a_round_has_no_round_number() -> None:
     assert store.last_error.round_num is None
 
 
+async def test_failure_while_finalizing_has_no_round_number() -> None:
+    # FINALIZING runs after the last round, so a hard stop while narratives run
+    # names no round, although the store still holds round 3.
+    sm, store = _manager()
+
+    async def _fail(**_: object) -> None:
+        await store.set_phase(SimulationPhase.ROUND_3)
+        await store.set_round(3)
+        await store.set_phase(SimulationPhase.FINALIZING)
+        raise BudgetExceededError(Decimal("5.00"), Decimal("4.00"))
+
+    with _patched_run(_fail):
+        await sm.start(SEED)
+        with pytest.raises(BudgetExceededError):
+            await _finish(sm)
+
+    err = store.last_error
+    assert err is not None
+    assert (err.code, err.round_num) == ("budget_exceeded", None)
+    assert store.snapshot().phase is SimulationPhase.IDLE
+
+
 async def test_cancel_leaves_last_error_empty() -> None:
     sm, store = _manager()
     entered = asyncio.Event()

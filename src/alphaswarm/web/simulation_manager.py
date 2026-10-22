@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(component="web.simulation_manager")
 
+# Phases whose failures carry the store's round number in the RunError.
+# FINALIZING is not a round: it runs after the last one, so a failure there
+# names no round (docs/DECISIONS.md#p7-d-07).
 _ROUND_PHASES = frozenset(
     {SimulationPhase.ROUND_1, SimulationPhase.ROUND_2, SimulationPhase.ROUND_3}
 )

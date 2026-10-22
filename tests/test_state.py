@@ -531,3 +531,13 @@ async def test_last_error_defaults_to_none_and_round_trips() -> None:
 
 def test_replay_snapshot_has_no_last_error() -> None:
     assert ReplayStore("c1", {}).snapshot().last_error is None
+
+
+async def test_finalizing_keeps_agent_signals() -> None:
+    store = StateStore()
+    await store.set_phase(SimulationPhase.ROUND_3)
+    await store.update_agent_state("quants_01", SignalType.SELL, 0.7)
+    await store.set_phase(SimulationPhase.FINALIZING)
+    snap = store.snapshot()
+    assert snap.phase is SimulationPhase.FINALIZING
+    assert snap.agent_states["quants_01"] == AgentState(signal=SignalType.SELL, confidence=0.7)
