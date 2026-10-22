@@ -1,8 +1,17 @@
-"""Domain exceptions for AlphaSwarm inference and orchestration."""
+"""Domain exceptions for AlphaSwarm inference, orchestration and persistence.
+
+New domain errors derive from ``AlphaSwarmError``. The older inference errors
+(``InferenceError``, ``BudgetExceededError``, ``GovernorCrisisError``) keep
+their parents so existing ``except`` clauses behave exactly as before
+(docs/DECISIONS.md#adr-taskgroup-dispatch).
+"""
 
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass
 from decimal import Decimal
+from typing import Final, Literal
 
 # ---------------------------------------------------------------------------
 # Provider-agnostic inference errors
@@ -129,9 +138,161 @@ class Neo4jConnectionError(Exception):
         self.original_error = original_error
 
 
-class Neo4jWriteError(Exception):
-    """Raised when a Neo4j write transaction fails after managed retries."""
+class AlphaSwarmError(Exception):
+    """Base class for AlphaSwarm domain errors."""
 
-    def __init__(self, message: str, original_error: Exception | None = None) -> None:
+
+class GraphError(AlphaSwarmError):
+    """A Neo4j operation failed.
+
+    ``op`` names the GraphStateManager operation (for example
+    ``"persist_round"``) so logs and the UI can say what was being done
+    without quoting driver text (docs/DECISIONS.md#p4-d-07).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        original_error: BaseException | None = None,
+        *,
+        op: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.original_error = original_error
+        self.op = op
+
+
+class Neo4jUnavailableError(GraphError):
+    """The database could not be reached: driver error, auth failure or pool timeout."""
+
+
+class Neo4jQueryError(GraphError):
+    """A read failed on the server (syntax, constraint or transaction timeout)."""
+
+
+class Neo4jWriteError(GraphError):
+    """A write failed, or created fewer nodes than expected."""
+
+
+class RoundFailedError(AlphaSwarmError):
+    """Too many agents failed in a round, so the round is not persisted.
+
+    Raised after ``dispatch_wave`` and before the round's first Neo4j write
+    when ``failed * 100 > threshold_percent * total``
+    (docs/DECISIONS.md#adr-taskgroup-dispatch).
+    """
+
+    def __init__(
+        self,
+        round_num: int,
+        failed: int,
+        total: int,
+        threshold_percent: float,
+    ) -> None:
+        super().__init__(
+            f"Round {round_num} aborted: {failed} of {total} agents failed "
+            f"(limit {threshold_percent:g}%)"
+        )
+        self.round_num = round_num
+        self.failed = failed
+        self.total = total
+        self.threshold_percent = threshold_percent
+
+
+class InferenceConfigError(AlphaSwarmError):
+    """The persisted inference configuration could not be loaded or built."""
+
+
+# ---------------------------------------------------------------------------
+# UI-safe description of a failed run (StateStore.last_error)
+# ---------------------------------------------------------------------------
+
+RunErrorCode = Literal[
+    "budget_exceeded",
+    "auth_failed",
+    "governor_crisis",
+    "round_failed",
+    "provider_config",  # mapped once ProviderConfigError exists
+    "graph_unavailable",
+    "graph_error",
+    "inference_config_invalid",
+    "internal_error",
+]
+
+RUN_ERROR_MESSAGE_MAX_CHARS: Final = 300
+
+
+@dataclass(frozen=True)
+class RunError:
+    """What the UI shows about a failed run.
+
+    ``message`` is a fixed template filled from structured attributes only;
+    it never quotes exception text, so it cannot leak a path, a key or a
+    holdings value (docs/DECISIONS.md#adr-taskgroup-dispatch).
+    """
+
+    code: RunErrorCode
+    message: str
+    round_num: int | None
+    ts: float
+
+
+def run_error_from_exception(exc: BaseException, *, round_num: int | None) -> RunError:
+    """Classify *exc* into a RunError. ``round_num`` is the round in progress, if any."""
+    code, message = _describe(_first_leaf(exc))
+    return RunError(
+        code=code,
+        message=message[:RUN_ERROR_MESSAGE_MAX_CHARS],
+        round_num=round_num,
+        ts=time.time(),
+    )
+
+
+def _first_leaf(exc: BaseException) -> BaseException:
+    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    return exc
+
+
+def _describe(exc: BaseException) -> tuple[RunErrorCode, str]:
+    if isinstance(exc, BudgetExceededError):
+        return (
+            "budget_exceeded",
+            f"Spend cap reached: ${exc.spent_usd:.2f} spent of a ${exc.cap_usd:.2f} cap. "
+            "Raise the cap in Settings to continue.",
+        )
+    if isinstance(exc, AuthError):
+        return (
+            "auth_failed",
+            f"The {exc.provider} provider rejected the credentials for model "
+            f"{exc.model}. Update the API key in Settings.",
+        )
+    if isinstance(exc, GovernorCrisisError):
+        return (
+            "governor_crisis",
+            f"The memory governor aborted the run after {exc.duration_seconds:.0f} s "
+            "of sustained memory pressure.",
+        )
+    if isinstance(exc, RoundFailedError):
+        return (
+            "round_failed",
+            f"Round {exc.round_num} aborted: {exc.failed} of {exc.total} agents failed "
+            f"(limit {exc.threshold_percent:g}%). Check the model server or provider.",
+        )
+    if isinstance(exc, Neo4jUnavailableError):
+        return (
+            "graph_unavailable",
+            "Neo4j is unavailable. Start the database (see docs/RUNBOOK.md) and run again.",
+        )
+    if isinstance(exc, GraphError):
+        return (
+            "graph_error",
+            f"A Neo4j operation failed ({exc.op or 'unknown'}). See the server log for details.",
+        )
+    if isinstance(exc, InferenceConfigError):
+        return (
+            "inference_config_invalid",
+            "The saved inference configuration is invalid. "
+            "Open Settings and save a valid configuration.",
+        )
+    return ("internal_error", f"Unexpected {type(exc).__name__}. See the server log for details.")
