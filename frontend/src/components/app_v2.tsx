@@ -259,6 +259,11 @@ export function App() {
   const { reconnectFailed, connected } = useConnection();
   const tel = useTelemetry();
   const { edges } = useEdgesCtx();
+  // Viz still takes [citing, cited] tuples; every other panel reads `edges`.
+  const edgePairs = useMemo<Array<[string, string]>>(
+    () => edges.map((e) => [e.source_id, e.target_id]),
+    [edges],
+  );
   const phase = tel.phase;
   const running = tel.running;
   const tps = tel.telemetry.tps;
@@ -347,9 +352,9 @@ export function App() {
   // fall back to confidence rank for live/early frames (KR-41.1-09).
   const outDegree = useMemo(() => {
     const out: Record<string, number> = {};
-    for (const [source] of edges) out[source] = (out[source] ?? 0) + 1;
+    for (const [source] of edgePairs) out[source] = (out[source] ?? 0) + 1;
     return out;
-  }, [edges]);
+  }, [edgePairs]);
   const hasEdges = edges.length > 0;
   const topInfluencers = useMemo(() => {
     if (hasEdges) {
@@ -675,7 +680,7 @@ export function App() {
           <div className="canvas-wrap">
             <Viz
               agents={agents}
-              edges={edges}
+              edges={edgePairs}
               layout={layout}
               direction="a"
               highlightId={ui.tooltip?.agent?.id}
