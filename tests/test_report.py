@@ -206,7 +206,7 @@ class TestReportAssembler:
         assert "30" in result
 
     async def test_async_file_write(self, tmp_path: pytest.TempdirFactory) -> None:
-        """write_report creates file with correct content using aiofiles."""
+        """write_report creates the file with the exact content, written off the event loop."""
         from alphaswarm.report import write_report
 
         report_path = tmp_path / "test_report.md"  # type: ignore[operator]

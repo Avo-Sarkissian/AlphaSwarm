@@ -528,7 +528,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p10-d-02"></a>`D-02` | Rationale feed fed by top-influence agents after each round. Superseded by per-agent streaming push_rationale + 50-entry sliding window (260512-jqn ITEM 4). The end-of-round calls were removed then, and `_push_top_rationales` itself was deleted in 2026-10. | superseded | batch_dispatcher.py (`_safe_agent_inference`) |
-| <a id="p10-d-03"></a>`D-03` | Rationale feed entries truncated to ~50 chars by the producer (sanitize_rationale(max_len=50)). | active | simulation.py:327; state.py:53,57 |
+| <a id="p10-d-03"></a>`D-03` | Rationale feed entries truncated to ~50 chars by the producer (sanitize_rationale(max_len=50)). | active | batch_dispatcher.py (`_safe_agent_inference`, the producer); state.py (`RationaleEntry`) |
 | <a id="p10-d-04"></a>`D-04` | Feed shows newest first. | active | state.py:53 |
 | <a id="p10-d-05"></a>`D-05` | TPS computed from Ollama eval_count/eval_duration and accumulated in StateStore.update_tps. | active | state.py:216; worker.py:200 |
 | <a id="p10-d-08"></a>`D-08` | StateStore.set_bracket_summaries after each round; all 10 brackets always shown. | active | state.py:229 |
@@ -596,7 +596,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p15-d-05"></a>`D-05` | Sentinel file .alphaswarm/last_report.json for TUI polling. Had no reader once the TUI was retired; the `write_sentinel` writer was deleted in 2026-10. | superseded | — |
 | <a id="p15-d-07"></a>`D-07` | Fixed report section order. | active | report.py:244 |
 | <a id="p15-d-10"></a>`D-10` | Reports written to ./reports/{cycle_id}_report.md. | active | cli.py:662,794; report.py:335 |
-| <a id="p15-d-11"></a>`D-11` | Async file write via aiofiles. | active | report.py:333 |
+| <a id="p15-d-11"></a>`D-11` | Async file write via aiofiles. Revised: `write_report` writes atomically off the event loop, `asyncio.to_thread(atomic_write_text, ...)` (temp file + fsync + os.replace, BACKLOG 1.11), and report.py no longer uses aiofiles. | revised | report.py (`write_report`) |
 | <a id="p15-d-12"></a>`D-12` | Report engine does not manage model lifecycle; the caller does. | active | cli.py:662,700,752; report.py:120 |
 
 ### Phase 26: Shock injection core
@@ -894,7 +894,7 @@ code. Their status is in BACKLOG.md.
 | ID | Item and resolution | Referenced from |
 |---|---|---|
 | <a id="sweep-b-1"></a>SWEEP B-1 | 19 `test_report.py` failures against the removed `assemble_html()`. Tests rewritten against `ReportAssembler.assemble()` (markdown) | tests/test_report.py:385 |
-| <a id="sweep-b-5"></a>SWEEP B-5 | Round 1 can never produce citations, so its influence-edge computation was dead work. Removed. The comment at simulation.py:1100-1103 still says Round 2 reads `read_ranked_posts`, which is stale | simulation.py:1103 |
+| <a id="sweep-b-5"></a>SWEEP B-5 | Round 1 can never produce citations, so its influence-edge computation was dead work. Removed | simulation.py (`run_simulation`: the comment after the Round 1 write, and the docstring lifecycle) |
 | <a id="sweep-b-7"></a>SWEEP B-7 | Advisory prompt over-emitted boilerplate HOLD items. Non-top holdings are no longer sent to the LLM and are padded server-side as HOLD@0.30 | advisory/engine.py (`synthesize`); advisory/prompt.py (`build_advisory_prompt`); tests/test_advisory_synthesize.py (`test_prompt_instructs_conviction_items_only`); tests/unit/test_advisory.py |
 | <a id="sweep-b-8"></a>SWEEP B-8 | Unknown tickers had `macro_beta=0`, so they could never rank. Default raised to 0.5 | advisory/sector_map.py:74; tests/test_advisory_synthesize.py:47,130 |
 | <a id="sweep-3-3"></a>SWEEP §3.3 | Structural peer-context bias: every agent saw the same authority top-10. Fixed by [adr-diverse-peer-context](#adr-diverse-peer-context) | simulation.py:166,188,438,763,1162 |
@@ -930,7 +930,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-infra-05"></a>INFRA-05 | Cycle-scoped indexes for fast peer reads | tests/neo4j/test_graph_integration.py (test_ensure_schema_idempotent) |
 | <a id="req-infra-07"></a>INFRA-07 | TaskGroup for all batch processing; no bare create_task | batch_dispatcher.py:4,155 |
 | <a id="req-infra-08"></a>INFRA-08 | Pydantic parsing with multi-tier fallback | parsing.py:3; tests/test_parsing.py:1 |
-| <a id="req-tui-03"></a>TUI-03 / TUI-04 / TUI-05 | Rationale stream / telemetry (RAM, TPS, slots) / bracket panel. The contracts survive in StateStore after the TUI was removed | TUI-03: simulation.py:313,324; state.py:53,101. TUI-04: batch_dispatcher.py:176; simulation.py:313; state.py:101,127,216; worker.py:200,237. TUI-05: simulation.py:313,1110; state.py:101,130,229 |
+| <a id="req-tui-03"></a>TUI-03 / TUI-04 / TUI-05 | Rationale stream / telemetry (RAM, TPS, slots) / bracket panel. The contracts survive in StateStore after the TUI was removed | No live references since 2026-10: the code cites [p10-d-02](#p10-d-02) (rationale stream), [p10-d-05](#p10-d-05) (TPS) and [p10-d-08](#p10-d-08) (bracket summaries) instead, in state.py, batch_dispatcher.py, worker.py and simulation.py |
 | <a id="req-graph-03"></a>GRAPH-03 | Decision→Entity REFERENCES edges | tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc) |
 | <a id="req-int-01"></a>INT-01 | Interview context reconstructed from Neo4j | graph.py:1160 |
 | <a id="req-report-02"></a>REPORT-02 | Cypher report tools (bracket, influence, entity, flips, posts) | graph.py:1260,1300,1339,1379,1434,1483,1529,1576 |
