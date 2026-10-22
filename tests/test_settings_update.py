@@ -1,4 +1,4 @@
-"""Typed PUT /api/settings."""
+"""Typed PUT /api/settings, and the settings routes on an unreadable stored config."""
 
 from __future__ import annotations
 
@@ -160,11 +160,22 @@ def test_validation_errors_never_echo_keys(tmp_path: Path) -> None:
     assert "sk-new-secret-9876" not in r.text
 
 
-def test_stored_file_unreadable_is_422_without_path(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [("GET", "/api/settings"), ("GET", "/api/settings/estimate"), ("PUT", "/api/settings")],
+)
+def test_stored_file_unreadable_is_422_naming_a_fix_outside_settings(
+    tmp_path: Path, method: str, path: str
+) -> None:
+    """Settings can neither load nor save over an invalid file, so the fix is the file."""
     app = _app(tmp_path)
     (tmp_path / "inference.json").write_text("{not json", encoding="utf-8")
     with TestClient(app) as client:
-        r = client.put("/api/settings", json={"spend_cap_usd": "5"})
+        r = client.request(method, path, json={"spend_cap_usd": "5"} if method == "PUT" else None)
     assert r.status_code == 422
-    assert r.json()["detail"]["error"] == "inference_config_invalid"
+    detail = r.json()["detail"]
+    assert detail["error"] == "inference_config_invalid"
+    assert "ALPHASWARM_INFERENCE_CONFIG_PATH" in detail["message"]
+    assert "fix it in Settings" not in detail["message"]
     assert str(tmp_path) not in r.text
+    assert ".secrets" not in r.text
