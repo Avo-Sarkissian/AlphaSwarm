@@ -22,6 +22,34 @@ export function parseErrorEnvelope(body: unknown): ErrorEnvelope {
   };
 }
 
+export interface FieldError {
+  /** Dotted location without the leading "body" segment, e.g. "worker.model". */
+  loc: string;
+  msg: string;
+}
+
+/**
+ * The rejected fields of a 422 validation_error envelope
+ * ({"detail": {"fields": [{loc, msg, type}]}}); [] for any other body.
+ * The backend never puts the rejected value in a field entry.
+ */
+export function fieldErrors(body: unknown): FieldError[] {
+  if (typeof body !== 'object' || body === null) return [];
+  const detail = (body as { detail?: unknown }).detail;
+  if (typeof detail !== 'object' || detail === null || Array.isArray(detail)) return [];
+  const fields = (detail as { fields?: unknown }).fields;
+  if (!Array.isArray(fields)) return [];
+  const out: FieldError[] = [];
+  for (const field of fields) {
+    if (typeof field !== 'object' || field === null) continue;
+    const { loc, msg } = field as { loc?: unknown; msg?: unknown };
+    if (!Array.isArray(loc) || typeof msg !== 'string') continue;
+    const path = loc[0] === 'body' ? loc.slice(1) : loc;
+    out.push({ loc: path.map(String).join('.'), msg });
+  }
+  return out;
+}
+
 // The text to show for a failed request: the envelope's message, else the HTTP
 // status; for anything that is not an ApiError, its own message.
 export function errorMessage(e: unknown): string {

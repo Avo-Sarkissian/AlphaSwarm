@@ -151,6 +151,31 @@ describe('extractErrorDetail', () => {
     );
   });
 
+  it('names the fields a 422 validation_error rejected', () => {
+    const body = {
+      detail: {
+        error: 'validation_error',
+        message: 'Settings validation failed',
+        fields: [
+          {
+            loc: ['body', 'worker', 'model'],
+            msg: 'Input should be a valid string',
+            type: 'string_type',
+          },
+          {
+            loc: ['body', 'orchestrator', 'provider'],
+            msg: 'Input should be a valid enum',
+            type: 'enum',
+          },
+        ],
+      },
+    };
+    expect(extractErrorDetail(new ApiError(422, body, '/api/settings'))).toBe(
+      'Settings validation failed (worker.model: Input should be a valid string; ' +
+        'orchestrator.provider: Input should be a valid enum)',
+    );
+  });
+
   it('shows a plain string detail', () => {
     const err = new ApiError(422, { detail: 'invalid model name' }, '/api/settings');
     expect(extractErrorDetail(err)).toBe('invalid model name');
