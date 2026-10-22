@@ -404,7 +404,7 @@ class GraphStateManager:
     async def read_cycle_seed(self, cycle_id: str) -> str | None:
         """Return the seed_rumor text for a cycle, or None if not found.
 
-        Used by advisory.engine.synthesize (via getattr probe) so the
+        Used by advisory.engine.synthesize so the
         SEED_RUMOR prompt block and the relevance scorer's seed_match term
         operate on the real rumor text instead of an empty string.
         """
