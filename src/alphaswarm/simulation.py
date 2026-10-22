@@ -687,7 +687,7 @@ def _peer_and_provenance_metrics(
     git_sha: str | None,
     git_dirty: bool | None,
 ) -> dict[str, float | int | str | bool]:
-    """Effective peer parameters and run provenance as flat cycle-metric keys.
+    """Effective peer parameters, experiment knobs and run provenance as flat cycle-metric keys.
 
     ``git_sha`` is "" when unknown. ``git_dirty`` is omitted when unknown,
     because a Neo4j property cannot hold null (docs/DECISIONS.md#adr-cycle-metrics).
@@ -700,6 +700,8 @@ def _peer_and_provenance_metrics(
         "peer_budget_chars": sim.peer_budget_chars,
         "peer_personal_boost": sim.personal_boost,
         "peer_seed_source": _PEER_SEED_SOURCE,
+        "own_prior_memory": sim.own_prior_memory,
+        "control_fraction": sim.control_fraction,
         "orchestrator_provider": _provider_label(orchestrator),
         "orchestrator_model": orchestrator.model,
         "worker_provider": _provider_label(worker),

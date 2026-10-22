@@ -326,6 +326,26 @@ class TestPeerAndProvenanceMetrics:
         assert metrics["peer_budget_chars"] == 6000
         assert metrics["peer_personal_boost"] == 0.05
 
+    @pytest.mark.parametrize(("own_prior_memory", "control_fraction"), [(True, 0.0), (False, 0.2)])
+    def test_experiment_knobs_reflect_settings(
+        self, own_prior_memory: bool, control_fraction: float
+    ) -> None:
+        """A cycle run without the own prior or with a holdout must not look like a default one."""
+        sim = SimulationSettings(
+            own_prior_memory=own_prior_memory, control_fraction=control_fraction
+        )
+
+        metrics = _peer_and_provenance_metrics(
+            sim,
+            _provider(ORCH, "o", local=True),
+            _provider(WORKER, "w", local=True),
+            git_sha=None,
+            git_dirty=None,
+        )
+
+        assert metrics["own_prior_memory"] is own_prior_memory
+        assert metrics["control_fraction"] == control_fraction
+
     def test_unknown_git_state_is_empty_sha_and_no_dirty_key(self) -> None:
         metrics = _peer_and_provenance_metrics(
             SimulationSettings(),

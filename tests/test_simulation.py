@@ -3668,7 +3668,8 @@ _CONTROL_KEYS: frozenset[str] = frozenset(
     f"r{n}_{kind}" for n in (2, 3) for kind in ("control_agents", "flips_control", "flips_treated")
 )
 
-# Peer parameters and run provenance stamped on every cycle (docs/DECISIONS.md#adr-cycle-metrics).
+# Peer parameters, experiment knobs and run provenance stamped on every cycle
+# (docs/DECISIONS.md#adr-cycle-metrics).
 _PROVENANCE_KEYS: frozenset[str] = frozenset(
     {
         "peer_selection_version",
@@ -3678,6 +3679,8 @@ _PROVENANCE_KEYS: frozenset[str] = frozenset(
         "peer_budget_chars",
         "peer_personal_boost",
         "peer_seed_source",
+        "own_prior_memory",
+        "control_fraction",
         "orchestrator_provider",
         "orchestrator_model",
         "worker_provider",

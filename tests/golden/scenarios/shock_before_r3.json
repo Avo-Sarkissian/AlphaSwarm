@@ -1,6 +1,7 @@
 {
   "metrics": {
     "agent_count": 100,
+    "control_fraction": 0.0,
     "final_buy": 35,
     "final_hold": 39,
     "final_round": 3,
@@ -12,6 +13,7 @@
     "num_rounds": 3,
     "orchestrator_model": "scripted-orchestrator",
     "orchestrator_provider": "ollama",
+    "own_prior_memory": true,
     "peer_bracket_cap": 3,
     "peer_budget_chars": 4000,
     "peer_limit": 10,
