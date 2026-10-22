@@ -219,3 +219,77 @@ async def test_influence_share_is_citations_over_active_final_round(
             "influence_share": pytest.approx(0.25),
         },
     ]
+
+
+async def test_signal_flips_are_ordered_and_uppercase(
+    graph_manager_test: GraphStateManager,
+) -> None:
+    cycle_id = await write_mini_cycle(
+        graph_manager_test,
+        num_rounds=2,
+        rounds={
+            1: [("quants_02", dec(BUY)), ("quants_01", dec(BUY)), ("degens_01", dec(HOLD))],
+            2: [("quants_02", dec(SELL)), ("quants_01", dec(HOLD)), ("degens_01", dec(HOLD))],
+        },
+    )
+
+    flips = await graph_manager_test.read_signal_flips(cycle_id)
+
+    assert flips == [
+        {
+            "agent_id": "quants_01",
+            "name": "Quants 1",
+            "bracket": "quants",
+            "round_num": 2,
+            "flip_type": "buy_to_hold",
+            "final_signal": "HOLD",
+        },
+        {
+            "agent_id": "quants_02",
+            "name": "Quants 2",
+            "bracket": "quants",
+            "round_num": 2,
+            "flip_type": "buy_to_sell",
+            "final_signal": "SELL",
+        },
+    ]
+
+
+async def test_entity_impact_uses_final_round_and_skips_failures(
+    graph_manager_test: GraphStateManager,
+) -> None:
+    cycle_id = await write_mini_cycle(
+        graph_manager_test,
+        num_rounds=2,
+        rounds={
+            1: [("quants_01", dec(BUY, rationale="ZZZT Holdings looks cheap"))],
+            2: [
+                ("quants_01", dec(SELL, rationale="ZZZT Holdings is overpriced now")),
+                ("quants_02", dec(PERR, 0.0, rationale="raw ZZZT Holdings output")),
+                ("quants_03", dec(HOLD, rationale="waiting on QQQX Robotics")),
+            ],
+        },
+    )
+
+    rows = await graph_manager_test.read_entity_impact(cycle_id)
+
+    assert rows == [
+        {
+            "entity_name": "QQQX Robotics",
+            "entity_type": "company",
+            "avg_sentiment": pytest.approx(0.1),
+            "mention_count": 1,
+            "buy_mentions": 0,
+            "sell_mentions": 0,
+            "hold_mentions": 1,
+        },
+        {
+            "entity_name": "ZZZT Holdings",
+            "entity_type": "company",
+            "avg_sentiment": pytest.approx(0.1),
+            "mention_count": 1,
+            "buy_mentions": 0,
+            "sell_mentions": 1,
+            "hold_mentions": 0,
+        },
+    ]

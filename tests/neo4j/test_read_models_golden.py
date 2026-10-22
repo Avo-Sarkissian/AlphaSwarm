@@ -207,7 +207,7 @@ async def test_read_signal_flips(
         for agent_id, d in after.items():
             flip = compute_flip_type(before[agent_id].signal, d.signal).value
             if flip != "none":
-                expected.add((agent_id, n, flip, d.signal.value))
+                expected.add((agent_id, n, flip, d.signal.value.upper()))
     got = {(r["agent_id"], r["round_num"], r["flip_type"], r["final_signal"]) for r in rows}
     assert got == expected
     assert_golden("reads/read_signal_flips.json", rows)
@@ -222,6 +222,7 @@ async def test_read_entity_impact_entities(
     }
     counts = [r["mention_count"] for r in rows]
     assert counts == sorted(counts, reverse=True), "documented order: mention_count DESC"
+    assert_golden("reads/read_entity_impact.json", rows)
 
 
 async def test_read_latest_cycle_id_returns_newest(
@@ -430,10 +431,6 @@ async def test_social_post_reach_has_rows(
     assert await graph_reader.read_social_post_reach(seeded_cycle.cycle_id) != []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T2.8: entity impact aggregates every round, not the final one (fix: plan 06)",
-)
 async def test_entity_impact_counts_final_round_only(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:

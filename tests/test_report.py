@@ -609,3 +609,23 @@ def test_influence_template_shows_citations_and_share_percent() -> None:
     md = ReportAssembler().render_section("05_influence_leaders.j2", data=rows, cycle_id="c")
     assert "| Rank | Agent | Bracket | Citations | Influence Share |" in md
     assert "| 1 | sell_side_01 | sell_side | 2 | 50.0% |" in md
+
+
+def test_entity_impact_template_reads_contract_keys() -> None:
+    rows = [{"entity_name": "ZZZT Holdings", "entity_type": "company", "avg_sentiment": 0.4,
+             "mention_count": 3, "buy_mentions": 2, "sell_mentions": 1, "hold_mentions": 0}]
+    md = ReportAssembler().render_section("07_entity_impact.j2", data=rows, cycle_id="c")
+    assert "| ZZZT Holdings | company | 0.40 | 3 | 2 | 1 | 0 |" in md
+
+
+def test_entity_impact_template_escapes_pipes_and_newlines() -> None:
+    rows = [{"entity_name": "ZZZT | QQQX\nJV", "entity_type": "company", "avg_sentiment": 0.0,
+             "mention_count": 1, "buy_mentions": 1, "sell_mentions": 0, "hold_mentions": 0}]
+    md = ReportAssembler().render_section("07_entity_impact.j2", data=rows, cycle_id="c")
+    row = next(line for line in md.splitlines() if line.startswith("| ZZZT"))
+    assert row == "| ZZZT \\| QQQX JV | company | 0.00 | 1 | 1 | 0 | 0 |"
+
+
+def test_signal_flip_template_empty_state() -> None:
+    md = ReportAssembler().render_section("06_signal_flip_analysis.j2", data=[], cycle_id="c")
+    assert "_No agent changed position between rounds._" in md

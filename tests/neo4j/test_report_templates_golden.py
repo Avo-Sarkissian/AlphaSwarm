@@ -37,13 +37,6 @@ SOURCES: dict[str, Source] = {
     "11_shock_impact.j2": lambda gm, cid: gm.read_shock_impact(cid),
 }
 
-_STRICT_XFAIL = {
-    "07_entity_impact.j2": pytest.mark.xfail(
-        strict=True,
-        reason="T2.2: entity-impact template reads keys the query never returns (fix: plan 06)",
-    ),
-}
-
 _SHARE_RE = re.compile(r"^\| [A-Z_ ]+ \| \d+ \| (?P<share>\d+\.\d)% \|$", re.MULTILINE)
 
 
@@ -70,10 +63,7 @@ def test_every_template_has_a_row_source() -> None:
     assert {path.name for path in TEMPLATE_DIR.glob("*.j2")} == set(SOURCES)
 
 
-@pytest.mark.parametrize(
-    "template",
-    [pytest.param(name, marks=_STRICT_XFAIL.get(name, ())) for name in sorted(SOURCES)],
-)
+@pytest.mark.parametrize("template", sorted(SOURCES))
 async def test_template_renders_with_strict_undefined(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle, template: str
 ) -> None:
@@ -95,9 +85,6 @@ async def test_signal_flip_template_golden(
     assert_golden("report/06_signal_flip_analysis.md", rendered)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.2: entity-impact table renders blank cells (fix: plan 06)"
-)
 async def test_entity_impact_table_has_no_blank_cells(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:

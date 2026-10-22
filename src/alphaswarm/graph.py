@@ -1715,18 +1715,15 @@ class GraphStateManager:
             async for r in result
         ]
 
-    async def read_signal_flips(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
-        """Return agents who changed position between rounds (REPORT-02).
+    async def read_signal_flips(self, cycle_id: str) -> list[SignalFlipRow]:
+        """Agents who changed position, from RationaleEpisode.flip_type.
 
-        Uses RationaleEpisode.flip_type from Phase 11.
-        Filters out NONE flip_type using string comparison (Pitfall 2).
-
-        Returns:
-            List of dicts with agent_id, name, bracket, round_num, flip_type, final_signal.
+        final_signal is the (uppercase) signal after the flip in that round.
+        Rows are ordered by round, bracket, then agent id.
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows = await session.execute_read(
                     self._read_signal_flips_tx, cycle_id,
                 )
         except Neo4jError as exc:
@@ -1734,15 +1731,14 @@ class GraphStateManager:
                 f"Failed to read signal flips for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_signal_flips", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_signal_flips", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_signal_flips_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for signal flip episodes."""
+    ) -> list[SignalFlipRow]:
         result = await tx.run(
             """
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
@@ -1754,25 +1750,32 @@ class GraphStateManager:
                 a.bracket AS bracket,
                 re.round AS round_num,
                 re.flip_type AS flip_type,
-                d.signal AS final_signal
-            ORDER BY re.round, a.bracket
+                toUpper(d.signal) AS final_signal
+            ORDER BY round_num, bracket, agent_id
             """,
             cycle_id=cycle_id,
         )
-        return [dict(record) async for record in result]
+        return [
+            SignalFlipRow(
+                agent_id=str(r["agent_id"]),
+                name=str(r["name"]),
+                bracket=str(r["bracket"]),
+                round_num=int(r["round_num"]),
+                flip_type=str(r["flip_type"]),
+                final_signal=str(r["final_signal"]),
+            )
+            async for r in result
+        ]
 
-    async def read_entity_impact(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
-        """Return per-entity sentiment aggregation via REFERENCES edges (REPORT-02).
+    async def read_entity_impact(self, cycle_id: str) -> list[EntityImpactRow]:
+        """Per-entity sentiment over final-round, non-failed decisions.
 
-        Uses REFERENCES edges created by Phase 11 write_narrative_edges().
-
-        Returns:
-            List of dicts with entity_name, entity_type, avg_sentiment, mention_count,
-            buy_mentions, sell_mentions, hold_mentions.
+        Only the cycle's own MENTIONS entities count, so same-name entities
+        from other cycles or types cannot leak in (docs/DECISIONS.md#p11-d-08).
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows = await session.execute_read(
                     self._read_entity_impact_tx, cycle_id,
                 )
         except Neo4jError as exc:
@@ -1780,31 +1783,45 @@ class GraphStateManager:
                 f"Failed to read entity impact for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_entity_impact", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_entity_impact", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_entity_impact_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for entity-level sentiment aggregation."""
+    ) -> list[EntityImpactRow]:
         result = await tx.run(
             """
-            MATCH (d:Decision {cycle_id: $cycle_id})-[:REFERENCES]->(e:Entity)
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            WITH c, coalesce(c.num_rounds, 3) AS fr
+            MATCH (c)-[:MENTIONS]->(e:Entity)<-[:REFERENCES]-(d:Decision {cycle_id: $cycle_id})
+            WHERE d.round = fr AND toLower(d.signal) <> 'parse_error'
+            WITH e, d, toLower(d.signal) AS s
             RETURN
                 e.name AS entity_name,
                 e.type AS entity_type,
                 avg(d.sentiment) AS avg_sentiment,
                 count(d) AS mention_count,
-                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_mentions,
-                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_mentions,
-                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_mentions
-            ORDER BY mention_count DESC
+                sum(CASE WHEN s = 'buy' THEN 1 ELSE 0 END) AS buy_mentions,
+                sum(CASE WHEN s = 'sell' THEN 1 ELSE 0 END) AS sell_mentions,
+                sum(CASE WHEN s = 'hold' THEN 1 ELSE 0 END) AS hold_mentions
+            ORDER BY mention_count DESC, entity_name, entity_type
             """,
             cycle_id=cycle_id,
         )
-        return [dict(record) async for record in result]
+        return [
+            EntityImpactRow(
+                entity_name=str(r["entity_name"]),
+                entity_type=str(r["entity_type"]),
+                avg_sentiment=float(r["avg_sentiment"]),
+                mention_count=int(r["mention_count"]),
+                buy_mentions=int(r["buy_mentions"]),
+                sell_mentions=int(r["sell_mentions"]),
+                hold_mentions=int(r["hold_mentions"]),
+            )
+            async for r in result
+        ]
 
     async def read_social_post_reach(
         self, cycle_id: str, limit: int = 10,

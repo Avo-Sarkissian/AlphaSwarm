@@ -1,0 +1,29 @@
+[
+  {
+    "avg_sentiment": 0.007097,
+    "buy_mentions": 8,
+    "entity_name": "ZZZT Holdings",
+    "entity_type": "company",
+    "hold_mentions": 15,
+    "mention_count": 31,
+    "sell_mentions": 8
+  },
+  {
+    "avg_sentiment": 0.037368,
+    "buy_mentions": 5,
+    "entity_name": "QQQX Robotics",
+    "entity_type": "company",
+    "hold_mentions": 7,
+    "mention_count": 19,
+    "sell_mentions": 7
+  },
+  {
+    "avg_sentiment": 0.275833,
+    "buy_mentions": 7,
+    "entity_name": "Industrial Automation",
+    "entity_type": "sector",
+    "hold_mentions": 3,
+    "mention_count": 12,
+    "sell_mentions": 2
+  }
+]
