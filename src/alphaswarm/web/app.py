@@ -20,6 +20,7 @@ from alphaswarm.config import AppSettings, generate_personas, load_bracket_confi
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
+from alphaswarm.web.errors import install_error_handlers
 from alphaswarm.web.origin_guard import install_origin_guard
 from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.routes.advisory import router as advisory_router
@@ -236,6 +237,7 @@ def create_app() -> FastAPI:
     never at module import time.
     """
     app = FastAPI(title="AlphaSwarm", lifespan=lifespan)
+    install_error_handlers(app)
 
     # CSRF guard (CWE-352): the API is unauthenticated and localhost-only, so
     # every mutating route runs with the operator's authority. One middleware
