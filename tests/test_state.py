@@ -128,7 +128,7 @@ def test_governor_metrics_includes_slots_for_ws_frame() -> None:
     governor_metrics.current_slots directly; this test fixes the
     backend contract that the adapter depends on.
     """
-    import dataclasses
+    from alphaswarm.web.wire import build_frame
 
     store = StateStore()
     metrics = GovernorMetrics(
@@ -147,9 +147,9 @@ def test_governor_metrics_includes_slots_for_ws_frame() -> None:
     assert snap.governor_metrics.current_slots == 16
     assert snap.governor_metrics.active_count == 12
 
-    # dataclasses.asdict — the wire serializer used by broadcaster.py — preserves both.
-    d = dataclasses.asdict(snap)
-    gm = d["governor_metrics"]
+    # build_frame is the StateFrame mapper the broadcaster serializes; its JSON keeps both.
+    frame = build_frame(snap, jobs=store.job_statuses(), memory_percent=45.0)
+    gm = frame.model_dump(mode="json")["governor_metrics"]
     assert gm["current_slots"] == 16
     assert gm["active_count"] == 12
 

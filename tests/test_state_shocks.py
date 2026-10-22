@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 
 import pytest
 
 from alphaswarm.state import AppliedShock, ReplayStore, StateStore
 from alphaswarm.types import SimulationPhase as P
+from alphaswarm.web.wire import build_frame
 
 
 @pytest.mark.parametrize(
@@ -69,10 +69,11 @@ async def test_a_new_run_clears_applied_shocks() -> None:
     assert store.snapshot().applied_shocks == ()
 
 
-def test_snapshot_with_shocks_is_json_serialisable() -> None:
+def test_shocks_reach_the_wire_frame() -> None:
     store = StateStore()
     store.record_applied_shock("Treasury yields spike 40bp on inflation print", 2)
-    wire = json.loads(json.dumps(dataclasses.asdict(store.snapshot())))
+    frame = build_frame(store.snapshot(), jobs=store.job_statuses(), memory_percent=0.0)
+    wire = json.loads(frame.model_dump_json())
     assert wire["applied_shocks"] == [
         {"text": "Treasury yields spike 40bp on inflation print", "round_num": 2},
     ]
