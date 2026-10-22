@@ -1,7 +1,7 @@
 // src/api/edges.ts
-// Wraps GET /api/edges/{cycle_id}?round=N for InterviewV2 citation graph + BracketDeepDive influences.
-// Edges land in Neo4j during simulation and are queryable post-cycle (NOT during live view —
-// see KR-41.6-13). Returns empty array on 404/503 (no edges yet for this cycle/round).
+// Wraps GET /api/edges/{cycle_id}?round=N; the only caller is hooks/useCycleEdges.ts.
+// Round r's edges are written right after round r ends, so they exist during the live run
+// from round 2 on (the frame's edges_version says when). Returns empty array on 404/503.
 //
 // codex MEDIUM-7 — verified semantics + envelope (2026-05-09):
 //   Backend: src/alphaswarm/web/routes/edges.py returns EdgesResponse {edges: EdgeItem[]} (NOT flat array).
@@ -45,8 +45,8 @@ interface EdgesResponse {
  * Fetch INFLUENCED_BY edges for a cycle and round.
  * @returns Edge[] (extracted from `{edges:[...]}` envelope). 404 / 503 → empty array.
  *
- * USAGE:
- *   const edges = await fetchEdges('current', 3);  // 'current' resolves to latest cycle backend-side
+ * USAGE: only useCycleEdges calls this (one cached loader):
+ *   const edges = await fetchEdges(cycleId, round);  // cycleId: the frame's uuid
  *   // For agent A (e.g., 'Q-03'):
  *   const cited = edges.filter(e => e.source_id === 'Q-03').map(e => e.target_id);
  *   const citedBy = edges.filter(e => e.target_id === 'Q-03').map(e => e.source_id);

@@ -32,10 +32,17 @@ def test_replay_start_rejects_malformed_ids(tmp_path: Path, bad: str) -> None:
     assert r.json()["detail"]["error"] == "validation_error"
 
 
-def test_edges_accept_uuid_and_the_current_alias(tmp_path: Path) -> None:
+def test_edges_accept_a_uuid_cycle_id(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         assert client.get(f"/api/edges/{CYCLE_A}?round=2").json() == {"edges": []}
-        assert client.get("/api/edges/current?round=2").json() == {"edges": []}
+
+
+def test_edges_reject_the_retired_current_alias(tmp_path: Path) -> None:
+    """The dashboard keys edge fetches on the frame's cycle id."""
+    with _client(tmp_path) as client:
+        r = client.get("/api/edges/current?round=2")
+    assert r.status_code == 422
+    assert r.json()["detail"]["error"] == "validation_error"
 
 
 @pytest.mark.parametrize("bad", ["test-cycle", "c1", f"{CYCLE_A}%0A"])
