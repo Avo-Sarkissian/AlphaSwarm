@@ -586,7 +586,10 @@ def test_selection_properties(case: _SelectionCase) -> None:
 
 
 class TestExposureInvariant:
-    """T8.1 invariant on the production roster (docs/DECISIONS.md#adr-diverse-peer-context)."""
+    """No bracket dominates and every bracket is heard, on the production roster.
+
+    See docs/DECISIONS.md#adr-diverse-peer-context.
+    """
 
     MAX_SLOT_SHARE = 0.35
     MIN_READER_SHARE = 0.15
