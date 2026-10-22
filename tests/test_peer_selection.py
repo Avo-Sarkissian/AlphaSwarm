@@ -203,6 +203,18 @@ class TestBuildDiversePeerContexts:
 
         assert {len(shown) for shown in exposures} == {12}
 
+    def test_peer_budget_chars_comes_from_settings(self) -> None:
+        """The budget in settings, not the formatter's default, decides what renders."""
+        decisions = _decisions(SMALL_PERSONAS, rationale="word " * 60)  # 300-char takes
+
+        _, roomy = _build(SMALL_PERSONAS, decisions, 1)
+        _, tight = _build(
+            SMALL_PERSONAS, decisions, 1, sim=SimulationSettings(peer_budget_chars=500)
+        )
+
+        assert {len(shown) for shown in roomy} == {len(SMALL_PERSONAS) - 1}
+        assert {len(shown) for shown in tight} == {1}
+
     def test_personal_boost_and_limits_come_from_settings(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

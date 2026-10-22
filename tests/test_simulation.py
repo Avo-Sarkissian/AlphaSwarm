@@ -3842,6 +3842,60 @@ async def test_run_simulation_stamps_peer_params_and_provenance(
     assert metrics["git_dirty"] is True
 
 
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_reads_git_state_off_the_event_loop(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The git subprocess (up to two 5 s timeouts) never blocks the event loop's thread."""
+    import threading
+
+    from alphaswarm.inference.types import InferenceResult, ProviderRole
+    from alphaswarm.simulation import run_simulation
+    from tests.inference.fakes import FakeInferenceProvider
+
+    git_threads: list[int] = []
+
+    def git_state() -> tuple[str, bool]:
+        git_threads.append(threading.get_ident())
+        return "c" * 40, False
+
+    monkeypatch.setattr("alphaswarm.simulation.current_git_revision", git_state)
+    worker = FakeInferenceProvider(
+        ProviderRole.WORKER,
+        "worker-model",
+        scripted=lambda **_: InferenceResult(content="narrative", model="worker-model"),
+    )
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        worker_provider=worker,
+    )
+
+    loop_thread = threading.get_ident()  # an async test body runs on the loop's thread
+    assert len(git_threads) == 1
+    assert git_threads[0] != loop_thread
+
+
 # ---------------------------------------------------------------------------
 # Task 15a: Injected provider routing tests
 # ---------------------------------------------------------------------------
