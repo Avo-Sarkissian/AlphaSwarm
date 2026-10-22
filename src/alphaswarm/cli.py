@@ -680,7 +680,7 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
             else settings.resolve_path(settings.reports_dir) / f"{cycle_id}_report.md"
         )
 
-        # Write the report (per D-10)
+        # Write the report (docs/DECISIONS.md#p15-d-10)
         await write_report(output_path, content)
 
         print(f"Report generated: {output_path}")

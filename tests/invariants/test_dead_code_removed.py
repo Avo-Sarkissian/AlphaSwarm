@@ -1,4 +1,4 @@
-"""Dead code removed in Phase 1 stays removed.
+"""Dead code removed in October 2026 stays removed.
 
 Each name below had no production caller and was kept alive only by its own
 tests. If an assertion here fails, a deleted symbol came back: delete it again,

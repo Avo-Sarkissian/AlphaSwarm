@@ -1071,7 +1071,7 @@ def test_simulation_summary_for_two_rounds(capsys: pytest.CaptureFixture[str]) -
 
 
 # ---------------------------------------------------------------------------
-# T9.5: bracket tables come from compute_bracket_summaries in every path
+# Bracket tables come from compute_bracket_summaries in every path
 # ---------------------------------------------------------------------------
 
 _MIXED_DECISIONS: list[tuple[str, AgentDecision]] = [
