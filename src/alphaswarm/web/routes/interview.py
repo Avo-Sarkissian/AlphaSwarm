@@ -1,31 +1,48 @@
-"""Interview endpoint for post-simulation agent Q&A."""
+"""Interview endpoint for post-simulation agent Q&A.
+
+Interviews target any complete cycle: the body may name ``cycle_id``; otherwise
+the latest complete cycle is used. Sessions are keyed by ``(cycle_id, agent_id)``
+(docs/DECISIONS.md#p35-d-06). Interviews are refused while a simulation runs
+because they share the worker model.
+"""
 
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING, TypedDict
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from alphaswarm.config import load_inference_config
 from alphaswarm.inference.factory import build_providers
 from alphaswarm.interview import InterviewEngine
-from alphaswarm.types import SimulationPhase
+from alphaswarm.web.errors import ApiError
+from alphaswarm.web.guards import require_complete_cycle, require_graph
+from alphaswarm.web.params import CYCLE_ID_PATTERN
+
+if TYPE_CHECKING:
+    from alphaswarm.inference.provider import InferenceProvider
 
 log = structlog.get_logger(component="web.interview")
 
 router = APIRouter()
 
 
-class InterviewRequest(BaseModel):
-    """Request body for POST /interview/{agent_id}.
+class InterviewSession(TypedDict, total=False):
+    """One conversation; the shape of the app.state.interview_sessions values."""
 
-    message: user question to the interviewed agent. Must be non-empty and
-    at most 4000 characters (addresses review HIGH: request validation).
-    """
+    engine: InterviewEngine | None
+    lock: asyncio.Lock
+    provider: InferenceProvider
+
+
+class InterviewRequest(BaseModel):
+    """Body for POST /interview/{agent_id}; ``cycle_id`` defaults to the latest complete cycle."""
 
     message: str = Field(..., min_length=1, max_length=4000)
+    cycle_id: str | None = Field(None, pattern=CYCLE_ID_PATTERN)
 
 
 class InterviewResponse(BaseModel):
@@ -36,114 +53,63 @@ class InterviewResponse(BaseModel):
 async def interview_agent(
     agent_id: str, body: InterviewRequest, request: Request,
 ) -> InterviewResponse:
-    """Send a message to an agent and receive their in-character response (per D-08).
+    """Answer one interview turn in character.
 
-    Flow:
-    1. Guard: services must be connected (503 otherwise).
-    2. Guard: phase must be COMPLETE (409 otherwise — prevents contention with live simulation).
-    3. On first call for an agent_id:
-       a. Resolve cycle_id from the most recent completed cycle (404 if none).
-          NOTE: Always uses the most recent completed cycle. If the user is in
-          Replay Mode viewing an older cycle, the interview still targets the
-          most recent cycle, not the replayed one. This is documented behavior
-          per review consensus.
-       b. Reconstruct InterviewContext from Neo4j (404 if context is None or empty).
-       c. Create InterviewEngine with worker model; store (engine, asyncio.Lock()) in sessions.
-    4. Subsequent calls reuse the existing engine (per D-06).
-    5. Wrap engine.ask() in the per-agent lock to prevent concurrent history mutation.
+    409 simulation_running during a run; 404 no_completed_cycle when no cycle is
+    complete; 404 cycle_not_found / 422 cycle_not_ready for an explicit cycle;
+    404 agent_not_found when the cycle has no context for the agent. The
+    per-session lock serializes engine creation and ask() for one conversation.
     """
     app_state = request.app.state.app_state
-    graph_manager = app_state.graph_manager
-    ollama_client = app_state.ollama_client
-
-    # 503: Guard on required services (mirrors replay.py pattern)
-    if graph_manager is None or ollama_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": "services_unavailable", "message": "Neo4j or Ollama is not connected"},
+    sim_manager = request.app.state.sim_manager
+    graph = require_graph(app_state)
+    if sim_manager.is_running:
+        raise ApiError(
+            409, "simulation_running", "Interviews are unavailable while a simulation is running",
         )
+    if body.cycle_id is not None:
+        await require_complete_cycle(app_state, sim_manager, body.cycle_id)
+        cycle_id = body.cycle_id
+    else:
+        latest = await graph.read_completed_cycles(limit=1)
+        if not latest:
+            raise ApiError(404, "no_completed_cycle", "No completed simulation cycle found")
+        cycle_id = latest[0]["cycle_id"]
 
-    # 409: Phase guard — addresses Codex HIGH. Only allow interviews after simulation completes.
-    snap = app_state.state_store.snapshot()
-    if snap.phase != SimulationPhase.COMPLETE:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "interview_unavailable",
-                "message": "Interviews are only available after a simulation completes",
-                "current_phase": snap.phase.value,
-            },
-        )
-
-    # sessions stores {agent_id: {"engine": InterviewEngine | None, "lock": asyncio.Lock}}
-    sessions: dict = request.app.state.interview_sessions
-
-    # Insert the session entry (with its lock) BEFORE any await so two
-    # concurrent first-messages for the same agent share one lock instead of
-    # both building engines and silently discarding one conversation.
-    entry = sessions.get(agent_id)
+    sessions: dict[tuple[str, str], InterviewSession] = request.app.state.interview_sessions
+    key = (cycle_id, agent_id)
+    # Insert the entry (with its lock) before any await so two concurrent first
+    # messages share one lock instead of both building engines.
+    entry = sessions.get(key)
     if entry is None:
         entry = {"engine": None, "lock": asyncio.Lock()}
-        sessions[agent_id] = entry
-    lock: asyncio.Lock = entry["lock"]
+        sessions[key] = entry
 
-    # Per-agent lock — serializes lazy engine creation AND ask() so concurrent
-    # requests never mutate _history concurrently (Codex HIGH).
-    async with lock:
-        if entry["engine"] is None:
+    async with entry["lock"]:
+        engine = entry.get("engine")
+        if engine is None:
             try:
-                cycles = await graph_manager.read_completed_cycles(limit=1)
-                if not cycles:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail={
-                            "error": "no_completed_cycle",
-                            "message": "No completed simulation cycle found",
-                        },
+                context = await graph.read_agent_interview_context(agent_id, cycle_id)
+                if context is None or not context.agent_name:
+                    raise ApiError(
+                        404, "agent_not_found", f"No interview context for agent {agent_id}",
                     )
-                cycle_id = cycles[0]["cycle_id"]
-
-                context = await graph_manager.read_agent_interview_context(agent_id, cycle_id)
-
-                # 404 if context is missing or has no agent data
-                # (addresses Gemini/Codex agent validation concern)
-                if context is None or not getattr(context, "agent_name", None):
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail={
-                            "error": "agent_not_found",
-                            "message": f"No interview context for agent {agent_id}",
-                        },
-                    )
-
-                cfg = await asyncio.to_thread(
-                    load_inference_config, app_state.settings,
-                )
+                cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
                 built = build_providers(
                     cfg,
-                    ollama_client=ollama_client,
+                    ollama_client=app_state.ollama_client,
                     ollama_model_manager=app_state.model_manager,
                 )
-                worker_provider = built.worker
-                entry["engine"] = InterviewEngine(
-                    context=context,
-                    provider=worker_provider,
-                )
-                # Store an explicit provider reference so the sim-start cleanup
-                # callback can call aclose() without reaching into the engine's
-                # private internals.  For OllamaProvider aclose is a no-op;
-                # for cloud providers (Anthropic/OpenAI) this releases the
-                # underlying httpx/SDK client.
-                entry["provider"] = worker_provider
+                engine = InterviewEngine(context=context, provider=built.worker)
+                entry["engine"] = engine
+                # Kept so the sim-start cleanup can aclose() cloud clients.
+                entry["provider"] = built.worker
                 log.info("interview_session_created", agent_id=agent_id, cycle_id=cycle_id)
             except BaseException:
-                # Creation failed — remove the placeholder (only if still ours)
-                # so a later retry re-attempts instead of finding engine=None.
-                if sessions.get(agent_id) is entry:
-                    sessions.pop(agent_id, None)
+                if sessions.get(key) is entry:
+                    sessions.pop(key, None)
                 raise
+        response_text = await engine.ask(body.message)
 
-        response_text = await entry["engine"].ask(body.message)
-
-    log.info("interview_turn", agent_id=agent_id, message_len=len(body.message))
+    log.info("interview_turn", agent_id=agent_id, cycle_id=cycle_id, message_len=len(body.message))
     return InterviewResponse(response=response_text)

@@ -39,12 +39,15 @@ class FakeCycleGraph:
         latest: str | None = None,
         error: BaseException | None = None,
         signals: Mapping[str, Mapping[tuple[str, int], object]] | None = None,
+        contexts: Mapping[tuple[str, str], object] | None = None,
     ) -> None:
         self.statuses: dict[str, str] = dict(statuses or {})
         self.latest = latest
         self.error = error
         self.signals = {k: dict(v) for k, v in (signals or {}).items()}
+        self.contexts = dict(contexts or {})
         self.status_calls: list[str] = []
+        self.context_calls: list[tuple[str, str]] = []
 
     async def read_cycle_status(self, cycle_id: str) -> str | None:
         self.status_calls.append(cycle_id)
@@ -81,7 +84,12 @@ class FakeCycleGraph:
         return []
 
     async def read_completed_cycles(self, limit: int = 10) -> list[dict[str, object]]:
-        return []
+        return [{"cycle_id": self.latest}] if self.latest else []
+
+    async def read_agent_interview_context(self, agent_id: str, cycle_id: str) -> object | None:
+        """The stored context for (cycle, agent); None for an unknown agent."""
+        self.context_calls.append((cycle_id, agent_id))
+        return self.contexts.get((cycle_id, agent_id))
 
     async def close(self) -> None:
         return None

@@ -16,7 +16,6 @@ ALLOWED_OVERRIDES = frozenset(
         "alphaswarm.cli",
         "alphaswarm.graph",
         "alphaswarm.simulation",
-        "alphaswarm.web.routes.interview",
         "alphaswarm.web.simulation_manager",
     }
 )

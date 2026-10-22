@@ -98,7 +98,7 @@ def make_session_clearer(app: FastAPI) -> Callable[[], None]:
     local path.
     """
     def _clear_interview_sessions() -> None:
-        sessions: dict[str, object] = app.state.interview_sessions
+        sessions: dict[tuple[str, str], dict[str, object]] = app.state.interview_sessions
         close_tasks: set[asyncio.Task[None]] = getattr(
             app.state, "_interview_close_tasks", set()
         )
@@ -185,10 +185,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
-    # Per D-06 and review consensus: sessions stored as
-    # {agent_id: {"engine": InterviewEngine, "lock": asyncio.Lock}}
-    # Initialized before SimulationManager so the on_start lambda can reference
-    # app.state.interview_sessions.
+    # Interview sessions keyed (cycle_id, agent_id) -> {"engine", "lock", "provider"}; created
+    # before SimulationManager so on_start can clear them (docs/DECISIONS.md#p35-d-06).
     app.state.interview_sessions = {}
     # Phase 36 D-02: single task handle for in-progress report generation detection.
     app.state.report_task = None

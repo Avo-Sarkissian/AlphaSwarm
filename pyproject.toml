@@ -82,7 +82,6 @@ module = [
     "alphaswarm.cli",
     "alphaswarm.graph",
     "alphaswarm.simulation",
-    "alphaswarm.web.routes.interview",
     "alphaswarm.web.simulation_manager",
 ]
 ignore_errors = true
