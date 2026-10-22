@@ -168,6 +168,35 @@ def test_post_409_while_a_simulation_runs(tmp_path: Path) -> None:
     assert graph.status_calls == []
 
 
+class _RunStartsDuringStatusRead(FakeCycleGraph):
+    """POST /api/simulate/start lands while the route awaits the cycle status.
+
+    The run's start() probe passes because no job is marked running yet, so
+    the route must check again before it starts the job.
+    """
+
+    def __init__(self, statuses: dict[str, str]) -> None:
+        super().__init__(statuses)
+        self.sim_manager: Any = None
+
+    async def read_cycle_status(self, cycle_id: str) -> str | None:
+        status = await super().read_cycle_status(cycle_id)
+        self.sim_manager._is_running = True
+        return status
+
+
+def test_post_409_when_a_run_starts_during_the_status_read(tmp_path: Path) -> None:
+    graph = _RunStartsDuringStatusRead({CYCLE_A: "complete"})
+    app = _app(tmp_path, graph)
+    with TestClient(app) as client:
+        graph.sim_manager = app.state.sim_manager
+        r = client.post(f"/api/report/{CYCLE_A}/generate")
+        assert r.status_code == 409
+        assert r.json()["detail"]["error"] == "simulation_running"
+        assert app.state.report_task is None
+        assert _store(app).job_statuses().report == JobStatus()
+
+
 @pytest.mark.parametrize(
     ("kind", "code"),
     [("report", "report_generation_in_progress"), ("advisory", "advisory_generation_in_progress")],

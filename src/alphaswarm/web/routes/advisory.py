@@ -31,6 +31,7 @@ from alphaswarm.web.guards import (
     job_config_error,
     load_inference_config_or_422,
     require_complete_cycle,
+    require_no_simulation,
     require_orchestrator_free,
     running_job_cycle,
 )
@@ -164,11 +165,12 @@ async def generate_advisory(cycle_id: CycleId, request: Request) -> GenerateAdvi
     In order: 404/422/409 from the cycle gate; 422 inference_config_invalid
     (fails closed) or 409 cloud_advisory_disabled for a cloud or remote
     orchestrator without the opt-in, both before the holdings are touched
-    (advisory_refusal); 503 without holdings; 409 while the orchestrator slot
-    is taken.
+    (advisory_refusal); 503 without holdings; 409 simulation_running if a run
+    started during those awaits; 409 while the orchestrator slot is taken.
     """
     app_state: AppState = request.app.state.app_state
-    await require_complete_cycle(app_state, request.app.state.sim_manager, cycle_id)
+    sim_manager = request.app.state.sim_manager
+    await require_complete_cycle(app_state, sim_manager, cycle_id)
     refusal = await advisory_refusal(request.app, cycle_id)
     if refusal is not None:
         raise refusal
@@ -177,6 +179,8 @@ async def generate_advisory(cycle_id: CycleId, request: Request) -> GenerateAdvi
         raise ApiError(
             503, "holdings_unavailable", "Holdings file could not be loaded; see the server log",
         )
+    # Again after the awaits, with none before the job starts: a run may have started.
+    require_no_simulation(sim_manager)
     require_orchestrator_free(app_state)
     start_advisory_job(request.app, cycle_id, portfolio)
     log.info(

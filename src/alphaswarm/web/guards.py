@@ -64,6 +64,18 @@ def require_orchestrator_free(app_state: AppState) -> None:
         )
 
 
+def require_no_simulation(sim_manager: SimulationManager) -> None:
+    """409 ``simulation_running`` while a run is in progress.
+
+    A job route calls it again after its last await, right before it starts the
+    job: a run started during those awaits passed start()'s orchestrator probe
+    because no job was marked running yet, and the orchestrator must not load
+    while the rounds run (docs/DECISIONS.md#adr-sequential-model-lifecycle).
+    """
+    if sim_manager.is_running:
+        raise ApiError(409, "simulation_running", "A simulation is running; retry when it finishes")
+
+
 async def require_complete_cycle(
     app_state: AppState,
     sim_manager: SimulationManager,
@@ -75,8 +87,7 @@ async def require_complete_cycle(
     touching Neo4j), 404 ``cycle_not_found`` for an unknown id, 422
     ``cycle_not_ready`` for a running, failed or cancelled cycle.
     """
-    if sim_manager.is_running:
-        raise ApiError(409, "simulation_running", "A simulation is running; retry when it finishes")
+    require_no_simulation(sim_manager)
     status = await require_graph(app_state).read_cycle_status(cycle_id)
     if status is None:
         raise ApiError(404, "cycle_not_found", f"No cycle {cycle_id}")

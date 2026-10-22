@@ -15,6 +15,7 @@ from alphaswarm.web.guards import (
     orchestrator_job_running,
     require_complete_cycle,
     require_graph,
+    require_no_simulation,
     require_orchestrator_free,
     running_job_cycle,
 )
@@ -61,6 +62,13 @@ async def test_running_simulation_is_409_before_any_graph_read() -> None:
         await require_complete_cycle(_state(graph), _sim(running=True), CYCLE_A)
     assert (exc.value.status, exc.value.code) == (409, "simulation_running")
     assert graph.status_calls == []
+
+
+def test_require_no_simulation() -> None:
+    require_no_simulation(_sim())
+    with pytest.raises(ApiError) as exc:
+        require_no_simulation(_sim(running=True))
+    assert (exc.value.status, exc.value.code) == (409, "simulation_running")
 
 
 async def test_graph_outage_propagates_for_the_503_handler() -> None:

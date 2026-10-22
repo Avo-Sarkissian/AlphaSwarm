@@ -33,6 +33,7 @@ from alphaswarm.web.errors import ApiError
 from alphaswarm.web.guards import (
     job_config_error,
     require_complete_cycle,
+    require_no_simulation,
     require_orchestrator_free,
     running_job_cycle,
 )
@@ -109,7 +110,10 @@ async def get_report(cycle_id: CycleId, request: Request) -> ReportResponse:
 async def generate_report(cycle_id: CycleId, request: Request) -> GenerateResponse:
     """Start a report for a complete cycle (any cycle, not just the last run)."""
     app_state = request.app.state.app_state
-    await require_complete_cycle(app_state, request.app.state.sim_manager, cycle_id)
+    sim_manager = request.app.state.sim_manager
+    await require_complete_cycle(app_state, sim_manager, cycle_id)
+    # Again after the await, with none before the job starts: a run may have started.
+    require_no_simulation(sim_manager)
     require_orchestrator_free(app_state)
     start_report_job(request.app, cycle_id)
     log.info("report_generation_started", cycle_id=cycle_id)

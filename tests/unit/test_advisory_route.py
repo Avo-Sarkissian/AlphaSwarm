@@ -32,6 +32,7 @@ from tests.support.web_app import (
     CYCLE_B,
     CYCLE_UNKNOWN,
     FakeCycleGraph,
+    StaticPortfolioCache,
     make_route_app,
     route_test_settings,
 )
@@ -108,6 +109,35 @@ def test_post_409_while_a_simulation_runs(tmp_path: Path) -> None:
         r = client.post(f"/api/advisory/{CYCLE_A}")
     assert r.status_code == 409
     assert r.json()["detail"]["error"] == "simulation_running"
+
+
+class _RunStartsDuringHoldingsRead(StaticPortfolioCache):
+    """POST /api/simulate/start lands while the route awaits the holdings.
+
+    The run's start() probe passes because no job is marked running yet, so
+    the route must check again before it starts the job.
+    """
+
+    def __init__(self, snapshot: object, sim_manager: Any) -> None:
+        super().__init__(snapshot)
+        self._sim_manager = sim_manager
+
+    async def get(self) -> object | None:
+        self._sim_manager._is_running = True
+        return await super().get()
+
+
+def test_post_409_when_a_run_starts_during_the_holdings_read(tmp_path: Path) -> None:
+    app = _app(tmp_path, portfolio=_portfolio())
+    with TestClient(app) as client:
+        app.state.portfolio_cache = _RunStartsDuringHoldingsRead(
+            _portfolio(), app.state.sim_manager,
+        )
+        r = client.post(f"/api/advisory/{CYCLE_A}")
+        assert r.status_code == 409
+        assert r.json()["detail"]["error"] == "simulation_running"
+        assert app.state.advisory_task is None
+        assert _store(app).job_statuses().advisory == JobStatus()
 
 
 def test_post_503_without_holdings(tmp_path: Path) -> None:
