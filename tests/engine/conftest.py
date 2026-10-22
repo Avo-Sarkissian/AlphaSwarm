@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from typing import Any
 from unittest.mock import MagicMock, create_autospec
 
@@ -118,6 +118,7 @@ def fake_graph() -> MagicMock:
         round_num: int,
         *,
         decision_ids: list[str] | None = None,
+        control_ids: Collection[str] = (),
     ) -> list[str]:
         return [f"dec-r{round_num}-{i:03d}" for i in range(len(agent_decisions))]
 
