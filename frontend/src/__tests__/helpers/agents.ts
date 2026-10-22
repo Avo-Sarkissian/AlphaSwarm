@@ -1,5 +1,5 @@
 // Test helper: an AgentView for an id like 'sell_side_03'. The bracket comes
-// from agentIdToBracket, so this stays valid when plan 12 changes BracketKey.
+// from agentIdToBracket, so this stays valid if BracketKey changes.
 import { agentIdToBracket } from '../../adapter/agentId';
 import type { AgentSignal, AgentView } from '../../types';
 

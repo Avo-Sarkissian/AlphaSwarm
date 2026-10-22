@@ -5,12 +5,13 @@
 //
 // Wiring map:
 //   • useTelemetry() → tps / memMb / slotsUsed / slotsMax / elapsedSeconds /
-//     phase / running (replaces source's setInterval mock telemetry clock)
+//     governorState / phase (replaces source's setInterval mock telemetry clock)
 //   • useAgents() → agents (replaces source's design-mock agent builder)
 //   • bracketTallies(agents) → live bracket bars (lib/tally.ts)
 //   • useRationales() → rationale feed (replaces source's static fixture)
 //   • useConnection() → reconnectFailed gate for ErrorState
-//   • simStart(seed) / simStop() from api/simulation → Topbar Run/Stop
+//   • useRunGate() (cost gate, then simStart) and simStop() → RunControls;
+//     useAwaitRunFrame holds Run on "Starting…" until the run reaches the frame
 //   • Lifecycle (lib/lifecycle.ts, from the frame): the shell and topbar always
 //     render; IdleState / SeedingState are overlays inside .canvas-wrap; the
 //     ReplayBar mounts while mode === 'replay'; RunControls picks Run/Stop.

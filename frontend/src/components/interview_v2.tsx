@@ -13,8 +13,9 @@
 //     the verified codex MEDIUM-7 semantics (source_id = citing, target_id = cited).
 //   - SignalTrajectory 3-round mock DERIVED from useRationales() per round, with '—'
 //     for missing rounds.
-//   - Cycle-stats panel partial fill per KR-41.6-09: out/in degree wired from edges;
-//     peer reads / shock impact / data sources render '—' (no live source).
+//   - Cycle-stats panel partial fill per docs/DECISIONS.md#kr-41-6-09: Cites /
+//     Cited by count the edges of the round on screen from EdgesContext; peer
+//     reads / shock impact / data sources render '—' (no live source).
 //
 // Note: response is rendered as plain text, NOT through markdown — per threat T-41.6-13.
 // If markdown render added later, gate behind same DOMPurify chain as AdvisoryV2/ReportModal.

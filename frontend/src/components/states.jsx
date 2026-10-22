@@ -1,5 +1,8 @@
-// v2 states — idle, seeding, memory-paused, error, empty-cycles.
-// Each is a full-canvas overlay that replaces the force graph.
+// v2 states — idle, seeding, memory-paused, error.
+// Idle and seeding are overlays inside the dashboard canvas (.canvas-wrap);
+// the shell stays visible around them. ErrorState replaces the dashboard when
+// the WebSocket gives up. MemoryPausedState is not mounted (a governor pause
+// shows a dismissible banner instead).
 //
 // Lifted from AlphaSwarm-2/src/states.jsx (W2 Plan 41.6-02 task 2) and
 // converted to ES modules per D-03. Sourced design's BRACKETS reference is
