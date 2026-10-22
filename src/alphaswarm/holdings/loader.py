@@ -23,6 +23,8 @@ Research Pitfall 1: NEVER Decimal(float) — always Decimal(string) for precisio
 Research Pitfall 2: empty-body CSV must raise HoldingsLoadError before sha256_first8("")
   raises TypeError.
 Research Pitfall 7: NEVER log raw Holding fields — ISOL-07 canary boundary.
+Validation: tickers are stripped and upper-cased; empty symbols and non-finite or
+  negative numbers are rejected; headers are case/space-insensitive.
 """
 
 from __future__ import annotations
@@ -94,9 +96,10 @@ class HoldingsLoader:
             # "\ufeffaccount" and fail REQUIRED_COLUMNS. "utf-8-sig" is a safe
             # default on non-BOM files (Python stdlib behavior).
             with path.open(newline="", encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f)
+                reader = csv.DictReader(f, skipinitialspace=True)
                 if reader.fieldnames is None:
                     raise HoldingsLoadError("CSV is empty — no header row")
+                reader.fieldnames = [name.strip().lower() for name in reader.fieldnames]
                 missing = REQUIRED_COLUMNS - set(reader.fieldnames)
                 if missing:
                     raise HoldingsLoadError(
@@ -120,23 +123,31 @@ class HoldingsLoader:
         holdings_list: list[Holding] = []
         account_labels: set[str] = set()
         for row_num, row in enumerate(rows, start=2):  # row 1 is the header
+            ticker = (row["symbol"] or "").strip().upper()
+            if not ticker:
+                raise HoldingsLoadError(f"Empty symbol in CSV row {row_num}")
             try:
+                # Decimal(str) ignores surrounding whitespace, and keeping the
+                # literal Decimal(row[...]) form satisfies the Pitfall-1 source check
+                # in tests/test_holdings_loader.py. None (ragged row) -> TypeError.
                 qty = Decimal(row["shares"])
                 cost_per_share = Decimal(row["cost_basis_per_share"])
             except (InvalidOperation, TypeError) as exc:
-                # TypeError: ragged rows — DictReader fills missing cells with
-                # restval=None and Decimal(None) raises TypeError, not
-                # InvalidOperation. Pitfall 7: never embed the raw row in the
-                # message (it gets logged) — row NUMBER only.
+                # Row NUMBER only: never embed the raw row in the message (it gets logged).
                 raise HoldingsLoadError(
                     f"Invalid numeric value in CSV row {row_num}: {exc}"
                 ) from exc
+            # Finiteness first: comparing a NaN Decimal with 0 raises InvalidOperation.
+            if not qty.is_finite() or not cost_per_share.is_finite():
+                raise HoldingsLoadError(f"Non-finite numeric value in CSV row {row_num}")
+            if qty < 0 or cost_per_share < 0:
+                raise HoldingsLoadError(f"Negative numeric value in CSV row {row_num}")
             account_label = (row["account"] or "").strip()
             if account_label:
                 account_labels.add(account_label)
             holdings_list.append(
                 Holding(
-                    ticker=row["symbol"],
+                    ticker=ticker,
                     qty=qty,
                     cost_basis=qty * cost_per_share,  # D-02 — total position cost
                 )

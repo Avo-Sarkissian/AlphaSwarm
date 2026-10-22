@@ -23,6 +23,7 @@ RESERVED_TICKERS: frozenset[str] = frozenset({"ZZZT", "QQQX", "XQZW", "ZQXY", "Q
 FICTIONAL_FIXTURE_FILES: tuple[str, ...] = (
     "tests/test_holdings_loader.py",
     "tests/integration/test_holdings_route.py",
+    "tests/test_holdings_validation.py",
 )
 
 # A CSV data row inside a string literal: "<account>,<TICKER>,<qty>,..."
