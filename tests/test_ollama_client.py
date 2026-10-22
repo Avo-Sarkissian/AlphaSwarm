@@ -161,3 +161,107 @@ async def test_generate_forwards_system_kwarg(
     assert kwargs.get("system") == "you are X", (
         f"system kwarg not forwarded to underlying client: {kwargs}"
     )
+
+
+# ---------------------------------------------------------------------------
+# The connection stays on the configured host (docs/DECISIONS.md#adr-advisory-pipeline)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("proxy_var", ["HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"])
+def test_the_http_client_ignores_proxy_env(
+    monkeypatch: pytest.MonkeyPatch, proxy_var: str
+) -> None:
+    """A proxy set in the environment (or macOS system settings) must not receive
+    requests meant for the local Ollama server: httpx gives localhost no bypass."""
+    import httpx
+
+    from alphaswarm.ollama_client import OllamaClient
+
+    monkeypatch.setenv(proxy_var, "http://proxy.example:3128")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+
+    http = OllamaClient(base_url="http://localhost:11434").raw_client._client
+
+    assert http.trust_env is False
+    transport = http._transport_for_url(httpx.URL("http://localhost:11434/api/chat"))
+    assert transport is http._transport
+
+
+def test_the_http_client_does_not_follow_redirects() -> None:
+    """A process on the loopback port cannot 307 the request body to another host."""
+    from alphaswarm.ollama_client import OllamaClient
+
+    http = OllamaClient(base_url="http://localhost:11434").raw_client._client
+    assert http.follow_redirects is False
+
+
+def test_base_url_is_the_host_the_client_connects_to(monkeypatch: pytest.MonkeyPatch) -> None:
+    """base_url reads the resolved httpx host, including the OLLAMA_HOST fallback."""
+    import httpx
+
+    from alphaswarm.ollama_client import OllamaClient
+
+    monkeypatch.setenv("OLLAMA_HOST", "http://gpu-box.local:11434")
+
+    assert httpx.URL(OllamaClient(base_url="http://127.0.0.1:11434").base_url).host == "127.0.0.1"
+    assert httpx.URL(OllamaClient(base_url="").base_url).host == "gpu-box.local"
+
+
+def _client_answering_show(handler: Any) -> Any:
+    import httpx
+
+    from alphaswarm.ollama_client import OllamaClient
+
+    client = OllamaClient(base_url="http://localhost:11434")
+    client.raw_client._client = httpx.AsyncClient(
+        base_url="http://localhost:11434", transport=httpx.MockTransport(handler)
+    )
+    return client
+
+
+@pytest.mark.parametrize(
+    ("body", "remote"),
+    [
+        ({"modelfile": "FROM qwen3", "details": {}}, False),
+        ({"modelfile": "x", "remote_host": "https://ollama.com:443"}, True),
+        ({"modelfile": "x", "remote_model": "gpt-oss:120b"}, True),
+        ({"modelfile": "x", "remote_host": "", "remote_model": None}, False),
+    ],
+    ids=["local", "remote-host", "remote-model", "empty-fields"],
+)
+async def test_is_remote_model_reads_the_show_response(body: dict[str, Any], remote: bool) -> None:
+    import httpx
+
+    seen: list[Any] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, request.content))
+        return httpx.Response(200, json=body)
+
+    client = _client_answering_show(_handler)
+
+    assert await client.is_remote_model("alphaswarm-orchestrator") is remote
+    assert seen[0][0] == "/api/show"
+    assert b"alphaswarm-orchestrator" in seen[0][1]
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"status_code": 404, "json": {"error": "model not found"}},
+        {"status_code": 500, "text": "boom"},
+        {"status_code": 200, "text": "not json"},
+        {"status_code": 200, "json": ["not", "an", "object"]},
+    ],
+    ids=["404", "500", "not-json", "not-an-object"],
+)
+async def test_is_remote_model_raises_when_it_cannot_tell(response: dict[str, Any]) -> None:
+    """Callers fail closed on any error, so the method never guesses "local"."""
+    import httpx
+
+    client = _client_answering_show(lambda _r: httpx.Response(**response))
+
+    with pytest.raises(Exception):  # noqa: B017 - any failure must propagate
+        await client.is_remote_model("alphaswarm-orchestrator")

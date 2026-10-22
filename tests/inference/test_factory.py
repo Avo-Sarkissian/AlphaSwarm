@@ -21,6 +21,7 @@ from alphaswarm.inference.budget import BudgetTrackingProvider
 from alphaswarm.inference.factory import (
     BuiltProviders,
     advisory_allowed,
+    advisory_block_reason,
     build_controller,
     build_providers,
     effective_ollama_host,
@@ -35,6 +36,9 @@ from alphaswarm.inference.openai_provider import OpenAICompatProvider
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+_LOCAL_OLLAMA = "http://localhost:11434"
 
 
 def _ollama_role(model: str = "alphaswarm-worker") -> RoleConfig:
@@ -391,8 +395,6 @@ def test_advisory_allowed(
 # or a remote Ollama host sends the portfolio off the machine, so it needs the same
 # opt-in as a cloud provider.
 
-_LOCAL_OLLAMA = "http://localhost:11434"
-
 
 @pytest.mark.parametrize(
     ("model", "cloud"),
@@ -401,7 +403,8 @@ _LOCAL_OLLAMA = "http://localhost:11434"
         ("qwen3.6:27b-nvfp4", False),
         ("llama3.1:8b", False),
         ("cloudy-model:7b", False),  # "cloud" inside the name is not a cloud tag
-        ("cloud", False),  # a bare name with no -cloud/:cloud marker
+        ("cloud", True),  # a bare "cloud" name fails closed
+        ("word-cloud-gen:7b", True),  # a "cloud" part of the name fails closed
         ("gpt-oss:120b-cloud", True),
         ("qwen3-coder:480b-cloud", True),
         ("glm-4.6:cloud", True),
@@ -410,6 +413,10 @@ _LOCAL_OLLAMA = "http://localhost:11434"
         ("library/deepseek-v3.1:671b-cloud", True),
         ("gpt-oss:120b-cloud@sha256:abc123", True),
         ("my-model-cloud", True),  # untagged name with a -cloud suffix fails closed
+        ("my-model-cloud:latest", True),  # same model as "my-model-cloud"
+        ("qwen3:cloud-preview", True),  # a "cloud" part of the tag
+        ("cloud_model:7b", False),  # only dash- or colon-separated parts count
+        ("qwen3:7b-cloudless", False),
     ],
 )
 def test_is_cloud_ollama_model(model: str, cloud: bool) -> None:
@@ -530,3 +537,35 @@ def test_advisory_allowed_treats_cloud_or_remote_ollama_as_cloud(
         orchestrator=orchestrator, worker=_ollama_role(), allow_cloud_advisory=opt_in
     )
     assert advisory_allowed(cfg, ollama_base_url=ollama_base_url) is allowed
+
+
+@pytest.mark.parametrize(
+    ("orchestrator", "ollama_base_url", "opt_in", "reason"),
+    [
+        (_ollama_role(), _LOCAL_OLLAMA, False, None),
+        (_anthropic_role(), _LOCAL_OLLAMA, False, "cloud_provider"),
+        (_ollama_role("gpt-oss:120b-cloud"), _LOCAL_OLLAMA, False, "cloud_model"),
+        (_ollama_role(), "http://192.168.1.20:11434", False, "remote_host"),
+        (
+            RoleConfig(
+                provider=ProviderType.OLLAMA,
+                model="alphaswarm-orchestrator",
+                base_url="http://gpu-box.local:11434",
+            ),
+            _LOCAL_OLLAMA,
+            False,
+            "role_base_url_remote",
+        ),
+        (_anthropic_role(), "http://192.168.1.20:11434", True, None),
+    ],
+    ids=["local", "cloud-provider", "cloud-model", "remote-host", "role-base-url", "opted-in"],
+)
+def test_advisory_block_reason_names_the_failed_check(
+    orchestrator: RoleConfig, ollama_base_url: str, opt_in: bool, reason: str | None
+) -> None:
+    """The reason goes into the refusal log, so the user knows which setting to fix."""
+    cfg = InferenceConfig(
+        orchestrator=orchestrator, worker=_ollama_role(), allow_cloud_advisory=opt_in
+    )
+    assert advisory_block_reason(cfg, ollama_base_url=ollama_base_url) == reason
+    assert advisory_allowed(cfg, ollama_base_url=ollama_base_url) is (reason is None)

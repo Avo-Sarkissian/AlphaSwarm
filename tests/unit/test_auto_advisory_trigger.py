@@ -68,7 +68,9 @@ def _make_app(
         settings=settings,
         state_store=state_store,
         graph_manager=object() if services_available else None,
-        ollama_client=object() if services_available else None,
+        ollama_client=(
+            SimpleNamespace(base_url="http://127.0.0.1:11434") if services_available else None
+        ),
         model_manager=object() if services_available else None,
     )
 

@@ -6,7 +6,11 @@ the right ``ConcurrencyController`` for swarm execution.
 Public surface:
     inference_mode  — classify cfg as "local" | "cloud" | "mixed"
     advisory_allowed — may the advisory send portfolio data to the orchestrator?
+    advisory_block_reason — which check refuses the advisory (None when allowed)
     is_local_ollama — does an Ollama model + host keep data on this machine?
+    is_cloud_ollama_model — is this an Ollama cloud model name?
+    is_loopback_url — does this Ollama host name this machine?
+    effective_ollama_host — the host ollama.AsyncClient resolves for a base_url
     BuiltProviders  — frozen dataclass holding the two providers + shared meter
     build_providers — construct providers from cfg, wrapping cloud ones in budget guard
     build_controller — select ResourceGovernor (local) or RateLimitController (cloud)
@@ -16,6 +20,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 from urllib.parse import urlsplit
@@ -69,13 +74,16 @@ def is_cloud_ollama_model(model: str) -> bool:
     """True for an Ollama cloud model, which Ollama runs on ollama.com.
 
     Ollama names its cloud models with a ``-cloud`` tag suffix
-    (``gpt-oss:120b-cloud``) or a bare ``cloud`` tag (``glm-4.6:cloud``). Any
-    name ending in ``-cloud`` counts, tagged or not, so a doubtful name fails
-    closed. An alias built from a Modelfile whose ``FROM`` is a cloud model
-    cannot be detected from its name.
+    (``gpt-oss:120b-cloud``) or a bare ``cloud`` tag (``glm-4.6:cloud``). To
+    fail closed on other spellings, any dash- or colon-separated part of the
+    name or tag that is exactly ``cloud`` counts: ``my-model-cloud``,
+    ``my-model-cloud:latest`` and ``qwen3:cloud-preview`` do, ``cloudy-model``
+    does not. An alias built from a Modelfile whose ``FROM`` is a cloud model
+    cannot be detected from its name; the advisory job asks the server
+    (``OllamaClient.is_remote_model``).
     """
     name = model.strip().lower().rsplit("/", 1)[-1].split("@", 1)[0]
-    return name.endswith(("-cloud", ":cloud"))
+    return "cloud" in re.split(r"[-:]", name)
 
 
 def is_loopback_url(url: str) -> bool:
@@ -120,26 +128,46 @@ def is_local_ollama(model: str, base_url: str | None) -> bool:
     return not is_cloud_ollama_model(model) and is_loopback_url(effective_ollama_host(base_url))
 
 
-def advisory_allowed(cfg: InferenceConfig, *, ollama_base_url: str | None) -> bool:
-    """True when the advisory may send portfolio data to the orchestrator.
+AdvisoryBlockReason = Literal[
+    "cloud_provider", "role_base_url_remote", "cloud_model", "remote_host"
+]
+
+
+def advisory_block_reason(
+    cfg: InferenceConfig, *, ollama_base_url: str | None
+) -> AdvisoryBlockReason | None:
+    """Which check refuses the advisory, or None when it may run.
 
     Without the explicit ``allow_cloud_advisory`` opt-in, only a local Ollama
     orchestrator is allowed: provider Ollama, not an Ollama cloud model, and a
     loopback server (docs/DECISIONS.md#adr-advisory-pipeline).
 
     ``ollama_base_url`` is the host of the shared OllamaClient that
-    OllamaProvider sends through (``AppSettings.ollama.base_url``). The role's
-    own ``base_url`` is checked as well, so a remote one fails closed even
-    though the provider does not use it today.
+    OllamaProvider sends through (``OllamaClient.base_url``). The role's own
+    ``base_url`` is checked as well, so a remote one fails closed even though
+    the provider does not use it today. The reason is for logs, so the user can
+    tell which setting to fix.
     """
     if cfg.allow_cloud_advisory:
-        return True
+        return None
     orchestrator = cfg.orchestrator
     if orchestrator.provider != ProviderType.OLLAMA:
-        return False
+        return "cloud_provider"
     if orchestrator.base_url and not is_loopback_url(orchestrator.base_url):
-        return False
-    return is_local_ollama(orchestrator.model, ollama_base_url)
+        return "role_base_url_remote"
+    if is_cloud_ollama_model(orchestrator.model):
+        return "cloud_model"
+    if not is_loopback_url(effective_ollama_host(ollama_base_url)):
+        return "remote_host"
+    return None
+
+
+def advisory_allowed(cfg: InferenceConfig, *, ollama_base_url: str | None) -> bool:
+    """True when the advisory may send portfolio data to the orchestrator.
+
+    See ``advisory_block_reason`` for the rule.
+    """
+    return advisory_block_reason(cfg, ollama_base_url=ollama_base_url) is None
 
 
 # ---------------------------------------------------------------------------

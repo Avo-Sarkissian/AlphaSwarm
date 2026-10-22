@@ -18,7 +18,6 @@ import alphaswarm.web.routes.advisory as advisory_module
 from alphaswarm.config import (
     AppSettings,
     InferenceConfig,
-    OllamaSettings,
     ProviderType,
     RoleConfig,
 )
@@ -62,7 +61,9 @@ def _make_app(
         settings=settings,
         state_store=state_store,
         graph_manager=object() if services_available else None,
-        ollama_client=object() if services_available else None,
+        ollama_client=(
+            SimpleNamespace(base_url="http://127.0.0.1:11434") if services_available else None
+        ),
         model_manager=object() if services_available else None,
     )
 
@@ -355,10 +356,9 @@ def _ollama_cfg(model: str, *, opt_in: bool) -> InferenceConfig:
 
 
 def _with_ollama_host(app: FastAPI, base_url: str) -> FastAPI:
-    """Point the app's settings (the shared OllamaClient's host) at *base_url*."""
-    app.state.app_state.settings = AppSettings(  # type: ignore[call-arg]
-        _env_file=None, ollama=OllamaSettings(base_url=base_url)
-    )
+    """Point the shared OllamaClient at *base_url*. The settings keep their local
+    default, so these tests also show the guard reads the client's real host."""
+    app.state.app_state.ollama_client = SimpleNamespace(base_url=base_url)
     return app
 
 
