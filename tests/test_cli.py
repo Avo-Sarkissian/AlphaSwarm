@@ -959,25 +959,39 @@ async def test_shock_impact_preseeded_when_shock_event_exists() -> None:
     from unittest.mock import AsyncMock, MagicMock
 
     from alphaswarm.cli import _collect_shock_observation
+    from alphaswarm.graph import ShockImpactRow
     from alphaswarm.report import ToolObservation
 
-    _SHOCK_IMPACT_RESULT = {
-        "shock_text": "Fed raises rates 75bps",
-        "injected_before_round": 2,
-        "comparable_agents": 95,
-        "pivot_count": 40,
-        "held_firm_count": 55,
-        "pivot_rate_pct": 42.1,
-        "held_firm_rate_pct": 57.9,
-        "pivot_agents": [],
-        "bracket_deltas": [],
-        "largest_shift": {},
-        "notable_held_firm_agents": [],
-    }
+    shock_text = "Fictional regulator opens a review of the ZZZT Holdings deal"
+    shock_row = ShockImpactRow(
+        shock_text=shock_text,
+        injected_before_round=2,
+        pre_dominant="BUY",
+        post_dominant="BUY",
+        pivot_count=1,
+        pivot_rate=0.5,
+        bracket_pivots=[
+            {
+                "bracket": "quants",
+                "display_name": "Quants",
+                "comparable": 2,
+                "pivots": 1,
+                "pre_dominant": "BUY",
+                "post_dominant": "BUY",
+                "pre_buy_pct": 100.0,
+                "post_buy_pct": 50.0,
+                "delta_buy_pct": -50.0,
+                "dominant_arrow": "▼",
+                "agents": [{"agent_id": "quants_01", "pre_signal": "BUY", "post_signal": "SELL"}],
+            },
+        ],
+    )
+    # The mock returns the row read_shock_impact really produces.
+    assert set(shock_row) == ShockImpactRow.__required_keys__
 
     mock_gm = MagicMock()
-    mock_gm.read_shock_event = AsyncMock(return_value={"shock_id": "s1", "shock_text": "Fed raises rates 75bps"})
-    mock_gm.read_shock_impact = AsyncMock(return_value=_SHOCK_IMPACT_RESULT)
+    mock_gm.read_shock_event = AsyncMock(return_value={"shock_id": "s1", "shock_text": shock_text})
+    mock_gm.read_shock_impact = AsyncMock(return_value=shock_row)
 
     result = await _collect_shock_observation(mock_gm, "cycle-1")
 
@@ -985,7 +999,7 @@ async def test_shock_impact_preseeded_when_shock_event_exists() -> None:
     assert isinstance(result, ToolObservation)
     assert result.tool_name == "shock_impact"
     assert result.tool_input == {"cycle_id": "cycle-1"}
-    assert result.result == _SHOCK_IMPACT_RESULT
+    assert result.result == shock_row
     mock_gm.read_shock_event.assert_awaited_once_with("cycle-1")
     mock_gm.read_shock_impact.assert_awaited_once_with("cycle-1")
 
