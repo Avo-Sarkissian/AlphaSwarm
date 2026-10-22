@@ -10,14 +10,17 @@ Keys are NEVER returned raw; masked_config() replaces them with
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel, ValidationError
+from fastapi import APIRouter, Request
+from pydantic import BaseModel, ValidationError, field_validator
 
 from alphaswarm.config import (
     InferenceConfig,
+    ModelPrice,
+    ProviderLimits,
     ProviderType,
     RoleConfig,
     load_inference_config,
@@ -28,7 +31,8 @@ from alphaswarm.errors import AuthError, InferenceError
 from alphaswarm.inference.budget import DEFAULT_PRICING, BudgetMeter, RunEstimate, estimate_run
 from alphaswarm.inference.factory import _build_single_provider, inference_mode
 from alphaswarm.inference.types import ProviderRole
-from alphaswarm.web.errors import ApiError
+from alphaswarm.web.errors import ApiError, validation_fields
+from alphaswarm.web.guards import load_inference_config_or_422
 
 log = structlog.get_logger(component="web.settings")
 
@@ -180,6 +184,32 @@ class SettingsUpdateResponse(BaseModel):
     mode: Literal["local", "cloud", "mixed"]
 
 
+class RoleUpdate(BaseModel):
+    """Role fields a PUT may change; omitted fields keep the stored value."""
+
+    provider: ProviderType | None = None
+    model: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+
+
+class SettingsUpdateRequest(BaseModel, extra="forbid"):
+    """Typed PUT /api/settings body. Unknown keys (typos) are rejected, never ignored."""
+
+    orchestrator: RoleUpdate | None = None
+    worker: RoleUpdate | None = None
+    limits: dict[ProviderType, ProviderLimits] | None = None
+    spend_cap_usd: Decimal | None = None
+    pricing_overrides: dict[str, ModelPrice] | None = None
+
+    @field_validator("orchestrator", "worker", mode="before")
+    @classmethod
+    def _reject_explicit_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("must be an object; omit the key to keep the stored value")
+        return value
+
+
 class TestConnectionRequest(BaseModel):
     """Request body for POST /api/settings/test."""
 
@@ -290,7 +320,7 @@ async def get_settings(request: Request) -> SettingsResponse:
     """Return current inference config (keys masked) + available model lists."""
     app_state = request.app.state.app_state
 
-    cfg: InferenceConfig = await asyncio.to_thread(load_inference_config, app_state.settings)
+    cfg = await load_inference_config_or_422(app_state)
 
     available: list[str] = []
     if app_state.ollama_client is not None:
@@ -311,85 +341,54 @@ async def get_settings(request: Request) -> SettingsResponse:
 
 
 @router.put("/settings", response_model=SettingsUpdateResponse)
-async def put_settings(
-    body: dict[str, Any],
-    request: Request,
-) -> SettingsUpdateResponse:
+async def put_settings(body: SettingsUpdateRequest, request: Request) -> SettingsUpdateResponse:
     """Update and persist the inference config.
 
-    Returns 409 if a simulation is currently running.
-    Returns 400 on validation errors.
-    Preserves currently-stored API keys when the incoming payload omits them.
+    409 simulation_running during a run; 422 validation_error for an invalid body
+    or merged config (field locations only, never input values); 422
+    inference_config_invalid when the stored file cannot be read; 500
+    settings_save_failed when writing fails. Omitted keys keep their stored values;
+    stored API keys are kept unless replaced (see _merge_role).
     """
-    sim_manager = request.app.state.sim_manager
     app_state = request.app.state.app_state
-
-    if sim_manager.is_running:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "simulation_running",
-                "message": "Cannot update settings while a simulation is running.",
-            },
+    if request.app.state.sim_manager.is_running:
+        raise ApiError(
+            409, "simulation_running", "Cannot update settings while a simulation is running.",
         )
-
+    stored = await load_inference_config_or_422(app_state)
+    merged: dict[str, Any] = stored.model_dump()
     try:
-        stored: InferenceConfig = await asyncio.to_thread(load_inference_config, app_state.settings)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"stored inference config is invalid: {exc}",
-        ) from exc
-
-    # Merge role configs, preserving stored keys when incoming omits them.
-    # ValidationError from _merge_role (invalid provider enum, etc.) is caught
-    # here together with InferenceConfig validation so both yield 400.
-    incoming_orch: dict[str, Any] = body.get("orchestrator", {})
-    incoming_worker: dict[str, Any] = body.get("worker", {})
-
-    try:
-        merged_orch = _merge_role(stored.orchestrator, incoming_orch)
-        merged_worker = _merge_role(stored.worker, incoming_worker)
-
-        # Build the full merged config dict, letting pydantic validate it
-        merged_dict: dict[str, Any] = {
-            "orchestrator": merged_orch.model_dump(),
-            "worker": merged_worker.model_dump(),
-            "limits": body.get(
-                "limits",
-                {role.value: lim.model_dump() for role, lim in stored.limits.items()},
-            ),
-            "spend_cap_usd": body.get("spend_cap_usd", stored.spend_cap_usd),
-            "pricing_overrides": body.get(
-                "pricing_overrides",
-                {k: v.model_dump() for k, v in stored.pricing_overrides.items()},
-            ),
-            # Not editable from the Settings UI yet: keep the stored opt-in so a
-            # save never silently changes the advisory privacy setting.
-            "allow_cloud_advisory": stored.allow_cloud_advisory,
-        }
-
-        merged_cfg = InferenceConfig.model_validate(merged_dict)
+        if body.orchestrator is not None:
+            merged["orchestrator"] = _merge_role(
+                stored.orchestrator, body.orchestrator.model_dump(exclude_unset=True, mode="json"),
+            ).model_dump()
+        if body.worker is not None:
+            merged["worker"] = _merge_role(
+                stored.worker, body.worker.model_dump(exclude_unset=True, mode="json"),
+            ).model_dump()
+        if body.limits is not None:
+            merged["limits"] = {role: lim.model_dump() for role, lim in body.limits.items()}
+        if "spend_cap_usd" in body.model_fields_set:
+            merged["spend_cap_usd"] = body.spend_cap_usd
+        if body.pricing_overrides is not None:
+            merged["pricing_overrides"] = {
+                name: price.model_dump() for name, price in body.pricing_overrides.items()
+            }
+        merged_cfg = InferenceConfig.model_validate(merged)
     except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "validation_error", "message": str(exc)},
+        raise ApiError(
+            422,
+            "validation_error",
+            "Settings validation failed",
+            extra={"fields": validation_fields(exc.errors(include_input=False))},
         ) from exc
-
     try:
         await asyncio.to_thread(save_inference_config, merged_cfg, settings=app_state.settings)
     except OSError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"failed to persist settings: {exc}",
-        ) from exc
-
+        log.error("settings_save_failed", exc_type=exc.__class__.__name__)
+        raise ApiError(500, "settings_save_failed", "Failed to persist settings") from exc
     log.info("settings_updated", mode=inference_mode(merged_cfg))
-
-    return SettingsUpdateResponse(
-        config=masked_config(merged_cfg),
-        mode=inference_mode(merged_cfg),
-    )
+    return SettingsUpdateResponse(config=masked_config(merged_cfg), mode=inference_mode(merged_cfg))
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +467,7 @@ async def get_estimate(request: Request) -> EstimateResponse:
     """Return a cost estimate for the current config and run parameters."""
     app_state = request.app.state.app_state
 
-    cfg: InferenceConfig = await asyncio.to_thread(load_inference_config, app_state.settings)
+    cfg = await load_inference_config_or_422(app_state)
 
     agents = len(app_state.personas)
     rounds = app_state.settings.num_rounds

@@ -38,6 +38,7 @@ def _make_settings_test_app() -> FastAPI:
     from alphaswarm.app import create_app_state
     from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
     from alphaswarm.web.connection_manager import ConnectionManager
+    from alphaswarm.web.errors import install_error_handlers
     from alphaswarm.web.replay_manager import ReplayManager
     from alphaswarm.web.routes.settings import router as settings_router
     from alphaswarm.web.simulation_manager import SimulationManager
@@ -63,6 +64,7 @@ def _make_settings_test_app() -> FastAPI:
             await app_state.graph_manager.close()
 
     fapp = FastAPI(title="AlphaSwarm-Settings-Test", lifespan=_settings_lifespan)
+    install_error_handlers(fapp)
     fapp.include_router(settings_router, prefix="/api")
     return fapp
 
@@ -91,11 +93,16 @@ _LOCAL_CFG = InferenceConfig(
 
 
 def _mock_load_cfg(cfg: InferenceConfig) -> Any:
-    """Return a patch target that returns cfg from load_inference_config."""
-    return patch(
+    """Patch load_inference_config in both places the settings routes read it."""
+    import contextlib
+
+    stack = contextlib.ExitStack()
+    for target in (
         "alphaswarm.web.routes.settings.load_inference_config",
-        return_value=cfg,
-    )
+        "alphaswarm.web.guards.load_inference_config",
+    ):
+        stack.enter_context(patch(target, return_value=cfg))
+    return stack
 
 
 def test_merge_role_drops_key_on_vendor_change() -> None:
@@ -251,8 +258,8 @@ class TestPutSettings:
             )
         assert r.status_code == 409
 
-    def test_400_on_invalid_body(self) -> None:
-        """Invalid provider value should yield 400."""
+    def test_422_on_invalid_body(self) -> None:
+        """Invalid provider value should yield 422 validation_error."""
         with _mock_load_cfg(_LOCAL_CFG), _mock_save_cfg(), TestClient(
             _make_settings_test_app()
         ) as client:
@@ -263,7 +270,8 @@ class TestPutSettings:
                     "worker": {"provider": "ollama", "model": "test"},
                 },
             )
-        assert r.status_code == 400
+        assert r.status_code == 422
+        assert r.json()["detail"]["error"] == "validation_error"
 
     def test_put_persists_and_returns_masked(self, tmp_path: Path) -> None:
         """PUT should call save_inference_config and return masked config."""
@@ -360,7 +368,7 @@ class TestPutSettings:
     def test_422_when_load_raises_value_error(self) -> None:
         """PUT → 422 when load_inference_config raises ValueError (corrupt stored config)."""
         with patch(
-            "alphaswarm.web.routes.settings.load_inference_config",
+            "alphaswarm.web.guards.load_inference_config",
             side_effect=ValueError("corrupt: missing required field"),
         ), TestClient(_make_settings_test_app()) as client:
             r = client.put(
@@ -371,7 +379,7 @@ class TestPutSettings:
                 },
             )
         assert r.status_code == 422
-        assert "stored inference config is invalid" in r.json()["detail"]
+        assert r.json()["detail"]["error"] == "inference_config_invalid"
 
     def test_500_when_save_raises_oserror(self) -> None:
         """PUT → 500 when save_inference_config raises OSError (write failure)."""
@@ -387,7 +395,7 @@ class TestPutSettings:
                 },
             )
         assert r.status_code == 500
-        assert "failed to persist settings" in r.json()["detail"]
+        assert r.json()["detail"]["error"] == "settings_save_failed"
 
     def test_whitespace_only_api_key_preserves_stored(self) -> None:
         """Whitespace-only api_key (e.g. '   ') is treated as absent → stored key preserved."""

@@ -80,10 +80,16 @@ def _make_settings_test_app() -> Any:
 
 
 def _mock_load_cfg(cfg: InferenceConfig) -> Any:
-    return patch(
+    """Patch load_inference_config in both places the settings routes read it."""
+    import contextlib
+
+    stack = contextlib.ExitStack()
+    for target in (
         "alphaswarm.web.routes.settings.load_inference_config",
-        return_value=cfg,
-    )
+        "alphaswarm.web.guards.load_inference_config",
+    ):
+        stack.enter_context(patch(target, return_value=cfg))
+    return stack
 
 
 def _mock_ollama_list(models: list[str] | None = None) -> Any:
