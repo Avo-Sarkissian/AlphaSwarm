@@ -52,7 +52,10 @@ the headers of [Modelfile.worker](../modelfiles/Modelfile.worker) and
 ## Test suite (v6.0)
 
 Counted on 2026-10-22 on branch `plan/24-phase-9-presentation`, based on master `05743c4`.
-The offline count leaves out the three live Yahoo Finance tests, which need the network.
+The offline count leaves out all six tests in
+`tests/integration/test_yfinance_provider_live.py`: four call Yahoo Finance and need the
+network, one checks the empty-list guard without a network call, and one checks that the
+module stays under `tests/integration/`.
 
 | Suite | Command | Result |
 |---|---|---|
