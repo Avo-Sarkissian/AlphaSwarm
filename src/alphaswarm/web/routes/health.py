@@ -18,6 +18,7 @@ import structlog
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from alphaswarm import __version__
 from alphaswarm.config import InferenceConfig, ProviderType, load_inference_config
 from alphaswarm.inference.factory import inference_mode
 from alphaswarm.readiness import ComponentStatus, check_neo4j, check_ollama
@@ -48,6 +49,7 @@ class HealthResponse(BaseModel):
     is_simulation_running: bool
     inference_mode: Literal["local", "cloud", "mixed"]
     spent_usd: float | None
+    version: str  # importlib.metadata.version("alphaswarm"); never a hard-coded string
     components: dict[str, ComponentOut]
 
 
@@ -90,6 +92,7 @@ async def health(request: Request) -> HealthResponse:
         is_simulation_running=request.app.state.sim_manager.is_running,
         inference_mode=mode,
         spent_usd=spent,
+        version=__version__,
         components={
             name: ComponentOut(
                 ok=c.ok,
