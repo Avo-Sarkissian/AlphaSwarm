@@ -1,7 +1,8 @@
 // Top Influencers: agents ranked by how many distinct peers cited them
 // (in-degree on target_id; source_id is the citing agent). Ranking
 // by citations made would pick the most influenced agents instead
-// (docs/DECISIONS.md#adr-neo4j-schema).
+// (docs/DECISIONS.md#adr-neo4j-schema). Only agents cited at least once are
+// ranked, so the panel never pads with "0" rows (docs/DECISIONS.md#f-35).
 import type { Edge } from '../api/edges';
 import type { AgentView } from '../types';
 
