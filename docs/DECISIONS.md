@@ -214,7 +214,7 @@ Contents
   3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)). Tracebacks are rendered without local variables in both modes (JSON: `ExceptionDictTransformer(show_locals=False)` before the redactor; console: `plain_traceback`), so frames never leak keys or portfolio objects (2026-10).
   4. Holdings are loaded into memory at lifespan startup and never persisted ([p39-d-07](#p39-d-07)).
 - **Rationale:** Uncontaminated consensus, plus privacy for real brokerage data.
-- **Gate:** This is the only lint gate in CI and pre-commit (pre-commit hook, plus `tests/invariants/test_importlinter_contract.py` inside pytest).
+- **Gate:** `uv run lint-imports` runs in the CI `lint` job (next to strict mypy) and as a pre-commit hook, and `tests/invariants/test_importlinter_contract.py` runs it inside pytest. Ruff is not gated yet.
 
 ### <a id="adr-provider-never-raise"></a>Market/news providers never raise
 - **Decision:** `MarketDataProvider` and `NewsProvider` use batch-first signatures. Failures become `staleness="fetch_failed"` slices. Fakes live next to the protocols ([p37-d-17](#p37-d-17)..[p37-d-20](#p37-d-20)).
@@ -275,8 +275,9 @@ Contents
 - **History:** Textual TUI, then Vue 3 + D3 force graph, then a React port of the Claude Design UI, then the AlphaSwarm-2 Quant Terminal. See HISTORY.md.
 
 ### <a id="adr-test-network-gate"></a>Tests are offline by default
-- **Decision:** `pytest-socket --disable-socket --allow-unix-socket` applies globally (`pyproject.toml` addopts). `tests/integration/` auto-enables sockets ([p37-d-12](#p37-d-12)). Tests marked `neo4j` get sockets and the session event loop from a collection hook in `tests/conftest.py`, and skip unless the throwaway `neo4j-test` database answers on 127.0.0.1:7688 (`--require-neo4j` turns the skip into a failure).
+- **Decision:** `pytest-socket --disable-socket --allow-unix-socket` applies globally (`pyproject.toml` addopts). `tests/integration/` auto-enables sockets ([p37-d-12](#p37-d-12)). Tests marked `neo4j` get sockets (and, when async, the session event loop shared with the session-scoped driver) from a collection hook in `tests/conftest.py`, and skip unless the throwaway `neo4j-test` database answers on 127.0.0.1:7688 (`--require-neo4j` turns the skip into a failure).
 - **Note:** Phase 41.2 D-08 planned to make integration tests opt-in through an `integration` marker. That was never done; see BACKLOG.
+- **CI (2026-10):** `backend` runs `-m "not neo4j"`; `backend-neo4j` runs `-m neo4j --require-neo4j` against a `neo4j:5.26-community` service container on 7688. Every test has a 60 s timeout (`pytest-timeout`) and every job a 15-minute one. The `tests/integration/` path hook still opens sockets in `backend`, so live Yahoo and Google News calls remain in CI (BACKLOG 1.8).
 
 ### <a id="adr-tests-scoped-cleanup"></a>Neo4j tests run only against a throwaway database
 - **Decision (2026-10):** Neo4j tests use the `neo4j-test` Compose service (profile `test`, `127.0.0.1:7688`, tmpfs, throwaway credential), started with `scripts/neo4j_test.sh up`. The URI is hard-coded in `tests/conftest.py`, never read from the environment. The session fixture `neo4j_test_driver` exits with code 3 on port 7687 or on a database that already holds `Cycle` nodes. `graph_manager_test` deletes only the cycles created during the test (never ids in `NEO4J_PROTECTED_CYCLES`). An autouse `hermetic_env` fixture clears `ALPHASWARM_*`, ignores `.env`, and points the inference config and holdings CSV at temp paths.

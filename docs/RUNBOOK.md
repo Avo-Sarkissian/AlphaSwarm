@@ -191,13 +191,14 @@ that names a held company exercises the advisory. Then check:
 
 **Fast checks (no services needed):**
 ```bash
-uv run pytest -q -m "not neo4j" --ignore=tests/test_integration_inference.py
-                          # the ignore mirrors CI; Neo4j tests need neo4j-test (Neo4j section
-                          # above). tests/integration hits the network (BACKLOG 1.8). iCloud
+uv run pytest -q -m "not neo4j"
+                          # same selection as CI backend; Neo4j tests need neo4j-test (Neo4j
+                          # section above). tests/integration hits the network (BACKLOG 1.8). iCloud
                           # conflict copies ("app 2.py") are gitignored and skipped by
                           # the --ignore-glob in pyproject addopts (BACKLOG §8, B2)
 cd frontend && npx tsc -b --noEmit && npx vitest run && npm run build
 uv run lint-imports       # holdings isolation contract: must report "kept"
+uv run mypy src           # strict; must report "Success: no issues found"
 ```
 
 ## 6. Troubleshooting
@@ -219,3 +220,23 @@ uv run lint-imports       # holdings isolation contract: must report "kept"
 | Replay or history list empty | No metric-stamped cycles, or history wiped | `MATCH (c:Cycle) WHERE c.metrics_recorded_at IS NOT NULL RETURN count(c)`. Restore from `data/backups/` |
 | Cloud run: many PARSE_ERRORs or 429s | Provider rate limit | Lower `requests_per_min`, set `max_in_flight: 1`, raise `max_retries` (see §4 cloud) |
 | `GovernorCrisisError` | Sustained macOS memory pressure (5 min with no successful inference) | Close memory-heavy apps. Check that `ollama ps` shows only 2 models. Lower `ALPHASWARM_GOVERNOR__BASELINE_PARALLEL` |
+
+## 7. Tests and quality gates
+
+**Suites**
+- Offline (CI `backend`): `uv run pytest -q -m "not neo4j"`. `tests/integration/` still opens sockets by path, so it calls Yahoo and Google News (BACKLOG 1.8).
+- Neo4j (CI `backend-neo4j`), against the throwaway tmpfs database on 127.0.0.1:7688, never the dev database on 7687 (§3): `scripts/neo4j_test.sh up`, then `uv run pytest -q -m neo4j --require-neo4j`, then `scripts/neo4j_test.sh down`. Never stop it with a bare `docker compose --profile test down`: that also removes the dev container.
+- Every test has a 60 s timeout (`pytest-timeout`, `timeout = 60` in `pyproject.toml`); every CI job has a 15-minute one.
+
+**Markers.** `neo4j` opens sockets and, for async tests, shares the session event loop with the session-scoped driver (collection hook in `tests/conftest.py`). Every module under `tests/neo4j/` sets `pytestmark = pytest.mark.neo4j`. `enable_socket` remains the one-off escape hatch.
+
+**Seeded cycle and goldens.** `tests/support/seed_builder.py` writes one deterministic, fictional 100-agent cycle per session (`seeded_cycle`). Read-model and template goldens live in `tests/golden/reads/` and `tests/golden/report/` (`tests/support/golden.py` normalizes ids and timestamps). Regenerate only in a commit whose purpose explains the change: `UPDATE_GOLDEN=1 uv run pytest -q -m neo4j --require-neo4j tests/neo4j/`, then review `git diff tests/golden` line by line and say in the commit body why each file changed. `UPDATE_GOLDEN` is refused when `CI=true`.
+
+**Known bugs.** Pinned with `xfail(strict=True, reason="<item id>: …")`. The fix makes the test XPASS, which fails the run until the marker is removed in the same commit (together with any golden the fix now allows). CI runs pytest with `-rxX`, so every XFAIL/XPASS is listed in the job log.
+
+**Static gates (CI `lint`).** `uv run mypy src && uv run lint-imports`.
+- mypy is strict; modules under `[[tool.mypy.overrides]]` are exempt until cleaned up, and the list only shrinks (`tests/invariants/test_mypy_overrides.py`).
+- Ruff is not gated yet (BACKLOG 2.10): run `uv run ruff check <changed files>` and keep the lines you changed clean.
+- Hooks: `uv run pre-commit install` once per clone (import-linter).
+
+**Frontend.** CI (Node 20) runs `npm ci`, `npx tsc -b --noEmit`, `npx vitest run` and `npm run build`.

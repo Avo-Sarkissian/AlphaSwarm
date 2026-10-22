@@ -22,7 +22,7 @@
 - **Web Frontend:** React + TypeScript, Vite build, D3 (d3-scale/selection/transition) for visualization primitives; deterministic SVG layout for the 100-agent "mirofish" graph (`docs/DECISIONS.md#kr-41-1-01` explains why d3-force was dropped).
 - **Validation / Config:** `pydantic`, `pydantic-settings`.
 - **Logging:** `structlog`, with a fail-closed PII redaction processor.
-- **Testing:** pytest with `pytest-socket` (network off by default; `tests/integration/` opts in) and `hypothesis`; vitest wire-contract tests in `frontend/src/__tests__/`.
+- **Testing:** pytest with `pytest-socket` (network off by default; `tests/integration/` opts in by path, the `neo4j` marker opts in), `pytest-timeout` (60 s per test) and `hypothesis`; golden files under `tests/golden/`; vitest wire-contract tests in `frontend/src/__tests__/`.
 
 ## Swarm Composition (v2, 2026-06-10)
 
@@ -63,7 +63,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 - **Neo4j:** a public `async def read_*/write_*` method plus a `@staticmethod async def _<verb>_tx(tx, ...)`. Batch writes use `UNWIND $rows`, schema statements use `IF NOT EXISTS`, and signals are stored lowercase.
 - **LLM calls:** prompts are lists of `InferenceMessage` dicts. The worker decodes against a JSON schema; orchestrator calls use `json_mode=True` plus tiered parse fallbacks. Untrusted text (RSS headlines, peer rationales) is sanitized and fenced, and never placed in the system role.
 - **Comments:** cite `docs/DECISIONS.md#<anchor>` for design rationale. Legacy bare IDs (`D-xx`, `KR-…`, `F-xx`) are indexed there by file and line. Replace them with anchors when you next touch the comment.
-- **Tests:** `asyncio_mode=auto`; sockets are disabled globally (`@pytest.mark.enable_socket` opts in). Fakes are in `tests/inference/fakes.py`; architectural invariants are in `tests/invariants/`. An autouse `hermetic_env` fixture clears `ALPHASWARM_*`, ignores `.env`, and points the inference config and holdings CSV at temp paths; env-clearing helpers must use `clear_alphaswarm_env`. Neo4j tests live in `tests/neo4j/` with `pytestmark = pytest.mark.neo4j`.
+- **Tests:** `asyncio_mode=auto`; sockets are disabled globally (`@pytest.mark.enable_socket` opts in). Fakes are in `tests/inference/fakes.py`; architectural invariants are in `tests/invariants/`. An autouse `hermetic_env` fixture clears `ALPHASWARM_*`, ignores `.env`, and points the inference config and holdings CSV at temp paths; env-clearing helpers must use `clear_alphaswarm_env`. Neo4j tests live in `tests/neo4j/` with `pytestmark = pytest.mark.neo4j` and read one deterministic, fictional 100-agent cycle (`seeded_cycle`). Shared helpers live in `tests/support/` (`golden.py`, `seed_builder.py`). Known bugs are pinned with `xfail(strict=True, reason="<item id>: …")`.
 - **Commits:** Conventional Commits with a scope (`fix(security): …`, `feat(inference): …`), an imperative summary, and an explanatory body.
 
 ## Gotchas
@@ -86,14 +86,14 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 
 - Plain git: branch off `master`, make small Conventional Commits, open PRs. Don't recreate a `.planning/` directory or any planning-framework scaffolding.
 - Write a short markdown plan in `docs/` only when a change is big enough to need one.
-- Before calling work done:
-  - `uv run pytest -q --ignore=tests/test_integration_inference.py` is green (run from the repo
-    root; the ignore mirrors CI; Neo4j tests skip unless neo4j-test is running);
-  - Neo4j tests: `scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j`, then `scripts/neo4j_test.sh down`;
+- Before calling work done (CI's `lint`, `backend`, `backend-neo4j` and `frontend` jobs run the gated checks):
+  - `uv run pytest -q -m "not neo4j"` is green (run from the repo root; same selection as CI `backend`);
+  - after touching `graph.py`, report templates or read models: `scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j`, then `scripts/neo4j_test.sh down`;
+  - `uv run mypy src` reports no errors (gated in CI; modules under `[[tool.mypy.overrides]]` stay exempt until cleaned up, the list only shrinks, never add one);
   - `uv run lint-imports` reports the contract kept;
-  - `uv run ruff check <changed files>` is clean;
-  - `uv run mypy src` adds no errors over the ~33-error baseline (ruff and mypy are not yet gated in CI);
+  - `uv run ruff check <changed files>` is clean on the lines you changed (ruff is not yet gated in CI);
   - for frontend changes, run `npx tsc -b --noEmit && npx vitest run && npm run build` in `frontend/`.
+- Golden files in `tests/golden/` change only in a commit whose purpose explains the diff: `UPDATE_GOLDEN=1 uv run pytest -q -m neo4j --require-neo4j tests/neo4j/`, then review `git diff tests/golden` line by line.
 
 ## Developer Profile
 
