@@ -141,12 +141,14 @@ def _build_single_provider(
         # synthesis (F-05). Give the orchestrator a generous ceiling; the worker
         # emits a single small decision JSON, so a tighter bound is fine.
         max_tokens_default = 8192 if role == ProviderRole.ORCHESTRATOR else 2048
+        # _validate_cloud_role above raised for an empty key/base_url, so `or ""` never
+        # changes the value; it only narrows `str | None` to `str` for mypy.
         inner: InferenceProvider = AnthropicProvider(
-            role, model, api_key=api_key, max_tokens_default=max_tokens_default,  # type: ignore[arg-type]
+            role, model, api_key=api_key or "", max_tokens_default=max_tokens_default
         )
     elif provider_type == ProviderType.OPENAI_COMPATIBLE:
         inner = OpenAICompatProvider(
-            role, model, base_url=base_url, api_key=api_key, max_retries=max_retries,  # type: ignore[arg-type]
+            role, model, base_url=base_url or "", api_key=api_key or "", max_retries=max_retries
         )
     else:
         raise ValueError(f"Unsupported provider type: {provider_type!r}")
