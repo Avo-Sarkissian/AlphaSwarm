@@ -32,6 +32,7 @@ from alphaswarm.web.routes.report import _validate_cycle_id  # single-source-of-
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
+    from alphaswarm.config import InferenceConfig
     from alphaswarm.holdings.types import PortfolioSnapshot
 
 log = structlog.get_logger(component="web.advisory")
@@ -84,14 +85,20 @@ async def _auto_trigger_report(app: FastAPI, cycle_id: str) -> None:
 
 
 class CloudAdvisoryDisabledError(Exception):
-    """The orchestrator is a cloud provider and allow_cloud_advisory is off."""
+    """The orchestrator is cloud or remote and allow_cloud_advisory is off."""
 
 
 _CLOUD_ADVISORY_MESSAGE = (
-    "Advisory is disabled while the orchestrator runs on a cloud provider, so the "
-    "portfolio stays on this machine. Switch the orchestrator to Ollama, or set "
-    "allow_cloud_advisory to true in the inference config to opt in."
+    "Advisory is disabled while the orchestrator is a cloud or remote model (a cloud "
+    "provider, an Ollama cloud model, or an Ollama server off this machine), so the "
+    "portfolio stays on this machine. Switch the orchestrator to a local Ollama model "
+    "on localhost, or set allow_cloud_advisory to true in the inference config to opt in."
 )
+
+
+def _orchestrator_allowed(cfg: InferenceConfig, app_state: AppState) -> bool:
+    """advisory_allowed() against the host the shared OllamaClient really uses."""
+    return advisory_allowed(cfg, ollama_base_url=app_state.settings.ollama.base_url)
 
 
 async def _advisory_permitted(app_state: AppState) -> bool:
@@ -105,7 +112,7 @@ async def _advisory_permitted(app_state: AppState) -> bool:
     except (ValueError, OSError) as exc:
         log.warning("advisory_blocked_config_unreadable", error_type=type(exc).__name__)
         return False
-    return advisory_allowed(cfg)
+    return _orchestrator_allowed(cfg, app_state)
 
 
 class GenerateAdvisoryResponse(BaseModel):
@@ -126,7 +133,8 @@ async def generate_advisory(cycle_id: str, request: Request) -> GenerateAdvisory
     Guards (in order):
       400: invalid cycle_id (D-12)
       503: graph_manager / ollama_client / model_manager is None
-      409: cloud orchestrator without allow_cloud_advisory (cloud_advisory_disabled)
+      409: cloud or remote orchestrator without allow_cloud_advisory
+           (cloud_advisory_disabled)
       503: portfolio_snapshot is None (holdings CSV unavailable — RESEARCH OQ-3)
       409: phase != COMPLETE
       409: report_task or advisory_task in flight (D-08, Pitfall 4)
@@ -147,7 +155,7 @@ async def generate_advisory(cycle_id: str, request: Request) -> GenerateAdvisory
             },
         )
 
-    # Never send the portfolio to a cloud orchestrator without the opt-in
+    # Never send the portfolio to a cloud or remote orchestrator without the opt-in
     # (docs/DECISIONS.md#adr-advisory-pipeline). Checked before the holdings
     # are touched, including the lazy reload below.
     if not await _advisory_permitted(app_state):
@@ -388,7 +396,7 @@ async def _run_advisory_synthesis(
     assert model_manager is not None
 
     cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
-    if not advisory_allowed(cfg):
+    if not _orchestrator_allowed(cfg, app_state):
         # The config can change between the POST and this task starting.
         log.warning("advisory_blocked_cloud_disabled", cycle_id=cycle_id)
         raise CloudAdvisoryDisabledError(_CLOUD_ADVISORY_MESSAGE)

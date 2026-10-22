@@ -6,6 +6,7 @@ the right ``ConcurrencyController`` for swarm execution.
 Public surface:
     inference_mode  — classify cfg as "local" | "cloud" | "mixed"
     advisory_allowed — may the advisory send portfolio data to the orchestrator?
+    is_local_ollama — does an Ollama model + host keep data on this machine?
     BuiltProviders  — frozen dataclass holding the two providers + shared meter
     build_providers — construct providers from cfg, wrapping cloud ones in budget guard
     build_controller — select ResourceGovernor (local) or RateLimitController (cloud)
@@ -13,8 +14,11 @@ Public surface:
 
 from __future__ import annotations
 
+import ipaddress
+import os
 from dataclasses import dataclass
 from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 
 from alphaswarm.config import InferenceConfig, ProviderLimits, ProviderType
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
@@ -53,14 +57,89 @@ def inference_mode(cfg: InferenceConfig) -> Literal["local", "cloud", "mixed"]:
     return "mixed"
 
 
-def advisory_allowed(cfg: InferenceConfig) -> bool:
+# ---------------------------------------------------------------------------
+# Local vs. off-machine Ollama (docs/DECISIONS.md#adr-advisory-pipeline)
+# ---------------------------------------------------------------------------
+
+# Where ollama.AsyncClient connects when given no host and OLLAMA_HOST is unset.
+_OLLAMA_DEFAULT_HOST = "http://127.0.0.1:11434"
+
+
+def is_cloud_ollama_model(model: str) -> bool:
+    """True for an Ollama cloud model, which Ollama runs on ollama.com.
+
+    Ollama names its cloud models with a ``-cloud`` tag suffix
+    (``gpt-oss:120b-cloud``) or a bare ``cloud`` tag (``glm-4.6:cloud``). Any
+    name ending in ``-cloud`` counts, tagged or not, so a doubtful name fails
+    closed. An alias built from a Modelfile whose ``FROM`` is a cloud model
+    cannot be detected from its name.
+    """
+    name = model.strip().lower().rsplit("/", 1)[-1].split("@", 1)[0]
+    return name.endswith(("-cloud", ":cloud"))
+
+
+def is_loopback_url(url: str) -> bool:
+    """True when *url* names this machine: localhost, 127.0.0.0/8 or ::1.
+
+    Parsed like ollama's ``_parse_host``: the scheme is optional and an empty
+    host means 127.0.0.1. Anything unparseable, any other name or address
+    (including the 0.0.0.0 bind address) is treated as remote.
+    """
+    text = url.strip()
+    if "://" not in text:
+        text = f"http://{text}"
+    try:
+        parts = urlsplit(text)
+        _ = parts.port  # raises ValueError on a malformed port
+    except ValueError:
+        return False
+    host = (parts.hostname or "").rstrip(".")
+    if not host:
+        return True
+    if host == "localhost":
+        return True
+    try:
+        addr = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped.is_loopback
+    return addr.is_loopback
+
+
+def effective_ollama_host(base_url: str | None) -> str:
+    """The host ``ollama.AsyncClient(host=base_url)`` really connects to.
+
+    The client uses ``host or OLLAMA_HOST`` and falls back to 127.0.0.1:11434.
+    """
+    return base_url or os.environ.get("OLLAMA_HOST") or _OLLAMA_DEFAULT_HOST
+
+
+def is_local_ollama(model: str, base_url: str | None) -> bool:
+    """True when *model* on the Ollama server at *base_url* keeps data on this machine."""
+    return not is_cloud_ollama_model(model) and is_loopback_url(effective_ollama_host(base_url))
+
+
+def advisory_allowed(cfg: InferenceConfig, *, ollama_base_url: str | None) -> bool:
     """True when the advisory may send portfolio data to the orchestrator.
 
-    A local (Ollama) orchestrator is always allowed. A cloud orchestrator needs
-    the explicit ``allow_cloud_advisory`` opt-in
-    (docs/DECISIONS.md#adr-advisory-pipeline).
+    Without the explicit ``allow_cloud_advisory`` opt-in, only a local Ollama
+    orchestrator is allowed: provider Ollama, not an Ollama cloud model, and a
+    loopback server (docs/DECISIONS.md#adr-advisory-pipeline).
+
+    ``ollama_base_url`` is the host of the shared OllamaClient that
+    OllamaProvider sends through (``AppSettings.ollama.base_url``). The role's
+    own ``base_url`` is checked as well, so a remote one fails closed even
+    though the provider does not use it today.
     """
-    return cfg.orchestrator.provider == ProviderType.OLLAMA or bool(cfg.allow_cloud_advisory)
+    if cfg.allow_cloud_advisory:
+        return True
+    orchestrator = cfg.orchestrator
+    if orchestrator.provider != ProviderType.OLLAMA:
+        return False
+    if orchestrator.base_url and not is_loopback_url(orchestrator.base_url):
+        return False
+    return is_local_ollama(orchestrator.model, ollama_base_url)
 
 
 # ---------------------------------------------------------------------------

@@ -23,7 +23,11 @@ from alphaswarm.inference.factory import (
     advisory_allowed,
     build_controller,
     build_providers,
+    effective_ollama_host,
     inference_mode,
+    is_cloud_ollama_model,
+    is_local_ollama,
+    is_loopback_url,
 )
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
@@ -379,4 +383,150 @@ def test_advisory_allowed(
     orchestrator: RoleConfig, worker: RoleConfig, opt_in: bool, allowed: bool
 ) -> None:
     cfg = InferenceConfig(orchestrator=orchestrator, worker=worker, allow_cloud_advisory=opt_in)
-    assert advisory_allowed(cfg) is allowed
+    assert advisory_allowed(cfg, ollama_base_url=_LOCAL_OLLAMA) is allowed
+
+
+# An Ollama orchestrator is local only when its model runs on this machine and the
+# server it talks to is on loopback. An Ollama cloud model ("-cloud" / ":cloud" tag)
+# or a remote Ollama host sends the portfolio off the machine, so it needs the same
+# opt-in as a cloud provider.
+
+_LOCAL_OLLAMA = "http://localhost:11434"
+
+
+@pytest.mark.parametrize(
+    ("model", "cloud"),
+    [
+        ("alphaswarm-orchestrator", False),
+        ("qwen3.6:27b-nvfp4", False),
+        ("llama3.1:8b", False),
+        ("cloudy-model:7b", False),  # "cloud" inside the name is not a cloud tag
+        ("cloud", False),  # a bare name with no -cloud/:cloud marker
+        ("gpt-oss:120b-cloud", True),
+        ("qwen3-coder:480b-cloud", True),
+        ("glm-4.6:cloud", True),
+        ("GPT-OSS:120B-CLOUD", True),
+        ("  gpt-oss:20b-cloud  ", True),
+        ("library/deepseek-v3.1:671b-cloud", True),
+        ("gpt-oss:120b-cloud@sha256:abc123", True),
+        ("my-model-cloud", True),  # untagged name with a -cloud suffix fails closed
+    ],
+)
+def test_is_cloud_ollama_model(model: str, cloud: bool) -> None:
+    assert is_cloud_ollama_model(model) is cloud
+
+
+@pytest.mark.parametrize(
+    ("url", "loopback"),
+    [
+        ("http://localhost:11434", True),
+        ("http://LOCALHOST:11434", True),
+        ("localhost:11434", True),
+        ("http://127.0.0.1:11434", True),
+        ("http://127.8.9.10:11434", True),
+        ("127.0.0.1", True),
+        ("http://[::1]:11434", True),
+        ("[::1]:11434", True),
+        ("http://[::ffff:127.0.0.1]:11434", True),
+        (":11434", True),  # ollama reads an empty host as 127.0.0.1
+        ("http://192.168.1.20:11434", False),
+        ("http://10.0.0.5:11434", False),
+        ("http://0.0.0.0:11434", False),  # a bind address, not loopback: fail closed
+        ("https://ollama.com", False),
+        ("http://gpu-box.local:11434", False),
+        ("http://localhost.evil.example:11434", False),
+        ("http://127.0.0.1.nip.io:11434", False),
+        ("http://user@remote.example:11434", False),
+        ("http://[2001:db8::1]:11434", False),
+        ("http://localhost:notaport", False),  # unparseable fails closed
+    ],
+)
+def test_is_loopback_url(url: str, loopback: bool) -> None:
+    assert is_loopback_url(url) is loopback
+
+
+def test_effective_ollama_host_mirrors_the_ollama_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ollama.AsyncClient uses ``host or OLLAMA_HOST`` and then 127.0.0.1:11434."""
+    monkeypatch.setenv("OLLAMA_HOST", "http://gpu-box.local:11434")
+    assert effective_ollama_host("http://localhost:11434") == "http://localhost:11434"
+    assert effective_ollama_host("") == "http://gpu-box.local:11434"
+    assert effective_ollama_host(None) == "http://gpu-box.local:11434"
+    monkeypatch.delenv("OLLAMA_HOST")
+    assert is_loopback_url(effective_ollama_host(None))
+    assert is_loopback_url(effective_ollama_host(""))
+
+
+@pytest.mark.parametrize(
+    ("model", "base_url", "local"),
+    [
+        ("alphaswarm-orchestrator", "http://localhost:11434", True),
+        ("alphaswarm-orchestrator", "http://192.168.1.20:11434", False),
+        ("gpt-oss:120b-cloud", "http://localhost:11434", False),
+        ("gpt-oss:120b-cloud", "http://192.168.1.20:11434", False),
+    ],
+)
+def test_is_local_ollama(model: str, base_url: str, local: bool) -> None:
+    assert is_local_ollama(model, base_url) is local
+
+
+def test_is_local_ollama_follows_ollama_host_when_base_url_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OLLAMA_HOST", "10.0.0.5:11434")
+    assert is_local_ollama("alphaswarm-orchestrator", "") is False
+    monkeypatch.setenv("OLLAMA_HOST", "127.0.0.1:11434")
+    assert is_local_ollama("alphaswarm-orchestrator", "") is True
+
+
+@pytest.mark.parametrize(
+    ("orchestrator", "ollama_base_url", "opt_in", "allowed"),
+    [
+        (_ollama_role(), _LOCAL_OLLAMA, False, True),
+        (_ollama_role("gpt-oss:120b-cloud"), _LOCAL_OLLAMA, False, False),
+        (_ollama_role("glm-4.6:cloud"), _LOCAL_OLLAMA, False, False),
+        (_ollama_role(), "http://192.168.1.20:11434", False, False),
+        (_ollama_role(), "https://ollama.com", False, False),
+        # The role's own base_url is checked too, so a remote one fails closed even
+        # though OllamaProvider sends to the shared client's host today.
+        (
+            RoleConfig(
+                provider=ProviderType.OLLAMA,
+                model="alphaswarm-orchestrator",
+                base_url="http://gpu-box.local:11434",
+            ),
+            _LOCAL_OLLAMA,
+            False,
+            False,
+        ),
+        (
+            RoleConfig(
+                provider=ProviderType.OLLAMA,
+                model="alphaswarm-orchestrator",
+                base_url="http://127.0.0.1:11434",
+            ),
+            _LOCAL_OLLAMA,
+            False,
+            True,
+        ),
+        (_ollama_role("gpt-oss:120b-cloud"), _LOCAL_OLLAMA, True, True),
+        (_ollama_role(), "http://192.168.1.20:11434", True, True),
+    ],
+    ids=[
+        "local",
+        "cloud-model-dash",
+        "cloud-model-colon",
+        "remote-host",
+        "ollama-com",
+        "remote-role-base-url",
+        "loopback-role-base-url",
+        "cloud-model-opted-in",
+        "remote-host-opted-in",
+    ],
+)
+def test_advisory_allowed_treats_cloud_or_remote_ollama_as_cloud(
+    orchestrator: RoleConfig, ollama_base_url: str, opt_in: bool, allowed: bool
+) -> None:
+    cfg = InferenceConfig(
+        orchestrator=orchestrator, worker=_ollama_role(), allow_cloud_advisory=opt_in
+    )
+    assert advisory_allowed(cfg, ollama_base_url=ollama_base_url) is allowed

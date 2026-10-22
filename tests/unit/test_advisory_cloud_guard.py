@@ -18,7 +18,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import FastAPI, HTTPException
 
-from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig
+from alphaswarm.config import (
+    AppSettings,
+    InferenceConfig,
+    OllamaSettings,
+    ProviderType,
+    RoleConfig,
+)
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.web import simulation_manager
 from alphaswarm.web.routes import advisory as advisory_route
@@ -63,6 +69,37 @@ async def test_the_job_refuses_a_cloud_orchestrator_without_opt_in(
     monkeypatch.setattr(advisory_route, "synthesize", synthesize)
     app_state = SimpleNamespace(
         settings=MagicMock(),
+        graph_manager=MagicMock(),
+        ollama_client=MagicMock(),
+        model_manager=MagicMock(),
+    )
+
+    with pytest.raises(advisory_route.CloudAdvisoryDisabledError):
+        await advisory_route._run_advisory_synthesis(
+            app_state, "cycle-1", _fictional_portfolio()  # type: ignore[arg-type]
+        )
+
+    build_providers.assert_not_called()
+    synthesize.assert_not_awaited()
+
+
+async def test_the_job_refuses_a_remote_ollama_orchestrator_without_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The job resolves the Ollama host the same way the route does."""
+    build_providers = MagicMock()
+    synthesize = AsyncMock()
+    local_cfg = InferenceConfig(
+        orchestrator=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-orchestrator"),
+        worker=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker"),
+    )
+    monkeypatch.setattr(advisory_route, "load_inference_config", lambda _s: local_cfg)
+    monkeypatch.setattr(advisory_route, "build_providers", build_providers)
+    monkeypatch.setattr(advisory_route, "synthesize", synthesize)
+    app_state = SimpleNamespace(
+        settings=AppSettings(  # type: ignore[call-arg]
+            _env_file=None, ollama=OllamaSettings(base_url="http://192.168.1.20:11434")
+        ),
         graph_manager=MagicMock(),
         ollama_client=MagicMock(),
         model_manager=MagicMock(),
