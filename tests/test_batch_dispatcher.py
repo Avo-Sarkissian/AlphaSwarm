@@ -827,14 +827,13 @@ async def test_safe_agent_inference_streams_state_on_success(
     assert snap.agent_states["quants_42"].confidence == 0.84
 
 
-async def test_safe_agent_inference_does_not_stream_on_parse_error(
+async def test_safe_agent_inference_streams_parse_error_on_inference_failure(
     governor: ResourceGovernor,
 ) -> None:
-    """PARSE_ERROR results MUST NOT overwrite a prior signal in StateStore.
+    """A failed agent is written as PARSE_ERROR at once.
 
-    If an agent's inference fails, we keep whatever was there before (the
-    "thinking" placeholder from set_phase, or the prior round's signal) so
-    the WS frame doesn't flip a failed agent into a misleading state.
+    Keeping the prior round's signal (or the "thinking" placeholder) made
+    failed agents pulse forever and counted them in the previous tally.
     """
     from alphaswarm.batch_dispatcher import _safe_agent_inference
     from alphaswarm.state import StateStore
@@ -844,10 +843,7 @@ async def test_safe_agent_inference_does_not_stream_on_parse_error(
         temperature=1.2, system_prompt="test", risk_profile="0.95",
     )
     store = StateStore()
-    # Pre-seed with a known prior-round signal
     await store.update_agent_state("degens_07", SignalType.SELL, 0.6)
-
-    provider = _fake_provider(n=1)
 
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_aw.return_value.__aenter__ = AsyncMock(
@@ -859,7 +855,7 @@ async def test_safe_agent_inference_does_not_stream_on_parse_error(
             decision = await _safe_agent_inference(
                 persona=persona,
                 governor=governor,
-                provider=provider,
+                provider=_fake_provider(n=1),
                 user_message="test",
                 peer_context=None,
                 market_context=None,
@@ -869,11 +865,52 @@ async def test_safe_agent_inference_does_not_stream_on_parse_error(
             )
 
     assert decision.signal == SignalType.PARSE_ERROR
+    state = store.snapshot().agent_states["degens_07"]
+    assert state.signal == SignalType.PARSE_ERROR
+    assert state.confidence == 0.0
 
-    # Prior-round signal must be preserved (not overwritten by PARSE_ERROR)
-    snap = store.snapshot()
-    assert snap.agent_states["degens_07"].signal == SignalType.SELL
-    assert snap.agent_states["degens_07"].confidence == 0.6
+
+async def test_safe_agent_inference_streams_parse_error_from_parse_fallback(
+    governor: ResourceGovernor,
+) -> None:
+    """A tier-3 parse fallback (no exception) is written as PARSE_ERROR too."""
+    from alphaswarm.batch_dispatcher import _safe_agent_inference
+    from alphaswarm.state import StateStore
+
+    persona = WorkerPersonaConfig(
+        agent_id="macro_03", bracket="macro", influence_weight=0.5,
+        temperature=0.5, system_prompt="test", risk_profile="0.5",
+    )
+    store = StateStore()
+
+    async def mock_infer(
+        user_message: str,
+        peer_context: str | None = None,
+        market_context: str | None = None,
+    ) -> AgentDecision:
+        return AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0)
+
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
+        mock_worker = AsyncMock()
+        mock_worker.infer = mock_infer
+        mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)
+        mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+            await _safe_agent_inference(
+                persona=persona,
+                governor=governor,
+                provider=_fake_provider(n=1),
+                user_message="test",
+                peer_context=None,
+                market_context=None,
+                jitter_min=0.0,
+                jitter_max=0.0,
+                state_store=store,
+            )
+
+    assert store.snapshot().agent_states["macro_03"].signal == SignalType.PARSE_ERROR
+    assert store.peek_rationales() == ()
 
 
 async def test_dispatch_wave_streams_state_progressively(
@@ -1014,6 +1051,11 @@ async def test_safe_agent_inference_skips_rationale_on_parse_error(
     assert all(r.signal is SignalType.PARSE_ERROR for r in results)
     # ⇒ ZERO rationale entries pushed.
     assert store.peek_rationales() == ()
+    # ⇒ but every failed agent IS visible in state as PARSE_ERROR.
+    states = store.snapshot().agent_states
+    assert {aid for aid, s in states.items() if s.signal == SignalType.PARSE_ERROR} == {
+        p["agent_id"] for p in sample_personas
+    }
 
 
 async def test_safe_agent_inference_no_push_when_state_store_none(
