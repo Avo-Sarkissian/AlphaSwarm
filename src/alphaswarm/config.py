@@ -98,7 +98,9 @@ class GovernorSettings(BaseModel):
     slot_adjustment_step: int = Field(default=2, ge=1, le=4)
     batch_failure_threshold_percent: float = Field(default=20.0, ge=5.0, le=50.0)
     jitter_min_seconds: float = Field(default=0.5, ge=0.0, le=2.0)
-    jitter_max_seconds: float = Field(default=1.5, ge=0.5, le=5.0)
+    # Lower bound 0.0 lets deterministic harnesses (tests/engine) turn jitter off;
+    # the production default stays 1.5 s (docs/DECISIONS.md#p3-d-14).
+    jitter_max_seconds: float = Field(default=1.5, ge=0.0, le=5.0)
 
     @model_validator(mode="after")
     def _check_threshold_ordering(self) -> GovernorSettings:

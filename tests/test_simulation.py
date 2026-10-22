@@ -1481,7 +1481,7 @@ async def test_run_simulation_persists_all_rounds(
     assert 3 in round_nums
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
 async def test_worker_reload_once_for_rounds_2_3(
@@ -1518,9 +1518,11 @@ async def test_worker_reload_once_for_rounds_2_3(
     mock_model_manager.load_model.assert_awaited_once()
     # unload_model called once (after Rounds 2-3)
     mock_model_manager.unload_model.assert_awaited_once()
+    # Rounds 2 and 3 really went through the patched dispatch_wave (not a no-op patch).
+    assert mock_dispatch_wave.await_count == 2
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
 async def test_governor_fresh_session_rounds_2_3(
@@ -1554,9 +1556,11 @@ async def test_governor_fresh_session_rounds_2_3(
     # run_simulation's own governor session (separate from run_round1's)
     mock_governor.start_monitoring.assert_awaited_once()
     mock_governor.stop_monitoring.assert_awaited_once()
+    # Rounds 2 and 3 really went through the patched dispatch_wave (not a no-op patch).
+    assert mock_dispatch_wave.await_count == 2
 
 
-@patch("alphaswarm.simulation._dispatch_round", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
 async def test_simulation_phase_transitions(
@@ -1605,6 +1609,8 @@ async def test_simulation_phase_transitions(
     assert "round_2" in logged_phases
     assert "round_3" in logged_phases
     assert "complete" in logged_phases
+    # Rounds 2 and 3 really went through the patched dispatch_wave (not a no-op patch).
+    assert mock_dispatch_wave.await_count == 2
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
