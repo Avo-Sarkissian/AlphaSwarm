@@ -147,8 +147,9 @@ class GraphError(AlphaSwarmError):
     """A Neo4j operation failed.
 
     ``op`` names the GraphStateManager operation (for example
-    ``"persist_round"``) so logs and the UI can say what was being done
-    without quoting driver text (docs/DECISIONS.md#p4-d-07).
+    ``"write_decisions"``; None when the raise site does not say) so logs and
+    the UI can say what was being done without quoting driver text
+    (docs/DECISIONS.md#adr-taskgroup-dispatch).
     """
 
     def __init__(
@@ -290,7 +291,7 @@ def _describe(exc: BaseException) -> tuple[RunErrorCode, str]:
     if isinstance(exc, Neo4jUnavailableError):
         return (
             "graph_unavailable",
-            "Neo4j is unavailable. Start the database (see docs/RUNBOOK.md) and run again.",
+            "Neo4j is unavailable. Start the database and run again.",
         )
     if isinstance(exc, GraphError):
         return (

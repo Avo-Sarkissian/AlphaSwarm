@@ -78,6 +78,8 @@ def test_run_error_codes(exc: BaseException, code: str) -> None:
     assert err.code == code
     assert err.round_num == 2
     assert 0 < len(err.message) <= RUN_ERROR_MESSAGE_MAX_CHARS
+    # No template names a file path (none of these inputs carries a slash).
+    assert "/" not in err.message
 
 
 def test_run_error_messages_use_structured_fields() -> None:
