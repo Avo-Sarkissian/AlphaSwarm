@@ -1,22 +1,14 @@
-// Backend SimulationPhase string -> header round and label.
-// 'finalizing' runs after the last round (narratives, metrics)
-// and keeps the last round on screen. The round count is still the
-// hard-coded 3 the header has always used; useRounds() replaces it later.
+// Header label for the backend SimulationPhase string. The round comes from
+// the frame (useRound), never from parsing the phase string, so replay and
+// 2-round runs label correctly (docs/DECISIONS.md#adr-num-rounds).
 
-export function roundFromPhase(phase: string): number {
-  if (phase === 'complete' || phase === 'finalizing') return 3;
-  const m = phase.match(/^round[_-]?(\d+)$/i);
-  if (m) return Number(m[1]);
-  const n = Number(phase);
-  if (Number.isFinite(n) && phase.trim() !== '') return n;
-  return 1;
-}
-
-export function phaseLabelFor(phase: string, round: number): string {
+export function phaseLabelFor(phase: string, round: number | null, numRounds: number): string {
   if (phase === 'complete') return 'COMPLETE';
   if (phase === 'finalizing') return 'FINALIZING';
   if (phase === 'idle') return 'IDLE';
-  if (phase === 'initializing') return 'SEEDING';
-  if (phase.startsWith('round')) return phase.toUpperCase();
-  return `ROUND ${round}/3`;
+  if (phase === 'seeding' || phase === 'initializing') return 'SEEDING';
+  if (phase === 'replay') return round === null ? 'REPLAY' : `REPLAY · R${round}/${numRounds}`;
+  const match = /^round_(\d+)$/.exec(phase);
+  if (match) return `ROUND ${round ?? Number(match[1])}/${numRounds}`;
+  return phase.toUpperCase();
 }

@@ -43,7 +43,8 @@ import { errorMessage } from '../lib/apiError';
 import { rankInfluencers } from '../lib/influence';
 import { signalClass, signalLabel } from '../lib/signals';
 import { bracketTallies } from '../lib/tally';
-import { phaseLabelFor, roundFromPhase } from '../lib/phase';
+import { phaseLabelFor } from '../lib/phase';
+import { useRound, useRounds } from '../hooks/useRounds';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
 // modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
 import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from './v2';
@@ -365,10 +366,12 @@ export function App() {
     }));
   }, [agents, edges]);
 
-  // Header round and label from the backend phase string (lib/phase.ts);
-  // 'finalizing' keeps the last round instead of falling back to round 1.
-  const round = roundFromPhase(phase);
-  const phaseLabel = phaseLabelFor(phase, round);
+  // Round on screen from the frame (useRound), never parsed from the phase
+  // string, so replay and 2-round runs label correctly (lib/phase.ts).
+  const { numRounds } = useRounds();
+  const currentRound = useRound();
+  const round = currentRound ?? 1;
+  const phaseLabel = phaseLabelFor(phase, currentRound, numRounds);
   const phaseState: 'live' | 'complete' = phase === 'complete' ? 'complete' : 'live';
 
   const onAgentHover = (agent: any, e: any) => {
