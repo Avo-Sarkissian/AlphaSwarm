@@ -337,7 +337,7 @@ async def test_complete_reasoning_arc(
 
     # 1. Create cycle with seed event (Entity nodes created via MENTIONS edges)
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(
-        sample_seed_event.raw_rumor, sample_seed_event,
+        sample_seed_event.raw_rumor, sample_seed_event, num_rounds=3,
     )
 
     # 2. Write decisions and episodes for 3 rounds (use first 3 personas for speed)
@@ -429,7 +429,7 @@ async def test_references_edges_case_insensitive(
     from alphaswarm.types import SignalType
 
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(
-        sample_seed_event.raw_rumor, sample_seed_event,
+        sample_seed_event.raw_rumor, sample_seed_event, num_rounds=3,
     )
     decisions = [
         (all_personas[0].id, AgentDecision(

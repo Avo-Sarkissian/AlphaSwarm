@@ -24,7 +24,7 @@ RUMOR = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B
 
 async def _new_cycle(gm: GraphStateManager) -> str:
     seed = SeedEvent(raw_rumor=RUMOR, entities=[], overall_sentiment=0.2)
-    return await gm.create_cycle_with_seed_event(RUMOR, seed)
+    return await gm.create_cycle_with_seed_event(RUMOR, seed, num_rounds=3)
 
 
 async def _decision_count(gm: GraphStateManager, cycle_id: str) -> int:

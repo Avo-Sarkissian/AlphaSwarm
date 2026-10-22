@@ -131,6 +131,7 @@ async def test_writes_follow_the_simulation_order() -> None:
         "write_cycle_metrics",
     ]
     assert gm.create_cycle_with_seed_event.await_args.args[0] == SEED_RUMOR
+    assert gm.create_cycle_with_seed_event.await_args.kwargs == {"num_rounds": 3}
     gm.write_shock_event.assert_awaited_once_with(CYCLE_ID, SHOCK_TEXT, SHOCK_ROUND)
     assert [c.kwargs for c in gm.compute_influence_edges.await_args_list] == [
         {"up_to_round": 2, "total_agents": 96},

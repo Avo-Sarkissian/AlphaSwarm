@@ -462,7 +462,9 @@ async def test_create_cycle_with_seed_event_single_transaction(
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph)
+    await gsm.create_cycle_with_seed_event(
+        "test rumor", sample_seed_event_for_graph, num_rounds=3
+    )
 
     session.execute_write.assert_awaited_once()
 
@@ -477,7 +479,9 @@ async def test_create_cycle_with_seed_event_returns_uuid(
 
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    cycle_id = await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph)
+    cycle_id = await gsm.create_cycle_with_seed_event(
+        "test rumor", sample_seed_event_for_graph, num_rounds=3
+    )
 
     uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     assert re.match(uuid4_pattern, cycle_id), f"Not a valid UUID4: {cycle_id}"
@@ -500,7 +504,9 @@ async def test_create_cycle_with_seed_event_wraps_neo4j_error(
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     with pytest.raises(Neo4jWriteError) as exc_info:
-        await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph)
+        await gsm.create_cycle_with_seed_event(
+            "test rumor", sample_seed_event_for_graph, num_rounds=3
+        )
 
     assert exc_info.value.original_error is original_exc
 
@@ -513,7 +519,7 @@ async def test_create_cycle_with_entities_tx_creates_cycle_with_overall_sentimen
     tx = AsyncMock()
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, [],
+        tx, "test-cycle-id", "test rumor", 0.6, [], 3,
     )
 
     # With empty entities, only 1 tx.run call (Cycle creation only)
@@ -531,7 +537,7 @@ async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
     tx = AsyncMock()
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, [],
+        tx, "test-cycle-id", "test rumor", 0.6, [], 3,
     )
 
     # Only 1 tx.run call (Cycle creation, no Entity UNWIND)
@@ -550,7 +556,7 @@ async def test_create_cycle_with_entities_tx_creates_mentions_relationships() ->
     ]
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, entities,
+        tx, "test-cycle-id", "test rumor", 0.6, entities, 3,
     )
 
     # 2 tx.run calls: Cycle creation + Entity UNWIND with MENTIONS
@@ -1813,3 +1819,16 @@ async def test_compute_influence_edges_skips_when_no_active_agents(mock_driver: 
     assert await gsm.compute_influence_edges("c1", up_to_round=3, total_agents=0) == {}
     session.execute_read.assert_not_awaited()
     session.execute_write.assert_not_awaited()
+
+
+async def test_create_cycle_rejects_non_positive_num_rounds() -> None:
+    """num_rounds is validated before any database call."""
+    from alphaswarm.graph import GraphStateManager
+
+    gsm = GraphStateManager(MagicMock(), [])
+    with pytest.raises(ValueError, match="num_rounds"):
+        await gsm.create_cycle_with_seed_event(
+            "rumor",
+            SeedEvent(raw_rumor="rumor", entities=[], overall_sentiment=0.0),
+            num_rounds=0,
+        )

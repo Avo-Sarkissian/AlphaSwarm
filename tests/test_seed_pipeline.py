@@ -275,3 +275,24 @@ async def test_inject_seed_passes_rumor_as_user_message(
     assert messages[0]["role"] == "system"
     assert messages[1]["role"] == "user"
     assert messages[1]["content"] == "Tesla CEO steps down unexpectedly"
+
+
+@pytest.mark.asyncio()
+async def test_inject_seed_stamps_num_rounds(
+    mock_settings: MagicMock,
+    fake_provider: FakeInferenceProvider,
+    mock_graph_manager: AsyncMock,
+) -> None:
+    """The cycle records the configured depth at creation, not only at completion."""
+    from alphaswarm.seed import inject_seed
+
+    mock_settings.num_rounds = 2
+    await inject_seed(
+        rumor="ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.",
+        settings=mock_settings,
+        orchestrator=fake_provider,
+        graph_manager=mock_graph_manager,
+    )
+
+    kwargs = mock_graph_manager.create_cycle_with_seed_event.call_args.kwargs
+    assert kwargs["num_rounds"] == 2

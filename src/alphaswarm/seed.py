@@ -90,7 +90,9 @@ async def inject_seed(
 
         # 4. Persist to Neo4j atomically (addresses review concern #2: no orphan Cycles)
         cycle_id = await graph_manager.create_cycle_with_seed_event(
-            rumor, parsed_result.seed_event,
+            rumor,
+            parsed_result.seed_event,
+            num_rounds=settings.num_rounds,
         )
 
         # 5. Phase 13: Generate modifiers while orchestrator is still loaded (D-06)

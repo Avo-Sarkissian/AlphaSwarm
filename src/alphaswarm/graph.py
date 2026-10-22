@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from neo4j.exceptions import Neo4jError
@@ -293,21 +293,24 @@ class GraphStateManager:
         return str(value) if value is not None else None
 
     async def create_cycle_with_seed_event(
-        self, seed_rumor: str, seed_event: SeedEvent,
+        self,
+        seed_rumor: str,
+        seed_event: SeedEvent,
+        *,
+        num_rounds: int,
     ) -> str:
-        """Atomically create Cycle node with seed event entities.
+        """Atomically create the Cycle (with num_rounds) and its seed entities.
 
-        Per review concern: create_cycle() then write_seed_event() as separate
-        operations could leave orphan Cycle nodes. This method wraps both in a
-        single transaction. Also persists overall_sentiment on the Cycle node.
-
-        Args:
-            seed_rumor: Raw rumor text for the Cycle node.
-            seed_event: Parsed seed event with entities and overall_sentiment.
+        Cycle, Entity and MENTIONS are written in one transaction so a failure
+        cannot leave an orphan Cycle. `num_rounds` is stamped here so running
+        and failed cycles carry it too; report queries resolve the final round
+        from it (docs/DECISIONS.md#adr-num-rounds).
 
         Returns:
             cycle_id: The UUID4 string for the created Cycle.
         """
+        if num_rounds < 1:
+            raise ValueError(f"num_rounds must be >= 1, got {num_rounds}")
         cycle_id = str(uuid.uuid4())
         entity_params = [
             {
@@ -326,6 +329,7 @@ class GraphStateManager:
                     seed_rumor,
                     seed_event.overall_sentiment,
                     entity_params,
+                    num_rounds,
                 )
         except Neo4jError as exc:
             raise Neo4jWriteError(
@@ -337,6 +341,7 @@ class GraphStateManager:
             cycle_id=cycle_id,
             entity_count=len(entity_params),
             overall_sentiment=seed_event.overall_sentiment,
+            num_rounds=num_rounds,
         )
         return cycle_id
 
@@ -346,22 +351,24 @@ class GraphStateManager:
         cycle_id: str,
         seed_rumor: str,
         overall_sentiment: float,
-        entities: list[dict],  # type: ignore[type-arg]
+        entities: list[dict[str, Any]],
+        num_rounds: int,
     ) -> None:
-        """Single transaction: create Cycle with overall_sentiment, then UNWIND Entity+MENTIONS."""
-        # Create Cycle node with overall_sentiment
+        """Single transaction: Cycle (num_rounds) then UNWIND Entity + MENTIONS."""
         await tx.run(
             """
             CREATE (c:Cycle {
                 cycle_id: $cycle_id,
                 seed_rumor: $seed_rumor,
                 overall_sentiment: $overall_sentiment,
-                created_at: datetime()
+                created_at: datetime(),
+                num_rounds: $num_rounds
             })
             """,
             cycle_id=cycle_id,
             seed_rumor=seed_rumor,
             overall_sentiment=overall_sentiment,
+            num_rounds=num_rounds,
         )
         # Create Entity nodes + MENTIONS relationships (only if entities exist)
         if entities:
