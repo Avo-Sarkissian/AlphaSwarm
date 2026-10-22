@@ -236,3 +236,40 @@ describe('Settings rows the backend can override', () => {
     expect(screen.getByText(/ALPHASWARM_INFERENCE_CONFIG_PATH/)).toBeDefined();
   });
 });
+
+describe('Settings inference slots row', () => {
+  function stubBackend() {
+    stubFetchRoutes({
+      'GET /api/settings': { body: settingsView(LOCAL_ROLE, LOCAL_ROLE, false) },
+      'GET /api/health': { body: HEALTH },
+    });
+  }
+
+  it('shows the governor slots once the governor has reported', async () => {
+    stubBackend();
+    renderWithFrame(<Settings onClose={vi.fn()} />); // live fixture: 12 of 16 slots
+    await screen.findByText('local only');
+    expect(screen.getByDisplayValue('12 in use / 16 allowed now')).toBeDefined();
+  });
+
+  it('says the governor has not reported instead of "0 allowed"', async () => {
+    // The wire's placeholder before the governor first reports (idle, replay, cloud).
+    stubBackend();
+    renderWithFrame(<Settings onClose={vi.fn()} />, {
+      frame: {
+        telemetry: {
+          memMb: 61.2,
+          slotsUsed: 0,
+          slotsMax: 0,
+          governorState: 'idle',
+          tps: 0,
+          ts: 0,
+          elapsedSeconds: 0,
+        },
+      },
+    });
+    await screen.findByText('local only');
+    expect(screen.queryByDisplayValue(/0 allowed/)).toBeNull();
+    expect(screen.getByDisplayValue(/not reported yet/)).toBeDefined();
+  });
+});

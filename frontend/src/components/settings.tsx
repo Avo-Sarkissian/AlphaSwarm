@@ -27,9 +27,20 @@ import {
   normalizeSettingsUiState,
   type SettingsUiState,
 } from '../lib/settingsState';
+import type { TelemetrySlice } from '../types';
 import { InferenceSettings } from './settings_inference';
 
 const SETTINGS_KEY = 'as_settings_ui_v1';
+
+// Until the memory governor first reports, the frame carries an idle placeholder
+// with 0 slots (docs/DECISIONS.md#p999-3-d-01). Nothing reports in cloud mode,
+// where the rate limiter replaces the governor, so 0 is not a real allowance.
+function slotsValue(telemetry: TelemetrySlice): string {
+  if (telemetry.governorState === null || telemetry.governorState === 'idle') {
+    return 'not reported yet (the memory governor reports during a local run)';
+  }
+  return `${telemetry.slotsUsed} in use / ${telemetry.slotsMax} allowed now`;
+}
 
 export function Settings({ onClose }: { onClose: () => void }) {
   // Read + normalize on mount — defensive against stale storage that may carry
@@ -210,7 +221,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               {/* Live from the memory governor (governor_metrics in every frame) */}
               <LiveRow
                 label="Concurrent inference slots"
-                value={`${telemetry.slotsUsed} in use / ${telemetry.slotsMax} allowed now`}
+                value={slotsValue(telemetry)}
                 desc="Live from the memory governor; the allowance shrinks under memory pressure."
               />
               {/* Backend-touching: agent count — read-only, KR-41.6-06 */}
