@@ -312,6 +312,7 @@ def test_render_demo_links_a_published_url_or_explains_the_local_build(ds: Modul
 FEATURE_FILES: dict[str, str] = {
     "frontend/src/data-source/index.ts": "const demo = import.meta.env.VITE_DEMO === '1';\n",
     "src/alphaswarm/manifest.py": "class RunManifest(BaseModel, frozen=True):\n    sim_seed: int\n",
+    "docs/methodology.md": "# Methodology\n\n## 7. Scoring\n",
     "src/alphaswarm/inference/call_log.py": "async def logged_call() -> None: ...\n",
     ".github/workflows/ci.yml": "jobs:\n  lint:\n    steps:\n      - run: uv run ruff check .\n",
 }
@@ -337,8 +338,15 @@ def test_repo_facts_read_each_feature_from_the_repository(ds: ModuleType, tmp_pa
         ("frontend/src/notes.md", "Build the demo with VITE_DEMO=1.\n"),
         ("frontend/TESTING.md", "VITE_DEMO=1 builds the demo.\n"),
         ("src/alphaswarm/manifest.py", "def git_revision() -> None: ...\n"),
+        ("docs/experiments.md", "Method and pre-registered metrics: `methodology.md`.\n"),
     ],
-    ids=["ci-comment", "frontend-prose", "frontend-docs", "manifest-without-run-manifest"],
+    ids=[
+        "ci-comment",
+        "frontend-prose",
+        "frontend-docs",
+        "manifest-without-run-manifest",
+        "methodology-mentioned",
+    ],
 )
 def test_repo_facts_ignore_mentions_that_are_not_the_feature(
     ds: ModuleType, tmp_path: Path, rel: str, text: str
@@ -349,8 +357,12 @@ def test_repo_facts_ignore_mentions_that_are_not_the_feature(
 
 def test_resume_and_demo_leave_out_features_the_repository_lacks(ds: ModuleType) -> None:
     absent = _facts(ds, present=False)
+    claims = ("ruff", "manifest", "telemetry", "pre-registered")
+    for verdict in ("better", "worse", "no-difference", "not measured"):
+        rows = _rows(ds, eval_verdict=verdict)
+        text = ds.render_resume(rows, DEFAULT_BRACKETS, facts=absent)
+        assert [claim for claim in claims if claim in text] == [], verdict
     text = ds.render_resume(_rows(ds), DEFAULT_BRACKETS, facts=absent)
-    assert [claim for claim in ("ruff", "manifest", "telemetry") if claim in text] == []
     assert "from every feed (brackets never shown: 6 to 0).\n" in text
     assert "gradual recovery); performance changes cut mean round time" in text
     assert "gated mypy strict, ESLint and 5 import-linter contracts;" in text
@@ -380,7 +392,55 @@ def test_resume_from_the_repository_claims_only_features_it_has(ds: ModuleType) 
         "telemetry": facts.call_telemetry,
     }
     assert {claim: claim in text for claim in claims} == claims
+    # Only some evaluation verdicts name pre-registration, so only its absence is forced.
+    assert facts.preregistered or "pre-registered" not in text
     assert bool(ds.render_demo(rows)) == has_demo
+
+
+ACCURACY = "(hit rate 0.61 (95% CI 0.52-0.70) vs 0.50)"
+
+
+@pytest.mark.parametrize(
+    ("verdict", "present", "ending"),
+    [
+        (
+            "not measured",
+            ("preregistered",),
+            "harness with pre-registered metrics and single-model baselines.",
+        ),
+        ("not measured", (), "evaluation harness with single-model baselines."),
+        (
+            "worse",
+            ("preregistered",),
+            f"{ACCURACY}, reported as measured with pre-registered metrics.",
+        ),
+        ("worse", (), f"{ACCURACY}, reported as measured."),
+        (
+            "no-difference",
+            ("preregistered", "run_manifest"),
+            f"{ACCURACY}, a result the pre-registered harness reproduces from stored run "
+            "manifests.",
+        ),
+        (
+            "no-difference",
+            ("run_manifest",),
+            f"{ACCURACY}, a result the harness reproduces from stored run manifests.",
+        ),
+        (
+            "no-difference",
+            ("preregistered",),
+            f"{ACCURACY}, reported as measured with pre-registered metrics.",
+        ),
+        ("no-difference", (), f"{ACCURACY}, reported as measured."),
+    ],
+)
+def test_resume_names_pre_registration_and_run_manifests_only_once_they_exist(
+    ds: ModuleType, verdict: str, present: tuple[str, ...], ending: str
+) -> None:
+    facts = _facts(ds, present=False, **dict.fromkeys(present, True))
+    rows = _rows(ds, eval_verdict=verdict)
+    project = ds.render_resume(rows, DEFAULT_BRACKETS, facts=facts).splitlines()[0]
+    assert project.endswith(ending)
 
 
 def test_render_screenshots_lists_every_image_and_the_run(ds: ModuleType, tmp_path: Path) -> None:

@@ -37,6 +37,7 @@ EXPORT_SCHEMA: Final = "alphaswarm.cycle-export/1"
 NOT_MEASURED: Final = "not measured"
 NOT_PUBLISHED: Final = "not published"
 CI_WORKFLOW: Final = ".github/workflows/ci.yml"
+METHODOLOGY: Final = "docs/methodology.md"
 FRONTEND_CODE_SUFFIXES: Final = frozenset({".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs"})
 
 HEADLINE_HEADER: Final = ("Key", "Result", "Value", "Source")
@@ -170,6 +171,7 @@ class RepoFacts:
 
     demo_build: bool  # the frontend reads VITE_DEMO, so the static demo can be built
     run_manifest: bool  # alphaswarm.manifest defines RunManifest
+    preregistered: bool  # docs/methodology.md, which pre-registers the metrics, exists
     call_telemetry: bool  # alphaswarm.inference.call_log logs every inference call
     ruff_gated: bool  # a CI workflow step runs ruff check
 
@@ -291,6 +293,7 @@ def repo_facts(root: Path) -> RepoFacts:
     return RepoFacts(
         demo_build=_frontend_reads(root, "VITE_DEMO"),
         run_manifest="class RunManifest" in _text_or_empty(package / "manifest.py"),
+        preregistered=(root / METHODOLOGY).is_file(),
         call_telemetry=(package / "inference" / "call_log.py").is_file(),
         ruff_gated=any("ruff check" in line for line in ci_lines),
     )
@@ -398,18 +401,21 @@ def _measured(rows: Mapping[str, HeadlineRow], key: str) -> str | None:
     return row.value if row.measured else None
 
 
-def _resume_project(rows: Mapping[str, HeadlineRow], agents: int, brackets: int) -> str:
+def _resume_project(
+    rows: Mapping[str, HeadlineRow], agents: int, brackets: int, facts: RepoFacts
+) -> str:
     base = (
         "Built **AlphaSwarm**, a local-first multi-agent LLM simulation engine (Python 3.11 "
         f"asyncio, FastAPI, Neo4j, Ollama on MLX) that runs {agents} market personas in "
         f"{brackets} archetypes through a multi-round consensus cascade and streams it to a "
         "live influence graph."
     )
+    registered = " with pre-registered metrics" if facts.preregistered else ""
     accuracy, verdict = _measured(rows, "eval_accuracy"), rows["eval_verdict"].value
     if accuracy is None or verdict == NOT_MEASURED:
+        metrics = "pre-registered metrics and " if facts.preregistered else ""
         return base + (
-            " It ships a point-in-time evaluation harness with pre-registered metrics and "
-            "single-model baselines."
+            f" It ships a point-in-time evaluation harness with {metrics}single-model baselines."
         )
     if verdict == "better":
         return base + (
@@ -419,12 +425,16 @@ def _resume_project(rows: Mapping[str, HeadlineRow], agents: int, brackets: int)
     if verdict == "worse":
         return base + (
             " On a point-in-time evaluation against real outcomes it trailed the best "
-            f"single-model baseline ({accuracy}), reported as measured with pre-registered metrics."
+            f"single-model baseline ({accuracy}), reported as measured{registered}."
         )
+    if facts.run_manifest:  # the reproduction claim needs stored manifests, as in _resume_method
+        harness = "pre-registered harness" if facts.preregistered else "harness"
+        tail = f"a result the {harness} reproduces from stored run manifests"
+    else:
+        tail = f"reported as measured{registered}"
     return base + (
         " On a point-in-time evaluation against real outcomes it showed no significant edge over "
-        f"single-model baselines ({accuracy}), a result the pre-registered harness reproduces "
-        "from stored run manifests."
+        f"single-model baselines ({accuracy}), {tail}."
     )
 
 
@@ -529,7 +539,7 @@ def render_resume(
     """Six numbered bullets; without ``facts`` they follow this repository's features."""
     present = repo_facts(ROOT) if facts is None else facts
     bullets = (
-        _resume_project(rows, sum(b.count for b in brackets), len(brackets)),
+        _resume_project(rows, sum(b.count for b in brackets), len(brackets), present),
         _resume_method(rows, present),
         _resume_performance(rows, present),
         _resume_ui(rows, present),
