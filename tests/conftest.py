@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 
     from alphaswarm.graph import GraphStateManager
     from alphaswarm.types import AgentPersona, BracketConfig
+    from tests.support.seed_builder import SeededCycle
 
 
 # ---------------------------------------------------------------------------
@@ -215,16 +217,19 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Give every `neo4j` test sockets and the session event loop (C-TEST-09).
+    """Give `neo4j` tests sockets, and async ones the session event loop.
 
     append=False puts the session-scoped asyncio marker ahead of the bare one
     that asyncio_mode=auto adds, so it is the marker pytest-asyncio reads and
-    the test shares the loop that owns neo4j_test_driver.
+    the test shares the loop that owns neo4j_test_driver. Sync tests get no
+    asyncio marker: pytest-asyncio warns when one carries it
+    (docs/DECISIONS.md#adr-test-network-gate).
     """
     for item in items:
         if item.get_closest_marker("neo4j") is not None:
             item.add_marker(pytest.mark.enable_socket)
-            item.add_marker(pytest.mark.asyncio(loop_scope="session"), append=False)
+            if inspect.iscoroutinefunction(getattr(item, "obj", None)):
+                item.add_marker(pytest.mark.asyncio(loop_scope="session"), append=False)
 
 
 def _refuse_forbidden_port(uri: str) -> None:
@@ -337,3 +342,30 @@ async def graph_manager_test(
         for query in _SCOPED_CLEANUP:
             result = await session.run(query, keep=keep)
             await result.consume()
+
+
+# ---------------------------------------------------------------------------
+# Seeded cycle for read-model and report golden tests
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def seeded_cycle(neo4j_test_driver: AsyncDriver) -> SeededCycle:
+    """Session-scoped 3-round cycle in neo4j-test, written through the real write API.
+
+    Built once (deterministic content, see tests/support/seed_builder.py) and protected
+    from graph_manager_test's function-scoped cleanup. neo4j_test_driver's session teardown
+    wipes the throwaway database afterwards.
+    """
+    from alphaswarm.graph import GraphStateManager
+    from tests.support.seed_builder import build_seeded_cycle
+
+    gm = GraphStateManager(
+        driver=neo4j_test_driver,
+        personas=generate_personas(load_bracket_configs()),
+        database=NEO4J_TEST_DATABASE,
+    )
+    await gm.ensure_schema()
+    seeded = await build_seeded_cycle(gm, num_rounds=3)
+    NEO4J_PROTECTED_CYCLES.add(seeded.cycle_id)
+    return seeded

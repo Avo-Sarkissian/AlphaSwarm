@@ -196,3 +196,30 @@ async def test_load_unload_serialized(
     # First op's model should match between start and end
     first_model = call_order[first_start_idx].split(":")[1]
     assert call_order[first_end_idx] == f"end:{first_model}"
+
+
+def _nameless_entry() -> MagicMock:
+    entry = MagicMock()
+    entry.model = None  # ollama's ProcessModel.model is Optional[str]
+    return entry
+
+
+async def test_is_model_loaded_ignores_entries_without_a_name(
+    model_manager: Any, mock_raw_client: AsyncMock
+) -> None:
+    response = _make_ps_response(["alphaswarm-worker"])
+    response.models.append(_nameless_entry())
+    mock_raw_client.ps = AsyncMock(return_value=response)
+    assert await model_manager.is_model_loaded("alphaswarm-worker") is True
+
+
+async def test_ensure_clean_state_ignores_entries_without_a_name(
+    model_manager: Any, mock_ollama_client: MagicMock, mock_raw_client: AsyncMock
+) -> None:
+    response = _make_ps_response(["alphaswarm-worker"])
+    response.models.insert(0, _nameless_entry())
+    mock_raw_client.ps = AsyncMock(return_value=response)
+    await model_manager.ensure_clean_state()
+    assert [c.kwargs["model"] for c in mock_ollama_client.chat.call_args_list] == [
+        "alphaswarm-worker"
+    ]

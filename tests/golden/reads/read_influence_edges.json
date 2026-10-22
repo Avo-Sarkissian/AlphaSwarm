@@ -1,0 +1,1176 @@
+{
+  "round_2": [
+    {
+      "source_id": "algos_01",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "algos_02",
+      "target_id": "macro_01",
+      "weight": 0.09375
+    },
+    {
+      "source_id": "algos_03",
+      "target_id": "event_driven_01",
+      "weight": 0.072917
+    },
+    {
+      "source_id": "algos_04",
+      "target_id": "macro_01",
+      "weight": 0.09375
+    },
+    {
+      "source_id": "algos_04",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "algos_04",
+      "target_id": "shorts_01",
+      "weight": 0.041667
+    },
+    {
+      "source_id": "algos_05",
+      "target_id": "macro_01",
+      "weight": 0.09375
+    },
+    {
+      "source_id": "algos_05",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "algos_08",
+      "target_id": "degens_01",
+      "weight": 0.0625
+    },
+    {
+      "source_id": "algos_08",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "degens_03",
+      "target_id": "macro_01",
+      "weight": 0.09375
+    },
+    {
+      "source_id": "degens_04",
+      "target_id": "quants_01",
+      "weight": 0.083333
+    },
+    {
+      "source_id": "degens_05",
+      "target_id": "allocators_03",
+      "weight": 0.03125
+    },
+    {
+      "source_id": "degens_06",
+      "target_id": "event_driven_01",
+      "weight": 0.072917
+    },
+    {
+      "source_id": "degens_06",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "degens_10",
+      "target_id": "institutions_01",
+      "weight": 0.104167
+    },
+    {
+      "source_id": "degens_12",
+      "target_id": "allocators_03",
+      "weight": 0.03125
+    },
+    {
+      "source_id": "degens_13",
+      "target_id": "institutions_01",
+      "weight": 0.104167
+    },
+    {
+      "source_id": "degens_13",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "degens_13",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "degens_14",
+      "target_id": "algos_01",
+      "weight": 0.052083
+    },
+    {
+      "source_id": "event_driven_01",
+      "target_id": "quants_01",
+      "weight": 0.083333
+    },
+    {
+      "source_id": "event_driven_02",
+      "target_id": "macro_01",
+      "weight": 0.09375
+    },
+    {
+      "source_id": "event_driven_06",
+      "target_id": "algos_01",
+      "weight": 0.052083
+    },
+    {
+      "source_id": "event_driven_07",
+      "target_id": "algos_01",
+      "weight": 0.052083
+    },
+    {
+      "source_id": "event_driven_08",
+      "target_id": "institutions_01",
+      "weight": 0.104167
+    },
+    {
+      "source_id": "event_driven_08",
+      "target_id": "shorts_01",
+      "weight": 0.041667
+    },
+    {
+      "source_id": "event_driven_09",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "event_driven_10",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "event_driven_10",
+      "target_id": "shorts_01",
+      "weight": 0.041667
+    },
+    {
+      "source_id": "institutions_02",
+      "target_id": "quants_01",
+      "weight": 0.083333
+    },
+    {
+      "source_id": "institutions_03",
+      "target_id": "event_driven_01",
+      "weight": 0.072917
+    },
+    {
+      "source_id": "institutions_03",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "institutions_04",
+      "target_id": "quants_01",
+      "weight": 0.083333
+    },
+    {
+      "source_id": "institutions_07",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "institutions_10",
+      "target_id": "degens_01",
+      "weight": 0.0625
+    },
+    {
+      "source_id": "institutions_10",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "institutions_10",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "institutions_11",
+      "target_id": "macro_01",
+      "weight": 0.09375
+    },
+    {
+      "source_id": "institutions_14",
+      "target_id": "event_driven_01",
+      "weight": 0.072917
+    },
+    {
+      "source_id": "institutions_14",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "institutions_14",
+      "target_id": "quants_01",
+      "weight": 0.083333
+    },
+    {
+      "source_id": "institutions_15",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "institutions_15",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "institutions_16",
+      "target_id": "degens_01",
+      "weight": 0.0625
+    },
+    {
+      "source_id": "macro_02",
+      "target_id": "algos_01",
+      "weight": 0.052083
+    },
+    {
+      "source_id": "macro_02",
+      "target_id": "sell_side_02",
+      "weight": 0.020833
+    },
+    {
+      "source_id": "macro_03",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "macro_07",
+      "target_id": "quants_01",
+      "weight": 0.083333
+    },
+    {
+      "source_id": "narrators_01",
+      "target_id": "institutions_01",
+      "weight": 0.104167
+    },
+    {
+      "source_id": "narrators_02",
+      "target_id": "degens_01",
+      "weight": 0.0625
+    },
+    {
+      "source_id": "narrators_02",
+      "target_id": "institutions_01",
+      "weight": 0.104167
+    },
+    {
+      "source_id": "narrators_04",
+      "target_id": "institutions_01",
+      "weight": 0.104167
+    },
+    {
+      "source_id": "narrators_04",
+      "target_id": "sell_side_02",
+      "weight": 0.020833
+    },
+    {
+      "source_id": "narrators_05",
+      "target_id": "institutions_01",
+      "weight": 0.104167
+    },
+    {
+      "source_id": "narrators_06",
+      "target_id": "shorts_01",
+      "weight": 0.041667
+    },
+    {
+      "source_id": "narrators_08",
+      "target_id": "macro_01",
+      "weight": 0.09375
+    },
+    {
+      "source_id": "quants_01",
+      "target_id": "event_driven_01",
+      "weight": 0.072917
+    },
+    {
+      "source_id": "quants_02",
+      "target_id": "degens_01",
+      "weight": 0.0625
+    },
+    {
+      "source_id": "quants_02",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "quants_04",
+      "target_id": "event_driven_01",
+      "weight": 0.072917
+    },
+    {
+      "source_id": "quants_05",
+      "target_id": "allocators_03",
+      "weight": 0.03125
+    },
+    {
+      "source_id": "quants_05",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "quants_06",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    },
+    {
+      "source_id": "quants_07",
+      "target_id": "institutions_01",
+      "weight": 0.104167
+    },
+    {
+      "source_id": "quants_09",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "quants_10",
+      "target_id": "algos_01",
+      "weight": 0.052083
+    },
+    {
+      "source_id": "quants_10",
+      "target_id": "event_driven_01",
+      "weight": 0.072917
+    },
+    {
+      "source_id": "quants_10",
+      "target_id": "narrators_02",
+      "weight": 0.010417
+    },
+    {
+      "source_id": "quants_11",
+      "target_id": "macro_01",
+      "weight": 0.09375
+    },
+    {
+      "source_id": "sell_side_02",
+      "target_id": "degens_01",
+      "weight": 0.0625
+    },
+    {
+      "source_id": "sell_side_02",
+      "target_id": "institutions_01",
+      "weight": 0.104167
+    },
+    {
+      "source_id": "sell_side_04",
+      "target_id": "macro_01",
+      "weight": 0.09375
+    },
+    {
+      "source_id": "sell_side_05",
+      "target_id": "quants_01",
+      "weight": 0.083333
+    },
+    {
+      "source_id": "sell_side_06",
+      "target_id": "narrators_01",
+      "weight": 0.114583
+    },
+    {
+      "source_id": "sell_side_06",
+      "target_id": "quants_01",
+      "weight": 0.083333
+    },
+    {
+      "source_id": "sell_side_10",
+      "target_id": "institutions_01",
+      "weight": 0.104167
+    },
+    {
+      "source_id": "shorts_06",
+      "target_id": "sell_side_01",
+      "weight": 0.125
+    }
+  ],
+  "round_3": [
+    {
+      "source_id": "algos_01",
+      "target_id": "allocators_03",
+      "weight": 0.06383
+    },
+    {
+      "source_id": "algos_01",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "algos_02",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "algos_03",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "algos_03",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "algos_03",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "algos_04",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "algos_04",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "algos_04",
+      "target_id": "shorts_01",
+      "weight": 0.085106
+    },
+    {
+      "source_id": "algos_05",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "algos_05",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "algos_06",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "algos_06",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "algos_07",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "algos_07",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "algos_07",
+      "target_id": "shorts_01",
+      "weight": 0.085106
+    },
+    {
+      "source_id": "algos_08",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "algos_08",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "algos_08",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "degens_01",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "degens_02",
+      "target_id": "algos_01",
+      "weight": 0.106383
+    },
+    {
+      "source_id": "degens_02",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "degens_03",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "degens_03",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "degens_03",
+      "target_id": "shorts_01",
+      "weight": 0.085106
+    },
+    {
+      "source_id": "degens_04",
+      "target_id": "algos_01",
+      "weight": 0.106383
+    },
+    {
+      "source_id": "degens_04",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "degens_04",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "degens_04",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "degens_05",
+      "target_id": "allocators_03",
+      "weight": 0.06383
+    },
+    {
+      "source_id": "degens_05",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "degens_06",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "degens_06",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "degens_09",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "degens_09",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "degens_09",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "degens_10",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "degens_10",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "degens_12",
+      "target_id": "allocators_03",
+      "weight": 0.06383
+    },
+    {
+      "source_id": "degens_13",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "degens_13",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "degens_13",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "degens_14",
+      "target_id": "algos_01",
+      "weight": 0.106383
+    },
+    {
+      "source_id": "degens_14",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "event_driven_01",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "event_driven_02",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "event_driven_03",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "event_driven_05",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "event_driven_06",
+      "target_id": "algos_01",
+      "weight": 0.106383
+    },
+    {
+      "source_id": "event_driven_06",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "event_driven_07",
+      "target_id": "algos_01",
+      "weight": 0.106383
+    },
+    {
+      "source_id": "event_driven_08",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "event_driven_08",
+      "target_id": "shorts_01",
+      "weight": 0.085106
+    },
+    {
+      "source_id": "event_driven_09",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "event_driven_09",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "event_driven_09",
+      "target_id": "narrators_02",
+      "weight": 0.021277
+    },
+    {
+      "source_id": "event_driven_09",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "event_driven_09",
+      "target_id": "sell_side_02",
+      "weight": 0.042553
+    },
+    {
+      "source_id": "event_driven_10",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "event_driven_10",
+      "target_id": "shorts_01",
+      "weight": 0.085106
+    },
+    {
+      "source_id": "institutions_01",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "institutions_02",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "institutions_03",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "institutions_03",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "institutions_03",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "institutions_04",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "institutions_05",
+      "target_id": "algos_01",
+      "weight": 0.106383
+    },
+    {
+      "source_id": "institutions_07",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "institutions_07",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "institutions_10",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "institutions_10",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "institutions_10",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "institutions_11",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "institutions_11",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "institutions_11",
+      "target_id": "shorts_01",
+      "weight": 0.085106
+    },
+    {
+      "source_id": "institutions_12",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "institutions_12",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "institutions_13",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "institutions_14",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "institutions_14",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "institutions_14",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "institutions_15",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "institutions_15",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "institutions_15",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "institutions_16",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "institutions_18",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "macro_02",
+      "target_id": "algos_01",
+      "weight": 0.106383
+    },
+    {
+      "source_id": "macro_02",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "macro_02",
+      "target_id": "sell_side_02",
+      "weight": 0.042553
+    },
+    {
+      "source_id": "macro_03",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "macro_03",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "macro_04",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "macro_04",
+      "target_id": "sell_side_02",
+      "weight": 0.042553
+    },
+    {
+      "source_id": "macro_05",
+      "target_id": "algos_01",
+      "weight": 0.106383
+    },
+    {
+      "source_id": "macro_05",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "macro_06",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "macro_06",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "macro_07",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "narrators_01",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "narrators_01",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "narrators_02",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "narrators_02",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "narrators_03",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "narrators_04",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "narrators_04",
+      "target_id": "sell_side_02",
+      "weight": 0.042553
+    },
+    {
+      "source_id": "narrators_05",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "narrators_05",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "narrators_06",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "narrators_06",
+      "target_id": "shorts_01",
+      "weight": 0.085106
+    },
+    {
+      "source_id": "narrators_07",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "narrators_08",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "quants_01",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "quants_02",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "quants_02",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "quants_03",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "quants_04",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "quants_04",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "quants_05",
+      "target_id": "allocators_03",
+      "weight": 0.06383
+    },
+    {
+      "source_id": "quants_05",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "quants_06",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "quants_07",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "quants_08",
+      "target_id": "allocators_03",
+      "weight": 0.06383
+    },
+    {
+      "source_id": "quants_09",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "quants_09",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "quants_09",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "quants_10",
+      "target_id": "algos_01",
+      "weight": 0.106383
+    },
+    {
+      "source_id": "quants_10",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "quants_10",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "quants_10",
+      "target_id": "narrators_02",
+      "weight": 0.021277
+    },
+    {
+      "source_id": "quants_11",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "quants_12",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "quants_12",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "sell_side_02",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "sell_side_02",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "sell_side_02",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "sell_side_02",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "sell_side_03",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "sell_side_03",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "sell_side_04",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    },
+    {
+      "source_id": "sell_side_04",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "sell_side_05",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "sell_side_05",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "sell_side_06",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "sell_side_06",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "sell_side_06",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "sell_side_07",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "sell_side_07",
+      "target_id": "shorts_01",
+      "weight": 0.085106
+    },
+    {
+      "source_id": "sell_side_09",
+      "target_id": "narrators_01",
+      "weight": 0.234043
+    },
+    {
+      "source_id": "sell_side_10",
+      "target_id": "institutions_01",
+      "weight": 0.212766
+    },
+    {
+      "source_id": "shorts_03",
+      "target_id": "quants_01",
+      "weight": 0.170213
+    },
+    {
+      "source_id": "shorts_05",
+      "target_id": "degens_01",
+      "weight": 0.12766
+    },
+    {
+      "source_id": "shorts_06",
+      "target_id": "algos_01",
+      "weight": 0.106383
+    },
+    {
+      "source_id": "shorts_06",
+      "target_id": "macro_01",
+      "weight": 0.191489
+    },
+    {
+      "source_id": "shorts_06",
+      "target_id": "sell_side_01",
+      "weight": 0.255319
+    },
+    {
+      "source_id": "shorts_07",
+      "target_id": "allocators_03",
+      "weight": 0.06383
+    },
+    {
+      "source_id": "shorts_07",
+      "target_id": "event_driven_01",
+      "weight": 0.148936
+    }
+  ]
+}

@@ -163,7 +163,9 @@ async def test_write_decisions_creates_cited_relationships(
 
     async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
-            'MATCH (d:Decision)-[:CITED]->(a:Agent {id: "degens_01"}) RETURN count(d) AS c'
+            'MATCH (d:Decision {cycle_id: $cid})-[:CITED]->(a:Agent {id: "degens_01"}) '
+            "RETURN count(d) AS c",
+            cid=cycle_id,
         )
         record = await result.single()
         assert record["c"] == 1

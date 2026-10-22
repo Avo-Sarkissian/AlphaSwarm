@@ -22,8 +22,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import aiofiles  # type: ignore[import-untyped]
-import aiofiles.os  # type: ignore[import-untyped]
+import aiofiles
+import aiofiles.os
 import structlog
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel

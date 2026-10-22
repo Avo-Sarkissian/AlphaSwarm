@@ -39,3 +39,6 @@ Schwab/
 # Coverage output.
 .coverage
 htmlcov/
+# Coverage output not covered above (parallel data files, XML report)
+.coverage.*
+coverage.xml

@@ -1,0 +1,146 @@
+[
+  {
+    "agent_id": "algos_01",
+    "bracket": "algos",
+    "final_signal": "hold",
+    "flip_type": "sell_to_hold",
+    "name": "Algos 1",
+    "round_num": 2
+  },
+  {
+    "agent_id": "allocators_01",
+    "bracket": "allocators",
+    "final_signal": "hold",
+    "flip_type": "sell_to_hold",
+    "name": "Allocators 1",
+    "round_num": 2
+  },
+  {
+    "agent_id": "degens_01",
+    "bracket": "degens",
+    "final_signal": "buy",
+    "flip_type": "hold_to_buy",
+    "name": "Degens 1",
+    "round_num": 2
+  },
+  {
+    "agent_id": "event_driven_01",
+    "bracket": "event_driven",
+    "final_signal": "sell",
+    "flip_type": "buy_to_sell",
+    "name": "Event-Driven 1",
+    "round_num": 2
+  },
+  {
+    "agent_id": "institutions_01",
+    "bracket": "institutions",
+    "final_signal": "hold",
+    "flip_type": "sell_to_hold",
+    "name": "Institutions 1",
+    "round_num": 2
+  },
+  {
+    "agent_id": "macro_01",
+    "bracket": "macro",
+    "final_signal": "buy",
+    "flip_type": "hold_to_buy",
+    "name": "Macro 1",
+    "round_num": 2
+  },
+  {
+    "agent_id": "narrators_01",
+    "bracket": "narrators",
+    "final_signal": "sell",
+    "flip_type": "buy_to_sell",
+    "name": "Narrators 1",
+    "round_num": 2
+  },
+  {
+    "agent_id": "quants_01",
+    "bracket": "quants",
+    "final_signal": "hold",
+    "flip_type": "sell_to_hold",
+    "name": "Quants 1",
+    "round_num": 2
+  },
+  {
+    "agent_id": "sell_side_01",
+    "bracket": "sell_side",
+    "final_signal": "buy",
+    "flip_type": "hold_to_buy",
+    "name": "Sell-Side 1",
+    "round_num": 2
+  },
+  {
+    "agent_id": "shorts_01",
+    "bracket": "shorts",
+    "final_signal": "sell",
+    "flip_type": "buy_to_sell",
+    "name": "Shorts 1",
+    "round_num": 2
+  },
+  {
+    "agent_id": "algos_02",
+    "bracket": "algos",
+    "final_signal": "buy",
+    "flip_type": "hold_to_buy",
+    "name": "Algos 2",
+    "round_num": 3
+  },
+  {
+    "agent_id": "degens_02",
+    "bracket": "degens",
+    "final_signal": "sell",
+    "flip_type": "buy_to_sell",
+    "name": "Degens 2",
+    "round_num": 3
+  },
+  {
+    "agent_id": "event_driven_02",
+    "bracket": "event_driven",
+    "final_signal": "hold",
+    "flip_type": "sell_to_hold",
+    "name": "Event-Driven 2",
+    "round_num": 3
+  },
+  {
+    "agent_id": "institutions_02",
+    "bracket": "institutions",
+    "final_signal": "buy",
+    "flip_type": "hold_to_buy",
+    "name": "Institutions 2",
+    "round_num": 3
+  },
+  {
+    "agent_id": "macro_02",
+    "bracket": "macro",
+    "final_signal": "sell",
+    "flip_type": "buy_to_sell",
+    "name": "Macro 2",
+    "round_num": 3
+  },
+  {
+    "agent_id": "narrators_02",
+    "bracket": "narrators",
+    "final_signal": "hold",
+    "flip_type": "sell_to_hold",
+    "name": "Narrators 2",
+    "round_num": 3
+  },
+  {
+    "agent_id": "quants_02",
+    "bracket": "quants",
+    "final_signal": "buy",
+    "flip_type": "hold_to_buy",
+    "name": "Quants 2",
+    "round_num": 3
+  },
+  {
+    "agent_id": "sell_side_02",
+    "bracket": "sell_side",
+    "final_signal": "sell",
+    "flip_type": "buy_to_sell",
+    "name": "Sell-Side 2",
+    "round_num": 3
+  }
+]

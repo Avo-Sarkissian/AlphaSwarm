@@ -136,7 +136,7 @@ class OllamaModelManager:
         def _bare(name: str) -> str:
             return name.removesuffix(":latest")
 
-        loaded_bare = [_bare(m.model) for m in ps_response.models]
+        loaded_bare = [_bare(m.model) for m in ps_response.models if m.model is not None]
         return _bare(model) in loaded_bare
 
     async def ensure_clean_state(self) -> None:
@@ -164,9 +164,12 @@ class OllamaModelManager:
             return
         bare_aliases = {a.removesuffix(":latest") for a in self._configured_aliases}
         for m in ps_response.models:
-            if m.model.removesuffix(":latest") in bare_aliases:
+            name = m.model
+            if name is None:
+                continue
+            if name.removesuffix(":latest") in bare_aliases:
                 # unload_model is best-effort (it swallows its own errors and
                 # clears state in a finally), so one stuck model can't abort the
                 # loop and leave the rest resident — preserving the max-2-models
                 # invariant (F-32).
-                await self.unload_model(m.model)
+                await self.unload_model(name)
