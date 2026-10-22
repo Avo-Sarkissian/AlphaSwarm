@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 import structlog
@@ -217,6 +218,16 @@ def _majority(signals: Sequence[str]) -> str | None:
         return None
     best = max(counts.values())
     return next(sig for sig in ("BUY", "SELL", "HOLD") if counts[sig] == best)
+
+
+def _iso(value: object) -> str:
+    """neo4j DateTime or datetime -> ISO-8601 string (CompletedCycleRow.created_at)."""
+    iso_format = getattr(value, "iso_format", None)
+    if callable(iso_format):
+        return str(iso_format())
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return "" if value is None else str(value)
 
 
 # ---------------------------------------------------------------------------
@@ -1293,7 +1304,7 @@ class GraphStateManager:
 
     async def read_influence_edges(
         self, cycle_id: str, round_num: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
+    ) -> list[InfluenceEdgeRow]:
         """Return INFLUENCED_BY edges for a given cycle and round.
 
         Args:
@@ -1301,7 +1312,7 @@ class GraphStateManager:
             round_num: Round number to filter on (1, 2, or 3).
 
         Returns:
-            List of dicts with source_id, target_id, weight.
+            InfluenceEdgeRow list (source_id, target_id, weight).
         """
         try:
             async with self._driver.session(database=self._database) as session:
@@ -1323,7 +1334,7 @@ class GraphStateManager:
         tx: AsyncManagedTransaction,
         cycle_id: str,
         round_num: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
+    ) -> list[InfluenceEdgeRow]:
         """Transaction function for INFLUENCED_BY edges in a given round."""
         result = await tx.run(
             """
@@ -1336,7 +1347,14 @@ class GraphStateManager:
             cycle_id=cycle_id,
             round_num=round_num,
         )
-        return [dict(record) async for record in result]
+        return [
+            InfluenceEdgeRow(
+                source_id=str(r["source_id"]),
+                target_id=str(r["target_id"]),
+                weight=float(r["weight"]),
+            )
+            async for r in result
+        ]
 
     # ------------------------------------------------------------------
     # Phase 14: Interview context reads
@@ -2203,8 +2221,8 @@ class GraphStateManager:
         )
         return [dict(record) async for record in result]
 
-    async def read_completed_cycles(self, limit: int = 10) -> list[dict]:  # type: ignore[type-arg]
-        """Return completed cycles (those with Round 3 decisions), most recent first.
+    async def read_completed_cycles(self, limit: int = 10) -> list[CompletedCycleRow]:
+        """Return completed cycles, most recent first (created_at as ISO-8601).
 
         Used by CyclePickerScreen and CLI replay defaulting. LIMIT caps at 10.
         """
@@ -2223,10 +2241,10 @@ class GraphStateManager:
 
     @staticmethod
     async def _read_completed_cycles_tx(
-        tx: "AsyncManagedTransaction",
+        tx: AsyncManagedTransaction,
         limit: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction: return completed cycles.
+    ) -> list[CompletedCycleRow]:
+        """Transaction: return completed cycles, newest first.
 
         Completed = metrics were stamped at simulation end (covers 2-round
         cycles under ALPHASWARM_NUM_ROUNDS=2), OR a Round 3 decision exists
@@ -2250,7 +2268,15 @@ class GraphStateManager:
             """,
             limit=limit,
         )
-        return [dict(record) async for record in result]
+        return [
+            CompletedCycleRow(
+                cycle_id=str(r["cycle_id"]),
+                created_at=_iso(r["created_at"]),
+                seed_rumor=str(r["seed_rumor"] or ""),
+                round_count=int(r["round_count"]),
+            )
+            async for r in result
+        ]
 
     async def read_bracket_narratives_for_round(
         self, cycle_id: str, round_num: int,

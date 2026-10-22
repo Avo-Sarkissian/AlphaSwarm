@@ -330,3 +330,22 @@ async def test_shock_impact_reports_pre_and_post_majority_without_failures(
     assert "**Comparable Agents:** 3" in md
     assert "| Quants | BUY | BUY | ▼ | -50.0% |" in md
     assert "| Quants | quants_01 | BUY | SELL |" in md
+
+
+async def test_completed_cycles_rows_are_typed(graph_manager_test: GraphStateManager) -> None:
+    from datetime import datetime
+
+    cycle_id = await write_mini_cycle(
+        graph_manager_test,
+        num_rounds=2,
+        rounds={1: [("quants_01", dec(BUY))], 2: [("quants_01", dec(HOLD))]},
+    )
+    await graph_manager_test.write_cycle_metrics(cycle_id, {"num_rounds": 2})
+
+    rows = await graph_manager_test.read_completed_cycles(limit=100)
+
+    row = next(r for r in rows if r["cycle_id"] == cycle_id)
+    assert set(row) == {"cycle_id", "created_at", "seed_rumor", "round_count"}
+    assert row["round_count"] == 2
+    assert isinstance(row["created_at"], str)
+    datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
