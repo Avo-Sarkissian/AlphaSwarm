@@ -139,6 +139,7 @@ source_modules = [
     "alphaswarm.web",
     "alphaswarm.web.app",
     "alphaswarm.web.broadcaster",
+    "alphaswarm.web.wire",
     "alphaswarm.web.connection_manager",
     "alphaswarm.web.errors",
     "alphaswarm.web.guards",
