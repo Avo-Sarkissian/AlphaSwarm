@@ -110,6 +110,9 @@ jobs:
       - name: Type check
         run: npx tsc -b --noEmit
 
+      - name: Lint (ESLint)
+        run: npm run lint
+
       - name: Wire-contract tests
         run: npx vitest run
 

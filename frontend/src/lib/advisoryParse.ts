@@ -40,9 +40,9 @@ export type FieldLabel = 'risk' | 'upside' | 'rec';
 export function extractField(section: string, label: FieldLabel): string | null {
   if (!section) return null;
   const labels: Record<FieldLabel, RegExp> = {
-    risk: /(?:^|\n)\s*\*?\*?(?:Risk|RISK)\*?\*?\s*[:\-]\s*([^\n]+)/i,
-    upside: /(?:^|\n)\s*\*?\*?(?:Upside|UPSIDE|Opportunity)\*?\*?\s*[:\-]\s*([^\n]+)/i,
-    rec: /(?:^|\n)\s*\*?\*?(?:Recommendation|REC|Action)\*?\*?\s*[:\-]\s*([^\n]+)/i,
+    risk: /(?:^|\n)\s*\*?\*?(?:Risk|RISK)\*?\*?\s*[:-]\s*([^\n]+)/i,
+    upside: /(?:^|\n)\s*\*?\*?(?:Upside|UPSIDE|Opportunity)\*?\*?\s*[:-]\s*([^\n]+)/i,
+    rec: /(?:^|\n)\s*\*?\*?(?:Recommendation|REC|Action)\*?\*?\s*[:-]\s*([^\n]+)/i,
   };
   const m = section.match(labels[label]);
   return m ? m[1].trim() : null;
@@ -147,7 +147,7 @@ export function parseMoments(md: string): MomentEntry[] | null {
   if (!section) return null;
   // Parse list items "- Round N: ..." or "- R1: ..."
   const out: MomentEntry[] = [];
-  const itemRe = /^[-*]\s+(?:Round\s+|R)(\d+)\s*[:\-]\s*(.+)$/gim;
+  const itemRe = /^[-*]\s+(?:Round\s+|R)(\d+)\s*[:-]\s*(.+)$/gim;
   let m;
   while ((m = itemRe.exec(section)) !== null) {
     out.push({ round: Number(m[1]), description: m[2].trim() });

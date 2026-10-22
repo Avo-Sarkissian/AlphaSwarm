@@ -37,3 +37,9 @@ def test_lint_job_runs_the_static_gates() -> None:
         "uv run lint-imports",
     ):
         assert command in job, command
+
+
+def test_frontend_job_runs_eslint_before_the_unit_tests() -> None:
+    job = _jobs(_text(CI))["frontend"]
+    assert "run: npm run lint" in job
+    assert job.index("run: npm run lint") < job.index("run: npx vitest run")
