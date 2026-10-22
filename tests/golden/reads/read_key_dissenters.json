@@ -1,0 +1,394 @@
+[
+  {
+    "agent_id": "algos_01",
+    "bracket": "algos",
+    "bracket_majority": "BUY",
+    "name": "Algos 1",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "algos_04",
+    "bracket": "algos",
+    "bracket_majority": "BUY",
+    "name": "Algos 4",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "algos_05",
+    "bracket": "algos",
+    "bracket_majority": "BUY",
+    "name": "Algos 5",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "algos_07",
+    "bracket": "algos",
+    "bracket_majority": "BUY",
+    "name": "Algos 7",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "algos_08",
+    "bracket": "algos",
+    "bracket_majority": "BUY",
+    "name": "Algos 8",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "degens_01",
+    "bracket": "degens",
+    "bracket_majority": "SELL",
+    "name": "Degens 1",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "degens_04",
+    "bracket": "degens",
+    "bracket_majority": "SELL",
+    "name": "Degens 4",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "degens_05",
+    "bracket": "degens",
+    "bracket_majority": "SELL",
+    "name": "Degens 5",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "degens_07",
+    "bracket": "degens",
+    "bracket_majority": "SELL",
+    "name": "Degens 7",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "degens_08",
+    "bracket": "degens",
+    "bracket_majority": "SELL",
+    "name": "Degens 8",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "degens_10",
+    "bracket": "degens",
+    "bracket_majority": "SELL",
+    "name": "Degens 10",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "degens_13",
+    "bracket": "degens",
+    "bracket_majority": "SELL",
+    "name": "Degens 13",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "degens_14",
+    "bracket": "degens",
+    "bracket_majority": "SELL",
+    "name": "Degens 14",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "event_driven_01",
+    "bracket": "event_driven",
+    "bracket_majority": "HOLD",
+    "name": "Event-Driven 1",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "event_driven_04",
+    "bracket": "event_driven",
+    "bracket_majority": "HOLD",
+    "name": "Event-Driven 4",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "event_driven_05",
+    "bracket": "event_driven",
+    "bracket_majority": "HOLD",
+    "name": "Event-Driven 5",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "event_driven_07",
+    "bracket": "event_driven",
+    "bracket_majority": "HOLD",
+    "name": "Event-Driven 7",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "event_driven_08",
+    "bracket": "event_driven",
+    "bracket_majority": "HOLD",
+    "name": "Event-Driven 8",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "event_driven_10",
+    "bracket": "event_driven",
+    "bracket_majority": "HOLD",
+    "name": "Event-Driven 10",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "institutions_01",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 1",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "institutions_04",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 4",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "institutions_05",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 5",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "institutions_07",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 7",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "institutions_08",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 8",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "institutions_10",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 10",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "institutions_11",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 11",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "institutions_13",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 13",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "institutions_14",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 14",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "institutions_16",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 16",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "institutions_17",
+    "bracket": "institutions",
+    "bracket_majority": "BUY",
+    "name": "Institutions 17",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "macro_01",
+    "bracket": "macro",
+    "bracket_majority": "SELL",
+    "name": "Macro 1",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "macro_04",
+    "bracket": "macro",
+    "bracket_majority": "SELL",
+    "name": "Macro 4",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "macro_05",
+    "bracket": "macro",
+    "bracket_majority": "SELL",
+    "name": "Macro 5",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "macro_07",
+    "bracket": "macro",
+    "bracket_majority": "SELL",
+    "name": "Macro 7",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "narrators_02",
+    "bracket": "narrators",
+    "bracket_majority": "SELL",
+    "name": "Narrators 2",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "narrators_03",
+    "bracket": "narrators",
+    "bracket_majority": "SELL",
+    "name": "Narrators 3",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "narrators_04",
+    "bracket": "narrators",
+    "bracket_majority": "SELL",
+    "name": "Narrators 4",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "narrators_06",
+    "bracket": "narrators",
+    "bracket_majority": "SELL",
+    "name": "Narrators 6",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "narrators_07",
+    "bracket": "narrators",
+    "bracket_majority": "SELL",
+    "name": "Narrators 7",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "quants_01",
+    "bracket": "quants",
+    "bracket_majority": "BUY",
+    "name": "Quants 1",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "quants_04",
+    "bracket": "quants",
+    "bracket_majority": "BUY",
+    "name": "Quants 4",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "quants_05",
+    "bracket": "quants",
+    "bracket_majority": "BUY",
+    "name": "Quants 5",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "quants_07",
+    "bracket": "quants",
+    "bracket_majority": "BUY",
+    "name": "Quants 7",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "quants_08",
+    "bracket": "quants",
+    "bracket_majority": "BUY",
+    "name": "Quants 8",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "quants_10",
+    "bracket": "quants",
+    "bracket_majority": "BUY",
+    "name": "Quants 10",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "quants_11",
+    "bracket": "quants",
+    "bracket_majority": "BUY",
+    "name": "Quants 11",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "sell_side_01",
+    "bracket": "sell_side",
+    "bracket_majority": "SELL",
+    "name": "Sell-Side 1",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "sell_side_04",
+    "bracket": "sell_side",
+    "bracket_majority": "SELL",
+    "name": "Sell-Side 4",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "sell_side_05",
+    "bracket": "sell_side",
+    "bracket_majority": "SELL",
+    "name": "Sell-Side 5",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "sell_side_07",
+    "bracket": "sell_side",
+    "bracket_majority": "SELL",
+    "name": "Sell-Side 7",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "sell_side_08",
+    "bracket": "sell_side",
+    "bracket_majority": "SELL",
+    "name": "Sell-Side 8",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "sell_side_10",
+    "bracket": "sell_side",
+    "bracket_majority": "SELL",
+    "name": "Sell-Side 10",
+    "signal": "HOLD"
+  },
+  {
+    "agent_id": "shorts_01",
+    "bracket": "shorts",
+    "bracket_majority": "HOLD",
+    "name": "Shorts 1",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "shorts_04",
+    "bracket": "shorts",
+    "bracket_majority": "HOLD",
+    "name": "Shorts 4",
+    "signal": "BUY"
+  },
+  {
+    "agent_id": "shorts_05",
+    "bracket": "shorts",
+    "bracket_majority": "HOLD",
+    "name": "Shorts 5",
+    "signal": "SELL"
+  },
+  {
+    "agent_id": "shorts_07",
+    "bracket": "shorts",
+    "bracket_majority": "HOLD",
+    "name": "Shorts 7",
+    "signal": "BUY"
+  }
+]

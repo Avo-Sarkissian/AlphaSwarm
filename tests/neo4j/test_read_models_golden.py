@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.interview import _strip_json_instructions
 from alphaswarm.types import SeedEvent, SignalType
 from alphaswarm.write_buffer import compute_flip_type
@@ -21,6 +22,7 @@ from tests.support.golden import assert_golden
 from tests.support.seed_builder import (
     HUB_CITATIONS,
     OVERALL_SENTIMENT,
+    PARSE_ERRORS_BY_ROUND,
     SEED_ENTITIES,
     SEED_RUMOR,
     SHOCK_ROUND,
@@ -133,6 +135,7 @@ async def test_read_consensus_summary_counts(
     row = await graph_reader.read_consensus_summary(seeded_cycle.cycle_id)
     final = _round(seeded_cycle, seeded_cycle.num_rounds).values()
     assert (row["buy_count"], row["sell_count"], row["hold_count"]) == _counts(final)
+    assert_golden("reads/read_consensus_summary.json", row)
 
 
 async def test_read_round_timeline_counts(
@@ -143,6 +146,7 @@ async def test_read_round_timeline_counts(
         (n, *_counts(_round(seeded_cycle, n).values()))
         for n in range(1, seeded_cycle.num_rounds + 1)
     ]
+    assert_golden("reads/read_round_timeline.json", rows)
 
 
 async def test_read_bracket_narratives_counts(
@@ -156,8 +160,8 @@ async def test_read_bracket_narratives_counts(
         if r["bracket"] in expected
     }
     assert got == expected
-    brackets = [r["bracket"] for r in rows]
-    assert brackets == sorted(brackets)
+    assert [r["bracket"] for r in rows] == [b.bracket_type.value for b in DEFAULT_BRACKETS]
+    assert_golden("reads/read_bracket_narratives.json", rows)
 
 
 async def test_read_key_dissenters_valid_rows(
@@ -170,7 +174,7 @@ async def test_read_key_dissenters_valid_rows(
         b: _majority(*c) for b, c in _counts_by_bracket(seeded_cycle, final_round).items()
     }
     expected = sorted(
-        (bracket_of[agent_id], agent_id, d.signal.value, majorities[bracket_of[agent_id]])
+        (bracket_of[agent_id], agent_id, d.signal.value.upper(), majorities[bracket_of[agent_id]])
         for agent_id, d in seeded_cycle.decisions[final_round]
         if d.signal in _VALID and d.signal.value.upper() != majorities[bracket_of[agent_id]]
     )
@@ -180,6 +184,7 @@ async def test_read_key_dissenters_valid_rows(
         if r["signal"] != SignalType.PARSE_ERROR.value
     ]
     assert got == expected
+    assert_golden("reads/read_key_dissenters.json", rows)
 
 
 async def test_read_influence_leaders_rank_by_citations(
@@ -187,6 +192,7 @@ async def test_read_influence_leaders_rank_by_citations(
 ) -> None:
     rows = await graph_reader.read_influence_leaders(seeded_cycle.cycle_id)
     assert [(r["agent_id"], r["citation_count"]) for r in rows] == list(HUB_CITATIONS[:10])
+    assert_golden("reads/read_influence_leaders.json", rows)
 
 
 async def test_read_signal_flips(
@@ -202,7 +208,7 @@ async def test_read_signal_flips(
         for agent_id, d in after.items():
             flip = compute_flip_type(before[agent_id].signal, d.signal).value
             if flip != "none":
-                expected.add((agent_id, n, flip, d.signal.value))
+                expected.add((agent_id, n, flip, d.signal.value.upper()))
     got = {(r["agent_id"], r["round_num"], r["flip_type"], r["final_signal"]) for r in rows}
     assert got == expected
     assert_golden("reads/read_signal_flips.json", rows)
@@ -217,6 +223,7 @@ async def test_read_entity_impact_entities(
     }
     counts = [r["mention_count"] for r in rows]
     assert counts == sorted(counts, reverse=True), "documented order: mention_count DESC"
+    assert_golden("reads/read_entity_impact.json", rows)
 
 
 async def test_read_latest_cycle_id_returns_newest(
@@ -225,7 +232,9 @@ async def test_read_latest_cycle_id_returns_newest(
     event = SeedEvent(
         raw_rumor=SEED_RUMOR, entities=list(SEED_ENTITIES), overall_sentiment=OVERALL_SENTIMENT
     )
-    newest = await graph_manager_test.create_cycle_with_seed_event(SEED_RUMOR, event)
+    newest = await graph_manager_test.create_cycle_with_seed_event(
+        SEED_RUMOR, event, num_rounds=3
+    )
     assert newest != seeded_cycle.cycle_id
     assert await graph_manager_test.read_latest_cycle_id() == newest
 
@@ -288,6 +297,18 @@ async def test_read_bracket_narratives_for_round_counts(
     assert got == expected
 
 
+async def test_read_bracket_narratives_for_round_golden(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    by_round: dict[str, list[dict[str, object]]] = {}
+    for n in range(1, seeded_cycle.num_rounds + 1):
+        rows = await graph_reader.read_bracket_narratives_for_round(seeded_cycle.cycle_id, n)
+        valid = sum(1 for _, d in seeded_cycle.decisions[n] if d.signal in _VALID)
+        assert sum(r["total"] for r in rows) == valid
+        by_round[f"round_{n}"] = [dict(r) for r in rows]
+    assert_golden("reads/read_bracket_narratives_for_round.json", by_round)
+
+
 async def test_read_rationale_entries_for_round(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -316,20 +337,16 @@ async def test_read_rationale_entries_for_round(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.2: shock bracket deltas never carry pre_dominant (fix: plan 06)"
-)
-async def test_shock_impact_bracket_deltas_carry_pre_dominant(
+async def test_shock_impact_bracket_pivots_carry_pre_dominant(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
     result = await graph_reader.read_shock_impact(seeded_cycle.cycle_id)
-    assert result["bracket_deltas"]
-    assert all("pre_dominant" in delta for delta in result["bracket_deltas"])
+    assert result["pre_dominant"] in {"BUY", "SELL", "HOLD"}
+    assert result["bracket_pivots"]
+    assert all(bp["pre_dominant"] in {"BUY", "SELL", "HOLD"} for bp in result["bracket_pivots"])
+    assert_golden("reads/read_shock_impact.json", result)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.2: replay bracket rows have no total, so replay shows 0 (fix: plan 06)"
-)
 async def test_replay_bracket_rows_carry_total(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -340,19 +357,14 @@ async def test_replay_bracket_rows_carry_total(
         assert row["total"] >= decided > 0
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: failed agents are listed as key dissenters (fix: plan 06)"
-)
 async def test_key_dissenters_exclude_parse_errors(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
     rows = await graph_reader.read_key_dissenters(seeded_cycle.cycle_id)
-    assert [r["agent_id"] for r in rows if r["signal"] == SignalType.PARSE_ERROR.value] == []
+    failed = [r["agent_id"] for r in rows if r["signal"].lower() == SignalType.PARSE_ERROR.value]
+    assert failed == []
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: a bracket with no valid decision gets a majority (fix: plan 06)"
-)
 async def test_empty_bracket_has_no_majority(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -362,9 +374,6 @@ async def test_empty_bracket_has_no_majority(
     assert rows["allocators"]["majority"] is None
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: consensus summary has no parse_error_count (fix: plan 06)"
-)
 async def test_consensus_summary_counts_parse_errors(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -373,9 +382,6 @@ async def test_consensus_summary_counts_parse_errors(
     assert row["parse_error_count"] == sum(1 for _, d in final if d.signal not in _VALID)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: round timeline has no parse_error_count (fix: plan 06)"
-)
 async def test_round_timeline_counts_parse_errors(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -386,9 +392,6 @@ async def test_round_timeline_counts_parse_errors(
     ]
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: bracket averages include failed agents' 0.0 (fix: plan 06)"
-)
 async def test_bracket_averages_exclude_parse_errors(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -404,22 +407,17 @@ async def test_bracket_averages_exclude_parse_errors(
     assert rows["degens"]["avg_confidence"] == pytest.approx(sum(degens) / len(degens))
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: shock pivots count transitions to or from PARSE_ERROR (fix: plan 06)"
-)
 async def test_shock_pivots_exclude_parse_errors(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
     result = await graph_reader.read_shock_impact(seeded_cycle.cycle_id)
-    failed = SignalType.PARSE_ERROR.value
-    assert [
-        p for p in result["pivot_agents"] if failed in (p["pre_signal"], p["post_signal"])
-    ] == []
+    pivots = [agent for bp in result["bracket_pivots"] for agent in bp["agents"]]
+    assert pivots
+    assert all("PARSE_ERROR" not in (p["pre_signal"], p["post_signal"]) for p in pivots)
+    failed = PARSE_ERRORS_BY_ROUND[SHOCK_ROUND - 1] | PARSE_ERRORS_BY_ROUND[SHOCK_ROUND]
+    assert sum(int(bp["comparable"]) for bp in result["bracket_pivots"]) == 100 - len(failed)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: influence leaders lack influence_share = count/N (fix: plan 06)"
-)
 async def test_influence_leaders_report_influence_share(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -440,10 +438,6 @@ async def test_social_post_reach_has_rows(
     assert await graph_reader.read_social_post_reach(seeded_cycle.cycle_id) != []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T2.8: entity impact aggregates every round, not the final one (fix: plan 06)",
-)
 async def test_entity_impact_counts_final_round_only(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:

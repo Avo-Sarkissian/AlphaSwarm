@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -183,98 +183,6 @@ class TestReportEngine:
 
 
 # ---------------------------------------------------------------------------
-# Task 15-01-03: TestGraphQueryTools (stubs filled in Task 15-01-03)
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def mock_driver() -> MagicMock:
-    """Mock AsyncDriver with session context manager support."""
-    driver = MagicMock()
-    driver.close = AsyncMock()
-    session = AsyncMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=False)
-    driver.session.return_value = session
-    return driver
-
-
-@pytest.fixture()
-def mock_personas() -> list:
-    """Empty personas list — report queries don't use personas."""
-    return []
-
-
-class TestGraphQueryTools:
-    async def test_read_consensus_summary(
-        self, mock_driver: MagicMock, mock_personas: list,
-    ) -> None:
-        """read_consensus_summary returns dict with correct keys and values."""
-        from alphaswarm.graph import GraphStateManager
-
-        session = mock_driver.session.return_value
-        session.execute_read = AsyncMock(return_value={
-            "buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100,
-        })
-
-        gsm = GraphStateManager(mock_driver, mock_personas)
-        result = await gsm.read_consensus_summary("cycle1")
-
-        assert result["buy_count"] == 50
-        assert result["sell_count"] == 30
-        assert result["hold_count"] == 20
-        assert result["total"] == 100
-
-    async def test_influence_leaders_round_filter(
-        self, mock_driver: MagicMock, mock_personas: list,
-    ) -> None:
-        """read_influence_leaders returns list with correct field structure."""
-        from alphaswarm.graph import GraphStateManager
-
-        session = mock_driver.session.return_value
-        session.execute_read = AsyncMock(return_value=[{
-            "agent_id": "a1",
-            "name": "Agent 1",
-            "bracket": "Quants",
-            "total_influence_weight": 0.9,
-            "citation_count": 5,
-        }])
-
-        gsm = GraphStateManager(mock_driver, mock_personas)
-        result = await gsm.read_influence_leaders("cycle1")
-
-        assert len(result) == 1
-        assert result[0]["agent_id"] == "a1"
-        assert result[0]["name"] == "Agent 1"
-        assert result[0]["bracket"] == "Quants"
-        assert result[0]["total_influence_weight"] == 0.9
-        assert result[0]["citation_count"] == 5
-
-    async def test_signal_flip_none_filter(
-        self, mock_driver: MagicMock, mock_personas: list,
-    ) -> None:
-        """read_signal_flips returns list; NONE flip_types excluded by Cypher."""
-        from alphaswarm.graph import GraphStateManager
-
-        session = mock_driver.session.return_value
-        session.execute_read = AsyncMock(return_value=[{
-            "agent_id": "a1",
-            "name": "Agent 1",
-            "bracket": "Quants",
-            "round_num": 2,
-            "flip_type": "HOLD_TO_BUY",
-            "final_signal": "BUY",
-        }])
-
-        gsm = GraphStateManager(mock_driver, mock_personas)
-        result = await gsm.read_signal_flips("cycle1")
-
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]["flip_type"] == "HOLD_TO_BUY"
-
-
-# ---------------------------------------------------------------------------
 # Task Plan 02: TestReportAssembler (stubs — filled in Plan 02)
 # ---------------------------------------------------------------------------
 
@@ -285,7 +193,10 @@ class TestReportAssembler:
         from alphaswarm.report import ReportAssembler
 
         assembler = ReportAssembler()
-        data = {"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100}
+        data = {
+            "buy_count": 50, "sell_count": 30, "hold_count": 17,
+            "parse_error_count": 3, "total": 100,
+        }
         result = assembler.render_section(
             "01_consensus_summary.j2", data=data, cycle_id="test-cycle",
         )
@@ -349,30 +260,39 @@ from alphaswarm.report import ReportAssembler, ToolObservation  # noqa: E402
 _CONSENSUS_OBS = ToolObservation(
     tool_name="bracket_summary",
     tool_input={"cycle_id": "test-html"},
-    result={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
+    result={"buy_count": 50, "sell_count": 30, "hold_count": 17,
+            "parse_error_count": 3, "total": 100},
 )
 _TIMELINE_OBS = ToolObservation(
     tool_name="round_timeline",
     tool_input={"cycle_id": "test-html"},
     result=[
-        {"round_num": 1, "buy_count": 45, "sell_count": 35, "hold_count": 20, "total": 100},
-        {"round_num": 2, "buy_count": 48, "sell_count": 32, "hold_count": 20, "total": 100},
-        {"round_num": 3, "buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
+        {"round_num": 1, "buy_count": 45, "sell_count": 35, "hold_count": 18,
+         "parse_error_count": 2, "total": 100},
+        {"round_num": 2, "buy_count": 48, "sell_count": 32, "hold_count": 17,
+         "parse_error_count": 3, "total": 100},
+        {"round_num": 3, "buy_count": 50, "sell_count": 30, "hold_count": 17,
+         "parse_error_count": 3, "total": 100},
     ],
 )
 _BRACKET_OBS = ToolObservation(
     tool_name="bracket_narratives",
     tool_input={"cycle_id": "test-html"},
     result=[
-        {"bracket": "Quants", "buy_count": 8, "sell_count": 1, "hold_count": 1,
-         "avg_confidence": 0.85, "avg_sentiment": 0.72},
+        {"bracket": "quants", "display_name": "Quants", "buy_count": 8, "sell_count": 1,
+         "hold_count": 1, "total": 10, "avg_confidence": 0.85, "avg_sentiment": 0.72,
+         "majority": "BUY"},
+        {"bracket": "degens", "display_name": "Degens", "buy_count": 0, "sell_count": 0,
+         "hold_count": 0, "total": 0, "avg_confidence": 0.0, "avg_sentiment": 0.0,
+         "majority": None},
     ],
 )
 _DISSENTERS_OBS = ToolObservation(
     tool_name="key_dissenters",
     tool_input={"cycle_id": "test-html"},
     result=[
-        {"agent_id": "a1", "bracket": "Quants", "signal": "SELL", "bracket_majority": "BUY"},
+        {"agent_id": "a1", "name": "Quants 1", "bracket": "quants", "signal": "SELL",
+         "bracket_majority": "BUY"},
     ],
 )
 
@@ -409,7 +329,7 @@ class TestMarkdownAssembler:
         # Buy/sell/hold counts from _CONSENSUS_OBS render into the table
         assert "50" in md  # buy_count
         assert "30" in md  # sell_count
-        assert "20" in md  # hold_count
+        assert "17" in md  # hold_count
 
     def test_contains_timeline_table(self) -> None:
         assembler = ReportAssembler()
@@ -517,19 +437,7 @@ def test_assemble_includes_shock_section_when_observation_present() -> None:
     shock_obs = ToolObservation(
         tool_name="shock_impact",
         tool_input={"cycle_id": "test-cycle"},
-        result={
-            "shock_text": "Fed raises rates by 75bps",
-            "injected_before_round": 2,
-            "comparable_agents": 95,
-            "pivot_count": 40,
-            "held_firm_count": 55,
-            "pivot_rate_pct": 42.1,
-            "held_firm_rate_pct": 57.9,
-            "pivot_agents": [],
-            "bracket_deltas": [],
-            "largest_shift": {"bracket": "Quants", "direction": "BUY", "delta": 20.0},
-            "notable_held_firm_agents": [],
-        },
+        result=_SHOCK_IMPACT_DATA | {"shock_text": "Fed raises rates by 75bps"},
     )
     assembler = ReportAssembler()
     result = assembler.assemble([shock_obs], "test-cycle")
@@ -552,33 +460,41 @@ def test_assemble_skips_shock_section_when_no_observation() -> None:
 _SHOCK_IMPACT_DATA: dict = {
     "shock_text": "Surprise CPI print: 9.1% YoY",
     "injected_before_round": 2,
-    "comparable_agents": 88,
-    "pivot_count": 33,
-    "held_firm_count": 55,
-    "pivot_rate_pct": 37.5,
-    "held_firm_rate_pct": 62.5,
-    "bracket_deltas": [
+    "pre_dominant": "BUY",
+    "post_dominant": "SELL",
+    "pivot_count": 2,
+    "pivot_rate": 0.5,
+    "bracket_pivots": [
         {
-            "bracket": "Quants",
+            "bracket": "quants",
+            "display_name": "Quants",
+            "comparable": 2,
+            "pivots": 2,
             "pre_dominant": "BUY",
-            "dominant_post": "SELL",
+            "post_dominant": "SELL",
+            "pre_buy_pct": 100.0,
+            "post_buy_pct": 0.0,
+            "delta_buy_pct": -100.0,
             "dominant_arrow": "▼",
-            "delta_buy_pct": -30.0,
+            "agents": [
+                {"agent_id": "a01", "pre_signal": "BUY", "post_signal": "SELL"},
+                {"agent_id": "a02", "pre_signal": "BUY", "post_signal": "SELL"},
+            ],
         },
         {
-            "bracket": "Degens",
+            "bracket": "degens",
+            "display_name": "Degens",
+            "comparable": 2,
+            "pivots": 0,
             "pre_dominant": "HOLD",
-            "dominant_post": "BUY",
+            "post_dominant": "BUY",
+            "pre_buy_pct": 0.0,
+            "post_buy_pct": 50.0,
+            "delta_buy_pct": 50.0,
             "dominant_arrow": "▲",
-            "delta_buy_pct": 15.0,
+            "agents": [],
         },
     ],
-    "pivot_agents": [
-        {"bracket": "Quants", "agent_id": "a01", "pre_signal": "BUY", "post_signal": "SELL"},
-        {"bracket": "Quants", "agent_id": "a02", "pre_signal": "BUY", "post_signal": "SELL"},
-    ],
-    "largest_shift": {"bracket": "Quants", "direction": "SELL", "delta": -30.0},
-    "notable_held_firm_agents": [],
 }
 
 
@@ -608,3 +524,147 @@ def test_shock_impact_template_renders_pivot_list() -> None:
     assert "Agent Pivot List" in result
     assert "a01" in result
     assert "a02" in result
+
+
+def test_shock_template_shows_pre_dominant_per_bracket() -> None:
+    md = ReportAssembler().render_section(
+        "11_shock_impact.j2", data=_SHOCK_IMPACT_DATA, cycle_id="c",
+    )
+    assert "| Degens | HOLD | BUY | ▲ | 50.0% |" in md
+    assert "| Pivot Rate | 50.0% |" in md
+    assert "**Swarm Majority:** BUY → SELL" in md
+
+class TestReportFilters:
+    def test_md_cell_escapes_pipes_and_collapses_whitespace(self) -> None:
+        from alphaswarm.report import md_cell
+
+        assert md_cell("ZZZT | QQQX\nmerger\r\n  talks ") == "ZZZT \\| QQQX merger talks"
+
+    def test_md_cell_escapes_backslash_before_pipe(self) -> None:
+        from alphaswarm.report import md_cell
+
+        assert md_cell("a\\|b") == "a\\\\\\|b"
+
+    def test_md_cell_none_is_empty(self) -> None:
+        from alphaswarm.report import md_cell
+
+        assert md_cell(None) == ""
+
+    def test_num_formats_fixed_digits(self) -> None:
+        from alphaswarm.report import num
+
+        assert num(0.12345) == "0.12"
+        assert num(3, 1) == "3.0"
+        assert num(-50) == "-50.00"
+
+    def test_num_none_is_dash(self) -> None:
+        from alphaswarm.report import num
+
+        assert num(None) == "—"
+
+    @pytest.mark.parametrize("bad", ["0.5", True, [1]])
+    def test_num_rejects_non_numbers(self, bad: object) -> None:
+        from alphaswarm.report import num
+
+        with pytest.raises(TypeError, match="num filter expects a number"):
+            num(bad)
+
+    def test_filters_registered_on_assembler(self) -> None:
+        from alphaswarm.report import ReportAssembler, md_cell, num
+
+        env = ReportAssembler()._env
+        assert env.filters["md_cell"] is md_cell
+        assert env.filters["num"] is num
+
+
+def test_consensus_template_has_parse_error_row_and_shares_sum_to_100() -> None:
+    md = ReportAssembler().render_section(
+        "01_consensus_summary.j2", data=_CONSENSUS_OBS.result, cycle_id="test-cycle",
+    )
+    assert "| PARSE_ERROR | 3 | 3.0% |" in md
+    assert "| BUY | 50 | 50.0% |" in md
+    assert "| HOLD | 17 | 17.0% |" in md
+
+
+def test_round_timeline_template_has_parse_error_column() -> None:
+    md = ReportAssembler().render_section(
+        "02_round_timeline.j2", data=_TIMELINE_OBS.result, cycle_id="test-cycle",
+    )
+    assert "| Round | BUY | SELL | HOLD | PARSE_ERROR | Total |" in md
+    assert "| 2 | 48 | 32 | 17 | 3 | 100 |" in md
+
+
+def test_bracket_template_shows_display_name_total_and_dash_for_no_majority() -> None:
+    md = ReportAssembler().render_section(
+        "03_bracket_narratives.j2", data=_BRACKET_OBS.result, cycle_id="c",
+    )
+    assert "| Quants | 8 | 1 | 1 | 10 | BUY | 0.85 | 0.72 |" in md
+    assert "| Degens | 0 | 0 | 0 | 0 | — | 0.00 | 0.00 |" in md
+
+
+def test_dissenters_template_empty_state() -> None:
+    md = ReportAssembler().render_section("04_key_dissenters.j2", data=[], cycle_id="c")
+    assert "_No final-round dissenters._" in md
+
+
+def test_influence_template_shows_citations_and_share_percent() -> None:
+    rows = [{"agent_id": "sell_side_01", "name": "Sell-Side 1", "bracket": "sell_side",
+             "citation_count": 2, "influence_share": 0.5}]
+    md = ReportAssembler().render_section("05_influence_leaders.j2", data=rows, cycle_id="c")
+    assert "| Rank | Agent | Bracket | Citations | Influence Share |" in md
+    assert "| 1 | sell_side_01 | sell_side | 2 | 50.0% |" in md
+
+
+def test_entity_impact_template_reads_contract_keys() -> None:
+    rows = [{"entity_name": "ZZZT Holdings", "entity_type": "company", "avg_sentiment": 0.4,
+             "mention_count": 3, "buy_mentions": 2, "sell_mentions": 1, "hold_mentions": 0}]
+    md = ReportAssembler().render_section("07_entity_impact.j2", data=rows, cycle_id="c")
+    assert "| ZZZT Holdings | company | 0.40 | 3 | 2 | 1 | 0 |" in md
+
+
+def test_entity_impact_template_escapes_pipes_and_newlines() -> None:
+    rows = [{"entity_name": "ZZZT | QQQX\nJV", "entity_type": "company", "avg_sentiment": 0.0,
+             "mention_count": 1, "buy_mentions": 1, "sell_mentions": 0, "hold_mentions": 0}]
+    md = ReportAssembler().render_section("07_entity_impact.j2", data=rows, cycle_id="c")
+    row = next(line for line in md.splitlines() if line.startswith("| ZZZT"))
+    assert row == "| ZZZT \\| QQQX JV | company | 0.00 | 1 | 1 | 0 | 0 |"
+
+
+def test_social_post_reach_template_reads_query_keys() -> None:
+    # Exactly the keys read_social_post_reach returns. Legacy cycles with READ_POST
+    # edges still produce such rows, and StrictUndefined must not fail them.
+    row = {
+        "post_id": "post-1",
+        "author_name": "Quants 1",
+        "bracket": "quants",
+        "signal": "buy",
+        "round_num": 1,
+        "content": "ZZZT Holdings | QQQX Robotics\nfictional deal chatter",
+        "reader_count": 12,
+    }
+    md = ReportAssembler().render_section("08_social_post_reach.j2", data=[row], cycle_id="c")
+    table_row = next(line for line in md.splitlines() if line.startswith("| 1 |"))
+    assert table_row == (
+        "| 1 | Quants 1 | quants | buy | 1 | 12 | "
+        "ZZZT Holdings \\| QQQX Robotics fictional deal chatter |"
+    )
+
+
+def test_signal_flip_template_empty_state() -> None:
+    md = ReportAssembler().render_section("06_signal_flip_analysis.j2", data=[], cycle_id="c")
+    assert "_No agent changed position between rounds._" in md
+
+
+def test_strict_undefined_raises_on_missing_row_key() -> None:
+    from jinja2.exceptions import UndefinedError
+
+    row = {"entity_name": "ZZZT Holdings", "avg_sentiment": 0.4, "mention_count": 2,
+           "buy_mentions": 1, "sell_mentions": 1, "hold_mentions": 0}  # entity_type missing
+    with pytest.raises(UndefinedError, match="entity_type"):
+        ReportAssembler().render_section("07_entity_impact.j2", data=[row], cycle_id="c")
+
+
+def test_react_prompt_says_final_round_not_round_3() -> None:
+    assert "Round 3" not in REACT_SYSTEM_PROMPT
+    assert "rounds 1-3" not in REACT_SYSTEM_PROMPT
+    assert "final round" in REACT_SYSTEM_PROMPT

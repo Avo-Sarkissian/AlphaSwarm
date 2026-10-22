@@ -1,0 +1,112 @@
+[
+  {
+    "avg_confidence": 0.656417,
+    "avg_sentiment": 0.060556,
+    "bracket": "institutions",
+    "buy_count": 7,
+    "display_name": "Institutions",
+    "hold_count": 6,
+    "majority": "BUY",
+    "sell_count": 5,
+    "total": 18
+  },
+  {
+    "avg_confidence": 0.56195,
+    "avg_sentiment": 0.009,
+    "bracket": "sell_side",
+    "buy_count": 3,
+    "display_name": "Sell-Side",
+    "hold_count": 3,
+    "majority": "SELL",
+    "sell_count": 4,
+    "total": 10
+  },
+  {
+    "avg_confidence": 0.5717,
+    "avg_sentiment": 0.066,
+    "bracket": "event_driven",
+    "buy_count": 3,
+    "display_name": "Event-Driven",
+    "hold_count": 4,
+    "majority": "HOLD",
+    "sell_count": 3,
+    "total": 10
+  },
+  {
+    "avg_confidence": 0.677542,
+    "avg_sentiment": 0.043333,
+    "bracket": "quants",
+    "buy_count": 5,
+    "display_name": "Quants",
+    "hold_count": 4,
+    "majority": "BUY",
+    "sell_count": 3,
+    "total": 12
+  },
+  {
+    "avg_confidence": 0.66075,
+    "avg_sentiment": -0.146429,
+    "bracket": "degens",
+    "buy_count": 4,
+    "display_name": "Degens",
+    "hold_count": 4,
+    "majority": "SELL",
+    "sell_count": 6,
+    "total": 14
+  },
+  {
+    "avg_confidence": 0.739563,
+    "avg_sentiment": 0.0525,
+    "bracket": "narrators",
+    "buy_count": 2,
+    "display_name": "Narrators",
+    "hold_count": 3,
+    "majority": "SELL",
+    "sell_count": 3,
+    "total": 8
+  },
+  {
+    "avg_confidence": 0.577063,
+    "avg_sentiment": 0.0025,
+    "bracket": "algos",
+    "buy_count": 3,
+    "display_name": "Algos",
+    "hold_count": 3,
+    "majority": "BUY",
+    "sell_count": 2,
+    "total": 8
+  },
+  {
+    "avg_confidence": 0.559071,
+    "avg_sentiment": -0.017143,
+    "bracket": "macro",
+    "buy_count": 2,
+    "display_name": "Macro",
+    "hold_count": 2,
+    "majority": "SELL",
+    "sell_count": 3,
+    "total": 7
+  },
+  {
+    "avg_confidence": 0.558143,
+    "avg_sentiment": 0.044286,
+    "bracket": "shorts",
+    "buy_count": 2,
+    "display_name": "Shorts",
+    "hold_count": 3,
+    "majority": "HOLD",
+    "sell_count": 2,
+    "total": 7
+  },
+  {
+    "avg_confidence": 0.0,
+    "avg_sentiment": 0.0,
+    "bracket": "allocators",
+    "buy_count": 0,
+    "display_name": "Allocators",
+    "hold_count": 0,
+    "majority": null,
+    "sell_count": 0,
+    "total": 0
+  }
+]

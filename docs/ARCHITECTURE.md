@@ -109,7 +109,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 
 ```
 (:Agent {id, name, bracket, risk_profile, temperature, influence_weight_base, decision_narrative})
-(:Cycle {cycle_id, seed_rumor, overall_sentiment, created_at, <metrics>, metrics_recorded_at})
+(:Cycle {cycle_id, seed_rumor, overall_sentiment, created_at, num_rounds, <metrics>, metrics_recorded_at})
     -[:MENTIONS {relevance, sentiment}]->(:Entity {name, type})
 (:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment, rationale})-[:FOR]->(:Cycle)
 (:Decision)-[:CITED]->(:Agent)

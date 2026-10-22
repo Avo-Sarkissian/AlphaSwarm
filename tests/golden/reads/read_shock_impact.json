@@ -1,0 +1,200 @@
+{
+  "bracket_pivots": [
+    {
+      "agents": [
+        {
+          "agent_id": "institutions_01",
+          "post_signal": "HOLD",
+          "pre_signal": "SELL"
+        }
+      ],
+      "bracket": "institutions",
+      "comparable": 17,
+      "delta_buy_pct": 0.0,
+      "display_name": "Institutions",
+      "dominant_arrow": "·",
+      "pivots": 1,
+      "post_buy_pct": 29.411765,
+      "post_dominant": "HOLD",
+      "pre_buy_pct": 29.411765,
+      "pre_dominant": "SELL"
+    },
+    {
+      "agents": [
+        {
+          "agent_id": "sell_side_01",
+          "post_signal": "BUY",
+          "pre_signal": "HOLD"
+        }
+      ],
+      "bracket": "sell_side",
+      "comparable": 10,
+      "delta_buy_pct": 10.0,
+      "display_name": "Sell-Side",
+      "dominant_arrow": "▲",
+      "pivots": 1,
+      "post_buy_pct": 40.0,
+      "post_dominant": "BUY",
+      "pre_buy_pct": 30.0,
+      "pre_dominant": "HOLD"
+    },
+    {
+      "agents": [
+        {
+          "agent_id": "event_driven_01",
+          "post_signal": "SELL",
+          "pre_signal": "BUY"
+        }
+      ],
+      "bracket": "event_driven",
+      "comparable": 9,
+      "delta_buy_pct": -11.111111,
+      "display_name": "Event-Driven",
+      "dominant_arrow": "▼",
+      "pivots": 1,
+      "post_buy_pct": 22.222222,
+      "post_dominant": "SELL",
+      "pre_buy_pct": 33.333333,
+      "pre_dominant": "BUY"
+    },
+    {
+      "agents": [
+        {
+          "agent_id": "quants_01",
+          "post_signal": "HOLD",
+          "pre_signal": "SELL"
+        }
+      ],
+      "bracket": "quants",
+      "comparable": 11,
+      "delta_buy_pct": 0.0,
+      "display_name": "Quants",
+      "dominant_arrow": "·",
+      "pivots": 1,
+      "post_buy_pct": 36.363636,
+      "post_dominant": "BUY",
+      "pre_buy_pct": 36.363636,
+      "pre_dominant": "BUY"
+    },
+    {
+      "agents": [
+        {
+          "agent_id": "degens_01",
+          "post_signal": "BUY",
+          "pre_signal": "HOLD"
+        }
+      ],
+      "bracket": "degens",
+      "comparable": 14,
+      "delta_buy_pct": 7.142857,
+      "display_name": "Degens",
+      "dominant_arrow": "▲",
+      "pivots": 1,
+      "post_buy_pct": 42.857143,
+      "post_dominant": "BUY",
+      "pre_buy_pct": 35.714286,
+      "pre_dominant": "BUY"
+    },
+    {
+      "agents": [
+        {
+          "agent_id": "narrators_01",
+          "post_signal": "SELL",
+          "pre_signal": "BUY"
+        }
+      ],
+      "bracket": "narrators",
+      "comparable": 8,
+      "delta_buy_pct": -12.5,
+      "display_name": "Narrators",
+      "dominant_arrow": "▼",
+      "pivots": 1,
+      "post_buy_pct": 25.0,
+      "post_dominant": "SELL",
+      "pre_buy_pct": 37.5,
+      "pre_dominant": "BUY"
+    },
+    {
+      "agents": [
+        {
+          "agent_id": "algos_01",
+          "post_signal": "HOLD",
+          "pre_signal": "SELL"
+        }
+      ],
+      "bracket": "algos",
+      "comparable": 7,
+      "delta_buy_pct": 0.0,
+      "display_name": "Algos",
+      "dominant_arrow": "·",
+      "pivots": 1,
+      "post_buy_pct": 14.285714,
+      "post_dominant": "HOLD",
+      "pre_buy_pct": 14.285714,
+      "pre_dominant": "SELL"
+    },
+    {
+      "agents": [
+        {
+          "agent_id": "macro_01",
+          "post_signal": "BUY",
+          "pre_signal": "HOLD"
+        }
+      ],
+      "bracket": "macro",
+      "comparable": 7,
+      "delta_buy_pct": 14.285714,
+      "display_name": "Macro",
+      "dominant_arrow": "▲",
+      "pivots": 1,
+      "post_buy_pct": 42.857143,
+      "post_dominant": "BUY",
+      "pre_buy_pct": 28.571429,
+      "pre_dominant": "HOLD"
+    },
+    {
+      "agents": [
+        {
+          "agent_id": "shorts_01",
+          "post_signal": "SELL",
+          "pre_signal": "BUY"
+        }
+      ],
+      "bracket": "shorts",
+      "comparable": 6,
+      "delta_buy_pct": -16.666667,
+      "display_name": "Shorts",
+      "dominant_arrow": "▼",
+      "pivots": 1,
+      "post_buy_pct": 33.333333,
+      "post_dominant": "BUY",
+      "pre_buy_pct": 50.0,
+      "pre_dominant": "BUY"
+    },
+    {
+      "agents": [
+        {
+          "agent_id": "allocators_01",
+          "post_signal": "HOLD",
+          "pre_signal": "SELL"
+        }
+      ],
+      "bracket": "allocators",
+      "comparable": 5,
+      "delta_buy_pct": 0.0,
+      "display_name": "Allocators",
+      "dominant_arrow": "·",
+      "pivots": 1,
+      "post_buy_pct": 20.0,
+      "post_dominant": "HOLD",
+      "pre_buy_pct": 20.0,
+      "pre_dominant": "SELL"
+    }
+  ],
+  "injected_before_round": 2,
+  "pivot_count": 10,
+  "pivot_rate": 0.106383,
+  "post_dominant": "HOLD",
+  "pre_dominant": "SELL",
+  "shock_text": "ZZZT Holdings says the QQQX Robotics talks ended without a deal."
+}

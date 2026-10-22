@@ -215,7 +215,9 @@ async def build_seeded_cycle(gm: GraphStateManager, *, num_rounds: int = 3) -> S
     seed_event = SeedEvent(
         raw_rumor=SEED_RUMOR, entities=list(SEED_ENTITIES), overall_sentiment=OVERALL_SENTIMENT
     )
-    cycle_id = await gm.create_cycle_with_seed_event(SEED_RUMOR, seed_event)
+    cycle_id = await gm.create_cycle_with_seed_event(
+        SEED_RUMOR, seed_event, num_rounds=num_rounds
+    )
     entity_names = await gm.read_cycle_entities(cycle_id)
 
     decisions: dict[int, tuple[tuple[str, AgentDecision], ...]] = {}

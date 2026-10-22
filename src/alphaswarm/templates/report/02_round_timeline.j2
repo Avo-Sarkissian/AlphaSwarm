@@ -1,7 +1,7 @@
 ## Round Timeline
 
-| Round | BUY | SELL | HOLD | Total |
-|-------|-----|------|------|-------|
+| Round | BUY | SELL | HOLD | PARSE_ERROR | Total |
+|-------|-----|------|------|-------------|-------|
 {% for round in data %}
-| {{ round.round_num }} | {{ round.buy_count }} | {{ round.sell_count }} | {{ round.hold_count }} | {{ round.total }} |
+| {{ round.round_num }} | {{ round.buy_count }} | {{ round.sell_count }} | {{ round.hold_count }} | {{ round.parse_error_count }} | {{ round.total }} |
 {% endfor %}

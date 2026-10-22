@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 import pytest
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from jinja2 import Environment
 
 from alphaswarm.report import TEMPLATE_DIR, ReportAssembler
 from tests.support.golden import assert_golden
@@ -37,24 +37,11 @@ SOURCES: dict[str, Source] = {
     "11_shock_impact.j2": lambda gm, cid: gm.read_shock_impact(cid),
 }
 
-_STRICT_XFAIL = {
-    "07_entity_impact.j2": pytest.mark.xfail(
-        strict=True,
-        reason="T2.2: entity-impact template reads keys the query never returns (fix: plan 06)",
-    ),
-}
-
 _SHARE_RE = re.compile(r"^\| [A-Z_ ]+ \| \d+ \| (?P<share>\d+\.\d)% \|$", re.MULTILINE)
 
 
 def _strict_env() -> Environment:
-    return Environment(
-        loader=FileSystemLoader(str(TEMPLATE_DIR)),
-        autoescape=False,
-        trim_blocks=True,
-        lstrip_blocks=True,
-        undefined=StrictUndefined,
-    )
+    return ReportAssembler()._env
 
 
 def _table_rows(markdown: str) -> list[list[str]]:
@@ -67,10 +54,7 @@ def test_every_template_has_a_row_source() -> None:
     assert {path.name for path in TEMPLATE_DIR.glob("*.j2")} == set(SOURCES)
 
 
-@pytest.mark.parametrize(
-    "template",
-    [pytest.param(name, marks=_STRICT_XFAIL.get(name, ())) for name in sorted(SOURCES)],
-)
+@pytest.mark.parametrize("template", sorted(SOURCES))
 async def test_template_renders_with_strict_undefined(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle, template: str
 ) -> None:
@@ -92,9 +76,6 @@ async def test_signal_flip_template_golden(
     assert_golden("report/06_signal_flip_analysis.md", rendered)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.2: entity-impact table renders blank cells (fix: plan 06)"
-)
 async def test_entity_impact_table_has_no_blank_cells(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -108,9 +89,6 @@ async def test_entity_impact_table_has_no_blank_cells(
     assert all(all(cells) for cells in table)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: consensus shares use a total that includes failures (fix: plan 06)"
-)
 async def test_consensus_shares_add_up_to_100(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -121,3 +99,47 @@ async def test_consensus_shares_add_up_to_100(
     shares = [float(m.group("share")) for m in _SHARE_RE.finditer(rendered)]
     assert len(shares) >= 3
     assert sum(shares) == pytest.approx(100.0, abs=0.3)
+
+
+TEMPLATE_READERS: tuple[tuple[str, str], ...] = (
+    ("01_consensus_summary.j2", "read_consensus_summary"),
+    ("02_round_timeline.j2", "read_round_timeline"),
+    ("03_bracket_narratives.j2", "read_bracket_narratives"),
+    ("04_key_dissenters.j2", "read_key_dissenters"),
+    ("05_influence_leaders.j2", "read_influence_leaders"),
+    ("06_signal_flip_analysis.j2", "read_signal_flips"),
+    ("07_entity_impact.j2", "read_entity_impact"),
+    ("11_shock_impact.j2", "read_shock_impact"),
+)
+
+
+@pytest.mark.parametrize(("template", "reader"), TEMPLATE_READERS)
+async def test_every_template_renders_seeded_rows_strictly(
+    seeded_cycle: SeededCycle,
+    graph_manager_test: GraphStateManager,
+    template: str,
+    reader: str,
+) -> None:
+    rows = await getattr(graph_manager_test, reader)(seeded_cycle.cycle_id)
+
+    md = ReportAssembler().render_section(template, data=rows, cycle_id=seeded_cycle.cycle_id)
+
+    # [ \t], not \s: a row ending "|" followed by the next row's "|" is not a blank cell.
+    assert re.search(r"\|[ \t]*\|", md) is None, md  # no blank cell anywhere
+    assert "None" not in md
+
+
+@pytest.mark.parametrize(
+    ("template", "reader"),
+    # 06 is pinned by test_signal_flip_template_golden.
+    [pair for pair in TEMPLATE_READERS if pair[0] != "06_signal_flip_analysis.j2"],
+)
+async def test_fixed_template_golden(
+    seeded_cycle: SeededCycle,
+    graph_manager_test: GraphStateManager,
+    template: str,
+    reader: str,
+) -> None:
+    rows = await getattr(graph_manager_test, reader)(seeded_cycle.cycle_id)
+    md = ReportAssembler().render_section(template, data=rows, cycle_id=seeded_cycle.cycle_id)
+    assert_golden(f"report/{template.removesuffix('.j2')}.md", md)

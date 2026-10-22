@@ -3,5 +3,5 @@
 | Rank | Author | Bracket | Signal | Round | Readers | Content |
 |------|--------|---------|--------|-------|---------|---------|
 {% for post in data %}
-| {{ loop.index }} | {{ post.author_id }} | {{ post.bracket }} | {{ post.signal }} | {{ post.round_num }} | {{ post.reader_count }} | {{ post.content[:80] if post.content else "" }} |
+| {{ loop.index }} | {{ post.author_name | md_cell }} | {{ post.bracket | md_cell }} | {{ post.signal }} | {{ post.round_num }} | {{ post.reader_count }} | {{ (post.content or "")[:80] | md_cell }} |
 {% endfor %}

@@ -44,7 +44,7 @@ async def test_graph_manager_test_keeps_protected_cycles(
 
     rumor = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(
-        rumor, SeedEvent(raw_rumor=rumor, entities=[], overall_sentiment=0.0)
+        rumor, SeedEvent(raw_rumor=rumor, entities=[], overall_sentiment=0.0), num_rounds=3
     )
     NEO4J_PROTECTED_CYCLES.add(cycle_id)
     _HARNESS_CYCLES.append(cycle_id)

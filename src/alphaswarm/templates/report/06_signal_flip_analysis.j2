@@ -1,7 +1,11 @@
 ## Signal Flip Analysis
 
-| Agent | Bracket | Round | Flip Type | Final Signal |
-|-------|---------|-------|-----------|-------------|
+{% if data %}
+| Agent | Bracket | Round | Flip Type | Signal After |
+|-------|---------|-------|-----------|--------------|
 {% for flip in data %}
-| {{ flip.agent_id }} | {{ flip.bracket }} | {{ flip.round_num }} | {{ flip.flip_type }} | {{ flip.final_signal }} |
+| {{ flip.agent_id | md_cell }} | {{ flip.bracket | md_cell }} | {{ flip.round_num }} | {{ flip.flip_type | md_cell }} | {{ flip.final_signal }} |
 {% endfor %}
+{% else %}
+_No agent changed position between rounds._
+{% endif %}

@@ -1,7 +1,11 @@
 ## Key Dissenters
 
+{% if data %}
 | Agent | Bracket | Signal | Bracket Majority |
 |-------|---------|--------|-----------------|
 {% for d in data %}
-| {{ d.agent_id }} | {{ d.bracket }} | {{ d.signal }} | {{ d.bracket_majority }} |
+| {{ d.agent_id | md_cell }} | {{ d.bracket | md_cell }} | {{ d.signal }} | {{ d.bracket_majority }} |
 {% endfor %}
+{% else %}
+_No final-round dissenters._
+{% endif %}

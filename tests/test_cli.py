@@ -538,7 +538,7 @@ def test_shift_analysis_output(
         agents_shifted=5,
     )
 
-    _print_shift_analysis(shift, 1, 2)
+    _print_shift_analysis(shift, 1, 2, agent_count=4)
 
     captured = capsys.readouterr()
     assert "Signal Transitions (Round 1 -> Round 2)" in captured.out
@@ -562,7 +562,7 @@ def test_shift_analysis_no_flips(
         agents_shifted=0,
     )
 
-    _print_shift_analysis(shift, 1, 2)
+    _print_shift_analysis(shift, 1, 2, agent_count=4)
 
     captured = capsys.readouterr()
     assert "No agents changed signal between rounds." in captured.out
@@ -582,7 +582,7 @@ def test_shift_analysis_confidence_drift(
         agents_shifted=1,
     )
 
-    _print_shift_analysis(shift, 2, 3)
+    _print_shift_analysis(shift, 2, 3, agent_count=4)
 
     captured = capsys.readouterr()
     assert "Confidence Drift by Bracket" in captured.out
@@ -636,7 +636,7 @@ def test_simulation_summary_output(
         round3_shifts=r3_shifts,
     )
 
-    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS)
+    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS, num_rounds=3)
 
     captured = capsys.readouterr()
     assert "Simulation Complete" in captured.out
@@ -674,7 +674,7 @@ def test_simulation_summary_convergence_yes(
         round3_summaries=(),
     )
 
-    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS)
+    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS, num_rounds=3)
 
     captured = capsys.readouterr()
     assert "Convergence:" in captured.out
@@ -711,7 +711,7 @@ def test_simulation_summary_convergence_no_increased(
         round3_summaries=(),
     )
 
-    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS)
+    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS, num_rounds=3)
 
     captured = capsys.readouterr()
     assert "Convergence:" in captured.out
@@ -748,7 +748,7 @@ def test_simulation_summary_convergence_no_unchanged(
         round3_summaries=(),
     )
 
-    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS)
+    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS, num_rounds=3)
 
     captured = capsys.readouterr()
     assert "Convergence:" in captured.out
@@ -790,7 +790,7 @@ def test_simulation_summary_final_bracket_table(
         round3_summaries=(),
     )
 
-    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS)
+    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS, num_rounds=3)
 
     captured = capsys.readouterr()
     assert "Final Consensus Distribution" in captured.out
@@ -890,6 +890,7 @@ async def test_run_pipeline_calls_run_simulation_with_callback(
     mock_app.governor = AsyncMock()
 
     mock_settings = MagicMock()
+    mock_settings.num_rounds = 3
 
     # Create a minimal SimulationResult for the mock return
     empty_shifts = ShiftMetrics(
@@ -958,25 +959,39 @@ async def test_shock_impact_preseeded_when_shock_event_exists() -> None:
     from unittest.mock import AsyncMock, MagicMock
 
     from alphaswarm.cli import _collect_shock_observation
+    from alphaswarm.graph import ShockImpactRow
     from alphaswarm.report import ToolObservation
 
-    _SHOCK_IMPACT_RESULT = {
-        "shock_text": "Fed raises rates 75bps",
-        "injected_before_round": 2,
-        "comparable_agents": 95,
-        "pivot_count": 40,
-        "held_firm_count": 55,
-        "pivot_rate_pct": 42.1,
-        "held_firm_rate_pct": 57.9,
-        "pivot_agents": [],
-        "bracket_deltas": [],
-        "largest_shift": {},
-        "notable_held_firm_agents": [],
-    }
+    shock_text = "Fictional regulator opens a review of the ZZZT Holdings deal"
+    shock_row = ShockImpactRow(
+        shock_text=shock_text,
+        injected_before_round=2,
+        pre_dominant="BUY",
+        post_dominant="BUY",
+        pivot_count=1,
+        pivot_rate=0.5,
+        bracket_pivots=[
+            {
+                "bracket": "quants",
+                "display_name": "Quants",
+                "comparable": 2,
+                "pivots": 1,
+                "pre_dominant": "BUY",
+                "post_dominant": "BUY",
+                "pre_buy_pct": 100.0,
+                "post_buy_pct": 50.0,
+                "delta_buy_pct": -50.0,
+                "dominant_arrow": "▼",
+                "agents": [{"agent_id": "quants_01", "pre_signal": "BUY", "post_signal": "SELL"}],
+            },
+        ],
+    )
+    # The mock returns the row read_shock_impact really produces.
+    assert set(shock_row) == ShockImpactRow.__required_keys__
 
     mock_gm = MagicMock()
-    mock_gm.read_shock_event = AsyncMock(return_value={"shock_id": "s1", "shock_text": "Fed raises rates 75bps"})
-    mock_gm.read_shock_impact = AsyncMock(return_value=_SHOCK_IMPACT_RESULT)
+    mock_gm.read_shock_event = AsyncMock(return_value={"shock_id": "s1", "shock_text": shock_text})
+    mock_gm.read_shock_impact = AsyncMock(return_value=shock_row)
 
     result = await _collect_shock_observation(mock_gm, "cycle-1")
 
@@ -984,7 +999,7 @@ async def test_shock_impact_preseeded_when_shock_event_exists() -> None:
     assert isinstance(result, ToolObservation)
     assert result.tool_name == "shock_impact"
     assert result.tool_input == {"cycle_id": "cycle-1"}
-    assert result.result == _SHOCK_IMPACT_RESULT
+    assert result.result == shock_row
     mock_gm.read_shock_event.assert_awaited_once_with("cycle-1")
     mock_gm.read_shock_impact.assert_awaited_once_with("cycle-1")
 
@@ -1037,6 +1052,7 @@ async def test_run_pipeline_constructs_providers() -> None:
     mock_app.governor = AsyncMock()
 
     mock_settings = MagicMock()
+    mock_settings.num_rounds = 3
 
     # Minimal SimulationResult so the post-return _print_simulation_summary path
     # (which accesses .round2_shifts, .round3_shifts, .round3_decisions, etc.)
@@ -1065,3 +1081,50 @@ async def test_run_pipeline_constructs_providers() -> None:
     assert "news_provider" in kwargs
     assert isinstance(kwargs["market_provider"], YFinanceMarketDataProvider)
     assert isinstance(kwargs["news_provider"], RSSNewsProvider)
+
+
+def test_shift_analysis_uses_actual_agent_count(capsys: pytest.CaptureFixture[str]) -> None:
+    from alphaswarm.cli import _print_shift_analysis
+    from alphaswarm.simulation import ShiftMetrics
+
+    shift = ShiftMetrics(
+        signal_transitions=(("BUY->SELL", 2),), total_flips=2,
+        bracket_confidence_delta=(), agents_shifted=2,
+    )
+    _print_shift_analysis(shift, 1, 2, agent_count=4)
+
+    out = capsys.readouterr().out
+    assert "Total agents shifted: 2/4" in out
+    assert "/100" not in out
+
+
+def test_simulation_summary_for_two_rounds(capsys: pytest.CaptureFixture[str]) -> None:
+    from alphaswarm.cli import _print_simulation_summary
+    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+
+    empty = ShiftMetrics(signal_transitions=(), total_flips=0,
+                         bracket_confidence_delta=(), agents_shifted=0)
+    result = SimulationResult(
+        cycle_id="test-cycle",
+        parsed_result=_MOCK_PARSED_RESULT,
+        round1_decisions=(),
+        round2_decisions=(
+            ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.9, rationale="r")),
+            ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="r")),
+        ),
+        round3_decisions=(),
+        round2_shifts=ShiftMetrics(signal_transitions=(("BUY->SELL", 1),), total_flips=1,
+                                   bracket_confidence_delta=(), agents_shifted=1),
+        round3_shifts=empty,
+        round1_summaries=(), round2_summaries=(), round3_summaries=(),
+    )
+
+    _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS, num_rounds=2)
+
+    out = capsys.readouterr().out
+    assert "Total Rounds:   2" in out
+    assert "1 (R1->R2) = 1 total" in out
+    assert "R2->R3" not in out
+    assert "Convergence:    n/a (needs 3 rounds)" in out
+    assert "Final Consensus Distribution (Round 2)" in out
+    assert "Quants" in out and "Degens" in out
