@@ -217,12 +217,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Give every `neo4j` test sockets and the session event loop (C-TEST-09).
+    """Give `neo4j` tests sockets, and async ones the session event loop.
 
     append=False puts the session-scoped asyncio marker ahead of the bare one
     that asyncio_mode=auto adds, so it is the marker pytest-asyncio reads and
     the test shares the loop that owns neo4j_test_driver. Sync tests get no
-    asyncio marker: pytest-asyncio warns when one carries it.
+    asyncio marker: pytest-asyncio warns when one carries it
+    (docs/DECISIONS.md#adr-test-network-gate).
     """
     for item in items:
         if item.get_closest_marker("neo4j") is not None:
