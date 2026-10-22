@@ -126,6 +126,8 @@ AGENT_HEADER_RE: Final = re.compile(r"\[(?P<name>[^\]|]+?) \| (?P<display>[^\]]+
 PEER_LINE_RE: Final = re.compile(
     r"\[(?P<agent_id>[a-z]+(?:_[a-z]+)*_\d{2})(?:\|(?P<bracket>[a-z_]+))?\]"
 )
+# Narrative identity: the "Agent: Sell-Side 3 (sell_side)" line of the narrative user prompt.
+# The narrator's system prompt must NOT match AGENT_HEADER_RE, or the call counts as a chat.
 _NARRATIVE_AGENT_RE: Final = re.compile(r"^Agent: (?P<name>.+?) \([a-z_]+\)$", re.MULTILINE)
 # LLM-facing decision fields only; never engine fields such as error_kind/parse_tier.
 _LLM_DECISION_FIELDS: Final = frozenset(

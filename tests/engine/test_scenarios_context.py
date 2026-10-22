@@ -45,6 +45,20 @@ async def test_round_prompts_show_previous_round_peers_and_never_self(
             assert set(decision.cited_agents) <= shown[(agent_id, round_num)]
 
 
+async def test_narrative_prompts_identify_every_agent(
+    run_scenario: RunScenario,
+    scripted_worker: ScriptedProvider,
+    all_personas: list[AgentPersona],
+) -> None:
+    """ScriptedProvider reads narrative identity from the prompt's "Agent: <name> (<bracket>)"
+    line and classifies a call whose system prompt carries a persona header as an interview
+    chat, so prompt drift shows up here instead of as narratives for agent None."""
+    await run_scenario()
+    narratives = scripted_worker.calls_for("narrative")
+    assert len(narratives) == len(all_personas)
+    assert {c.agent_id for c in narratives} == {p.id for p in all_personas}
+
+
 async def test_market_context_reaches_round_1_only(
     run_scenario: RunScenario, scripted_worker: ScriptedProvider
 ) -> None:
