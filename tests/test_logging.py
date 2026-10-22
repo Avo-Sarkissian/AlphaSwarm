@@ -7,6 +7,7 @@ import json
 import pytest
 import structlog
 
+from alphaswarm.errors import InferenceConfigError
 from alphaswarm.logging import configure_logging, get_logger
 
 
@@ -156,6 +157,29 @@ def test_json_exception_from_an_explicit_exc_info_keeps_the_cause_chain(
 
     parsed = json.loads(capsys.readouterr().out.strip())
     assert [entry["exc_type"] for entry in parsed["exception"]] == ["RuntimeError", "ValueError"]
+
+
+def test_json_exception_raised_from_none_drops_the_suppressed_context(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # SimulationManager re-raises inference-config ValueErrors `from None`
+    # because their text can quote a path or a key; the rendered traceback must
+    # show only the wrapper (docs/DECISIONS.md#adr-local-first-inference).
+    configure_logging(log_level="INFO", json_output=True)
+    logger = get_logger(component="test")
+    secret = "".join(["sk-", "CONTEXT", "-CANARY"])
+    try:
+        try:
+            raise ValueError(f"bad inference config: api_key={secret}")
+        except ValueError:
+            raise InferenceConfigError("The saved inference configuration is invalid.") from None
+    except InferenceConfigError as wrapped:
+        logger.error("simulation_run_failed", exc_info=wrapped)
+
+    line = capsys.readouterr().out.strip()
+    parsed = json.loads(line)
+    assert [entry["exc_type"] for entry in parsed["exception"]] == ["InferenceConfigError"]
+    assert "CONTEXT-CANARY" not in line
 
 
 def test_console_exception_never_prints_locals(capsys: pytest.CaptureFixture[str]) -> None:

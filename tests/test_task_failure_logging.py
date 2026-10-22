@@ -62,7 +62,18 @@ async def test_simulation_failure_is_logged_with_exc_info(monkeypatch: pytest.Mo
     # The done-callback only notes the type: str(exc) can quote config text.
     await manager._lock.acquire()  # _on_task_done releases the run lock
     manager._on_task_done(await _failed_task(boom))
-    assert log.kwargs_for("simulation_task_failed") == {"error_type": "RuntimeError"}
+    assert ("info", "simulation_task_failed", {"error_type": "RuntimeError"}) in log.calls
+
+    # A failure _publish_failure never saw (a provider aclose in _run's finally)
+    # is logged by the done-callback itself, with the traceback.
+    late = RuntimeError("aclose exploded")
+    await manager._lock.acquire()
+    manager._on_task_done(await _failed_task(late))
+    assert (
+        "error",
+        "simulation_task_failed",
+        {"error_type": "RuntimeError", "exc_info": late},
+    ) in log.calls
 
 
 async def test_report_task_failure_is_logged_with_exc_info(monkeypatch: pytest.MonkeyPatch) -> None:

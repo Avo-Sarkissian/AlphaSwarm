@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -124,6 +125,9 @@ class SimulationManager:
         self._task: asyncio.Task[None] | None = None
         self._pending_shock: str | None = None
         self._last_cycle_id: str | None = None
+        # The failure _publish_failure already logged with its traceback, so
+        # _on_task_done logs only failures raised outside _run's handler.
+        self._logged_failure: BaseException | None = None
         # Strong references to fire-and-forget callback tasks (on_complete
         # trigger). The event loop holds only weak refs to tasks; without
         # this set the auto-advisory trigger can be GC'd before it runs.
@@ -276,24 +280,27 @@ class SimulationManager:
     async def _publish_failure(self, exc: BaseException) -> None:
         """Put a UI-safe RunError on the StateStore and log the failure once.
 
-        Never raises: a broken store must not stop the phase reset that follows
+        The failure is logged with its traceback whether or not the store takes
+        the RunError, and this method never raises: a broken store must cost
+        neither the traceback nor the phase reset that follows
         (docs/DECISIONS.md#adr-taskgroup-dispatch).
         """
         store = self._app_state.state_store
+        err = run_error_from_exception(exc, round_num=None)
         try:
             snap = store.snapshot()
-            round_num = snap.round_num if snap.phase in _ROUND_PHASES else None
-            err = run_error_from_exception(exc, round_num=round_num)
+            if snap.phase in _ROUND_PHASES:
+                err = dataclasses.replace(err, round_num=snap.round_num)
             await store.set_last_error(err)
         except Exception:
             log.warning("last_error_publish_failed", exc_info=True)
-            return
         log.error(
             "simulation_run_failed",
             error_code=err.code,
             round_num=err.round_num,
             exc_info=exc,
         )
+        self._logged_failure = exc
 
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
         """Synchronous done-callback: releases lock and logs outcome.
@@ -307,6 +314,7 @@ class SimulationManager:
         self._is_running = False
         self._task = None
         self._pending_shock = None
+        logged_failure, self._logged_failure = self._logged_failure, None
         self._lock.release()
         if not task.cancelled() and task.exception() is None:
             cycle_id = self._last_cycle_id
@@ -323,8 +331,13 @@ class SimulationManager:
             log.info("simulation_cancelled")
         else:
             exc = task.exception()
-            # Details were logged by _publish_failure; keep this line text-free.
-            log.info("simulation_task_failed", error_type=type(exc).__name__)
+            if exc is logged_failure:
+                # Details were logged by _publish_failure; keep this line text-free.
+                log.info("simulation_task_failed", error_type=type(exc).__name__)
+            else:
+                # Raised outside _run's failure handler (a provider aclose in its
+                # finally, say), so this is the only record of the traceback.
+                log.error("simulation_task_failed", error_type=type(exc).__name__, exc_info=exc)
 
     def stop(self) -> None:
         """Stop the running simulation by cancelling the background task.

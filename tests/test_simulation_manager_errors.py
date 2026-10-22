@@ -1,4 +1,5 @@
-"""SimulationManager publishes UI-safe RunErrors (docs/DECISIONS.md#adr-taskgroup-dispatch)."""
+"""SimulationManager publishes UI-safe RunErrors and logs every failure once with its
+traceback (docs/DECISIONS.md#adr-taskgroup-dispatch)."""
 
 from __future__ import annotations
 
@@ -20,10 +21,37 @@ from alphaswarm.errors import (
 )
 from alphaswarm.state import StateStore
 from alphaswarm.types import SimulationPhase
+from alphaswarm.web import simulation_manager as manager_module
 from alphaswarm.web.broadcaster import snapshot_to_json
 from alphaswarm.web.simulation_manager import SimulationManager
 
 SEED = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
+
+
+class _RecordingLog:
+    """Stand-in for the module-level structlog logger that records every call."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def __getattr__(self, level: str) -> Callable[..., None]:
+        def _log(event: str, **kw: Any) -> None:
+            self.calls.append((level, event, kw))
+
+        return _log
+
+    def find(self, event: str) -> tuple[str, dict[str, Any]]:
+        """Level and kwargs of the single call that logged *event*."""
+        matches = [(level, kw) for level, name, kw in self.calls if name == event]
+        assert len(matches) == 1, f"{event} logged {len(matches)} times: {self.calls}"
+        return matches[0]
+
+
+@pytest.fixture
+def recorded_log(monkeypatch: pytest.MonkeyPatch) -> _RecordingLog:
+    log = _RecordingLog()
+    monkeypatch.setattr(manager_module, "log", log)
+    return log
 
 
 @contextlib.contextmanager
@@ -31,10 +59,11 @@ def _patched_run(
     run: Callable[..., Awaitable[Any]],
     *,
     load: Callable[..., Any] | None = None,
+    aclose_error: BaseException | None = None,
 ) -> Iterator[AsyncMock]:
     built = MagicMock()
     built.orchestrator.aclose = AsyncMock()
-    built.worker.aclose = AsyncMock()
+    built.worker.aclose = AsyncMock(side_effect=aclose_error)
     load_patch = (
         patch("alphaswarm.config.load_inference_config", return_value=MagicMock())
         if load is None
@@ -151,7 +180,9 @@ async def test_start_clears_previous_error() -> None:
         await _finish(sm)
 
 
-async def test_invalid_inference_config_is_wrapped_without_leaking() -> None:
+async def test_invalid_inference_config_is_wrapped_without_leaking(
+    recorded_log: _RecordingLog,
+) -> None:
     sm, store = _manager()
 
     def _bad_config(*_: object, **__: object) -> object:
@@ -174,6 +205,76 @@ async def test_invalid_inference_config_is_wrapped_without_leaking() -> None:
     assert err.code == "inference_config_invalid"
     assert "SECRET" not in err.message
     assert ".secrets" not in err.message
+
+    # The log half: the lines name the error type and carry the wrapped
+    # exception, never the ValueError text (a path, maybe a key).
+    assert recorded_log.find("inference_config_invalid") == ("error", {"error_type": "ValueError"})
+    level, kwargs = recorded_log.find("simulation_run_failed")
+    assert level == "error"
+    assert kwargs["exc_info"] is exc_info.value
+    assert recorded_log.find("simulation_task_failed") == (
+        "info",
+        {"error_type": "InferenceConfigError"},
+    )
+    for _level, _event, kw in recorded_log.calls:
+        assert "SECRET" not in repr(kw)
+        assert ".secrets" not in repr(kw)
+
+
+async def test_failure_is_logged_with_exc_info_even_if_the_store_rejects_it(
+    recorded_log: _RecordingLog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sm, store = _manager()
+    failure = RoundFailedError(1, 100, 100, 50.0)
+
+    async def _fail(**_: object) -> None:
+        await store.set_phase(SimulationPhase.ROUND_1)
+        await store.set_round(1)
+        raise failure
+
+    with _patched_run(_fail):
+        await sm.start(SEED)  # clears last_error through the real store
+        monkeypatch.setattr(
+            store, "set_last_error", AsyncMock(side_effect=RuntimeError("store down"))
+        )
+        with pytest.raises(RoundFailedError):
+            await _finish(sm)
+
+    assert recorded_log.find("simulation_run_failed") == (
+        "error",
+        {"error_code": "round_failed", "round_num": 1, "exc_info": failure},
+    )
+    assert recorded_log.find("last_error_publish_failed") == ("warning", {"exc_info": True})
+    # Already logged with its traceback, so the done-callback line stays text-free.
+    assert recorded_log.find("simulation_task_failed") == (
+        "info",
+        {"error_type": "RoundFailedError"},
+    )
+    assert store.snapshot().phase is SimulationPhase.IDLE
+
+
+async def test_failure_after_the_run_handler_is_logged_with_exc_info(
+    recorded_log: _RecordingLog,
+) -> None:
+    sm, _store = _manager()
+    boom = RuntimeError("worker aclose exploded")
+
+    async def _ok(**_: object) -> MagicMock:
+        return MagicMock(cycle_id="00000000-0000-4000-8000-000000000007")
+
+    with _patched_run(_ok, aclose_error=boom):
+        await sm.start(SEED)
+        with pytest.raises(RuntimeError):
+            await _finish(sm)
+
+    # Raised in _run's finally, so _publish_failure never saw it: the
+    # done-callback is the only place left to record the traceback.
+    assert recorded_log.find("simulation_task_failed") == (
+        "error",
+        {"error_type": "RuntimeError", "exc_info": boom},
+    )
+    assert all(event != "simulation_run_failed" for _level, event, _kw in recorded_log.calls)
 
 
 async def test_last_error_reaches_the_websocket_frame() -> None:
