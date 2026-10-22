@@ -47,4 +47,20 @@ describe('consensus panels while a round is in flight', () => {
     expect(screen.queryByText('60%')).not.toBeNull();
     expect(screen.queryByText('5/8 decided')).not.toBeNull();
   });
+
+  // happy-dom cannot lay out SVG text, so check the geometry: the widest
+  // line, "100/100 decided", must fit the ring's inner chord at its baseline
+  // (no glyph in it descends below the baseline).
+  it('ring: the decided line stays inside the ring at a full roster', () => {
+    const full = pendingRoster.map((a) => ({ ...a, signal: 'buy' as const, thinking: false }));
+    const { container } = render(<ConsensusRing agents={full} />);
+    const line = screen.getByText('100/100 decided');
+    const ring = container.querySelector('circle') as SVGCircleElement;
+    const inner = Number(ring.getAttribute('r')) - Number(ring.getAttribute('stroke-width')) / 2;
+    const dy = Number(line.getAttribute('y')) - Number(ring.getAttribute('cy'));
+    const chord = 2 * Math.sqrt(inner ** 2 - dy ** 2);
+    // JetBrains Mono advances 0.6em per character.
+    const width = (line.textContent ?? '').length * 0.6 * Number(line.getAttribute('font-size'));
+    expect(width).toBeLessThanOrEqual(chord);
+  });
 });

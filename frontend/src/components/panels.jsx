@@ -147,12 +147,14 @@ export function ConsensusRing({ agents }) {
         <circle cx="60" cy="60" r={R} stroke="var(--sell)" strokeDasharray={`${sellLen} ${C}`} strokeDashoffset={-buyLen} />
         <circle cx="60" cy="60" r={R} stroke="var(--hold)" strokeDasharray={`${holdLen} ${C}`} strokeDashoffset={-(buyLen+sellLen)} />
       </g>
-      <text x="60" y="52" className="mid" fontSize="10" fill="var(--text-3)" letterSpacing="0.14em">CONSENSUS</text>
-      <text x="60" y="68" className="mid" fontSize={lead.signal ? 18 : 13} fontWeight="700" fill={leadColor}>
+      {/* The text block sits a little high: lower down, the ring's inner chord is
+          too narrow for "100/100 decided" (it would run into the arcs). */}
+      <text x="60" y="47" className="mid" fontSize="10" fill="var(--text-3)" letterSpacing="0.14em">CONSENSUS</text>
+      <text x="60" y="64" className="mid" fontSize={lead.signal ? 18 : 13} fontWeight="700" fill={leadColor}>
         {lead.signal ? lead.signal.toUpperCase() : 'PENDING'}
       </text>
-      <text x="60" y="81" className="mid" fontSize="10" fill="var(--text-2)">{lead.signal ? `${lead.pct}%` : '—'}</text>
-      <text x="60" y="93" className="mid" fontSize="8" fill="var(--text-3)">{tally.decided}/{agents.length} decided</text>
+      <text x="60" y="77" className="mid" fontSize="10" fill="var(--text-2)">{lead.signal ? `${lead.pct}%` : '—'}</text>
+      <text x="60" y="88" className="mid" fontSize="7" fill="var(--text-3)">{tally.decided}/{agents.length} decided</text>
     </svg>
   );
 }
