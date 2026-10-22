@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 from fastapi import FastAPI
 
@@ -26,13 +27,17 @@ from alphaswarm.config import (
 )
 from alphaswarm.state import JobStatus
 from alphaswarm.web.app import WebPostRunJobs
+from alphaswarm.web.errors import install_error_handlers
 from alphaswarm.web.post_run import PostRunPipeline
+from alphaswarm.web.routes.advisory import router as advisory_router
 from tests.support.web_app import CYCLE_A, CYCLE_B, StaticPortfolioCache, route_test_settings
 
 
 def _app(tmp_path: Path, portfolio: object | None) -> FastAPI:
     settings = route_test_settings(tmp_path)
     app = FastAPI()
+    install_error_handlers(app)
+    app.include_router(advisory_router, prefix="/api")
     app.state.app_state = create_app_state(
         settings,
         generate_personas(load_bracket_configs()),
@@ -47,6 +52,23 @@ def _app(tmp_path: Path, portfolio: object | None) -> FastAPI:
     app.state.report_generation_error = {}
     app.state.advisory_generation_error = {}
     return app
+
+
+def _save_cloud_config(app: FastAPI) -> None:
+    """A cloud orchestrator without the allow_cloud_advisory opt-in."""
+    cloud = InferenceConfig(
+        orchestrator=RoleConfig(
+            provider=ProviderType.ANTHROPIC, model="claude-test", api_key="sk-x"
+        ),
+        worker=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker"),
+    )
+    save_inference_config(cloud, app.state.app_state.settings.inference_config_path)
+
+
+async def _get_advisory(app: FastAPI, cycle_id: str) -> httpx.Response:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        return await client.get(f"/api/advisory/{cycle_id}")
 
 
 @pytest.fixture()
@@ -82,6 +104,10 @@ async def test_report_runs_without_holdings(tmp_path: Path, calls: list[str]) ->
     outcome = await PostRunPipeline(jobs=WebPostRunJobs(app)).on_complete(CYCLE_A)
     assert (outcome.advisory, outcome.report) == ("skipped_no_portfolio", "ran")
     assert calls == [f"report:{CYCLE_A}"]
+    # Nothing is recorded without holdings: no advisory exists for the cycle.
+    r = await _get_advisory(app, CYCLE_A)
+    assert r.status_code == 404
+    assert r.json()["detail"]["error"] == "advisory_not_found"
 
 
 async def test_report_runs_when_cloud_advisory_not_opted_in(
@@ -89,16 +115,56 @@ async def test_report_runs_when_cloud_advisory_not_opted_in(
     calls: list[str],
 ) -> None:
     app = _app(tmp_path, portfolio=object())
-    cloud = InferenceConfig(
-        orchestrator=RoleConfig(
-            provider=ProviderType.ANTHROPIC, model="claude-test", api_key="sk-x"
-        ),
-        worker=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker"),
-    )
-    save_inference_config(cloud, app.state.app_state.settings.inference_config_path)
+    _save_cloud_config(app)
     outcome = await PostRunPipeline(jobs=WebPostRunJobs(app)).on_complete(CYCLE_A)
     assert (outcome.advisory, outcome.report) == ("skipped_cloud_advisory_disabled", "ran")
     assert calls == [f"report:{CYCLE_A}"]
+
+
+async def test_a_cloud_refusal_is_recorded_so_get_stops_reporting_pending(
+    tmp_path: Path,
+    calls: list[str],
+) -> None:
+    """GET answers 404 (shown as "still generating") when nothing is recorded, so the
+    pipeline records the refusal like the POST route and GET returns its code."""
+    app = _app(tmp_path, portfolio=object())
+    _save_cloud_config(app)
+    await PostRunPipeline(jobs=WebPostRunJobs(app)).on_complete(CYCLE_A)
+    r = await _get_advisory(app, CYCLE_A)
+    assert r.status_code == 500
+    assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
+    assert r.json()["detail"]["message"] == advisory_module._CLOUD_ADVISORY_MESSAGE
+    assert app.state.portfolio_cache.get_calls == 0  # refused before the holdings
+
+
+async def test_no_ollama_client_fails_closed_and_the_report_still_runs(
+    tmp_path: Path,
+    calls: list[str],
+) -> None:
+    app = _app(tmp_path, portfolio=object())
+    app.state.app_state.ollama_client = None
+    outcome = await PostRunPipeline(jobs=WebPostRunJobs(app)).on_complete(CYCLE_A)
+    assert (outcome.advisory, outcome.report) == ("skipped_cloud_advisory_disabled", "ran")
+    assert calls == [f"report:{CYCLE_A}"]
+    r = await _get_advisory(app, CYCLE_A)
+    assert (r.status_code, r.json()["detail"]["error"]) == (500, "cloud_advisory_disabled")
+
+
+async def test_an_unreadable_config_fails_closed_and_is_recorded(
+    tmp_path: Path,
+    calls: list[str],
+) -> None:
+    """Like the POST route: the advisory is refused before the holdings are read,
+    GET returns inference_config_invalid, and the report still runs."""
+    app = _app(tmp_path, portfolio=object())
+    app.state.app_state.settings.inference_config_path.write_text("{not json", encoding="utf-8")
+    outcome = await PostRunPipeline(jobs=WebPostRunJobs(app)).on_complete(CYCLE_A)
+    assert (outcome.advisory, outcome.report) == ("skipped_cloud_advisory_disabled", "ran")
+    assert calls == [f"report:{CYCLE_A}"]
+    assert app.state.portfolio_cache.get_calls == 0
+    r = await _get_advisory(app, CYCLE_A)
+    assert (r.status_code, r.json()["detail"]["error"]) == (500, "inference_config_invalid")
+    assert str(tmp_path) not in r.text
 
 
 async def test_report_runs_after_advisory_failure(

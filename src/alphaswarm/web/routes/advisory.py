@@ -120,13 +120,36 @@ def advisory_dir(app_state: AppState) -> Path:
     return app_state.settings.resolve_path(app_state.settings.advisory_dir)
 
 
-def _record_refusal(app: FastAPI, cycle_id: str, error: ApiError) -> None:
-    """Record a refused POST like a refused job, so GET answers with its code.
+async def advisory_refusal(app: FastAPI, cycle_id: str) -> ApiError | None:
+    """The recorded refusal when the advisory for *cycle_id* may not run, else None.
 
-    With nothing recorded GET answers 404, which the UI shows as "still
-    generating" until its poll times out.
+    Shared by POST /api/advisory/{id} and the post-run pipeline, and checked
+    before the holdings are touched (docs/DECISIONS.md#adr-advisory-pipeline):
+    an unreadable inference config fails closed (422 inference_config_invalid)
+    and a cloud or remote orchestrator without the opt-in is refused (409
+    cloud_advisory_disabled). The refusal is recorded like a refused job, so GET
+    answers with its code: with nothing recorded GET answers 404, which the UI
+    shows as "still generating" until its poll times out. Only the type of a
+    config error is logged, because its text can quote API keys.
     """
-    _record_advisory_failure(app, cycle_id, error.code, error.message)
+    app_state: AppState = app.state.app_state
+    try:
+        cfg = await load_inference_config_or_422(app_state)
+    except ApiError as exc:
+        log.warning(
+            "advisory_blocked_config_unreadable",
+            cycle_id=cycle_id,
+            error_type=type(exc.__cause__).__name__,
+        )
+        refusal = exc
+    else:
+        reason = _orchestrator_block_reason(cfg, app_state)
+        if reason is None:
+            return None
+        log.warning("advisory_blocked_cloud_disabled", cycle_id=cycle_id, reason=reason)
+        refusal = ApiError(409, "cloud_advisory_disabled", _CLOUD_ADVISORY_MESSAGE)
+    _record_advisory_failure(app, cycle_id, refusal.code, refusal.message)
+    return refusal
 
 
 @router.post(
@@ -140,26 +163,13 @@ async def generate_advisory(cycle_id: CycleId, request: Request) -> GenerateAdvi
     In order: 404/422/409 from the cycle gate; 422 inference_config_invalid
     (fails closed) or 409 cloud_advisory_disabled for a cloud or remote
     orchestrator without the opt-in, both before the holdings are touched
-    (docs/DECISIONS.md#adr-advisory-pipeline); 503 without holdings; 409 while
-    the orchestrator slot is taken.
+    (advisory_refusal); 503 without holdings; 409 while the orchestrator slot
+    is taken.
     """
     app_state: AppState = request.app.state.app_state
     await require_complete_cycle(app_state, request.app.state.sim_manager, cycle_id)
-    try:
-        cfg = await load_inference_config_or_422(app_state)
-    except ApiError as exc:
-        log.warning(
-            "advisory_blocked_config_unreadable",
-            cycle_id=cycle_id,
-            error_type=type(exc.__cause__).__name__,
-        )
-        _record_refusal(request.app, cycle_id, exc)
-        raise
-    reason = _orchestrator_block_reason(cfg, app_state)
-    if reason is not None:
-        log.warning("advisory_blocked_cloud_disabled", cycle_id=cycle_id, reason=reason)
-        refusal = ApiError(409, "cloud_advisory_disabled", _CLOUD_ADVISORY_MESSAGE)
-        _record_refusal(request.app, cycle_id, refusal)
+    refusal = await advisory_refusal(request.app, cycle_id)
+    if refusal is not None:
         raise refusal
     portfolio: PortfolioSnapshot | None = await request.app.state.portfolio_cache.get()
     if portfolio is None:

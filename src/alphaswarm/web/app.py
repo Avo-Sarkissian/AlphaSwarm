@@ -16,13 +16,7 @@ from neo4j.exceptions import DriverError, Neo4jError
 from starlette.staticfiles import StaticFiles
 
 from alphaswarm.app import create_app_state
-from alphaswarm.config import (
-    AppSettings,
-    generate_personas,
-    load_bracket_configs,
-    load_inference_config,
-)
-from alphaswarm.inference.factory import advisory_allowed
+from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
@@ -31,8 +25,8 @@ from alphaswarm.web.guards import orchestrator_job_running
 from alphaswarm.web.origin_guard import install_origin_guard
 from alphaswarm.web.post_run import AdvisoryGate, PostRunJobBusyError, PostRunPipeline
 from alphaswarm.web.replay_manager import ReplayManager
+from alphaswarm.web.routes.advisory import advisory_refusal, start_advisory_job
 from alphaswarm.web.routes.advisory import router as advisory_router
-from alphaswarm.web.routes.advisory import start_advisory_job
 from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
 from alphaswarm.web.routes.holdings import PortfolioCache
@@ -140,16 +134,11 @@ class WebPostRunJobs:
         self._app = app
 
     async def advisory_gate(self, cycle_id: str) -> AdvisoryGate:
-        # Cloud check first, like the POST route: holdings are not touched for a
-        # cloud orchestrator without the opt-in (docs/DECISIONS.md#adr-advisory-pipeline).
-        # The host checked is the shared OllamaClient's, and no client fails closed,
-        # as in the route. An invalid or unreadable config raises (ValueError,
-        # OSError); the pipeline records the advisory as failed and still runs
-        # the report.
-        app_state = self._app.state.app_state
-        cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
-        client = app_state.ollama_client
-        if client is None or not advisory_allowed(cfg, ollama_base_url=client.base_url):
+        # The POST route's check, before the holdings are touched: an unreadable
+        # config fails closed and a cloud or remote orchestrator without the opt-in
+        # is refused. Both refusals are recorded, so GET answers with their code
+        # instead of a 404 the UI shows as pending (docs/DECISIONS.md#adr-advisory-pipeline).
+        if await advisory_refusal(self._app, cycle_id) is not None:
             return "cloud_advisory_disabled"
         if await self._app.state.portfolio_cache.get() is None:
             return "no_portfolio"
