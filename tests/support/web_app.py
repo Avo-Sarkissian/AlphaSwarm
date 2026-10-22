@@ -20,6 +20,7 @@ from alphaswarm.config import AppSettings, generate_personas, load_bracket_confi
 from alphaswarm.web.app import make_session_clearer
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers
+from alphaswarm.web.guards import orchestrator_job_running
 from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.simulation_manager import SimulationManager
 
@@ -126,6 +127,7 @@ def make_route_app(
             brackets,
             on_start=make_session_clearer(app),
             replay_manager=replay_manager,
+            orchestrator_busy=lambda: orchestrator_job_running(app_state),
         )
         replay_manager.set_sim_running_check(lambda: sim_manager.is_running)
         app.state.app_state = app_state

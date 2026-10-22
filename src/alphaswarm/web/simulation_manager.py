@@ -42,6 +42,14 @@ class ReplayActiveError(Exception):
     """Raised when start() is called while a replay session is active."""
 
 
+class PostRunJobsInProgressError(Exception):
+    """Raised when start() is called while post-run jobs hold the orchestrator.
+
+    Covers the post-run pipeline task (from the end of a run until its report
+    finishes) and manual report/advisory jobs (docs/DECISIONS.md#adr-sequential-model-lifecycle).
+    """
+
+
 class SimulationManager:
     """Thin wrapper enforcing single-simulation concurrency via asyncio.Lock.
 
@@ -66,12 +74,14 @@ class SimulationManager:
         on_start: Callable[[], None] | None = None,
         replay_manager: ReplayManager | None = None,
         on_complete: Callable[[str], Awaitable[object]] | None = None,
+        orchestrator_busy: Callable[[], bool] | None = None,
     ) -> None:
         self._app_state = app_state
         self._brackets = brackets
         self._on_start = on_start
         self._replay_manager = replay_manager
         self._on_complete = on_complete
+        self._orchestrator_busy = orchestrator_busy
         self._lock = asyncio.Lock()
         self._is_running: bool = False
         self._task: asyncio.Task[None] | None = None
@@ -90,6 +100,10 @@ class SimulationManager:
         """True when a simulation is currently executing."""
         return self._is_running
 
+    def _post_run_active(self) -> bool:
+        """True from the end of a run until its post-run pipeline task finishes."""
+        return any(not task.done() for task in self._bg_tasks)
+
     @property
     def pending_shock(self) -> str | None:
         """Current pending shock text, or None if no shock queued."""
@@ -102,6 +116,10 @@ class SimulationManager:
         The replay-active check fires BEFORE the already-running check so a
         concurrent replay takes precedence over a concurrent-start error.
 
+        Raises PostRunJobsInProgressError while the post-run pipeline or an
+        orchestrator job runs (checked after the already-running check, before
+        the lock is taken).
+
         Uses lock.locked() as a fast non-blocking check before acquiring.
         The lock is acquired here but ONLY released in _on_task_done.
         """
@@ -112,6 +130,12 @@ class SimulationManager:
             raise ReplayActiveError("Cannot start simulation while replay is active")
         if self._lock.locked():
             raise SimulationAlreadyRunningError("Simulation already running")
+        if self._post_run_active() or (
+            self._orchestrator_busy is not None and self._orchestrator_busy()
+        ):
+            raise PostRunJobsInProgressError(
+                "The advisory/report jobs are using the orchestrator; retry when they finish"
+            )
         # Review fix: Clear interview sessions (and any other start hooks) before pipeline begins.
         # on_start is set in app.py lifespan to lambda: app.state.interview_sessions.clear()
         if self._on_start is not None:

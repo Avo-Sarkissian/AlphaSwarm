@@ -28,6 +28,7 @@ from alphaswarm.web.replay_manager import (
 )
 from alphaswarm.web.simulation_manager import (
     NoSimulationRunningError,
+    PostRunJobsInProgressError,
     ReplayActiveError,
     ShockAlreadyQueuedError,
     SimulationAlreadyRunningError,
@@ -42,6 +43,7 @@ _HTTP_CODES: Final[dict[int, str]] = {404: "not_found", 405: "method_not_allowed
 DOMAIN_ERROR_STATUS: dict[type[Exception], tuple[int, str]] = {
     SimulationAlreadyRunningError: (409, "simulation_already_running"),
     ReplayActiveError: (409, "replay_active"),
+    PostRunJobsInProgressError: (409, "post_run_jobs_in_progress"),
     NoSimulationRunningError: (409, "no_simulation_running"),
     ShockAlreadyQueuedError: (409, "shock_already_queued"),
     ReplayAlreadyActiveError: (409, "replay_already_active"),

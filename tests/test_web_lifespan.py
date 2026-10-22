@@ -148,7 +148,7 @@ async def test_the_startup_warning_names_the_fix(
     assert fix_fragment in warnings[0]["fix"]
 
 
-def test_lifespan_wires_portfolio_cache(
+def test_lifespan_wires_post_run_and_holdings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -177,3 +177,11 @@ def test_lifespan_wires_portfolio_cache(
 
         assert isinstance(app.state.post_run_pipeline, PostRunPipeline)
         assert app.state.sim_manager._on_complete == app.state.post_run_pipeline.on_complete
+        from alphaswarm.state import JobStatus
+
+        assert app.state.sim_manager._orchestrator_busy() is False
+        app.state.app_state.state_store.set_job_status(
+            "report",
+            JobStatus("running", "00000000-0000-4000-8000-0000000000a1"),
+        )
+        assert app.state.sim_manager._orchestrator_busy() is True

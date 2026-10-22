@@ -214,6 +214,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         on_start=make_session_clearer(app),
         replay_manager=replay_manager,
         on_complete=post_run_pipeline.on_complete,
+        orchestrator_busy=lambda: orchestrator_job_running(app_state),
     )
     # Bidirectional replay/sim exclusion: ReplayManager.start() re-checks for a
     # live simulation under its own lock (closes the TOCTOU window between the
