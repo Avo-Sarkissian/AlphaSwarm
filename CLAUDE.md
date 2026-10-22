@@ -93,7 +93,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
   - `uv run lint-imports` reports the contract kept;
   - `uv run ruff check <changed files>` is clean on the lines you changed (ruff is not yet gated in CI);
   - for frontend changes, run `npx tsc -b --noEmit && npx vitest run && npm run build` in `frontend/`.
-- Golden files in `tests/golden/` change only in a commit whose purpose explains the diff: `UPDATE_GOLDEN=1 uv run pytest -q -m neo4j --require-neo4j tests/neo4j/`, then review `git diff tests/golden` line by line.
+- Golden files in `tests/golden/` change only in a commit whose purpose explains the diff: `UPDATE_GOLDEN=1 uv run pytest -q -m neo4j --require-neo4j tests/neo4j/` (scenario goldens in `tests/golden/scenarios/`: `UPDATE_GOLDEN=1 uv run pytest -q tests/engine/`, no services), then review `git diff tests/golden` line by line.
 
 ## Developer Profile
 
