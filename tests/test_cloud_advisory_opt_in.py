@@ -153,6 +153,24 @@ def test_post_without_opt_in_never_builds_a_provider(
     assert ledger["provider"].calls == []
 
 
+def test_refusal_names_the_settings_checkbox_and_the_config_key(
+    tmp_path: Path,
+    ledger: dict[str, Any],
+) -> None:
+    """The 409 says where to opt in: the Settings checkbox, or the config key when
+    the checkbox is not shown (the UI cannot see an alias of a cloud model)."""
+    app = make_route_app(
+        advisory_router,
+        settings=_cloud_settings(tmp_path, opt_in=False),
+        graph=FakeCycleGraph({CYCLE_A: "complete"}),
+        portfolio=_portfolio(),
+    )
+    with TestClient(app) as client:
+        message = client.post(f"/api/advisory/{CYCLE_A}").json()["detail"]["message"]
+    assert "tick 'Allow cloud advisory' in Settings > Model" in message
+    assert "set allow_cloud_advisory to true in the inference config" in message
+
+
 async def test_pipeline_without_opt_in_never_builds_a_provider(
     tmp_path: Path,
     ledger: dict[str, Any],

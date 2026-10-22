@@ -57,8 +57,9 @@ _CLOUD_ADVISORY_MESSAGE = (
     "provider, an Ollama cloud model, or an Ollama server off this machine: check the "
     "Ollama base URL, OLLAMA_HOST, and the orchestrator's base_url in the inference "
     "config), so the portfolio stays on this machine. Switch the orchestrator to a local "
-    "Ollama model on localhost, or set allow_cloud_advisory to true in the inference "
-    "config to opt in."
+    "Ollama model on localhost, or opt in: tick 'Allow cloud advisory' in Settings > Model, "
+    "or set allow_cloud_advisory to true in the inference config when the checkbox is not "
+    "shown."
 )
 
 _MODEL_CHECK_FAILED_MESSAGE = (
