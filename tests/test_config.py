@@ -290,3 +290,62 @@ def test_round_abort_failure_percent_from_env(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("ALPHASWARM_GOVERNOR__ROUND_ABORT_FAILURE_PERCENT", "75")
     settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
     assert settings.governor.round_abort_failure_percent == 75.0
+
+
+# ---------------------------------------------------------------------------
+# SimulationSettings: peer-selection knobs (docs/DECISIONS.md#adr-diverse-peer-context)
+# ---------------------------------------------------------------------------
+
+
+def test_simulation_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Peer knobs default to the documented values."""
+    clear_alphaswarm_env(monkeypatch)
+    sim = AppSettings(_env_file=None).simulation  # type: ignore[call-arg]
+
+    assert sim.peer_limit == 10
+    assert sim.min_brackets == 4
+    assert sim.bracket_cap == 3
+    assert sim.personal_boost == 0.3
+    assert sim.peer_budget_chars == 4000
+
+
+def test_simulation_settings_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ALPHASWARM_SIMULATION__<FIELD> overrides each knob."""
+    clear_alphaswarm_env(monkeypatch)
+    monkeypatch.setenv("ALPHASWARM_SIMULATION__PEER_LIMIT", "12")
+    monkeypatch.setenv("ALPHASWARM_SIMULATION__MIN_BRACKETS", "5")
+    monkeypatch.setenv("ALPHASWARM_SIMULATION__BRACKET_CAP", "2")
+    monkeypatch.setenv("ALPHASWARM_SIMULATION__PERSONAL_BOOST", "0.05")
+    monkeypatch.setenv("ALPHASWARM_SIMULATION__PEER_BUDGET_CHARS", "6000")
+    sim = AppSettings(_env_file=None).simulation  # type: ignore[call-arg]
+
+    assert (sim.peer_limit, sim.min_brackets, sim.bracket_cap) == (12, 5, 2)
+    assert sim.personal_boost == 0.05
+    assert sim.peer_budget_chars == 6000
+
+
+@pytest.mark.parametrize(
+    ("env_key", "value"),
+    [
+        ("ALPHASWARM_SIMULATION__PEER_LIMIT", "0"),
+        ("ALPHASWARM_SIMULATION__PEER_LIMIT", "21"),
+        ("ALPHASWARM_SIMULATION__MIN_BRACKETS", "-1"),
+        ("ALPHASWARM_SIMULATION__MIN_BRACKETS", "11"),
+        ("ALPHASWARM_SIMULATION__BRACKET_CAP", "0"),
+        ("ALPHASWARM_SIMULATION__BRACKET_CAP", "11"),
+        ("ALPHASWARM_SIMULATION__PERSONAL_BOOST", "-0.1"),
+        ("ALPHASWARM_SIMULATION__PERSONAL_BOOST", "1.5"),
+        ("ALPHASWARM_SIMULATION__PEER_BUDGET_CHARS", "100"),
+        ("ALPHASWARM_SIMULATION__PEER_BUDGET_CHARS", "16001"),
+    ],
+)
+def test_simulation_settings_rejects_out_of_range(
+    monkeypatch: pytest.MonkeyPatch, env_key: str, value: str
+) -> None:
+    """A bad knob fails at settings load and the error names the field."""
+    clear_alphaswarm_env(monkeypatch)
+    monkeypatch.setenv(env_key, value)
+    field = env_key.removeprefix("ALPHASWARM_SIMULATION__").lower()
+
+    with pytest.raises(ValidationError, match=field):
+        AppSettings(_env_file=None)  # type: ignore[call-arg]

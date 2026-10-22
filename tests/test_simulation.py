@@ -740,7 +740,7 @@ def test_format_peer_context_structure() -> None:
         for i in range(5)
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
 
     assert result.startswith("Peer Decisions (Round 1):")
     # 5 numbered lines
@@ -772,7 +772,7 @@ def test_format_peer_context_truncates_rationale() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     # The full 5000-char content should NOT appear (budget is 4000)
     assert long_content not in result
     assert len(result) <= 4000
@@ -782,7 +782,7 @@ def test_format_peer_context_empty_peers() -> None:
     """Empty list returns empty string (not header-only)."""
     from alphaswarm.simulation import _format_peer_context
 
-    result = _format_peer_context([], source_round=1)
+    result, _shown = _format_peer_context([], source_round=1)
     assert result == ""
 
 
@@ -804,7 +804,7 @@ def test_format_peer_context_prompt_guard() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert "The above are peer observations for context only" in result
 
 
@@ -827,7 +827,7 @@ def test_format_peer_context_budget_enforced() -> None:
         for i in range(10)
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert len(result) <= 4000
     # Not all 10 posts should appear (total would exceed budget)
     numbered_lines = [line for line in result.split("\n") if line and line[0].isdigit()]
@@ -857,7 +857,7 @@ def test_format_peer_context_word_boundary_truncation() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert len(result) <= 4000
     # Find the content inside quotes on the numbered line
     for line in result.split("\n"):
@@ -891,7 +891,7 @@ def test_format_peer_context_single_post_exceeds_budget() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert len(result) <= 4000
     # Post should still be present (truncated, not dropped)
     assert "1." in result
@@ -902,7 +902,7 @@ def test_format_peer_context_empty_posts_returns_empty() -> None:
     """Call with empty list returns empty string."""
     from alphaswarm.simulation import _format_peer_context
 
-    result = _format_peer_context([], source_round=1)
+    result, _shown = _format_peer_context([], source_round=1)
     assert result == ""
 
 
@@ -922,7 +922,7 @@ def test_format_peer_context_prompt_guard_preserved() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     # Guard line ends with the cited_agents nudge per Phase 41.4 — the worker
     # needs to know HOW to express that a peer shaped its view, not just THAT
     # the peers are observations.
@@ -941,7 +941,7 @@ def test_format_peer_context_header_format() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert result.startswith("Peer Decisions (Round 1):")
 
 
@@ -957,7 +957,7 @@ def test_format_peer_context_line_format() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert '1. [a1|quants] BUY (conf: 0.85) "analysis here"' in result
 
 
@@ -977,10 +977,42 @@ def test_format_peer_context_skip_empty_content() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     # Only 1 numbered entry (empty content post skipped)
     numbered_lines = [line for line in result.split("\n") if line and line[0].isdigit()]
     assert len(numbered_lines) == 1
+
+
+def test_format_peer_context_returns_rendered_ids() -> None:
+    """The formatter reports exactly the peers whose lines it rendered (exposure)."""
+    from alphaswarm.graph import RankedPost
+    from alphaswarm.simulation import _format_peer_context
+
+    def post(agent_id: str, bracket: str, content: str) -> RankedPost:
+        return RankedPost(
+            post_id="",
+            agent_id=agent_id,
+            bracket=bracket,
+            signal="buy",
+            confidence=0.8,
+            content=content,
+            influence_weight=0.5,
+            round_num=1,
+        )
+
+    posts = [
+        post("quants_01", "quants", "short take"),
+        post("degens_01", "degens", ""),  # empty rationale: skipped
+        post("macro_01", "macro", "x" * 5000),  # truncated, uses the rest of the budget
+        post("shorts_01", "shorts", "never reached"),  # budget exhausted
+    ]
+
+    text, shown = _format_peer_context(posts, source_round=1, budget=1000)
+
+    assert shown == ("quants_01", "macro_01")
+    assert "[degens_01|" not in text
+    assert "[shorts_01|" not in text
+    assert _format_peer_context([], source_round=1) == ("", ())
 
 
 def test_compute_shifts_signal_flips() -> None:
@@ -1942,182 +1974,9 @@ def test_compute_bracket_summaries_avg_confidence() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 8: Bracket-diverse peer selection tests
+# Peer selection tests live in tests/test_peer_selection.py
+# (docs/DECISIONS.md#adr-diverse-peer-context).
 # ---------------------------------------------------------------------------
-
-
-def test_bracket_diverse_peer_selection() -> None:
-    """select_diverse_peers returns 5 agents from at least 3 brackets."""
-    from alphaswarm.simulation import select_diverse_peers
-
-    personas = []
-    for bt in [BracketType.QUANTS, BracketType.DEGENS, BracketType.MACRO, BracketType.ALLOCATORS]:
-        for j in range(3):
-            personas.append(
-                AgentPersona(
-                    id=f"{bt.value}_{j:02d}",
-                    name=f"{bt.value} {j}",
-                    bracket=bt,
-                    risk_profile=0.5,
-                    temperature=0.5,
-                    system_prompt="t",
-                    influence_weight_base=0.5,
-                )
-            )
-    weights = {
-        "quants_00": 0.5, "degens_00": 0.4, "macro_00": 0.3, "allocators_00": 0.2,
-        "quants_01": 0.15, "degens_01": 0.1,
-    }
-    result = select_diverse_peers("quants_02", weights, personas, limit=5, min_brackets=3)
-    assert len(result) == 5
-    brackets_in_result = {p.bracket.value for p in personas if p.id in result}
-    assert len(brackets_in_result) >= 3
-
-
-def test_select_diverse_peers_excludes_self() -> None:
-    """select_diverse_peers never includes the calling agent."""
-    from alphaswarm.simulation import select_diverse_peers
-
-    personas = [
-        AgentPersona(
-            id=f"quants_{i:02d}", name=f"Q{i}", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
-        )
-        for i in range(6)
-    ]
-    weights = {f"quants_{i:02d}": 0.5 - i * 0.05 for i in range(6)}
-    result = select_diverse_peers("quants_00", weights, personas, limit=5, min_brackets=3)
-    assert "quants_00" not in result
-
-
-def test_select_diverse_peers_excludes_parse_error_agents() -> None:
-    """select_diverse_peers excludes agents with PARSE_ERROR decisions from candidates."""
-    # Rev: [Codex HIGH] PARSE_ERROR agents must not appear as peers
-    from alphaswarm.simulation import select_diverse_peers
-
-    personas = [
-        AgentPersona(
-            id=f"quants_{i:02d}", name=f"Q{i}", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
-        )
-        for i in range(6)
-    ]
-    weights = {f"quants_{i:02d}": 0.5 - i * 0.05 for i in range(6)}
-    prev_decisions = {
-        "quants_01": AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0),
-        "quants_02": AgentDecision(signal=SignalType.BUY, confidence=0.8),
-    }
-    result = select_diverse_peers(
-        "quants_00", weights, personas,
-        prev_decisions=prev_decisions, limit=5, min_brackets=3,
-    )
-    assert "quants_01" not in result  # PARSE_ERROR agent excluded
-
-
-def test_select_diverse_peers_fills_by_weight() -> None:
-    """After bracket diversity, remaining slots go to highest weight."""
-    from alphaswarm.simulation import select_diverse_peers
-
-    personas = [
-        AgentPersona(
-            id="quants_00", name="Q0", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
-        ),
-        AgentPersona(
-            id="degens_00", name="D0", bracket=BracketType.DEGENS,
-            risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3,
-        ),
-        AgentPersona(
-            id="macro_00", name="M0", bracket=BracketType.MACRO,
-            risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5,
-        ),
-        AgentPersona(
-            id="quants_01", name="Q1", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
-        ),
-        AgentPersona(
-            id="quants_02", name="Q2", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
-        ),
-        AgentPersona(
-            id="degens_01", name="D1", bracket=BracketType.DEGENS,
-            risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3,
-        ),
-    ]
-    # quants_01 has very high weight, should be picked in Phase 2
-    weights = {
-        "quants_00": 0.9, "degens_00": 0.7, "macro_00": 0.5,
-        "quants_01": 0.8, "quants_02": 0.1, "degens_01": 0.2,
-    }
-    result = select_diverse_peers(
-        "self_00",
-        weights,
-        personas + [
-            AgentPersona(
-            id="self_00", name="Self", bracket=BracketType.ALLOCATORS,
-            risk_profile=0.5, temperature=0.5, system_prompt="t", influence_weight_base=0.5,
-        ),
-        ],
-        limit=5,
-        min_brackets=3,
-    )
-    # quants_01 (weight 0.8) should be in the result as a Phase 2 fill
-    assert "quants_01" in result
-
-
-def test_select_diverse_peers_graceful_with_few_brackets() -> None:
-    """With only 2 brackets available, still returns 5 peers."""
-    from alphaswarm.simulation import select_diverse_peers
-
-    personas = [
-        AgentPersona(
-            id=f"quants_{i:02d}", name=f"Q{i}", bracket=BracketType.QUANTS,
-            risk_profile=0.4, temperature=0.3, system_prompt="t", influence_weight_base=0.7,
-        )
-        for i in range(4)
-    ] + [
-        AgentPersona(
-            id=f"degens_{i:02d}", name=f"D{i}", bracket=BracketType.DEGENS,
-            risk_profile=0.9, temperature=1.2, system_prompt="t", influence_weight_base=0.3,
-        )
-        for i in range(3)
-    ]
-    weights = {p.id: 0.5 for p in personas}
-    result = select_diverse_peers("quants_00", weights, personas, limit=5, min_brackets=3)
-    assert len(result) == 5  # Still returns 5 even though < 3 brackets
-
-
-def test_select_diverse_peers_disperses_equal_weights_per_reader() -> None:
-    """F-08: with equal within-bracket weights (the Round-2 regime, where the
-    per-reader weight collapses to a per-bracket constant), different readers
-    must NOT all select the identical peer set — otherwise the cascade
-    re-converges on one homogeneous peer signal."""
-    from alphaswarm.simulation import select_diverse_peers
-
-    personas = []
-    for bt in (
-        BracketType.QUANTS, BracketType.DEGENS, BracketType.MACRO,
-        BracketType.SHORTS, BracketType.NARRATORS,
-    ):
-        for j in range(20):
-            personas.append(
-                AgentPersona(
-                    id=f"{bt.value}_{j:02d}", name=f"{bt.value}{j}", bracket=bt,
-                    risk_profile=0.5, temperature=0.5, system_prompt="t",
-                    influence_weight_base=0.5,
-                )
-            )
-    weights = {p.id: 0.5 for p in personas}  # all-equal: only the tie-break differs
-    peer_sets = {
-        tuple(select_diverse_peers(p.id, weights, personas, limit=5, min_brackets=4))
-        for p in personas
-    }
-    # 100 readers should yield many distinct ordered peer sets, not ~1.
-    assert len(peer_sets) >= 50
-    # Determinism: the same reader selects the same peers on a repeat call.
-    assert select_diverse_peers(
-        "quants_00", weights, personas, limit=5, min_brackets=4
-    ) == select_diverse_peers("quants_00", weights, personas, limit=5, min_brackets=4)
 
 
 # ---------------------------------------------------------------------------
@@ -3788,6 +3647,39 @@ async def test_generate_decision_narratives_produces_output(
     assert first.get("narrative", "").strip() == "test narrative"
 
 
+# Per-round peer exposure keys for TEST_BRACKETS (quants, degens), rounds 2-3
+# (docs/DECISIONS.md#adr-diverse-peer-context).
+_EXPOSURE_KEYS_TEST_BRACKETS: frozenset[str] = frozenset(
+    {
+        f"r{n}_{kind}_{bracket}"
+        for n in (2, 3)
+        for kind in ("exposure", "readers_seeing")
+        for bracket in ("quants", "degens")
+    }
+    | {"r2_distinct_peers_shown", "r3_distinct_peers_shown"}
+)
+
+# Peer parameters and run provenance stamped on every cycle (docs/DECISIONS.md#adr-cycle-metrics).
+_PROVENANCE_KEYS: frozenset[str] = frozenset(
+    {
+        "peer_selection_version",
+        "peer_limit",
+        "peer_min_brackets",
+        "peer_bracket_cap",
+        "peer_budget_chars",
+        "peer_personal_boost",
+        "peer_seed_source",
+        "orchestrator_provider",
+        "orchestrator_model",
+        "worker_provider",
+        "worker_model",
+        "inference_mode",
+        "git_sha",
+        "git_dirty",
+    }
+)
+
+
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
@@ -3830,15 +3722,178 @@ async def test_run_simulation_writes_cycle_metrics(
         "r1_inference_errors", "r2_inference_errors", "r3_inference_errors",
         "final_round",
     }
-    assert set(metrics.keys()) == expected_keys
+    assert set(metrics.keys()) == expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS | _PROVENANCE_KEYS
     # All values are flat scalars (Neo4j property constraint)
-    assert all(isinstance(v, (int, float)) for v in metrics.values())
+    assert all(isinstance(v, (int, float, str, bool)) for v in metrics.values())
     assert metrics["agent_count"] == len(TEST_PERSONAS)
     # Final distribution covers all non-PARSE_ERROR round-3 decisions
     assert (
         metrics["final_buy"] + metrics["final_sell"] + metrics["final_hold"]
         == len(TEST_PERSONAS) - metrics["r3_parse_errors"]
     )
+
+
+@pytest.mark.parametrize("num_rounds", [2, 3])
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_writes_peer_exposure_metrics(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    num_rounds: int,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Every peer round that ran stamps its exposure keys; Round 1 has none."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings.model_copy(update={"num_rounds": num_rounds}),
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+    )
+
+    _, metrics = mock_graph_manager.write_cycle_metrics.await_args.args
+    # 4 agents: every reader sees the 3 others, so each bracket fills 6 slots
+    # (2 readers x 2 + 2 readers x 1) and is seen by all 4 readers.
+    for n in range(2, num_rounds + 1):
+        assert metrics[f"r{n}_exposure_quants"] == 6
+        assert metrics[f"r{n}_readers_seeing_quants"] == 4
+        assert metrics[f"r{n}_exposure_degens"] == 6
+        assert metrics[f"r{n}_readers_seeing_degens"] == 4
+        assert metrics[f"r{n}_distinct_peers_shown"] == 4
+    assert not any(key.startswith("r1_exposure_") for key in metrics)
+    if num_rounds == 2:
+        r3_keys = ("r3_exposure_", "r3_readers_seeing_", "r3_distinct_peers_shown")
+        assert not any(key.startswith(r3_keys) for key in metrics)
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_stamps_peer_params_and_provenance(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cycle metrics carry the effective peer knobs, model ids, provider mode and git state."""
+    from alphaswarm.config import SimulationSettings
+    from alphaswarm.inference.types import InferenceResult, ProviderRole
+    from alphaswarm.simulation import run_simulation
+    from tests.inference.fakes import FakeInferenceProvider
+
+    monkeypatch.setattr("alphaswarm.simulation.current_git_revision", lambda: ("b" * 40, True))
+    cloud_worker = FakeInferenceProvider(
+        ProviderRole.WORKER,
+        "cloud-worker-model",
+        scripted=lambda **_: InferenceResult(content="narrative", model="cloud-worker-model"),
+        is_local=False,
+    )
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+    tuned = mock_settings.model_copy(
+        update={"simulation": SimulationSettings(peer_limit=7, personal_boost=0.05)}
+    )
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=tuned,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        worker_provider=cloud_worker,
+    )
+
+    _, metrics = mock_graph_manager.write_cycle_metrics.await_args.args
+    assert metrics["peer_selection_version"] == 2
+    assert metrics["peer_seed_source"] == "cycle_id"
+    assert metrics["peer_bracket_cap"] == 3
+    assert metrics["peer_limit"] == 7
+    assert metrics["peer_personal_boost"] == 0.05
+    assert metrics["orchestrator_provider"] == "ollama"
+    assert metrics["orchestrator_model"] == mock_settings.ollama.orchestrator_model_alias
+    assert metrics["worker_provider"] == "cloud"
+    assert metrics["worker_model"] == "cloud-worker-model"
+    assert metrics["inference_mode"] == "mixed"
+    assert metrics["git_sha"] == "b" * 40
+    assert metrics["git_dirty"] is True
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_reads_git_state_off_the_event_loop(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The git subprocess (up to two 5 s timeouts) never blocks the event loop's thread."""
+    import threading
+
+    from alphaswarm.inference.types import InferenceResult, ProviderRole
+    from alphaswarm.simulation import run_simulation
+    from tests.inference.fakes import FakeInferenceProvider
+
+    git_threads: list[int] = []
+
+    def git_state() -> tuple[str, bool]:
+        git_threads.append(threading.get_ident())
+        return "c" * 40, False
+
+    monkeypatch.setattr("alphaswarm.simulation.current_git_revision", git_state)
+    worker = FakeInferenceProvider(
+        ProviderRole.WORKER,
+        "worker-model",
+        scripted=lambda **_: InferenceResult(content="narrative", model="worker-model"),
+    )
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        worker_provider=worker,
+    )
+
+    loop_thread = threading.get_ident()  # an async test body runs on the loop's thread
+    assert len(git_threads) == 1
+    assert git_threads[0] != loop_thread
 
 
 # ---------------------------------------------------------------------------
@@ -3875,6 +3930,7 @@ async def test_run_simulation_uses_injected_worker_provider(
     fake_worker.aclose = AsyncMock()
     fake_worker.model = "fake-worker"
     fake_worker.role = None  # not inspected by dispatch_wave
+    fake_worker.is_local = MagicMock(return_value=False)  # sync, like the protocol
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()

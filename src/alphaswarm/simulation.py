@@ -14,11 +14,13 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import hashlib
+import math
+import random
 import re
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import structlog
 
@@ -29,6 +31,7 @@ from alphaswarm.errors import RoundFailedError
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.types import ContextPacket
+from alphaswarm.manifest import current_git_revision
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
@@ -36,7 +39,7 @@ from alphaswarm.utils import sanitize_rationale
 from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_type
 
 if TYPE_CHECKING:
-    from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
+    from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings, SimulationSettings
     from alphaswarm.graph import GraphStateManager, PeerDecision, RankedPost
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
@@ -156,119 +159,118 @@ def compute_bracket_summaries(
     return tuple(result)
 
 
-def _stable_peer_jitter(reader_id: str, candidate_id: str) -> float:
-    """Deterministic, per-reader tie-break in [0, 1e-4).
+def peer_rng(run_seed: str, reader_id: str, round_num: int) -> random.Random:
+    """Per-(run, reader, round) RNG for peer sampling (docs/DECISIONS.md#adr-diverse-peer-context).
 
-    Round 2 per-reader peer weights collapse to a per-bracket constant (R1 has
-    no citations, so the global-citation-share and personal-citation-boost
-    terms in `_build_diverse_peer_contexts` are both zero). Without a tie-break,
-    every reader sorts equal-weight candidates identically and selects the SAME
-    peers — re-introducing the "everyone sees the same top-N" convergence bias
-    that docs/DECISIONS.md#sweep-3-3 set out to remove (F-08). This jitter disperses WHICH
-    equal-weight peers each reader sees. It uses blake2b (not the builtin
-    process-salted hash()) so selection is reproducible across runs, and its
-    magnitude (< 1e-4) is far below any genuine weight difference (a single
-    citation is 1/total_agents ~= 1e-2), so it only ever breaks exact ties.
+    Seeded from blake2b, never the process-salted builtin ``hash()``, so the
+    same run seed reproduces the same peer draws in any process.
+    ``round_num`` is the round being dispatched (2 for peers drawn from Round 1).
     """
-    digest = hashlib.blake2b(
-        f"{reader_id}:{candidate_id}".encode(), digest_size=8
-    ).digest()
-    return (int.from_bytes(digest, "big") & 0xFFFF) / 1e9
+    digest = hashlib.blake2b(f"{run_seed}:{reader_id}:{round_num}".encode(), digest_size=8).digest()
+    return random.Random(int.from_bytes(digest, "big"))
+
+
+def _reach(weight: float) -> float:
+    """Sampling weight: ``weight`` when finite and positive, else 0.0 (no reach)."""
+    return weight if math.isfinite(weight) and weight > 0.0 else 0.0
+
+
+def _sampling_key(rng: random.Random, weight: float) -> tuple[bool, float]:
+    """Efraimidis–Spirakis key; larger wins.
+
+    The float is ``log(u) / w``, the log of ``u ** (1/w)``: sorting by it,
+    descending, is weighted sampling without replacement, and the log form
+    avoids underflow for small weights. The flag is False for a weight without
+    reach (non-finite or not positive), whose float then draws as weight 1:
+    such keys sort behind every positive weight, whatever ``u`` is, and stay in
+    random order among themselves. One ``u`` is drawn either way.
+    """
+    u = rng.random()
+    while u == 0.0:  # random() is in [0, 1); log(0) is undefined
+        u = rng.random()
+    if math.isfinite(weight) and weight > 0.0:
+        return True, math.log(u) / weight
+    return False, math.log(u)
 
 
 def select_diverse_peers(
     agent_id: str,
-    influence_weights: dict[str, float],
-    personas: list[AgentPersona],
-    prev_decisions: dict[str, AgentDecision] | None = None,
-    limit: int = 5,
-    min_brackets: int = 3,
+    influence_weights: Mapping[str, float],
+    personas: Sequence[AgentPersona],
+    prev_decisions: Mapping[str, AgentDecision] | None = None,
+    *,
+    rng: random.Random,
+    limit: int = 10,
+    min_brackets: int = 4,
+    bracket_cap: int = 3,
 ) -> list[str]:
-    """Select top-N peers with bracket diversity guarantee (D-06).
+    """Sample up to ``limit`` peers for one reader (docs/DECISIONS.md#adr-diverse-peer-context).
 
-    PRODUCTION PATH since the docs/DECISIONS.md#sweep-3-3 fix: called per reader by
-    `_build_diverse_peer_contexts` with per-reader weights (base credibility
-    + global citation share + personal citation boost), guaranteeing at
-    least `min_brackets` distinct brackets in every agent's peer context.
+    Weighted sampling without replacement with Efraimidis–Spirakis keys:
 
-    Algorithm:
-    1. Exclude self from candidates.
-    2. Exclude agents with PARSE_ERROR decisions if prev_decisions provided.
-    3. Group by bracket, sort each group by dynamic weight descending.
-    4. Sort brackets by their top agent's weight.
-    5. Phase 1: Pick top-1 from top-min_brackets brackets.
-    6. Phase 2: Fill remaining slots by pure weight (any bracket).
+    1. Candidates are every persona except the reader and agents whose
+       previous-round decision is PARSE_ERROR.
+    2. Phase 1 samples ``min(min_brackets, limit)`` brackets, each weighted by
+       the summed weight of its candidates, and takes one peer from each by
+       key. A guaranteed slot is therefore a weighted draw over agents that
+       skips brackets already chosen, so a small bracket's members do not gain
+       per agent merely because the bracket is small.
+    3. Phase 2 fills the remaining slots by key, skipping any bracket that
+       already holds ``bracket_cap`` peers. The cap is hard: with few eligible
+       brackets the result is shorter than ``limit``.
+    4. The result is shuffled, so display position carries no authority.
 
-    If fewer than min_brackets have candidates, fills from available brackets
-    (best effort, always returns up to `limit` peers).
+    Production passes ``rng=peer_rng(run_seed, agent_id, round_num)``; the same
+    rng state always yields the same list. Non-finite or non-positive weights
+    have no reach: such candidates, and brackets with no positive weight, sort
+    behind every positive weight (in random order among themselves) and
+    nothing raises.
 
-    Args:
-        agent_id: The requesting agent's ID (excluded from results).
-        influence_weights: {agent_id: weight} from compute_influence_edges().
-        personas: All agent personas for bracket lookup.
-        prev_decisions: Optional {agent_id: AgentDecision} from previous round.
-            Used to exclude PARSE_ERROR agents from peer candidates.
-        limit: Maximum peers to return (default 5).
-        min_brackets: Minimum distinct brackets to ensure (default 3, best effort).
-
-    Returns:
-        list[str]: Ordered list of up to `limit` peer agent IDs.
+    Raises:
+        ValueError: if ``bracket_cap`` is below 1.
     """
-    from collections import defaultdict
-
-    # Explicit self-exclusion + PARSE_ERROR exclusion
+    if bracket_cap < 1:
+        raise ValueError(f"bracket_cap must be >= 1, got {bracket_cap}")
     parse_error_ids: set[str] = set()
     if prev_decisions is not None:
         parse_error_ids = {
-            aid for aid, dec in prev_decisions.items()
-            if dec.signal == SignalType.PARSE_ERROR
+            aid for aid, dec in prev_decisions.items() if dec.signal == SignalType.PARSE_ERROR
         }
+    candidates = [p for p in personas if p.id != agent_id and p.id not in parse_error_ids]
+    if limit <= 0 or not candidates:
+        return []
 
-    candidates = [
-        p for p in personas
-        if p.id != agent_id and p.id not in parse_error_ids
-    ]
-
-    bracket_groups: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    weight = {p.id: _reach(influence_weights.get(p.id, 0.0)) for p in candidates}
+    key = {p.id: _sampling_key(rng, weight[p.id]) for p in candidates}
+    bracket_of = {p.id: p.bracket.value for p in candidates}
+    members: dict[str, list[str]] = {}
     for p in candidates:
-        w = influence_weights.get(p.id, 0.0)
-        bracket_groups[p.bracket.value].append((p.id, w))
+        members.setdefault(p.bracket.value, []).append(p.id)
+    bracket_key = {
+        bracket: _sampling_key(rng, sum(weight[pid] for pid in ids))
+        for bracket, ids in members.items()
+    }
 
-    for bracket in bracket_groups:
-        bracket_groups[bracket].sort(
-            key=lambda x: (x[1], _stable_peer_jitter(agent_id, x[0])), reverse=True
-        )
-
-    sorted_brackets = sorted(
-        bracket_groups.keys(),
-        key=lambda b: bracket_groups[b][0][1] if bracket_groups[b] else 0.0,
-        reverse=True,
-    )
-
+    # Phase 1: sample the guaranteed brackets, one peer from each.
     selected: list[str] = []
+    per_bracket = dict.fromkeys(members, 0)
+    ranked_brackets = sorted(members, key=lambda b: bracket_key[b], reverse=True)
+    for bracket in ranked_brackets[: max(0, min(min_brackets, limit))]:
+        selected.append(max(members[bracket], key=lambda pid: key[pid]))
+        per_bracket[bracket] += 1
 
-    # Phase 1: top-1 from top-min_brackets brackets
-    for bracket in sorted_brackets:
-        if len(selected) >= min_brackets:
-            break
-        if bracket_groups[bracket]:
-            agent, _ = bracket_groups[bracket].pop(0)
-            selected.append(agent)
-
-    # Phase 2: fill remaining by pure weight
-    remaining: list[tuple[str, float]] = []
-    for bracket in bracket_groups:
-        remaining.extend(bracket_groups[bracket])
-    remaining.sort(
-        key=lambda x: (x[1], _stable_peer_jitter(agent_id, x[0])), reverse=True
-    )
-
-    for agent, _ in remaining:
+    # Phase 2: weighted fill without replacement under the per-bracket cap.
+    chosen = set(selected)
+    for pid in sorted(key, key=lambda c: key[c], reverse=True):
         if len(selected) >= limit:
             break
-        if agent not in selected:
-            selected.append(agent)
+        if pid in chosen or per_bracket[bracket_of[pid]] >= bracket_cap:
+            continue
+        selected.append(pid)
+        chosen.add(pid)
+        per_bracket[bracket_of[pid]] += 1
 
+    rng.shuffle(selected)
     return selected
 
 
@@ -369,18 +371,21 @@ def _format_peer_context(
     source_round: int,
     budget: int = 4000,
     max_posts: int = 10,
-) -> str:
+) -> tuple[str, tuple[str, ...]]:
     """Format top-K ranked peer posts into a budget-capped context string (D-04, D-05, D-06).
 
     Greedy fill: iterate ranked posts, accumulate chars, truncate last post
     at word boundary if it would exceed budget. Prompt guard line preserved
     from Phase 7 D-03.
 
-    Returns empty string when posts list is empty.
+    Returns ``(text, shown_ids)``: ``shown_ids`` are the agent ids of the
+    rendered lines in display order, which is the reader's exposure
+    (docs/DECISIONS.md#adr-diverse-peer-context). Returns ``("", ())`` when
+    no line was rendered.
     """
     if not posts:
         logger.warning("no_peer_posts_found", source_round=source_round)
-        return ""
+        return "", ()
 
     header = f"Peer Decisions (Round {source_round}):"
     guard = (
@@ -392,6 +397,7 @@ def _format_peer_context(
     remaining = budget - overhead
 
     lines: list[str] = [header]
+    shown: list[str] = []
     for i, post in enumerate(posts[:max_posts], 1):
         if remaining <= 0:
             break
@@ -412,6 +418,7 @@ def _format_peer_context(
             content = truncated if truncated else content[:available]
         line = f"{prefix}{content}{suffix}"
         lines.append(line)
+        shown.append(post.agent_id)
         remaining -= len(line) + 1  # +1 for newline separator
 
     if len(lines) == 1:
@@ -419,10 +426,10 @@ def _format_peer_context(
         # the docstring's "empty when no peers" contract so callers map this to
         # None instead of injecting a peer-context block that claims peers exist
         # but contains none (F-19).
-        return ""
+        return "", ()
 
     lines.append(guard)
-    return "\n".join(lines)
+    return "\n".join(lines), tuple(shown)
 
 
 def _build_diverse_peer_contexts(
@@ -430,31 +437,28 @@ def _build_diverse_peer_contexts(
     prev_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
     source_round: int,
     *,
+    sim: SimulationSettings,
+    run_seed: str,
     global_citation_weights: dict[str, float] | None = None,
-    limit: int = 10,
-    min_brackets: int = 4,
-) -> list[str | None]:
+) -> tuple[list[str | None], list[tuple[str, ...]]]:
     """Build per-agent peer contexts from the previous round IN MEMORY.
 
-    Replaces the `read_ranked_posts` path (docs/DECISIONS.md#sweep-3-3 fix). That path
-    ranked peers by static authority weight, so every one of the 100 agents
-    saw the same Sovereign/Whale/Suit top-10 — manufacturing convergence
-    toward the most HOLD-biased bloc. This builder:
+    Replaces the `read_ranked_posts` path (docs/DECISIONS.md#sweep-3-3 fix),
+    which showed all 100 agents the same authority top-10 and cost 100
+    sequential Neo4j reads per round. This builder:
 
     1. Computes a PER-READER weight for each candidate author:
-       base credibility (influence_weight_base)
+       base reach (influence_weight_base)
        + global citation share (citations/total_agents, when available)
-       + 0.3 personal boost when the READER cited the author last round
-         (in-memory equivalent of the reader-specific INFLUENCED_BY edge).
-    2. Feeds those weights through `select_diverse_peers`, which guarantees
-       at least `min_brackets` distinct brackets per peer set — Degens and
-       Shorts can no longer be mathematically silenced.
+       + ``sim.personal_boost`` when the READER cited the author last round.
+    2. Feeds those weights through `select_diverse_peers` with the knobs in
+       ``sim`` and a per-reader ``peer_rng(run_seed, reader, source_round + 1)``
+       (docs/DECISIONS.md#adr-diverse-peer-context).
 
-    Also eliminates 100 sequential Neo4j reads per round (the old per-agent
-    `read_ranked_posts` loop): everything needed is already in memory.
-
-    Returns one context string (or None when no peers available) per persona,
-    aligned by persona index.
+    Returns ``(contexts, exposures)`` aligned by persona index: the context
+    string (None when no peer line was rendered) and the ids of the peers whose
+    lines were rendered, in display order (``()`` when none). Peers cut by the
+    character budget are not exposure.
     """
     from alphaswarm.graph import RankedPost
 
@@ -464,6 +468,7 @@ def _build_diverse_peer_contexts(
     global_w = global_citation_weights or {}
 
     contexts: list[str | None] = []
+    exposures: list[tuple[str, ...]] = []
     for persona in personas:
         reader_prev = prev_dict.get(persona.id)
         cited_by_reader: set[str] = (
@@ -472,7 +477,7 @@ def _build_diverse_peer_contexts(
         weights = {
             pid: base_weights[pid]
             + global_w.get(pid, 0.0)
-            + (0.3 if pid in cited_by_reader else 0.0)
+            + (sim.personal_boost if pid in cited_by_reader else 0.0)
             for pid in base_weights
         }
         peer_ids = select_diverse_peers(
@@ -480,8 +485,10 @@ def _build_diverse_peer_contexts(
             weights,
             personas,
             prev_decisions=prev_dict,
-            limit=limit,
-            min_brackets=min_brackets,
+            rng=peer_rng(run_seed, persona.id, source_round + 1),
+            limit=sim.peer_limit,
+            min_brackets=sim.min_brackets,
+            bracket_cap=sim.bracket_cap,
         )
         ranked_posts = [
             RankedPost(
@@ -497,9 +504,116 @@ def _build_diverse_peer_contexts(
             for pid in peer_ids
             if pid in prev_dict and pid in persona_lookup
         ]
-        ctx = _format_peer_context(ranked_posts, source_round)
+        ctx, shown = _format_peer_context(
+            ranked_posts,
+            source_round,
+            budget=sim.peer_budget_chars,
+            max_posts=sim.peer_limit,
+        )
         contexts.append(ctx if ctx else None)
-    return contexts
+        exposures.append(shown)
+    return contexts, exposures
+
+
+def compute_exposure_metrics(
+    exposures: Sequence[tuple[str, ...]],
+    personas: Sequence[AgentPersona],
+    round_num: int,
+) -> dict[str, int]:
+    """Summarize one round's peer exposure as flat cycle-metric keys.
+
+    ``exposures[i]`` holds the peer ids rendered into reader i's prompt (``()``
+    when the reader saw no peers). Produces, for every bracket in roster
+    order, ``r{n}_exposure_<bracket>`` (peer slots that bracket filled) and
+    ``r{n}_readers_seeing_<bracket>`` (readers shown at least one peer from
+    it), plus ``r{n}_distinct_peers_shown``. Unseen brackets report 0; ids
+    outside the roster are ignored (docs/DECISIONS.md#adr-diverse-peer-context).
+    """
+    bracket_of = {p.id: p.bracket.value for p in personas}
+    brackets = list(dict.fromkeys(p.bracket.value for p in personas))
+    slots = dict.fromkeys(brackets, 0)
+    readers = dict.fromkeys(brackets, 0)
+    distinct: set[str] = set()
+    for shown in exposures:
+        seen_here: set[str] = set()
+        for peer_id in shown:
+            bracket = bracket_of.get(peer_id)
+            if bracket is None:
+                continue
+            slots[bracket] += 1
+            seen_here.add(bracket)
+            distinct.add(peer_id)
+        for bracket in seen_here:
+            readers[bracket] += 1
+
+    metrics: dict[str, int] = {}
+    for bracket in brackets:
+        metrics[f"r{round_num}_exposure_{bracket}"] = slots[bracket]
+        metrics[f"r{round_num}_readers_seeing_{bracket}"] = readers[bracket]
+    metrics[f"r{round_num}_distinct_peers_shown"] = len(distinct)
+    return metrics
+
+
+_PEER_SELECTION_VERSION: Final = 2
+"""Stamped as ``peer_selection_version``: 2 = seeded stratified sampling with a
+per-bracket cap and shuffle; 1 = the legacy deterministic top-weight fill."""
+
+_PEER_SEED_SOURCE: Final = "cycle_id"
+"""What run_simulation passes as ``run_seed`` to the peer builder."""
+
+
+def _provider_label(provider: InferenceProvider) -> str:
+    """Provider kind for the cycle metrics (docs/DECISIONS.md#adr-cycle-metrics).
+
+    The InferenceProvider protocol exposes only ``is_local()``. Ollama is the
+    only local provider type, so local providers report its ProviderType value
+    "ollama"; cloud providers report "cloud" and are told apart by model id.
+    """
+    return "ollama" if provider.is_local() else "cloud"
+
+
+def _mode_from_providers(orchestrator: InferenceProvider, worker: InferenceProvider) -> str:
+    """Return "local", "cloud" or "mixed": the classification inference_mode(cfg) uses."""
+    orchestrator_local = orchestrator.is_local()
+    worker_local = worker.is_local()
+    if orchestrator_local and worker_local:
+        return "local"
+    if not orchestrator_local and not worker_local:
+        return "cloud"
+    return "mixed"
+
+
+def _peer_and_provenance_metrics(
+    sim: SimulationSettings,
+    orchestrator: InferenceProvider,
+    worker: InferenceProvider,
+    *,
+    git_sha: str | None,
+    git_dirty: bool | None,
+) -> dict[str, float | int | str | bool]:
+    """Effective peer parameters and run provenance as flat cycle-metric keys.
+
+    ``git_sha`` is "" when unknown. ``git_dirty`` is omitted when unknown,
+    because a Neo4j property cannot hold null (docs/DECISIONS.md#adr-cycle-metrics).
+    """
+    metrics: dict[str, float | int | str | bool] = {
+        "peer_selection_version": _PEER_SELECTION_VERSION,
+        "peer_limit": sim.peer_limit,
+        "peer_min_brackets": sim.min_brackets,
+        "peer_bracket_cap": sim.bracket_cap,
+        "peer_budget_chars": sim.peer_budget_chars,
+        "peer_personal_boost": sim.personal_boost,
+        "peer_seed_source": _PEER_SEED_SOURCE,
+        "orchestrator_provider": _provider_label(orchestrator),
+        "orchestrator_model": orchestrator.model,
+        "worker_provider": _provider_label(worker),
+        "worker_model": worker.model,
+        "inference_mode": _mode_from_providers(orchestrator, worker),
+        "git_sha": git_sha or "",
+    }
+    if git_dirty is not None:
+        metrics["git_dirty"] = git_dirty
+    return metrics
 
 
 def _compute_shifts(
@@ -842,6 +956,7 @@ async def _dispatch_round(
                 influence_weights,
                 personas,
                 prev_decisions=prev_dict,
+                rng=peer_rng(cycle_id, persona.id, source_round + 1),
             )
             ranked_posts = [
                 RankedPost(
@@ -857,7 +972,7 @@ async def _dispatch_round(
                 for pid in peer_ids
                 if pid in prev_dict and pid in persona_lookup
             ]
-            ctx = _format_peer_context(ranked_posts, source_round)
+            ctx, _shown = _format_peer_context(ranked_posts, source_round)
             peer_contexts.append(ctx if ctx else None)
 
         logger.info(
@@ -881,7 +996,7 @@ async def _dispatch_round(
                 persona.id, cycle_id, source_round, limit=5,
             )
             ranked_posts = [_peer_to_ranked(p) for p in peers]
-            ctx = _format_peer_context(ranked_posts, source_round)
+            ctx, _shown = _format_peer_context(ranked_posts, source_round)
             # Empty string from _format_peer_context means no peers found -> pass None
             peer_contexts.append(ctx if ctx else None)
 
@@ -1013,6 +1128,9 @@ async def run_simulation(
         ollama_client,
         model_manager,
     )
+    # Provenance stamped into the cycle metrics (docs/DECISIONS.md#adr-cycle-metrics).
+    # git runs as a subprocess: cached per process and kept off the event loop.
+    git_sha, git_dirty = await asyncio.to_thread(current_git_revision)
 
     # Phase 13: Seed injection with modifier generation (D-06: same orchestrator session)
     phase = SimulationPhase.SEEDING
@@ -1194,8 +1312,13 @@ async def run_simulation(
         # path that showed every agent the same top-10). READ_POST edge writes
         # removed with it: ~10k edges/round recording "everyone read
         # everything" carried no analytical value.
-        round2_peer_contexts = _build_diverse_peer_contexts(
+        round2_peer_contexts, round2_exposures = _build_diverse_peer_contexts(
             personas, round1_result.agent_decisions, source_round=1,
+            sim=settings.simulation,
+            run_seed=cycle_id,
+        )
+        exposure_metrics: dict[str, int] = compute_exposure_metrics(
+            round2_exposures, personas, round_num=2,
         )
         _ = round1_post_ids  # Posts still written for report/interview reads
 
@@ -1204,7 +1327,8 @@ async def run_simulation(
             round_num=2,
             agent_count=len(personas),
             peers_found=sum(1 for c in round2_peer_contexts if c),
-            peer_selection="diverse_in_memory",
+            distinct_peers_shown=exposure_metrics["r2_distinct_peers_shown"],
+            peer_selection="seeded_stratified",
         )
 
         # Prepare worker (load model for local OllamaProvider; no-op for cloud providers)
@@ -1355,11 +1479,16 @@ async def run_simulation(
 
                 # Bracket-diverse peer contexts from Round 2 decisions in memory.
                 # R3 weights are PER-READER: base + global citation share
-                # (round2_weights) + 0.3 boost for authors this reader cited in
-                # R2. READ_POST writes dropped (no analytical value).
-                round3_peer_contexts = _build_diverse_peer_contexts(
+                # (round2_weights) + settings.simulation.personal_boost for authors
+                # this reader cited in R2. READ_POST writes dropped (no analytical value).
+                round3_peer_contexts, round3_exposures = _build_diverse_peer_contexts(
                     personas, round2_decisions, source_round=2,
+                    sim=settings.simulation,
+                    run_seed=cycle_id,
                     global_citation_weights=round2_weights,
+                )
+                exposure_metrics.update(
+                    compute_exposure_metrics(round3_exposures, personas, round_num=3)
                 )
                 _ = round2_post_ids  # Posts still written for report/interview reads
 
@@ -1368,7 +1497,8 @@ async def run_simulation(
                     round_num=3,
                     agent_count=len(personas),
                     peers_found=sum(1 for c in round3_peer_contexts if c),
-                    peer_selection="diverse_in_memory",
+                    distinct_peers_shown=exposure_metrics["r3_distinct_peers_shown"],
+                    peer_selection="seeded_stratified",
                 )
 
                 # Dispatch Round 3 with pre-built peer contexts
@@ -1524,7 +1654,7 @@ async def run_simulation(
         if dec.signal != SignalType.PARSE_ERROR:
             final_counts[dec.signal.value] += 1
 
-    cycle_metrics: dict[str, float | int] = {
+    cycle_metrics: dict[str, float | int | str | bool] = {
         "metrics_version": 1,
         "num_rounds": settings.num_rounds,
         "r1_seconds": round(r1_seconds, 1),
@@ -1542,6 +1672,12 @@ async def run_simulation(
         "final_hold": final_counts["hold"],
         "agent_count": len(personas),
     }
+    cycle_metrics.update(exposure_metrics)
+    cycle_metrics.update(
+        _peer_and_provenance_metrics(
+            settings.simulation, orch, worker, git_sha=git_sha, git_dirty=git_dirty
+        )
+    )
     # Inference failures separately from all PARSE_ERRORs, for every round
     # actually run (docs/DECISIONS.md#adr-cycle-metrics).
     rounds_run: dict[int, Sequence[tuple[str, AgentDecision]]] = {

@@ -134,6 +134,27 @@ class GovernorSettings(BaseModel):
         return self
 
 
+class SimulationSettings(BaseModel):
+    """Engine experiment knobs (docs/DECISIONS.md#adr-diverse-peer-context).
+
+    Holds the peer-selection parameters for now; experiment and persona knobs
+    join later. Every cycle records the effective values in its metrics, so
+    runs stay comparable when a knob changes. Env: ALPHASWARM_SIMULATION__<FIELD>.
+    """
+
+    # Peers shown to each reader per round; also the formatter's line limit.
+    peer_limit: int = Field(default=10, ge=1, le=20)
+    # Distinct brackets guaranteed per reader (best effort when fewer remain).
+    min_brackets: int = Field(default=4, ge=0, le=10)
+    # Most peers a single bracket may fill in one reader's feed (hard cap).
+    bracket_cap: int = Field(default=3, ge=1, le=10)
+    # Weight added to authors the reader cited last round. 0.3 is the documented
+    # default; only an ablation may change it.
+    personal_boost: float = Field(default=0.3, ge=0.0, le=1.0)
+    # Character budget of one reader's rendered peer block.
+    peer_budget_chars: int = Field(default=4000, ge=500, le=16000)
+
+
 # ---------------------------------------------------------------------------
 # Inference provider configuration (runtime-mutable, persisted as JSON)
 # ---------------------------------------------------------------------------
@@ -466,6 +487,7 @@ class AppSettings(BaseSettings):
     ollama: OllamaSettings = OllamaSettings()
     neo4j: Neo4jSettings = Neo4jSettings()
     governor: GovernorSettings = GovernorSettings()
+    simulation: SimulationSettings = SimulationSettings()
 
     # Phase 39 HOLD-01/HOLD-03, D-05: CSV path for HoldingsLoader, eager-loaded at lifespan startup.
     # env_prefix="ALPHASWARM_" maps this flat field to env var ALPHASWARM_HOLDINGS_CSV_PATH.

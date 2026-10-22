@@ -378,7 +378,7 @@ class GraphStateManager:
     async def write_cycle_metrics(
         self,
         cycle_id: str,
-        metrics: dict[str, float | int],
+        metrics: dict[str, float | int | str | bool],
     ) -> None:
         """Persist flat run metrics onto the Cycle node (measurement infra).
 
@@ -386,7 +386,8 @@ class GraphStateManager:
         parse-error counts, final signal distribution. Every A/B experiment
         (round count, peer diversity, composition) reads these back with a
         single Cypher query instead of scraping logs. Values must be flat
-        scalars (Neo4j property constraint).
+        scalars: int, float, str or bool (a Neo4j property cannot hold null or
+        a map).
         """
         try:
             async with self._driver.session(database=self._database) as session:
@@ -404,7 +405,7 @@ class GraphStateManager:
     async def _write_cycle_metrics_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-        metrics: dict[str, float | int],
+        metrics: dict[str, float | int | str | bool],
     ) -> None:
         """SET metrics map onto the Cycle node."""
         await tx.run(
