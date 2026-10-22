@@ -91,6 +91,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
   - after touching `graph.py`, report templates or read models: `scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j`, then `scripts/neo4j_test.sh down`;
   - `uv run mypy src` reports no errors (gated in CI; modules under `[[tool.mypy.overrides]]` stay exempt until cleaned up, the list only shrinks, never add one);
   - `uv run lint-imports` reports the contract kept;
+  - `uv run vulture src vulture_whitelist.py --min-confidence 80` is clean;
   - `uv run ruff check <changed files>` is clean on the lines you changed (ruff is not yet gated in CI);
   - for frontend changes, run `npx tsc -b --noEmit && npx vitest run && npm run lint && npm run build` in `frontend/`.
 - Golden files in `tests/golden/` change only in a commit whose purpose explains the diff: `UPDATE_GOLDEN=1 uv run pytest -q -m neo4j --require-neo4j tests/neo4j/` (scenario goldens in `tests/golden/scenarios/`: `UPDATE_GOLDEN=1 uv run pytest -q tests/engine/`, no services), then review `git diff tests/golden` line by line.
