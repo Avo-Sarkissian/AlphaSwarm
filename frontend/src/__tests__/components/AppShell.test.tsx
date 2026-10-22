@@ -184,8 +184,9 @@ describe('starting a run', () => {
     const view = renderAt(<DashboardShell />, 'idle');
     pressRun();
     await waitFor(() => expect(starts()).toHaveLength(1));
-    // Let the accepted answer settle the gate while the frame still says idle.
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    // Flush the accepted answer into the gate (one macrotask; no time passes)
+    // while the frame still says idle.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     const button = screen.getByRole('button', { name: /starting/i });
     expect(button).toHaveProperty('disabled', true);
     fireEvent.click(button);
