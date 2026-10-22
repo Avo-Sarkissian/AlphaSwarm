@@ -6,7 +6,8 @@
 
 Per event: the last close and volume whose 16:00 New York session ended at or before
 the event timestamp (yfinance, split-adjusted; bars after it are dropped) and the
-curated headlines in eval/headlines/<event_id>.jsonl published before the event.
+curated headlines in eval/headlines/<event_id>.jsonl published before the event (the
+5 most recent: the market block renders no more per entity).
 Writes eval/fixtures/<event_id>.json and the anonymized <event_id>.anon.json.
 Existing fixtures are committed evidence and are kept unless --force.
 """
@@ -20,6 +21,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Final
 
+from alphaswarm.config import sanitize_headline
+from alphaswarm.context_formatter import HEADLINES_PER_ENTITY
 from alphaswarm.evaluation import (
     NEW_YORK,
     EvalEvent,
@@ -38,7 +41,7 @@ from alphaswarm.ingestion.types import ContextPacket
 EVAL_DIR: Final = Path(__file__).resolve().parent
 PATHS: Final = EvalPaths(EVAL_DIR)
 LOOKBACK_DAYS: Final = 14
-MAX_FIXTURE_HEADLINES: Final = 8
+MAX_FIXTURE_HEADLINES: Final = HEADLINES_PER_ENTITY  # stored == rendered
 
 Download = Callable[[str, date, date, bool], list[PricePoint]]
 
@@ -62,9 +65,12 @@ def fixture_window(event: EvalEvent) -> tuple[date, date]:
 
 
 def eligible_headlines(event: EvalEvent, headlines: Sequence[FixtureHeadline]) -> list[str]:
-    """Titles published strictly before the event, oldest first, at most the last 8."""
+    """Titles published strictly before the event, oldest first: the most recent
+    MAX_FIXTURE_HEADLINES that survive the formatter's sanitizer, so every stored title
+    is rendered and the newest ones are never cut."""
     before = sorted(
-        (h for h in headlines if h.published_at < event.timestamp), key=lambda h: h.published_at
+        (h for h in headlines if h.published_at < event.timestamp and sanitize_headline(h.title)),
+        key=lambda h: h.published_at,
     )
     return [h.title for h in before][-MAX_FIXTURE_HEADLINES:]
 

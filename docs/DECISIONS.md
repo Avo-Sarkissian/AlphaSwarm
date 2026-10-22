@@ -727,8 +727,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p40-d-04"></a>`D-04` | Market context is its own system message after the persona and before peer context/user message. | active | simulation.py:603; worker.py:153; tests/test_worker.py:223,252 |
 | <a id="p40-d-06"></a>`D-06` | Market context goes to Round 1 only. | active | simulation.py:603,941,948,1004; tests/test_simulation.py:2966,2981 |
 | <a id="p40-d-07"></a>`D-07` | One formatted block shared by all 100 agents (no per-bracket filtering). | active | batch_dispatcher.py:174; tests/test_batch_dispatcher.py:673,681,715 |
-| <a id="p40-d-08"></a>`D-08` | Per entity: price, fundamentals, top headlines; fetch_failed entities omitted. | active | context_formatter.py:6,100; tests/test_context_formatter.py:4,75,103 |
-| <a id="p40-d-09"></a>`D-09` | Cap headlines at 5 per entity. | active | context_formatter.py:6,93; tests/test_context_formatter.py:5,112 |
+| <a id="p40-d-08"></a>`D-08` | Per entity: price, fundamentals, top headlines; fetch_failed entities omitted. | active | context_formatter.py:6,106; tests/test_context_formatter.py:4,75,103 |
+| <a id="p40-d-09"></a>`D-09` | Cap headlines at 5 per entity (`HEADLINES_PER_ENTITY`, which also caps point-in-time fixtures). | active | context_formatter.py:6,41; eval/build_fixtures.py:44; tests/test_context_formatter.py:5,112 |
 | <a id="p40-d-10"></a>`D-10` | yfinance + RSS providers built once in the FastAPI lifespan and stored on app/AppState. | active | app.py:43,44,127,128; web/app.py:141; tests/test_web.py:72,238 |
 | <a id="p40-d-11"></a>`D-11` | CLI `run` builds the same providers inline so CLI and web runs get identical context. | active | cli.py:519; tests/test_cli.py:1015,1021 |
 

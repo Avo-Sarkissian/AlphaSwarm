@@ -31,8 +31,14 @@ once a resolver lands, no call-site in Phase 40 changes.
 """
 from __future__ import annotations
 
+from typing import Final
+
 from alphaswarm.config import sanitize_headline
 from alphaswarm.ingestion.types import ContextPacket
+
+# Headlines rendered per entity (docs/DECISIONS.md#p40-d-09). Point-in-time fixtures
+# store no more than this, so every stored headline reaches the prompt.
+HEADLINES_PER_ENTITY: Final = 5
 
 
 def format_market_context(
@@ -90,7 +96,7 @@ def format_market_context(
             # headers, extra "  - " bullets, or the worker's data fence.
             headline_lines = [
                 f"  - {clean}"
-                for clean in (sanitize_headline(h) for h in n.headlines[:5])  # D-09
+                for clean in (sanitize_headline(h) for h in n.headlines[:HEADLINES_PER_ENTITY])
                 if clean
             ]
             if headline_lines:
