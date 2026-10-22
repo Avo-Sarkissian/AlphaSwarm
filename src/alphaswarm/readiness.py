@@ -95,8 +95,11 @@ def _model_names(listing: object) -> set[str]:
 
 
 def _create_command(alias: str) -> str:
-    modelfile = _MODELFILES.get(alias)
-    return f"ollama create {alias} -f {modelfile}" if modelfile else f"ollama pull {alias}"
+    # Matching ignores ':latest' (see check_ollama), so the lookup does too: a
+    # locally built alias is created from its Modelfile, never pulled.
+    name = alias.removesuffix(":latest")
+    modelfile = _MODELFILES.get(name)
+    return f"ollama create {name} -f {modelfile}" if modelfile else f"ollama pull {alias}"
 
 
 def _join(commands: Iterable[str]) -> str:

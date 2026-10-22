@@ -115,6 +115,17 @@ async def test_missing_alias_names_the_fix() -> None:
     assert aliases.fix == "ollama create alphaswarm-worker -f modelfiles/Modelfile.worker"
 
 
+async def test_missing_latest_tagged_alias_is_created_not_pulled() -> None:
+    """The Settings model list shows raw Ollama names such as 'alphaswarm-worker:latest'."""
+    _, aliases = await check_ollama(
+        _Ollama([]),  # type: ignore[arg-type]
+        ["alphaswarm-worker:latest"],
+        required=True,
+    )
+    assert aliases.missing == ("alphaswarm-worker:latest",)
+    assert aliases.fix == "ollama create alphaswarm-worker -f modelfiles/Modelfile.worker"
+
+
 async def test_unknown_model_fix_is_a_pull() -> None:
     _, aliases = await check_ollama(_Ollama([]), ["qwen3:8b"], required=True)  # type: ignore[arg-type]
     assert aliases.fix == "ollama pull qwen3:8b"
