@@ -13,19 +13,22 @@ import asyncio
 import contextlib
 import sys
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from alphaswarm import __version__
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
+from alphaswarm.ingestion.fixture import load_context_fixture
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
+    from alphaswarm.ingestion.types import ContextPacket
     from alphaswarm.simulation import (
         BracketSummary,
         Round1Result,
@@ -481,6 +484,8 @@ async def _run_pipeline(
     orchestrator_provider: InferenceProvider | None = None,
     worker_provider: InferenceProvider | None = None,
     controller: ConcurrencyController | None = None,
+    context_fixture: ContextPacket | None = None,
+    market_context: bool = True,
 ) -> None:
     """Async pipeline: schema -> multi-round simulation -> final summary.
 
@@ -515,8 +520,9 @@ async def _run_pipeline(
 
         # Phase 40 D-11: CLI users get the same grounded context as web users.
         # Stateless construction — no async init needed.
-        market_provider = YFinanceMarketDataProvider()
-        news_provider = RSSNewsProvider()
+        live = context_fixture is None and market_context
+        market_provider = YFinanceMarketDataProvider() if live else None
+        news_provider = RSSNewsProvider() if live else None
 
         result = await run_simulation(
             rumor=rumor,
@@ -533,6 +539,7 @@ async def _run_pipeline(
             news_provider=news_provider,
             orchestrator_provider=orchestrator_provider,
             worker_provider=worker_provider,
+            context_fixture=context_fixture,
         )
 
         # Final summary (only this prints AFTER run_simulation returns)
@@ -553,7 +560,12 @@ async def _run_pipeline(
 # ---------------------------------------------------------------------------
 
 
-def _handle_run(rumor: str) -> None:
+def _handle_run(
+    rumor: str,
+    *,
+    context_fixture: ContextPacket | None = None,
+    market_context: bool = True,
+) -> None:
     """Synchronous CLI handler -- creates AppState BEFORE event loop starts.
 
     Addresses review concern #2 (Codex HIGH): create_app_state() calls
@@ -596,6 +608,8 @@ def _handle_run(rumor: str) -> None:
             orchestrator_provider=built.orchestrator,
             worker_provider=built.worker,
             controller=controller,
+            context_fixture=context_fixture,
+            market_context=market_context,
         )
     )
 
@@ -829,6 +843,18 @@ def _handle_web(host: str, port: int) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _context_fixture_arg(value: str) -> ContextPacket:
+    """argparse type for ``--context-fixture``: a validated point-in-time ContextPacket.
+
+    Loading here means a bad fixture is a usage error (exit 2) before any runtime,
+    model or database is touched (docs/DECISIONS.md#adr-eval-harness).
+    """
+    try:
+        return load_context_fixture(Path(value).expanduser())
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def main() -> None:
     """CLI entry point with argparse subcommand routing."""
     parser = argparse.ArgumentParser(
@@ -844,6 +870,15 @@ def main() -> None:
         "run", help="Run a full simulation (ALPHASWARM_NUM_ROUNDS=2|3 rounds)"
     )
     run_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
+    context = run_parser.add_mutually_exclusive_group()
+    context.add_argument(
+        "--context-fixture", type=_context_fixture_arg, default=None, metavar="PATH",
+        help="point-in-time ContextPacket JSON used as the market block (no live fetches)",
+    )
+    context.add_argument(
+        "--no-market-context", action="store_true",
+        help="send no market block at all (no live fetches)",
+    )
 
     report_parser = subparsers.add_parser("report", help="Generate post-simulation analysis report")
     report_parser.add_argument(
@@ -879,7 +914,12 @@ def main() -> None:
             sys.exit(1)
     elif args.command == "run":
         try:
-            _handle_run(args.rumor)
+            run_kwargs: dict[str, Any] = {}
+            if args.context_fixture is not None:
+                run_kwargs["context_fixture"] = args.context_fixture
+            elif args.no_market_context:
+                run_kwargs["market_context"] = False
+            _handle_run(args.rumor, **run_kwargs)
         except KeyboardInterrupt:
             print("\nAborted.", file=sys.stderr)
             sys.exit(1)
