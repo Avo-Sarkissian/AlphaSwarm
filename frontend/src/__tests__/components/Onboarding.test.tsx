@@ -134,6 +134,9 @@ describe('Onboarding component status', () => {
     fireEvent.click(screen.getByRole('button', { name: /get started/i }));
     expect(await screen.findByText(/Cannot reach the backend/)).toBeDefined();
     expect(screen.queryByRole('button', { name: 'Re-check' })).not.toBeNull();
+    fireEvent.change(screen.getByPlaceholderText(/Fed announces/), { target: { value: SEED } });
+    const run = screen.getByRole('button', { name: /start backend first/i }) as HTMLButtonElement;
+    expect(run.disabled).toBe(true);
   });
 });
 
@@ -237,5 +240,30 @@ describe('Onboarding status row', () => {
     await screen.findByText(/Backend ready/);
     expect(row.getAttribute('data-ok')).toBe('true');
     expect(dot.classList.contains('ok')).toBe(true);
+  });
+});
+
+describe('Onboarding run gate', () => {
+  it('keeps Run disabled for a seed under 10 characters and says why', async () => {
+    stubFetchRoutes({ 'GET /api/health': { body: HEALTH_OK } });
+    render(<Onboarding onComplete={vi.fn()} />);
+    await openSeedStep();
+    const input = screen.getByLabelText('Seed rumor') as HTMLInputElement;
+    // Mirrors the backend's SeedText bounds: 10 to 2000 characters after stripping.
+    expect(input.maxLength).toBe(2000);
+    fireEvent.change(input, { target: { value: '  ZZZT up  ' } });
+    const run = screen.getByRole('button', { name: /run first cycle/i }) as HTMLButtonElement;
+    expect(run.disabled).toBe(true);
+    expect(run.title).toMatch(/at least 10 characters/);
+    fireEvent.change(input, { target: { value: SEED } });
+    expect(run.disabled).toBe(false);
+    expect(run.title).toBe('');
+  });
+
+  it('keeps Back and Skip to dashboard disabled while a run is pending', async () => {
+    await startPendingRun();
+    expect((screen.getByRole('button', { name: '← Back' }) as HTMLButtonElement).disabled).toBe(true);
+    const skip = screen.getByRole('button', { name: 'Skip to dashboard' }) as HTMLButtonElement;
+    expect(skip.disabled).toBe(true);
   });
 });
