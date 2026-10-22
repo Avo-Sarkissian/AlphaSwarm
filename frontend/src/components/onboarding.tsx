@@ -1,4 +1,4 @@
-// Onboarding — 2-step first-run flow (real-wired per docs/DECISIONS.md#p41-6-d-12 / #kr-41-6-04).
+// Onboarding — 2-step first-run flow (docs/DECISIONS.md#p41-6-d-12, docs/DECISIONS.md#kr-41-6-04).
 //
 // 2026-06-11: the old "Choose your model" step removed — it rendered a stale
 // hardcoded model list (qwen3:8b / llama3.3:70b era) and was render-only
