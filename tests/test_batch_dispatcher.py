@@ -986,9 +986,8 @@ async def test_safe_agent_inference_streams_rationale_push_on_success(
     """ITEM 4: after a successful inference, one RationaleEntry must land
     in state_store.push_rationale BEFORE _safe_agent_inference returns.
 
-    Without this, the rationale feed only populates at end-of-round when
-    simulation.py used to call _push_top_rationales — the new streaming
-    path inside batch_dispatcher avoids that mid-round blackout.
+    Without this, the rationale feed would only populate at end of round —
+    the streaming path inside batch_dispatcher avoids that mid-round blackout.
     """
     from alphaswarm.batch_dispatcher import dispatch_wave
     from alphaswarm.state import RationaleEntry, StateStore

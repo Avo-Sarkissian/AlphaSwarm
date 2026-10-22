@@ -35,6 +35,9 @@ MOCK_SEED_EVENT = SeedEvent(
 
 MOCK_PARSED_RESULT = ParsedSeedResult(seed_event=MOCK_SEED_EVENT, parse_tier=1)
 
+# run_round1 never seeds: run_simulation passes the seeded cycle in.
+_PRE_INJECTED = ("test-cycle-id", MOCK_PARSED_RESULT)
+
 TEST_PERSONAS = [
     AgentPersona(
         id="quants_01",
@@ -190,6 +193,7 @@ async def test_run_round1_dispatches_with_no_peer_context(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
     )
 
     assert mock_dispatch.call_args.kwargs["peer_context"] is None
@@ -220,6 +224,7 @@ async def test_run_round1_starts_governor_monitoring(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
     )
 
     mock_governor.start_monitoring.assert_awaited_once()
@@ -251,6 +256,7 @@ async def test_run_round1_stops_governor_monitoring_in_finally(
             graph_manager=mock_graph_manager,
             governor=mock_governor,
             personas=TEST_PERSONAS,
+            pre_injected=_PRE_INJECTED,
         )
 
     mock_governor.stop_monitoring.assert_awaited_once()
@@ -281,6 +287,7 @@ async def test_run_round1_loads_worker_after_orchestrator(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
     )
 
     mock_model_manager.load_model.assert_awaited_with(
@@ -324,6 +331,7 @@ async def test_run_round1_calls_ensure_clean_state_before_worker_load(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
     )
 
     assert "ensure_clean_state" in call_order
@@ -357,6 +365,7 @@ async def test_run_round1_unloads_worker_on_error(
             graph_manager=mock_graph_manager,
             governor=mock_governor,
             personas=TEST_PERSONAS,
+            pre_injected=_PRE_INJECTED,
         )
 
     mock_model_manager.unload_model.assert_awaited()
@@ -387,6 +396,7 @@ async def test_run_round1_persists_decisions_round_1(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
     )
 
     mock_graph_manager.write_decisions.assert_awaited_once()
@@ -419,6 +429,7 @@ async def test_run_round1_passes_raw_rumor_to_agents(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
     )
 
     assert mock_dispatch.call_args.kwargs["user_message"] == MOCK_RUMOR
@@ -449,6 +460,7 @@ async def test_run_round1_returns_round1_result(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
     )
 
     assert isinstance(result, Round1Result)
@@ -480,6 +492,7 @@ async def test_run_round1_result_agent_decisions_count_matches_personas(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
     )
 
     assert len(result.agent_decisions) == len(TEST_PERSONAS)
@@ -545,6 +558,7 @@ async def test_run_round1_routes_through_injected_worker_provider(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
         worker_provider=fake_provider,
     )
 
@@ -590,6 +604,7 @@ async def test_run_round1_default_path_uses_model_manager(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
         # worker_provider not passed — default None (local path)
     )
 
@@ -1169,7 +1184,7 @@ def test_simulation_result_is_frozen() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 07 Task 2 Tests: _dispatch_round and run_simulation
+# Phase 07 Task 2 Tests: run_simulation
 # ---------------------------------------------------------------------------
 
 
@@ -1196,123 +1211,6 @@ def _mock_round1_result():
         ],
         decision_ids=[],  # Phase 11: empty list OK -- no episodes pushed from empty zip
     )
-
-
-# Helper to build a RoundDispatchResult for mocking _dispatch_round (Phase 11)
-
-def _mock_dispatch_result(personas: list | None = None):
-    from alphaswarm.simulation import RoundDispatchResult
-    p_list = personas if personas is not None else TEST_PERSONAS
-    return RoundDispatchResult(
-        agent_decisions=[
-            (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
-            for p in p_list
-        ],
-        peer_contexts=["" for _ in p_list],
-    )
-
-
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-async def test_dispatch_round_reads_peers_per_agent(
-    mock_dispatch: AsyncMock,
-    mock_settings: AppSettings,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-    mock_ollama_client: MagicMock,
-) -> None:
-    """_dispatch_round calls graph_manager.read_peer_decisions once per persona."""
-    from alphaswarm.simulation import _dispatch_round
-
-    mock_graph_manager.read_peer_decisions = AsyncMock(return_value=[])
-    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
-
-    await _dispatch_round(
-        personas=TEST_PERSONAS,
-        cycle_id="test-cycle",
-        source_round=1,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        client=mock_ollama_client,
-        model="test-model",
-        rumor=MOCK_RUMOR,
-        settings=mock_settings.governor,
-    )
-
-    assert mock_graph_manager.read_peer_decisions.await_count == len(TEST_PERSONAS)
-    # Verify each persona's agent_id was queried
-    called_agent_ids = [
-        call.args[0] for call in mock_graph_manager.read_peer_decisions.await_args_list
-    ]
-    expected_ids = [p.id for p in TEST_PERSONAS]
-    assert sorted(called_agent_ids) == sorted(expected_ids)
-
-
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-async def test_dispatch_round_formats_and_passes_peer_contexts(
-    mock_dispatch: AsyncMock,
-    mock_settings: AppSettings,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-    mock_ollama_client: MagicMock,
-) -> None:
-    """_dispatch_round passes a peer_contexts list to dispatch_wave (not scalar)."""
-    from alphaswarm.graph import PeerDecision
-    from alphaswarm.simulation import _dispatch_round
-
-    mock_graph_manager.read_peer_decisions = AsyncMock(return_value=[
-        PeerDecision(
-            agent_id="other_01", bracket="quants", signal="buy",
-            confidence=0.9, sentiment=0.5, rationale="peer reasoning",
-        ),
-    ])
-    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
-
-    await _dispatch_round(
-        personas=TEST_PERSONAS,
-        cycle_id="test-cycle",
-        source_round=1,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        client=mock_ollama_client,
-        model="test-model",
-        rumor=MOCK_RUMOR,
-        settings=mock_settings.governor,
-    )
-
-    # dispatch_wave should be called with peer_contexts kwarg
-    assert "peer_contexts" in mock_dispatch.call_args.kwargs
-    peer_contexts = mock_dispatch.call_args.kwargs["peer_contexts"]
-    assert isinstance(peer_contexts, list)
-    assert len(peer_contexts) == len(TEST_PERSONAS)
-
-
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-async def test_dispatch_round_length_mismatch_raises_value_error(
-    mock_dispatch: AsyncMock,
-    mock_settings: AppSettings,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-    mock_ollama_client: MagicMock,
-) -> None:
-    """dispatch_wave returning wrong number of results raises ValueError."""
-    from alphaswarm.simulation import _dispatch_round
-
-    mock_graph_manager.read_peer_decisions = AsyncMock(return_value=[])
-    # Return fewer results than personas
-    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS) - 1)
-
-    with pytest.raises(ValueError, match="dispatch_wave returned"):
-        await _dispatch_round(
-            personas=TEST_PERSONAS,
-            cycle_id="test-cycle",
-            source_round=1,
-            graph_manager=mock_graph_manager,
-            governor=mock_governor,
-            client=mock_ollama_client,
-            model="test-model",
-            rumor=MOCK_RUMOR,
-            settings=mock_settings.governor,
-        )
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -2042,82 +1940,6 @@ def test_round_complete_event_has_bracket_summaries() -> None:
     assert event.bracket_summaries[0].bracket == "degens"
 
 
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-async def test_dispatch_round_uses_dynamic_peers(
-    mock_dispatch: AsyncMock,
-    mock_settings: AppSettings,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-    mock_ollama_client: MagicMock,
-) -> None:
-    """_dispatch_round calls select_diverse_peers when influence_weights is non-empty."""
-    from unittest.mock import patch as mock_patch
-
-    from alphaswarm.simulation import _dispatch_round
-
-    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
-    prev_decisions = [
-        (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
-        for p in TEST_PERSONAS
-    ]
-    influence_weights = {p.id: 0.5 for p in TEST_PERSONAS}
-
-    with mock_patch("alphaswarm.simulation.select_diverse_peers") as mock_select:
-        # Return a valid list of peer IDs (excluding self)
-        mock_select.return_value = [p.id for p in TEST_PERSONAS[:3]]
-
-        await _dispatch_round(
-            personas=TEST_PERSONAS,
-            cycle_id="test-cycle",
-            source_round=1,
-            graph_manager=mock_graph_manager,
-            governor=mock_governor,
-            client=mock_ollama_client,
-            model="test-model",
-            rumor=MOCK_RUMOR,
-            settings=mock_settings.governor,
-            influence_weights=influence_weights,
-            prev_decisions=prev_decisions,
-        )
-
-    # select_diverse_peers should be called (dynamic path)
-    assert mock_select.call_count == len(TEST_PERSONAS)
-    # read_peer_decisions should NOT be called (dynamic path skips Neo4j)
-    mock_graph_manager.read_peer_decisions.assert_not_called()
-
-
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-async def test_dispatch_round_falls_back_on_empty_weights(
-    mock_dispatch: AsyncMock,
-    mock_settings: AppSettings,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-    mock_ollama_client: MagicMock,
-) -> None:
-    """_dispatch_round uses static read_peer_decisions when influence_weights is empty dict {}."""
-    from alphaswarm.simulation import _dispatch_round
-
-    mock_graph_manager.read_peer_decisions = AsyncMock(return_value=[])
-    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
-
-    await _dispatch_round(
-        personas=TEST_PERSONAS,
-        cycle_id="test-cycle",
-        source_round=1,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        client=mock_ollama_client,
-        model="test-model",
-        rumor=MOCK_RUMOR,
-        settings=mock_settings.governor,
-        influence_weights={},  # Empty dict triggers zero-citation fallback
-        prev_decisions=None,
-    )
-
-    # Static path: read_peer_decisions called for each persona
-    assert mock_graph_manager.read_peer_decisions.await_count == len(TEST_PERSONAS)
-
-
 # ---------------------------------------------------------------------------
 # Phase 11 Plan 03 Tests: WriteBuffer integration and narrative generation
 # ---------------------------------------------------------------------------
@@ -2150,6 +1972,7 @@ async def test_run_round1_returns_decision_ids(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
     )
 
     assert isinstance(result, Round1Result)
@@ -2339,39 +2162,6 @@ async def test_run_simulation_narrative_generation_gated(
         generate_narratives=True,
     )
     mock_narratives.assert_awaited_once()
-
-
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-async def test_dispatch_round_returns_round_dispatch_result(
-    mock_dispatch: AsyncMock,
-    mock_settings: AppSettings,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-    mock_ollama_client: MagicMock,
-) -> None:
-    """_dispatch_round returns RoundDispatchResult with agent_decisions and peer_contexts."""
-    from alphaswarm.simulation import RoundDispatchResult, _dispatch_round
-
-    mock_graph_manager.read_peer_decisions = AsyncMock(return_value=[])
-    mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
-
-    result = await _dispatch_round(
-        personas=TEST_PERSONAS,
-        cycle_id="test-cycle",
-        source_round=1,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        client=mock_ollama_client,
-        model="test-model",
-        rumor=MOCK_RUMOR,
-        settings=mock_settings.governor,
-    )
-
-    assert isinstance(result, RoundDispatchResult)
-    assert len(result.agent_decisions) == len(TEST_PERSONAS)
-    assert len(result.peer_contexts) == len(TEST_PERSONAS)
-    # All peer_contexts are strings (no None values)
-    assert all(isinstance(ctx, str) for ctx in result.peer_contexts)
 
 
 # ---------------------------------------------------------------------------
@@ -2944,6 +2734,7 @@ async def test_run_round1_market_context_default_none(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         personas=TEST_PERSONAS,
+        pre_injected=_PRE_INJECTED,
     )
 
     assert mock_dispatch.call_args.kwargs["market_context"] is None
@@ -3564,26 +3355,9 @@ async def test_run_simulation_through_dispatch_wave(
         captured_messages.append(messages)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="test")
 
-    # Round 2 and Round 3 must also be patched because run_simulation continues
-    # past Round 1; we short-circuit them to keep the test focused on the
-    # Round 1 dispatch-depth chain.
-    from alphaswarm.simulation import RoundDispatchResult
-
-    async def short_circuit_dispatch_round(
-        *args: object, **kwargs: object,
-    ) -> RoundDispatchResult:
-        p_list = kwargs.get("personas", reduced_personas)
-        assert isinstance(p_list, list)
-        return RoundDispatchResult(
-            agent_decisions=[
-                (p.id, AgentDecision(signal=SignalType.BUY, confidence=0.8))
-                for p in p_list
-            ],
-            peer_contexts=["" for _ in p_list],
-        )
-
-    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw, \
-         patch("alphaswarm.simulation._dispatch_round", side_effect=short_circuit_dispatch_round):
+    # Rounds 2 and 3 also run through the patched agent_worker (capture_infer),
+    # so the whole cascade completes without a model.
+    with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
         mock_worker = AsyncMock()
         mock_worker.infer = capture_infer
         mock_aw.return_value.__aenter__ = AsyncMock(return_value=mock_worker)

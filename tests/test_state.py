@@ -372,53 +372,6 @@ async def test_tps_from_worker_path() -> None:
     assert snap.tps == pytest.approx(250.0)
 
 
-async def test_push_top_rationales_sorts_by_influence() -> None:
-    """_push_top_rationales (legacy helper, no longer wired in simulation.py)
-    still sorts by influence weight when called directly.
-
-    ITEM 4 of 260512-jqn removed the end-of-round _push_top_rationales calls
-    from simulation.py (streaming now happens per-agent in batch_dispatcher).
-    The helper function itself is kept for any tooling / TUI use.
-    """
-    from alphaswarm.simulation import _push_top_rationales
-    from alphaswarm.types import AgentDecision, SignalType
-
-    store = StateStore()
-    decisions: list[tuple[str, AgentDecision]] = [
-        ("low_agent", AgentDecision(signal=SignalType.SELL, confidence=0.9, rationale="sell rationale")),
-        ("high_agent", AgentDecision(signal=SignalType.BUY, confidence=0.5, rationale="buy rationale")),
-        ("mid_agent", AgentDecision(signal=SignalType.HOLD, confidence=0.7, rationale="hold rationale")),
-    ]
-    influence_weights = {"high_agent": 0.9, "mid_agent": 0.5, "low_agent": 0.1}
-
-    await _push_top_rationales(decisions, 1, store, influence_weights=influence_weights, limit=2)
-    entries = store.peek_rationales()
-
-    # Should have pushed at most 2 entries (limit=2)
-    assert len(entries) == 2
-    # First entry should be high_agent (highest influence)
-    assert entries[0].agent_id == "high_agent"
-
-
-async def test_push_top_rationales_skips_parse_errors() -> None:
-    """_push_top_rationales skips PARSE_ERROR agents (peek semantics)."""
-    from alphaswarm.simulation import _push_top_rationales
-    from alphaswarm.types import AgentDecision, SignalType
-
-    store = StateStore()
-    decisions: list[tuple[str, AgentDecision]] = [
-        ("error_agent", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="")),
-        ("good_agent", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="solid analysis")),
-    ]
-
-    await _push_top_rationales(decisions, 2, store)
-    entries = store.peek_rationales()
-
-    # Only good_agent should be in the window
-    assert len(entries) == 1
-    assert entries[0].agent_id == "good_agent"
-
-
 # ---------------------------------------------------------------------------
 # Phase 28 Task 1 Tests: ReplayStore + SimulationPhase.REPLAY
 # ---------------------------------------------------------------------------
