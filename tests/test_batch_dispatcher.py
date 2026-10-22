@@ -1196,3 +1196,27 @@ async def test_dead_monitor_aborts_the_wave_with_governor_crisis(
     assert all(isinstance(e, GovernorCrisisError) for e in exc_info.value.exceptions)
     assert provider.calls == []
     await governor.stop_monitoring()
+
+
+async def test_inference_exception_becomes_inference_error_kind(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    def _boom(**_: object) -> InferenceResult:
+        raise RuntimeError("connection refused by the model server")
+
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER, model="fake-model", scripted=_boom,
+    )
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        results = await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            provider=provider,
+            user_message="test",
+            settings=GovernorSettings(baseline_parallel=16),
+        )
+    assert {r.signal for r in results} == {SignalType.PARSE_ERROR}
+    assert {r.error_kind for r in results} == {"inference"}

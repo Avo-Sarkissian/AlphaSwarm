@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+# Engine-owned classification of a failed decision (docs/DECISIONS.md#adr-taskgroup-dispatch):
+# "inference" = the model call raised, "parse" = tier-3 parse fallback,
+# "truncated" = parse failure with finish_reason == "length" (reserved; not emitted yet).
+ErrorKind = Literal["inference", "parse", "truncated"]
 
 
 class BracketType(str, Enum):
@@ -148,6 +154,8 @@ class AgentDecision(BaseModel, frozen=True):
     sentiment: float = Field(ge=-1.0, le=1.0, default=0.0)
     rationale: str = ""
     cited_agents: list[str] = Field(default_factory=list)
+    # Never part of the LLM-facing schema; set by the parser or the dispatcher.
+    error_kind: ErrorKind | None = None
 
 
 class SimulationPhase(str, Enum):

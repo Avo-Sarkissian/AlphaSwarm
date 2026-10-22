@@ -104,6 +104,7 @@ async def _safe_agent_inference(
             confidence=0.0,
             sentiment=0.0,
             rationale=f"Inference failed for {persona['agent_id']}: {e}",
+            error_kind="inference",
         )
 
     # Streaming writes (success path only): agent_state + rationale together

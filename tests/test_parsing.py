@@ -444,3 +444,44 @@ def test_parse_logs_tier_used() -> None:
         # is rebound to a normal logger for subsequent tests.
         structlog.reset_defaults()
         importlib.reload(parsing_module)
+
+
+def test_successful_parse_has_no_error_kind() -> None:
+    from alphaswarm.parsing import parse_agent_decision
+
+    raw = (
+        '{"signal": "buy", "confidence": 0.7, "sentiment": 0.2, '
+        '"rationale": "ZZZT Holdings deal is accretive", "cited_agents": []}'
+    )
+    assert parse_agent_decision(raw).error_kind is None
+
+
+def test_tier3_fallback_is_a_parse_error_kind() -> None:
+    from alphaswarm.parsing import parse_agent_decision
+    from alphaswarm.types import SignalType
+
+    decision = parse_agent_decision("the model rambled and produced no JSON at all")
+    assert decision.signal is SignalType.PARSE_ERROR
+    assert decision.error_kind == "parse"
+
+
+def test_model_cannot_claim_an_engine_error_kind() -> None:
+    from alphaswarm.parsing import parse_agent_decision
+    from alphaswarm.types import SignalType
+
+    raw = (
+        '{"signal": "hold", "confidence": 0.5, "sentiment": 0.0, "rationale": "wait", '
+        '"cited_agents": [], "error_kind": "inference"}'
+    )
+    decision = parse_agent_decision(raw)
+    assert decision.signal is SignalType.HOLD
+    assert decision.error_kind is None
+
+
+def test_model_answering_parse_error_signal_is_classified_as_parse() -> None:
+    from alphaswarm.parsing import parse_agent_decision
+    from alphaswarm.types import SignalType
+
+    decision = parse_agent_decision('{"signal": "parse_error", "confidence": 0.0}')
+    assert decision.signal is SignalType.PARSE_ERROR
+    assert decision.error_kind == "parse"

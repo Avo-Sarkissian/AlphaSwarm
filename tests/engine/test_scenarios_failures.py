@@ -110,6 +110,7 @@ async def test_single_agent_inference_failure_becomes_parse_error_hidden_from_pe
     failed = _decision(fake_graph, 1, "sell_side_01")
     assert failed.signal is SignalType.PARSE_ERROR
     assert failed.rationale.startswith("Inference failed for sell_side_01")
+    assert failed.error_kind == "inference"
     assert all("sell_side_01" not in c.shown_peer_ids for c in round_calls(worker, 2))
     assert fake_graph.write_cycle_metrics.await_args.args[1]["r1_parse_errors"] == 1
     assert scenario_controller.wave_reports == [(99, 1)]
@@ -134,6 +135,7 @@ async def test_malformed_worker_output_becomes_parse_error_and_run_completes(
     garbled = _decision(fake_graph, 1, "degens_03")
     assert garbled.signal is SignalType.PARSE_ERROR
     assert garbled.rationale.startswith("Parse failed:")
+    assert garbled.error_kind == "parse"
     assert all("degens_03" not in c.shown_peer_ids for c in round_calls(worker, 2))
     assert fake_graph.write_cycle_metrics.await_args.args[1]["r1_parse_errors"] == 1
     assert scenario_controller.wave_reports == [(99, 1)]

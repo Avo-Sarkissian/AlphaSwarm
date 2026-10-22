@@ -96,6 +96,19 @@ def _strip_code_fences(text: str) -> str:
     return text
 
 
+def _engine_fields(decision: AgentDecision) -> AgentDecision:
+    """Make ``error_kind`` engine-owned: ``"parse"`` for a parse-error signal, else None.
+
+    The model may echo an ``error_kind`` key or answer ``"signal": "parse_error"``;
+    neither may masquerade as an engine classification
+    (docs/DECISIONS.md#adr-structured-output).
+    """
+    wanted = "parse" if decision.signal is SignalType.PARSE_ERROR else None
+    if decision.error_kind == wanted:
+        return decision
+    return decision.model_copy(update={"error_kind": wanted})
+
+
 def parse_agent_decision(raw: str) -> AgentDecision:
     """Parse raw LLM output into a validated AgentDecision.
 
@@ -114,7 +127,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
     try:
         result = AgentDecision.model_validate_json(raw)
         logger.debug("parse succeeded", parse_tier=1, signal=result.signal.value)
-        return result
+        return _engine_fields(result)
     except (ValidationError, ValueError):
         pass
 
@@ -129,7 +142,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
             parse_tier=2,
             signal=result.signal.value,
         )
-        return result
+        return _engine_fields(result)
     except (ValidationError, ValueError):
         pass
 
@@ -142,7 +155,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
                 parse_tier=2,
                 signal=result.signal.value,
             )
-            return result
+            return _engine_fields(result)
         except (ValidationError, ValueError):
             pass
 
@@ -156,7 +169,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
                     parse_tier=2,
                     signal=result.signal.value,
                 )
-                return result
+                return _engine_fields(result)
             except (ValidationError, ValueError):
                 pass
 
@@ -170,6 +183,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
         signal=SignalType.PARSE_ERROR,
         confidence=0.0,
         rationale=f"Parse failed: {raw[:200]}",
+        error_kind="parse",
     )
 
 
