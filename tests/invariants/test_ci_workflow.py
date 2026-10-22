@@ -74,3 +74,14 @@ def test_frontend_job_uses_node_22_and_audits_production_deps() -> None:
     assert "npm audit --omit=dev --audit-level=high" in job
     assert "tsc -b --noEmit" not in job  # npm run build already runs tsc -b
     assert (REPO / "frontend" / ".nvmrc").read_text(encoding="utf-8").strip() == "22"
+
+
+def test_live_tests_run_nightly_and_never_on_push() -> None:
+    nightly = WORKFLOWS / "nightly.yml"
+    assert nightly.exists()
+    text = _text(nightly)
+    assert "schedule:" in text and "workflow_dispatch:" in text
+    assert "--run-live -m live_network" in text
+    assert "timeout-minutes: 15" in text
+    assert "\npermissions:\n  contents: read\n" in text
+    assert "--run-live" not in _text(CI)

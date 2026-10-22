@@ -55,8 +55,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      # Neo4j-marked tests run in backend-neo4j; live_network and ollama tests need real
-      # services and stay out of PR CI.
+      # Neo4j-marked tests run in backend-neo4j; live_network tests run in nightly.yml;
+      # ollama tests need a local Ollama server and stay out of CI.
       - name: Offline tests with coverage gate
         shell: bash
         run: >-
