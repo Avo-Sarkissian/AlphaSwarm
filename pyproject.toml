@@ -57,10 +57,17 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 target-version = "py311"
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM"]
+# UP042 (str + Enum -> StrEnum) changes str() of every enum member; that conversion is a
+# deliberate behaviour change made on its own, not a lint autofix.
+ignore = ["UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+# Verbatim LLM-output fixtures: wrapping them would change the strings under test.
+"tests/test_parsing.py" = ["E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
