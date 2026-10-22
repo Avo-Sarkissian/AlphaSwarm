@@ -1,0 +1,188 @@
+{
+  "round_1": [
+    {
+      "agent_id": "event_driven_09",
+      "rationale": "Event-Driven 9 round 1: HOLD; the tape on this rumor is still thin.",
+      "round_num": 1,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "event_driven_07",
+      "rationale": "Event-Driven 7 round 1: BUY; QQQX Robotics holders would get a premium; industrial automation peers should rerate.",
+      "round_num": 1,
+      "signal": "buy"
+    },
+    {
+      "agent_id": "macro_02",
+      "rationale": "Macro 2 round 1: BUY; the tape on this rumor is still thin.",
+      "round_num": 1,
+      "signal": "buy"
+    },
+    {
+      "agent_id": "narrators_02",
+      "rationale": "Narrators 2 round 1: SELL; the tape on this rumor is still thin.",
+      "round_num": 1,
+      "signal": "sell"
+    },
+    {
+      "agent_id": "allocators_05",
+      "rationale": "Allocators 5 round 1: HOLD; QQQX Robotics holders would get a premium.",
+      "round_num": 1,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "narrators_06",
+      "rationale": "Narrators 6 round 1: HOLD; the tape on this rumor is still thin.",
+      "round_num": 1,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "degens_09",
+      "rationale": "Degens 9 round 1: SELL; the tape on this rumor is still thin.",
+      "round_num": 1,
+      "signal": "sell"
+    },
+    {
+      "agent_id": "allocators_02",
+      "rationale": "Allocators 2 round 1: HOLD; the tape on this rumor is still thin.",
+      "round_num": 1,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "macro_07",
+      "rationale": "Macro 7 round 1: HOLD; the tape on this rumor is still thin.",
+      "round_num": 1,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "institutions_02",
+      "rationale": "Institutions 2 round 1: HOLD; the tape on this rumor is still thin.",
+      "round_num": 1,
+      "signal": "hold"
+    }
+  ],
+  "round_2": [
+    {
+      "agent_id": "quants_07",
+      "rationale": "Quants 7 round 2: SELL; the tape on this rumor is still thin.",
+      "round_num": 2,
+      "signal": "sell"
+    },
+    {
+      "agent_id": "quants_04",
+      "rationale": "Quants 4 round 2: SELL; the tape on this rumor is still thin.",
+      "round_num": 2,
+      "signal": "sell"
+    },
+    {
+      "agent_id": "degens_15",
+      "rationale": "Degens 15 round 2: SELL; ZZZT Holdings looks stretched at this price.",
+      "round_num": 2,
+      "signal": "sell"
+    },
+    {
+      "agent_id": "allocators_01",
+      "rationale": "Allocators 1 round 2: HOLD; the tape on this rumor is still thin.",
+      "round_num": 2,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "shorts_04",
+      "rationale": "Shorts 4 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+      "round_num": 2,
+      "signal": "buy"
+    },
+    {
+      "agent_id": "narrators_03",
+      "rationale": "Narrators 3 round 2: HOLD; ZZZT Holdings looks stretched at this price.",
+      "round_num": 2,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "narrators_06",
+      "rationale": "Narrators 6 round 2: HOLD; ZZZT Holdings looks stretched at this price.",
+      "round_num": 2,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "degens_10",
+      "rationale": "Degens 10 round 2: HOLD; the tape on this rumor is still thin.",
+      "round_num": 2,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "degens_14",
+      "rationale": "Degens 14 round 2: BUY; QQQX Robotics holders would get a premium.",
+      "round_num": 2,
+      "signal": "buy"
+    },
+    {
+      "agent_id": "quants_03",
+      "rationale": "Quants 3 round 2: BUY; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+      "round_num": 2,
+      "signal": "buy"
+    }
+  ],
+  "round_3": [
+    {
+      "agent_id": "algos_05",
+      "rationale": "Algos 5 round 3: HOLD; QQQX Robotics holders would get a premium.",
+      "round_num": 3,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "institutions_16",
+      "rationale": "Institutions 16 round 3: SELL; ZZZT Holdings looks stretched at this price.",
+      "round_num": 3,
+      "signal": "sell"
+    },
+    {
+      "agent_id": "institutions_02",
+      "rationale": "Institutions 2 round 3: BUY; the tape on this rumor is still thin.",
+      "round_num": 3,
+      "signal": "buy"
+    },
+    {
+      "agent_id": "narrators_06",
+      "rationale": "Narrators 6 round 3: HOLD; the tape on this rumor is still thin.",
+      "round_num": 3,
+      "signal": "hold"
+    },
+    {
+      "agent_id": "institutions_18",
+      "rationale": "Institutions 18 round 3: BUY; QQQX Robotics holders would get a premium.",
+      "round_num": 3,
+      "signal": "buy"
+    },
+    {
+      "agent_id": "event_driven_08",
+      "rationale": "Event-Driven 8 round 3: SELL; the tape on this rumor is still thin.",
+      "round_num": 3,
+      "signal": "sell"
+    },
+    {
+      "agent_id": "degens_12",
+      "rationale": "Degens 12 round 3: SELL; the tape on this rumor is still thin.",
+      "round_num": 3,
+      "signal": "sell"
+    },
+    {
+      "agent_id": "narrators_04",
+      "rationale": "Narrators 4 round 3: BUY; the tape on this rumor is still thin.",
+      "round_num": 3,
+      "signal": "buy"
+    },
+    {
+      "agent_id": "quants_10",
+      "rationale": "Quants 10 round 3: SELL; QQQX Robotics holders would get a premium.",
+      "round_num": 3,
+      "signal": "sell"
+    },
+    {
+      "agent_id": "quants_06",
+      "rationale": "Quants 6 round 3: BUY; the tape on this rumor is still thin.",
+      "round_num": 3,
+      "signal": "buy"
+    }
+  ]
+}

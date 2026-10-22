@@ -1,0 +1,1202 @@
+{
+  "algos_01|r1": {
+    "confidence": 0.612,
+    "signal": "sell"
+  },
+  "algos_01|r2": {
+    "confidence": 0.495,
+    "signal": "hold"
+  },
+  "algos_01|r3": {
+    "confidence": 0.521,
+    "signal": "hold"
+  },
+  "algos_02|r1": {
+    "confidence": 0.846,
+    "signal": "hold"
+  },
+  "algos_02|r2": {
+    "confidence": 0.7615,
+    "signal": "hold"
+  },
+  "algos_02|r3": {
+    "confidence": 0.6185,
+    "signal": "buy"
+  },
+  "algos_03|r1": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "algos_03|r2": {
+    "confidence": 0.807,
+    "signal": "buy"
+  },
+  "algos_03|r3": {
+    "confidence": 0.586,
+    "signal": "buy"
+  },
+  "algos_04|r1": {
+    "confidence": 0.5535,
+    "signal": "sell"
+  },
+  "algos_04|r2": {
+    "confidence": 0.378,
+    "signal": "sell"
+  },
+  "algos_04|r3": {
+    "confidence": 0.5405,
+    "signal": "sell"
+  },
+  "algos_05|r1": {
+    "confidence": 0.6185,
+    "signal": "hold"
+  },
+  "algos_05|r2": {
+    "confidence": 0.3585,
+    "signal": "hold"
+  },
+  "algos_05|r3": {
+    "confidence": 0.9435,
+    "signal": "hold"
+  },
+  "algos_06|r1": {
+    "confidence": 0.677,
+    "signal": "buy"
+  },
+  "algos_06|r2": {
+    "confidence": 0.69,
+    "signal": "buy"
+  },
+  "algos_06|r3": {
+    "confidence": 0.365,
+    "signal": "buy"
+  },
+  "algos_07|r1": {
+    "confidence": 0.729,
+    "signal": "sell"
+  },
+  "algos_07|r2": {
+    "confidence": 0.6965,
+    "signal": "sell"
+  },
+  "algos_07|r3": {
+    "confidence": 0.573,
+    "signal": "sell"
+  },
+  "algos_08|r1": {
+    "confidence": 0.3455,
+    "signal": "hold"
+  },
+  "algos_08|r2": {
+    "confidence": 0.521,
+    "signal": "hold"
+  },
+  "algos_08|r3": {
+    "confidence": 0.469,
+    "signal": "hold"
+  },
+  "allocators_01|r1": {
+    "confidence": 0.3065,
+    "signal": "sell"
+  },
+  "allocators_01|r2": {
+    "confidence": 0.924,
+    "signal": "hold"
+  },
+  "allocators_01|r3": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "allocators_02|r1": {
+    "confidence": 0.898,
+    "signal": "hold"
+  },
+  "allocators_02|r2": {
+    "confidence": 0.82,
+    "signal": "hold"
+  },
+  "allocators_02|r3": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "allocators_03|r1": {
+    "confidence": 0.6055,
+    "signal": "buy"
+  },
+  "allocators_03|r2": {
+    "confidence": 0.4105,
+    "signal": "buy"
+  },
+  "allocators_03|r3": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "allocators_04|r1": {
+    "confidence": 0.7615,
+    "signal": "sell"
+  },
+  "allocators_04|r2": {
+    "confidence": 0.612,
+    "signal": "sell"
+  },
+  "allocators_04|r3": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "allocators_05|r1": {
+    "confidence": 0.9175,
+    "signal": "hold"
+  },
+  "allocators_05|r2": {
+    "confidence": 0.3,
+    "signal": "hold"
+  },
+  "allocators_05|r3": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "degens_01|r1": {
+    "confidence": 0.5015,
+    "signal": "hold"
+  },
+  "degens_01|r2": {
+    "confidence": 0.5405,
+    "signal": "buy"
+  },
+  "degens_01|r3": {
+    "confidence": 0.378,
+    "signal": "buy"
+  },
+  "degens_02|r1": {
+    "confidence": 0.69,
+    "signal": "buy"
+  },
+  "degens_02|r2": {
+    "confidence": 0.326,
+    "signal": "buy"
+  },
+  "degens_02|r3": {
+    "confidence": 0.6835,
+    "signal": "sell"
+  },
+  "degens_03|r1": {
+    "confidence": 0.8265,
+    "signal": "sell"
+  },
+  "degens_03|r2": {
+    "confidence": 0.6055,
+    "signal": "sell"
+  },
+  "degens_03|r3": {
+    "confidence": 0.456,
+    "signal": "sell"
+  },
+  "degens_04|r1": {
+    "confidence": 0.352,
+    "signal": "hold"
+  },
+  "degens_04|r2": {
+    "confidence": 0.4235,
+    "signal": "hold"
+  },
+  "degens_04|r3": {
+    "confidence": 0.7615,
+    "signal": "hold"
+  },
+  "degens_05|r1": {
+    "confidence": 0.8785,
+    "signal": "buy"
+  },
+  "degens_05|r2": {
+    "confidence": 0.43,
+    "signal": "buy"
+  },
+  "degens_05|r3": {
+    "confidence": 0.82,
+    "signal": "buy"
+  },
+  "degens_06|r1": {
+    "confidence": 0.326,
+    "signal": "sell"
+  },
+  "degens_06|r2": {
+    "confidence": 0.5535,
+    "signal": "sell"
+  },
+  "degens_06|r3": {
+    "confidence": 0.547,
+    "signal": "sell"
+  },
+  "degens_07|r1": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "degens_07|r2": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "degens_07|r3": {
+    "confidence": 0.8005,
+    "signal": "hold"
+  },
+  "degens_08|r1": {
+    "confidence": 0.508,
+    "signal": "buy"
+  },
+  "degens_08|r2": {
+    "confidence": 0.781,
+    "signal": "buy"
+  },
+  "degens_08|r3": {
+    "confidence": 0.495,
+    "signal": "buy"
+  },
+  "degens_09|r1": {
+    "confidence": 0.9045,
+    "signal": "sell"
+  },
+  "degens_09|r2": {
+    "confidence": 0.3455,
+    "signal": "sell"
+  },
+  "degens_09|r3": {
+    "confidence": 0.8135,
+    "signal": "sell"
+  },
+  "degens_10|r1": {
+    "confidence": 0.8135,
+    "signal": "hold"
+  },
+  "degens_10|r2": {
+    "confidence": 0.898,
+    "signal": "hold"
+  },
+  "degens_10|r3": {
+    "confidence": 0.3975,
+    "signal": "hold"
+  },
+  "degens_11|r1": {
+    "confidence": 0.5665,
+    "signal": "buy"
+  },
+  "degens_11|r2": {
+    "confidence": 0.3715,
+    "signal": "buy"
+  },
+  "degens_11|r3": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "degens_12|r1": {
+    "confidence": 0.7485,
+    "signal": "sell"
+  },
+  "degens_12|r2": {
+    "confidence": 0.716,
+    "signal": "sell"
+  },
+  "degens_12|r3": {
+    "confidence": 0.9045,
+    "signal": "sell"
+  },
+  "degens_13|r1": {
+    "confidence": 0.547,
+    "signal": "hold"
+  },
+  "degens_13|r2": {
+    "confidence": 0.599,
+    "signal": "hold"
+  },
+  "degens_13|r3": {
+    "confidence": 0.6705,
+    "signal": "hold"
+  },
+  "degens_14|r1": {
+    "confidence": 0.378,
+    "signal": "buy"
+  },
+  "degens_14|r2": {
+    "confidence": 0.885,
+    "signal": "buy"
+  },
+  "degens_14|r3": {
+    "confidence": 0.729,
+    "signal": "buy"
+  },
+  "degens_15|r1": {
+    "confidence": 0.573,
+    "signal": "sell"
+  },
+  "degens_15|r2": {
+    "confidence": 0.9305,
+    "signal": "sell"
+  },
+  "degens_15|r3": {
+    "confidence": 0.794,
+    "signal": "sell"
+  },
+  "event_driven_01|r1": {
+    "confidence": 0.7225,
+    "signal": "buy"
+  },
+  "event_driven_01|r2": {
+    "confidence": 0.443,
+    "signal": "sell"
+  },
+  "event_driven_01|r3": {
+    "confidence": 0.8785,
+    "signal": "sell"
+  },
+  "event_driven_02|r1": {
+    "confidence": 0.4495,
+    "signal": "sell"
+  },
+  "event_driven_02|r2": {
+    "confidence": 0.8135,
+    "signal": "sell"
+  },
+  "event_driven_02|r3": {
+    "confidence": 0.443,
+    "signal": "hold"
+  },
+  "event_driven_03|r1": {
+    "confidence": 0.742,
+    "signal": "hold"
+  },
+  "event_driven_03|r2": {
+    "confidence": 0.729,
+    "signal": "hold"
+  },
+  "event_driven_03|r3": {
+    "confidence": 0.3845,
+    "signal": "hold"
+  },
+  "event_driven_04|r1": {
+    "confidence": 0.3585,
+    "signal": "buy"
+  },
+  "event_driven_04|r2": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "event_driven_04|r3": {
+    "confidence": 0.391,
+    "signal": "buy"
+  },
+  "event_driven_05|r1": {
+    "confidence": 0.6315,
+    "signal": "sell"
+  },
+  "event_driven_05|r2": {
+    "confidence": 0.651,
+    "signal": "sell"
+  },
+  "event_driven_05|r3": {
+    "confidence": 0.677,
+    "signal": "sell"
+  },
+  "event_driven_06|r1": {
+    "confidence": 0.833,
+    "signal": "hold"
+  },
+  "event_driven_06|r2": {
+    "confidence": 0.7225,
+    "signal": "hold"
+  },
+  "event_driven_06|r3": {
+    "confidence": 0.4105,
+    "signal": "hold"
+  },
+  "event_driven_07|r1": {
+    "confidence": 0.937,
+    "signal": "buy"
+  },
+  "event_driven_07|r2": {
+    "confidence": 0.664,
+    "signal": "buy"
+  },
+  "event_driven_07|r3": {
+    "confidence": 0.5145,
+    "signal": "buy"
+  },
+  "event_driven_08|r1": {
+    "confidence": 0.56,
+    "signal": "sell"
+  },
+  "event_driven_08|r2": {
+    "confidence": 0.508,
+    "signal": "sell"
+  },
+  "event_driven_08|r3": {
+    "confidence": 0.911,
+    "signal": "sell"
+  },
+  "event_driven_09|r1": {
+    "confidence": 0.9435,
+    "signal": "hold"
+  },
+  "event_driven_09|r2": {
+    "confidence": 0.4755,
+    "signal": "hold"
+  },
+  "event_driven_09|r3": {
+    "confidence": 0.5795,
+    "signal": "hold"
+  },
+  "event_driven_10|r1": {
+    "confidence": 0.43,
+    "signal": "buy"
+  },
+  "event_driven_10|r2": {
+    "confidence": 0.7875,
+    "signal": "buy"
+  },
+  "event_driven_10|r3": {
+    "confidence": 0.5275,
+    "signal": "buy"
+  },
+  "institutions_01|r1": {
+    "confidence": 0.872,
+    "signal": "sell"
+  },
+  "institutions_01|r2": {
+    "confidence": 0.3065,
+    "signal": "hold"
+  },
+  "institutions_01|r3": {
+    "confidence": 0.7355,
+    "signal": "hold"
+  },
+  "institutions_02|r1": {
+    "confidence": 0.885,
+    "signal": "hold"
+  },
+  "institutions_02|r2": {
+    "confidence": 0.352,
+    "signal": "hold"
+  },
+  "institutions_02|r3": {
+    "confidence": 0.9305,
+    "signal": "buy"
+  },
+  "institutions_03|r1": {
+    "confidence": 0.469,
+    "signal": "buy"
+  },
+  "institutions_03|r2": {
+    "confidence": 0.8265,
+    "signal": "buy"
+  },
+  "institutions_03|r3": {
+    "confidence": 0.872,
+    "signal": "buy"
+  },
+  "institutions_04|r1": {
+    "confidence": 0.3715,
+    "signal": "sell"
+  },
+  "institutions_04|r2": {
+    "confidence": 0.8525,
+    "signal": "sell"
+  },
+  "institutions_04|r3": {
+    "confidence": 0.56,
+    "signal": "sell"
+  },
+  "institutions_05|r1": {
+    "confidence": 0.443,
+    "signal": "hold"
+  },
+  "institutions_05|r2": {
+    "confidence": 0.6705,
+    "signal": "hold"
+  },
+  "institutions_05|r3": {
+    "confidence": 0.846,
+    "signal": "hold"
+  },
+  "institutions_06|r1": {
+    "confidence": 0.8005,
+    "signal": "buy"
+  },
+  "institutions_06|r2": {
+    "confidence": 0.339,
+    "signal": "buy"
+  },
+  "institutions_06|r3": {
+    "confidence": 0.508,
+    "signal": "buy"
+  },
+  "institutions_07|r1": {
+    "confidence": 0.4885,
+    "signal": "sell"
+  },
+  "institutions_07|r2": {
+    "confidence": 0.5925,
+    "signal": "sell"
+  },
+  "institutions_07|r3": {
+    "confidence": 0.5015,
+    "signal": "sell"
+  },
+  "institutions_08|r1": {
+    "confidence": 0.404,
+    "signal": "hold"
+  },
+  "institutions_08|r2": {
+    "confidence": 0.4365,
+    "signal": "hold"
+  },
+  "institutions_08|r3": {
+    "confidence": 0.3,
+    "signal": "hold"
+  },
+  "institutions_09|r1": {
+    "confidence": 0.7745,
+    "signal": "buy"
+  },
+  "institutions_09|r2": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "institutions_09|r3": {
+    "confidence": 0.755,
+    "signal": "buy"
+  },
+  "institutions_10|r1": {
+    "confidence": 0.7095,
+    "signal": "sell"
+  },
+  "institutions_10|r2": {
+    "confidence": 0.3195,
+    "signal": "sell"
+  },
+  "institutions_10|r3": {
+    "confidence": 0.69,
+    "signal": "sell"
+  },
+  "institutions_11|r1": {
+    "confidence": 0.365,
+    "signal": "hold"
+  },
+  "institutions_11|r2": {
+    "confidence": 0.859,
+    "signal": "hold"
+  },
+  "institutions_11|r3": {
+    "confidence": 0.7875,
+    "signal": "hold"
+  },
+  "institutions_12|r1": {
+    "confidence": 0.4625,
+    "signal": "buy"
+  },
+  "institutions_12|r2": {
+    "confidence": 0.313,
+    "signal": "buy"
+  },
+  "institutions_12|r3": {
+    "confidence": 0.4495,
+    "signal": "buy"
+  },
+  "institutions_13|r1": {
+    "confidence": 0.313,
+    "signal": "sell"
+  },
+  "institutions_13|r2": {
+    "confidence": 0.833,
+    "signal": "sell"
+  },
+  "institutions_13|r3": {
+    "confidence": 0.43,
+    "signal": "sell"
+  },
+  "institutions_14|r1": {
+    "confidence": 0.5795,
+    "signal": "hold"
+  },
+  "institutions_14|r2": {
+    "confidence": 0.7095,
+    "signal": "hold"
+  },
+  "institutions_14|r3": {
+    "confidence": 0.6055,
+    "signal": "hold"
+  },
+  "institutions_15|r1": {
+    "confidence": 0.5405,
+    "signal": "buy"
+  },
+  "institutions_15|r2": {
+    "confidence": 0.846,
+    "signal": "buy"
+  },
+  "institutions_15|r3": {
+    "confidence": 0.3455,
+    "signal": "buy"
+  },
+  "institutions_16|r1": {
+    "confidence": 0.3325,
+    "signal": "sell"
+  },
+  "institutions_16|r2": {
+    "confidence": 0.768,
+    "signal": "sell"
+  },
+  "institutions_16|r3": {
+    "confidence": 0.937,
+    "signal": "sell"
+  },
+  "institutions_17|r1": {
+    "confidence": 0.3,
+    "signal": "hold"
+  },
+  "institutions_17|r2": {
+    "confidence": 0.6835,
+    "signal": "hold"
+  },
+  "institutions_17|r3": {
+    "confidence": 0.6445,
+    "signal": "hold"
+  },
+  "institutions_18|r1": {
+    "confidence": 0.5925,
+    "signal": "buy"
+  },
+  "institutions_18|r2": {
+    "confidence": 0.586,
+    "signal": "buy"
+  },
+  "institutions_18|r3": {
+    "confidence": 0.9175,
+    "signal": "buy"
+  },
+  "macro_01|r1": {
+    "confidence": 0.521,
+    "signal": "hold"
+  },
+  "macro_01|r2": {
+    "confidence": 0.573,
+    "signal": "buy"
+  },
+  "macro_01|r3": {
+    "confidence": 0.7745,
+    "signal": "buy"
+  },
+  "macro_02|r1": {
+    "confidence": 0.9305,
+    "signal": "buy"
+  },
+  "macro_02|r2": {
+    "confidence": 0.56,
+    "signal": "buy"
+  },
+  "macro_02|r3": {
+    "confidence": 0.4235,
+    "signal": "sell"
+  },
+  "macro_03|r1": {
+    "confidence": 0.6445,
+    "signal": "sell"
+  },
+  "macro_03|r2": {
+    "confidence": 0.8395,
+    "signal": "sell"
+  },
+  "macro_03|r3": {
+    "confidence": 0.3325,
+    "signal": "sell"
+  },
+  "macro_04|r1": {
+    "confidence": 0.4365,
+    "signal": "hold"
+  },
+  "macro_04|r2": {
+    "confidence": 0.5145,
+    "signal": "hold"
+  },
+  "macro_04|r3": {
+    "confidence": 0.599,
+    "signal": "hold"
+  },
+  "macro_05|r1": {
+    "confidence": 0.586,
+    "signal": "buy"
+  },
+  "macro_05|r2": {
+    "confidence": 0.6575,
+    "signal": "buy"
+  },
+  "macro_05|r3": {
+    "confidence": 0.3065,
+    "signal": "buy"
+  },
+  "macro_06|r1": {
+    "confidence": 0.6965,
+    "signal": "sell"
+  },
+  "macro_06|r2": {
+    "confidence": 0.794,
+    "signal": "sell"
+  },
+  "macro_06|r3": {
+    "confidence": 0.612,
+    "signal": "sell"
+  },
+  "macro_07|r1": {
+    "confidence": 0.8915,
+    "signal": "hold"
+  },
+  "macro_07|r2": {
+    "confidence": 0.4625,
+    "signal": "hold"
+  },
+  "macro_07|r3": {
+    "confidence": 0.8655,
+    "signal": "hold"
+  },
+  "narrators_01|r1": {
+    "confidence": 0.4755,
+    "signal": "buy"
+  },
+  "narrators_01|r2": {
+    "confidence": 0.7355,
+    "signal": "sell"
+  },
+  "narrators_01|r3": {
+    "confidence": 0.8395,
+    "signal": "sell"
+  },
+  "narrators_02|r1": {
+    "confidence": 0.924,
+    "signal": "sell"
+  },
+  "narrators_02|r2": {
+    "confidence": 0.872,
+    "signal": "sell"
+  },
+  "narrators_02|r3": {
+    "confidence": 0.742,
+    "signal": "hold"
+  },
+  "narrators_03|r1": {
+    "confidence": 0.339,
+    "signal": "hold"
+  },
+  "narrators_03|r2": {
+    "confidence": 0.911,
+    "signal": "hold"
+  },
+  "narrators_03|r3": {
+    "confidence": 0.7485,
+    "signal": "hold"
+  },
+  "narrators_04|r1": {
+    "confidence": 0.3975,
+    "signal": "buy"
+  },
+  "narrators_04|r2": {
+    "confidence": 0.3845,
+    "signal": "buy"
+  },
+  "narrators_04|r3": {
+    "confidence": 0.898,
+    "signal": "buy"
+  },
+  "narrators_05|r1": {
+    "confidence": 0.8655,
+    "signal": "sell"
+  },
+  "narrators_05|r2": {
+    "confidence": 0.482,
+    "signal": "sell"
+  },
+  "narrators_05|r3": {
+    "confidence": 0.4755,
+    "signal": "sell"
+  },
+  "narrators_06|r1": {
+    "confidence": 0.911,
+    "signal": "hold"
+  },
+  "narrators_06|r2": {
+    "confidence": 0.9045,
+    "signal": "hold"
+  },
+  "narrators_06|r3": {
+    "confidence": 0.924,
+    "signal": "hold"
+  },
+  "narrators_07|r1": {
+    "confidence": 0.664,
+    "signal": "buy"
+  },
+  "narrators_07|r2": {
+    "confidence": 0.3325,
+    "signal": "buy"
+  },
+  "narrators_07|r3": {
+    "confidence": 0.8265,
+    "signal": "buy"
+  },
+  "narrators_08|r1": {
+    "confidence": 0.5275,
+    "signal": "sell"
+  },
+  "narrators_08|r2": {
+    "confidence": 0.638,
+    "signal": "sell"
+  },
+  "narrators_08|r3": {
+    "confidence": 0.4625,
+    "signal": "sell"
+  },
+  "quants_01|r1": {
+    "confidence": 0.3195,
+    "signal": "sell"
+  },
+  "quants_01|r2": {
+    "confidence": 0.6445,
+    "signal": "hold"
+  },
+  "quants_01|r3": {
+    "confidence": 0.6575,
+    "signal": "hold"
+  },
+  "quants_02|r1": {
+    "confidence": 0.456,
+    "signal": "hold"
+  },
+  "quants_02|r2": {
+    "confidence": 0.4495,
+    "signal": "hold"
+  },
+  "quants_02|r3": {
+    "confidence": 0.5665,
+    "signal": "buy"
+  },
+  "quants_03|r1": {
+    "confidence": 0.4105,
+    "signal": "buy"
+  },
+  "quants_03|r2": {
+    "confidence": 0.8785,
+    "signal": "buy"
+  },
+  "quants_03|r3": {
+    "confidence": 0.417,
+    "signal": "buy"
+  },
+  "quants_04|r1": {
+    "confidence": 0.8395,
+    "signal": "sell"
+  },
+  "quants_04|r2": {
+    "confidence": 0.937,
+    "signal": "sell"
+  },
+  "quants_04|r3": {
+    "confidence": 0.6965,
+    "signal": "sell"
+  },
+  "quants_05|r1": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "quants_05|r2": {
+    "confidence": 0.391,
+    "signal": "hold"
+  },
+  "quants_05|r3": {
+    "confidence": 0.4365,
+    "signal": "hold"
+  },
+  "quants_06|r1": {
+    "confidence": 0.3845,
+    "signal": "buy"
+  },
+  "quants_06|r2": {
+    "confidence": 0.8005,
+    "signal": "buy"
+  },
+  "quants_06|r3": {
+    "confidence": 0.885,
+    "signal": "buy"
+  },
+  "quants_07|r1": {
+    "confidence": 0.716,
+    "signal": "sell"
+  },
+  "quants_07|r2": {
+    "confidence": 0.9435,
+    "signal": "sell"
+  },
+  "quants_07|r3": {
+    "confidence": 0.859,
+    "signal": "sell"
+  },
+  "quants_08|r1": {
+    "confidence": 0.4235,
+    "signal": "hold"
+  },
+  "quants_08|r2": {
+    "confidence": 0.365,
+    "signal": "hold"
+  },
+  "quants_08|r3": {
+    "confidence": 0.534,
+    "signal": "hold"
+  },
+  "quants_09|r1": {
+    "confidence": 0.781,
+    "signal": "buy"
+  },
+  "quants_09|r2": {
+    "confidence": 0.6315,
+    "signal": "buy"
+  },
+  "quants_09|r3": {
+    "confidence": 0.8525,
+    "signal": "buy"
+  },
+  "quants_10|r1": {
+    "confidence": 0.768,
+    "signal": "sell"
+  },
+  "quants_10|r2": {
+    "confidence": 0.456,
+    "signal": "sell"
+  },
+  "quants_10|r3": {
+    "confidence": 0.8915,
+    "signal": "sell"
+  },
+  "quants_11|r1": {
+    "confidence": 0.5145,
+    "signal": "hold"
+  },
+  "quants_11|r2": {
+    "confidence": 0.755,
+    "signal": "hold"
+  },
+  "quants_11|r3": {
+    "confidence": 0.7095,
+    "signal": "hold"
+  },
+  "quants_12|r1": {
+    "confidence": 0.651,
+    "signal": "buy"
+  },
+  "quants_12|r2": {
+    "confidence": 0.3975,
+    "signal": "buy"
+  },
+  "quants_12|r3": {
+    "confidence": 0.625,
+    "signal": "buy"
+  },
+  "sell_side_01|r1": {
+    "confidence": 0.7355,
+    "signal": "hold"
+  },
+  "sell_side_01|r2": {
+    "confidence": 0.4885,
+    "signal": "buy"
+  },
+  "sell_side_01|r3": {
+    "confidence": 0.7225,
+    "signal": "buy"
+  },
+  "sell_side_02|r1": {
+    "confidence": 0.6835,
+    "signal": "buy"
+  },
+  "sell_side_02|r2": {
+    "confidence": 0.742,
+    "signal": "buy"
+  },
+  "sell_side_02|r3": {
+    "confidence": 0.807,
+    "signal": "sell"
+  },
+  "sell_side_03|r1": {
+    "confidence": 0.495,
+    "signal": "sell"
+  },
+  "sell_side_03|r2": {
+    "confidence": 0.703,
+    "signal": "sell"
+  },
+  "sell_side_03|r3": {
+    "confidence": 0.352,
+    "signal": "sell"
+  },
+  "sell_side_04|r1": {
+    "confidence": 0.482,
+    "signal": "hold"
+  },
+  "sell_side_04|r2": {
+    "confidence": 0.7745,
+    "signal": "hold"
+  },
+  "sell_side_04|r3": {
+    "confidence": 0.664,
+    "signal": "hold"
+  },
+  "sell_side_05|r1": {
+    "confidence": 0.417,
+    "signal": "buy"
+  },
+  "sell_side_05|r2": {
+    "confidence": 0.7485,
+    "signal": "buy"
+  },
+  "sell_side_05|r3": {
+    "confidence": 0.651,
+    "signal": "buy"
+  },
+  "sell_side_06|r1": {
+    "confidence": 0.534,
+    "signal": "sell"
+  },
+  "sell_side_06|r2": {
+    "confidence": 0.5015,
+    "signal": "sell"
+  },
+  "sell_side_06|r3": {
+    "confidence": 0.404,
+    "signal": "sell"
+  },
+  "sell_side_07|r1": {
+    "confidence": 0.638,
+    "signal": "hold"
+  },
+  "sell_side_07|r2": {
+    "confidence": 0.5275,
+    "signal": "hold"
+  },
+  "sell_side_07|r3": {
+    "confidence": 0.3585,
+    "signal": "hold"
+  },
+  "sell_side_08|r1": {
+    "confidence": 0.794,
+    "signal": "buy"
+  },
+  "sell_side_08|r2": {
+    "confidence": 0.469,
+    "signal": "buy"
+  },
+  "sell_side_08|r3": {
+    "confidence": 0.716,
+    "signal": "buy"
+  },
+  "sell_side_09|r1": {
+    "confidence": 0.6705,
+    "signal": "sell"
+  },
+  "sell_side_09|r2": {
+    "confidence": 0.547,
+    "signal": "sell"
+  },
+  "sell_side_09|r3": {
+    "confidence": 0.313,
+    "signal": "sell"
+  },
+  "sell_side_10|r1": {
+    "confidence": 0.8525,
+    "signal": "hold"
+  },
+  "sell_side_10|r2": {
+    "confidence": 0.417,
+    "signal": "hold"
+  },
+  "sell_side_10|r3": {
+    "confidence": 0.6315,
+    "signal": "hold"
+  },
+  "shorts_01|r1": {
+    "confidence": 0.703,
+    "signal": "buy"
+  },
+  "shorts_01|r2": {
+    "confidence": 0.5795,
+    "signal": "sell"
+  },
+  "shorts_01|r3": {
+    "confidence": 0.638,
+    "signal": "sell"
+  },
+  "shorts_02|r1": {
+    "confidence": 0.859,
+    "signal": "sell"
+  },
+  "shorts_02|r2": {
+    "confidence": 0.0,
+    "signal": "parse_error"
+  },
+  "shorts_02|r3": {
+    "confidence": 0.339,
+    "signal": "hold"
+  },
+  "shorts_03|r1": {
+    "confidence": 0.599,
+    "signal": "hold"
+  },
+  "shorts_03|r2": {
+    "confidence": 0.534,
+    "signal": "hold"
+  },
+  "shorts_03|r3": {
+    "confidence": 0.703,
+    "signal": "hold"
+  },
+  "shorts_04|r1": {
+    "confidence": 0.82,
+    "signal": "buy"
+  },
+  "shorts_04|r2": {
+    "confidence": 0.9175,
+    "signal": "buy"
+  },
+  "shorts_04|r3": {
+    "confidence": 0.3195,
+    "signal": "buy"
+  },
+  "shorts_05|r1": {
+    "confidence": 0.625,
+    "signal": "sell"
+  },
+  "shorts_05|r2": {
+    "confidence": 0.8655,
+    "signal": "sell"
+  },
+  "shorts_05|r3": {
+    "confidence": 0.833,
+    "signal": "sell"
+  },
+  "shorts_06|r1": {
+    "confidence": 0.391,
+    "signal": "hold"
+  },
+  "shorts_06|r2": {
+    "confidence": 0.5665,
+    "signal": "hold"
+  },
+  "shorts_06|r3": {
+    "confidence": 0.482,
+    "signal": "hold"
+  },
+  "shorts_07|r1": {
+    "confidence": 0.7875,
+    "signal": "buy"
+  },
+  "shorts_07|r2": {
+    "confidence": 0.625,
+    "signal": "buy"
+  },
+  "shorts_07|r3": {
+    "confidence": 0.5925,
+    "signal": "buy"
+  }
+}
