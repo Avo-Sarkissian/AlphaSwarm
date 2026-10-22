@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from decimal import Decimal
 from pathlib import Path
 
@@ -65,3 +66,26 @@ def test_error_messages_never_echo_row_values(tmp_path: Path) -> None:
         HoldingsLoader.load(_csv(tmp_path, "brokerage,ZQXY,NaN,12.34"))
     assert "ZQXY" not in str(exc.value)
     assert "12.34" not in str(exc.value)
+
+
+# An Excel CSV export in cp1252: an accented letter and an en dash in the label.
+@pytest.mark.parametrize("label", ["Épargne", "joint – brokerage"])
+def test_a_file_that_is_not_utf8_is_a_load_error(tmp_path: Path, label: str) -> None:
+    path = tmp_path / "holdings.csv"
+    path.write_bytes(f"{_HEADER}\n{label},ZZZT,1,1\n".encode("cp1252"))
+    with pytest.raises(HoldingsLoadError, match="not UTF-8") as exc:
+        HoldingsLoader.load(path)
+    # str(UnicodeDecodeError) quotes the undecodable byte; the message must not.
+    assert "0x" not in str(exc.value)
+
+
+def test_an_oversized_field_is_a_load_error(tmp_path: Path) -> None:
+    oversized = "9" * (csv.field_size_limit() + 1)
+    with pytest.raises(HoldingsLoadError, match="Cannot parse CSV"):
+        HoldingsLoader.load(_csv(tmp_path, f"brokerage,ZZZT,1,{oversized}"))
+
+
+def test_a_position_cost_that_overflows_is_rejected(tmp_path: Path) -> None:
+    # Both values are finite; their product overflows the decimal context.
+    with pytest.raises(HoldingsLoadError, match="Invalid numeric value in CSV row 2"):
+        HoldingsLoader.load(_csv(tmp_path, "brokerage,ZZZT,1e999999,1e999999"))

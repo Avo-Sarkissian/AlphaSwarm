@@ -78,3 +78,18 @@ async def test_deleted_file_drops_the_snapshot(tmp_path: Path) -> None:
     assert await cache.get() is not None
     csv_path.unlink()
     assert await cache.get() is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        f"{_HEADER}\nÉpargne,ZZZT,1,1\n".encode("cp1252"),
+        f"{_HEADER}\nbrokerage,ZZZT,1e999999,1e999999\n".encode(),
+    ],
+    ids=["cp1252-export", "overflowing-cost"],
+)
+async def test_unparseable_file_is_none_not_an_exception(tmp_path: Path, payload: bytes) -> None:
+    """The lifespan preload and GET /api/holdings both await get(): it must not raise."""
+    csv_path = tmp_path / "holdings.csv"
+    csv_path.write_bytes(payload)
+    assert await PortfolioCache(csv_path).get() is None

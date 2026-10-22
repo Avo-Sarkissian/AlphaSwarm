@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import csv
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, DecimalException, InvalidOperation
 from pathlib import Path
 
 import structlog
@@ -110,6 +110,11 @@ class HoldingsLoader:
             raise HoldingsLoadError(f"CSV not found: {path}") from exc
         except OSError as exc:
             raise HoldingsLoadError(f"Cannot read CSV: {exc}") from exc
+        except UnicodeDecodeError as exc:
+            # Never str(exc): it quotes the undecodable byte from the file.
+            raise HoldingsLoadError("Cannot parse CSV: not UTF-8 text") from exc
+        except csv.Error as exc:
+            raise HoldingsLoadError("Cannot parse CSV: malformed or oversized field") from exc
 
         if not rows:
             # Pitfall 2: sha256_first8("") raises TypeError. Guard before hashing.
@@ -142,6 +147,12 @@ class HoldingsLoader:
                 raise HoldingsLoadError(f"Non-finite numeric value in CSV row {row_num}")
             if qty < 0 or cost_per_share < 0:
                 raise HoldingsLoadError(f"Negative numeric value in CSV row {row_num}")
+            try:
+                # Total position cost (docs/DECISIONS.md#p39-d-02). Two finite but
+                # huge values (1e999999 x 1e999999) overflow the decimal context.
+                cost_basis = qty * cost_per_share
+            except DecimalException as exc:
+                raise HoldingsLoadError(f"Invalid numeric value in CSV row {row_num}") from exc
             account_label = (row["account"] or "").strip()
             if account_label:
                 account_labels.add(account_label)
@@ -149,7 +160,7 @@ class HoldingsLoader:
                 Holding(
                     ticker=ticker,
                     qty=qty,
-                    cost_basis=qty * cost_per_share,  # D-02 — total position cost
+                    cost_basis=cost_basis,
                 )
             )
 

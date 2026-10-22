@@ -315,6 +315,21 @@ async def test_lifespan_wires_post_run_and_holdings(probe: LifespanProbe) -> Non
         assert app.state.sim_manager._orchestrator_busy() is True
 
 
+async def test_lifespan_starts_with_a_holdings_file_that_is_not_utf8(
+    probe: LifespanProbe,
+) -> None:
+    """An Excel cp1252 export makes holdings unavailable (503); it does not stop startup."""
+    probe.settings.holdings_csv_path.write_bytes(
+        "account,symbol,shares,cost_basis_per_share\nÉpargne,ZZZT,1,1\n".encode("cp1252")
+    )
+    async with probe.app.router.lifespan_context(probe.app):
+        transport = httpx.ASGITransport(app=probe.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            response = await client.get("/api/holdings")
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"] == "holdings_unavailable"
+
+
 def _path_settings(model: BaseModel, prefix: str = "") -> dict[str, Path]:
     """Every Path-valued setting of *model*, nested models included, by dotted name."""
     found: dict[str, Path] = {}
