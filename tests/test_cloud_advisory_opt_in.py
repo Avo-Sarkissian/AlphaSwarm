@@ -3,7 +3,8 @@
 A cloud orchestrator with allow_cloud_advisory=False must not receive a single
 advisory call, whether the advisory is requested by POST or by the post-run
 pipeline; with the opt-in the same pipeline does build it (positive control).
-Values are fictional (reserved fictional tickers; docs/DECISIONS.md#adr-advisory-pipeline).
+Values are fictional; ZZZT is one of the reserved tickers in
+tests/invariants/test_fictional_fixtures.py.
 """
 
 from __future__ import annotations
