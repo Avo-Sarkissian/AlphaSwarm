@@ -124,7 +124,7 @@ tick them off there.
 |---|---|---|
 | Agent dots fill in progressively during a round and do not vanish at round entry | `state.py:143-185`; `batch_dispatcher.py:105-126` | likely done |
 | Rationale feed updates live mid-round; R3 rationales stay after completion | `state.py` `_rationale_window`; `web/wire.py` (`build_frame`) | likely done |
-| PARALLEL SLOTS shows live numbers | `fe/adapter/frame.ts:69-78` | likely done |
+| PARALLEL SLOTS shows live numbers | `fe/adapter/frame.ts:132-141` | likely done |
 | Signal Wire shows real provider calls, not the mock seed | `data_audit.py`; `fe/hooks/useDataSourceAudit.ts` | likely done (falls back to the DEV mock when empty) |
 | After completion, Top Influencers switches to OUT-DEGREE and the top strip shows "N active edges" | `simulation.py:1396-1416` (R3 edges); `fe/components/app_v2.tsx:316-329` | likely done |
 | Advisory auto-fires, one item per holding, Overview tiles show real values; report auto-generates afterwards | `web/app.py:118`; `advisory/engine.py:148-260`; `web/routes/advisory.py:288` | likely done |
@@ -140,7 +140,7 @@ tick them off there.
 - **Debug `parallel-swarm-serial-dispatch` (2026-05-07): done.**
   - Dispatch was never serial.
   - 0 edges: peer IDs are now in the prompt and agents are told to cite them (`simulation.py:388-400`).
-  - Empty feed: the adapter reads `rationale` and `round_num` (`fe/adapter/frame.ts:160-161`).
+  - Empty feed: the adapter reads `rationale` and `round_num` (`fe/adapter/frame.ts:224-225`).
   - Slowness: addressed by the MLX stack.
 - **Debug `ws-agent-states-not-emitted-mid-sim` (2026-05-10): likely done.** The status was "awaiting_human_verify", but the fix is in code (see section 7).
 - **SWEEP-260528:**
