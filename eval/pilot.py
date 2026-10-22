@@ -8,6 +8,17 @@ seeded runs exist; its events are never reused by the registered evaluation
 
     uv run python eval/pilot.py run [--events evt-001,evt-002]
     uv run python eval/pilot.py score
+
+The pilot is valid only if, in the shell that runs it (repo root):
+  - the web server is stopped: this layout has no instance lock, so a UI run would
+    share Ollama and Neo4j with the pilot's cycles;
+  - .env sets no ALPHASWARM_SIMULATION__* key: the child still reads .env, and only
+    ALPHASWARM_NUM_ROUNDS and ALPHASWARM_SIMULATION__CONTROL_FRACTION are pinned over it;
+  - no pilot rumor is run by any other route while the pilot is open: every complete
+    cycle with the same rumor text created since eval/results/pilot_started_at.txt
+    counts as a pilot repeat, even one run with live market context.
+The first `run` or `score` writes eval/results/pilot_started_at.txt, which fixes the
+start of that window; delete it to start a fresh pilot.
 """
 
 from __future__ import annotations
