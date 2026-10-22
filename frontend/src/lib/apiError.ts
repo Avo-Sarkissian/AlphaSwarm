@@ -1,6 +1,7 @@
 // Backend error envelope: {"detail": {"error": "<code>", "message": "<text>", ...}}.
 // FastAPI still emits {"detail": "<text>"} for framework errors; both shapes are read.
 import { ApiError } from '../api/client';
+import { BACKEND_UNREACHABLE_CODE, BACKEND_UNREACHABLE_MESSAGE } from './backendUnreachable';
 
 export interface ErrorEnvelope {
   code: string | null;
@@ -28,23 +29,40 @@ export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+// Any {status, body} value (an ApiError or the same shape) is an HTTP failure.
+function httpFailure(err: unknown): { status: unknown; body: unknown } | null {
+  if (typeof err === 'object' && err !== null && 'status' in err && 'body' in err) {
+    return err as { status: unknown; body: unknown };
+  }
+  return null;
+}
+
 /**
- * One readable sentence for any failed API call: the backend
- * envelope's message, else its code and status; a network failure (fetch
- * rejects with TypeError) becomes a reachability hint. Duck-typed on
- * {status, body} instead of importing ApiError, so api/client.ts can import
- * this module later without an import cycle.
+ * True when the request never reached the backend: fetch rejected with a
+ * TypeError, or the Vite dev proxy answered backend_unreachable
+ * (lib/backendUnreachable.ts).
+ */
+export function isBackendUnreachable(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  const failure = httpFailure(err);
+  return failure !== null && parseErrorEnvelope(failure.body).code === BACKEND_UNREACHABLE_CODE;
+}
+
+/**
+ * One readable sentence for any failed API call: the backend envelope's
+ * message, else its code and status. An unreachable backend becomes the
+ * reachability hint, whether fetch failed or the dev proxy answered.
  */
 export function formatApiError(err: unknown): string {
-  if (typeof err === 'object' && err !== null && 'status' in err && 'body' in err) {
-    const status = (err as { status: unknown }).status;
-    const { code, message } = parseErrorEnvelope((err as { body: unknown }).body);
+  if (isBackendUnreachable(err)) return BACKEND_UNREACHABLE_MESSAGE;
+  const failure = httpFailure(err);
+  if (failure) {
+    const { code, message } = parseErrorEnvelope(failure.body);
     if (message) return message;
-    const statusText = typeof status === 'number' ? ` (HTTP ${status})` : '';
+    const statusText = typeof failure.status === 'number' ? ` (HTTP ${failure.status})` : '';
     if (code) return `${code.replace(/_/g, ' ')}${statusText}`;
     return `Request failed${statusText}`;
   }
-  if (err instanceof TypeError) return 'Cannot reach the backend. Is it running on port 8000?';
   if (err instanceof Error && err.message) return err.message;
   return 'Something went wrong.';
 }

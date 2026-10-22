@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../api/client';
-import { errorMessage, formatApiError, parseErrorEnvelope } from '../../lib/apiError';
+import {
+  errorMessage,
+  formatApiError,
+  isBackendUnreachable,
+  parseErrorEnvelope,
+} from '../../lib/apiError';
+
+const HINT = 'Cannot reach the backend. Is it running on port 8000?';
 
 describe('parseErrorEnvelope', () => {
   it('reads code and message from the envelope', () => {
@@ -83,13 +90,44 @@ describe('formatApiError', () => {
   });
 
   it('turns a network failure into a reachability hint', () => {
-    expect(formatApiError(new TypeError('Failed to fetch'))).toBe(
-      'Cannot reach the backend. Is it running on port 8000?',
+    expect(formatApiError(new TypeError('Failed to fetch'))).toBe(HINT);
+  });
+
+  it("turns the dev proxy's backend_unreachable answer into the same hint", () => {
+    const proxied = new ApiError(
+      502,
+      { detail: { error: 'backend_unreachable', message: HINT } },
+      '/api/simulate/stop',
+    );
+    expect(formatApiError(proxied)).toBe(HINT);
+    // The code alone is enough: the hint never depends on the proxy's wording.
+    expect(formatApiError(new ApiError(502, { detail: { error: 'backend_unreachable' } }, '/x'))).toBe(
+      HINT,
     );
   });
 
   it('uses a plain error message and never returns an empty string', () => {
     expect(formatApiError(new Error('boom'))).toBe('boom');
     expect(formatApiError(undefined)).toBe('Something went wrong.');
+  });
+});
+
+describe('isBackendUnreachable', () => {
+  it('is true for a fetch network failure and the dev proxy answer', () => {
+    expect(isBackendUnreachable(new TypeError('Failed to fetch'))).toBe(true);
+    expect(
+      isBackendUnreachable(new ApiError(502, { detail: { error: 'backend_unreachable' } }, '/x')),
+    ).toBe(true);
+  });
+
+  it('is false for answers from a running backend', () => {
+    expect(
+      isBackendUnreachable(
+        new ApiError(409, { detail: { error: 'simulation_already_running' } }, '/api/simulate/start'),
+      ),
+    ).toBe(false);
+    expect(isBackendUnreachable(new ApiError(500, 'Internal Server Error', '/x'))).toBe(false);
+    expect(isBackendUnreachable(new Error('estimate down'))).toBe(false);
+    expect(isBackendUnreachable(undefined)).toBe(false);
   });
 });

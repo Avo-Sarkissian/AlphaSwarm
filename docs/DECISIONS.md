@@ -367,7 +367,7 @@ Contents
   - Uvicorn owns the event loop. Every stateful object is built in the FastAPI lifespan ([p29-d-04](#p29-d-04)).
   - Each domain has a sub-router.
   - Startup verifies Neo4j and runs `ensure_schema()` (constraints, indexes, and the 100 Agent nodes every write matches). Driver or auth errors log `neo4j_unavailable_at_startup`, set `app.state.neo4j_ready = False`, and the server keeps serving (2026-10).
-  - FastAPI serves `frontend/dist` at `/` when it has been built ([p31-d-02](#p31-d-02)). In development, Vite on :5173 proxies `/api` and `/ws`, with `changeOrigin: true` on both.
+  - FastAPI serves `frontend/dist` at `/` when it has been built ([p31-d-02](#p31-d-02)). In development, Vite on :5173 proxies `/api` and `/ws`, with `changeOrigin: true` on both. When the backend is down, the `/api` proxy answers 502 `backend_unreachable` (`frontend/src/lib/backendUnreachable.ts`) instead of an empty 500, so the UI shows the same "Cannot reach the backend" hint as a failed fetch.
   - `./start` (cds to the repo root, then runs `python -m alphaswarm web`) and `uv run start` (`cli:main_web`, no cd) both run uvicorn on 127.0.0.1:8000. Runtime paths (`.env`, the holdings CSV, `.secrets/inference.json`, `advisory/`, `reports/`) resolve against the repository root (`config.PROJECT_ROOT`, `AppSettings.resolve_path`), so the server may start from any directory.
 
 ### <a id="adr-frontend-quant-terminal"></a>Frontend: React + TS "Quant Terminal"

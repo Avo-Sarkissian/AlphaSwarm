@@ -134,6 +134,8 @@ npm --prefix frontend run dev                           # http://localhost:5173
   `frontend/dist/` is gitignored, so build it first (README Quick Start). Without a build, use :5173.
 - Uvicorn does not hot-reload Python changes in this setup. **Restart the
   backend** after backend edits, and hard-refresh the browser for frontend edits.
+- With the backend stopped, actions on :5173 show "Cannot reach the backend. Is it running
+  on port 8000?": the dev proxy answers 502 `backend_unreachable` and logs `http proxy error`.
 - Fast smoke runs: `ALPHASWARM_NUM_ROUNDS=2`. The phase pill, replay bar and edges follow
   the frame's `num_rounds`; a few labels still show "/3" until BACKLOG 1.4 closes.
 - Headless run with live progress output: `uv run python -m alphaswarm run "<rumor>"`.
