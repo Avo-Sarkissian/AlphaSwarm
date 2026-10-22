@@ -96,6 +96,7 @@ describe('adaptSnapshot — wire contract', () => {
     ['round_1', true],
     ['round_2', true],
     ['round_3', true],
+    ['finalizing', true],
     ['complete', false],
     ['replay', true],
   ])('accepts backend phase %s (running=%s)', (phase, running) => {
