@@ -65,7 +65,10 @@ def git_revision(repo_root: Path) -> tuple[str | None, bool | None]:
 def current_git_revision() -> tuple[str | None, bool | None]:
     """``git_revision`` of the checkout this package was imported from, once per process.
 
-    The running code was loaded when the process started, so later edits do
-    not change what runs; caching also keeps the subprocess out of every run.
+    The first call fills the cache. A process runs the code it imported at
+    startup, so a long-lived process must make that call at startup: the web
+    lifespan does, and keeps stamping the revision it started from after a
+    later commit. The CLI's first call opens its only run, seconds after
+    startup. Caching also keeps the subprocess out of every run.
     """
     return git_revision(Path(__file__).resolve().parent)
