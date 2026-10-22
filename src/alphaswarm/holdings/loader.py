@@ -24,7 +24,7 @@ Research Pitfall 2: empty-body CSV must raise HoldingsLoadError before sha256_fi
   raises TypeError.
 Research Pitfall 7: NEVER log raw Holding fields — ISOL-07 canary boundary.
 Validation: tickers are stripped and upper-cased; empty symbols and non-finite or
-  negative numbers are rejected; headers are case/space-insensitive.
+  negative numbers are rejected; header names ignore case and surrounding spaces.
 """
 
 from __future__ import annotations

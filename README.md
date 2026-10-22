@@ -339,8 +339,8 @@ echo 'ALPHASWARM_HOLDINGS_CSV_PATH=examples/holdings.example.csv' >> .env
 ```
 
 The file has four columns: `account,symbol,shares,cost_basis_per_share` (one row
-per lot; `account` is a free-text label such as `brokerage`). Header names are
-case- and space-insensitive. Symbols are trimmed and upper-cased. A file that is
+per lot; `account` is a free-text label such as `brokerage`). Header names ignore
+case and surrounding spaces. Symbols are trimmed and upper-cased. A file that is
 not UTF-8 text (in Excel, save as *CSV UTF-8*), or a row with an empty symbol or
 a negative, NaN or infinite number, makes the whole file invalid: the advisory is
 skipped (and `/api/holdings` answers 503 `holdings_unavailable`) until the file
