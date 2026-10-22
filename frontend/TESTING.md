@@ -35,6 +35,10 @@ and `npm run build` on Node 20.
 3. Use fake timers for anything time-based (`vi.useFakeTimers()`, `vi.advanceTimersByTime()`).
 4. `renderWithFrame(ui, { raw?, frame? })` renders inside the production provider stack
    (`FrameProviders`), starting from `fixtures/ws_snapshot.json`.
+5. Under happy-dom, DOMPurify stops at the first element it removes (happy-dom's NodeIterator
+   skips the DOM's removal steps; browsers continue). Give each sanitizer case in
+   `markdown.test.ts` at most one element to remove; the `it.fails` test there flags the day
+   happy-dom fixes this.
 
 ## Wire contract
 
