@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App as DashboardShell } from '../../components/app_v2';
 import { makeAgent } from '../helpers/agents';
 import { renderAt } from '../helpers/lifecycleFrames';
+import type { StateFrame } from '../../types';
 
 const h = vi.hoisted(() => ({
   edges: [] as Array<{ source_id: string; target_id: string; weight: number }>,
@@ -117,5 +118,19 @@ describe('dashboard lifecycle', () => {
   it('caps the seed input at the backend maximum', () => {
     renderAt(<DashboardShell />, 'idle');
     expect((screen.getByLabelText('Seed rumor') as HTMLInputElement).maxLength).toBe(2000);
+  });
+});
+
+describe('run failures', () => {
+  it('shows last_error on the idle dashboard after a failed run', () => {
+    renderAt(<DashboardShell />, 'idle', {
+      lastError: {
+        code: 'graph_unavailable',
+        message: 'Neo4j is not reachable. Start it with docker compose up -d neo4j.',
+        roundNum: null,
+        ts: 1765432100,
+      } as StateFrame['lastError'],
+    });
+    expect(screen.getByRole('alert').textContent).toContain('Neo4j is not reachable');
   });
 });

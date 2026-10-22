@@ -2466,3 +2466,13 @@ body { background: var(--bg); }
 }
 .inline-error-text { flex: 1; }
 .inline-error-dismiss { height: 22px; padding: 0 8px; }
+
+/* Run failure banner (components/RunErrorBanner.tsx). */
+.run-error-banner {
+  display: flex; align-items: center; gap: 12px; padding: 7px 14px;
+  background: color-mix(in srgb, var(--sell) 10%, var(--bg-2));
+  border-bottom: 1px solid color-mix(in srgb, var(--sell) 35%, transparent);
+}
+.run-error-title { color: var(--sell); }
+.run-error-message { color: var(--text); font-size: 12px; }
+.run-error-code { color: var(--text-3); font-size: 10px; }

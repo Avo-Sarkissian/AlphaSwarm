@@ -55,6 +55,7 @@ import { Settings } from './settings';
 import { InterviewV2 } from './interview_v2';
 import { BracketDeepDive } from './bracket_deep';
 import { InlineError } from './InlineError';
+import { RunErrorBanner } from './RunErrorBanner';
 import { RunControls } from './RunControls';
 import { useFrameMeta } from '../context/FrameMetaContext';
 import { formatApiError } from '../lib/apiError';
@@ -484,6 +485,7 @@ export function App() {
 
       <InlineError error={runGate.error} />
       <InlineError error={actionError} onDismiss={() => setActionError(null)} />
+      <RunErrorBanner />
 
       {/* Signal Wire ticker — real ported component (DEV-only mock per KR-41.6-14) */}
       <SignalWire onInspect={() => setUi((u) => ({ ...u, dataSourcesOpen: true }))} />
