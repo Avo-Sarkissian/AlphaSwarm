@@ -196,6 +196,9 @@ uv run pytest -q -m "not neo4j"
                           # section above). tests/integration hits the network (BACKLOG 1.8). iCloud
                           # conflict copies ("app 2.py") are gitignored and skipped by
                           # the --ignore-glob in pyproject addopts (BACKLOG §8, B2)
+uv run pytest -q tests/engine -rxX
+                          # the real run_simulation on scripted fakes, about 2 s; XFAIL
+                          # lines are pinned engine bugs (DECISIONS#adr-engine-scenario-harness)
 cd frontend && npx tsc -b --noEmit && npx vitest run && npm run build
 uv run lint-imports       # holdings isolation contract: must report "kept"
 uv run mypy src           # strict; must report "Success: no issues found"

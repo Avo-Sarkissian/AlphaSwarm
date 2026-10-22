@@ -284,6 +284,11 @@ Contents
 - **Rationale:** Until 2026-06-10, unscoped `DETACH DELETE` ran against the live `neo4j` database after every test and destroyed all real cycle history. Community Edition has no second database, so the isolation is a second container.
 - **Rule:** The only unscoped `DETACH DELETE` allowed anywhere is the `neo4j_test_driver` session teardown, after both guards pass. Never point a test at 7687. Start and stop `neo4j-test` only with `scripts/neo4j_test.sh`, which uses `compose rm` for the test container: a bare `docker compose --profile test down` also removes the dev container, and any `compose down`, even with a service name, deletes the project network a stopped dev container needs. `/data` and `/logs` are both on tmpfs, so no volume outlives the container.
 
+### <a id="adr-engine-scenario-harness"></a>Engine scenarios run the real `run_simulation` on scripted fakes
+- **Decision (2026-10):** `tests/engine/` drives the real `run_simulation` end to end with no Ollama, Neo4j or memory governor. The worker and orchestrator are `ScriptedProvider`s (`tests/inference/fakes.py`), which classify each call (decision, narrative, interview chat, orchestrator) and answer from a deterministic `DecisionFn`. The graph is an autospecced `GraphStateManager` mock, so a call with the wrong signature raises `TypeError`. Concurrency goes through `ImmediateController` (`tests/support/controllers.py`), which never waits and counts acquires, releases, failures and monitoring sessions. `scenario_settings` sets both dispatch jitter bounds to 0.0, and the autouse `forbid_real_sleep` fixture fails any engine test that asks `asyncio.sleep` for wall-clock time.
+- **Rationale:** Before this, engine tests patched internals (including the dead `_dispatch_round`, which made three lifecycle tests no-ops) and never ran a full cascade. A scripted run of 100 agents over 3 rounds takes about 0.1 s, so behavior such as phase order, shock carry-over, failure accounting and peer exposure can be pinned cheaply.
+- **Rule:** Known engine bugs are pinned with `xfail(strict=True)` and the item ID at the start of the reason; the fix removes the marker. Changes to persona headers, peer-context lines or the narrative prompt must keep the `AGENT_HEADER_RE` and `PEER_LINE_RE` regexes in `tests/inference/fakes.py` matching.
+
 ### <a id="adr-security-2026-08"></a>Security hardening (Claude Security scans, 2026-08-01/02)
 - **Decision:**
   - No default Neo4j password. Compose requires `ALPHASWARM_NEO4J__PASSWORD`, and the app raises when it is unset.
@@ -336,7 +341,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p3-d-11"></a>`D-11` | Metrics emitted to StateStore on state change. Later (8521e91, Jun 2026) also emitted every check for the live UI. | partial | governor.py:408; state.py:22 |
 | <a id="p3-d-12"></a>`D-12` | Dual-signal memory sensing: psutil percent plus macOS kernel pressure. Implemented with sysctl kern.memorystatus_vm_pressure_level (not the memory_pressure CLI); unknown values map to GREEN, read failures are fail-stale since F-17. | partial | memory_monitor.py:39 |
 | <a id="p3-d-13"></a>`D-13` | Kernel pressure YELLOW/RED is the master signal: halt the queue and drop to 1 slot. | active | governor.py:433; tests/test_governor.py:269 |
-| <a id="p3-d-14"></a>`D-14` | Random jitter (0.5-1.5s) before each agent dispatch, applied in batch_dispatcher, not inside the worker; spreads load spikes. | active | batch_dispatcher.py:52; config.py:94 |
+| <a id="p3-d-14"></a>`D-14` | Random jitter (0.5-1.5s) before each agent dispatch, applied in batch_dispatcher, not inside the worker; spreads load spikes. Both bounds accept 0.0 (2026-10) so deterministic tests can turn jitter off ([adr-engine-scenario-harness](#adr-engine-scenario-harness)); the defaults are unchanged. | active | batch_dispatcher.py:52; config.py:100-103 |
 
 ### Phase 4: Neo4j graph state
 
