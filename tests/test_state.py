@@ -231,21 +231,6 @@ async def test_peek_rationales_returns_full_window() -> None:
     assert again == peeked
 
 
-async def test_drain_rationales_back_compat_shim() -> None:
-    """drain_rationales is now a thin peek wrapper kept for TUI back-compat."""
-    store = StateStore()
-    for i in range(3):
-        await store.push_rationale(
-            RationaleEntry(agent_id=f"A_{i}", signal=SignalType.HOLD, rationale="hold", round_num=1)
-        )
-    # First call returns the first 3 entries (limit=5 caps at len).
-    entries = store.drain_rationales(5)
-    assert len(entries) == 3
-    # Crucially: the window is NOT drained — second call returns the same data.
-    entries2 = store.drain_rationales(5)
-    assert entries2 == entries
-
-
 async def test_rationale_window_survives_round_transitions() -> None:
     """ITEM 4: rationales must NOT be cleared when set_phase advances rounds.
 
@@ -321,9 +306,8 @@ async def test_snapshot_peek_window_repeatable() -> None:
     """ITEM 4: snapshot() is non-destructive AND carries the rationale window
     so repeated snapshots return identical data (peek semantics).
 
-    Previously snapshot returned () and drain_rationales destructively
-    popped — this test asserts the new behavior where both snapshots
-    contain the entry and drain_rationales() is a peek wrapper.
+    Previously snapshot returned () and a destructive drain popped entries;
+    this test asserts that repeated snapshots contain the same entry.
     """
     store = StateStore()
     await store.push_rationale(
@@ -335,10 +319,6 @@ async def test_snapshot_peek_window_repeatable() -> None:
     assert len(snap1.rationale_entries) == 1
     assert snap1.rationale_entries[0].agent_id == "A_0"
     assert snap1.rationale_entries == snap2.rationale_entries
-    # drain_rationales back-compat shim is also peek-only — entry remains.
-    peeked = store.drain_rationales(5)
-    assert len(peeked) == 1
-    assert peeked[0].agent_id == "A_0"
     assert len(store.snapshot().rationale_entries) == 1
 
 

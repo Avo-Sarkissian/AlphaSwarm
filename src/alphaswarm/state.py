@@ -398,17 +398,6 @@ class StateStore:
         """
         return tuple(self._rationale_window)
 
-    def drain_rationales(self, limit: int = 5) -> tuple[RationaleEntry, ...]:
-        """Return up to `limit` oldest rationale entries WITHOUT draining.
-
-        ITEM 4 of 260512-jqn — kept as a thin wrapper over peek_rationales
-        for TUI back-compat. The TUI loop expects this method name but
-        no longer relies on the destructive semantics (snapshot already
-        carries the full window). The `limit` argument is honored to keep
-        the original tuple-length contract.
-        """
-        return tuple(self._rationale_window)[:limit]
-
     @property
     def governor_metrics(self) -> GovernorMetrics | None:
         """Return the latest governor metrics, or None if never emitted."""
@@ -528,7 +517,7 @@ class ReplayStore:
         """Return immutable snapshot for the active round.
 
         No side effects -- calling snapshot() twice returns identical data
-        (unlike StateStore which drains the rationale queue on each call).
+        (StateStore keeps a sliding window instead; neither store drains).
         """
         agent_states = {
             agent_id: state

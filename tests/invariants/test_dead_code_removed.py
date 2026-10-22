@@ -42,3 +42,9 @@ def test_ollama_generate_and_parse_error_are_gone() -> None:
     assert not hasattr(OllamaClient, "generate"), "narratives use provider.chat"
     assert not hasattr(OllamaClient, "_generate_with_backoff")
     assert not hasattr(errors, "ParseError"), "parse failures are PARSE_ERROR decisions"
+
+
+def test_drain_rationales_shim_is_gone() -> None:
+    from alphaswarm.state import StateStore
+
+    assert not hasattr(StateStore, "drain_rationales"), "snapshots carry the rationale window"
