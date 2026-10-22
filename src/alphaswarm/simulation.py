@@ -1080,7 +1080,8 @@ async def run_simulation(
 
     Phase transitions (docs/DECISIONS.md#p7-d-07):
     IDLE -> SEEDING -> ROUND_1 .. ROUND_N -> FINALIZING -> COMPLETE
-    Logged via structlog, not persisted to StateStore.
+    Each transition is logged and, when state_store is given, set on it with
+    StateStore.set_phase, which drives the UI.
 
     Progressive output (addresses Gemini/Codex review): fires on_round_complete
     callback after each round finishes, enabling CLI to print reports in real time.
