@@ -75,7 +75,21 @@ def test_legacy_feed_fails_the_invariant(peer_exposure: ModuleType) -> None:
     assert r2.citation_share(sell_side) == pytest.approx(0.7)
     text = peer_exposure.format_round(r2, markdown=True)
     assert "| sell_side | 700 | 70.0% | 100% | 70.0% |" in text
-    assert text.endswith("FAIL")
+    assert text.rstrip("\n").endswith("-> FAIL")
+
+
+def test_markdown_keeps_each_table_and_verdict_in_its_own_block(
+    peer_exposure: ModuleType,
+) -> None:
+    """GFM folds a line that directly follows a table into it, so blank lines separate blocks."""
+    (r2,) = peer_exposure.exposure_rounds(_legacy_props(peer_exposure.BRACKETS), {})
+
+    lines = peer_exposure.format_round(r2, markdown=True).split("\n")
+
+    verdict = next(i for i, line in enumerate(lines) if line.startswith("R2: "))
+    assert lines[verdict - 1] == ""
+    assert lines[verdict - 2].startswith("| allocators |")
+    assert lines[verdict + 1 :] == [""]  # print() adds the newline that ends the block
 
 
 def test_balanced_feed_passes_both_rounds(peer_exposure: ModuleType) -> None:
@@ -141,3 +155,23 @@ def test_header_names_selector_version_mode_and_git(peer_exposure: ModuleType) -
     assert "mode=local" in header
     assert "worker=alphaswarm-worker" in header
     assert "git=01234567" in header
+
+
+def test_header_names_the_effective_peer_knobs(peer_exposure: ModuleType) -> None:
+    """Before/after evidence must show that both cycles ran one peer configuration."""
+    header = peer_exposure._cycle_header(
+        "00000000-0000-4000-8000-000000000004",
+        {
+            "peer_limit": 10,
+            "peer_min_brackets": 4,
+            "peer_personal_boost": 0.3,
+            "peer_budget_chars": 4000,
+            "peer_seed_source": "cycle_id",
+        },
+    )
+
+    assert header.rstrip("\n").split("\n")[-1] == (
+        "peers: limit=10 min_brackets=4 bracket_cap=- personal_boost=0.3"
+        " budget_chars=4000 seed_source=cycle_id"
+    )
+    assert header.endswith("\n")  # print() adds the blank line before the first table

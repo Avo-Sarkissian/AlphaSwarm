@@ -2,7 +2,8 @@
 
 Reads the r{n}_exposure_* / r{n}_readers_seeing_* / r{n}_distinct_peers_shown
 metric keys that run_simulation stamps on the Cycle node, adds CITED counts
-per bracket, and checks the exposure invariant from
+per bracket, prints the cycle's effective peer knobs (so a before/after pair
+shows it shared one configuration), and checks the exposure invariant from
 docs/DECISIONS.md#adr-diverse-peer-context: no bracket above 35% of a round's
 peer slots, and every bracket seen by at least 15% of readers.
 
@@ -124,12 +125,13 @@ def format_round(rnd: RoundExposure, *, markdown: bool) -> str:
     if markdown:
         lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
         lines += ["| " + " | ".join(row) + " |" for row in body]
-    else:
-        widths = [max(len(x) for x in col) for col in zip(header, *body, strict=True)]
-        lines = [
-            "  ".join(c.ljust(w) for c, w in zip(row, widths, strict=True))
-            for row in [header, *body]
-        ]
+        # GFM folds a line that directly follows a table into the table, so the
+        # verdict and the next block each start after a blank line.
+        return "\n".join([*lines, "", verdict, ""])
+    widths = [max(len(x) for x in col) for col in zip(header, *body, strict=True)]
+    lines = [
+        "  ".join(c.ljust(w) for c, w in zip(row, widths, strict=True)) for row in [header, *body]
+    ]
     return "\n".join([*lines, verdict])
 
 
@@ -155,14 +157,28 @@ def _read_cycle(
     return dict(record["props"]), citations
 
 
+# (label, cycle metric key) for the effective peer knobs printed under each header.
+PEER_KNOBS: tuple[tuple[str, str], ...] = (
+    ("limit", "peer_limit"),
+    ("min_brackets", "peer_min_brackets"),
+    ("bracket_cap", "peer_bracket_cap"),
+    ("personal_boost", "peer_personal_boost"),
+    ("budget_chars", "peer_budget_chars"),
+    ("seed_source", "peer_seed_source"),
+)
+
+
 def _cycle_header(cycle_id: str, props: Mapping[str, Any]) -> str:
+    """Heading line plus the effective peer knobs ("-" when the cycle lacks a key)."""
     git_sha = str(props.get("git_sha") or "")[:8] or "-"
+    knobs = " ".join(f"{label}={props.get(key, '-')}" for label, key in PEER_KNOBS)
     return (
         f"\n## {cycle_id}: peer_selection_version={props.get('peer_selection_version', '-')}"
         f" mode={props.get('inference_mode', '-')}"
         f" worker={props.get('worker_model', '-')} git={git_sha}"
         f" parse_errors r2={props.get('r2_parse_errors', '-')}"
         f" r3={props.get('r3_parse_errors', '-')}"
+        f"\npeers: {knobs}\n"
     )
 
 
