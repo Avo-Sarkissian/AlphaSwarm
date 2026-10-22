@@ -18,8 +18,10 @@ from typing import Final
 import pytest
 
 import alphaswarm.data_audit as data_audit_module
+import alphaswarm.errors as errors_module
 import alphaswarm.state as state_module
 from alphaswarm.config import DEFAULT_BRACKETS
+from alphaswarm.errors import RoundFailedError, run_error_from_exception
 from alphaswarm.state import (
     AgentState,
     BracketSummary,
@@ -37,6 +39,7 @@ REPO: Final = Path(__file__).resolve().parents[1]
 FIXTURES: Final = REPO / "frontend" / "src" / "__tests__" / "fixtures"
 LIVE_CYCLE: Final = "00000000-0000-4000-8000-000000000001"
 REPLAY_CYCLE: Final = "00000000-0000-4000-8000-000000000002"
+FAILED_CYCLE: Final = "00000000-0000-4000-8000-000000000003"
 SHOCK_APPLIED: Final = "QQQX Robotics board rejects the offer as undervalued."
 SHOCK_PENDING: Final = "ZZZT Holdings confirms the financing is fully committed."
 
@@ -63,7 +66,7 @@ SUMMARIES: Final = (
 
 
 class FrozenClock:
-    """Replaces the ``time`` module inside alphaswarm.state and alphaswarm.data_audit."""
+    """Replaces the ``time`` module inside alphaswarm.state, .data_audit and .errors."""
 
     def __init__(self, *, wall: float, mono: float) -> None:
         self.wall = wall
@@ -81,6 +84,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> FrozenClock:
     frozen = FrozenClock(wall=1_790_000_000.0, mono=1_000.0)
     monkeypatch.setattr(state_module, "time", frozen)
     monkeypatch.setattr(data_audit_module, "time", frozen)
+    monkeypatch.setattr(errors_module, "time", frozen)
     monkeypatch.setattr(
         "alphaswarm.web.broadcaster.psutil.virtual_memory",
         lambda: SimpleNamespace(percent=61.2),
@@ -143,6 +147,29 @@ def _replay_store() -> ReplayStore:
     return store
 
 
+async def _failed_store(clock: FrozenClock) -> StateStore:
+    """A 3-round run that failed in round 2, left the way SimulationManager leaves it:
+    the RunError recorded first, then the phase reset to IDLE."""
+    store = StateStore()
+    store.set_num_rounds(3)
+    await store.set_phase(SimulationPhase.SEEDING)
+    await store.set_cycle(FAILED_CYCLE)
+    await store.set_phase(SimulationPhase.ROUND_1)
+    await store.set_round(1)
+    for agent_id, signal, confidence in ROUND_1:
+        await store.update_agent_state(agent_id, signal, confidence)
+    await store.set_phase(SimulationPhase.ROUND_2)
+    await store.set_round(2)
+    for agent_id, signal, confidence in ROUND_2:
+        await store.update_agent_state(agent_id, signal, confidence)
+    clock.wall += 30.0
+    clock.mono = 1_090.5
+    failure = RoundFailedError(round_num=2, failed=61, total=100, threshold_percent=50.0)
+    await store.set_last_error(run_error_from_exception(failure, round_num=2))
+    await store.set_phase(SimulationPhase.IDLE)
+    return store
+
+
 async def test_live_frame_matches_golden(clock: FrozenClock) -> None:
     store = await _live_store(clock)
     assert_golden_file(
@@ -156,6 +183,15 @@ def test_replay_frame_matches_golden(clock: FrozenClock) -> None:
     manager = SimpleNamespace(has_store=True, store=_replay_store())
     raw = snapshot_to_json(live, manager)  # type: ignore[arg-type]
     assert_golden_file(FIXTURES / "ws_snapshot_replay.json", _pretty(raw), normalize_values=False)
+
+
+async def test_failed_run_frame_matches_golden(clock: FrozenClock) -> None:
+    store = await _failed_store(clock)
+    assert_golden_file(
+        FIXTURES / "ws_snapshot_failed.json",
+        _pretty(snapshot_to_json(store)),
+        normalize_values=False,
+    )
 
 
 def test_brackets_fixture_matches_default_brackets() -> None:

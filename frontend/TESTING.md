@@ -44,8 +44,9 @@ and `npm run build` on Node 20.
 
 - The backend's `alphaswarm.web.wire.StateFrame` is mirrored by `WireStateFrame` in `src/types.ts`;
   `adapter/frame.ts` maps it to the camelCase `StateFrame` view.
-- `tests/test_wire_contract.py` writes `ws_snapshot.json` (live, mid round 2), `ws_snapshot_replay.json`
-  and `brackets.json` from a deterministic StateStore.
+- `tests/test_wire_contract.py` writes `ws_snapshot.json` (live, mid round 2), `ws_snapshot_replay.json`,
+  `ws_snapshot_failed.json` (a run that failed in round 2, so `last_error` is set) and `brackets.json`
+  from a deterministic StateStore.
 - `frame.test.ts` compares the fixture keys with `helpers/wireKeys.ts`, and `tsc` checks those lists
   against `src/types.ts`, so a field added, renamed or removed on either side fails.
   `data.test.ts` checks `BRACKETS` against `brackets.json`.

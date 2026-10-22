@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { adaptSnapshot, SUPPORTED_SCHEMA_VERSION } from '../adapter/frame';
 import live from './fixtures/ws_snapshot.json';
+import failed from './fixtures/ws_snapshot_failed.json';
 import replay from './fixtures/ws_snapshot_replay.json';
 import {
   AGENT_STATE_KEYS,
@@ -31,6 +32,7 @@ describe('fixtures match the TypeScript wire mirror (types.ts)', () => {
   it.each([
     ['live', live],
     ['replay', replay],
+    ['failed-run', failed],
   ] as const)('%s frame has exactly the WireStateFrame keys', (_name, frame) => {
     expect(keysOf(frame)).toEqual(sorted(FRAME_KEYS));
     expect(keysOf(frame.governor_metrics)).toEqual(sorted(GOVERNOR_KEYS));
@@ -55,9 +57,15 @@ describe('fixtures match the TypeScript wire mirror (types.ts)', () => {
     expect(keysOf(live.applied_shocks[0]!)).toEqual(sorted(APPLIED_SHOCK_KEYS));
   });
 
+  it('failed-run frame carries a last_error with the mirrored keys', () => {
+    expect(failed.last_error).not.toBeNull();
+    expect(keysOf(failed.last_error)).toEqual(sorted(RUN_ERROR_KEYS));
+  });
+
   it('the fixtures use the schema version this bundle supports', () => {
     expect(live.schema_version).toBe(SUPPORTED_SCHEMA_VERSION);
     expect(replay.schema_version).toBe(SUPPORTED_SCHEMA_VERSION);
+    expect(failed.schema_version).toBe(SUPPORTED_SCHEMA_VERSION);
   });
 });
 
@@ -162,19 +170,25 @@ describe('adaptSnapshot — replay frame', () => {
   });
 });
 
-describe('adaptSnapshot — defensive mapping', () => {
-  it('maps a failed run to lastError', () => {
-    const lastError = { code: 'round_failed', message: 'Round 2 failed', round_num: 2, ts: 1.5 };
-    expect(keysOf(lastError)).toEqual(sorted(RUN_ERROR_KEYS));
-    const frame = adaptSnapshot({ ...live, phase: 'idle', mode: 'idle', last_error: lastError });
+describe('adaptSnapshot — failed-run frame (round 2 aborted)', () => {
+  const frame = adaptSnapshot(failed);
+
+  it('maps last_error and shows the run as idle', () => {
+    expect(frame.mode).toBe('idle');
+    expect(frame.phase).toBe('idle');
+    expect(frame.running).toBe(false);
+    expect(frame.cycleId).toBe('00000000-0000-4000-8000-000000000003');
     expect(frame.lastError).toEqual({
       code: 'round_failed',
-      message: 'Round 2 failed',
+      message:
+        'Round 2 aborted: 61 of 100 agents failed (limit 50%). Check the model server or provider.',
       roundNum: 2,
-      ts: 1.5,
+      ts: 1_790_000_030,
     });
   });
+});
 
+describe('adaptSnapshot — defensive mapping', () => {
   it.each([
     ['idle', 'idle'],
     ['seeding', 'live'],

@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "mode": "idle",
+  "phase": "idle",
+  "cycle_id": "00000000-0000-4000-8000-000000000003",
+  "num_rounds": 3,
+  "round_num": 2,
+  "agent_count": 100,
+  "agent_states": {
+    "institutions_01": {
+      "signal": "buy",
+      "confidence": 0.82
+    },
+    "sell_side_03": {
+      "signal": null,
+      "confidence": 0.0
+    },
+    "event_driven_05": {
+      "signal": "sell",
+      "confidence": 0.4
+    },
+    "degens_07": {
+      "signal": "parse_error",
+      "confidence": 0.0
+    },
+    "macro_02": {
+      "signal": "hold",
+      "confidence": 0.55
+    },
+    "shorts_02": {
+      "signal": "sell",
+      "confidence": 0.8
+    }
+  },
+  "elapsed_seconds": 90.5,
+  "governor_metrics": {
+    "current_slots": 0,
+    "active_count": 0,
+    "pressure_level": "green",
+    "memory_percent": 61.2,
+    "governor_state": "idle",
+    "timestamp": 0.0
+  },
+  "tps": 0.0,
+  "rationale_entries": [],
+  "bracket_summaries": [],
+  "data_source_audit": [],
+  "edges_version": 0,
+  "jobs": {
+    "advisory": {
+      "state": "idle",
+      "cycle_id": null,
+      "error_code": null
+    },
+    "report": {
+      "state": "idle",
+      "cycle_id": null,
+      "error_code": null
+    }
+  },
+  "last_error": {
+    "code": "round_failed",
+    "message": "Round 2 aborted: 61 of 100 agents failed (limit 50%). Check the model server or provider.",
+    "round_num": 2,
+    "ts": 1790000030.0
+  },
+  "pending_shock": null,
+  "applied_shocks": [],
+  "shock_window_open": false
+}
