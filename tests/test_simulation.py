@@ -2646,7 +2646,9 @@ async def test_run_simulation_injects_shock_into_round2(
 
     assert "[MARKET SHOCK]: FED SURPRISE RATE HIKE" in r2_msg
     assert r2_msg.startswith(MOCK_RUMOR)
-    assert r3_msg == MOCK_RUMOR, "Round 3 should see the untouched rumor when no shock is queued"
+    assert r3_msg == f"{MOCK_RUMOR}\n\n[MARKET SHOCK]: FED SURPRISE RATE HIKE", (
+        "a shock applied before Round 2 stays in the Round 3 prompt"
+    )
 
     assert mock_graph_manager.write_shock_event.await_count == 1
     shock_call = mock_graph_manager.write_shock_event.await_args
@@ -2656,6 +2658,58 @@ async def test_run_simulation_injects_shock_into_round2(
     assert all_kwargs.get("cycle_id") == "test-cycle-id"
     assert all_kwargs.get("shock_text") == "FED SURPRISE RATE HIKE"
     assert all_kwargs.get("injected_before_round") == 2
+
+
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_shocks_carry_forward_oldest_first(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Two shocks: Round 2 sees the first, Round 3 sees both, oldest first."""
+    from alphaswarm.simulation import run_simulation
+    from alphaswarm.state import AppliedShock, StateStore
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+    store = StateStore()
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        state_store=store,
+        consume_shock=MagicMock(side_effect=["DOJ FILES ANTITRUST SUIT", "CEO DENIES TALKS"]),
+    )
+
+    r2_msg = mock_dispatch_wave.await_args_list[0].kwargs["user_message"]
+    r3_msg = mock_dispatch_wave.await_args_list[1].kwargs["user_message"]
+    first = "\n\n[MARKET SHOCK]: DOJ FILES ANTITRUST SUIT"
+    second = "\n\n[MARKET SHOCK]: CEO DENIES TALKS"
+    assert r2_msg == f"{MOCK_RUMOR}{first}"
+    assert r3_msg == f"{MOCK_RUMOR}{first}{second}"
+    rounds = [
+        c.kwargs.get("injected_before_round")
+        for c in mock_graph_manager.write_shock_event.await_args_list
+    ]
+    assert rounds == [2, 3]
+    assert store.snapshot().applied_shocks == (
+        AppliedShock("DOJ FILES ANTITRUST SUIT", 2),
+        AppliedShock("CEO DENIES TALKS", 3),
+    )
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)

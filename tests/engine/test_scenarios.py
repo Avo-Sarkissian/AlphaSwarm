@@ -5,8 +5,6 @@ from __future__ import annotations
 import re
 from unittest.mock import MagicMock
 
-import pytest
-
 from alphaswarm.types import AgentPersona, SimulationPhase
 from tests.engine.scenario import (
     SCENARIO_CYCLE_ID,
@@ -137,10 +135,6 @@ async def test_shock_before_round_3(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T1.6: a shock injected before round 2 is dropped from round 3 prompts (fix: plan 07)",
-)
 async def test_shock_before_round_2_is_carried_into_round_3(
     run_scenario: RunScenario, scripted_worker: ScriptedProvider
 ) -> None:

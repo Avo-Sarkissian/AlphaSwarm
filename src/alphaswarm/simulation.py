@@ -1159,6 +1159,11 @@ async def _dispatch_round(
 # ---------------------------------------------------------------------------
 
 
+def _with_shocks(rumor: str, shocks: Sequence[str]) -> str:
+    """Rumor plus every applied shock, oldest first (one "[MARKET SHOCK]" line each)."""
+    return rumor + "".join(f"\n\n[MARKET SHOCK]: {text}" for text in shocks)
+
+
 async def run_simulation(
     rumor: str,
     settings: AppSettings,
@@ -1403,22 +1408,23 @@ async def run_simulation(
             await state_store.set_phase(SimulationPhase.ROUND_2)
             await state_store.set_round(2)
 
-        # Phase 35.1: Shock gate — consume a pending shock BEFORE Round 2 dispatch (B1 wiring fix).
-        # Keep the base `rumor` string immutable; augment a local for this round's user_message.
-        effective_rumor_r2 = rumor
+        # Shock gate (docs/DECISIONS.md#b1): consume a pending shock before Round 2.
+        # Every applied shock stays in all later rounds' user message, oldest first.
+        active_shocks: list[str] = []
         if consume_shock is not None:
             shock_text_r2 = consume_shock()
             if shock_text_r2:
-                effective_rumor_r2 = f"{rumor}\n\n[MARKET SHOCK]: {shock_text_r2}"
+                active_shocks.append(shock_text_r2)
                 await graph_manager.write_shock_event(
                     cycle_id, shock_text_r2, injected_before_round=2,
                 )
+                if state_store is not None:
+                    state_store.record_applied_shock(shock_text_r2, 2)
                 logger.info(
-                    "shock_injected",
-                    cycle_id=cycle_id,
-                    round_num=2,
+                    "shock_injected", cycle_id=cycle_id, round_num=2,
                     shock_length=len(shock_text_r2),
                 )
+        effective_rumor_r2 = _with_shocks(rumor, active_shocks)
 
         # Seeded no-peer holdout for the whole run (docs/DECISIONS.md#adr-diverse-peer-context).
         control_ids = select_control_ids(
@@ -1600,22 +1606,21 @@ async def run_simulation(
                     await state_store.set_phase(SimulationPhase.ROUND_3)
                     await state_store.set_round(3)
 
-                # Phase 35.1: Shock gate — consume a pending shock BEFORE Round 3 dispatch.
-                # If Round 2 already consumed, consume_shock returns None and Round 3 runs clean.
-                effective_rumor_r3 = rumor
+                # Shock gate before Round 3; earlier shocks are carried forward.
                 if consume_shock is not None:
                     shock_text_r3 = consume_shock()
                     if shock_text_r3:
-                        effective_rumor_r3 = f"{rumor}\n\n[MARKET SHOCK]: {shock_text_r3}"
+                        active_shocks.append(shock_text_r3)
                         await graph_manager.write_shock_event(
                             cycle_id, shock_text_r3, injected_before_round=3,
                         )
+                        if state_store is not None:
+                            state_store.record_applied_shock(shock_text_r3, 3)
                         logger.info(
-                            "shock_injected",
-                            cycle_id=cycle_id,
-                            round_num=3,
+                            "shock_injected", cycle_id=cycle_id, round_num=3,
                             shock_length=len(shock_text_r3),
                         )
+                effective_rumor_r3 = _with_shocks(rumor, active_shocks)
 
                 # Bracket-diverse peer contexts from Round 2 decisions in memory.
                 # R3 weights are PER-READER: base + global citation share
