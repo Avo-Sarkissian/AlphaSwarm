@@ -38,10 +38,12 @@ class FakeCycleGraph:
         *,
         latest: str | None = None,
         error: BaseException | None = None,
+        signals: Mapping[str, Mapping[tuple[str, int], object]] | None = None,
     ) -> None:
         self.statuses: dict[str, str] = dict(statuses or {})
         self.latest = latest
         self.error = error
+        self.signals = {k: dict(v) for k, v in (signals or {}).items()}
         self.status_calls: list[str] = []
 
     async def read_cycle_status(self, cycle_id: str) -> str | None:
@@ -57,6 +59,29 @@ class FakeCycleGraph:
         if self.error is not None:
             raise self.error
         return self.latest
+
+    async def read_full_cycle_signals(self, cycle_id: str) -> dict[tuple[str, int], object]:
+        return dict(self.signals.get(cycle_id, {}))
+
+    async def read_bracket_narratives_for_round(
+        self,
+        cycle_id: str,
+        round_num: int,
+    ) -> list[dict[str, object]]:
+        return []
+
+    async def read_rationale_entries_for_round(
+        self,
+        cycle_id: str,
+        round_num: int,
+    ) -> list[dict[str, object]]:
+        return []
+
+    async def read_influence_edges(self, cycle_id: str, round_num: int) -> list[dict[str, object]]:
+        return []
+
+    async def read_completed_cycles(self, limit: int = 10) -> list[dict[str, object]]:
+        return []
 
     async def close(self) -> None:
         return None
