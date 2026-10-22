@@ -58,6 +58,12 @@ class TestGovernorSettingsExtensions:
         with pytest.raises(ValidationError):
             GovernorSettings(jitter_min_seconds=0.0, jitter_max_seconds=-0.1)
 
+    def test_zero_jitter_max_with_default_min_rejected(self) -> None:
+        """The field bound now allows max 0.0, so only the min <= max validator refuses it
+        next to the default 0.5 s min (random.uniform would accept the reversed bounds)."""
+        with pytest.raises(ValidationError, match="jitter_min_seconds must be <= jitter_max"):
+            GovernorSettings(jitter_max_seconds=0.0)
+
     def test_default_jitter_unchanged(self) -> None:
         s = GovernorSettings()
         assert (s.jitter_min_seconds, s.jitter_max_seconds) == (0.5, 1.5)
