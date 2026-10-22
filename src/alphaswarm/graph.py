@@ -1416,84 +1416,101 @@ class GraphStateManager:
     # Phase 15: Report query tools
     # ------------------------------------------------------------------
 
-    async def read_consensus_summary(self, cycle_id: str) -> dict:  # type: ignore[type-arg]
-        """Count BUY/SELL/HOLD decisions in Round 3 for cycle (REPORT-02).
+    async def read_consensus_summary(self, cycle_id: str) -> ConsensusSummaryRow:
+        """Final-round BUY/SELL/HOLD/PARSE_ERROR counts.
 
-        Returns plain dict for JSON-serializable ToolObservation.result.
+        The final round is Cycle.num_rounds (legacy cycles without it: 3),
+        resolved inside the query (docs/DECISIONS.md#adr-num-rounds).
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                record = await session.execute_read(
-                    self._read_consensus_summary_tx, cycle_id,
-                )
+                row = await session.execute_read(self._read_consensus_summary_tx, cycle_id)
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 f"Failed to read consensus summary for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug(
-            "report_consensus_summary", cycle_id=cycle_id,
-        )
-        return record
+        self._log.debug("report_consensus_summary", cycle_id=cycle_id, total=row["total"])
+        return row
 
     @staticmethod
     async def _read_consensus_summary_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> dict:  # type: ignore[type-arg]
-        """Transaction function for consensus summary Cypher."""
+    ) -> ConsensusSummaryRow:
         result = await tx.run(
             """
-            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            WITH coalesce(c.num_rounds, 3) AS fr
+            OPTIONAL MATCH (d:Decision {cycle_id: $cycle_id})
+            WHERE d.round = fr
+            WITH d, toLower(d.signal) AS s
             RETURN
-                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                sum(CASE WHEN s = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN s = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN s = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                sum(CASE WHEN s = 'parse_error' THEN 1 ELSE 0 END) AS parse_error_count,
                 count(d) AS total
             """,
             cycle_id=cycle_id,
         )
         record = await result.single()
-        return dict(record) if record else {"buy_count": 0, "sell_count": 0, "hold_count": 0, "total": 0}
+        if record is None:
+            return ConsensusSummaryRow(
+                buy_count=0, sell_count=0, hold_count=0, parse_error_count=0, total=0,
+            )
+        return ConsensusSummaryRow(
+            buy_count=int(record["buy_count"]),
+            sell_count=int(record["sell_count"]),
+            hold_count=int(record["hold_count"]),
+            parse_error_count=int(record["parse_error_count"]),
+            total=int(record["total"]),
+        )
 
-    async def read_round_timeline(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
-        """Return per-round BUY/SELL/HOLD counts across all agents (REPORT-02).
-
-        Returns list ordered by round_num ascending.
-        """
+    async def read_round_timeline(self, cycle_id: str) -> list[RoundTimelineRow]:
+        """Per-round counts for every round that ran, ascending."""
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_round_timeline_tx, cycle_id,
-                )
+                rows = await session.execute_read(self._read_round_timeline_tx, cycle_id)
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 f"Failed to read round timeline for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_round_timeline", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_round_timeline", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_round_timeline_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for per-round signal breakdown."""
+    ) -> list[RoundTimelineRow]:
         result = await tx.run(
             """
             MATCH (d:Decision {cycle_id: $cycle_id})
+            WITH d.round AS round_num, toLower(d.signal) AS s
             RETURN
-                d.round AS round_num,
-                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count,
-                count(d) AS total
-            ORDER BY d.round
+                round_num,
+                sum(CASE WHEN s = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                sum(CASE WHEN s = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                sum(CASE WHEN s = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                sum(CASE WHEN s = 'parse_error' THEN 1 ELSE 0 END) AS parse_error_count,
+                count(*) AS total
+            ORDER BY round_num
             """,
             cycle_id=cycle_id,
         )
-        return [dict(record) async for record in result]
+        return [
+            RoundTimelineRow(
+                round_num=int(r["round_num"]),
+                buy_count=int(r["buy_count"]),
+                sell_count=int(r["sell_count"]),
+                hold_count=int(r["hold_count"]),
+                parse_error_count=int(r["parse_error_count"]),
+                total=int(r["total"]),
+            )
+            async for r in result
+        ]
 
     async def read_bracket_narratives(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
         """Return per-bracket signal stance and confidence for Round 3 (REPORT-02).

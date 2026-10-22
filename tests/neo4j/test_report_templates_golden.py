@@ -111,9 +111,6 @@ async def test_entity_impact_table_has_no_blank_cells(
     assert all(all(cells) for cells in table)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: consensus shares use a total that includes failures (fix: plan 06)"
-)
 async def test_consensus_shares_add_up_to_100(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:

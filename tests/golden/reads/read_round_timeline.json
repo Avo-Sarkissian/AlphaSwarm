@@ -1,0 +1,26 @@
+[
+  {
+    "buy_count": 32,
+    "hold_count": 32,
+    "parse_error_count": 3,
+    "round_num": 1,
+    "sell_count": 33,
+    "total": 100
+  },
+  {
+    "buy_count": 31,
+    "hold_count": 34,
+    "parse_error_count": 4,
+    "round_num": 2,
+    "sell_count": 31,
+    "total": 100
+  },
+  {
+    "buy_count": 31,
+    "hold_count": 32,
+    "parse_error_count": 6,
+    "round_num": 3,
+    "sell_count": 31,
+    "total": 100
+  }
+]

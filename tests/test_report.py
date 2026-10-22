@@ -285,7 +285,10 @@ class TestReportAssembler:
         from alphaswarm.report import ReportAssembler
 
         assembler = ReportAssembler()
-        data = {"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100}
+        data = {
+            "buy_count": 50, "sell_count": 30, "hold_count": 17,
+            "parse_error_count": 3, "total": 100,
+        }
         result = assembler.render_section(
             "01_consensus_summary.j2", data=data, cycle_id="test-cycle",
         )
@@ -349,15 +352,19 @@ from alphaswarm.report import ReportAssembler, ToolObservation  # noqa: E402
 _CONSENSUS_OBS = ToolObservation(
     tool_name="bracket_summary",
     tool_input={"cycle_id": "test-html"},
-    result={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
+    result={"buy_count": 50, "sell_count": 30, "hold_count": 17,
+            "parse_error_count": 3, "total": 100},
 )
 _TIMELINE_OBS = ToolObservation(
     tool_name="round_timeline",
     tool_input={"cycle_id": "test-html"},
     result=[
-        {"round_num": 1, "buy_count": 45, "sell_count": 35, "hold_count": 20, "total": 100},
-        {"round_num": 2, "buy_count": 48, "sell_count": 32, "hold_count": 20, "total": 100},
-        {"round_num": 3, "buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
+        {"round_num": 1, "buy_count": 45, "sell_count": 35, "hold_count": 18,
+         "parse_error_count": 2, "total": 100},
+        {"round_num": 2, "buy_count": 48, "sell_count": 32, "hold_count": 17,
+         "parse_error_count": 3, "total": 100},
+        {"round_num": 3, "buy_count": 50, "sell_count": 30, "hold_count": 17,
+         "parse_error_count": 3, "total": 100},
     ],
 )
 _BRACKET_OBS = ToolObservation(
@@ -409,7 +416,7 @@ class TestMarkdownAssembler:
         # Buy/sell/hold counts from _CONSENSUS_OBS render into the table
         assert "50" in md  # buy_count
         assert "30" in md  # sell_count
-        assert "20" in md  # hold_count
+        assert "17" in md  # hold_count
 
     def test_contains_timeline_table(self) -> None:
         assembler = ReportAssembler()
@@ -651,3 +658,20 @@ class TestReportFilters:
         env = ReportAssembler()._env
         assert env.filters["md_cell"] is md_cell
         assert env.filters["num"] is num
+
+
+def test_consensus_template_has_parse_error_row_and_shares_sum_to_100() -> None:
+    md = ReportAssembler().render_section(
+        "01_consensus_summary.j2", data=_CONSENSUS_OBS.result, cycle_id="test-cycle",
+    )
+    assert "| PARSE_ERROR | 3 | 3.0% |" in md
+    assert "| BUY | 50 | 50.0% |" in md
+    assert "| HOLD | 17 | 17.0% |" in md
+
+
+def test_round_timeline_template_has_parse_error_column() -> None:
+    md = ReportAssembler().render_section(
+        "02_round_timeline.j2", data=_TIMELINE_OBS.result, cycle_id="test-cycle",
+    )
+    assert "| Round | BUY | SELL | HOLD | PARSE_ERROR | Total |" in md
+    assert "| 2 | 48 | 32 | 17 | 3 | 100 |" in md

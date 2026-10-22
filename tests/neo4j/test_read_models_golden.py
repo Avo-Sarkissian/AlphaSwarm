@@ -133,6 +133,7 @@ async def test_read_consensus_summary_counts(
     row = await graph_reader.read_consensus_summary(seeded_cycle.cycle_id)
     final = _round(seeded_cycle, seeded_cycle.num_rounds).values()
     assert (row["buy_count"], row["sell_count"], row["hold_count"]) == _counts(final)
+    assert_golden("reads/read_consensus_summary.json", row)
 
 
 async def test_read_round_timeline_counts(
@@ -143,6 +144,7 @@ async def test_read_round_timeline_counts(
         (n, *_counts(_round(seeded_cycle, n).values()))
         for n in range(1, seeded_cycle.num_rounds + 1)
     ]
+    assert_golden("reads/read_round_timeline.json", rows)
 
 
 async def test_read_bracket_narratives_counts(
@@ -364,9 +366,6 @@ async def test_empty_bracket_has_no_majority(
     assert rows["allocators"]["majority"] is None
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: consensus summary has no parse_error_count (fix: plan 06)"
-)
 async def test_consensus_summary_counts_parse_errors(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -375,9 +374,6 @@ async def test_consensus_summary_counts_parse_errors(
     assert row["parse_error_count"] == sum(1 for _, d in final if d.signal not in _VALID)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: round timeline has no parse_error_count (fix: plan 06)"
-)
 async def test_round_timeline_counts_parse_errors(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:

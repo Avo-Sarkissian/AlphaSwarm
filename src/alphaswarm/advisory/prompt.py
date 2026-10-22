@@ -8,6 +8,7 @@ invokes json.dumps over raw Decimal.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from alphaswarm.inference.types import InferenceMessage
@@ -70,10 +71,10 @@ def build_advisory_prompt(
     *,
     cycle_id: str,
     seed_rumor: str,
-    bracket_summary: dict[str, Any],
-    timeline: list[dict[str, Any]],
-    narratives: list[dict[str, Any]],
-    entity_impact: list[dict[str, Any]],
+    bracket_summary: Mapping[str, Any],
+    timeline: Sequence[Mapping[str, Any]],
+    narratives: Sequence[Mapping[str, Any]],
+    entity_impact: Sequence[Mapping[str, Any]],
     holdings: list[dict[str, Any]] | None = None,
     top_holdings: list[dict[str, Any]] | None = None,
     rest_holdings: list[dict[str, Any]] | None = None,

@@ -27,7 +27,6 @@ async def two_round_cycle(graph_manager_test: GraphStateManager) -> SeededCycle:
     return await build_seeded_cycle(graph_manager_test, num_rounds=2)
 
 
-@_T15
 async def test_consensus_summary_uses_the_final_round(
     graph_manager_test: GraphStateManager, two_round_cycle: SeededCycle
 ) -> None:
