@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from alphaswarm.errors import BudgetExceededError, InferenceError
+from alphaswarm.errors import BudgetExceededError, InferenceError, RoundFailedError
 from alphaswarm.inference.types import InferenceMessage, InferenceResult
 from alphaswarm.types import AgentDecision, AgentPersona, SignalType, SimulationPhase
 from tests.engine.scenario import (
@@ -143,22 +143,15 @@ async def test_malformed_worker_output_becomes_parse_error_and_run_completes(
     assert scenario_store.phases[-1] is SimulationPhase.COMPLETE
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T1.3: a round where every agent fails is persisted and fed forward (fix: plan 05)",
-)
 async def test_round_where_every_agent_fails_aborts_before_persisting(
     run_scenario: RunScenario,
     make_scripted_worker: Callable[..., ScriptedProvider],
     fake_graph: MagicMock,
 ) -> None:
     worker = make_scripted_worker(failing_in_round(2, _ollama_died))
-    raised: BaseException | None = None
-    try:
+    with pytest.raises(RoundFailedError) as excinfo:
         await run_scenario(worker=worker)
-    except Exception as exc:  # becomes pytest.raises(RoundFailedError) once that error exists
-        raised = exc
-    assert type(raised).__name__ == "RoundFailedError", f"run did not abort: {raised!r}"
+    assert (excinfo.value.round_num, excinfo.value.failed) == (2, 100)
     assert persisted_rounds(fake_graph) == [1]
 
 

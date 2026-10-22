@@ -3827,6 +3827,8 @@ async def test_run_simulation_writes_cycle_metrics(
         "r3_seconds", "narratives_seconds", "total_seconds", "r2_flips",
         "r3_flips", "r1_parse_errors", "r2_parse_errors", "r3_parse_errors",
         "final_buy", "final_sell", "final_hold", "agent_count",
+        "r1_inference_errors", "r2_inference_errors", "r3_inference_errors",
+        "final_round",
     }
     assert set(metrics.keys()) == expected_keys
     # All values are flat scalars (Neo4j property constraint)

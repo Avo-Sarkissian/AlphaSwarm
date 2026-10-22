@@ -16,7 +16,7 @@ import dataclasses
 import hashlib
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -25,6 +25,7 @@ import structlog
 from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS, dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
 from alphaswarm.context_formatter import format_market_context
+from alphaswarm.errors import RoundFailedError
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.types import ContextPacket
@@ -556,6 +557,32 @@ def _compute_shifts(
     )
 
 
+def _raise_if_round_failed(
+    round_num: int,
+    decisions: Sequence[tuple[str, AgentDecision]],
+    threshold_percent: float,
+) -> None:
+    """Abort a round before it is persisted when too many agents failed.
+
+    "Failed" means a PARSE_ERROR decision of any error_kind. The rule is
+    ``failed * 100 > threshold_percent * total`` (exactly the threshold
+    passes), and an empty round always fails
+    (docs/DECISIONS.md#adr-taskgroup-dispatch). Failed agents are not
+    re-dispatched.
+    """
+    total = len(decisions)
+    failed = sum(1 for _, d in decisions if d.signal == SignalType.PARSE_ERROR)
+    if total == 0 or failed * 100 > threshold_percent * total:
+        logger.error(
+            "round_failed",
+            round_num=round_num,
+            failed=failed,
+            total=total,
+            threshold_percent=threshold_percent,
+        )
+        raise RoundFailedError(round_num, failed, total, threshold_percent)
+
+
 # ---------------------------------------------------------------------------
 # Round 1 pipeline (Phase 6)
 # ---------------------------------------------------------------------------
@@ -700,7 +727,11 @@ async def run_round1(
             # the entire 14-18min round window — see debug session
             # ws-agent-states-not-emitted-mid-sim.
 
-            # 8. Persist to Neo4j (Phase 11: capture returned decision_ids)
+            # 8. Abort before persisting when too many agents failed, then
+            #    persist (Phase 11: capture returned decision_ids)
+            _raise_if_round_failed(
+                1, agent_decisions, settings.governor.round_abort_failure_percent,
+            )
             round1_decision_ids = await graph_manager.write_decisions(
                 agent_decisions, cycle_id, round_num=1,
             )
@@ -1205,6 +1236,9 @@ async def run_simulation(
                 ctx if ctx is not None else "" for ctx in round2_peer_contexts
             ]
 
+            _raise_if_round_failed(
+                2, round2_decisions, settings.governor.round_abort_failure_percent,
+            )
             round2_ids = await graph_manager.write_decisions(
                 round2_decisions, cycle_id, round_num=2
             )
@@ -1360,6 +1394,9 @@ async def run_simulation(
                     ctx if ctx is not None else "" for ctx in round3_peer_contexts
                 ]
 
+                _raise_if_round_failed(
+                    3, round3_decisions, settings.governor.round_abort_failure_percent,
+                )
                 round3_ids = await graph_manager.write_decisions(
                     round3_decisions, cycle_id, round_num=3
                 )
@@ -1505,6 +1542,19 @@ async def run_simulation(
         "final_hold": final_counts["hold"],
         "agent_count": len(personas),
     }
+    # Inference failures separately from all PARSE_ERRORs, for every round
+    # actually run (docs/DECISIONS.md#adr-cycle-metrics).
+    rounds_run: dict[int, Sequence[tuple[str, AgentDecision]]] = {
+        1: round1_result.agent_decisions,
+        2: round2_decisions,
+    }
+    if settings.num_rounds >= 3:
+        rounds_run[3] = round3_decisions
+    for n, decisions_n in rounds_run.items():
+        cycle_metrics[f"r{n}_inference_errors"] = sum(
+            1 for _, d in decisions_n if d.error_kind == "inference"
+        )
+    cycle_metrics["final_round"] = max(rounds_run)
     try:
         await graph_manager.write_cycle_metrics(cycle_id, cycle_metrics)
     except Exception:

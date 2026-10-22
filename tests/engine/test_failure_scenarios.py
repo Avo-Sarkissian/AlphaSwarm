@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from alphaswarm.config import AppSettings
-from alphaswarm.errors import BudgetExceededError
+from alphaswarm.errors import BudgetExceededError, RoundFailedError
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.simulation import SimulationResult, run_simulation
 from alphaswarm.state import StateStore
@@ -135,10 +135,71 @@ async def test_fully_failed_final_round_skips_influence_edges(
 
     worker = ScriptedProvider(personas=all_personas, decide=decide)
     result = await run_case(
-        settings=with_threshold(scenario_settings, 100.0), graph=graph, worker=worker,
-        personas=all_personas, brackets=all_brackets,
+        settings=with_threshold(scenario_settings, 100.0),
+        graph=graph,
+        worker=worker,
+        personas=all_personas,
+        brackets=all_brackets,
     )
 
     assert len(result.round3_decisions) == len(all_personas)
     rounds = [c.kwargs["up_to_round"] for c in graph.compute_influence_edges.await_args_list]
     assert rounds == [2]
+
+
+async def test_all_agents_failing_in_round_1_aborts_before_persisting(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    # The model server dies mid-round: nothing of the round may be persisted.
+    def decide(agent_id: str, round_num: int, call: ScriptedCall) -> AgentDecision | BaseException:
+        if round_num == 1:
+            return RuntimeError("connection refused by the model server")
+        return default_decision_script(agent_id, round_num, call)
+
+    worker = ScriptedProvider(personas=all_personas, decide=decide)
+    with pytest.raises(RoundFailedError) as exc_info:
+        await run_case(
+            settings=scenario_settings,
+            graph=graph,
+            worker=worker,
+            personas=all_personas,
+            brackets=all_brackets,
+        )
+
+    err = exc_info.value
+    assert (err.round_num, err.failed, err.total) == (1, len(all_personas), len(all_personas))
+    assert persisted_rounds(graph) == []
+    graph.write_cycle_metrics.assert_not_awaited()
+
+
+async def test_metrics_count_inference_errors_per_round(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    flaky = {p.id for p in sorted(all_personas, key=lambda p: p.id)[:10]}
+
+    def decide(agent_id: str, round_num: int, call: ScriptedCall) -> AgentDecision | BaseException:
+        if round_num == 2 and agent_id in flaky:
+            return RuntimeError("timeout")
+        return default_decision_script(agent_id, round_num, call)
+
+    worker = ScriptedProvider(personas=all_personas, decide=decide)
+    await run_case(
+        settings=scenario_settings,
+        graph=graph,
+        worker=worker,
+        personas=all_personas,
+        brackets=all_brackets,
+    )
+
+    _, metrics = graph.write_cycle_metrics.await_args.args
+    assert metrics["r1_inference_errors"] == 0
+    assert metrics["r2_inference_errors"] == 10
+    assert metrics["r2_parse_errors"] == 10
+    assert metrics["r3_inference_errors"] == 0
+    assert metrics["final_round"] == 3
