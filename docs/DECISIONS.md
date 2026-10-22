@@ -140,71 +140,72 @@ Contents
 - **Invariant (tested in `tests/test_peer_selection.py`):** on `generate_personas(DEFAULT_BRACKETS)`, no bracket takes more than 35% of a round's slots and every bracket is visible to at least 15% of readers, in R2 and in an R3 worst case where everyone cited the same two Sell-Side agents.
 - **Superseded:** the deterministic fill ([p8-d-06](#p8-d-06)) and the `_stable_peer_jitter` tie-break ([f-08](#f-08)); per-reader seeded sampling disperses equal-weight readers by construction.
 - **Evidence (benchmark seed `apple-anthropic`, 3 rounds, one inference configuration for both cycles):**
-  - *Before* (legacy selector, `peer_selection_version` 1): cycle `5c59c533-e841-40fb-91ca-071ac239c1ab`, git `8ae04cac`, mode `local`, worker `alphaswarm-worker`, parse errors R2 `0` / R3 `0`.
+  - *Before* (legacy selector, `peer_selection_version` 1): cycle `5c59c533-e841-40fb-91ca-071ac239c1ab`, git `8ae04cac`, mode `local`, worker `alphaswarm-worker`, parse errors R2 `0` / R3 `0`; `peers: limit=10 min_brackets=4 bracket_cap=- personal_boost=0.3 budget_chars=4000 seed_source=-` (the cycle predates the `peer_bracket_cap` and `peer_seed_source` keys).
 
-    | bracket | slots | slot % | readers % | citations % |
-    |---|---|---|---|---|
-    | institutions | 100 | 18.0% | 100% | 20.5% |
-    | sell_side | 256 | 46.0% | 100% | 46.7% |
-    | event_driven | 100 | 18.0% | 100% | 23.5% |
-    | quants | 0 | 0.0% | 0% | 0.0% |
-    | degens | 0 | 0.0% | 0% | 0.0% |
-    | narrators | 100 | 18.0% | 100% | 9.3% |
-    | algos | 0 | 0.0% | 0% | 0.0% |
-    | macro | 0 | 0.0% | 0% | 0.0% |
-    | shorts | 0 | 0.0% | 0% | 0.0% |
-    | allocators | 0 | 0.0% | 0% | 0.0% |
+    | bracket | slots | per agent | slot % | readers % | citations % |
+    |---|---|---|---|---|---|
+    | institutions | 100 | 5.6 | 18.0% | 100% | 20.5% |
+    | sell_side | 256 | 25.6 | 46.0% | 100% | 46.7% |
+    | event_driven | 100 | 10.0 | 18.0% | 100% | 23.5% |
+    | quants | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | degens | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | narrators | 100 | 12.5 | 18.0% | 100% | 9.3% |
+    | algos | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | macro | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | shorts | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | allocators | 0 | 0.0 | 0.0% | 0% | 0.0% |
 
     R2: distinct peers shown 46/100; max slot share 46.0% (limit 35%); min readers 0% (limit 15%) -> FAIL
 
-    | bracket | slots | slot % | readers % | citations % |
-    |---|---|---|---|---|
-    | institutions | 100 | 16.9% | 100% | 24.9% |
-    | sell_side | 290 | 49.2% | 100% | 44.4% |
-    | event_driven | 100 | 16.9% | 100% | 23.9% |
-    | quants | 0 | 0.0% | 0% | 0.0% |
-    | degens | 0 | 0.0% | 0% | 0.0% |
-    | narrators | 100 | 16.9% | 100% | 6.8% |
-    | algos | 0 | 0.0% | 0% | 0.0% |
-    | macro | 0 | 0.0% | 0% | 0.0% |
-    | shorts | 0 | 0.0% | 0% | 0.0% |
-    | allocators | 0 | 0.0% | 0% | 0.0% |
+    | bracket | slots | per agent | slot % | readers % | citations % |
+    |---|---|---|---|---|---|
+    | institutions | 100 | 5.6 | 16.9% | 100% | 24.9% |
+    | sell_side | 290 | 29.0 | 49.2% | 100% | 44.4% |
+    | event_driven | 100 | 10.0 | 16.9% | 100% | 23.9% |
+    | quants | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | degens | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | narrators | 100 | 12.5 | 16.9% | 100% | 6.8% |
+    | algos | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | macro | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | shorts | 0 | 0.0 | 0.0% | 0% | 0.0% |
+    | allocators | 0 | 0.0 | 0.0% | 0% | 0.0% |
 
     R3: distinct peers shown 45/100; max slot share 49.2% (limit 35%); min readers 0% (limit 15%) -> FAIL
 
-  - *After* (seeded stratified sampling, `peer_selection_version` 2): cycle `c446284f-a40e-4527-b55e-2f9030d348a5`, git `b9238983`, mode `local`, worker `alphaswarm-worker`, parse errors R2 `1` / R3 `0`.
+  - *After* (seeded stratified sampling, `peer_selection_version` 2): cycle `10d9419f-9ed6-4d2a-9842-e6e208a65d62`, git `032d3982`, mode `local`, worker `alphaswarm-worker`, parse errors R2 `0` / R3 `0`; `peers: limit=10 min_brackets=4 bracket_cap=3 personal_boost=0.3 budget_chars=4000 seed_source=cycle_id`.
 
-    | bracket | slots | slot % | readers % | citations % |
-    |---|---|---|---|---|
-    | institutions | 94 | 15.8% | 70% | 24.6% |
-    | sell_side | 70 | 11.8% | 56% | 4.8% |
-    | event_driven | 57 | 9.6% | 47% | 15.5% |
-    | quants | 66 | 11.1% | 53% | 6.3% |
-    | degens | 59 | 9.9% | 47% | 3.9% |
-    | narrators | 62 | 10.4% | 59% | 8.7% |
-    | algos | 46 | 7.7% | 39% | 5.3% |
-    | macro | 47 | 7.9% | 41% | 5.3% |
-    | shorts | 50 | 8.4% | 48% | 13.5% |
-    | allocators | 44 | 7.4% | 43% | 12.1% |
+    | bracket | slots | per agent | slot % | readers % | citations % |
+    |---|---|---|---|---|---|
+    | institutions | 93 | 5.2 | 15.2% | 72% | 25.0% |
+    | sell_side | 72 | 7.2 | 11.8% | 59% | 4.0% |
+    | event_driven | 67 | 6.7 | 11.0% | 56% | 13.4% |
+    | quants | 60 | 5.0 | 9.8% | 51% | 13.4% |
+    | degens | 80 | 5.3 | 13.1% | 66% | 4.9% |
+    | narrators | 55 | 6.9 | 9.0% | 49% | 8.0% |
+    | algos | 50 | 6.2 | 8.2% | 41% | 3.6% |
+    | macro | 52 | 7.4 | 8.5% | 49% | 10.3% |
+    | shorts | 41 | 5.9 | 6.7% | 40% | 11.2% |
+    | allocators | 41 | 8.2 | 6.7% | 37% | 6.2% |
 
-    R2: distinct peers shown 99/100; max slot share 15.8% (limit 35%); min readers 39% (limit 15%) -> PASS
+    R2: distinct peers shown 100/100; max slot share 15.2% (limit 35%); min readers 37% (limit 15%) -> PASS
 
-    | bracket | slots | slot % | readers % | citations % |
-    |---|---|---|---|---|
-    | institutions | 109 | 17.8% | 78% | 26.3% |
-    | sell_side | 69 | 11.3% | 58% | 5.8% |
-    | event_driven | 54 | 8.8% | 48% | 13.2% |
-    | quants | 61 | 10.0% | 51% | 12.8% |
-    | degens | 73 | 11.9% | 55% | 4.1% |
-    | narrators | 60 | 9.8% | 53% | 5.8% |
-    | algos | 40 | 6.5% | 36% | 6.2% |
-    | macro | 48 | 7.9% | 44% | 8.2% |
-    | shorts | 53 | 8.7% | 50% | 9.9% |
-    | allocators | 44 | 7.2% | 42% | 7.8% |
+    | bracket | slots | per agent | slot % | readers % | citations % |
+    |---|---|---|---|---|---|
+    | institutions | 113 | 6.3 | 17.9% | 77% | 26.3% |
+    | sell_side | 79 | 7.9 | 12.5% | 62% | 7.5% |
+    | event_driven | 69 | 6.9 | 11.0% | 60% | 16.5% |
+    | quants | 70 | 5.8 | 11.1% | 54% | 14.3% |
+    | degens | 75 | 5.0 | 11.9% | 60% | 1.9% |
+    | narrators | 67 | 8.4 | 10.6% | 58% | 7.9% |
+    | algos | 44 | 5.5 | 7.0% | 40% | 3.4% |
+    | macro | 41 | 5.9 | 6.5% | 40% | 7.5% |
+    | shorts | 55 | 7.9 | 8.7% | 49% | 11.7% |
+    | allocators | 17 | 3.4 | 2.7% | 16% | 3.0% |
 
-    R3: distinct peers shown 99/100; max slot share 17.8% (limit 35%); min readers 36% (limit 15%) -> PASS
+    R3: distinct peers shown 100/100; max slot share 17.9% (limit 35%); min readers 16% (limit 15%) -> PASS
 
-  - *Summary:* R2 max slot share `46.0%` → `15.8%`; R2 min readers `0%` → `39%`; distinct peers shown R2 `46` → `99`, R3 `45` → `99`; Sell-Side share of R2 citations `46.7%` → `4.8%`. Flips and final distribution (context, not a gate) are in `scripts/compare_cycles.py` for both cycles.
+  - *R3 margin:* Allocators were seen by 16% of R3 readers, just above the 15% floor. This cycle drew badly; it is not the typical outcome. Rebuilding R3 from the cycle's stored R2 decisions reproduces the recorded exposure exactly. Of the 45 Allocators selected, 31 fell in display positions 6-9 (18 expected), which the character budget cuts. Replaying the same decisions over 1,000 other run seeds gives a mean R3 minimum of 32.7% (worst 17%, never below 15%).
+  - *Summary:* R2 max slot share `46.0%` → `15.2%`; R2 min readers `0%` → `37%`; R3 `49.2%` → `17.9%` and `0%` → `16%`; distinct peers shown R2 `46` → `100`, R3 `45` → `100`; Sell-Side share of R2 citations `46.7%` → `4.0%`. Flips and final distribution (context, not a gate) are in `scripts/compare_cycles.py` for both cycles.
 
 - **Leftovers:**
   - `read_ranked_posts`, `_dispatch_round`, and `read_peer_decisions` are dead code.
