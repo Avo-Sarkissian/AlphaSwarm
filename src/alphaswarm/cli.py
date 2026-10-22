@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     from alphaswarm.ingestion.types import ContextPacket
     from alphaswarm.simulation import (
         BracketSummary,
-        Round1Result,
         RoundCompleteEvent,
         ShiftMetrics,
         SimulationResult,
@@ -114,128 +113,6 @@ def _sanitize_rationale(text: str, max_len: int = 80) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Bracket aggregation
-# ---------------------------------------------------------------------------
-
-
-def _aggregate_brackets(
-    agent_decisions: list[tuple[str, AgentDecision]],
-    personas: list[AgentPersona],
-    brackets: list[BracketConfig],
-) -> dict[str, dict[str, int | float]]:
-    """Compute bracket aggregation inline (pre-Phase 8 path).
-
-    NOTE: For Phase 8+ simulation results, use BracketSummary from
-    SimulationResult/RoundCompleteEvent instead. This function is retained
-    for backward compatibility with the inject CLI path and Round 1 standalone.
-    If modifying aggregation logic, update compute_bracket_summaries() in
-    simulation.py as the authoritative source.
-
-    Excludes PARSE_ERROR agents from signal counts and confidence averages.
-
-    Returns:
-        Dict keyed by bracket display_name, each containing:
-        BUY, SELL, HOLD counts, total count, and avg_conf.
-    """
-    # Build lookups
-    agent_bracket: dict[str, str] = {p.id: p.bracket.value for p in personas}
-    display_lookup: dict[str, str] = {b.bracket_type.value: b.display_name for b in brackets}
-
-    # Initialize per-bracket counters (preserve bracket order)
-    result: dict[str, dict[str, int | float]] = {}
-    for b in brackets:
-        result[b.display_name] = {
-            "BUY": 0,
-            "SELL": 0,
-            "HOLD": 0,
-            "total": 0,
-            "confidence_sum": 0.0,
-            "avg_conf": 0.0,
-        }
-
-    # Aggregate
-    for agent_id, decision in agent_decisions:
-        if decision.signal == SignalType.PARSE_ERROR:
-            continue
-        bracket_value = agent_bracket.get(agent_id)
-        if bracket_value is None:
-            continue
-        display_name = display_lookup.get(bracket_value)
-        if display_name is None:
-            continue
-        entry = result[display_name]
-        signal_key = decision.signal.value.upper()
-        if signal_key in entry:
-            entry[signal_key] = int(entry[signal_key]) + 1
-        entry["total"] = int(entry["total"]) + 1
-        entry["confidence_sum"] = float(entry["confidence_sum"]) + decision.confidence
-
-    # Compute averages
-    for data in result.values():
-        total = int(data["total"])
-        if total > 0:
-            data["avg_conf"] = float(data["confidence_sum"]) / total
-        else:
-            data["avg_conf"] = 0.0
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Round 1 report
-# ---------------------------------------------------------------------------
-
-
-def _print_round1_report(
-    result: Round1Result,
-    personas: list[AgentPersona],
-    brackets: list[BracketConfig],
-) -> None:
-    """Print bracket signal distribution and notable decisions after Round 1."""
-    # Derive decisions from single canonical collection
-    all_decisions = [d for _, d in result.agent_decisions]
-    total = len(all_decisions)
-    errors = sum(1 for d in all_decisions if d.signal == SignalType.PARSE_ERROR)
-    success = total - errors
-
-    # Header
-    print(f"\n{'='*60}")
-    print("  Round 1 Complete")
-    print(f"{'='*60}")
-    print(f"  Cycle ID: {result.cycle_id}")
-    if errors > 0:
-        print(f"  Agents:   {success}/{total} ({errors} PARSE_ERROR)")
-    else:
-        print(f"  Agents:   {total}/{total}")
-
-    # Bracket summary table
-    bracket_data = _aggregate_brackets(result.agent_decisions, personas, brackets)
-    print(f"\n  {'Bracket':<15} {'BUY':>5} {'SELL':>5} {'HOLD':>5} {'Avg Conf':>10}")
-    print(f"  {'-'*15} {'-'*5} {'-'*5} {'-'*5} {'-'*10}")
-    for name, data in bracket_data.items():
-        print(
-            f"  {name:<15} {data['BUY']:>5} {data['SELL']:>5} "
-            f"{data['HOLD']:>5} {data['avg_conf']:>10.2f}"
-        )
-
-    # Notable Decisions (top 5 by confidence, excluding PARSE_ERROR)
-    valid = [
-        (aid, d) for aid, d in result.agent_decisions
-        if d.signal != SignalType.PARSE_ERROR
-    ]
-    top5 = sorted(valid, key=lambda x: x[1].confidence, reverse=True)[:5]
-    print("\n  Notable Decisions (Top 5 by Confidence)")
-    print(f"  {'-'*55}")
-    for agent_id, decision in top5:
-        snippet = _sanitize_rationale(decision.rationale, max_len=80)
-        print(
-            f"  {agent_id:<20} {decision.signal.value.upper():<5} "
-            f"{decision.confidence:.2f}  {snippet}"
-        )
-    print(f"{'='*60}\n")
-
-
-# ---------------------------------------------------------------------------
 # Generalized round report (Phase 7)
 # ---------------------------------------------------------------------------
 
@@ -274,7 +151,7 @@ def _print_round_report(
       Agents:   {success}/{total} ({errors} PARSE_ERROR)
 
     When bracket_summaries is provided (Phase 8+), renders from summaries.
-    Otherwise falls back to inline _aggregate_brackets() computation.
+    Otherwise computes them with simulation.compute_bracket_summaries().
     Handles all-PARSE_ERROR edge case with warning (Codex review).
     """
     all_decisions = [d for _, d in agent_decisions]
@@ -301,16 +178,11 @@ def _print_round_report(
     if bracket_summaries is not None:
         _print_bracket_table_from_summaries(bracket_summaries)
     else:
-        # Fallback: compute inline (pre-Phase 8 path)
-        decisions_list = list(agent_decisions)
-        bracket_data = _aggregate_brackets(decisions_list, personas, brackets)
-        print(f"\n  {'Bracket':<15} {'BUY':>5} {'SELL':>5} {'HOLD':>5} {'Avg Conf':>10}")
-        print(f"  {'-'*15} {'-'*5} {'-'*5} {'-'*5} {'-'*10}")
-        for name, data in bracket_data.items():
-            print(
-                f"  {name:<15} {data['BUY']:>5} {data['SELL']:>5} "
-                f"{data['HOLD']:>5} {data['avg_conf']:>10.2f}"
-            )
+        from alphaswarm.simulation import compute_bracket_summaries
+
+        _print_bracket_table_from_summaries(
+            compute_bracket_summaries(agent_decisions, personas, brackets)
+        )
 
     # Notable Decisions (top 5 by confidence, excluding PARSE_ERROR)
     valid = [

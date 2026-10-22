@@ -65,3 +65,10 @@ def test_advisory_prompt_accepts_only_top_holdings() -> None:
     assert "holdings" not in params, "legacy kwarg"
     assert "rest_holdings" not in params, "rest holdings never reach the LLM"
     assert params["top_holdings"].default is inspect.Parameter.empty
+
+
+def test_cli_round1_report_helpers_are_gone() -> None:
+    import alphaswarm.cli as cli
+
+    assert not hasattr(cli, "_print_round1_report"), "run prints through _print_round_report"
+    assert not hasattr(cli, "_aggregate_brackets"), "use simulation.compute_bracket_summaries"

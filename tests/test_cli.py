@@ -190,7 +190,7 @@ def test_main_inject_failure_prints_error_to_stderr(
 # ---------------------------------------------------------------------------
 
 
-# Shared test data for Round 1 report tests
+# Shared test data for the round report tests
 
 _MOCK_SEED_EVENT = SeedEvent(
     raw_rumor="NVIDIA announces breakthrough",
@@ -262,166 +262,6 @@ def test_main_run_calls_handle_run(monkeypatch: pytest.MonkeyPatch) -> None:
         main()
 
     mock_handle_run.assert_called_once_with("test rumor")
-
-
-def test_print_round1_report_bracket_table(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Report contains bracket names and signal labels."""
-    from alphaswarm.cli import _print_round1_report
-    from alphaswarm.simulation import Round1Result
-
-    agent_decisions = [
-        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.9, rationale="data")),
-        ("quants_02", AgentDecision(signal=SignalType.BUY, confidence=0.85, rationale="math")),
-        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.7, rationale="hype")),
-        ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.65, rationale="fomo")),
-    ]
-
-    result = Round1Result(
-        cycle_id="test-cycle",
-        parsed_result=_MOCK_PARSED_RESULT,
-        agent_decisions=agent_decisions,
-    )
-
-    _print_round1_report(result, _TEST_PERSONAS, _TEST_BRACKETS)
-
-    captured = capsys.readouterr()
-    assert "Quants" in captured.out
-    assert "Degens" in captured.out
-    assert "BUY" in captured.out
-    assert "SELL" in captured.out
-
-
-def test_print_round1_report_notable_decisions(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Report shows 'Notable Decisions' with the highest-confidence agent."""
-    from alphaswarm.cli import _print_round1_report
-    from alphaswarm.simulation import Round1Result
-
-    # 4 agents with varying confidence; quants_01 has highest
-    agent_decisions = [
-        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.99, rationale="top pick")),
-        ("quants_02", AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="neutral")),
-        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="panic")),
-        ("degens_02", AgentDecision(signal=SignalType.BUY, confidence=0.7, rationale="ape in")),
-    ]
-
-    result = Round1Result(
-        cycle_id="test-cycle",
-        parsed_result=_MOCK_PARSED_RESULT,
-        agent_decisions=agent_decisions,
-    )
-
-    _print_round1_report(result, _TEST_PERSONAS, _TEST_BRACKETS)
-
-    captured = capsys.readouterr()
-    assert "Notable Decisions" in captured.out
-    assert "quants_01" in captured.out
-
-
-def test_print_round1_report_header_with_failures(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Header shows 'X/Y (Z PARSE_ERROR)' when some agents fail."""
-    from alphaswarm.cli import _print_round1_report
-    from alphaswarm.simulation import Round1Result
-
-    agent_decisions = [
-        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="ok")),
-        ("quants_02", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="fail")),
-        ("degens_01", AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="ok")),
-        ("degens_02", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="fail")),
-    ]
-
-    result = Round1Result(
-        cycle_id="test-cycle",
-        parsed_result=_MOCK_PARSED_RESULT,
-        agent_decisions=agent_decisions,
-    )
-
-    _print_round1_report(result, _TEST_PERSONAS, _TEST_BRACKETS)
-
-    captured = capsys.readouterr()
-    assert "2/4" in captured.out
-    assert "PARSE_ERROR" in captured.out
-
-
-def test_print_round1_report_header_all_success(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Header shows 'N/N' and no 'PARSE_ERROR' when all succeed."""
-    from alphaswarm.cli import _print_round1_report
-    from alphaswarm.simulation import Round1Result
-
-    agent_decisions = [
-        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="ok")),
-        ("quants_02", AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="ok")),
-        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="ok")),
-        ("degens_02", AgentDecision(signal=SignalType.BUY, confidence=0.7, rationale="ok")),
-    ]
-
-    result = Round1Result(
-        cycle_id="test-cycle",
-        parsed_result=_MOCK_PARSED_RESULT,
-        agent_decisions=agent_decisions,
-    )
-
-    _print_round1_report(result, _TEST_PERSONAS, _TEST_BRACKETS)
-
-    captured = capsys.readouterr()
-    assert "4/4" in captured.out
-    assert "PARSE_ERROR" not in captured.out
-
-
-def test_bracket_aggregation_excludes_parse_errors() -> None:
-    """PARSE_ERROR agents are excluded from bracket signal counts."""
-    from alphaswarm.cli import _aggregate_brackets
-
-    agent_decisions: list[tuple[str, AgentDecision]] = [
-        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.9, rationale="ok")),
-        ("quants_02", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="fail")),
-        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.7, rationale="ok")),
-        ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="ok")),
-    ]
-
-    result = _aggregate_brackets(agent_decisions, _TEST_PERSONAS, _TEST_BRACKETS)
-
-    # Quants: 1 BUY, 0 SELL, 0 HOLD (parse_error excluded) -> total 1
-    assert result["Quants"]["BUY"] == 1
-    assert result["Quants"]["total"] == 1
-
-    # Degens: 0 BUY, 2 SELL, 0 HOLD -> total 2
-    assert result["Degens"]["SELL"] == 2
-    assert result["Degens"]["total"] == 2
-
-
-def test_print_round1_report_truncates_rationale(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Rationale longer than 80 chars is truncated with '...'."""
-    from alphaswarm.cli import _print_round1_report
-    from alphaswarm.simulation import Round1Result
-
-    long_rationale = "A" * 120  # Well over 80 chars
-    agent_decisions = [
-        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.99, rationale=long_rationale)),
-        ("quants_02", AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="short")),
-        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="short")),
-        ("degens_02", AgentDecision(signal=SignalType.BUY, confidence=0.4, rationale="short")),
-    ]
-
-    result = Round1Result(
-        cycle_id="test-cycle",
-        parsed_result=_MOCK_PARSED_RESULT,
-        agent_decisions=agent_decisions,
-    )
-
-    _print_round1_report(result, _TEST_PERSONAS, _TEST_BRACKETS)
-
-    captured = capsys.readouterr()
-    assert "..." in captured.out
 
 
 def test_sanitize_rationale_strips_control_chars() -> None:
@@ -1186,3 +1026,64 @@ def test_simulation_summary_for_two_rounds(capsys: pytest.CaptureFixture[str]) -
     assert "Convergence:    n/a (needs 3 rounds)" in out
     assert "Final Consensus Distribution (Round 2)" in out
     assert "Quants" in out and "Degens" in out
+
+
+# ---------------------------------------------------------------------------
+# T9.5: bracket tables come from compute_bracket_summaries in every path
+# ---------------------------------------------------------------------------
+
+_MIXED_DECISIONS: list[tuple[str, AgentDecision]] = [
+    ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.9, rationale="ok")),
+    ("quants_02", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="x")),
+    ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.7, rationale="ok")),
+    ("degens_02", AgentDecision(signal=SignalType.HOLD, confidence=0.6, rationale="ok")),
+]
+
+
+def test_round_report_fallback_table_matches_engine_summaries(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Without precomputed summaries the round table equals the engine's summaries."""
+    from alphaswarm.cli import _print_round_report
+    from alphaswarm.simulation import compute_bracket_summaries
+
+    _print_round_report(2, "c1", _MIXED_DECISIONS, _TEST_PERSONAS, _TEST_BRACKETS)
+    fallback = capsys.readouterr().out
+    summaries = compute_bracket_summaries(_MIXED_DECISIONS, _TEST_PERSONAS, _TEST_BRACKETS)
+    _print_round_report(
+        2, "c1", _MIXED_DECISIONS, _TEST_PERSONAS, _TEST_BRACKETS,
+        bracket_summaries=summaries,
+    )
+    assert capsys.readouterr().out == fallback
+
+
+def test_simulation_summary_fallback_table_matches_engine_summaries(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An empty round3_summaries tuple renders the same table as computed summaries."""
+    from alphaswarm.cli import _print_simulation_summary
+    from alphaswarm.simulation import ShiftMetrics, SimulationResult, compute_bracket_summaries
+
+    shifts = ShiftMetrics(
+        signal_transitions=(), total_flips=0, bracket_confidence_delta=(), agents_shifted=0,
+    )
+
+    def _result(summaries: tuple[object, ...]) -> SimulationResult:
+        return SimulationResult(
+            cycle_id="c1",
+            parsed_result=_MOCK_PARSED_RESULT,
+            round1_decisions=(),
+            round2_decisions=(),
+            round3_decisions=tuple(_MIXED_DECISIONS),
+            round2_shifts=shifts,
+            round3_shifts=shifts,
+            round1_summaries=(),
+            round2_summaries=(),
+            round3_summaries=summaries,  # type: ignore[arg-type]
+        )
+
+    _print_simulation_summary(_result(()), _TEST_PERSONAS, _TEST_BRACKETS, num_rounds=3)
+    fallback = capsys.readouterr().out
+    computed = compute_bracket_summaries(_MIXED_DECISIONS, _TEST_PERSONAS, _TEST_BRACKETS)
+    _print_simulation_summary(_result(computed), _TEST_PERSONAS, _TEST_BRACKETS, num_rounds=3)
+    assert capsys.readouterr().out == fallback
