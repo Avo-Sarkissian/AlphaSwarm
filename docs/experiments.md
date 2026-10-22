@@ -14,18 +14,18 @@ metrics: `methodology.md` (not written yet).
 <!-- headline:start -->
 | Key | Result | Value | Source |
 |---|---|---|---|
-| `eval_accuracy` | Swarm accuracy vs the best single-model baseline | not measured | Evaluation: pilot deferred to the owner |
-| `eval_verdict` | Evaluation verdict (paired bootstrap) | not measured | Evaluation: pilot deferred to the owner |
+| `eval_accuracy` | Swarm accuracy vs the best single-model baseline | not measured | Evaluation: not run |
+| `eval_verdict` | Evaluation verdict (paired bootstrap) | not measured | Evaluation: not run |
 | `peer_effect` | Peer-attributable flip rate (treated − control) | not measured | Control group: control-group run not done |
 | `peer_effect_verdict` | Peer-effect verdict | not measured | Control group: control-group run not done |
 | `ablation_rounds` | 2 vs 3 rounds | not measured | Ablations: not run |
 | `ablation_peers` | Peer strategy: stratified vs random vs none | not measured | Ablations: not run |
 | `peer_exposure` | Peer exposure before → after the selector fix | brackets never shown: 6 → 0; largest slot share: 46.0% → 15.2%; agents shown: 46 → 100 (Round 2) | [Decision](DECISIONS.md#adr-diverse-peer-context) |
-| `speedup` | Mean round time before → after the performance work | not measured | P6 arms: performance arms not run |
+| `speedup` | Mean round time before → after the performance work | not measured | Arms: performance arms not run |
 | `mlx_prefill_worker` | Worker prefill, GGUF → MLX | 833 → 2,361 tok/s (2.8×, GGUF MoE → MLX MoE) | [Model stack benchmarks](#model-stack-benchmarks-2026-06-11) |
 | `mlx_prefill_orchestrator` | Orchestrator prefill, GGUF → MLX | 111 → 3,395 tok/s (30.6×, same 27B weights) | [Model stack benchmarks](#model-stack-benchmarks-2026-06-11) |
 | `model_weights` | Model memory (loaded, Ollama) | not measured | Memory budget: memory measurement not done |
-| `wall_clock_3r` | 3-round run, median wall time | not measured | P6 arms: performance arms not run |
+| `wall_clock_3r` | 3-round run, median wall time | not measured | Arms: performance arms not run |
 | `wall_clock_2r` | 2-round run, median wall time | not measured | Ablations: rounds ablation not run |
 | `backend_tests` | Backend tests (offline suite; Neo4j suite not measured) | 2,284 | [Test suite](#test-suite-v60) |
 | `backend_coverage` | Backend coverage (line + branch, offline suite) | 91% | [Test suite](#test-suite-v60) |

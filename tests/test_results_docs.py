@@ -33,6 +33,21 @@ def test_no_section_is_left_unrun_or_unfilled() -> None:
     assert (unrun, slots) == ([], [])
 
 
+# The README and the CHANGELOG copy these cells verbatim (docs/DECISIONS.md#adr-docs-sync), so
+# they never name phase or item ids of the private planning documents or the planning process.
+_PLANNING_WORDS: Final = re.compile(r"\b[PT]\d+(?:\.\d+)*\b|(?i:\bdeferred\b)")
+
+
+def test_headline_cells_name_no_planning_ids_or_process() -> None:
+    rows = load_script("docs_sync").parse_headline(_experiments())
+    leaks = []
+    for key, row in rows.items():
+        cells = f"{row.label} | {row.value} | {row.source}"
+        if _PLANNING_WORDS.search(cells):
+            leaks.append(f"{key}: {cells}")
+    assert leaks == []
+
+
 def test_model_benchmarks_match_the_modelfiles() -> None:
     worker = (ROOT / "modelfiles" / "Modelfile.worker").read_text(encoding="utf-8")
     orchestrator = (ROOT / "modelfiles" / "Modelfile.orchestrator").read_text(encoding="utf-8")
