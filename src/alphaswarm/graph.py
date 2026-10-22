@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Final, TypedDict
+from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, cast, get_args
 
 import structlog
 from neo4j.exceptions import Neo4jError
@@ -192,6 +192,28 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
     "CREATE CONSTRAINT shock_id_unique IF NOT EXISTS FOR (se:ShockEvent) REQUIRE se.shock_id IS UNIQUE",
 ]
+
+CycleStatus = Literal["running", "complete", "failed", "cancelled"]
+
+# Completion rule for cycles written before Cycle.status existed
+# (docs/DECISIONS.md#adr-cycle-metrics): metrics stamped, or a round-3 decision.
+_LEGACY_COMPLETE: Final = (
+    "(c.metrics_recorded_at IS NOT NULL OR EXISTS { "
+    "MATCH (:Agent)-[:MADE]->(:Decision {cycle_id: c.cycle_id, round: 3}) })"
+)
+# The status a reader assumes: the stored one, else the legacy rule, so the
+# readers are right even before ensure_schema() has back-filled.
+_EFFECTIVE_STATUS: Final = (
+    f"coalesce(c.status, CASE WHEN {_LEGACY_COMPLETE} THEN 'complete' ELSE 'failed' END)"
+)
+
+# One completeness rule for every reader: the stored Cycle.status, else the
+# legacy predicate (metrics stamped, or a round-3 decision), so the job routes and
+# read_completed_cycles never disagree about a cycle (docs/DECISIONS.md#adr-cycle-metrics).
+_CYCLE_STATUS_QUERY: Final = (
+    f"MATCH (c:Cycle {{cycle_id: $cycle_id}}) RETURN {_EFFECTIVE_STATUS} AS status"
+)
+_CYCLE_STATUSES: Final[frozenset[str]] = frozenset(get_args(CycleStatus))
 
 # Bracket display names and order come from config so report rows match the
 # live frame (simulation.compute_bracket_summaries) — docs/DECISIONS.md#adr-swarm-composition-v2.
@@ -1930,6 +1952,33 @@ class GraphStateManager:
                 "Failed to read latest cycle_id",
                 original_error=exc,
             ) from exc
+
+    async def read_cycle_status(self, cycle_id: str) -> CycleStatus | None:
+        """Lifecycle status of *cycle_id*, or ``None`` when no such cycle exists.
+
+        Job routes gate on this instead of the in-memory phase, which replay and
+        restarts overwrite (docs/DECISIONS.md#adr-background-tasks).
+        """
+        async with self._driver.session(database=self._database) as session:
+            return await session.execute_read(self._read_cycle_status_tx, cycle_id)
+
+    async def cycle_exists(self, cycle_id: str) -> bool:
+        """True when a Cycle node with *cycle_id* exists, whatever its status."""
+        return await self.read_cycle_status(cycle_id) is not None
+
+    @staticmethod
+    async def _read_cycle_status_tx(
+        tx: AsyncManagedTransaction, cycle_id: str,
+    ) -> CycleStatus | None:
+        result = await tx.run(_CYCLE_STATUS_QUERY, cycle_id=cycle_id)
+        record = await result.single()
+        if record is None:
+            return None
+        status = str(record["status"])
+        if status not in _CYCLE_STATUSES:
+            log.warning("cycle_status_unrecognized", cycle_id=cycle_id, status=status)
+            return "failed"
+        return cast(CycleStatus, status)
 
     # ------------------------------------------------------------------
     # Phase 27: Shock analysis read methods (Plan 01)
