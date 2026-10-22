@@ -1,17 +1,8 @@
 """INGEST-01 integration tests — real network.
 
-These tests are auto-marked (enable_socket) by
-tests/integration/conftest.py — without that marker the global
-`--disable-socket` gate would block real network access.
-
-PATH DEPENDENCY (Codex review): the enable_socket marker is applied by a
-conftest.py hook that matches on the string "tests/integration" in the item
-fspath. Moving this test file outside tests/integration/ would silently
-remove the marker and the global --disable-socket gate would block every
-real-network call with SocketBlockedError. The test
-`test_test_module_lives_under_tests_integration` at the bottom of this
-module asserts the file remains under tests/integration/ so the invariant
-is loud, not silent.
+Marked ``live_network``: skipped unless ``--run-live`` is given; CI runs them nightly
+(.github/workflows/nightly.yml). Sockets come from the marker, not from this file's
+location (docs/DECISIONS.md#adr-test-network-gate).
 
 Content shape: we assert `staleness='fresh'` and loose type/positivity
 checks (price > 0, isinstance Decimal). We do NOT assert specific price
@@ -23,15 +14,18 @@ returns fetch_failed and the 'fresh' assertions will fail. That's a real
 signal of upstream degradation, not a false positive. The delisted-ticker
 test accepts either fetch_failed OR a structurally valid empty slice so
 yfinance error-semantic drift does not flake the suite. For local dev,
-run `uv run pytest tests/integration/` to exercise.
+run `uv run pytest -q --run-live -m live_network`.
 """
 
 from __future__ import annotations
 
-import pathlib
 from decimal import Decimal
 
+import pytest
+
 from alphaswarm.ingestion import MarketSlice, YFinanceMarketDataProvider
+
+pytestmark = pytest.mark.live_network
 
 
 async def test_yfinance_real_fetch_aapl_returns_fresh_slice() -> None:
@@ -132,15 +126,3 @@ async def test_yfinance_real_empty_list_returns_empty_dict() -> None:
     provider = YFinanceMarketDataProvider()
     assert await provider.get_prices([]) == {}
 
-
-def test_test_module_lives_under_tests_integration() -> None:
-    """Codex review — invariant: this module MUST live under tests/integration/
-    so the conftest enable_socket auto-marker applies. If relocated, the
-    other tests in this file would silently fail under --disable-socket."""
-    here = pathlib.Path(__file__).resolve()
-    assert "tests/integration" in str(here), (
-        f"{here} is outside tests/integration/ — the enable_socket auto-marker "
-        "from conftest.py will not apply and the global --disable-socket gate "
-        "will block real-network fetches. Move this file back under "
-        "tests/integration/."
-    )

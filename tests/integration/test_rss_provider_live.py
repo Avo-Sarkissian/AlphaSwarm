@@ -1,17 +1,8 @@
 """INGEST-02 integration tests — real network.
 
-These tests are auto-marked (enable_socket) by
-tests/integration/conftest.py — without that marker the global
-`--disable-socket` gate would block real network access.
-
-PATH DEPENDENCY (Codex review): the enable_socket marker is applied by a
-conftest.py hook that matches on the string "tests/integration" in the
-item fspath. Moving this test file outside tests/integration/ would
-silently remove the marker and the global --disable-socket gate would
-block every real-network call with SocketBlockedError. The test
-`test_test_module_lives_under_tests_integration` at the bottom of this
-module asserts the file remains under tests/integration/ so the
-invariant is loud, not silent.
+Marked ``live_network``: skipped unless ``--run-live`` is given; CI runs them nightly
+(.github/workflows/nightly.yml). Sockets come from the marker, not from this file's
+location (docs/DECISIONS.md#adr-test-network-gate).
 
 Content-tolerance philosophy:
   - Ticker entities (Yahoo RSS): assert staleness='fresh' only. Yahoo RSS
@@ -30,9 +21,11 @@ Regression guards:
 
 from __future__ import annotations
 
-import pathlib
+import pytest
 
 from alphaswarm.ingestion import NewsSlice, RSSNewsProvider
+
+pytestmark = pytest.mark.live_network
 
 
 async def test_rss_real_fetch_ticker_entity_returns_fresh_slice() -> None:
@@ -115,15 +108,3 @@ async def test_rss_real_mixed_batch_returns_fresh_for_all_entities() -> None:
     assert result["AAPL"].staleness == "fresh"
     assert result["EV battery"].staleness == "fresh"
 
-
-def test_test_module_lives_under_tests_integration() -> None:
-    """Codex review — invariant: this module MUST live under tests/integration/
-    so the conftest enable_socket auto-marker applies. If relocated, the
-    other tests in this file would silently fail under --disable-socket."""
-    here = pathlib.Path(__file__).resolve()
-    assert "tests/integration" in str(here), (
-        f"{here} is outside tests/integration/ — the enable_socket auto-marker "
-        "from conftest.py will not apply and the global --disable-socket gate "
-        "will block real-network fetches. Move this file back under "
-        "tests/integration/."
-    )

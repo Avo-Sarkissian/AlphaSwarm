@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
@@ -16,6 +15,7 @@ import pytest_asyncio
 from alphaswarm.config import AppSettings, GovernorSettings, generate_personas, load_bracket_configs
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.worker import WorkerPersonaConfig
+from tests.support.markers import RUN_LIVE_OPTION, apply_marker_policy
 
 if TYPE_CHECKING:
     from neo4j import AsyncDriver
@@ -212,24 +212,19 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--require-neo4j",
         action="store_true",
         default=False,
-        help="Fail neo4j-marked tests instead of skipping them when neo4j-test is unreachable.",
+        help="Fail, not skip, when neo4j-test (127.0.0.1:7688) is unreachable.",
+    )
+    parser.addoption(
+        RUN_LIVE_OPTION,
+        action="store_true",
+        default=False,
+        help="Run tests marked live_network or ollama (internet or local Ollama).",
     )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Give `neo4j` tests sockets, and async ones the session event loop.
-
-    append=False puts the session-scoped asyncio marker ahead of the bare one
-    that asyncio_mode=auto adds, so it is the marker pytest-asyncio reads and
-    the test shares the loop that owns neo4j_test_driver. Sync tests get no
-    asyncio marker: pytest-asyncio warns when one carries it
-    (docs/DECISIONS.md#adr-test-network-gate).
-    """
-    for item in items:
-        if item.get_closest_marker("neo4j") is not None:
-            item.add_marker(pytest.mark.enable_socket)
-            if inspect.iscoroutinefunction(getattr(item, "obj", None)):
-                item.add_marker(pytest.mark.asyncio(loop_scope="session"), append=False)
+    """Sockets, the session loop for neo4j tests, and live skips follow markers only."""
+    apply_marker_policy(items, run_live=bool(config.getoption(RUN_LIVE_OPTION)))
 
 
 def _refuse_forbidden_port(uri: str) -> None:
