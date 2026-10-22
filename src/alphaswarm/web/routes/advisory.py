@@ -4,7 +4,7 @@ Mirrors web/routes/report.py line-for-line:
   - T-36-14 equivalent: use aiofiles.os (never Path.exists/stat on the event loop)
   - T-36-15 equivalent: done_callback records failures into
     app.state.advisory_generation_error[cycle_id] so GET returns 500 and the
-    Vue client can stop polling instead of waiting out the 10-minute cap.
+    frontend can stop polling instead of waiting out the 10-minute cap.
   - Writes are atomic (fsutil.atomic_write_text, owner-only).
 
 The report/advisory cross-guard lives in web/guards.require_orchestrator_free.

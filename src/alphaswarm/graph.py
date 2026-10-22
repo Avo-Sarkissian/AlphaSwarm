@@ -1748,8 +1748,8 @@ class GraphStateManager:
     async def read_shock_event(self, cycle_id: str) -> dict | None:  # type: ignore[type-arg]
         """Return ShockEvent metadata for the cycle, or None if no shock was injected.
 
-        Used by the TUI delta-mode activation worker to decide whether to enter
-        delta mode after simulation completes (SHOCK-04).
+        Used by the CLI and web report pipelines to pre-seed the shock-impact
+        section when a shock was injected (SHOCK-04).
 
         Returns:
             Dict with shock_id, shock_text, injected_before_round, created_at,

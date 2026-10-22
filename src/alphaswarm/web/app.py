@@ -306,9 +306,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app.include_router(settings_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
 
-    # Serve Vue SPA production build as static files (D-02).
+    # Serve the React SPA production build as static files (D-02).
     # Must be LAST mount — html=True serves index.html as fallback for all non-API paths,
-    # enabling Vue Router history mode. Only mounted when dist/ exists (production build).
+    # so client-side routes resolve. Only mounted when dist/ exists (production build).
     frontend_dist = os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend", "dist")
     if os.path.isdir(frontend_dist):
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")

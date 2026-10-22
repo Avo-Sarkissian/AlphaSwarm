@@ -79,3 +79,19 @@ def test_stale_diagnose_script_is_gone() -> None:
 
     repo_root = Path(__file__).resolve().parents[2]
     assert not (repo_root / "scripts" / "diagnose_sim.py").exists(), "probed dead code paths"
+
+
+def test_retired_ui_wording_is_gone_from_src() -> None:
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[2] / "src" / "alphaswarm"
+    retired = re.compile(r"\b(TUI|Vue)\b")
+    hits = [
+        f"{path.relative_to(src)}:{number}: {line.strip()}"
+        for path in sorted(src.rglob("*.py"))
+        if not re.search(r" [2-9]\.py$", path.name)
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if retired.search(line) and "TUI was retired" not in line
+    ]
+    assert hits == [], "the UI is React on the web; reword these:\n" + "\n".join(hits)

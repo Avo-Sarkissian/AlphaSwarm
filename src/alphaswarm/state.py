@@ -1,7 +1,7 @@
-"""StateStore: mutable state container for simulation -> TUI bridge.
+"""StateStore: mutable state container bridging the simulation and the web UI.
 
-Simulation writes per-agent decisions and phase transitions.
-TUI reads immutable StateSnapshot on 200ms timer.
+Simulation writes per-agent decisions and phase transitions. The WebSocket
+broadcaster reads an immutable StateSnapshot every 200 ms.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ class BracketSummary:
 
 @dataclass(frozen=True)
 class RationaleEntry:
-    """Single agent rationale entry for the TUI rationale sidebar (D-03, D-04, TUI-03).
+    """Single agent rationale entry for the UI rationale feed (docs/DECISIONS.md#p10-d-03).
 
     Produced by simulation.py after each round and pushed to StateStore queue.
     Agent ID is a short identifier (e.g. "A_42"). Rationale is truncated to
@@ -72,7 +72,7 @@ class RationaleEntry:
 
 @dataclass(frozen=True)
 class AgentState:
-    """Per-agent state for TUI grid rendering. Signal + confidence only."""
+    """Per-agent state for the live agent graph. Signal + confidence only."""
 
     signal: SignalType | None = None
     confidence: float = 0.0
@@ -119,7 +119,7 @@ _ROUND_OF_PHASE: Final[dict[SimulationPhase, int]] = {
 
 @dataclass(frozen=True)
 class StateSnapshot:
-    """Immutable snapshot for TUI consumption."""
+    """Immutable snapshot serialized by the WebSocket broadcaster."""
 
     phase: SimulationPhase = SimulationPhase.IDLE
     round_num: int = 0
@@ -152,16 +152,16 @@ class StateSnapshot:
 
 
 class StateStore:
-    """Mutable state container. Simulation writes, TUI reads snapshots.
+    """Mutable state container. Simulation writes, the broadcaster reads snapshots.
 
     Per D-02: per-agent writes happen immediately after each agent resolves.
     asyncio.Lock guards structural consistency (defensive, not strictly
     necessary for single-loop architecture but prevents future surprises).
 
-    Phase 10 additions (TUI-03, TUI-04, TUI-05):
-    - _rationale_queue: asyncio.Queue[RationaleEntry] for rationale sidebar
+    Phase 10 additions (docs/DECISIONS.md#p10-d-02, #p10-d-05, #p10-d-08):
+    - _rationale_window: 50-entry sliding window for the rationale feed
     - _cumulative_tokens/_cumulative_eval_ns: TPS accumulation from Ollama metadata
-    - _bracket_summaries: latest round's bracket distribution for bracket panel
+    - _bracket_summaries: latest round's bracket distribution for the bracket panel
     """
 
     def __init__(self) -> None:
@@ -184,10 +184,10 @@ class StateStore:
         self._data_source_audit: DataSourceAuditBuffer = DataSourceAuditBuffer(
             max_entries=100,
         )
-        # Phase 10: TUI-04 TPS accumulation from Ollama response metadata
+        # TPS accumulation from Ollama response metadata (docs/DECISIONS.md#p10-d-05)
         self._cumulative_tokens: int = 0
         self._cumulative_eval_ns: int = 0
-        # Phase 10: TUI-05 bracket summaries storage
+        # Latest bracket summaries (docs/DECISIONS.md#p10-d-08)
         self._bracket_summaries: tuple[BracketSummary, ...] = ()
         self._last_error: RunError | None = None
         # Orchestrator job status (report/advisory). Not run-scoped: survives SEEDING.
@@ -307,7 +307,7 @@ class StateStore:
         ITEM 4 of quick task 260512-jqn: replaced drain semantics with peek
         semantics. The deque silently drops the oldest entry when full, so
         every snapshot() — and therefore every WS broadcast — carries the
-        most recent 50 entries. Multiple consumers (TUI, WS broadcaster,
+        most recent 50 entries. Multiple consumers (WS broadcaster,
         reconnecting clients) all see the same window without racing each
         other for queue items.
 
@@ -319,7 +319,7 @@ class StateStore:
         self._rationale_window.append(replace(entry, seq=self._rationale_seq, ts=time.time()))
 
     def update_tps(self, eval_count: int, eval_duration_ns: int) -> None:
-        """Accumulate TPS from Ollama response metadata (D-05, TUI-04).
+        """Accumulate TPS from Ollama response metadata (docs/DECISIONS.md#p10-d-05).
 
         Called by AgentWorker.infer() after each successful inference.
         GIL protects int addition -- no asyncio.Lock needed for this hot-path call.
@@ -332,7 +332,7 @@ class StateStore:
         self._cumulative_eval_ns += eval_duration_ns
 
     async def set_bracket_summaries(self, summaries: tuple[BracketSummary, ...]) -> None:
-        """Store bracket summaries after each round completes (D-08, TUI-05).
+        """Store bracket summaries after each round completes (docs/DECISIONS.md#p10-d-08).
 
         Called by simulation.py after compute_bracket_summaries() for each round.
         """
@@ -475,7 +475,7 @@ class StateStore:
 
 
 class ReplayStore:
-    """Read-only store for replay mode. Feeds StateSnapshot to TUI pipeline.
+    """Read-only store for replay mode. Feeds StateSnapshot to the broadcaster.
 
     Unlike StateStore, snapshot() has NO side effects (no queue drain).
     Rationale entries and bracket summaries are set once per round transition,
