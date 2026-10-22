@@ -8,11 +8,8 @@
 import { useState } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { ConnectionProvider } from './context/ConnectionContext';
-import { TelemetryProvider } from './context/TelemetryContext';
-import { AgentsProvider } from './context/AgentsContext';
-import { BracketProvider } from './context/BracketContext';
-import { RationalesProvider } from './context/RationalesContext';
 import { EdgesProvider } from './context/EdgesContext';
+import { FrameProviders } from './context/FrameProviders';
 import { App as DashboardShell } from './components/app_v2';
 import { Onboarding } from './components/onboarding';
 
@@ -61,19 +58,11 @@ export function App() {
   }
 
   return (
-    <ConnectionProvider connected={connected} reconnectFailed={reconnectFailed} lastFrame={lastFrame}>
-      <TelemetryProvider frame={lastFrame}>
-        <AgentsProvider frame={lastFrame}>
-          <BracketProvider frame={lastFrame}>
-            <RationalesProvider frame={lastFrame}>
-              <EdgesProvider round={round}>
-                <DashboardShell />
-              </EdgesProvider>
-            </RationalesProvider>
-          </BracketProvider>
-        </AgentsProvider>
-      </TelemetryProvider>
-    </ConnectionProvider>
+    <FrameProviders frame={lastFrame} connected={connected} reconnectFailed={reconnectFailed}>
+      <EdgesProvider round={round}>
+        <DashboardShell />
+      </EdgesProvider>
+    </FrameProviders>
   );
 }
 
