@@ -113,7 +113,8 @@ def test_health_endpoint() -> None:
         assert "simulation_phase" in data
         assert "memory_percent" in data
         assert "is_simulation_running" in data
-        assert data["status"] == "ok"
+        assert data["status"] == "degraded"  # test app: no Neo4j, no Ollama
+        assert data["components"]["neo4j"]["ok"] is False
         assert isinstance(data["simulation_phase"], str)
         assert isinstance(data["memory_percent"], float)
         assert data["is_simulation_running"] is False

@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import structlog
 
 from alphaswarm.config import AppSettings
-from alphaswarm.errors import Neo4jConnectionError
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.logging import configure_logging, get_logger
@@ -66,7 +65,9 @@ def create_app_state(
         with_ollama: If True, create OllamaClient and OllamaModelManager.
                      If False, both are None. Allows startup without Ollama running.
         with_neo4j: If True, create Neo4j driver and GraphStateManager.
-                    If False, graph_manager is None. Fast-fails if Neo4j unreachable.
+                    If False, graph_manager is None. Builds the driver only;
+                    connectivity is checked by the caller (web lifespan or CLI)
+                    inside the event loop.
     """
     configure_logging(
         log_level=settings.log_level,

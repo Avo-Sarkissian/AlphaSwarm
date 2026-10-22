@@ -217,6 +217,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.replay_manager = replay_manager
     app.state.connection_manager = connection_manager
     app.state.neo4j_ready = await _prepare_neo4j(app_state.graph_manager)
+    # (timestamp, components) cache for GET /api/health; None until the first probe.
+    app.state.health_components = None
     # Pin run provenance to the code this process loaded: cycles stamp this
     # revision even if HEAD moves before the first run (docs/DECISIONS.md#adr-cycle-metrics).
     await asyncio.to_thread(current_git_revision)
