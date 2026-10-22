@@ -5,6 +5,8 @@
 //     starts only on Confirm. When the estimate fails the modal still opens
 //     ("estimate unavailable — run anyway?"), so a cloud run never starts
 //     without a chance to cancel.
+//   - Backend unreachable (the estimate request never got an answer): stops
+//     with the reachability hint; there is nothing to confirm or start.
 //
 // The gate owns simStart. It never rejects: failures become `error` (via
 // formatApiError) and every request ends in onSettled(ok) — success, failure
@@ -13,7 +15,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { RunConfirmModal } from '../components/run_confirm';
 import { getEstimate, type RunEstimate } from '../api/settings';
 import { simStart } from '../api/simulation';
-import { formatApiError } from '../lib/apiError';
+import { formatApiError, isBackendUnreachable } from '../lib/apiError';
 import { gateDecide } from '../lib/runGate';
 
 export interface RunGateOptions {
@@ -80,7 +82,11 @@ export function useRunGate(opts: RunGateOptions = {}): RunGateState {
         let estimateFailed = false;
         try {
           estimate = await getEstimate();
-        } catch {
+        } catch (e) {
+          if (isBackendUnreachable(e)) {
+            settle(false, e);
+            return;
+          }
           estimateFailed = true;
         }
         const decision = gateDecide(estimate, estimateFailed);
@@ -91,7 +97,7 @@ export function useRunGate(opts: RunGateOptions = {}): RunGateState {
         setConfirm({ seed, estimate: decision.estimate });
       })();
     },
-    [start],
+    [settle, start],
   );
 
   const modal: ReactNode =

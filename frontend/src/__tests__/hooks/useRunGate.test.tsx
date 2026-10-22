@@ -119,6 +119,32 @@ describe('useRunGate', () => {
     await waitFor(() => expect(onSettled).toHaveBeenCalledWith(true));
   });
 
+  // A stopped backend fails the estimate first: fetch rejects with TypeError,
+  // or the dev proxy answers 502 backend_unreachable.
+  it.each([
+    ['a network failure', new TypeError('Failed to fetch')],
+    [
+      'the dev proxy answer',
+      new ApiError(
+        502,
+        { detail: { error: 'backend_unreachable', message: 'Cannot reach the backend. Is it running on port 8000?' } },
+        '/api/settings/estimate',
+      ),
+    ],
+  ])('stops at an unreachable backend (%s) instead of asking about cost', async (_name, failure) => {
+    getEstimateMock.mockRejectedValue(failure);
+    const onSettled = setup();
+    fireEvent.click(screen.getByText('request'));
+    await waitFor(() => expect(onSettled).toHaveBeenCalledWith(false));
+    expect(screen.getByTestId('error').textContent).toBe(
+      'Cannot reach the backend. Is it running on port 8000?',
+    );
+    expect(screen.queryByText(/Cost estimate unavailable/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /confirm & run/i })).toBeNull();
+    expect(simStartMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('pending').textContent).toBe('false');
+  });
+
   it('starts once on a double click', async () => {
     getEstimateMock.mockResolvedValue(LOCAL);
     simStartMock.mockResolvedValue({ status: 'accepted', message: 'Simulation started' });
