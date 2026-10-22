@@ -68,6 +68,45 @@ def test_unknown_key_is_422_not_silently_ignored(tmp_path: Path) -> None:
     assert _saved(app).spend_cap_usd == Decimal("3")
 
 
+@pytest.mark.parametrize(
+    ("body", "loc"),
+    [
+        ({"worker": {"api_kye": "sk-typo-secret-5555"}}, ["body", "worker", "api_kye"]),
+        (
+            {"limits": {"ollama": {"max_in_flght": 2}}},
+            ["body", "limits", "ollama", "max_in_flght"],
+        ),
+        (
+            {
+                "pricing_overrides": {
+                    "claude-test": {
+                        "input_per_mtok": "1",
+                        "output_per_mtok": "2",
+                        "cached_per_mtok": "0.1",
+                    }
+                }
+            },
+            ["body", "pricing_overrides", "claude-test", "cached_per_mtok"],
+        ),
+    ],
+    ids=["role", "limits", "pricing"],
+)
+def test_unknown_nested_key_is_422_and_nothing_is_saved(
+    tmp_path: Path, body: dict[str, object], loc: list[str]
+) -> None:
+    """A typo such as 'api_kye' must not answer 200 while the old value stays in place."""
+    app = _app(tmp_path)
+    with TestClient(app) as client:
+        before = _saved(app)
+        r = client.put("/api/settings", json=body)
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["error"] == "validation_error"
+    assert [f["loc"] for f in detail["fields"]] == [loc]
+    assert "sk-typo-secret-5555" not in r.text
+    assert _saved(app) == before
+
+
 def test_omitted_keys_keep_stored_values(tmp_path: Path) -> None:
     app = _app(tmp_path)
     with TestClient(app) as client:

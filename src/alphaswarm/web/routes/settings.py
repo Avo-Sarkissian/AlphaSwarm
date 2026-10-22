@@ -184,7 +184,7 @@ class SettingsUpdateResponse(BaseModel):
     mode: Literal["local", "cloud", "mixed"]
 
 
-class RoleUpdate(BaseModel):
+class RoleUpdate(BaseModel, extra="forbid"):
     """Role fields a PUT may change; omitted fields keep the stored value."""
 
     provider: ProviderType | None = None
@@ -193,14 +193,26 @@ class RoleUpdate(BaseModel):
     api_key: str | None = None
 
 
+class LimitsUpdate(ProviderLimits, extra="forbid"):
+    """ProviderLimits in a PUT body; the stored-config model itself is unchanged."""
+
+
+class PriceUpdate(ModelPrice, extra="forbid"):
+    """ModelPrice in a PUT body; the stored-config model itself is unchanged."""
+
+
 class SettingsUpdateRequest(BaseModel, extra="forbid"):
-    """Typed PUT /api/settings body. Unknown keys (typos) are rejected, never ignored."""
+    """Typed PUT /api/settings body.
+
+    Unknown keys (typos) are rejected at every level, inside a role, a limits
+    entry or a price included, never ignored.
+    """
 
     orchestrator: RoleUpdate | None = None
     worker: RoleUpdate | None = None
-    limits: dict[ProviderType, ProviderLimits] | None = None
+    limits: dict[ProviderType, LimitsUpdate] | None = None
     spend_cap_usd: Decimal | None = None
-    pricing_overrides: dict[str, ModelPrice] | None = None
+    pricing_overrides: dict[str, PriceUpdate] | None = None
 
     @field_validator("orchestrator", "worker", mode="before")
     @classmethod
