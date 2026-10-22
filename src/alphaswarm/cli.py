@@ -554,10 +554,15 @@ async def _run_pipeline(
 
 
 def _handle_run(rumor: str) -> None:
-    """Synchronous CLI handler: builds AppState before asyncio.run().
+    """Synchronous CLI handler: builds AppState, providers and controller, then asyncio.run().
 
-    Every loop-bound object is created inside the loop that uses it. Neo4j
-    connectivity is checked asynchronously (ensure_schema) once the loop runs.
+    These objects are built before the event loop exists, loop-bound ones
+    included: the StateStore and governor locks, queue and event, the cloud
+    rate limiter's semaphore, and the Neo4j async driver. That works because
+    asyncio primitives attach to a loop on first use (Python 3.10+) and the
+    driver opens no connection until it is used, and both first uses happen
+    inside asyncio.run(). Neo4j is first contacted there, by ensure_schema() in
+    _run_pipeline.
     """
     from alphaswarm.app import create_app_state
     from alphaswarm.config import load_inference_config
