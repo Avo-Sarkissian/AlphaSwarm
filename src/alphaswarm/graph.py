@@ -1956,8 +1956,8 @@ class GraphStateManager:
     async def read_cycle_status(self, cycle_id: str) -> CycleStatus | None:
         """Lifecycle status of *cycle_id*, or ``None`` when no such cycle exists.
 
-        Job routes gate on this instead of the in-memory phase, which replay and
-        restarts overwrite (docs/DECISIONS.md#adr-background-tasks).
+        Job routes gate on this instead of the in-memory phase, which a restart
+        resets to idle (docs/DECISIONS.md#adr-background-tasks).
         """
         async with self._driver.session(database=self._database) as session:
             return await session.execute_read(self._read_cycle_status_tx, cycle_id)
