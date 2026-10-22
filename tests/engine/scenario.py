@@ -1,8 +1,8 @@
 """Constants and helpers for deterministic run_simulation scenarios.
 
-All data is fictional. Scenario goldens are built from scenario_summary(); they
-deliberately exclude lifecycle counts so engine refactors can keep them
-byte-identical.
+All data is fictional. scenario_summary() reduces a run to a domain-level record
+for golden comparison; it deliberately excludes lifecycle counts so engine
+refactors can keep a scenario golden byte-identical.
 """
 
 from __future__ import annotations
