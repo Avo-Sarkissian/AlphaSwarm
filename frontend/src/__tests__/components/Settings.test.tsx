@@ -192,4 +192,19 @@ describe('Settings privacy copy', () => {
     openSection('API keys');
     expect(screen.getByDisplayValue('worker')).toBeDefined();
   });
+
+  it('says the settings could not be read instead of checking forever', async () => {
+    stubFetchRoutes({
+      'GET /api/settings': {
+        status: 422,
+        body: { detail: { error: 'inference_config_invalid', message: 'Inference config is invalid' } },
+      },
+      'GET /api/health': { body: HEALTH },
+    });
+    renderWithFrame(<Settings onClose={vi.fn()} />);
+    expect(await screen.findByText('mode unknown')).toBeDefined();
+    openSection('Privacy');
+    expect(screen.getByText(/Could not read the inference settings/)).toBeDefined();
+    expect(screen.queryByText(/Checking where prompts are sent/)).toBeNull();
+  });
 });

@@ -28,6 +28,12 @@ export interface PrivacyFacts {
   allowCloudAdvisory: boolean;
 }
 
+/** GET /api/settings failed, so where prompts go is unknown. */
+export const FACTS_UNAVAILABLE = 'unavailable';
+
+/** The facts; null while GET /api/settings loads; FACTS_UNAVAILABLE when it failed. */
+export type PrivacyStatus = PrivacyFacts | null | typeof FACTS_UNAVAILABLE;
+
 export interface PrivacyLine {
   text: string;
   /** True when the sentence describes data that leaves, or may leave, this machine. */
@@ -38,6 +44,8 @@ const ANTHROPIC_HOST = 'api.anthropic.com';
 const OLLAMA_CLOUD_HOST = 'ollama.com';
 
 export const CHECKING_LINE = 'Checking where prompts are sent…';
+export const UNAVAILABLE_LINE =
+  'Could not read the inference settings, so where prompts are sent is unknown; Settings → Model shows the error.';
 export const MARKET_DATA_LINE =
   'Market data: yfinance prices and RSS headlines are fetched over the network; no API keys are needed.';
 export const ONBOARDING_PRIVACY_LINE =
@@ -158,6 +166,11 @@ function destination(facts: RoleFacts): string {
   return facts.host ? `${providerLabel(facts.provider)} (${facts.host})` : providerLabel(facts.provider);
 }
 
+/** What to say while the facts are unknown: still loading, or the load failed. */
+function unknownLine(status: null | typeof FACTS_UNAVAILABLE): string {
+  return status === null ? CHECKING_LINE : UNAVAILABLE_LINE;
+}
+
 export function roleLine(role: Role, facts: RoleFacts): string {
   if (!isOffMachine(facts)) {
     return `Prompts for the ${role} role stay on this machine (local Ollama).`;
@@ -165,8 +178,8 @@ export function roleLine(role: Role, facts: RoleFacts): string {
   return `Prompts for the ${role} role are sent to ${destination(facts)}.`;
 }
 
-export function advisoryLine(facts: PrivacyFacts | null): string {
-  if (facts === null) return CHECKING_LINE;
+export function advisoryLine(facts: PrivacyStatus): string {
+  if (facts === null || facts === FACTS_UNAVAILABLE) return unknownLine(facts);
   const orchestrator = facts.orchestrator;
   if (!isOffMachine(orchestrator)) {
     // The opt-in also skips the backend checks that catch what the settings cannot
@@ -193,8 +206,11 @@ export function advisoryOptInHelp(orchestrator: RoleFacts): string {
   return `When on, the advisory sends your held tickers — never quantities or cost basis — to ${destination(orchestrator)}. When off, the advisory is skipped and the report still runs.`;
 }
 
-export function privacyLines(facts: PrivacyFacts | null): PrivacyLine[] {
-  if (facts === null) return [{ text: CHECKING_LINE, offMachine: false }];
+export function privacyLines(facts: PrivacyStatus): PrivacyLine[] {
+  if (facts === null || facts === FACTS_UNAVAILABLE) {
+    // Unreadable settings may send prompts anywhere, so that line is not marked local.
+    return [{ text: unknownLine(facts), offMachine: facts === FACTS_UNAVAILABLE }];
+  }
   const orchestratorOff = isOffMachine(facts.orchestrator);
   return [
     { text: roleLine('orchestrator', facts.orchestrator), offMachine: orchestratorOff },
@@ -203,20 +219,27 @@ export function privacyLines(facts: PrivacyFacts | null): PrivacyLine[] {
   ];
 }
 
-export function dataSourcesNote(facts: PrivacyFacts | null): string {
-  if (facts === null) return `${MARKET_DATA_LINE} ${CHECKING_LINE}`;
+export function dataSourcesNote(facts: PrivacyStatus): string {
+  if (facts === null || facts === FACTS_UNAVAILABLE) {
+    return `${MARKET_DATA_LINE} ${unknownLine(facts)}`;
+  }
   return `${MARKET_DATA_LINE} ${roleLine('worker', facts.worker)}`;
 }
 
-export function cloudRolesSummary(facts: PrivacyFacts | null): string {
+export function cloudRolesSummary(facts: PrivacyStatus): string {
   if (facts === null) return 'checking…';
+  if (facts === FACTS_UNAVAILABLE) return 'unknown (settings could not be read)';
   const roles: Role[] = [];
   if (isOffMachine(facts.orchestrator)) roles.push('orchestrator');
   if (isOffMachine(facts.worker)) roles.push('worker');
   return roles.length === 0 ? 'none (local only)' : roles.join(', ');
 }
 
-export function modeLabel(mode: InferenceMode | null): string {
+export function privacyMode(facts: PrivacyStatus): InferenceMode | null | typeof FACTS_UNAVAILABLE {
+  return facts === null || facts === FACTS_UNAVAILABLE ? facts : facts.mode;
+}
+
+export function modeLabel(mode: InferenceMode | null | typeof FACTS_UNAVAILABLE): string {
   switch (mode) {
     case 'local':
       return 'local only';
@@ -224,6 +247,8 @@ export function modeLabel(mode: InferenceMode | null): string {
       return 'cloud inference';
     case 'mixed':
       return 'local + cloud';
+    case FACTS_UNAVAILABLE:
+      return 'mode unknown';
     default:
       return 'checking…';
   }

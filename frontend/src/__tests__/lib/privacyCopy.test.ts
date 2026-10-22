@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import type { RoleView, SettingsView } from '../../api/settings';
 import {
   CHECKING_LINE,
+  FACTS_UNAVAILABLE,
   ONBOARDING_PRIVACY_LINE,
+  UNAVAILABLE_LINE,
   advisoryLine,
   advisoryOptInHelp,
   cloudRolesSummary,
@@ -16,6 +18,7 @@ import {
   modeLabel,
   privacyFactsFromSettings,
   privacyLines,
+  privacyMode,
   roleLine,
 } from '../../lib/privacyCopy';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -126,6 +129,16 @@ describe('helpers', () => {
     expect(dataSourcesNote(null)).toContain(CHECKING_LINE);
     expect(modeLabel(null)).toBe('checking…');
     expect(cloudRolesSummary(null)).toBe('checking…');
+  });
+
+  it('copy for unreadable settings says so instead of checking forever', () => {
+    expect(privacyLines(FACTS_UNAVAILABLE)).toEqual([{ text: UNAVAILABLE_LINE, offMachine: true }]);
+    expect(advisoryLine(FACTS_UNAVAILABLE)).toBe(UNAVAILABLE_LINE);
+    expect(dataSourcesNote(FACTS_UNAVAILABLE)).toContain(UNAVAILABLE_LINE);
+    expect(privacyMode(FACTS_UNAVAILABLE)).toBe(FACTS_UNAVAILABLE);
+    expect(modeLabel(privacyMode(FACTS_UNAVAILABLE))).toBe('mode unknown');
+    expect(cloudRolesSummary(FACTS_UNAVAILABLE)).toBe('unknown (settings could not be read)');
+    expect(UNAVAILABLE_LINE).not.toContain('this machine');
   });
 
   it('labels modes and cloud roles', () => {

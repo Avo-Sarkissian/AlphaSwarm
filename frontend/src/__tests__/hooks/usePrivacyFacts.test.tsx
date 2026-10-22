@@ -5,6 +5,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getSettings, type RoleView, type SettingsView } from '../../api/settings';
 import { usePrivacyFacts } from '../../hooks/usePrivacyFacts';
+import { FACTS_UNAVAILABLE, privacyMode } from '../../lib/privacyCopy';
 
 vi.mock('../../api/settings', () => ({ getSettings: vi.fn() }));
 
@@ -50,7 +51,13 @@ describe('usePrivacyFacts', () => {
     getSettingsMock.mockResolvedValue(settingsView(LOCAL_ROLE));
     const { result } = renderHook(() => usePrivacyFacts());
     expect(result.current[0]).toBeNull();
-    await waitFor(() => expect(result.current[0]?.mode).toBe('local'));
+    await waitFor(() => expect(privacyMode(result.current[0])).toBe('local'));
+  });
+
+  it('reports a failed fetch as unavailable, not as still loading', async () => {
+    getSettingsMock.mockRejectedValue(new Error('422 inference_config_invalid'));
+    const { result } = renderHook(() => usePrivacyFacts());
+    await waitFor(() => expect(result.current[0]).toBe(FACTS_UNAVAILABLE));
   });
 
   it('keeps settings set by the caller over a slower first fetch', async () => {
@@ -63,10 +70,10 @@ describe('usePrivacyFacts', () => {
     const { result } = renderHook(() => usePrivacyFacts());
 
     act(() => result.current[1](settingsView(ANTHROPIC_ROLE)));
-    expect(result.current[0]?.mode).toBe('mixed');
+    expect(privacyMode(result.current[0])).toBe('mixed');
 
     await act(async () => answer(settingsView(LOCAL_ROLE)));
-    expect(result.current[0]?.mode).toBe('mixed');
+    expect(privacyMode(result.current[0])).toBe('mixed');
     expect(getSettingsMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -19,6 +19,7 @@ import {
   cloudRolesSummary,
   modeLabel,
   privacyLines,
+  privacyMode,
 } from '../lib/privacyCopy';
 import {
   normalizeSettingsUiState,
@@ -115,7 +116,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               className="mono"
               style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}
             >
-              {modeLabel(privacy?.mode ?? null)}
+              {modeLabel(privacyMode(privacy))}
             </div>
           </div>
         </div>
