@@ -142,21 +142,28 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
 
   // Run gate: cost confirmation for cloud/mixed runs, then simStart. It settles
   // on success, failure and cancel alike, so the button never stays on
-  // "Starting…".
+  // "Starting…". A run that did not start asks /api/health again, so the
+  // status line does not keep saying "ready" after the backend went away.
   const { requestRun, modal: runConfirmModal, error: runError, pending } = useRunGate({
     onSettled: (ok) => {
       if (ok) onComplete(seed.trim());
+      else setCheckSeq((n) => n + 1);
     },
   });
 
+  // Each answer replaces the previous one; until it arrives the last one stays on screen.
   useEffect(() => {
     let cancelled = false;
     apiFetch<unknown>('/api/health')
       .then((raw) => {
-        if (!cancelled) setHealth(parseHealth(raw));
+        if (cancelled) return;
+        setHealth(parseHealth(raw));
+        setHealthError(null);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setHealthError(formatApiError(e));
+        if (cancelled) return;
+        setHealth(null);
+        setHealthError(formatApiError(e));
       });
     return () => {
       cancelled = true;
@@ -202,6 +209,10 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
             className={`ob-status-dot ${backendOk ? 'ok' : health !== null || healthError !== null ? 'err' : ''}`}
           />
           <span className="mono" style={{ fontSize: 12 }}>{statusLabel}</span>
+          {/* Always offered: a check can hang, and "ready" can go stale. */}
+          <button type="button" className="btn ghost ob-recheck" onClick={recheck} disabled={pending}>
+            Re-check
+          </button>
         </div>
         {health !== null && health.down.length > 0 && (
           <ul className="ob-health-down">
@@ -213,11 +224,6 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
               </li>
             ))}
           </ul>
-        )}
-        {!backendOk && (health !== null || healthError !== null) && (
-          <button type="button" className="btn ghost" onClick={recheck}>
-            Re-check
-          </button>
         )}
 
         <div className="ob-seed-input">

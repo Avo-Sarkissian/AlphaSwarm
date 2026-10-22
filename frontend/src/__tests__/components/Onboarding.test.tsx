@@ -136,3 +136,81 @@ describe('Onboarding component status', () => {
     expect(screen.queryByRole('button', { name: 'Re-check' })).not.toBeNull();
   });
 });
+
+// What the Vite dev proxy answers when the backend is not running.
+const UNREACHABLE = {
+  status: 502,
+  body: {
+    detail: { error: 'backend_unreachable', message: 'Cannot reach the backend. Is it running on port 8000?' },
+  },
+};
+
+function healthReply(body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+// Opens the seed step on a ready backend in cloud mode, types a seed and presses
+// Run: the cost confirmation stays open, so the run is pending until Cancel.
+async function startPendingRun() {
+  stubFetchRoutes({
+    'GET /api/health': { body: HEALTH_OK },
+    'GET /api/settings/estimate': { body: CLOUD_ESTIMATE },
+  });
+  render(<Onboarding onComplete={vi.fn()} />);
+  await openSeedStep();
+  fireEvent.change(screen.getByPlaceholderText(/Fed announces/), { target: { value: SEED } });
+  fireEvent.click(screen.getByRole('button', { name: /run first cycle/i }));
+  await screen.findByRole('button', { name: 'Cancel' });
+}
+
+describe('Onboarding re-check', () => {
+  it('offers Re-check while the first answer is still outstanding', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<Response>(() => {}))
+      .mockImplementation(async () => healthReply(HEALTH_OK));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<Onboarding onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    expect(screen.getByText('Checking backend…')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    expect(await screen.findByText(/Backend ready/)).toBeDefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('offers Re-check once the backend is ready, so a component that stopped shows up', async () => {
+    stubFetchRoutes({
+      'GET /api/health': (call) => ({ body: call === 1 ? HEALTH_OK : HEALTH_DEGRADED }),
+    });
+    render(<Onboarding onComplete={vi.fn()} />);
+    await openSeedStep();
+    fireEvent.change(screen.getByPlaceholderText(/Fed announces/), { target: { value: SEED } });
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    expect(await screen.findByText(/Backend degraded/)).toBeDefined();
+    const run = screen.getByRole('button', { name: /fix the items above first/i }) as HTMLButtonElement;
+    expect(run.disabled).toBe(true);
+  });
+
+  it('checks again when a run fails, so the status no longer says ready', async () => {
+    stubFetchRoutes({
+      'GET /api/health': (call) => (call === 1 ? { body: HEALTH_OK } : UNREACHABLE),
+      'GET /api/settings/estimate': UNREACHABLE,
+    });
+    render(<Onboarding onComplete={vi.fn()} />);
+    await openSeedStep();
+    fireEvent.change(screen.getByPlaceholderText(/Fed announces/), { target: { value: SEED } });
+    fireEvent.click(screen.getByRole('button', { name: /run first cycle/i }));
+    expect(await screen.findByText(/Backend unreachable/)).toBeDefined();
+    const run = screen.getByRole('button', { name: /start backend first/i }) as HTMLButtonElement;
+    expect(run.disabled).toBe(true);
+  });
+
+  it('disables Re-check while a run is pending', async () => {
+    await startPendingRun();
+    const recheck = screen.getByRole('button', { name: 'Re-check' }) as HTMLButtonElement;
+    expect(recheck.disabled).toBe(true);
+  });
+});
