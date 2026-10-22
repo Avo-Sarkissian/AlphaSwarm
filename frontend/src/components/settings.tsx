@@ -1,16 +1,25 @@
 // Settings — full-screen takeover.
 //
-// Ported from AlphaSwarm-2/src/settings.jsx (300 LOC) per D-03 and renamed
-// .jsx → .tsx per codex HIGH-1 (uses `as const` allowlist + typed normalize helper).
+// Ported from AlphaSwarm-2/src/settings.jsx per D-03; .jsx → .tsx per codex HIGH-1.
 //
 // D-23 persistence policy:
 //   • UI tweaks (density / layout / theme / hintVisibility) persist to
-//     localStorage via normalizeSettingsUiState (codex MEDIUM-8 — drops any
-//     backend keys nested in the persisted JSON object).
-//   • Backend-touching keys (model / inferenceSlots / memoryThreshold /
-//     agentCount / bracketWeights / keysTomlPath) render as read-only with
-//     "Coming in v6.x" inline note (KR-41.6-06). They never touch localStorage.
-import { useState } from 'react';
+//     localStorage via normalizeSettingsUiState (codex MEDIUM-8).
+//   • Backend-owned values never touch localStorage. Read-only rows show the
+//     backend's live value or say where the value is configured (KR-41.6-06).
+//   • Privacy copy, the version and the live slot counts come from the backend
+//     (GET /api/settings, GET /api/health, the WebSocket frame), never from
+//     constants (docs/DECISIONS.md#adr-local-first-inference).
+import { useEffect, useState } from 'react';
+import { getHealth } from '../api/settings';
+import { useTelemetry } from '../context/TelemetryContext';
+import { usePrivacyFacts } from '../hooks/usePrivacyFacts';
+import {
+  MARKET_DATA_LINE,
+  cloudRolesSummary,
+  modeLabel,
+  privacyLines,
+} from '../lib/privacyCopy';
 import {
   normalizeSettingsUiState,
   type SettingsUiState,
@@ -34,6 +43,21 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [section, setSection] = useState<
     'runtime' | 'model' | 'brackets' | 'keys' | 'storage' | 'privacy'
   >('runtime');
+  const privacy = usePrivacyFacts();
+  const { telemetry } = useTelemetry();
+  const [version, setVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getHealth()
+      .then((health) => {
+        if (!cancelled && typeof health.version === 'string') setVersion(health.version);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // On change: normalize before write — defense-in-depth even if a future code
   // path accidentally tries to merge backend keys into uiState.
@@ -52,7 +76,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
     { k: 'runtime' as const, label: 'Runtime' },
     { k: 'model' as const, label: 'Model' },
     { k: 'brackets' as const, label: 'Brackets' },
-    { k: 'keys' as const, label: 'Data keys' },
+    { k: 'keys' as const, label: 'API keys' },
     { k: 'storage' as const, label: 'Storage' },
     { k: 'privacy' as const, label: 'Privacy' },
   ];
@@ -86,12 +110,12 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </button>
           ))}
           <div className="st-nav-foot">
-            <div className="label">ALPHASWARM v0.7.2</div>
+            <div className="label">{version ? `ALPHASWARM ${version}` : 'ALPHASWARM'}</div>
             <div
               className="mono"
               style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}
             >
-              local only
+              {modeLabel(privacy?.mode ?? null)}
             </div>
           </div>
         </div>
@@ -180,11 +204,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 value="90 %"
                 desc="Inference pauses when RAM usage crosses this threshold. Configured in src/alphaswarm/config.py — Coming in v6.x as a runtime setting."
               />
-              {/* Backend-touching: inference slots — read-only, KR-41.6-06 */}
-              <BackendRow
+              {/* Live from the memory governor (governor_metrics in every frame) */}
+              <LiveRow
                 label="Concurrent inference slots"
-                value="8"
-                desc="How many agents can be thinking at once. Configured at backend startup — Coming in v6.x."
+                value={`${telemetry.slotsUsed} in use / ${telemetry.slotsMax} allowed now`}
+                desc="Live from the memory governor; the allowance shrinks under memory pressure."
               />
               {/* Backend-touching: agent count — read-only, KR-41.6-06 */}
               <BackendRow
@@ -219,56 +243,39 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           {section === 'keys' && (
             <SettingGroup
-              title="Data source credentials"
-              desc="API keys for live data sources. Stored in keys.toml — never leaves your machine."
+              title="API keys"
+              desc="Cloud API keys are entered in Settings → Model and stored in .secrets/inference.json, an owner-only file (mode 0600) that the API never returns. yfinance prices and RSS headlines need no keys."
             >
-              <BackendRow
-                label="Keys file path"
-                value="~/.alphaswarm/keys.toml"
-                desc="Edit the file directly. Runtime UI editor coming in v6.x."
-              />
+              <LiveRow label="Key file" value=".secrets/inference.json" />
+              <LiveRow label="Roles using a cloud API" value={cloudRolesSummary(privacy)} />
             </SettingGroup>
           )}
 
           {section === 'storage' && (
             <SettingGroup
-              title="Cycle archive"
-              desc="Every cycle is saved locally as a reproducible JSONL trace."
+              title="Storage"
+              desc="Cycles, decisions and influence edges are stored in the local Neo4j database (Docker, loopback only). Reports and advisories are written as owner-only files."
             >
-              <BackendRow
-                label="Storage directory"
-                value="~/.alphaswarm/cycles"
-                desc="Configured at backend startup. Runtime UI controls coming in v6.x."
-              />
+              <LiveRow label="Graph database" value="Neo4j on 127.0.0.1:7687" />
+              <LiveRow label="Reports" value="reports/{cycle_id}_report.md" />
+              <LiveRow label="Advisories" value="advisory/{cycle_id}_advisory.json" />
             </SettingGroup>
           )}
 
           {section === 'privacy' && (
             <SettingGroup
-              title="Local-first guarantees"
-              desc="AlphaSwarm runs entirely on your machine. Inference is local; data-source HTTP calls go to public APIs only."
+              title="Where your data goes"
+              desc="Generated from your current inference settings (Settings → Model)."
             >
               <div className="st-privacy">
-                <div className="st-privacy-row yes">
-                  <span className="st-check">✓</span>
-                  <div>
-                    <div className="st-privacy-title">Inference stays local</div>
-                    <div className="st-privacy-desc">
-                      All LLM calls go through Ollama on localhost. Prompts and
-                      rationales never leave your machine.
-                    </div>
-                  </div>
-                </div>
-                <div className="st-privacy-row yes">
-                  <span className="st-check">✓</span>
-                  <div>
-                    <div className="st-privacy-title">No telemetry</div>
-                    <div className="st-privacy-desc">
-                      AlphaSwarm makes zero outbound calls for analytics, crash
-                      reporting, or anything else.
-                    </div>
-                  </div>
-                </div>
+                {privacyLines(privacy).map((line) => (
+                  <PrivacyRow key={line.text} text={line.text} offMachine={line.offMachine} />
+                ))}
+                <PrivacyRow text={MARKET_DATA_LINE} offMachine />
+                <PrivacyRow
+                  text="No telemetry: AlphaSwarm makes no outbound calls for analytics or crash reporting."
+                  offMachine={false}
+                />
               </div>
             </SettingGroup>
           )}
@@ -298,6 +305,44 @@ function SettingGroup({
   );
 }
 
+function PrivacyRow({ text, offMachine }: { text: string; offMachine: boolean }) {
+  return (
+    <div className={`st-privacy-row ${offMachine ? 'off' : 'yes'}`}>
+      <span className="st-check">{offMachine ? '↗' : '✓'}</span>
+      <div className="st-privacy-desc">{text}</div>
+    </div>
+  );
+}
+
+const ROW_STYLE = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  padding: '10px 0',
+  borderBottom: '1px solid var(--border)',
+} as const;
+
+const VALUE_STYLE = {
+  flex: 1,
+  padding: '6px 10px',
+  background: 'var(--bg-3)',
+  border: '1px solid var(--border)',
+  color: 'var(--text-3)',
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: 11,
+  borderRadius: 3,
+} as const;
+
+// Read-only row showing a real backend value (no "coming soon" badge).
+function LiveRow({ label, value, desc }: { label: string; value: string; desc?: string }) {
+  return (
+    <div className="settings-row" style={ROW_STYLE} title={desc}>
+      <label style={{ minWidth: 220, color: 'var(--text-2)', fontSize: 12 }}>{label}</label>
+      <input type="text" value={value} disabled readOnly style={VALUE_STYLE} />
+    </div>
+  );
+}
+
 // Read-only row for backend-touching settings — KR-41.6-06.
 function BackendRow({
   label,
@@ -309,35 +354,11 @@ function BackendRow({
   desc?: string;
 }) {
   return (
-    <div
-      className="settings-row settings-row-locked"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '10px 0',
-        borderBottom: '1px solid var(--border)',
-      }}
-    >
+    <div className="settings-row settings-row-locked" style={ROW_STYLE}>
       <label style={{ minWidth: 220, color: 'var(--text-2)', fontSize: 12 }}>
         {label}
       </label>
-      <input
-        type="text"
-        value={value}
-        disabled
-        readOnly
-        style={{
-          flex: 1,
-          padding: '6px 10px',
-          background: 'var(--bg-3)',
-          border: '1px solid var(--border)',
-          color: 'var(--text-3)',
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 11,
-          borderRadius: 3,
-        }}
-      />
+      <input type="text" value={value} disabled readOnly style={VALUE_STYLE} />
       <span
         className="settings-note"
         style={{

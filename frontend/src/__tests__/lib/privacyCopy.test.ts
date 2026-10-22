@@ -18,6 +18,9 @@ import {
   privacyLines,
   roleLine,
 } from '../../lib/privacyCopy';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const LOCAL_ROLE: RoleView = {
   provider: 'ollama',
@@ -207,5 +210,49 @@ describe('off-machine Ollama roles', () => {
       'The advisory is off: the orchestrator runs on a remote Ollama server (192.0.2.10:11434) and cloud advisory is not enabled in Settings.',
     );
     expect(privacyLines(facts)[2].offMachine).toBe(false);
+  });
+});
+
+const SRC_DIR = fileURLToPath(new URL('../../', import.meta.url));
+
+// Claims the UI used to make that were never true. Each pattern is assembled
+// from fragments so a grep for these claims over frontend/src finds nothing here.
+function claim(flags: string, ...parts: string[]): RegExp {
+  return new RegExp(parts.join(''), flags);
+}
+
+const FALSE_CLAIMS: ReadonlyArray<readonly [RegExp, string]> = [
+  [claim('', 'keys', '\\.', 'toml'), 'cloud keys live in .secrets/inference.json'],
+  [claim('', 'JSO', 'NL'), 'cycles are stored in Neo4j'],
+  [claim('', 'No net', 'work calls'), 'the advisory can call a cloud orchestrator'],
+  [claim('', '100', '% local'), 'cloud providers are opt-in, not absent'],
+  [claim('i', 'No data leaves', ' your machine'), 'cloud roles send prompts off this machine'],
+  [claim('', 'advisory', '-audit'), 'there is no advisory audit log'],
+  [claim('', 'ALPHASWARM v', '\\d'), 'the version comes from /api/health'],
+  [claim('', 'FRED, news', ', filings'), 'only yfinance and RSS providers exist'],
+];
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return name === '__tests__' ? [] : sourceFiles(path);
+    return /\.(tsx?|jsx?)$/.test(name) ? [path] : [];
+  });
+}
+
+describe('the frontend makes no false privacy claims', () => {
+  const files = sourceFiles(SRC_DIR);
+
+  it('scans the whole source tree', () => {
+    expect(files.length).toBeGreaterThan(20);
+  });
+
+  it.each(FALSE_CLAIMS)('nothing matches %s', (pattern, reason) => {
+    const hits = files.flatMap((file) =>
+      readFileSync(file, 'utf-8')
+        .split('\n')
+        .flatMap((line, index) => (pattern.test(line) ? [`${relative(SRC_DIR, file)}:${index + 1}`] : [])),
+    );
+    expect(hits, reason).toEqual([]);
   });
 });
