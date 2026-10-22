@@ -237,6 +237,6 @@ uv run mypy src           # strict; must report "Success: no issues found"
 **Static gates (CI `lint`).** `uv run mypy src && uv run lint-imports`.
 - mypy is strict; modules under `[[tool.mypy.overrides]]` are exempt until cleaned up, and the list only shrinks (`tests/invariants/test_mypy_overrides.py`).
 - Ruff is not gated yet (BACKLOG 2.10): run `uv run ruff check <changed files>` and keep the lines you changed clean.
-- Hooks: `uv run pre-commit install` once per clone (import-linter).
+- Hooks (optional): `uv tool install pre-commit` once, then `pre-commit install` per clone; it runs the import-linter hook in `.pre-commit-config.yaml`.
 
 **Frontend.** CI (Node 20) runs `npm ci`, `npx tsc -b --noEmit`, `npx vitest run` and `npm run build`.
