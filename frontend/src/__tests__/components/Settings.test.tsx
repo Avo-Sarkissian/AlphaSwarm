@@ -118,3 +118,31 @@ describe('the cloud-advisory opt-in', () => {
     expect(screen.queryByLabelText('Allow cloud advisory')).toBeNull();
   });
 });
+
+describe('the opt-in in the PUT body', () => {
+  // The backend keeps the stored value when the field is missing, so a body without
+  // it would make unticking the box do nothing.
+  it('sends the box state with every save of a cloud orchestrator', async () => {
+    const fetchMock = stubFetchRoutes({
+      'GET /api/settings': { body: settingsView(ANTHROPIC_ROLE, LOCAL_ROLE, true) },
+      'PUT /api/settings': (call) => ({
+        body: { config: settingsView(ANTHROPIC_ROLE, LOCAL_ROLE, call !== 1).config, mode: 'mixed' },
+      }),
+    });
+    render(<InferenceSettings />);
+    const box = (await screen.findByLabelText('Allow cloud advisory')) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(putBodies(fetchMock)).toHaveLength(1));
+    await waitFor(() => expect(box.checked).toBe(false));
+
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(putBodies(fetchMock)).toHaveLength(2));
+    await waitFor(() => expect(box.checked).toBe(true));
+
+    expect(putBodies(fetchMock).map((body) => body.allow_cloud_advisory)).toEqual([false, true]);
+  });
+});
