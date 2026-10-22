@@ -74,6 +74,9 @@ def create_app_state(
     )
     logger = get_logger(component="app")
     state_store = StateStore()
+    # Idle frames carry the configured depth too, not only frames of a run
+    # (run_simulation sets it again at SEEDING).
+    state_store.set_num_rounds(settings.num_rounds)
     governor = ResourceGovernor(
         settings.governor,
         state_store=state_store,
