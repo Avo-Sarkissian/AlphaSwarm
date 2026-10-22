@@ -281,7 +281,7 @@ def parse_modifier_response(raw: str) -> ParsedModifiersResult:
     # Local import to avoid circular dependency (config.py imports from types.py)
     from alphaswarm.config import BRACKET_MODIFIERS, _truncate_modifier
 
-    def _validate_and_fill(data: dict) -> dict[BracketType, str] | None:
+    def _validate_and_fill(data: object) -> dict[BracketType, str] | None:
         if not isinstance(data, dict):
             return None
         # Lowercase all keys (Pitfall 5)
