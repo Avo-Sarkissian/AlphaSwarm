@@ -213,6 +213,36 @@ describe('off-machine Ollama roles', () => {
   });
 });
 
+// The opt-in also turns off the backend checks that catch what the settings cannot
+// show (an alias of an Ollama cloud model, an off-machine OLLAMA_HOST), so with it on
+// a local-looking orchestrator gets no "stays on this machine" promise.
+describe('an opt-in left on with a local-looking orchestrator', () => {
+  const facts = privacyFactsFromSettings(view(LOCAL_ROLE, LOCAL_ROLE, 'local', true));
+
+  it('makes no local guarantee for the advisory', () => {
+    const line = advisoryLine(facts);
+    expect(line).not.toContain('never leave this machine');
+    expect(line).toContain('Cloud advisory is on');
+    expect(line).toContain('never quantities or cost basis');
+    expect(privacyLines(facts)[2].offMachine).toBe(true);
+  });
+
+  it('the opt-in help says the checks are skipped, not that the advisory is', () => {
+    const help = advisoryOptInHelp(facts.orchestrator);
+    expect(help).not.toContain('the advisory is skipped');
+    expect(help).toContain('skips the checks that keep it on this machine');
+    expect(help).toContain('never quantities or cost basis');
+  });
+
+  it('without the opt-in the local claim stands', () => {
+    const off = privacyFactsFromSettings(view(LOCAL_ROLE, LOCAL_ROLE, 'local', false));
+    expect(advisoryLine(off)).toBe(
+      'The advisory runs on local Ollama; your holdings never leave this machine.',
+    );
+    expect(privacyLines(off)[2].offMachine).toBe(false);
+  });
+});
+
 const SRC_DIR = fileURLToPath(new URL('../../', import.meta.url));
 
 // Claims the UI used to make that were never true. Each pattern is assembled

@@ -30,7 +30,7 @@ export interface PrivacyFacts {
 
 export interface PrivacyLine {
   text: string;
-  /** True when the sentence describes data leaving this machine. */
+  /** True when the sentence describes data that leaves, or may leave, this machine. */
   offMachine: boolean;
 }
 
@@ -168,7 +168,12 @@ export function advisoryLine(facts: PrivacyFacts | null): string {
   if (facts === null) return CHECKING_LINE;
   const orchestrator = facts.orchestrator;
   if (!isOffMachine(orchestrator)) {
-    return 'The advisory runs on local Ollama; your holdings never leave this machine.';
+    // The opt-in also skips the backend checks that catch what the settings cannot
+    // show (an alias of an Ollama cloud model, an off-machine OLLAMA_HOST), so the
+    // local claim holds only without it (docs/DECISIONS.md#adr-advisory-pipeline).
+    return facts.allowCloudAdvisory
+      ? 'Cloud advisory is on, so the checks that keep the advisory on this machine are skipped: your held tickers (never quantities or cost basis) go to wherever the orchestrator model runs.'
+      : 'The advisory runs on local Ollama; your holdings never leave this machine.';
   }
   if (!facts.allowCloudAdvisory) {
     const where =
@@ -181,6 +186,9 @@ export function advisoryLine(facts: PrivacyFacts | null): string {
 }
 
 export function advisoryOptInHelp(orchestrator: RoleFacts): string {
+  if (!isOffMachine(orchestrator)) {
+    return 'The orchestrator looks local, so the advisory does not need this. When on, the advisory skips the checks that keep it on this machine (they catch an Ollama model that runs in the cloud and an Ollama server elsewhere) and sends your held tickers — never quantities or cost basis — to wherever the orchestrator model runs. When off, those checks run before every advisory.';
+  }
   return `When on, the advisory sends your held tickers — never quantities or cost basis — to ${destination(orchestrator)}. When off, the advisory is skipped and the report still runs.`;
 }
 
@@ -190,7 +198,7 @@ export function privacyLines(facts: PrivacyFacts | null): PrivacyLine[] {
   return [
     { text: roleLine('orchestrator', facts.orchestrator), offMachine: orchestratorOff },
     { text: roleLine('worker', facts.worker), offMachine: isOffMachine(facts.worker) },
-    { text: advisoryLine(facts), offMachine: orchestratorOff && facts.allowCloudAdvisory },
+    { text: advisoryLine(facts), offMachine: facts.allowCloudAdvisory },
   ];
 }
 

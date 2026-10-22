@@ -396,6 +396,10 @@ export function InferenceSettings() {
     model: orch.model,
     host: hostOf(orch.provider, orch.base_url.trim() || null),
   };
+  // Shown for an off-machine orchestrator, and whenever the opt-in is ticked or
+  // stored, so one left over from a cloud orchestrator can be seen and cleared.
+  const showOptIn =
+    isOffMachine(orchFacts) || allowCloudAdvisory || view.config.allow_cloud_advisory === true;
 
   return (
     <div className="st-inf">
@@ -432,9 +436,9 @@ export function InferenceSettings() {
 
       {/* Cloud-advisory opt-in: shown whenever the orchestrator is off this machine
           (a cloud provider, an Ollama cloud model or a remote Ollama server), the
-          same rule the backend's advisory gate applies
+          same rule the backend's advisory gate applies, or the opt-in is on
           (docs/DECISIONS.md#adr-advisory-pipeline) */}
-      {isOffMachine(orchFacts) && (
+      {showOptIn && (
         <>
           <div style={{ borderTop: '1px solid var(--border)', margin: '14px 0' }} />
           <div className="st-inf-row">
