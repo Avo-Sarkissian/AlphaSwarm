@@ -118,7 +118,7 @@ def test_parse_headline_reads_every_row(ds: ModuleType) -> None:
         (headline_md(extra=(("speedups", "x", "y", "z"),)), "unknown headline key: speedups"),
         (headline_md(extra=(("speedup", "x", "y", "z"),)), "duplicate headline key: speedup"),
         (
-            headline_md({"backend_tests": "<Task 9 Step 4>"}),
+            headline_md({"backend_tests": "<backend test count>"}),
             "unfilled headline value: backend_tests",
         ),
         (headline_md({"eval_verdict": "great"}), "eval_verdict must be one of"),
