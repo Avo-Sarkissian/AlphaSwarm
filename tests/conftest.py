@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
@@ -220,12 +221,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
     append=False puts the session-scoped asyncio marker ahead of the bare one
     that asyncio_mode=auto adds, so it is the marker pytest-asyncio reads and
-    the test shares the loop that owns neo4j_test_driver.
+    the test shares the loop that owns neo4j_test_driver. Sync tests get no
+    asyncio marker: pytest-asyncio warns when one carries it.
     """
     for item in items:
         if item.get_closest_marker("neo4j") is not None:
             item.add_marker(pytest.mark.enable_socket)
-            item.add_marker(pytest.mark.asyncio(loop_scope="session"), append=False)
+            if inspect.iscoroutinefunction(getattr(item, "obj", None)):
+                item.add_marker(pytest.mark.asyncio(loop_scope="session"), append=False)
 
 
 def _refuse_forbidden_port(uri: str) -> None:

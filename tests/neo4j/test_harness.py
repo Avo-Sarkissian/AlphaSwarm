@@ -29,6 +29,12 @@ async def test_neo4j_items_get_sockets_and_the_session_loop(
     await neo4j_test_driver.verify_connectivity()
 
 
+def test_sync_neo4j_items_get_sockets_but_no_asyncio_mark(request: pytest.FixtureRequest) -> None:
+    """pytest-asyncio warns when a sync test carries the asyncio mark."""
+    assert request.node.get_closest_marker("enable_socket") is not None
+    assert request.node.get_closest_marker("asyncio") is None
+
+
 async def test_graph_manager_test_keeps_protected_cycles(
     graph_manager_test: GraphStateManager,
 ) -> None:
