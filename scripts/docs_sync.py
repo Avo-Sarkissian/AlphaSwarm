@@ -3,8 +3,9 @@
 A generated block sits between ``<!-- NAME:start -->`` and ``<!-- NAME:end -->``.
 Sources: ``DEFAULT_BRACKETS`` (bracket table), the headline table in
 ``docs/experiments.md`` (results, quality, run time, demo link, CHANGELOG results,
-resume bullets) and ``docs/media/captures.json`` (screenshot gallery).
-Rationale: docs/DECISIONS.md#adr-docs-sync.
+resume bullets) and ``docs/media/captures.json`` (screenshot gallery). The demo line
+and the resume bullets name a feature only when ``repo_facts`` finds it in the
+repository. Rationale: docs/DECISIONS.md#adr-docs-sync.
 
     uv run python scripts/docs_sync.py check [--release]
     uv run python scripts/docs_sync.py write
@@ -35,6 +36,8 @@ EXAMPLE_HOLDINGS: Final = "examples/holdings.example.csv"
 EXPORT_SCHEMA: Final = "alphaswarm.cycle-export/1"
 NOT_MEASURED: Final = "not measured"
 NOT_PUBLISHED: Final = "not published"
+CI_WORKFLOW: Final = ".github/workflows/ci.yml"
+FRONTEND_CODE_SUFFIXES: Final = frozenset({".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs"})
 
 HEADLINE_HEADER: Final = ("Key", "Result", "Value", "Source")
 HEADLINE_KEYS: Final[tuple[str, ...]] = (
@@ -157,6 +160,20 @@ class ChangelogEntry:
     date: str | None  # None while the entry is "Unreleased"
 
 
+@dataclass(frozen=True)
+class RepoFacts:
+    """Features the demo line and the resume bullets may name, read from the repository.
+
+    A sentence about a feature appears only once the feature exists, so ``write`` never
+    publishes a claim ahead of the code (docs/DECISIONS.md#adr-docs-sync).
+    """
+
+    demo_build: bool  # the frontend reads VITE_DEMO, so the static demo can be built
+    run_manifest: bool  # alphaswarm.manifest defines RunManifest
+    call_telemetry: bool  # alphaswarm.inference.call_log logs every inference call
+    ruff_gated: bool  # a CI workflow step runs ruff check
+
+
 # --------------------------------------------------------------------------- blocks
 
 
@@ -245,6 +262,40 @@ def _docs_to_root(target: str) -> str:
     return "docs/" + target
 
 
+# --------------------------------------------------------------------------- repository facts
+
+
+def _text_or_empty(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return ""
+
+
+def _frontend_reads(root: Path, name: str) -> bool:
+    frontend = root / "frontend"
+    candidates = [*frontend.glob("vite.config.*"), *(frontend / "src").rglob("*")]
+    return any(
+        path.suffix in FRONTEND_CODE_SUFFIXES and path.is_file() and name in _text_or_empty(path)
+        for path in candidates
+    )
+
+
+def repo_facts(root: Path) -> RepoFacts:
+    ci_lines = [
+        line
+        for line in _text_or_empty(root / CI_WORKFLOW).splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    package = root / "src" / "alphaswarm"
+    return RepoFacts(
+        demo_build=_frontend_reads(root, "VITE_DEMO"),
+        run_manifest="class RunManifest" in _text_or_empty(package / "manifest.py"),
+        call_telemetry=(package / "inference" / "call_log.py").is_file(),
+        ruff_gated=any("ruff check" in line for line in ci_lines),
+    )
+
+
 # --------------------------------------------------------------------------- renderers
 
 
@@ -275,13 +326,16 @@ def render_brackets(brackets: Sequence[BracketConfig]) -> str:
     return "\n".join(out)
 
 
-def render_demo(rows: Mapping[str, HeadlineRow]) -> str:
+def render_demo(rows: Mapping[str, HeadlineRow], *, facts: RepoFacts | None = None) -> str:
+    """The README demo line; without ``facts`` it follows this repository's features."""
     url = rows["demo_url"].value
     if url.startswith("https://"):
         return (
             f"**[Live demo]({url})**: a read-only replay of a real cycle in your browser, "
             "no install needed."
         )
+    if not (repo_facts(ROOT) if facts is None else facts).demo_build:
+        return ""  # nothing published and nothing to build: the README names no demo
     return (
         "**Demo:** a read-only replay of a real cycle. Build it locally with "
         "`VITE_DEMO=1 npm --prefix frontend run build && npm --prefix frontend run preview`."
@@ -374,7 +428,7 @@ def _resume_project(rows: Mapping[str, HeadlineRow], agents: int, brackets: int)
     )
 
 
-def _resume_method(rows: Mapping[str, HeadlineRow]) -> str:
+def _resume_method(rows: Mapping[str, HeadlineRow], facts: RepoFacts) -> str:
     effect, verdict = _measured(rows, "peer_effect"), rows["peer_effect_verdict"].value
     if effect is None or verdict == NOT_MEASURED:
         lead = "Added a seeded no-peer control group to separate peer influence from noise"
@@ -397,20 +451,25 @@ def _resume_method(rows: Mapping[str, HeadlineRow]) -> str:
     fix = "after fixing a peer-selection bias that hid 6 of 10 brackets from every feed"
     if exposure is not None:
         fix += f" ({exposure})"
+    if not facts.run_manifest:
+        return f"{lead}, {fix}."
     return (
         f"{lead}, {fix}; every run stores a manifest (seeds, model digests, prompt hashes) "
         "so results reproduce."
     )
 
 
-def _resume_performance(rows: Mapping[str, HeadlineRow]) -> str:
+def _resume_performance(rows: Mapping[str, HeadlineRow], facts: RepoFacts) -> str:
     text = (
         "Designed a memory-aware concurrency governor for a 64 GB M1 Max (macOS kernel memory "
-        "signal, crisis escalation, gradual recovery) and per-call inference telemetry"
+        "signal, crisis escalation, gradual recovery)"
     )
+    if facts.call_telemetry:
+        text += " and per-call inference telemetry"
     speedup = _measured(rows, "speedup")
     if speedup is not None:
-        text += f"; telemetry-driven changes cut mean round time {speedup}"
+        changes = "telemetry-driven changes" if facts.call_telemetry else "performance changes"
+        text += f"; {changes} cut mean round time {speedup}"
     worker = _measured(rows, "mlx_prefill_worker")
     orchestrator = _measured(rows, "mlx_prefill_orchestrator")
     if worker is not None and orchestrator is not None:
@@ -418,16 +477,17 @@ def _resume_performance(rows: Mapping[str, HeadlineRow]) -> str:
     return text + "."
 
 
-def _resume_ui(rows: Mapping[str, HeadlineRow]) -> str:
-    published = rows["demo_url"].value.startswith("https://")
-    demo = (
-        "a static read-only demo on GitHub Pages" if published else "a static read-only demo build"
-    )
-    return (
+def _resume_ui(rows: Mapping[str, HeadlineRow], facts: RepoFacts) -> str:
+    dashboard = (
         "Built a real-time React/TypeScript dashboard on a versioned 5 Hz WebSocket contract "
-        "with latest-wins backpressure, a deterministic influence graph that replays the "
-        f"round-by-round citation cascade, and {demo}."
+        "with latest-wins backpressure"
     )
+    graph = "a deterministic influence graph that replays the round-by-round citation cascade"
+    if rows["demo_url"].value.startswith("https://"):
+        return f"{dashboard}, {graph}, and a static read-only demo on GitHub Pages."
+    if facts.demo_build:
+        return f"{dashboard}, {graph}, and a static read-only demo build."
+    return f"{dashboard}, and {graph}."
 
 
 _RESUME_PRIVACY: Final = (
@@ -437,7 +497,7 @@ _RESUME_PRIVACY: Final = (
 )
 
 
-def _resume_quality(rows: Mapping[str, HeadlineRow]) -> str:
+def _resume_quality(rows: Mapping[str, HeadlineRow], facts: RepoFacts) -> str:
     tests = _measured(rows, "backend_tests")
     coverage = _measured(rows, "backend_coverage")
     frontend = _measured(rows, "frontend_tests")
@@ -446,7 +506,8 @@ def _resume_quality(rows: Mapping[str, HeadlineRow]) -> str:
         imports = "import-linter contracts"
     else:
         imports = f"{contracts} import-linter contract{'' if contracts == '1' else 's'}"
-    gates = f"gated mypy strict, ruff, ESLint and {imports}"
+    linters = "mypy strict, ruff, ESLint" if facts.ruff_gated else "mypy strict, ESLint"
+    gates = f"gated {linters} and {imports}"
     if tests is not None and coverage is not None and frontend is not None:
         lead = (
             f"Raised the quality bar to {tests} backend tests ({coverage} coverage) and {frontend} "
@@ -459,14 +520,21 @@ def _resume_quality(rows: Mapping[str, HeadlineRow]) -> str:
     return lead + "; fixed 35 audit findings and 6 security-scan issues with regression tests."
 
 
-def render_resume(rows: Mapping[str, HeadlineRow], brackets: Sequence[BracketConfig]) -> str:
+def render_resume(
+    rows: Mapping[str, HeadlineRow],
+    brackets: Sequence[BracketConfig],
+    *,
+    facts: RepoFacts | None = None,
+) -> str:
+    """Six numbered bullets; without ``facts`` they follow this repository's features."""
+    present = repo_facts(ROOT) if facts is None else facts
     bullets = (
         _resume_project(rows, sum(b.count for b in brackets), len(brackets)),
-        _resume_method(rows),
-        _resume_performance(rows),
-        _resume_ui(rows),
+        _resume_method(rows, present),
+        _resume_performance(rows, present),
+        _resume_ui(rows, present),
         _RESUME_PRIVACY,
-        _resume_quality(rows),
+        _resume_quality(rows, present),
     )
     return "\n".join(f"{n}. {bullet}" for n, bullet in enumerate(bullets, start=1))
 
@@ -476,16 +544,17 @@ def render_resume(rows: Mapping[str, HeadlineRow], brackets: Sequence[BracketCon
 
 def expected_blocks(root: Path, brackets: Sequence[BracketConfig]) -> dict[tuple[str, str], str]:
     rows = parse_headline(_read(root, EXPERIMENTS))
+    facts = repo_facts(root)
     results = render_rows(rows, RESULT_KEYS)
     return {
-        ("README.md", "demo"): render_demo(rows),
+        ("README.md", "demo"): render_demo(rows, facts=facts),
         ("README.md", "runtime"): render_rows(rows, RUNTIME_KEYS),
         ("README.md", "results"): results,
         ("README.md", "screenshots"): render_screenshots(load_captures(root / CAPTURES)),
         ("README.md", "brackets"): render_brackets(brackets),
         ("README.md", "quality"): render_rows(rows, QUALITY_KEYS),
         ("CHANGELOG.md", "results"): results,
-        ("docs/HISTORY.md", "resume"): render_resume(rows, brackets),
+        ("docs/HISTORY.md", "resume"): render_resume(rows, brackets, facts=facts),
     }
 
 

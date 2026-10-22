@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 from pathlib import Path
@@ -13,10 +14,18 @@ from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.types import BracketType
 from tests.support.scripts import load_script
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 @pytest.fixture(scope="module")
 def ds() -> ModuleType:
     return load_script("docs_sync")
+
+
+def _facts(ds: ModuleType, *, present: bool = True, **features: bool) -> object:
+    """RepoFacts with every feature present (or absent), then the named features overridden."""
+    names = [field.name for field in dataclasses.fields(ds.RepoFacts)]
+    return ds.RepoFacts(**{**dict.fromkeys(names, present), **features})
 
 
 # Fictional measurements: the shape of the real table, none of its values.
@@ -236,7 +245,7 @@ def _rows(ds: ModuleType, **overrides: str) -> dict[str, object]:
 
 
 def test_resume_quotes_values_with_the_verdict_wording(ds: ModuleType) -> None:
-    better = ds.render_resume(_rows(ds), DEFAULT_BRACKETS)
+    better = ds.render_resume(_rows(ds), DEFAULT_BRACKETS, facts=_facts(ds))
     assert better.count("\n") == 5 and better.startswith("1. Built **AlphaSwarm**")
     assert (
         "it beat the best single-model baseline: hit rate 0.61 (95% CI 0.52-0.70) vs 0.50."
@@ -274,7 +283,7 @@ def test_resume_falls_back_when_values_are_not_measured(ds: ModuleType) -> None:
         "import_contracts",
     )
     rows = _rows(ds, **{key: "not measured" for key in unmeasured}, demo_url="not published")
-    text = ds.render_resume(rows, DEFAULT_BRACKETS)
+    text = ds.render_resume(rows, DEFAULT_BRACKETS, facts=_facts(ds))
     assert "not measured" not in text and "not published" not in text
     assert "It ships a point-in-time evaluation harness" in text
     assert "Added a seeded no-peer control group" in text
@@ -296,7 +305,82 @@ def test_resume_never_claims_the_github_contribution_graph(ds: ModuleType) -> No
 
 def test_render_demo_links_a_published_url_or_explains_the_local_build(ds: ModuleType) -> None:
     assert ds.render_demo(_rows(ds)).startswith("**[Live demo](https://example.invalid/demo/)**")
-    assert "VITE_DEMO=1" in ds.render_demo(_rows(ds, demo_url="not published"))
+    assert "VITE_DEMO=1" in ds.render_demo(_rows(ds, demo_url="not published"), facts=_facts(ds))
+
+
+# One file per feature, at the path repo_facts reads.
+FEATURE_FILES: dict[str, str] = {
+    "frontend/src/data-source/index.ts": "const demo = import.meta.env.VITE_DEMO === '1';\n",
+    "src/alphaswarm/manifest.py": "class RunManifest(BaseModel, frozen=True):\n    sim_seed: int\n",
+    "src/alphaswarm/inference/call_log.py": "async def logged_call() -> None: ...\n",
+    ".github/workflows/ci.yml": "jobs:\n  lint:\n    steps:\n      - run: uv run ruff check .\n",
+}
+
+
+def _write_files(root: Path, files: dict[str, str]) -> None:
+    for rel, text in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+def test_repo_facts_read_each_feature_from_the_repository(ds: ModuleType, tmp_path: Path) -> None:
+    assert ds.repo_facts(tmp_path) == _facts(ds, present=False)
+    _write_files(tmp_path, FEATURE_FILES)
+    assert ds.repo_facts(tmp_path) == _facts(ds)
+
+
+@pytest.mark.parametrize(
+    ("rel", "text"),
+    [
+        (".github/workflows/ci.yml", "      # ruff check is not gated yet\n"),
+        ("frontend/src/notes.md", "Build the demo with VITE_DEMO=1.\n"),
+        ("frontend/TESTING.md", "VITE_DEMO=1 builds the demo.\n"),
+        ("src/alphaswarm/manifest.py", "def git_revision() -> None: ...\n"),
+    ],
+    ids=["ci-comment", "frontend-prose", "frontend-docs", "manifest-without-run-manifest"],
+)
+def test_repo_facts_ignore_mentions_that_are_not_the_feature(
+    ds: ModuleType, tmp_path: Path, rel: str, text: str
+) -> None:
+    _write_files(tmp_path, {rel: text})
+    assert ds.repo_facts(tmp_path) == _facts(ds, present=False)
+
+
+def test_resume_and_demo_leave_out_features_the_repository_lacks(ds: ModuleType) -> None:
+    absent = _facts(ds, present=False)
+    text = ds.render_resume(_rows(ds), DEFAULT_BRACKETS, facts=absent)
+    assert [claim for claim in ("ruff", "manifest", "telemetry") if claim in text] == []
+    assert "from every feed (brackets never shown: 6 to 0).\n" in text
+    assert "gradual recovery); performance changes cut mean round time" in text
+    assert "gated mypy strict, ESLint and 5 import-linter contracts;" in text
+    # A published URL is its own evidence that the demo exists.
+    assert "and a static read-only demo on GitHub Pages." in text
+    unpublished = _rows(ds, demo_url="not published")
+    assert "demo" not in ds.render_resume(unpublished, DEFAULT_BRACKETS, facts=absent)
+    assert ds.render_demo(unpublished, facts=absent) == ""
+    buildable = _facts(ds, present=False, demo_build=True)
+    assert "and a static read-only demo build." in ds.render_resume(
+        unpublished, DEFAULT_BRACKETS, facts=buildable
+    )
+    assert "VITE_DEMO=1" in ds.render_demo(unpublished, facts=buildable)
+
+
+def test_resume_from_the_repository_claims_only_features_it_has(ds: ModuleType) -> None:
+    rows = ds.parse_headline((ROOT / "docs" / "experiments.md").read_text(encoding="utf-8"))
+    facts = ds.repo_facts(ROOT)
+    text = ds.render_resume(rows, DEFAULT_BRACKETS)
+    assert text == ds.render_resume(rows, DEFAULT_BRACKETS, facts=facts)
+    assert "not measured" not in text and "not published" not in text
+    has_demo = rows["demo_url"].measured or facts.demo_build
+    claims = {
+        "demo": has_demo,
+        "ruff": facts.ruff_gated,
+        "manifest": facts.run_manifest,
+        "telemetry": facts.call_telemetry,
+    }
+    assert {claim: claim in text for claim in claims} == claims
+    assert bool(ds.render_demo(rows)) == has_demo
 
 
 def test_render_screenshots_lists_every_image_and_the_run(ds: ModuleType, tmp_path: Path) -> None:

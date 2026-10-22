@@ -424,6 +424,7 @@ Contents
 ### <a id="adr-docs-sync"></a>Measured numbers have one home; the docs copy them by script
 - **Decision:** Every measured number the README, the CHANGELOG and the résumé bullets show lives once, in the headline table of `docs/experiments.md`. `scripts/docs_sync.py` renders the README's results, quality and run-time tables, the bracket table from `DEFAULT_BRACKETS`, the demo link, the screenshot gallery (from `docs/media/captures.json`), the CHANGELOG results and the résumé bullets in `docs/HISTORY.md`. `tests/test_docs_sync.py` fails when any copy is stale.
 - **Rationale:** The October 2026 audit found a README that contradicted the code in a dozen places, and screenshots that showed mock data. Generated copies turn drift into a test failure instead of a reviewer's job.
+- **Rule:** A generated sentence names a feature only when `repo_facts` finds it in the repository: the static demo build (the frontend reads `VITE_DEMO`), run manifests (`alphaswarm.manifest` defines `RunManifest`), per-call inference telemetry (`alphaswarm/inference/call_log.py` exists) and the ruff gate (a CI step runs `ruff check`). Until then the demo line is empty and the résumé bullets leave the feature out, so `write` cannot publish a claim ahead of the code. Wording changes go into the renderer and its test, never into a generated block.
 
 ---
 
