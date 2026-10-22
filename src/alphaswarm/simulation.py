@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.batch_dispatcher import dispatch_wave
+from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS, dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
 from alphaswarm.context_formatter import format_market_context
 from alphaswarm.inference.ollama_provider import OllamaProvider
@@ -1544,7 +1544,8 @@ async def _generate_decision_narratives(
     """Generate natural-language decision narrative for each agent (D-10, D-11).
 
     Uses the worker provider through governor for memory safety.
-    Skip-and-log on per-agent failures (Pitfall 5 from research).
+    Skip-and-log on per-agent failures (Pitfall 5 from research); hard stops
+    (HARD_STOP_ERRORS) propagate bare, the first one if several fail.
 
     Args:
         personas: Agent personas to generate narratives for.
@@ -1572,10 +1573,10 @@ async def _generate_decision_narratives(
             agent_decisions_by_id[agent_id][round_num] = decision
 
     persona_map = {p.id: p for p in personas}
-    narratives: list[dict] = []
-    errors: list[str] = []
+    narratives: list[dict[str, str]] = []
+    failed = 0
 
-    async def _generate_one(agent_id: str) -> dict | None:
+    async def _generate_one(agent_id: str) -> dict[str, str] | None:
         persona = persona_map.get(agent_id)
         if not persona:
             return None
@@ -1621,6 +1622,7 @@ async def _generate_decision_narratives(
             {"role": "user", "content": prompt},
         ]
 
+        nonlocal failed
         try:
             async with governor:
                 result = await provider.chat(messages)
@@ -1628,22 +1630,28 @@ async def _generate_decision_narratives(
                 if narrative_text:
                     return {"agent_id": agent_id, "narrative": narrative_text}
                 return None
+        except HARD_STOP_ERRORS:
+            raise  # budget/auth/crisis stop the run (docs/DECISIONS.md#adr-taskgroup-dispatch)
         except Exception:
+            failed += 1
             logger.warning("narrative_generation_failed", agent_id=agent_id, exc_info=True)
             return None
 
-    # Dispatch all agents concurrently through governor (governor provides throttling)
-    tasks = [_generate_one(agent_id) for agent_id in agent_decisions_by_id]
-    results = await _asyncio.gather(*tasks, return_exceptions=True)
+    # Fan out through a TaskGroup (the governor throttles); hard stops leave bare.
+    tasks: list[_asyncio.Task[dict[str, str] | None]] = []
+    try:
+        async with _asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(_generate_one(agent_id)) for agent_id in agent_decisions_by_id]
+    except* HARD_STOP_ERRORS as eg:
+        raise eg.exceptions[0] from eg
 
-    for result in results:
-        if isinstance(result, dict):
-            narratives.append(result)
-        elif isinstance(result, Exception):
-            errors.append(str(result))
+    for task in tasks:
+        outcome = task.result()
+        if outcome is not None:
+            narratives.append(outcome)
 
-    if errors:
-        logger.warning("narrative_generation_partial_failures", error_count=len(errors))
+    if failed:
+        logger.warning("narrative_generation_partial_failures", error_count=failed)
 
     # Batch-write all successful narratives to Agent nodes
     if narratives:
