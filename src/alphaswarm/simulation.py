@@ -36,7 +36,7 @@ from alphaswarm.utils import sanitize_rationale
 from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_type
 
 if TYPE_CHECKING:
-    from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings
+    from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings, SimulationSettings
     from alphaswarm.graph import GraphStateManager, PeerDecision, RankedPost
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
@@ -369,18 +369,21 @@ def _format_peer_context(
     source_round: int,
     budget: int = 4000,
     max_posts: int = 10,
-) -> str:
+) -> tuple[str, tuple[str, ...]]:
     """Format top-K ranked peer posts into a budget-capped context string (D-04, D-05, D-06).
 
     Greedy fill: iterate ranked posts, accumulate chars, truncate last post
     at word boundary if it would exceed budget. Prompt guard line preserved
     from Phase 7 D-03.
 
-    Returns empty string when posts list is empty.
+    Returns ``(text, shown_ids)``: ``shown_ids`` are the agent ids of the
+    rendered lines in display order, which is the reader's exposure
+    (docs/DECISIONS.md#adr-diverse-peer-context). Returns ``("", ())`` when
+    no line was rendered.
     """
     if not posts:
         logger.warning("no_peer_posts_found", source_round=source_round)
-        return ""
+        return "", ()
 
     header = f"Peer Decisions (Round {source_round}):"
     guard = (
@@ -392,6 +395,7 @@ def _format_peer_context(
     remaining = budget - overhead
 
     lines: list[str] = [header]
+    shown: list[str] = []
     for i, post in enumerate(posts[:max_posts], 1):
         if remaining <= 0:
             break
@@ -412,6 +416,7 @@ def _format_peer_context(
             content = truncated if truncated else content[:available]
         line = f"{prefix}{content}{suffix}"
         lines.append(line)
+        shown.append(post.agent_id)
         remaining -= len(line) + 1  # +1 for newline separator
 
     if len(lines) == 1:
@@ -419,10 +424,10 @@ def _format_peer_context(
         # the docstring's "empty when no peers" contract so callers map this to
         # None instead of injecting a peer-context block that claims peers exist
         # but contains none (F-19).
-        return ""
+        return "", ()
 
     lines.append(guard)
-    return "\n".join(lines)
+    return "\n".join(lines), tuple(shown)
 
 
 def _build_diverse_peer_contexts(
@@ -430,31 +435,26 @@ def _build_diverse_peer_contexts(
     prev_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
     source_round: int,
     *,
+    sim: SimulationSettings,
     global_citation_weights: dict[str, float] | None = None,
-    limit: int = 10,
-    min_brackets: int = 4,
-) -> list[str | None]:
+) -> tuple[list[str | None], list[tuple[str, ...]]]:
     """Build per-agent peer contexts from the previous round IN MEMORY.
 
-    Replaces the `read_ranked_posts` path (docs/DECISIONS.md#sweep-3-3 fix). That path
-    ranked peers by static authority weight, so every one of the 100 agents
-    saw the same Sovereign/Whale/Suit top-10 — manufacturing convergence
-    toward the most HOLD-biased bloc. This builder:
+    Replaces the `read_ranked_posts` path (docs/DECISIONS.md#sweep-3-3 fix),
+    which showed all 100 agents the same authority top-10 and cost 100
+    sequential Neo4j reads per round. This builder:
 
     1. Computes a PER-READER weight for each candidate author:
-       base credibility (influence_weight_base)
+       base reach (influence_weight_base)
        + global citation share (citations/total_agents, when available)
-       + 0.3 personal boost when the READER cited the author last round
-         (in-memory equivalent of the reader-specific INFLUENCED_BY edge).
-    2. Feeds those weights through `select_diverse_peers`, which guarantees
-       at least `min_brackets` distinct brackets per peer set — Degens and
-       Shorts can no longer be mathematically silenced.
+       + ``sim.personal_boost`` when the READER cited the author last round.
+    2. Feeds those weights through `select_diverse_peers` with the knobs in
+       ``sim`` (docs/DECISIONS.md#adr-diverse-peer-context).
 
-    Also eliminates 100 sequential Neo4j reads per round (the old per-agent
-    `read_ranked_posts` loop): everything needed is already in memory.
-
-    Returns one context string (or None when no peers available) per persona,
-    aligned by persona index.
+    Returns ``(contexts, exposures)`` aligned by persona index: the context
+    string (None when no peer line was rendered) and the ids of the peers whose
+    lines were rendered, in display order (``()`` when none). Peers cut by the
+    character budget are not exposure.
     """
     from alphaswarm.graph import RankedPost
 
@@ -464,6 +464,7 @@ def _build_diverse_peer_contexts(
     global_w = global_citation_weights or {}
 
     contexts: list[str | None] = []
+    exposures: list[tuple[str, ...]] = []
     for persona in personas:
         reader_prev = prev_dict.get(persona.id)
         cited_by_reader: set[str] = (
@@ -472,7 +473,7 @@ def _build_diverse_peer_contexts(
         weights = {
             pid: base_weights[pid]
             + global_w.get(pid, 0.0)
-            + (0.3 if pid in cited_by_reader else 0.0)
+            + (sim.personal_boost if pid in cited_by_reader else 0.0)
             for pid in base_weights
         }
         peer_ids = select_diverse_peers(
@@ -480,8 +481,8 @@ def _build_diverse_peer_contexts(
             weights,
             personas,
             prev_decisions=prev_dict,
-            limit=limit,
-            min_brackets=min_brackets,
+            limit=sim.peer_limit,
+            min_brackets=sim.min_brackets,
         )
         ranked_posts = [
             RankedPost(
@@ -497,9 +498,15 @@ def _build_diverse_peer_contexts(
             for pid in peer_ids
             if pid in prev_dict and pid in persona_lookup
         ]
-        ctx = _format_peer_context(ranked_posts, source_round)
+        ctx, shown = _format_peer_context(
+            ranked_posts,
+            source_round,
+            budget=sim.peer_budget_chars,
+            max_posts=sim.peer_limit,
+        )
         contexts.append(ctx if ctx else None)
-    return contexts
+        exposures.append(shown)
+    return contexts, exposures
 
 
 def compute_exposure_metrics(
@@ -896,7 +903,7 @@ async def _dispatch_round(
                 for pid in peer_ids
                 if pid in prev_dict and pid in persona_lookup
             ]
-            ctx = _format_peer_context(ranked_posts, source_round)
+            ctx, _shown = _format_peer_context(ranked_posts, source_round)
             peer_contexts.append(ctx if ctx else None)
 
         logger.info(
@@ -920,7 +927,7 @@ async def _dispatch_round(
                 persona.id, cycle_id, source_round, limit=5,
             )
             ranked_posts = [_peer_to_ranked(p) for p in peers]
-            ctx = _format_peer_context(ranked_posts, source_round)
+            ctx, _shown = _format_peer_context(ranked_posts, source_round)
             # Empty string from _format_peer_context means no peers found -> pass None
             peer_contexts.append(ctx if ctx else None)
 
@@ -1233,8 +1240,12 @@ async def run_simulation(
         # path that showed every agent the same top-10). READ_POST edge writes
         # removed with it: ~10k edges/round recording "everyone read
         # everything" carried no analytical value.
-        round2_peer_contexts = _build_diverse_peer_contexts(
+        round2_peer_contexts, round2_exposures = _build_diverse_peer_contexts(
             personas, round1_result.agent_decisions, source_round=1,
+            sim=settings.simulation,
+        )
+        exposure_metrics: dict[str, int] = compute_exposure_metrics(
+            round2_exposures, personas, round_num=2,
         )
         _ = round1_post_ids  # Posts still written for report/interview reads
 
@@ -1243,6 +1254,7 @@ async def run_simulation(
             round_num=2,
             agent_count=len(personas),
             peers_found=sum(1 for c in round2_peer_contexts if c),
+            distinct_peers_shown=exposure_metrics["r2_distinct_peers_shown"],
             peer_selection="diverse_in_memory",
         )
 
@@ -1394,11 +1406,15 @@ async def run_simulation(
 
                 # Bracket-diverse peer contexts from Round 2 decisions in memory.
                 # R3 weights are PER-READER: base + global citation share
-                # (round2_weights) + 0.3 boost for authors this reader cited in
-                # R2. READ_POST writes dropped (no analytical value).
-                round3_peer_contexts = _build_diverse_peer_contexts(
+                # (round2_weights) + settings.simulation.personal_boost for authors
+                # this reader cited in R2. READ_POST writes dropped (no analytical value).
+                round3_peer_contexts, round3_exposures = _build_diverse_peer_contexts(
                     personas, round2_decisions, source_round=2,
+                    sim=settings.simulation,
                     global_citation_weights=round2_weights,
+                )
+                exposure_metrics.update(
+                    compute_exposure_metrics(round3_exposures, personas, round_num=3)
                 )
                 _ = round2_post_ids  # Posts still written for report/interview reads
 
@@ -1407,6 +1423,7 @@ async def run_simulation(
                     round_num=3,
                     agent_count=len(personas),
                     peers_found=sum(1 for c in round3_peer_contexts if c),
+                    distinct_peers_shown=exposure_metrics["r3_distinct_peers_shown"],
                     peer_selection="diverse_in_memory",
                 )
 
@@ -1563,7 +1580,7 @@ async def run_simulation(
         if dec.signal != SignalType.PARSE_ERROR:
             final_counts[dec.signal.value] += 1
 
-    cycle_metrics: dict[str, float | int] = {
+    cycle_metrics: dict[str, float | int | str | bool] = {
         "metrics_version": 1,
         "num_rounds": settings.num_rounds,
         "r1_seconds": round(r1_seconds, 1),
@@ -1581,6 +1598,7 @@ async def run_simulation(
         "final_hold": final_counts["hold"],
         "agent_count": len(personas),
     }
+    cycle_metrics.update(exposure_metrics)
     # Inference failures separately from all PARSE_ERRORs, for every round
     # actually run (docs/DECISIONS.md#adr-cycle-metrics).
     rounds_run: dict[int, Sequence[tuple[str, AgentDecision]]] = {

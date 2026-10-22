@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from alphaswarm.config import DEFAULT_BRACKETS, generate_personas
-from alphaswarm.simulation import compute_exposure_metrics
-from alphaswarm.types import AgentPersona, BracketType
+import re
+from collections.abc import Sequence
+from typing import Any
+
+import pytest
+
+from alphaswarm.config import DEFAULT_BRACKETS, SimulationSettings, generate_personas
+from alphaswarm.simulation import _build_diverse_peer_contexts, compute_exposure_metrics
+from alphaswarm.types import AgentDecision, AgentPersona, BracketType, SignalType
 
 
 def _persona(agent_id: str, bracket: BracketType, weight: float = 0.5) -> AgentPersona:
@@ -34,6 +40,38 @@ SMALL_PERSONAS = [
     _persona("degens_02", BracketType.DEGENS),
     _persona("macro_01", BracketType.MACRO),
 ]
+
+_PEER_LINE = re.compile(r"^\d+\. \[([a-z]+(?:_[a-z]+)*_\d{2})\|", re.MULTILINE)
+
+
+def _decisions(
+    personas: Sequence[AgentPersona],
+    *,
+    rationale: str = "Bullish on the setup.",
+    cited: Sequence[str] = (),
+) -> list[tuple[str, AgentDecision]]:
+    return [
+        (
+            p.id,
+            AgentDecision(
+                signal=SignalType.BUY,
+                confidence=0.7,
+                rationale=rationale,
+                cited_agents=[c for c in cited if c != p.id],
+            ),
+        )
+        for p in personas
+    ]
+
+
+def _build(
+    personas: Sequence[AgentPersona],
+    decisions: Sequence[tuple[str, AgentDecision]],
+    source_round: int,
+    **kwargs: Any,
+) -> tuple[list[str | None], list[tuple[str, ...]]]:
+    kwargs.setdefault("sim", SimulationSettings())
+    return _build_diverse_peer_contexts(list(personas), list(decisions), source_round, **kwargs)
 
 
 class TestComputeExposureMetrics:
@@ -82,3 +120,91 @@ class TestComputeExposureMetrics:
 
         exposure_keys = [key for key in metrics if key.startswith("r2_exposure_")]
         assert exposure_keys == [f"r2_exposure_{b.bracket_type.value}" for b in DEFAULT_BRACKETS]
+
+
+class TestBuildDiversePeerContexts:
+    def test_exposures_align_with_personas_and_rendered_lines(self) -> None:
+        contexts, exposures = _build(SMALL_PERSONAS, _decisions(SMALL_PERSONAS), 1)
+
+        assert len(contexts) == len(exposures) == len(SMALL_PERSONAS)
+        for persona, ctx, shown in zip(SMALL_PERSONAS, contexts, exposures, strict=True):
+            assert ctx is not None
+            assert list(shown) == _PEER_LINE.findall(ctx)
+            assert persona.id not in shown
+            assert len(shown) == len(SMALL_PERSONAS) - 1
+
+    def test_exposures_match_rendered_lines_when_budget_truncates(self) -> None:
+        """Peers cut by the character budget are not exposure."""
+        long_take = "word " * 400  # 2,000 characters per rationale
+
+        contexts, exposures = _build(
+            SMALL_PERSONAS, _decisions(SMALL_PERSONAS, rationale=long_take), 1
+        )
+
+        for ctx, shown in zip(contexts, exposures, strict=True):
+            assert ctx is not None
+            assert 1 <= len(shown) < len(SMALL_PERSONAS) - 1
+            assert list(shown) == _PEER_LINE.findall(ctx)
+
+    def test_reader_without_eligible_peers_gets_none_and_empty_exposure(self) -> None:
+        """When every other agent failed last round, the reader sees nobody."""
+        survivor = SMALL_PERSONAS[0]
+        decisions = [
+            (
+                p.id,
+                AgentDecision(
+                    signal=SignalType.BUY if p is survivor else SignalType.PARSE_ERROR,
+                    confidence=0.5,
+                    rationale="ok",
+                ),
+            )
+            for p in SMALL_PERSONAS
+        ]
+
+        contexts, exposures = _build(SMALL_PERSONAS, decisions, 1)
+
+        assert contexts[0] is None
+        assert exposures[0] == ()
+        for ctx, shown in zip(contexts[1:], exposures[1:], strict=True):
+            assert ctx is not None
+            assert shown == (survivor.id,)
+
+    def test_peer_limit_sets_selection_and_rendered_line_count(self) -> None:
+        personas = [_persona(f"{b.value}_{i:02d}", b) for b in FIVE_BRACKETS for i in range(1, 4)]
+
+        _, exposures = _build(
+            personas, _decisions(personas), 1, sim=SimulationSettings(peer_limit=12)
+        )
+
+        assert {len(shown) for shown in exposures} == {12}
+
+    def test_personal_boost_and_limits_come_from_settings(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: list[dict[str, Any]] = []
+
+        def fake_select(
+            agent_id: str,
+            influence_weights: dict[str, float],
+            personas: list[AgentPersona],
+            prev_decisions: dict[str, AgentDecision] | None = None,
+            **kwargs: Any,
+        ) -> list[str]:
+            captured.append({"agent_id": agent_id, "weights": dict(influence_weights), **kwargs})
+            return []
+
+        monkeypatch.setattr("alphaswarm.simulation.select_diverse_peers", fake_select)
+        sim = SimulationSettings(personal_boost=0.05, peer_limit=7, min_brackets=2, bracket_cap=2)
+
+        contexts, exposures = _build(
+            SMALL_PERSONAS, _decisions(SMALL_PERSONAS, cited=("degens_01",)), 2, sim=sim
+        )
+
+        first = captured[0]  # reader quants_01 cited degens_01 last round
+        assert first["agent_id"] == "quants_01"
+        assert first["weights"]["degens_01"] == pytest.approx(0.5 + 0.05)
+        assert first["weights"]["degens_02"] == pytest.approx(0.5)
+        assert first["limit"] == 7
+        assert first["min_brackets"] == 2
+        assert contexts == [None] * len(SMALL_PERSONAS)
+        assert exposures == [()] * len(SMALL_PERSONAS)

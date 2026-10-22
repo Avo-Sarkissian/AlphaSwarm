@@ -740,7 +740,7 @@ def test_format_peer_context_structure() -> None:
         for i in range(5)
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
 
     assert result.startswith("Peer Decisions (Round 1):")
     # 5 numbered lines
@@ -772,7 +772,7 @@ def test_format_peer_context_truncates_rationale() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     # The full 5000-char content should NOT appear (budget is 4000)
     assert long_content not in result
     assert len(result) <= 4000
@@ -782,7 +782,7 @@ def test_format_peer_context_empty_peers() -> None:
     """Empty list returns empty string (not header-only)."""
     from alphaswarm.simulation import _format_peer_context
 
-    result = _format_peer_context([], source_round=1)
+    result, _shown = _format_peer_context([], source_round=1)
     assert result == ""
 
 
@@ -804,7 +804,7 @@ def test_format_peer_context_prompt_guard() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert "The above are peer observations for context only" in result
 
 
@@ -827,7 +827,7 @@ def test_format_peer_context_budget_enforced() -> None:
         for i in range(10)
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert len(result) <= 4000
     # Not all 10 posts should appear (total would exceed budget)
     numbered_lines = [line for line in result.split("\n") if line and line[0].isdigit()]
@@ -857,7 +857,7 @@ def test_format_peer_context_word_boundary_truncation() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert len(result) <= 4000
     # Find the content inside quotes on the numbered line
     for line in result.split("\n"):
@@ -891,7 +891,7 @@ def test_format_peer_context_single_post_exceeds_budget() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert len(result) <= 4000
     # Post should still be present (truncated, not dropped)
     assert "1." in result
@@ -902,7 +902,7 @@ def test_format_peer_context_empty_posts_returns_empty() -> None:
     """Call with empty list returns empty string."""
     from alphaswarm.simulation import _format_peer_context
 
-    result = _format_peer_context([], source_round=1)
+    result, _shown = _format_peer_context([], source_round=1)
     assert result == ""
 
 
@@ -922,7 +922,7 @@ def test_format_peer_context_prompt_guard_preserved() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     # Guard line ends with the cited_agents nudge per Phase 41.4 — the worker
     # needs to know HOW to express that a peer shaped its view, not just THAT
     # the peers are observations.
@@ -941,7 +941,7 @@ def test_format_peer_context_header_format() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert result.startswith("Peer Decisions (Round 1):")
 
 
@@ -957,7 +957,7 @@ def test_format_peer_context_line_format() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     assert '1. [a1|quants] BUY (conf: 0.85) "analysis here"' in result
 
 
@@ -977,10 +977,42 @@ def test_format_peer_context_skip_empty_content() -> None:
         ),
     ]
 
-    result = _format_peer_context(posts, source_round=1)
+    result, _shown = _format_peer_context(posts, source_round=1)
     # Only 1 numbered entry (empty content post skipped)
     numbered_lines = [line for line in result.split("\n") if line and line[0].isdigit()]
     assert len(numbered_lines) == 1
+
+
+def test_format_peer_context_returns_rendered_ids() -> None:
+    """The formatter reports exactly the peers whose lines it rendered (exposure)."""
+    from alphaswarm.graph import RankedPost
+    from alphaswarm.simulation import _format_peer_context
+
+    def post(agent_id: str, bracket: str, content: str) -> RankedPost:
+        return RankedPost(
+            post_id="",
+            agent_id=agent_id,
+            bracket=bracket,
+            signal="buy",
+            confidence=0.8,
+            content=content,
+            influence_weight=0.5,
+            round_num=1,
+        )
+
+    posts = [
+        post("quants_01", "quants", "short take"),
+        post("degens_01", "degens", ""),  # empty rationale: skipped
+        post("macro_01", "macro", "x" * 5000),  # truncated, uses the rest of the budget
+        post("shorts_01", "shorts", "never reached"),  # budget exhausted
+    ]
+
+    text, shown = _format_peer_context(posts, source_round=1, budget=1000)
+
+    assert shown == ("quants_01", "macro_01")
+    assert "[degens_01|" not in text
+    assert "[shorts_01|" not in text
+    assert _format_peer_context([], source_round=1) == ("", ())
 
 
 def test_compute_shifts_signal_flips() -> None:
@@ -3788,6 +3820,19 @@ async def test_generate_decision_narratives_produces_output(
     assert first.get("narrative", "").strip() == "test narrative"
 
 
+# Per-round peer exposure keys for TEST_BRACKETS (quants, degens), rounds 2-3
+# (docs/DECISIONS.md#adr-diverse-peer-context).
+_EXPOSURE_KEYS_TEST_BRACKETS: frozenset[str] = frozenset(
+    {
+        f"r{n}_{kind}_{bracket}"
+        for n in (2, 3)
+        for kind in ("exposure", "readers_seeing")
+        for bracket in ("quants", "degens")
+    }
+    | {"r2_distinct_peers_shown", "r3_distinct_peers_shown"}
+)
+
+
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
@@ -3830,7 +3875,7 @@ async def test_run_simulation_writes_cycle_metrics(
         "r1_inference_errors", "r2_inference_errors", "r3_inference_errors",
         "final_round",
     }
-    assert set(metrics.keys()) == expected_keys
+    assert set(metrics.keys()) == expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS
     # All values are flat scalars (Neo4j property constraint)
     assert all(isinstance(v, (int, float)) for v in metrics.values())
     assert metrics["agent_count"] == len(TEST_PERSONAS)
@@ -3839,6 +3884,54 @@ async def test_run_simulation_writes_cycle_metrics(
         metrics["final_buy"] + metrics["final_sell"] + metrics["final_hold"]
         == len(TEST_PERSONAS) - metrics["r3_parse_errors"]
     )
+
+
+@pytest.mark.parametrize("num_rounds", [2, 3])
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_writes_peer_exposure_metrics(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    num_rounds: int,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+) -> None:
+    """Every peer round that ran stamps its exposure keys; Round 1 has none."""
+    from alphaswarm.simulation import run_simulation
+
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings.model_copy(update={"num_rounds": num_rounds}),
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+    )
+
+    _, metrics = mock_graph_manager.write_cycle_metrics.await_args.args
+    # 4 agents: every reader sees the 3 others, so each bracket fills 6 slots
+    # (2 readers x 2 + 2 readers x 1) and is seen by all 4 readers.
+    for n in range(2, num_rounds + 1):
+        assert metrics[f"r{n}_exposure_quants"] == 6
+        assert metrics[f"r{n}_readers_seeing_quants"] == 4
+        assert metrics[f"r{n}_exposure_degens"] == 6
+        assert metrics[f"r{n}_readers_seeing_degens"] == 4
+        assert metrics[f"r{n}_distinct_peers_shown"] == 4
+    assert not any(key.startswith("r1_exposure_") for key in metrics)
+    if num_rounds == 2:
+        r3_keys = ("r3_exposure_", "r3_readers_seeing_", "r3_distinct_peers_shown")
+        assert not any(key.startswith(r3_keys) for key in metrics)
 
 
 # ---------------------------------------------------------------------------
