@@ -35,6 +35,7 @@ def test_lint_job_runs_the_static_gates() -> None:
     for command in (
         "uv run mypy src",
         "uv run lint-imports",
+        "uv run vulture src vulture_whitelist.py --min-confidence 80",
     ):
         assert command in job, command
 

@@ -216,7 +216,7 @@ Contents
   - *Summary:* R2 max slot share `46.0%` → `15.2%`; R2 min readers `0%` → `37%`; R3 `49.2%` → `17.9%` and `0%` → `16%`; distinct peers shown R2 `46` → `100`, R3 `45` → `100`; Sell-Side share of R2 citations `46.7%` → `4.0%`. Flips and final distribution (context, not a gate) are in `scripts/compare_cycles.py` for both cycles.
 
 - **Leftovers:**
-  - `read_ranked_posts`, `_dispatch_round`, and `read_peer_decisions` are dead code.
+  - `read_ranked_posts`, `_dispatch_round`, and `read_peer_decisions` were dead code and were deleted in 2026-10.
   - READ_POST edges are no longer written, which empties the report's `social_post_reach` section. See BACKLOG.
 - **Control holdout (decided 2026-10 under the owner's delegation):** `control_fraction` defaults to 0.0, so product runs keep every reader's peer context; experiment and eval runs set `ALPHASWARM_SIMULATION__CONTROL_FRACTION=0.2` (20 seeded readers, round-half-up per bracket, never see peers).
 - **Own prior (2026-10):** from Round 2 on, each reader's user message starts with its own previous decision (`Your Round N position: SIGNAL (conf X): rationale`, sanitized to one line and left out after a PARSE_ERROR; `ALPHASWARM_SIMULATION__OWN_PRIOR_MEMORY`, default true). Holdout readers keep it, so their flips measure everything except peers. Holdout decisions carry `d.control = true` in Rounds 2-3 (Round 1 decisions carry false), and the cycle metrics add `r{n}_control_agents`, `r{n}_flips_control` and `r{n}_flips_treated`.
@@ -324,7 +324,7 @@ Contents
   3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)). Tracebacks are rendered without local variables in both modes (JSON: `ExceptionDictTransformer(show_locals=False)` before the redactor; console: `plain_traceback`), so frames never leak keys or portfolio objects (2026-10).
   4. Holdings are loaded into memory at lifespan startup (`PortfolioCache`, re-read when the CSV changes) and never persisted ([p39-d-07](#p39-d-07)).
 - **Rationale:** Uncontaminated consensus, plus privacy for real brokerage data.
-- **Gate:** `uv run lint-imports` runs in the CI `lint` job (next to strict mypy) and as a pre-commit hook, and `tests/invariants/test_importlinter_contract.py` runs it inside pytest. Ruff is not gated yet.
+- **Gate:** `uv run lint-imports` runs in the CI `lint` job (next to strict mypy and vulture) and as a pre-commit hook, and `tests/invariants/test_importlinter_contract.py` runs it inside pytest. Ruff is not gated yet.
 
 ### <a id="adr-provider-never-raise"></a>Market/news providers never raise
 - **Decision:** `MarketDataProvider` and `NewsProvider` use batch-first signatures. Failures become `staleness="fetch_failed"` slices. Fakes live next to the protocols ([p37-d-17](#p37-d-17)..[p37-d-20](#p37-d-20)).
@@ -475,7 +475,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p4-d-06"></a>`D-06` | All 100 Agent nodes seeded eagerly in ensure_schema() from persona config. | active | graph.py:112 |
 | <a id="p4-d-07"></a>`D-07` | Session-per-method: each GraphStateManager method opens its own short-lived async session; callers never manage sessions. | active | graph.py:82 |
 | <a id="p4-d-08"></a>`D-08` | Keep the GraphStateManager API minimal and batch writes via UNWIND (one transaction per round, not per agent). | active | graph.py:82,389 |
-| <a id="p4-d-09"></a>`D-09` | Pre-dynamic-topology peer ranking by static influence_weight_base (read_peer_decisions). Now only used by the dead _dispatch_round path. | superseded | graph.py:734 |
+| <a id="p4-d-09"></a>`D-09` | Pre-dynamic-topology peer ranking by static influence_weight_base (read_peer_decisions). Deleted with the dead _dispatch_round path in 2026-10. | superseded | — |
 | <a id="p4-d-10"></a>`D-10` | cycle_id is a uuid4. | active | graph.py:188 |
 
 ### Phase 5: Seed injection and agent personas
@@ -511,7 +511,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p8-d-02"></a>`D-02` | Compute influence edges after each round so topology shapes the next round. R1 computation since removed (SWEEP B-5); R3 computation added (260512-jqn ITEM 2). | partial | graph.py:980,1059; simulation.py:954 |
 | <a id="p8-d-03"></a>`D-03` | Every citation pair produces an edge; no threshold. Edge weight is the target's citation share. | active | graph.py:980 |
 | <a id="p8-d-04"></a>`D-04` | Weights are cumulative across rounds (round <= up_to_round). | active | graph.py:980,984,1058; simulation.py:961,1242,1400 |
-| <a id="p8-d-05"></a>`D-05` | Cold start: when no citations exist, fall back to static influence_weight_base. The explicit fallback (sequential `read_peer_decisions` reads) survives only inside the dead `_dispatch_round`. The production path (`_build_diverse_peer_contexts`) always adds base reach to citation share, so with zero citations it samples by base reach alone ([adr-diverse-peer-context](#adr-diverse-peer-context)); no static ordering remains. | superseded | simulation.py (`_dispatch_round`, `_build_diverse_peer_contexts`) |
+| <a id="p8-d-05"></a>`D-05` | Cold start: when no citations exist, fall back to static influence_weight_base. The explicit fallback (sequential `read_peer_decisions` reads) was deleted with `_dispatch_round` in 2026-10. The production path (`_build_diverse_peer_contexts`) always adds base reach to citation share, so with zero citations it samples by base reach alone ([adr-diverse-peer-context](#adr-diverse-peer-context)); no static ordering remains. | superseded | simulation.py (`_build_diverse_peer_contexts`) |
 | <a id="p8-d-06"></a>`D-06` | Bracket-diverse peer selection: top-1 from the top N brackets, then fill by weight. Superseded by seeded stratified sampling with a per-bracket cap ([adr-diverse-peer-context](#adr-diverse-peer-context)). | superseded | simulation.py (select_diverse_peers) |
 | <a id="p8-d-07"></a>`D-07` | Bracket aggregation computed in memory from the round's decisions. | active | simulation.py:107; state.py:35 |
 | <a id="p8-d-08"></a>`D-08` | BracketSummary frozen dataclass promoted into the simulation layer and carried on SimulationResult; CLI and UI share it. | active | cli.py:240,294,417; simulation.py:107,287,304,305,306,955,963,1105,1253,1410; state.py:35 |
@@ -527,8 +527,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p10-d-02"></a>`D-02` | Rationale feed fed by top-influence agents after each round. Superseded by per-agent streaming push_rationale + 50-entry sliding window (260512-jqn ITEM 4). The end-of-round calls were removed, but the `_push_top_rationales` function itself survives at simulation.py:317 as dead code that only `tests/test_state.py:375` calls. | superseded | simulation.py:324 |
-| <a id="p10-d-03"></a>`D-03` | Rationale feed entries truncated to ~50 chars by the producer (sanitize_rationale(max_len=50)). | active | simulation.py:327; state.py:53,57 |
+| <a id="p10-d-02"></a>`D-02` | Rationale feed fed by top-influence agents after each round. Superseded by per-agent streaming push_rationale + 50-entry sliding window (260512-jqn ITEM 4). The end-of-round calls were removed then, and `_push_top_rationales` itself was deleted in 2026-10. | superseded | batch_dispatcher.py (`_safe_agent_inference`) |
+| <a id="p10-d-03"></a>`D-03` | Rationale feed entries truncated to ~50 chars by the producer (sanitize_rationale(max_len=50)). | active | batch_dispatcher.py (`_safe_agent_inference`, the producer); state.py (`RationaleEntry`) |
 | <a id="p10-d-04"></a>`D-04` | Feed shows newest first. | active | state.py:53 |
 | <a id="p10-d-05"></a>`D-05` | TPS computed from Ollama eval_count/eval_duration and accumulated in StateStore.update_tps. | active | state.py:216; worker.py:200 |
 | <a id="p10-d-08"></a>`D-08` | StateStore.set_bracket_summaries after each round; all 10 brackets always shown. | active | state.py:229 |
@@ -593,10 +593,10 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p15-d-02"></a>`D-02` | FINAL_ANSWER is a reserved tool that ends the loop. | active | report.py:116,169 |
 | <a id="p15-d-03"></a>`D-03` | Hard iteration cap plus duplicate (tool, input) detection. | active | report.py:117,118,174 |
 | <a id="p15-d-04"></a>`D-04` | CLI `report` subcommand. The web route and auto-chain after advisory were added later. | partial | cli.py:662 |
-| <a id="p15-d-05"></a>`D-05` | Sentinel file .alphaswarm/last_report.json for TUI polling. Still written, but no reader since the TUI was retired. | superseded | cli.py:794; report.py:352 |
+| <a id="p15-d-05"></a>`D-05` | Sentinel file .alphaswarm/last_report.json for TUI polling. Had no reader once the TUI was retired; the `write_sentinel` writer was deleted in 2026-10. | superseded | — |
 | <a id="p15-d-07"></a>`D-07` | Fixed report section order. | active | report.py:244 |
 | <a id="p15-d-10"></a>`D-10` | Reports written to ./reports/{cycle_id}_report.md. | active | cli.py:662,794; report.py:335 |
-| <a id="p15-d-11"></a>`D-11` | Async file write via aiofiles. | active | report.py:333 |
+| <a id="p15-d-11"></a>`D-11` | Async file write via aiofiles. Revised: `write_report` writes atomically off the event loop, `asyncio.to_thread(atomic_write_text, ...)` (temp file + fsync + os.replace, BACKLOG 1.11), and report.py no longer uses aiofiles. | revised | report.py (`write_report`) |
 | <a id="p15-d-12"></a>`D-12` | Report engine does not manage model lifecycle; the caller does. | active | cli.py:662,700,752; report.py:120 |
 
 ### Phase 26: Shock injection core
@@ -755,7 +755,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p41-2-d-03"></a>`D-03` | OllamaClient.generate() accepts system= so narrative generation stops failing silently. Narratives have since moved to `provider.chat` with a system message (simulation.py:1613-1626), so `generate()` now has no production caller. | partial | ollama_client.py:149; tests/test_ollama_client.py:139,148; tests/test_simulation.py:3698,3706,3777 |
+| <a id="p41-2-d-03"></a>`D-03` | OllamaClient.generate() accepts system= so narrative generation stops failing silently. Narratives have since moved to `provider.chat` with a system message, and `generate()`, left without a production caller, was deleted in 2026-10. | superseded | simulation.py (`_generate_decision_narratives`) |
 | <a id="p41-2-d-04"></a>`D-04` | Replace the mock ReportModalV2 with the real backend-wired ReportModal. | active | fe/components/ReportModal.tsx:2; fe/components/modals.jsx:8 |
 | <a id="p41-2-d-05"></a>`D-05` | Render portfolio_outlook + items[] in the advisory surface (now AdvisoryV2). | active | fe/lib/markdown.ts:2 |
 
@@ -894,8 +894,8 @@ code. Their status is in BACKLOG.md.
 | ID | Item and resolution | Referenced from |
 |---|---|---|
 | <a id="sweep-b-1"></a>SWEEP B-1 | 19 `test_report.py` failures against the removed `assemble_html()`. Tests rewritten against `ReportAssembler.assemble()` (markdown) | tests/test_report.py:385 |
-| <a id="sweep-b-5"></a>SWEEP B-5 | Round 1 can never produce citations, so its influence-edge computation was dead work. Removed. The comment at simulation.py:1100-1103 still says Round 2 reads `read_ranked_posts`, which is stale | simulation.py:1103 |
-| <a id="sweep-b-7"></a>SWEEP B-7 | Advisory prompt over-emitted boilerplate HOLD items. Non-top holdings are no longer sent to the LLM and are padded server-side as HOLD@0.30 | advisory/engine.py:174; advisory/prompt.py:90; tests/test_advisory_synthesize.py:145,163; tests/unit/test_advisory.py:260 |
+| <a id="sweep-b-5"></a>SWEEP B-5 | Round 1 can never produce citations, so its influence-edge computation was dead work. Removed | simulation.py (`run_simulation`: the comment after the Round 1 write, and the docstring lifecycle) |
+| <a id="sweep-b-7"></a>SWEEP B-7 | Advisory prompt over-emitted boilerplate HOLD items. Non-top holdings are no longer sent to the LLM and are padded server-side as HOLD@0.30 | advisory/engine.py (`synthesize`); advisory/prompt.py (`build_advisory_prompt`); tests/test_advisory_synthesize.py (`test_prompt_instructs_conviction_items_only`); tests/unit/test_advisory.py |
 | <a id="sweep-b-8"></a>SWEEP B-8 | Unknown tickers had `macro_beta=0`, so they could never rank. Default raised to 0.5 | advisory/sector_map.py:74; tests/test_advisory_synthesize.py:47,130 |
 | <a id="sweep-3-3"></a>SWEEP §3.3 | Structural peer-context bias: every agent saw the same authority top-10. Fixed by [adr-diverse-peer-context](#adr-diverse-peer-context) | simulation.py:166,188,438,763,1162 |
 
@@ -930,11 +930,11 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-infra-05"></a>INFRA-05 | Cycle-scoped indexes for fast peer reads | tests/neo4j/test_graph_integration.py (test_ensure_schema_idempotent) |
 | <a id="req-infra-07"></a>INFRA-07 | TaskGroup for all batch processing; no bare create_task | batch_dispatcher.py:4,155 |
 | <a id="req-infra-08"></a>INFRA-08 | Pydantic parsing with multi-tier fallback | parsing.py:3; tests/test_parsing.py:1 |
-| <a id="req-tui-03"></a>TUI-03 / TUI-04 / TUI-05 | Rationale stream / telemetry (RAM, TPS, slots) / bracket panel. The contracts survive in StateStore after the TUI was removed | TUI-03: simulation.py:313,324; state.py:53,101. TUI-04: batch_dispatcher.py:176; simulation.py:313; state.py:101,127,216; worker.py:200,237. TUI-05: simulation.py:313,1110; state.py:101,130,229 |
+| <a id="req-tui-03"></a>TUI-03 / TUI-04 / TUI-05 | Rationale stream / telemetry (RAM, TPS, slots) / bracket panel. The contracts survive in StateStore after the TUI was removed | No live references since 2026-10: the code cites [p10-d-02](#p10-d-02) (rationale stream), [p10-d-05](#p10-d-05) (TPS) and [p10-d-08](#p10-d-08) (bracket summaries) instead, in state.py, batch_dispatcher.py, worker.py and simulation.py |
 | <a id="req-graph-03"></a>GRAPH-03 | Decision→Entity REFERENCES edges | tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc) |
 | <a id="req-int-01"></a>INT-01 | Interview context reconstructed from Neo4j | graph.py:1160 |
 | <a id="req-report-02"></a>REPORT-02 | Cypher report tools (bracket, influence, entity, flips, posts) | graph.py:1260,1300,1339,1379,1434,1483,1529,1576 |
-| <a id="req-social-01"></a>SOCIAL-01 / SOCIAL-02 | Rationale posts as Post nodes / top-K posts in peer context (SOCIAL-02 ranking superseded, see [§2](#hist-read-post)) | SOCIAL-01: graph.py:504. SOCIAL-02: graph.py:592,678 |
+| <a id="req-social-01"></a>SOCIAL-01 / SOCIAL-02 | Rationale posts as Post nodes / top-K posts in peer context (SOCIAL-02 ranking superseded, see [§2](#hist-read-post)) | SOCIAL-01: graph.py (`write_posts`). SOCIAL-02: its ranking read (`read_ranked_posts`) and READ_POST writer (`write_read_post_edges`) were deleted in 2026-10 |
 | <a id="req-replay-01"></a>REPLAY-01 | Replay from Neo4j without re-inference | graph.py:1988,2102,2155; tests/test_graph.py:1555,1580,1602,1625 |
 | <a id="req-vis-03"></a>VIS-03 | Edges endpoint for the web graph (Phase 31 ID) | tests/test_web.py:841 |
 | <a id="req-shock"></a>SHOCK-04 / SHOCK-05 | Phase 27-internal IDs (never added to REQUIREMENTS.md). SHOCK-04: `read_shock_event` / `read_shock_impact` (bracket deltas, pivot count, comparable agents) plus the old TUI bracket-panel delta mode. SHOCK-05: shock-impact report section (`11_shock_impact.j2`, `TOOL_TO_TEMPLATE['shock_impact']`, CLI pre-seeding of the `shock_impact` observation) | SHOCK-04: graph.py:1655; tests/test_graph.py:1438,1459,1473,1514. SHOCK-05: tests/test_cli.py:957,994; tests/test_report.py:498,505,514,542,586,600 |

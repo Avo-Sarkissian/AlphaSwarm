@@ -1,7 +1,7 @@
 """Simulation pipeline for AlphaSwarm.
 
 Composes inject_seed, dispatch_wave, and write_decisions into:
-- run_round1(): Single-round standalone pipeline (Phase 6)
+- run_round1(): Round 1 dispatch for a cycle run_simulation already seeded
 - run_simulation(): Full 3-round consensus cascade (Phase 7)
 
 run_simulation() calls run_round1() for Round 1, then orchestrates
@@ -40,8 +40,8 @@ from alphaswarm.utils import sanitize_rationale
 from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_type
 
 if TYPE_CHECKING:
-    from alphaswarm.config import AppSettings, BracketConfig, GovernorSettings, SimulationSettings
-    from alphaswarm.graph import GraphStateManager, PeerDecision, RankedPost
+    from alphaswarm.config import AppSettings, BracketConfig, SimulationSettings
+    from alphaswarm.graph import GraphStateManager, RankedPost
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
@@ -77,17 +77,6 @@ class Round1Result:
     agent_decisions: list[tuple[str, AgentDecision]]
     decision_ids: list[str] = dataclasses.field(default_factory=list)
     modifier_result: ParsedModifiersResult | None = None
-
-
-@dataclasses.dataclass(frozen=True)
-class RoundDispatchResult:
-    """Result from _dispatch_round including peer contexts for episode storage (Phase 11).
-
-    peer_contexts is aligned by persona index, empty string for no context.
-    """
-
-    agent_decisions: list[tuple[str, AgentDecision]]
-    peer_contexts: list[str]  # Aligned by persona index, "" for no context
 
 
 @dataclasses.dataclass(frozen=True)
@@ -406,55 +395,6 @@ class SimulationResult:
 
 
 OnRoundComplete = Callable[[RoundCompleteEvent], Awaitable[None]] | None
-
-
-# ---------------------------------------------------------------------------
-# TUI data helpers (Phase 10: TUI-03, TUI-04, TUI-05)
-# ---------------------------------------------------------------------------
-
-
-async def _push_top_rationales(
-    agent_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
-    round_num: int,
-    state_store: StateStore,
-    influence_weights: dict[str, float] | None = None,
-    limit: int = 10,
-) -> None:
-    """Push top-influence agent rationales to StateStore queue (D-02, TUI-03).
-
-    Selects agents by influence weight (if available) or by confidence (fallback).
-    Skips PARSE_ERROR agents. Truncates rationale to 50 characters per D-03.
-
-    Args:
-        agent_decisions: All agent decisions for this round.
-        round_num: Round number (1, 2, or 3).
-        state_store: StateStore to push RationaleEntry objects to.
-        influence_weights: Optional {agent_id: weight} from compute_influence_edges().
-            When provided and non-empty, sorts by influence weight descending.
-            Fallback: sorts by confidence descending.
-        limit: Maximum entries to push (default 10).
-    """
-    from alphaswarm.state import RationaleEntry
-
-    decisions_list = list(agent_decisions)
-    if influence_weights:
-        decisions_list.sort(
-            key=lambda x: influence_weights.get(x[0], 0.0), reverse=True,
-        )
-    else:
-        decisions_list.sort(key=lambda x: x[1].confidence, reverse=True)
-
-    for agent_id, decision in decisions_list[:limit]:
-        if decision.signal == SignalType.PARSE_ERROR:
-            continue
-        truncated = sanitize_rationale(decision.rationale, max_len=50)
-        entry = RationaleEntry(
-            agent_id=agent_id,
-            signal=decision.signal,
-            rationale=truncated,
-            round_num=round_num,
-        )
-        await state_store.push_rationale(entry)
 
 
 # ---------------------------------------------------------------------------
@@ -809,15 +749,15 @@ async def run_round1(
     governor: ConcurrencyController,
     personas: list[AgentPersona],
     *,
+    pre_injected: tuple[str, ParsedSeedResult],
     state_store: StateStore | None = None,
-    pre_injected: tuple[str, ParsedSeedResult] | None = None,
     market_context: str | None = None,
     worker_provider: InferenceProvider | None = None,
 ) -> Round1Result:
     """Execute the Round 1 simulation pipeline.
 
     Pipeline steps:
-    1. inject_seed (orchestrator model lifecycle is self-contained), or skip if pre_injected
+    1. Unpack the (cycle_id, parsed_result) that run_simulation's inject_seed produced
     2. ensure_clean_state (defensive cleanup after orchestrator)
     3. start_monitoring (governor RAM monitoring)
     4. load worker model (or prepare injected worker_provider)
@@ -835,9 +775,9 @@ async def run_round1(
         graph_manager: Neo4j graph state manager.
         governor: ResourceGovernor for concurrency control.
         personas: List of AgentPersona to dispatch.
-        pre_injected: Optional (cycle_id, parsed_result) when seed injection
-            was already performed by the caller (e.g., run_simulation for Phase 13
-            modifier generation). Skips inject_seed when provided.
+        pre_injected: (cycle_id, parsed_result) from the caller's inject_seed
+            call. Required: run_simulation seeds the cycle and generates the
+            persona modifiers before Round 1, so run_round1 never seeds.
         market_context: Optional grounded market data block injected into Round 1
             agent prompts per Phase 40 D-04, D-06. Forwarded to dispatch_wave.
             F3: it is third-party text, so AgentWorker.infer fences it inside the
@@ -854,27 +794,7 @@ async def run_round1(
     """
     logger.info("round1_start", agent_count=len(personas))
 
-    if pre_injected is not None:
-        cycle_id, parsed_result = pre_injected
-    else:
-        # StateStore: mark SEEDING phase
-        if state_store is not None:
-            await state_store.set_phase(SimulationPhase.SEEDING)
-            # Canonical roster for this run, in config order and all pending, so
-            # every frame from SEEDING on carries the same agents in the same order
-            # (docs/DECISIONS.md#adr-streaming-state).
-            await state_store.begin_run([p.id for p in personas])
-
-        # 1. Inject seed (orchestrator model lifecycle is self-contained)
-        orchestrator_provider = OllamaProvider(
-            ProviderRole.ORCHESTRATOR,
-            settings.ollama.orchestrator_model_alias,
-            ollama_client,
-            model_manager,
-        )
-        cycle_id, parsed_result, _modifier_result = await inject_seed(
-            rumor, settings, orchestrator_provider, graph_manager,
-        )
+    cycle_id, parsed_result = pre_injected
 
     # StateStore: mark ROUND_1 phase after seed injection
     if state_store is not None:
@@ -981,180 +901,6 @@ async def run_round1(
 
 
 # ---------------------------------------------------------------------------
-# Rounds 2-3 dispatch helper (Phase 7)
-# ---------------------------------------------------------------------------
-
-
-async def _dispatch_round(
-    personas: list[AgentPersona],
-    cycle_id: str,
-    source_round: int,
-    graph_manager: GraphStateManager,
-    governor: ConcurrencyController,
-    client: OllamaClient,
-    model: str,
-    rumor: str,
-    settings: GovernorSettings,
-    *,
-    influence_weights: dict[str, float] | None = None,
-    prev_decisions: (
-        list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...] | None
-    ) = None,
-    state_store: StateStore | None = None,
-) -> RoundDispatchResult:
-    """Dispatch a round with per-agent peer context (D-09, D-10).
-
-    UNUSED IN PRODUCTION — see `select_diverse_peers` docstring. `run_simulation`
-    bypasses this helper and calls `dispatch_wave` directly with peer contexts
-    built from `read_ranked_posts`. Kept here together with `select_diverse_peers`
-    as the staging area for the proposed peer-bias fix (see docs/DECISIONS.md#sweep-3-3).
-
-    When influence_weights is provided AND non-empty (and prev_decisions available):
-    - Uses select_diverse_peers for bracket-diverse dynamic peer selection (D-06).
-    - Builds PeerDecision objects from in-memory prev_decisions data.
-
-    When influence_weights is None OR empty dict (zero-citation fallback, D-05):
-    - Falls back to static influence_weight_base ordering via read_peer_decisions (Neo4j).
-    - This path is expected for Round 2 when Round 1 has no citations (cold-start per Pitfall 1).
-
-    Uses ValueError for runtime contract checks (Codex review: assert disappears under -O).
-    """
-    from alphaswarm.graph import RankedPost
-
-    worker_configs = [persona_to_worker_config(p) for p in personas]
-
-    # Determine whether to use dynamic or static peer selection
-    use_dynamic = (
-        influence_weights is not None
-        and len(influence_weights) > 0
-        and prev_decisions is not None
-    )
-
-    peer_contexts: list[str | None] = []
-
-    def _peer_to_ranked(peer: PeerDecision, weight: float = 0.0) -> RankedPost:
-        """Convert a PeerDecision to RankedPost for _format_peer_context compatibility."""
-        return RankedPost(
-            post_id="",  # No post_id in legacy PeerDecision path
-            agent_id=peer.agent_id,
-            bracket=peer.bracket,
-            signal=peer.signal,
-            confidence=peer.confidence,
-            content=peer.rationale,
-            influence_weight=weight,
-            round_num=source_round,
-        )
-
-    if use_dynamic:
-        # Dynamic path: bracket-diverse peer selection using influence weights (D-06)
-        assert influence_weights is not None  # narrowing for type checker
-        assert prev_decisions is not None     # narrowing for type checker
-        persona_lookup = {p.id: p for p in personas}
-        prev_dict: dict[str, AgentDecision] = {aid: dec for aid, dec in prev_decisions}
-
-        for persona in personas:
-            peer_ids = select_diverse_peers(
-                persona.id,
-                influence_weights,
-                personas,
-                prev_decisions=prev_dict,
-                rng=peer_rng(cycle_id, persona.id, source_round + 1),
-            )
-            ranked_posts = [
-                RankedPost(
-                    post_id="",
-                    agent_id=pid,
-                    bracket=persona_lookup[pid].bracket.value,
-                    signal=prev_dict[pid].signal.value,
-                    confidence=prev_dict[pid].confidence,
-                    content=prev_dict[pid].rationale,
-                    influence_weight=influence_weights.get(pid, 0.0),
-                    round_num=source_round,
-                )
-                for pid in peer_ids
-                if pid in prev_dict and pid in persona_lookup
-            ]
-            ctx, _shown = _format_peer_context(ranked_posts, source_round)
-            peer_contexts.append(ctx if ctx else None)
-
-        logger.info(
-            "round_dispatch_start",
-            round_num=source_round + 1,
-            agent_count=len(personas),
-            peers_found=sum(1 for c in peer_contexts if c),
-            peer_selection="dynamic",
-        )
-    else:
-        # Static path (zero-citation fallback): sequential Neo4j reads per D-05
-        logger.info(
-            "dynamic_peer_fallback_to_static",
-            reason="empty_weights_or_no_prev_decisions",
-            round_num=source_round,
-        )
-        # Sequential peer reads (D-10: reads happen BEFORE dispatch)
-        # Sequential avoids Neo4j connection pool exhaustion (Pitfall 3)
-        for persona in personas:
-            peers = await graph_manager.read_peer_decisions(
-                persona.id, cycle_id, source_round, limit=5,
-            )
-            ranked_posts = [_peer_to_ranked(p) for p in peers]
-            ctx, _shown = _format_peer_context(ranked_posts, source_round)
-            # Empty string from _format_peer_context means no peers found -> pass None
-            peer_contexts.append(ctx if ctx else None)
-
-        logger.info(
-            "round_dispatch_start",
-            round_num=source_round + 1,
-            agent_count=len(personas),
-            peers_found=sum(1 for c in peer_contexts if c),
-            peer_selection="static",
-        )
-
-    # _dispatch_round is unused in production — model loading/unloading is
-    # managed by the caller. OllamaProvider.prepare/teardown are never called
-    # here, so model_manager=None is safe for this legacy/test path.
-    _round_provider = OllamaProvider(
-        ProviderRole.WORKER, model, client, None
-    )
-    decisions = await dispatch_wave(
-        personas=worker_configs,
-        governor=governor,
-        provider=_round_provider,
-        user_message=rumor,
-        settings=settings,
-        peer_contexts=peer_contexts,
-        state_store=state_store,
-        round_num=source_round + 1,
-    )
-
-    if len(decisions) != len(worker_configs):
-        raise ValueError(
-            f"dispatch_wave returned {len(decisions)} results "
-            f"for {len(worker_configs)} personas"
-        )
-
-    agent_decisions: list[tuple[str, AgentDecision]] = [
-        (wc["agent_id"], dec)
-        for wc, dec in zip(worker_configs, decisions, strict=False)
-    ]
-
-    # Per-agent StateStore writes happen inside
-    # batch_dispatcher._safe_agent_inference at inference-resolution time
-    # (streaming) — the previous post-dispatch for-loop is removed because it
-    # caused empty WS frames during round dispatch (see debug session
-    # ws-agent-states-not-emitted-mid-sim).
-
-    # Phase 11: normalize peer_contexts (None -> "") and return with decisions
-    normalized_peer_contexts: list[str] = [
-        ctx if ctx is not None else "" for ctx in peer_contexts
-    ]
-    return RoundDispatchResult(
-        agent_decisions=agent_decisions,
-        peer_contexts=normalized_peer_contexts,
-    )
-
-
-# ---------------------------------------------------------------------------
 # Full 3-round simulation orchestrator (Phase 7)
 # ---------------------------------------------------------------------------
 
@@ -1209,18 +955,21 @@ async def run_simulation(
     `context_fixture_used` is logged instead.
 
     Lifecycle:
-    1. run_round1() handles SEEDING + ROUND_1 (owns its own governor session per D-06)
-    2. Phase 40 context assembly: inject_seed -> asyncio.gather(get_prices + get_headlines)
-       -> format_market_context -> forward to run_round1 (D-01)
-    3. Compute influence edges after Round 1 (D-02: shapes Round 2 peer selection)
+    1. SEEDING: inject_seed parses the rumor and generates the persona modifiers
+       (docs/DECISIONS.md#p13-d-06). run_simulation always seeds; run_round1 never does
+    2. Phase 40 context assembly: asyncio.gather(get_prices + get_headlines)
+       -> format_market_context -> forward to run_round1 (docs/DECISIONS.md#p40-d-01)
+    3. run_round1() runs ROUND_1 on the seeded cycle and owns its own governor session
+       (docs/DECISIONS.md#p7-d-06). No influence edges after Round 1: its agents see no
+       peers, so they cite none (docs/DECISIONS.md#sweep-b-5)
     4. Compute Round 1 bracket summaries (D-08)
     5. Fire on_round_complete for Round 1 (shift=None, no prior round to compare)
     6. ensure_clean_state + reload worker (D-05: one cold load for modularity)
     7. Fresh governor monitoring session for Rounds 2-3 block (D-06)
-    8. Round 2: _dispatch_round with dynamic weights if available (fallback to static)
-       -> write -> callback
+    8. Round 2: dispatch_wave with per-reader peer contexts built in memory from
+       Round 1 decisions -> write -> callback
     9. Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2)
-    10. Round 3: _dispatch_round with Round 2 weights -> write -> callback
+    10. Round 3: dispatch_wave with peer contexts from Round 2 -> write -> callback
     11. Return SimulationResult with all bracket summaries (D-08)
     """
     phase = SimulationPhase.IDLE
@@ -1391,11 +1140,9 @@ async def run_simulation(
         round1_result.agent_decisions, personas, brackets,
     )
 
-    # Push bracket summaries to StateStore (Phase 10: TUI-05).
-    # ITEM 4 of 260512-jqn: streaming `push_rationale` inside
-    # batch_dispatcher._safe_agent_inference now covers every agent
-    # per-inference, so the end-of-round `_push_top_rationales` call
-    # is no longer needed (it would duplicate entries in the deque).
+    # Push bracket summaries to StateStore for the live UI (docs/DECISIONS.md#p10-d-08).
+    # Rationale entries stream per agent from batch_dispatcher._safe_agent_inference,
+    # so there is no end-of-round rationale push (docs/DECISIONS.md#p10-d-02).
     if state_store is not None:
         await state_store.set_bracket_summaries(round1_summaries)
 
@@ -1485,7 +1232,7 @@ async def run_simulation(
         # immediately before dispatch — no idle gap.
         await worker.prepare()
         try:
-            # Dispatch Round 2 with pre-built peer contexts (bypass _dispatch_round)
+            # Dispatch Round 2 with the pre-built per-reader peer contexts
             worker_configs = [persona_to_worker_config(p) for p in personas]
             round2_wave_decisions = await dispatch_wave(
                 personas=worker_configs,
@@ -1568,8 +1315,7 @@ async def run_simulation(
             # Compute Round 2 bracket summaries (D-08)
             round2_summaries = compute_bracket_summaries(round2_decisions, personas, brackets)
 
-            # ITEM 4 of 260512-jqn: streaming push_rationale handles per-agent;
-            # end-of-round _push_top_rationales removed (would duplicate).
+            # Rationale entries stream per agent (docs/DECISIONS.md#p10-d-02).
             if state_store is not None:
                 await state_store.set_bracket_summaries(round2_summaries)
 
@@ -1763,8 +1509,7 @@ async def run_simulation(
                 # Compute Round 3 bracket summaries (D-08)
                 round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)
 
-                # ITEM 4 of 260512-jqn: streaming push_rationale handles per-agent;
-                # end-of-round _push_top_rationales removed (would duplicate).
+                # Rationale entries stream per agent (docs/DECISIONS.md#p10-d-02).
                 # round3_weights is still computed above for the influence write
                 # (R3 INFLUENCED_BY edges — ITEM 2 of 260512-jqn).
                 if state_store is not None:

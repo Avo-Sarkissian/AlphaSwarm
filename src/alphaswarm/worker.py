@@ -208,7 +208,7 @@ class AgentWorker:
         else:
             self.last_total_tokens = None
 
-        # Extract TPS data from result metadata (Phase 10: TUI-04, D-05)
+        # Extract TPS data from result metadata (docs/DECISIONS.md#p10-d-05)
         if self._state_store is not None:
             eval_count = result.eval_count
             eval_duration_ns = result.eval_duration_ns
@@ -246,7 +246,7 @@ async def agent_worker(
         persona: Runtime persona config (WorkerPersonaConfig TypedDict).
         governor: ResourceGovernor for concurrency slot management.
         provider: InferenceProvider for LLM calls (local or cloud).
-        state_store: Optional StateStore for TPS metric collection (Phase 10, TUI-04).
+        state_store: Optional StateStore for TPS metric collection (docs/DECISIONS.md#p10-d-05).
 
     Yields:
         AgentWorker -- call worker.infer() to run inference.

@@ -117,20 +117,6 @@ class GovernorCrisisError(Exception):
         self.duration_seconds = duration_seconds
 
 
-class ParseError(Exception):
-    """Raised when structured output parsing fails at all tiers.
-
-    This is a non-retryable error -- the LLM output could not be parsed
-    into the expected Pydantic model. Note: parse_agent_decision() never
-    raises this; it returns PARSE_ERROR signal instead. This class exists
-    for cases where callers explicitly need exception-based error handling.
-    """
-
-    def __init__(self, message: str, raw_content: str) -> None:
-        super().__init__(message)
-        self.raw_content = raw_content
-
-
 class Neo4jConnectionError(Exception):
     """Raised when Neo4j driver cannot connect or verify connectivity."""
 

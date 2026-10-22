@@ -79,33 +79,25 @@ def build_advisory_prompt(
     timeline: Sequence[Mapping[str, Any]],
     narratives: Sequence[Mapping[str, Any]],
     entity_impact: Sequence[Mapping[str, Any]],
-    holdings: list[dict[str, Any]] | None = None,
-    top_holdings: list[dict[str, Any]] | None = None,
-    rest_holdings: list[dict[str, Any]] | None = None,
+    top_holdings: list[dict[str, Any]],
 ) -> list[InferenceMessage]:
     """Build the advisory synthesis messages list (system + user).
 
-    All Decimal values in `holdings` are already stringified by the caller
-    (D-06, Pitfall 2). Neo4j payloads are serialized with default=str to
-    absorb any Decimal in sentiment/confidence fields.
+    All Decimal values in `top_holdings` are already stringified by the caller
+    (docs/DECISIONS.md#p41-d-06). Neo4j payloads are serialized with default=str
+    to absorb any Decimal in sentiment/confidence fields.
 
-    Only `top_holdings` (or legacy `holdings`) is sent to the LLM — the rest
-    of the portfolio is padded server-side with HOLD@0.30 by `engine.py` so
-    the user still sees a full portfolio view without burning prompt tokens
-    on no-signal HOLD boilerplate (docs/DECISIONS.md#sweep-b-7). `rest_holdings` is still
-    accepted for backward compatibility but is now ignored.
+    Only `top_holdings` (the enriched conviction subset) is sent to the LLM.
+    engine.py pads every other holding server-side with HOLD@0.30, so the user
+    still sees a full portfolio view without spending prompt tokens on no-signal
+    HOLD boilerplate (docs/DECISIONS.md#sweep-b-7).
     """
-    # Only the enriched conviction subset reaches the LLM. Anything outside
-    # this list is filled in by engine.py after the LLM returns.
-    resolved_top = top_holdings if top_holdings is not None else (holdings or [])
-    _ = rest_holdings  # accepted for back-compat, intentionally unused
-
     system = _SYSTEM_INSTRUCTIONS + "\n\n" + _WORKED_EXAMPLE
     portfolio_block_lines = [
-        f"USER PORTFOLIO — {len(resolved_top)} sector-enriched conviction "
+        f"USER PORTFOLIO — {len(top_holdings)} sector-enriched conviction "
         "candidates (engine pads no-signal holdings server-side):",
         "",
-        json.dumps(resolved_top, default=str),
+        json.dumps(top_holdings, default=str),
     ]
     user = "\n".join(
         [

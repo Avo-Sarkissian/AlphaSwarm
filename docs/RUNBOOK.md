@@ -252,8 +252,9 @@ uv run mypy src           # strict; must report "Success: no issues found"
 
 **Known bugs.** Pinned with `xfail(strict=True, reason="<item id>: …")`. The fix makes the test XPASS, which fails the run until the marker is removed in the same commit (together with any golden the fix now allows). CI runs pytest with `-rxX`, so every XFAIL/XPASS is listed in the job log.
 
-**Static gates (CI `lint`).** `uv run mypy src && uv run lint-imports`.
+**Static gates (CI `lint`).** `uv run mypy src && uv run lint-imports && uv run vulture src vulture_whitelist.py --min-confidence 80`.
 - mypy is strict; modules under `[[tool.mypy.overrides]]` are exempt until cleaned up, and the list only shrinks (`tests/invariants/test_mypy_overrides.py`).
+- vulture fails on dead code at 80% confidence or more. `vulture_whitelist.py` lists only names an interface requires (such as `cls` on validators), each with its reason; delete dead code instead of whitelisting it.
 - Ruff is not gated yet (BACKLOG 2.10): run `uv run ruff check <changed files>` and keep the lines you changed clean.
 - Hooks (optional): `uv tool install pre-commit` once, then `pre-commit install` per clone; it runs the import-linter hook in `.pre-commit-config.yaml`.
 

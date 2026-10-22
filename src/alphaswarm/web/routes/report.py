@@ -26,7 +26,6 @@ from alphaswarm.report import (
     ReportEngine,
     ToolObservation,
     write_report,
-    write_sentinel,
 )
 from alphaswarm.state import JobStatus
 from alphaswarm.web.errors import ApiError
@@ -187,7 +186,7 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     """Background task mirroring cli.py's _handle_report sequence (docs/DECISIONS.md#p36-d-03).
 
     Sequence: provider.prepare -> ReportEngine.run -> ReportAssembler.assemble ->
-    write_report -> write_sentinel. provider.teardown/aclose happens in finally
+    write_report. provider.teardown/aclose happens in finally
     even when generation raises (prevents leaked model lock / cloud client leak).
 
     Started by POST /api/report/{id}/generate and by the post-run pipeline; the
@@ -278,7 +277,6 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
 
         output_path = reports_dir(app_state) / f"{cycle_id}_report.md"
         await write_report(output_path, content)
-        await write_sentinel(cycle_id, str(output_path))
 
         log.info(
             "report_generation_complete",
