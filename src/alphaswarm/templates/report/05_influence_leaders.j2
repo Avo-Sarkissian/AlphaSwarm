@@ -1,7 +1,11 @@
 ## Influence Leaders
 
-| Rank | Agent | Bracket | Influence Weight | Citations |
-|------|-------|---------|-----------------|-----------|
+{% if data %}
+| Rank | Agent | Bracket | Citations | Influence Share |
+|------|-------|---------|-----------|-----------------|
 {% for leader in data %}
-| {{ loop.index }} | {{ leader.agent_id }} | {{ leader.bracket }} | {{ "%.3f"|format(leader.total_influence_weight) }} | {{ leader.citation_count }} |
+| {{ loop.index }} | {{ leader.agent_id | md_cell }} | {{ leader.bracket | md_cell }} | {{ leader.citation_count }} | {{ (leader.influence_share * 100) | num(1) }}% |
 {% endfor %}
+{% else %}
+_No agent was cited in the final round._
+{% endif %}

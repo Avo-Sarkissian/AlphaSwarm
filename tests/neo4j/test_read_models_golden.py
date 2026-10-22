@@ -191,6 +191,7 @@ async def test_read_influence_leaders_rank_by_citations(
 ) -> None:
     rows = await graph_reader.read_influence_leaders(seeded_cycle.cycle_id)
     assert [(r["agent_id"], r["citation_count"]) for r in rows] == list(HUB_CITATIONS[:10])
+    assert_golden("reads/read_influence_leaders.json", rows)
 
 
 async def test_read_signal_flips(
@@ -409,9 +410,6 @@ async def test_shock_pivots_exclude_parse_errors(
     ] == []
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: influence leaders lack influence_share = count/N (fix: plan 06)"
-)
 async def test_influence_leaders_report_influence_share(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:

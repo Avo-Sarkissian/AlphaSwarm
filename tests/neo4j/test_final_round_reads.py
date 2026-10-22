@@ -16,11 +16,6 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.neo4j
 
-_T15 = pytest.mark.xfail(
-    strict=True, reason="T1.5: final-round reads hard-code round 3 (fix: plan 06)"
-)
-
-
 @pytest_asyncio.fixture(loop_scope="session")
 async def two_round_cycle(graph_manager_test: GraphStateManager) -> SeededCycle:
     """A 2-round copy of the seeded data; graph_manager_test deletes it after the test."""
@@ -55,7 +50,6 @@ async def test_key_dissenters_use_the_final_round(
     assert all(final[r["agent_id"]].signal.value.upper() == r["signal"] for r in rows)
 
 
-@_T15
 async def test_influence_leaders_use_the_final_round(
     graph_manager_test: GraphStateManager, two_round_cycle: SeededCycle
 ) -> None:

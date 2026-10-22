@@ -1653,21 +1653,17 @@ class GraphStateManager:
 
     async def read_influence_leaders(
         self, cycle_id: str, limit: int = 10,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Return top agents by cumulative INFLUENCED_BY weight in Round 3 (REPORT-02).
+    ) -> list[InfluenceLeaderRow]:
+        """Most-cited agents in the final round.
 
-        Filters to round=3 to avoid double-counting across rounds (Pitfall 1).
-
-        Args:
-            cycle_id: Simulation cycle ID.
-            limit: Maximum number of leaders to return (default 10).
-
-        Returns:
-            List of dicts with agent_id, name, bracket, total_influence_weight, citation_count.
+        influence_share = citation_count / N, N = active (non-PARSE_ERROR)
+        agents in the final round; this equals the D-01 edge weight and is
+        no longer the quadratic sum of incoming weights
+        (docs/DECISIONS.md#p8-d-01).
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows = await session.execute_read(
                     self._read_influence_leaders_tx, cycle_id, limit,
                 )
         except Neo4jError as exc:
@@ -1675,32 +1671,49 @@ class GraphStateManager:
                 f"Failed to read influence leaders for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_influence_leaders", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_influence_leaders", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_influence_leaders_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
         limit: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for top influence leaders by edge weight."""
+    ) -> list[InfluenceLeaderRow]:
         result = await tx.run(
             """
-            MATCH (src:Agent)-[infl:INFLUENCED_BY {cycle_id: $cycle_id, round: 3}]->(tgt:Agent)
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            WITH coalesce(c.num_rounds, 3) AS fr
+            OPTIONAL MATCH (fd:Decision {cycle_id: $cycle_id})
+            WHERE fd.round = fr AND toLower(fd.signal) <> 'parse_error'
+            WITH fr, count(fd) AS n_active
+            MATCH (src:Agent)-[infl:INFLUENCED_BY {cycle_id: $cycle_id}]->(tgt:Agent)
+            WHERE infl.round = fr
+            WITH tgt, n_active, count(DISTINCT src) AS citation_count
             RETURN
                 tgt.id AS agent_id,
                 tgt.name AS name,
                 tgt.bracket AS bracket,
-                sum(infl.weight) AS total_influence_weight,
-                count(src) AS citation_count
-            ORDER BY total_influence_weight DESC
+                citation_count,
+                CASE WHEN n_active > 0
+                     THEN toFloat(citation_count) / n_active
+                     ELSE 0.0 END AS influence_share
+            ORDER BY citation_count DESC, agent_id
             LIMIT $limit
             """,
             cycle_id=cycle_id,
             limit=limit,
         )
-        return [dict(record) async for record in result]
+        return [
+            InfluenceLeaderRow(
+                agent_id=str(r["agent_id"]),
+                name=str(r["name"]),
+                bracket=str(r["bracket"]),
+                citation_count=int(r["citation_count"]),
+                influence_share=float(r["influence_share"]),
+            )
+            async for r in result
+        ]
 
     async def read_signal_flips(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
         """Return agents who changed position between rounds (REPORT-02).

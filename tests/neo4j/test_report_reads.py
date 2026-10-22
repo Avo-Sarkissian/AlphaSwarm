@@ -175,3 +175,47 @@ async def test_majority_tie_break_is_buy_then_sell_then_hold(
 
     assert narratives["macro"]["majority"] == "SELL"  # SELL 1 vs HOLD 1 -> SELL
     assert narratives["shorts"]["majority"] == "HOLD"
+
+
+async def test_influence_share_is_citations_over_active_final_round(
+    graph_manager_test: GraphStateManager,
+) -> None:
+    cycle_id = await write_mini_cycle(
+        graph_manager_test,
+        num_rounds=2,
+        rounds={
+            1: [
+                ("sell_side_01", dec(BUY)),
+                ("narrators_01", dec(BUY)),
+                ("quants_01", dec(BUY)),
+                ("quants_02", dec(SELL)),
+                ("degens_01", dec(HOLD)),
+            ],
+            2: [
+                ("sell_side_01", dec(BUY)),
+                ("narrators_01", dec(BUY)),
+                ("quants_01", dec(BUY, cited=["sell_side_01", "narrators_01"])),
+                ("quants_02", dec(BUY, cited=["sell_side_01"])),
+                ("degens_01", dec(PERR, 0.0)),
+            ],
+        },
+    )
+
+    leaders = await graph_manager_test.read_influence_leaders(cycle_id)
+
+    assert leaders == [
+        {
+            "agent_id": "sell_side_01",
+            "name": "Sell-Side 1",
+            "bracket": "sell_side",
+            "citation_count": 2,
+            "influence_share": pytest.approx(0.5),
+        },
+        {
+            "agent_id": "narrators_01",
+            "name": "Narrators 1",
+            "bracket": "narrators",
+            "citation_count": 1,
+            "influence_share": pytest.approx(0.25),
+        },
+    ]

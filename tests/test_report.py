@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -180,98 +180,6 @@ class TestReportEngine:
         assert len(result) == 1
         # First call dispatched, second detected as duplicate
         assert len(provider.calls) == 2
-
-
-# ---------------------------------------------------------------------------
-# Task 15-01-03: TestGraphQueryTools (stubs filled in Task 15-01-03)
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def mock_driver() -> MagicMock:
-    """Mock AsyncDriver with session context manager support."""
-    driver = MagicMock()
-    driver.close = AsyncMock()
-    session = AsyncMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=False)
-    driver.session.return_value = session
-    return driver
-
-
-@pytest.fixture()
-def mock_personas() -> list:
-    """Empty personas list — report queries don't use personas."""
-    return []
-
-
-class TestGraphQueryTools:
-    async def test_read_consensus_summary(
-        self, mock_driver: MagicMock, mock_personas: list,
-    ) -> None:
-        """read_consensus_summary returns dict with correct keys and values."""
-        from alphaswarm.graph import GraphStateManager
-
-        session = mock_driver.session.return_value
-        session.execute_read = AsyncMock(return_value={
-            "buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100,
-        })
-
-        gsm = GraphStateManager(mock_driver, mock_personas)
-        result = await gsm.read_consensus_summary("cycle1")
-
-        assert result["buy_count"] == 50
-        assert result["sell_count"] == 30
-        assert result["hold_count"] == 20
-        assert result["total"] == 100
-
-    async def test_influence_leaders_round_filter(
-        self, mock_driver: MagicMock, mock_personas: list,
-    ) -> None:
-        """read_influence_leaders returns list with correct field structure."""
-        from alphaswarm.graph import GraphStateManager
-
-        session = mock_driver.session.return_value
-        session.execute_read = AsyncMock(return_value=[{
-            "agent_id": "a1",
-            "name": "Agent 1",
-            "bracket": "Quants",
-            "total_influence_weight": 0.9,
-            "citation_count": 5,
-        }])
-
-        gsm = GraphStateManager(mock_driver, mock_personas)
-        result = await gsm.read_influence_leaders("cycle1")
-
-        assert len(result) == 1
-        assert result[0]["agent_id"] == "a1"
-        assert result[0]["name"] == "Agent 1"
-        assert result[0]["bracket"] == "Quants"
-        assert result[0]["total_influence_weight"] == 0.9
-        assert result[0]["citation_count"] == 5
-
-    async def test_signal_flip_none_filter(
-        self, mock_driver: MagicMock, mock_personas: list,
-    ) -> None:
-        """read_signal_flips returns list; NONE flip_types excluded by Cypher."""
-        from alphaswarm.graph import GraphStateManager
-
-        session = mock_driver.session.return_value
-        session.execute_read = AsyncMock(return_value=[{
-            "agent_id": "a1",
-            "name": "Agent 1",
-            "bracket": "Quants",
-            "round_num": 2,
-            "flip_type": "HOLD_TO_BUY",
-            "final_signal": "BUY",
-        }])
-
-        gsm = GraphStateManager(mock_driver, mock_personas)
-        result = await gsm.read_signal_flips("cycle1")
-
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]["flip_type"] == "HOLD_TO_BUY"
 
 
 # ---------------------------------------------------------------------------
@@ -693,3 +601,11 @@ def test_bracket_template_shows_display_name_total_and_dash_for_no_majority() ->
 def test_dissenters_template_empty_state() -> None:
     md = ReportAssembler().render_section("04_key_dissenters.j2", data=[], cycle_id="c")
     assert "_No final-round dissenters._" in md
+
+
+def test_influence_template_shows_citations_and_share_percent() -> None:
+    rows = [{"agent_id": "sell_side_01", "name": "Sell-Side 1", "bracket": "sell_side",
+             "citation_count": 2, "influence_share": 0.5}]
+    md = ReportAssembler().render_section("05_influence_leaders.j2", data=rows, cycle_id="c")
+    assert "| Rank | Agent | Bracket | Citations | Influence Share |" in md
+    assert "| 1 | sell_side_01 | sell_side | 2 | 50.0% |" in md
