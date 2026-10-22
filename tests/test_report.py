@@ -437,19 +437,7 @@ def test_assemble_includes_shock_section_when_observation_present() -> None:
     shock_obs = ToolObservation(
         tool_name="shock_impact",
         tool_input={"cycle_id": "test-cycle"},
-        result={
-            "shock_text": "Fed raises rates by 75bps",
-            "injected_before_round": 2,
-            "comparable_agents": 95,
-            "pivot_count": 40,
-            "held_firm_count": 55,
-            "pivot_rate_pct": 42.1,
-            "held_firm_rate_pct": 57.9,
-            "pivot_agents": [],
-            "bracket_deltas": [],
-            "largest_shift": {"bracket": "Quants", "direction": "BUY", "delta": 20.0},
-            "notable_held_firm_agents": [],
-        },
+        result=_SHOCK_IMPACT_DATA | {"shock_text": "Fed raises rates by 75bps"},
     )
     assembler = ReportAssembler()
     result = assembler.assemble([shock_obs], "test-cycle")
@@ -472,33 +460,41 @@ def test_assemble_skips_shock_section_when_no_observation() -> None:
 _SHOCK_IMPACT_DATA: dict = {
     "shock_text": "Surprise CPI print: 9.1% YoY",
     "injected_before_round": 2,
-    "comparable_agents": 88,
-    "pivot_count": 33,
-    "held_firm_count": 55,
-    "pivot_rate_pct": 37.5,
-    "held_firm_rate_pct": 62.5,
-    "bracket_deltas": [
+    "pre_dominant": "BUY",
+    "post_dominant": "SELL",
+    "pivot_count": 2,
+    "pivot_rate": 0.5,
+    "bracket_pivots": [
         {
-            "bracket": "Quants",
+            "bracket": "quants",
+            "display_name": "Quants",
+            "comparable": 2,
+            "pivots": 2,
             "pre_dominant": "BUY",
-            "dominant_post": "SELL",
+            "post_dominant": "SELL",
+            "pre_buy_pct": 100.0,
+            "post_buy_pct": 0.0,
+            "delta_buy_pct": -100.0,
             "dominant_arrow": "▼",
-            "delta_buy_pct": -30.0,
+            "agents": [
+                {"agent_id": "a01", "pre_signal": "BUY", "post_signal": "SELL"},
+                {"agent_id": "a02", "pre_signal": "BUY", "post_signal": "SELL"},
+            ],
         },
         {
-            "bracket": "Degens",
+            "bracket": "degens",
+            "display_name": "Degens",
+            "comparable": 2,
+            "pivots": 0,
             "pre_dominant": "HOLD",
-            "dominant_post": "BUY",
+            "post_dominant": "BUY",
+            "pre_buy_pct": 0.0,
+            "post_buy_pct": 50.0,
+            "delta_buy_pct": 50.0,
             "dominant_arrow": "▲",
-            "delta_buy_pct": 15.0,
+            "agents": [],
         },
     ],
-    "pivot_agents": [
-        {"bracket": "Quants", "agent_id": "a01", "pre_signal": "BUY", "post_signal": "SELL"},
-        {"bracket": "Quants", "agent_id": "a02", "pre_signal": "BUY", "post_signal": "SELL"},
-    ],
-    "largest_shift": {"bracket": "Quants", "direction": "SELL", "delta": -30.0},
-    "notable_held_firm_agents": [],
 }
 
 
@@ -529,6 +525,14 @@ def test_shock_impact_template_renders_pivot_list() -> None:
     assert "a01" in result
     assert "a02" in result
 
+
+def test_shock_template_shows_pre_dominant_per_bracket() -> None:
+    md = ReportAssembler().render_section(
+        "11_shock_impact.j2", data=_SHOCK_IMPACT_DATA, cycle_id="c",
+    )
+    assert "| Degens | HOLD | BUY | ▲ | 50.0% |" in md
+    assert "| Pivot Rate | 50.0% |" in md
+    assert "**Swarm Majority:** BUY → SELL" in md
 
 class TestReportFilters:
     def test_md_cell_escapes_pipes_and_collapses_whitespace(self) -> None:

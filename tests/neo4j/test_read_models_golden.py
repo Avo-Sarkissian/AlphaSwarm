@@ -22,6 +22,7 @@ from tests.support.golden import assert_golden
 from tests.support.seed_builder import (
     HUB_CITATIONS,
     OVERALL_SENTIMENT,
+    PARSE_ERRORS_BY_ROUND,
     SEED_ENTITIES,
     SEED_RUMOR,
     SHOCK_ROUND,
@@ -324,15 +325,14 @@ async def test_read_rationale_entries_for_round(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.2: shock bracket deltas never carry pre_dominant (fix: plan 06)"
-)
-async def test_shock_impact_bracket_deltas_carry_pre_dominant(
+async def test_shock_impact_bracket_pivots_carry_pre_dominant(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
     result = await graph_reader.read_shock_impact(seeded_cycle.cycle_id)
-    assert result["bracket_deltas"]
-    assert all("pre_dominant" in delta for delta in result["bracket_deltas"])
+    assert result["pre_dominant"] in {"BUY", "SELL", "HOLD"}
+    assert result["bracket_pivots"]
+    assert all(bp["pre_dominant"] in {"BUY", "SELL", "HOLD"} for bp in result["bracket_pivots"])
+    assert_golden("reads/read_shock_impact.json", result)
 
 
 @pytest.mark.xfail(
@@ -398,17 +398,15 @@ async def test_bracket_averages_exclude_parse_errors(
     assert rows["degens"]["avg_confidence"] == pytest.approx(sum(degens) / len(degens))
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: shock pivots count transitions to or from PARSE_ERROR (fix: plan 06)"
-)
 async def test_shock_pivots_exclude_parse_errors(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
     result = await graph_reader.read_shock_impact(seeded_cycle.cycle_id)
-    failed = SignalType.PARSE_ERROR.value
-    assert [
-        p for p in result["pivot_agents"] if failed in (p["pre_signal"], p["post_signal"])
-    ] == []
+    pivots = [agent for bp in result["bracket_pivots"] for agent in bp["agents"]]
+    assert pivots
+    assert all("PARSE_ERROR" not in (p["pre_signal"], p["post_signal"]) for p in pivots)
+    failed = PARSE_ERRORS_BY_ROUND[SHOCK_ROUND - 1] | PARSE_ERRORS_BY_ROUND[SHOCK_ROUND]
+    assert sum(int(bp["comparable"]) for bp in result["bracket_pivots"]) == 100 - len(failed)
 
 
 async def test_influence_leaders_report_influence_share(

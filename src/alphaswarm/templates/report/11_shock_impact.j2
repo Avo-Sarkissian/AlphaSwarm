@@ -1,30 +1,35 @@
 ## Shock Impact Analysis
 
-**Event:** {{ data.shock_text }}
+{% set comparable = data.bracket_pivots | sum(attribute="comparable") %}
+**Event:** {{ data.shock_text | md_cell }}
 **Injected Before Round:** {{ data.injected_before_round }}
-**Comparable Agents:** {{ data.comparable_agents }}
+**Comparable Agents:** {{ comparable }}
+**Swarm Majority:** {{ data.pre_dominant or "—" }} → {{ data.post_dominant or "—" }}
 
 | Metric | Value |
 |--------|-------|
 | Pivot Count | {{ data.pivot_count }} |
-| Held Firm Count | {{ data.held_firm_count }} |
-| Pivot Rate | {{ "%.1f"|format(data.pivot_rate_pct) }}% |
-| Held Firm Rate | {{ "%.1f"|format(data.held_firm_rate_pct) }}% |
+| Held Firm Count | {{ comparable - data.pivot_count }} |
+| Pivot Rate | {{ (data.pivot_rate * 100) | num(1) }}% |
+| Held Firm Rate | {{ ((1 - data.pivot_rate) * 100 if comparable else 0) | num(1) }}% |
 
 ### Bracket Signal Shift
 
 | Bracket | Pre-Dominant | Post-Dominant | Arrow | Delta Buy% |
 |---------|-------------|---------------|-------|-----------|
-{% for bd in data.bracket_deltas %}
-| {{ bd.bracket }} | {{ bd.pre_dominant | default("—") }} | {{ bd.dominant_post }} | {{ bd.dominant_arrow }} | {{ "%.1f"|format(bd.delta_buy_pct) }}% |
+{% for bp in data.bracket_pivots %}
+| {{ bp.display_name | md_cell }} | {{ bp.pre_dominant or "—" }} | {{ bp.post_dominant or "—" }} | {{ bp.dominant_arrow }} | {{ bp.delta_buy_pct | num(1) }}% |
 {% endfor %}
+{% set pivot_brackets = data.bracket_pivots | selectattr("pivots") | list %}
+{% if pivot_brackets %}
 
-{% if data.pivot_agents %}
 ### Agent Pivot List
 
 | Bracket | Agent | Pre-Signal | Post-Signal |
 |---------|-------|-----------|------------|
-{% for pa in data.pivot_agents %}
-| {{ pa.bracket }} | {{ pa.agent_id }} | {{ pa.pre_signal }} | {{ pa.post_signal }} |
+{% for bp in pivot_brackets %}
+{% for pa in bp.agents %}
+| {{ bp.display_name | md_cell }} | {{ pa.agent_id | md_cell }} | {{ pa.pre_signal }} | {{ pa.post_signal }} |
+{% endfor %}
 {% endfor %}
 {% endif %}

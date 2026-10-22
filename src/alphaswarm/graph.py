@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, TypedDict
 
@@ -204,6 +205,18 @@ _BRACKET_ORDER: Final[dict[str, int]] = {
 def _bracket_sort_key(bracket: str) -> tuple[int, str]:
     """Config order first; unknown (legacy) brackets last, alphabetically."""
     return (_BRACKET_ORDER.get(bracket, len(_BRACKET_ORDER)), bracket)
+
+
+def _majority(signals: Sequence[str]) -> str | None:
+    """Most common of BUY/SELL/HOLD; ties BUY > SELL > HOLD; None when empty."""
+    counts = {sig: 0 for sig in ("BUY", "SELL", "HOLD")}
+    for signal in signals:
+        if signal in counts:
+            counts[signal] += 1
+    if not any(counts.values()):
+        return None
+    best = max(counts.values())
+    return next(sig for sig in ("BUY", "SELL", "HOLD") if counts[sig] == best)
 
 
 # ---------------------------------------------------------------------------
@@ -1944,67 +1957,52 @@ class GraphStateManager:
         record = await result.single()
         return dict(record) if record else None
 
-    async def read_shock_impact(self, cycle_id: str) -> dict:  # type: ignore[type-arg]
-        """Return shock impact analysis: pivot counts, bracket deltas, notable agents.
+    async def read_shock_impact(self, cycle_id: str) -> ShockImpactRow:
+        """How the swarm moved across the (earliest) shock.
 
-        Queries pre-shock and post-shock Decision nodes for the cycle and computes
-        pivot statistics. Uses an inner join (MATCH, not OPTIONAL MATCH) so only
-        agents with BOTH a pre-shock and post-shock decision are included.
-        The comparable_agents field tracks the effective denominator (NOT 100).
-
-        Returns:
-            Dict with shock_text, injected_before_round, comparable_agents,
-            pivot_count, held_firm_count, pivot_rate_pct, held_firm_rate_pct,
-            pivot_agents, bracket_deltas, largest_shift, notable_held_firm_agents.
-            Returns a zero-filled dict if no ShockEvent or no comparable agents.
+        Compares each agent's decision in the round before the shock with the
+        shocked round; agents with a PARSE_ERROR on either side are excluded.
+        Zero-filled when the cycle has no shock or no comparable agents.
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                result = await session.execute_read(
-                    self._read_shock_impact_tx, cycle_id,
-                )
+                row = await session.execute_read(self._read_shock_impact_tx, cycle_id)
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 f"Failed to read shock_impact for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
         self._log.debug(
-            "read_shock_impact",
-            cycle_id=cycle_id,
-            pivot_count=result["pivot_count"],
-            comparable_agents=result["comparable_agents"],
+            "read_shock_impact", cycle_id=cycle_id, pivot_count=row["pivot_count"],
         )
-        return result
+        return row
 
     @staticmethod
     async def _read_shock_impact_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> dict:  # type: ignore[type-arg]
-        """Transaction function for shock impact analysis.
+    ) -> ShockImpactRow:
+        """Per-agent (pre, post) signals around the earliest shock, failures excluded.
 
-        Uses MATCH (inner join) for both pre and post decisions so only agents
-        who participated in both rounds are included in the analysis.
-        WHERE shock_round >= 2 guards against injected_before_round=1 edge case
-        (rounds start at 1, so round-1=0 would not exist).
+        WHERE shock_round >= 2 guards injected_before_round=1 (there is no round 0).
         """
         result = await tx.run(
             """
             MATCH (c:Cycle {cycle_id: $cycle_id})-[:HAS_SHOCK]->(se:ShockEvent)
-            WITH se.injected_before_round AS shock_round,
-                 se.shock_text AS shock_text
+            WITH se ORDER BY se.injected_before_round ASC LIMIT 1
+            WITH se.injected_before_round AS shock_round, se.shock_text AS shock_text
             WHERE shock_round >= 2
-            MATCH (a:Agent)-[:MADE]->(pre:Decision {cycle_id: $cycle_id, round: shock_round - 1})
-            MATCH (a)-[:MADE]->(post:Decision {cycle_id: $cycle_id, round: shock_round})
+            MATCH (a:Agent)-[:MADE]->(pre:Decision {cycle_id: $cycle_id})
+            WHERE pre.round = shock_round - 1 AND toLower(pre.signal) <> 'parse_error'
+            MATCH (a)-[:MADE]->(post:Decision {cycle_id: $cycle_id})
+            WHERE post.round = shock_round AND toLower(post.signal) <> 'parse_error'
             RETURN a.id AS agent_id,
-                   a.name AS agent_name,
                    a.bracket AS bracket,
-                   pre.signal AS pre_signal,
-                   post.signal AS post_signal,
-                   (pre.signal <> post.signal) AS pivoted,
-                   shock_round AS shock_round,
-                   shock_text AS shock_text
-            ORDER BY a.bracket, a.id
+                   toUpper(pre.signal) AS pre_signal,
+                   toUpper(post.signal) AS post_signal,
+                   shock_round,
+                   shock_text
+            ORDER BY bracket, agent_id
             """,
             cycle_id=cycle_id,
         )
@@ -2012,150 +2010,53 @@ class GraphStateManager:
         return GraphStateManager._aggregate_shock_impact(rows)
 
     @staticmethod
-    def _aggregate_shock_impact(rows: list[dict]) -> dict:  # type: ignore[type-arg]
-        """Aggregate per-agent shock rows into summary statistics.
-
-        Pure Python — no I/O. Called by _read_shock_impact_tx after the Cypher
-        inner join returns rows. Also directly testable without a database.
-
-        Args:
-            rows: List of dicts from the Cypher query, each with keys:
-                agent_id, agent_name, bracket, pre_signal, post_signal,
-                pivoted, shock_round, shock_text.
-
-        Returns:
-            Dict with all shock impact fields. Returns zero-filled dict if rows
-            is empty (no comparable agents or no shock for this cycle).
-        """
-        from collections import Counter, defaultdict
-
+    def _aggregate_shock_impact(rows: list[dict[str, Any]]) -> ShockImpactRow:
+        """Pure aggregation of per-agent (pre, post) rows into a ShockImpactRow."""
         if not rows:
-            return {
-                "shock_text": "",
-                "injected_before_round": 0,
-                "comparable_agents": 0,
-                "pivot_count": 0,
-                "held_firm_count": 0,
-                "pivot_rate_pct": 0.0,
-                "held_firm_rate_pct": 0.0,
-                "pivot_agents": [],
-                "bracket_deltas": [],
-                "largest_shift": {},
-                "notable_held_firm_agents": [],
-            }
-
-        shock_text: str = rows[0]["shock_text"]
-        injected_before_round: int = int(rows[0]["shock_round"])
-        comparable_agents: int = len(rows)
-
-        pivot_count = sum(1 for r in rows if r["pivoted"])
-        held_firm_count = comparable_agents - pivot_count
-        pivot_rate_pct = pivot_count / comparable_agents * 100
-        held_firm_rate_pct = held_firm_count / comparable_agents * 100
-
-        pivot_agents = [
-            {
-                "bracket": r["bracket"],
-                "agent_id": r["agent_id"],
-                "pre_signal": r["pre_signal"],
-                "post_signal": r["post_signal"],
-            }
-            for r in rows
-            if r["pivoted"]
-        ]
-
-        # Per-bracket signal counters for pre and post rounds.
-        # Signals are stored lowercase ('buy'/'sell'/'hold'); normalize to
-        # uppercase here so the uppercase comparison keys in _majority and the
-        # pre_c/post_c[...] lookups below match. pivot_agents above intentionally
-        # keeps the raw r["pre_signal"]/r["post_signal"] for display.
-        pre_by_bracket: dict[str, list[str]] = defaultdict(list)
-        post_by_bracket: dict[str, list[str]] = defaultdict(list)
-        for r in rows:
-            bracket = r["bracket"]
-            pre_by_bracket[bracket].append((r["pre_signal"] or "").upper())
-            post_by_bracket[bracket].append((r["post_signal"] or "").upper())
-
-        def _majority(signals: list[str]) -> str:
-            """Tie-break: BUY > SELL > HOLD."""
-            c = Counter(signals)
-            for sig in ("BUY", "SELL", "HOLD"):
-                if c[sig] == max(c.values()):
-                    return sig
-            return "HOLD"
-
-        def _pct(count: int, total: int) -> float:
-            return count / total * 100 if total > 0 else 0.0
-
-        bracket_deltas: list[dict] = []  # type: ignore[type-arg]
-        for bracket in sorted(pre_by_bracket.keys()):
-            pre_sigs = pre_by_bracket[bracket]
-            post_sigs = post_by_bracket[bracket]
-            total = len(pre_sigs)
-            pre_c = Counter(pre_sigs)
-            post_c = Counter(post_sigs)
-            pre_buy_pct = _pct(pre_c["BUY"], total)
-            post_buy_pct = _pct(post_c["BUY"], total)
-            pre_sell_pct = _pct(pre_c["SELL"], total)
-            post_sell_pct = _pct(post_c["SELL"], total)
-            pre_hold_pct = _pct(pre_c["HOLD"], total)
-            post_hold_pct = _pct(post_c["HOLD"], total)
-            delta_buy_pct = post_buy_pct - pre_buy_pct
-            dominant_post = _majority(post_sigs)
-            dominant_arrow = "▲" if delta_buy_pct > 0 else "▼" if delta_buy_pct < 0 else "·"
-            bracket_deltas.append({
+            return ShockImpactRow(
+                shock_text="", injected_before_round=0, pre_dominant=None,
+                post_dominant=None, pivot_count=0, pivot_rate=0.0, bracket_pivots=[],
+            )
+        by_bracket: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_bracket.setdefault(str(row["bracket"]), []).append(row)
+        bracket_pivots: list[dict[str, object]] = []
+        for bracket in sorted(by_bracket, key=_bracket_sort_key):
+            members = by_bracket[bracket]
+            pre = [str(r["pre_signal"]) for r in members]
+            post = [str(r["post_signal"]) for r in members]
+            pivoted = [r for r in members if r["pre_signal"] != r["post_signal"]]
+            pre_buy_pct = pre.count("BUY") / len(members) * 100
+            post_buy_pct = post.count("BUY") / len(members) * 100
+            delta = post_buy_pct - pre_buy_pct
+            bracket_pivots.append({
                 "bracket": bracket,
+                "display_name": _BRACKET_DISPLAY_NAMES.get(bracket, bracket),
+                "comparable": len(members),
+                "pivots": len(pivoted),
+                "pre_dominant": _majority(pre),
+                "post_dominant": _majority(post),
                 "pre_buy_pct": pre_buy_pct,
                 "post_buy_pct": post_buy_pct,
-                "pre_sell_pct": pre_sell_pct,
-                "post_sell_pct": post_sell_pct,
-                "pre_hold_pct": pre_hold_pct,
-                "post_hold_pct": post_hold_pct,
-                "delta_buy_pct": delta_buy_pct,
-                "dominant_post": dominant_post,
-                "dominant_arrow": dominant_arrow,
+                "delta_buy_pct": delta,
+                # The arrow glyph stays in the row until the templates own presentation.
+                "dominant_arrow": "▲" if delta > 0 else "▼" if delta < 0 else "·",
+                "agents": [
+                    {"agent_id": str(r["agent_id"]), "pre_signal": str(r["pre_signal"]),
+                     "post_signal": str(r["post_signal"])}
+                    for r in pivoted
+                ],
             })
-
-        # Largest absolute shift by bracket
-        largest_shift: dict = {}  # type: ignore[type-arg]
-        if bracket_deltas:
-            max_entry = max(bracket_deltas, key=lambda b: abs(b["delta_buy_pct"]))
-            largest_shift = {
-                "bracket": max_entry["bracket"],
-                "direction": "BUY" if max_entry["delta_buy_pct"] > 0 else "SELL",
-                "delta": max_entry["delta_buy_pct"],
-            }
-
-        # Notable held-firm agents: held firm AND their bracket majority changed
-        pre_majority_by_bracket = {b: _majority(sigs) for b, sigs in pre_by_bracket.items()}
-        post_majority_by_bracket = {b: _majority(sigs) for b, sigs in post_by_bracket.items()}
-
-        notable_held_firm_agents = [
-            {
-                "bracket": r["bracket"],
-                "agent_id": r["agent_id"],
-                "pre_signal": r["pre_signal"],
-                "pre_bracket_majority": pre_majority_by_bracket[r["bracket"]],
-                "post_bracket_majority": post_majority_by_bracket[r["bracket"]],
-            }
-            for r in rows
-            if not r["pivoted"]
-            and pre_majority_by_bracket[r["bracket"]] != post_majority_by_bracket[r["bracket"]]
-        ]
-
-        return {
-            "shock_text": shock_text,
-            "injected_before_round": injected_before_round,
-            "comparable_agents": comparable_agents,
-            "pivot_count": pivot_count,
-            "held_firm_count": held_firm_count,
-            "pivot_rate_pct": pivot_rate_pct,
-            "held_firm_rate_pct": held_firm_rate_pct,
-            "pivot_agents": pivot_agents,
-            "bracket_deltas": bracket_deltas,
-            "largest_shift": largest_shift,
-            "notable_held_firm_agents": notable_held_firm_agents,
-        }
+        pivot_count = sum(1 for r in rows if r["pre_signal"] != r["post_signal"])
+        return ShockImpactRow(
+            shock_text=str(rows[0]["shock_text"]),
+            injected_before_round=int(rows[0]["shock_round"]),
+            pre_dominant=_majority([str(r["pre_signal"]) for r in rows]),
+            post_dominant=_majority([str(r["post_signal"]) for r in rows]),
+            pivot_count=pivot_count,
+            pivot_rate=pivot_count / len(rows),
+            bracket_pivots=bracket_pivots,
+        )
 
     # ------------------------------------------------------------------
     # Shock event writer (B1 wiring fix — see docs/DECISIONS.md#b1)

@@ -293,3 +293,40 @@ async def test_entity_impact_uses_final_round_and_skips_failures(
             "hold_mentions": 0,
         },
     ]
+
+
+async def test_shock_impact_reports_pre_and_post_majority_without_failures(
+    graph_manager_test: GraphStateManager,
+) -> None:
+    from alphaswarm.report import ReportAssembler
+
+    cycle_id = await write_mini_cycle(
+        graph_manager_test,
+        num_rounds=2,
+        shock=(2, "Fictional regulator opens a review | of the deal"),
+        rounds={
+            1: [
+                ("quants_01", dec(BUY)),
+                ("quants_02", dec(BUY)),
+                ("degens_01", dec(SELL)),
+                ("degens_02", dec(BUY)),
+            ],
+            2: [
+                ("quants_01", dec(SELL)),
+                ("quants_02", dec(BUY)),
+                ("degens_01", dec(SELL)),
+                ("degens_02", dec(PERR, 0.0)),
+            ],
+        },
+    )
+
+    row = await graph_manager_test.read_shock_impact(cycle_id)
+    md = ReportAssembler().render_section("11_shock_impact.j2", data=row, cycle_id=cycle_id)
+
+    assert (row["pre_dominant"], row["post_dominant"], row["pivot_count"]) == ("BUY", "SELL", 1)
+    # degens_02 failed in the shocked round, so it is not comparable
+    assert sum(int(str(bp["comparable"])) for bp in row["bracket_pivots"]) == 3
+    assert "**Event:** Fictional regulator opens a review \\| of the deal" in md
+    assert "**Comparable Agents:** 3" in md
+    assert "| Quants | BUY | BUY | ▼ | -50.0% |" in md
+    assert "| Quants | quants_01 | BUY | SELL |" in md
