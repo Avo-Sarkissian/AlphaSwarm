@@ -27,7 +27,10 @@ def _run_git(repo_root: Path, *args: str) -> str | None:
         proc = subprocess.run(
             ["git", "-C", str(repo_root), *args],
             capture_output=True,
-            text=True,
+            # Paths are raw bytes under core.quotePath=false; a non-UTF-8 name
+            # must not raise UnicodeDecodeError past the "never raises" contract.
+            encoding="utf-8",
+            errors="replace",
             timeout=GIT_TIMEOUT_SECONDS,
             env=env,
             check=False,

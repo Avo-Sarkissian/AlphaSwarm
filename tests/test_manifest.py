@@ -153,6 +153,25 @@ def test_git_runs_with_timeout_and_without_optional_locks(
     assert seen[0]["timeout"] == manifest.GIT_TIMEOUT_SECONDS
 
 
+def test_undecodable_git_output_never_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A non-UTF-8 path from `git status` (core.quotePath=false on Linux) still reads as dirty."""
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    raw = {"rev-parse": f"{sha}\n".encode(), "status": b" M caf\xe9.txt\n"}
+
+    def fake_run(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        out: bytes | str = raw["status" if "status" in cmd else "rev-parse"]
+        if kwargs.get("text") or kwargs.get("encoding") or kwargs.get("errors"):
+            # Decode the way subprocess.run does in text mode.
+            out = out.decode(kwargs.get("encoding") or "utf-8", kwargs.get("errors") or "strict")
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout=out, stderr="")
+
+    monkeypatch.setattr(manifest.subprocess, "run", fake_run)
+
+    assert git_revision(tmp_path) == (sha, True)
+
+
 def test_current_git_revision_is_cached_per_process(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[Path] = []
 
