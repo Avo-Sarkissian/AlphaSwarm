@@ -53,6 +53,17 @@ def test_readme_has_no_false_claim(pattern: str, reason: str) -> None:
     assert hits == [], f"README.md lines {hits}: {reason}"
 
 
+def test_readme_says_to_restart_after_appending_to_dotenv() -> None:
+    """create_app() reads .env once, at startup: a running server keeps the old values."""
+    lines = _lines()
+    for n, line in enumerate(lines):
+        if re.search(r">>\s*\.env\b", line):
+            following = "\n".join(lines[n : n + 8])
+            assert re.search(r"(?i)\brestart (?:it|the (?:server|backend))\b", following), (
+                f"README.md line {n + 1} appends to .env but does not say to restart the server"
+            )
+
+
 def test_readme_names_every_v2_bracket() -> None:
     text = README.read_text(encoding="utf-8")
     missing = [b.display_name for b in DEFAULT_BRACKETS if b.display_name not in text]
