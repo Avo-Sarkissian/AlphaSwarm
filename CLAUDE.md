@@ -22,7 +22,7 @@
 - **Web Frontend:** React + TypeScript, Vite build, D3 (d3-scale/selection/transition) for visualization primitives; deterministic SVG layout for the 100-agent "mirofish" graph (`docs/DECISIONS.md#kr-41-1-01` explains why d3-force was dropped).
 - **Validation / Config:** `pydantic`, `pydantic-settings`.
 - **Logging:** `structlog`, with a fail-closed PII redaction processor.
-- **Testing:** pytest with `pytest-socket` (network off by default; `tests/integration/` opts in by path, the `neo4j` marker opts in), `pytest-timeout` (60 s per test) and `hypothesis`; golden files under `tests/golden/`; vitest wire-contract tests in `frontend/src/__tests__/`.
+- **Testing:** pytest with `pytest-socket` (network off by default; `tests/integration/` opts in by path, the `neo4j` marker opts in), `pytest-timeout` (60 s per test) and `hypothesis`; golden files under `tests/golden/`; vitest in `frontend/src/__tests__/` (node for pure tests; happy-dom + React Testing Library for hooks and components) and ESLint (`npm run lint`); golden WebSocket frames written by `tests/test_wire_contract.py` into `frontend/src/__tests__/fixtures/`.
 
 ## Swarm Composition (v2, 2026-06-10)
 
@@ -51,7 +51,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 - **Inference:** `inference/` (provider protocol, Ollama/OpenAI-compatible/Anthropic adapters, budget, factory) on top of `ollama_client.py` / `ollama_models.py`.
 - **Persistence:** `graph.py` (GraphStateManager: schema, writes, report/replay/interview queries). Graph model is in `docs/ARCHITECTURE.md`.
 - **Post-run:** `advisory/` (portfolio synthesis), `report.py` + `templates/report/` (ReAct → markdown), `interview.py`.
-- **Live state:** `state.py` (StateStore/ReplayStore) → `web/broadcaster.py` → `/ws/state` → `frontend/src/hooks/useWebSocket.ts` → `adapter/frame.ts` → React contexts → SVG graph.
+- **Live state:** `state.py` (StateStore/ReplayStore) → `web/wire.py` (`build_frame` → versioned `StateFrame`) → `web/broadcaster.py` → `/ws/state` → `frontend/src/hooks/useWebSocket.ts` → `adapter/frame.ts` → React contexts (`FrameProviders`, including `FrameMetaContext`) → SVG graph.
 
 ## Conventions
 
@@ -92,7 +92,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
   - `uv run mypy src` reports no errors (gated in CI; modules under `[[tool.mypy.overrides]]` stay exempt until cleaned up, the list only shrinks, never add one);
   - `uv run lint-imports` reports the contract kept;
   - `uv run ruff check <changed files>` is clean on the lines you changed (ruff is not yet gated in CI);
-  - for frontend changes, run `npx tsc -b --noEmit && npx vitest run && npm run build` in `frontend/`.
+  - for frontend changes, run `npx tsc -b --noEmit && npx vitest run && npm run lint && npm run build` in `frontend/`.
 - Golden files in `tests/golden/` change only in a commit whose purpose explains the diff: `UPDATE_GOLDEN=1 uv run pytest -q -m neo4j --require-neo4j tests/neo4j/` (scenario goldens in `tests/golden/scenarios/`: `UPDATE_GOLDEN=1 uv run pytest -q tests/engine/`, no services), then review `git diff tests/golden` line by line.
 
 ## Developer Profile

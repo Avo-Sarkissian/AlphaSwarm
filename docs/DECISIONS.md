@@ -269,13 +269,16 @@ Contents
   - Rationales live in a persistent `deque(maxlen=50)` and are not drained.
 - **Rationale:** Rounds take minutes. The TUI-era "clear and batch-write after the round" contract made the 5 Hz UI look frozen (debug session `ws-agent-states-not-emitted-mid-sim`, fixed in fe366ce, 1da741e, and 0003375).
 
-### <a id="adr-ws-broadcaster"></a>WebSocket broadcaster: full snapshot at 5 Hz, drop-oldest per client
+### <a id="adr-ws-broadcaster"></a>WebSocket broadcaster: versioned StateFrame at 5 Hz, drop-oldest per client
 - **Decision:**
-  - An always-on lifespan task serializes `dataclasses.asdict(StateSnapshot)` every 200 ms.
+  - An always-on lifespan task builds one `StateFrame` every 200 ms. `web/wire.py:build_frame` maps the live `StateSnapshot` (or the active replay's) field by field onto frozen pydantic models with `extra="forbid"`; internal dataclasses are never serialized directly. The replay manager's immediate broadcasts use the same path.
+  - The frame carries `schema_version` (1), `mode` (`live`/`replay`/`idle`, derived from the phase), `cycle_id` (set right after `inject_seed`, reset on SEEDING), `num_rounds`, `edges_version` (influence-edge steps finished for the cycle; in replay, round − 1), `jobs` (advisory/report status from the live store, also during replay), `last_error`, the shock fields, and a monotonic `seq` plus wall-clock `ts` on each rationale entry.
+  - Adding a field keeps `schema_version`; renaming, removing or changing the meaning of a field bumps it together with the frontend adapter's `SUPPORTED_SCHEMA_VERSION`.
+  - `tests/test_wire_contract.py` writes golden frames into `frontend/src/__tests__/fixtures/`; the frontend tests read them, and `tsc` checks their keys against the TypeScript mirror in `frontend/src/types.ts`.
   - Each client gets an `asyncio.Queue(maxsize=100)` with drop-oldest and its own writer task, which cleans up its registry entry in `finally` (B7).
   - Host RAM% is overlaid on every frame ([p999-3-d-01](#p999-3-d-01)).
   - `/ws/state` is unauthenticated, but the handshake Origin is validated (Aug 2026).
-- **Rationale:** The simulation must never block on a slow client (CLAUDE.md hard constraint 4).
+- **Rationale:** The simulation must never block on a slow client (CLAUDE.md hard constraint 4). An explicit, versioned frame turns a renamed internal field into a failing test instead of a silently broken UI, and gives the UI the cycle identity it needs to fetch the right cycle's edges.
 
 ### <a id="adr-replaystore-separate"></a>ReplayStore is separate from StateStore
 - **Decision:** Replay builds its own `ReplayStore` (`state.py:323`) inside `ReplayManager`. While replay is active, the broadcaster reads it instead of live state. Replay and live simulation exclude each other (B4). Replay never writes the live StateStore phase: start and stop leave IDLE or COMPLETE as they were, so a replay cannot block a report or a new run ([p34-d-10](#p34-d-10), 2026-10).
@@ -369,10 +372,10 @@ Contents
 ### <a id="adr-frontend-quant-terminal"></a>Frontend: React + TS "Quant Terminal"
 - **Decision:**
   - React 19 + Vite 6 + TypeScript, ported from the AlphaSwarm-2 design export (Phase 41.6).
-  - Six split React contexts so 5 Hz frames do not re-render everything.
+  - Seven split React contexts (Connection, FrameMeta, Telemetry, Agents, Bracket, Rationales, Edges) so 5 Hz frames do not re-render everything.
   - Deterministic SVG agent layout instead of d3-force ([KR-41.1-01](#kr-41-1-01)).
   - Design mocks are loaded only through DEV-only dynamic imports, and a production grep gate keeps them out of `dist` ([KR-41.6-14](#kr-41-6-14)).
-  - Vitest wire-contract tests pin the backend snapshot shape (`frontend/TESTING.md`).
+  - Tests and lint (`frontend/TESTING.md`): vitest runs pure tests in node and hook/component tests on happy-dom with React Testing Library; backend-written golden frames pin the wire contract ([adr-ws-broadcaster](#adr-ws-broadcaster)); ESLint (typescript-eslint, react-hooks; jsx-a11y at `warn` until the accessibility pass) runs in CI. ESLint stays on 9.x while eslint-plugin-jsx-a11y supports nothing newer.
 - **History:** Textual TUI, then Vue 3 + D3 force graph, then a React port of the Claude Design UI, then the AlphaSwarm-2 Quant Terminal. See HISTORY.md.
 
 ### <a id="adr-test-network-gate"></a>Tests are offline by default
@@ -602,9 +605,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p30-d-04"></a>`D-04` | Broadcaster includes rationale entries in each frame (now the persistent sliding window, not a drain). | partial | web/broadcaster.py:39 |
-| <a id="p30-d-05"></a>`D-05` | Wire format is json.dumps(dataclasses.asdict(snapshot)); no separate pydantic wire model. | active | web/broadcaster.py:39 |
-| <a id="p30-d-06"></a>`D-06` | snapshot_to_json() helper encapsulates the frame pipeline. | active | web/broadcaster.py:39 |
+| <a id="p30-d-04"></a>`D-04` | Broadcaster includes rationale entries in each frame (now the persistent sliding window, not a drain), each stamped with `seq` and `ts`. | partial | web/wire.py (`build_frame`); state.py (`push_rationale`) |
+| <a id="p30-d-05"></a>`D-05` | Wire format was json.dumps(dataclasses.asdict(snapshot)) with no separate pydantic wire model. Superseded by the versioned `StateFrame` built by `web/wire.py:build_frame` ([adr-ws-broadcaster](#adr-ws-broadcaster)). | superseded | web/wire.py; web/broadcaster.py |
+| <a id="p30-d-06"></a>`D-06` | snapshot_to_json() helper encapsulates the frame pipeline (snapshot → `build_frame` → JSON). | active | web/broadcaster.py (`snapshot_to_json`) |
 | <a id="p30-d-07"></a>`D-07` | Broadcaster is an always-on lifespan task ticking at 200 ms (5 Hz). | active | web/broadcaster.py:113 |
 | <a id="p30-d-08"></a>`D-08` | /ws/state registered without a prefix. | active | web/app.py:217 |
 | <a id="p30-d-10"></a>`D-10` | WebSocket is unauthenticated (local only). Since Aug 2026 the handshake Origin is validated against an allow-list. | partial | web/routes/websocket.py:7 |
@@ -631,7 +634,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, builds ReplayStore, sets round 1, broadcasts. | active | web/replay_manager.py:115; web/routes/replay.py:38,103 |
 | <a id="p34-d-09"></a>`D-09` | replay_advance increments the round (capped at the cycle's real depth since F-12) and broadcasts. | active | web/replay_manager.py:185; web/routes/replay.py:46,175 |
 | <a id="p34-d-10"></a>`D-10` | POST /api/replay/stop ends the replay (ReplayManager inactive again) and never writes the live StateStore phase, which stays IDLE or COMPLETE. Revised 2026-10 (start set the live phase to REPLAY and stop set it to IDLE). | revised | web/replay_manager.py:249; web/routes/replay.py:54,130 |
-| <a id="p34-d-11"></a>`D-11` | Broadcaster reads the replay snapshot instead of live state while replay is active. | active | web/broadcaster.py:8,36; tests/test_web.py:1265 |
+| <a id="p34-d-11"></a>`D-11` | Broadcaster reads the replay snapshot instead of live state while replay is active. | active | web/broadcaster.py (`snapshot_to_json`); tests/test_broadcaster_frames.py |
 
 ### Phase 35: Agent interviews (web)
 
@@ -761,7 +764,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p999-3-d-01"></a>`D-01` | Broadcaster overlays live host RAM% (psutil) on every frame, including idle and replay. | active | web/broadcaster.py:47,67,90; tests/test_web.py:462,588 |
+| <a id="p999-3-d-01"></a>`D-01` | Broadcaster overlays live host RAM% (psutil) on every frame, including idle and replay. | active | web/broadcaster.py (`_host_memory_percent`); web/wire.py (`_governor`); tests/test_wire_models.py |
 
 ---
 
