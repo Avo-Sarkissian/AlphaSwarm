@@ -318,4 +318,16 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     return app
 
 
-app = create_app()
+def __getattr__(name: str) -> FastAPI:
+    """Build the module-level ``app`` on first access (``uvicorn alphaswarm.web.app:app``).
+
+    Not at import: every ``alphaswarm.web`` import loads this module, and pytest
+    imports it while collecting, before its hermetic fixture runs. An app built
+    then would keep the operator's settings for its lifespan
+    (docs/DECISIONS.md#adr-web-lifespan).
+    """
+    if name != "app":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    built = create_app()
+    globals()["app"] = built  # later lookups find it directly and skip this hook
+    return built

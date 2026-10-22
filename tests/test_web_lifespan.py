@@ -12,6 +12,8 @@ Extend this file in place; do not add a second one.
 
 from __future__ import annotations
 
+import importlib.util
+import os
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,7 +27,9 @@ from fastapi import FastAPI
 from neo4j.exceptions import AuthError as Neo4jAuthError
 from neo4j.exceptions import ServiceUnavailable
 from pydantic import BaseModel
+from uvicorn.importer import import_from_string
 
+import alphaswarm.config as config_module
 import alphaswarm.manifest as manifest
 import alphaswarm.web.app as web_app
 from alphaswarm.app import AppState, create_app_state
@@ -196,6 +200,42 @@ def test_create_app_without_settings_reads_the_environment(
     app = web_app.create_app()
     assert isinstance(app.state.settings, AppSettings)
     assert app.state.settings.log_level == "DEBUG"
+
+
+def test_importing_the_module_builds_no_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every alphaswarm.web import loads this module, and pytest imports it while
+    collecting, before hermetic_env runs: an app built then would keep the
+    operator's settings, real holdings path included, for its lifespan."""
+
+    def forbidden_settings(*args: Any, **kwargs: Any) -> AppSettings:
+        raise AssertionError("importing alphaswarm.web.app must not construct AppSettings()")
+
+    monkeypatch.setattr(config_module, "AppSettings", forbidden_settings)
+    spec = importlib.util.spec_from_file_location("_fresh_web_app", web_app.__file__)
+    assert spec is not None
+    assert spec.loader is not None
+    fresh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fresh)  # a fresh import of the same source
+    assert "app" not in vars(fresh)
+
+
+def test_the_uvicorn_target_builds_the_app_on_first_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`uvicorn alphaswarm.web.app:app` still resolves, to an app whose settings are
+    read at that moment: here, inside the hermetic test environment."""
+    module_globals = vars(web_app)
+    monkeypatch.delitem(module_globals, "app", raising=False)
+    monkeypatch.setenv("ALPHASWARM_LOG_LEVEL", "DEBUG")
+    try:
+        built = import_from_string("alphaswarm.web.app:app")
+        assert isinstance(built, FastAPI)
+        assert built.state.settings.log_level == "DEBUG"
+        hermetic_csv = Path(os.environ["ALPHASWARM_HOLDINGS_CSV_PATH"])
+        assert built.state.settings.holdings_csv_path == hermetic_csv
+        assert import_from_string("alphaswarm.web.app:app") is built
+    finally:
+        module_globals.pop("app", None)  # leave the module as a fresh import left it
 
 
 class _RecordingLog:
