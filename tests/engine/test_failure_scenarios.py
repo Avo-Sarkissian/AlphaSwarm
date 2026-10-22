@@ -24,8 +24,9 @@ from alphaswarm.types import (
     AgentPersona,
     BracketConfig,
     BracketType,
+    SimulationPhase,
 )
-from tests.engine.scenario import persisted_rounds
+from tests.engine.scenario import RecordingStateStore, persisted_rounds
 from tests.inference.fakes import ScriptedCall, ScriptedProvider, default_decision_script
 from tests.support.controllers import ImmediateController
 
@@ -203,3 +204,27 @@ async def test_metrics_count_inference_errors_per_round(
     assert metrics["r2_parse_errors"] == 10
     assert metrics["r3_inference_errors"] == 0
     assert metrics["final_round"] == 3
+
+
+async def test_phase_sequence_includes_finalizing(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    store = RecordingStateStore()
+    await run_case(
+        settings=scenario_settings, graph=graph,
+        worker=ScriptedProvider(personas=all_personas),
+        personas=all_personas, brackets=all_brackets,
+        state_store=store, generate_narratives=True,
+    )
+    assert store.phases == [
+        SimulationPhase.IDLE,
+        SimulationPhase.SEEDING,
+        SimulationPhase.ROUND_1,
+        SimulationPhase.ROUND_2,
+        SimulationPhase.ROUND_3,
+        SimulationPhase.FINALIZING,
+        SimulationPhase.COMPLETE,
+    ]

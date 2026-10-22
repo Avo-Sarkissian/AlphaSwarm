@@ -26,6 +26,7 @@ THREE_ROUND_PHASES = [
     SimulationPhase.ROUND_1,
     SimulationPhase.ROUND_2,
     SimulationPhase.ROUND_3,
+    SimulationPhase.FINALIZING,
     SimulationPhase.COMPLETE,
 ]
 TWO_ROUND_PHASES = [p for p in THREE_ROUND_PHASES if p is not SimulationPhase.ROUND_3]
