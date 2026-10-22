@@ -139,6 +139,8 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
   const [healthError, setHealthError] = useState<string | null>(null);
   const [checkSeq, setCheckSeq] = useState(0);
   const backendOk = health?.status === 'ok';
+  // False while the first answer, or the one a Re-check asked for, is outstanding.
+  const answered = health !== null || healthError !== null;
 
   // Run gate: cost confirmation for cloud/mixed runs, then simStart. It settles
   // on success, failure and cancel alike, so the button never stays on
@@ -204,10 +206,8 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
           extracts entities to shape each agent's context.
         </p>
 
-        <div className="ob-ollama-status" data-ok={backendOk}>
-          <span
-            className={`ob-status-dot ${backendOk ? 'ok' : health !== null || healthError !== null ? 'err' : ''}`}
-          />
+        <div className="ob-ollama-status" data-ok={answered ? backendOk : undefined}>
+          <span className={`ob-status-dot ${backendOk ? 'ok' : answered ? 'err' : ''}`} />
           <span className="mono" style={{ fontSize: 12 }}>{statusLabel}</span>
           {/* Always offered: a check can hang, and "ready" can go stale. */}
           <button type="button" className="btn ghost ob-recheck" onClick={recheck} disabled={pending}>

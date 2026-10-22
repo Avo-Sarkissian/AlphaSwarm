@@ -214,3 +214,28 @@ describe('Onboarding re-check', () => {
     expect(recheck.disabled).toBe(true);
   });
 });
+
+describe('Onboarding status row', () => {
+  // The row's data-ok and the dot's class drive the colours in styles.css.
+  it('stays neutral while a check is outstanding, then marks the answer', async () => {
+    stubFetchRoutes({
+      'GET /api/health': (call) => ({ body: call === 1 ? HEALTH_DEGRADED : HEALTH_OK }),
+    });
+    render(<Onboarding onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    const row = screen.getByText('Checking backend…').parentElement as HTMLElement;
+    const dot = row.querySelector('.ob-status-dot') as HTMLElement;
+    expect(row.hasAttribute('data-ok')).toBe(false);
+    expect(dot.classList.contains('ok') || dot.classList.contains('err')).toBe(false);
+
+    await screen.findByText(/Backend degraded/);
+    expect(row.getAttribute('data-ok')).toBe('false');
+    expect(dot.classList.contains('err')).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    expect(row.hasAttribute('data-ok')).toBe(false);
+    await screen.findByText(/Backend ready/);
+    expect(row.getAttribute('data-ok')).toBe('true');
+    expect(dot.classList.contains('ok')).toBe(true);
+  });
+});
