@@ -74,8 +74,19 @@ def test_legacy_feed_fails_the_invariant(peer_exposure: ModuleType) -> None:
     assert r2.slot_share(sell_side) == pytest.approx(0.7)
     assert r2.citation_share(sell_side) == pytest.approx(0.7)
     text = peer_exposure.format_round(r2, markdown=True)
-    assert "| sell_side | 700 | 70.0% | 100% | 70.0% |" in text
+    assert "| sell_side | 700 | 70.0 | 70.0% | 100% | 70.0% |" in text
     assert text.rstrip("\n").endswith("-> FAIL")
+
+
+def test_rows_show_slots_per_agent(peer_exposure: ModuleType) -> None:
+    """Per-agent visibility (slots / bracket size) is what influence_weight_base orders."""
+    (r2,) = peer_exposure.exposure_rounds(_legacy_props(peer_exposure.BRACKETS), {})
+
+    text = peer_exposure.format_round(r2, markdown=True)
+
+    assert text.startswith("| bracket | slots | per agent | slot % | readers % | citations % |")
+    assert "| institutions | 100 | 5.6 | 10.0% | 100% | 0.0% |" in text  # 18 agents
+    assert "| allocators | 0 | 0.0 | 0.0% | 0% | 0.0% |" in text
 
 
 def test_markdown_keeps_each_table_and_verdict_in_its_own_block(

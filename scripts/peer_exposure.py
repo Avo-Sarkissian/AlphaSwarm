@@ -30,6 +30,8 @@ from alphaswarm.config import DEFAULT_BRACKETS, AppSettings
 MAX_SLOT_SHARE = 0.35
 MIN_READER_SHARE = 0.15
 BRACKETS: tuple[str, ...] = tuple(b.bracket_type.value for b in DEFAULT_BRACKETS)
+# The run roster is always DEFAULT_BRACKETS (config.load_bracket_configs).
+BRACKET_SIZES: dict[str, int] = {b.bracket_type.value: b.count for b in DEFAULT_BRACKETS}
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,12 @@ class BracketExposure:
     slots: int
     readers: int
     citations: int
+    size: int
+
+    @property
+    def per_agent(self) -> float:
+        """Slots per member: how many readers were shown an average member."""
+        return self.slots / self.size if self.size else 0.0
 
 
 @dataclass(frozen=True)
@@ -87,6 +95,7 @@ def exposure_rounds(
                 slots=int(props.get(f"r{n}_exposure_{b}", 0)),
                 readers=int(props.get(f"r{n}_readers_seeing_{b}", 0)),
                 citations=int(cited.get(b, 0)),
+                size=BRACKET_SIZES[b],
             )
             for b in BRACKETS
         )
@@ -103,11 +112,12 @@ def exposure_rounds(
 
 def format_round(rnd: RoundExposure, *, markdown: bool) -> str:
     """Render one round as a plain or markdown table plus a verdict line."""
-    header = ["bracket", "slots", "slot %", "readers %", "citations %"]
+    header = ["bracket", "slots", "per agent", "slot %", "readers %", "citations %"]
     body = [
         [
             r.bracket,
             str(r.slots),
+            f"{r.per_agent:.1f}",
             f"{rnd.slot_share(r):.1%}",
             f"{rnd.reader_share(r):.0%}",
             f"{rnd.citation_share(r):.1%}",
