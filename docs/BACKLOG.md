@@ -79,6 +79,7 @@ needs fresh cycles, because history before June 2026 was wiped
 | 4.9 | Trim persona system prompts. Prefill dominates cost, at about 2.5k tokens per agent | open | `config.py` bracket templates; D#adr-model-stack |
 | 4.10 | Evaluate the Gemma 4 26B MoE worker as an alternative | open | D#adr-model-stack |
 | 4.11 | Profile the replay `read_full_cycle_signals` query (STATE.md blocker). Low risk at 100 agents | unknown | `graph.py:1988` |
+| 4.12 | Per-agent peer reach below the top two brackets. At the default knobs (10 peers, cap 3), a full feed already spans at least 4 brackets, so the `min_brackets` floor adds no diversity there. It only lifts small brackets per agent: Allocators (weight 0.60) are seen by 11.6 readers per agent against 9.4 for Institutions (0.65). Offline with `min_brackets=0`, every feed still spanned at least 4 brackets, and per-agent reach followed weight more closely (Sell-Side 12.5, Narrators 11.9, the 0.60-0.65 brackets 10.2-10.4, Algos 7.9). The invariant still held (worst max share 21.3%, worst min readers 29%). Owner decision: keep the floor as it is, or move the default to 0 through an ablation (plan 21) | open | D#adr-diverse-peer-context (Rationale, per-agent reach); `tests/test_peer_selection.py::test_highest_reach_brackets_are_seen_most_per_agent`; 200 R2 run seeds on `generate_personas(DEFAULT_BRACKETS)` |
 
 ## 5. Feature gaps tracked as KRs
 
