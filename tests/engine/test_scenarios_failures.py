@@ -41,9 +41,7 @@ def _budget_stop(agent_id: str) -> BaseException:
     return BudgetExceededError(Decimal("1.00"), Decimal("0.50"))
 
 
-async def _run_until(
-    run: asyncio.Task[Any], reached: asyncio.Event, what: str
-) -> None:
+async def _run_until(run: asyncio.Task[Any], reached: asyncio.Event, what: str) -> None:
     """Wait until ``reached`` is set; fail (without hanging) if the run ends first."""
     waiter = asyncio.create_task(reached.wait())
     done, _ = await asyncio.wait({run, waiter}, return_when=asyncio.FIRST_COMPLETED)
