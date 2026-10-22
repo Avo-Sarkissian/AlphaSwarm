@@ -179,3 +179,53 @@ def test_stored_file_unreadable_is_422_naming_a_fix_outside_settings(
     assert "fix it in Settings" not in detail["message"]
     assert str(tmp_path) not in r.text
     assert ".secrets" not in r.text
+
+
+# ---------------------------------------------------------------------------
+# The cloud-advisory opt-in is a Settings field
+# ---------------------------------------------------------------------------
+
+
+def test_allow_cloud_advisory_can_be_switched_off_and_on(tmp_path: Path) -> None:
+    app = _app(tmp_path)  # stored opt-in is True
+    with TestClient(app) as client:
+        off = client.put("/api/settings", json={"allow_cloud_advisory": False})
+        assert off.status_code == 200
+        assert off.json()["config"]["allow_cloud_advisory"] is False
+        assert _saved(app).allow_cloud_advisory is False
+        on = client.put("/api/settings", json={"allow_cloud_advisory": True})
+        assert on.status_code == 200
+    assert _saved(app).allow_cloud_advisory is True
+
+
+def test_role_form_save_without_the_flag_keeps_the_opt_in(tmp_path: Path) -> None:
+    """The role form's save must not reset the opt-in."""
+    app = _app(tmp_path)
+    body = {
+        "orchestrator": {
+            "provider": "ollama",
+            "model": "alphaswarm-orchestrator",
+            "base_url": None,
+        },
+        "worker": {"provider": "anthropic", "model": "claude-test", "base_url": None},
+        "spend_cap_usd": "3",
+    }
+    with TestClient(app) as client:
+        assert client.put("/api/settings", json=body).status_code == 200
+    assert _saved(app).allow_cloud_advisory is True
+
+
+def test_explicit_null_flag_keeps_the_stored_value(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    with TestClient(app) as client:
+        assert client.put("/api/settings", json={"allow_cloud_advisory": None}).status_code == 200
+    assert _saved(app).allow_cloud_advisory is True
+
+
+def test_non_boolean_flag_is_422(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    with TestClient(app) as client:
+        r = client.put("/api/settings", json={"allow_cloud_advisory": "yes"})
+    assert r.status_code == 422
+    assert r.json()["detail"]["error"] == "validation_error"
+    assert _saved(app).allow_cloud_advisory is True

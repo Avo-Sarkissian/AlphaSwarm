@@ -34,6 +34,7 @@ import {
   roleViewToForm,
   type RoleFormState,
 } from '../lib/settingsForm';
+import { advisoryOptInHelp, isOffMachine, roleFactsOf } from '../lib/privacyCopy';
 
 // ── sub-component: per-role form ──────────────────────────────────────────
 
@@ -290,11 +291,17 @@ function RoleForm({
 
 // ── main component ────────────────────────────────────────────────────────
 
-export function InferenceSettings() {
+interface InferenceSettingsProps {
+  /** Called with the settings a save stored, so the privacy copy can follow them. */
+  onSaved?: (view: SettingsView) => void;
+}
+
+export function InferenceSettings({ onSaved }: InferenceSettingsProps) {
   const [view, setView] = useState<SettingsView | null>(null);
   const [orch, setOrch] = useState<RoleFormState | null>(null);
   const [worker, setWorker] = useState<RoleFormState | null>(null);
   const [spendCap, setSpendCap] = useState<string>('');
+  const [allowCloudAdvisory, setAllowCloudAdvisory] = useState<boolean>(false);
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -320,6 +327,7 @@ export function InferenceSettings() {
         setOrch(roleViewToForm(s.config.orchestrator));
         setWorker(roleViewToForm(s.config.worker));
         setSpendCap(s.config.spend_cap_usd ?? '');
+        setAllowCloudAdvisory(s.config.allow_cloud_advisory === true);
       })
       .catch((e: unknown) => {
         if (!cancelled)
@@ -331,7 +339,7 @@ export function InferenceSettings() {
   }, []);
 
   async function handleSave() {
-    if (!orch || !worker) return;
+    if (!view || !orch || !worker) return;
     setSaving(true);
     setSaveError(null);
     setSaveOk(false);
@@ -340,20 +348,16 @@ export function InferenceSettings() {
         orchestrator: formToRolePut(orch),
         worker: formToRolePut(worker),
         spend_cap_usd: spendCap.trim() || null,
+        allow_cloud_advisory: allowCloudAdvisory,
       });
       // Refresh from returned config
-      setView((prev) =>
-        prev
-          ? {
-              ...prev,
-              config: result.config,
-              mode: result.mode,
-            }
-          : null,
-      );
+      const saved: SettingsView = { ...view, config: result.config, mode: result.mode };
+      setView(saved);
+      onSaved?.(saved);
       // Re-seed form from returned config (resets api_key fields + updates masks)
       setOrch(roleViewToForm(result.config.orchestrator));
       setWorker(roleViewToForm(result.config.worker));
+      setAllowCloudAdvisory(result.config.allow_cloud_advisory === true);
       setSaveOk(true);
       if (saveOkTimer.current !== null) clearTimeout(saveOkTimer.current);
       saveOkTimer.current = setTimeout(() => setSaveOk(false), 3000);
@@ -386,6 +390,13 @@ export function InferenceSettings() {
 
   const anyCloud =
     isCloudProvider(orch.provider) || isCloudProvider(worker.provider);
+  // The orchestrator Save would store: formToRolePut drops base_url for every
+  // provider but openai_compatible, so a URL left in the form is not used.
+  const orchFacts = roleFactsOf(formToRolePut(orch));
+  // Shown for an off-machine orchestrator, and whenever the opt-in is ticked or
+  // stored, so one left over from a cloud orchestrator can be seen and cleared.
+  const showOptIn =
+    isOffMachine(orchFacts) || allowCloudAdvisory || view.config.allow_cloud_advisory === true;
 
   return (
     <div className="st-inf">
@@ -419,6 +430,30 @@ export function InferenceSettings() {
         onChange={(patch) => setWorker((prev) => prev ? { ...prev, ...patch } : prev)}
         onReplace={(next) => setWorker(next)}
       />
+
+      {/* Cloud-advisory opt-in: shown whenever the orchestrator is off this machine
+          (a cloud provider, an Ollama cloud model or a remote Ollama server), the
+          same rule the backend's advisory gate applies, or the opt-in is on
+          (docs/DECISIONS.md#adr-advisory-pipeline) */}
+      {showOptIn && (
+        <>
+          <div style={{ borderTop: '1px solid var(--border)', margin: '14px 0' }} />
+          <div className="st-inf-row">
+            <label className="st-inf-label" htmlFor="allow-cloud-advisory">
+              Allow cloud advisory
+            </label>
+            <input
+              id="allow-cloud-advisory"
+              type="checkbox"
+              checked={allowCloudAdvisory}
+              onChange={(e) => setAllowCloudAdvisory(e.target.checked)}
+            />
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+            {advisoryOptInHelp(orchFacts)}
+          </div>
+        </>
+      )}
 
       {/* Spend cap — shown when either role is cloud */}
       {anyCloud && (

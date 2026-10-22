@@ -302,11 +302,14 @@ Configuration is persisted in `.secrets/inference.json` (gitignored, never logge
     "openai_compatible": { "requests_per_min": 60, "tokens_per_min": 100000 }
   },
   "spend_cap_usd": "5.00",
-  "pricing_overrides": {}
+  "pricing_overrides": {},
+  "allow_cloud_advisory": false
 }
 ```
 
 Cloud runs are paced to your provider's RPM/TPM limits via token-bucket rate limiting. A **hard spend cap** (USD) aborts the run gracefully when reached. Before each cloud or mixed run the UI shows a pre-run cost estimate (low / high) and requires confirmation. API keys are redacted from all logs and never returned raw by the API.
+
+By default the portfolio advisory runs only with a local orchestrator. With a cloud or remote orchestrator (a cloud provider, an Ollama cloud model, or an Ollama server off this machine) the advisory is skipped, and the report still runs, unless you tick **Allow cloud advisory** in Settings → Model (`allow_cloud_advisory` in the file). With it ticked, the advisory sends only your held tickers to the orchestrator, never quantities or cost basis.
 
 ## Configuration
 

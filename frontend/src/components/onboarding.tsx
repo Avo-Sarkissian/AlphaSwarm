@@ -15,6 +15,7 @@ import { Icon } from './icons';
 import { InlineError } from './InlineError';
 import { apiFetch } from '../api/client';
 import { useRunGate } from '../hooks/useRunGate';
+import { ONBOARDING_PRIVACY_LINE } from '../lib/privacyCopy';
 import { formatApiError } from '../lib/apiError';
 import { parseHealth, type HealthSummary } from '../lib/health';
 import { SEED_MAX_LENGTH, seedProblem } from '../lib/seed';
@@ -101,8 +102,8 @@ function ObStep0({ onNext }: { onNext: () => void }) {
         <h1 className="ob-title">AlphaSwarm</h1>
         <p className="ob-lede">
           Feed it a market rumor. Watch 100 AI personas — quants, degens, short-sellers,
-          policy wonks — debate it across 3 rounds and converge toward consensus.
-          All inference runs locally. No cloud. No API keys. No data leaves your machine.
+          policy wonks — debate it across 3 rounds and converge toward consensus.{' '}
+          {ONBOARDING_PRIVACY_LINE}
         </p>
         <div className="ob-pills">
           <div className="ob-pill"><span style={{ color: 'var(--buy)' }}>●</span> BUY</div>

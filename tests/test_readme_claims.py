@@ -32,6 +32,10 @@ FORBIDDEN_README_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\b(NewsAPI|EDGAR|Polygon|Reddit)\b", "only yfinance and RSS providers exist"),
     (r"(?i)post reads", "READ_POST edges are no longer written"),
     (r"(?i)force graph", "the graph uses a deterministic layout (DECISIONS.md#kr-41-1-01)"),
+    (
+        r"(?i)no data leaves|never leaves? (your|the) machine",
+        "cloud roles send prompts off-machine; the advisory sends tickers after the opt-in",
+    ),
 )
 
 

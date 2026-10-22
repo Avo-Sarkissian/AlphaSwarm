@@ -33,6 +33,8 @@ import { useLatestCompletedCycle } from '../hooks/useLatestCompletedCycle';
 import { defaultCycleId } from '../lib/defaultCycle';
 import { usePolling } from '../hooks/usePolling';
 import { useDataSourceAudit } from '../hooks/useDataSourceAudit';
+import { usePrivacyFacts } from '../hooks/usePrivacyFacts';
+import { advisoryLine, dataSourcesNote } from '../lib/privacyCopy';
 import { advisoryFetch, type AdvisoryContent } from '../api/advisory';
 import { renderMarkdown } from '../lib/markdown';
 import {
@@ -331,7 +333,10 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
 // ──────────────────────────────────────────────────────────────────────
 // MODEL STATUS — topbar inline status chip
 // Now live: polls GET /api/health at 10s intervals for inference_mode and
-// spent_usd. Falls back gracefully when the backend is offline.
+// spent_usd. Until health answers it says "Checking…", and "Mode unknown" when
+// the request fails, never a guessed "Local". inference_mode looks at providers
+// only, so an Ollama cloud model still reads as Local here while Settings, which
+// applies the advisory's off-machine rule, says local + cloud.
 // ──────────────────────────────────────────────────────────────────────
 export function ModelStatus() {
   const tel = useTelemetry();
@@ -345,7 +350,7 @@ export function ModelStatus() {
   const roundNum = conn.lastFrame?.roundNum ?? null;
 
   // Live inference mode from /api/health — poll every 10 s.
-  const { data: healthData } = usePolling({
+  const { data: healthData, error: healthError } = usePolling({
     key: 'health-inference-mode',
     fetchFn: getHealth,
     intervalMs: 10_000,
@@ -358,7 +363,7 @@ export function ModelStatus() {
     if (mode === 'local') return 'Local';
     if (mode === 'cloud') return 'Cloud';
     if (mode === 'mixed') return 'Mixed';
-    return 'Local'; // graceful fallback while loading
+    return healthError !== null ? 'Mode unknown' : 'Checking…';
   }
 
   const ops = [
@@ -439,6 +444,7 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
     }
   }, [mockData, selected]);
   const [groupFilter, setGroupFilter] = useState('all');
+  const [privacy] = usePrivacyFacts();
 
   if (mockData === null) {
     if (!import.meta.env.DEV) {
@@ -690,11 +696,7 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
 
             <div className="ds-privacy-note">
               <Icon name="lock" size={12} />
-              <span>
-                Inference is 100% local (Ollama). These calls are the only network egress
-                this cycle. Keys stored in{' '}
-                <span className="mono">~/.alphaswarm/keys.toml</span>
-              </span>
+              <span>{dataSourcesNote(privacy)}</span>
             </div>
           </div>
         )}
@@ -792,6 +794,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<'overview' | 'holdings' | 'risk' | 'isolation'>(
     'overview',
   );
+  const [privacy] = usePrivacyFacts();
 
   // codex HIGH-3: GET-only polling. No POST trigger — synthesis is
   // auto-fired by SimulationManager.on_complete (per quick task 260507-19f).
@@ -1133,7 +1136,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
                   <div className="adv-iso-items">
                     <div className="adv-iso-item">✓ Sees: seed rumor</div>
                     <div className="adv-iso-item">
-                      ✓ Sees: yfinance, FRED, news, filings
+                      ✓ Sees: yfinance prices and RSS headlines (Round 1)
                     </div>
                     <div className="adv-iso-item adv-iso-no">
                       ✗ Never sees: your holdings
@@ -1151,9 +1154,9 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
                   </div>
                   <div className="adv-iso-items">
                     <div className="adv-iso-item">✓ Reads: swarm consensus output</div>
-                    <div className="adv-iso-item">✓ Reads: your portfolio CSV</div>
-                    <div className="adv-iso-item adv-iso-no">✗ No direct API access</div>
-                    <div className="adv-iso-item adv-iso-no">✗ No network calls</div>
+                    <div className="adv-iso-item">✓ Reads: your held tickers, one entry per ticker</div>
+                    <div className="adv-iso-item adv-iso-no">✗ Never sent: quantities or cost basis</div>
+                    <div className="adv-iso-item">{advisoryLine(privacy)}</div>
                   </div>
                 </div>
               </div>
@@ -1168,16 +1171,10 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
                 <p>
                   The orchestrator reads only the consensus output — signals,
                   rationales, influence graph — never the raw agent prompts. Your
-                  portfolio data is read once, locally, and never persisted to any
-                  database or log.
+                  holdings are read from your local CSV and never written to Neo4j or
+                  the live stream; the advisory result, including the cost-basis
+                  exposure, is saved under advisory/ as an owner-only file.
                 </p>
-                <div className="adv-iso-audit">
-                  <Icon name="doc" size={13} />
-                  <span>
-                    Full audit log available at{' '}
-                    <span className="mono">~/.alphaswarm/advisory-audit.jsonl</span>
-                  </span>
-                </div>
               </div>
             </div>
           </div>

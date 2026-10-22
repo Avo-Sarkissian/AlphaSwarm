@@ -18,12 +18,11 @@ every surface that synthesize() touches:
   Surface #4 (prompts)  — CanaryFakeOllamaClient appends the concatenated
                           LLM messages into capture_jinja_renders.
 
-Design carve-out (D-05): the advisory prompt legitimately includes ticker,
-qty, and cost_basis strings so the LLM can decide which holdings are
-affected. The rendered-prompt test asserts absence of every other sentinel
-representation (account hash, hashed account form) and of the sentinel
-ticker through the other three surfaces. See
-test_sentinels_do_not_appear_in_rendered_prompts for the carve-out rationale.
+Design carve-out (docs/DECISIONS.md#p41-d-05): the advisory prompt includes the
+held ticker and nothing else about a position, so the LLM can decide which
+holdings are affected. The rendered-prompt test asserts that quantity, cost basis
+and every account representation are absent; the other three surfaces must not
+carry even the ticker.
 
 Historical context (preserved for archaeology):
 --------------------------------------------------------------------------------
@@ -160,46 +159,18 @@ async def test_sentinels_do_not_appear_in_rendered_prompts(
     capture_neo4j_writes: list[str],
     capture_jinja_renders: list[str],
 ) -> None:
-    """D-05 carve-out: ticker/qty/cost_basis legitimately appear in the prompt.
+    """Only the ticker may reach the advisory prompt (docs/DECISIONS.md#p41-d-05).
 
-    The advisory prompt serializes holdings (ticker, qty, cost_basis) so the
-    LLM can reason about which holdings are affected. This test asserts
-    absence of:
-      - SENTINEL_ACCT (account identifier — never belongs in the prompt)
-      - account-hash variants (sha256_first8 of SENTINEL_ACCT)
-      - JSON-quoted Decimal variants that are NOT the intentionally serialized
-        cost_basis / qty values
-    and tolerates the three D-05-sanctioned representations
-    (SENTINEL_TICKER, str(SENTINEL_COST_BASIS), str(SENTINEL_QTY), and the
-    JSON-quoted forms of those Decimals).
-
-    If a future change removes cost_basis from the prompt entirely, the
-    non-skipped representations still trip this test.
+    Quantity, cost basis and every account representation must be absent: the
+    ticker is the one sanctioned holdings value in any prompt.
     """
     await _advisory_harness_body(
         sentinel_portfolio, capture_ws_frames, capture_neo4j_writes, capture_jinja_renders,
     )
     joined = "\n".join(capture_jinja_renders)
-
-    # EXPECTED to appear (ticker is legitimately in prompts — the LLM needs it):
-    #   SENTINEL_TICKER
-    # EXPECTED to NEVER appear (these are isolation-sensitive PII-equivalents):
-    sensitive_reps = tuple(
-        rep for rep in all_sentinel_representations()
-        if rep != SENTINEL_TICKER
-    )
-    # Additionally, cost_basis is passed as a string to the prompt — that IS
-    # the engineered leakage path for the sentinel cost. If the test fails
-    # here, synthesize() is forwarding cost_basis as intended by D-05 for the
-    # prompt; confirm by checking that the cost_basis representation appears
-    # in the JOINED prompt string. If a future change drops cost_basis from
-    # the prompt, this test remains a tripwire.
-    for sentinel in sensitive_reps:
-        if sentinel in (str(SENTINEL_COST_BASIS), str(SENTINEL_QTY),
-                        f'"{SENTINEL_COST_BASIS}"', f'"{SENTINEL_QTY}"'):
-            # qty and cost_basis MAY appear in the prompt (D-05 serializes
-            # holdings including cost_basis). This is by design. Skip these
-            # specific representations from the absence assertion.
+    assert SENTINEL_TICKER in joined  # positive control: the prompt was captured
+    for sentinel in all_sentinel_representations():
+        if sentinel == SENTINEL_TICKER:
             continue
         assert sentinel not in joined, (
             f"sentinel representation {sentinel!r} leaked into rendered prompts"
