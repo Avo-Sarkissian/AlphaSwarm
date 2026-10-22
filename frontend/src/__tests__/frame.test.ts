@@ -83,10 +83,10 @@ describe('adaptSnapshot — live frame (mid round 2)', () => {
     expect(frame.edgesVersion).toBe(0);
   });
 
-  it('maps signal=null to thinking and keeps parse_error distinct', () => {
+  it('maps signal=null to a pending agent and keeps parse_error distinct', () => {
     const byId = Object.fromEntries(frame.agents.map((a) => [a.id, a]));
     expect(byId.sell_side_03!.thinking).toBe(true);
-    expect(byId.sell_side_03!.signal).toBe('hold'); // neutral visual while thinking
+    expect(byId.sell_side_03!.signal).toBeNull(); // pending, never HOLD
     expect(byId.degens_07!.signal).toBe('parse_error');
     expect(byId.degens_07!.thinking).toBe(false);
     expect(byId.institutions_01!.signal).toBe('buy');

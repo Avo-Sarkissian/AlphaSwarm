@@ -42,6 +42,7 @@ import { replayStart } from '../api/replay';
 import { normalizeBracketKey } from '../data';
 import { errorMessage } from '../lib/apiError';
 import { rankInfluencers } from '../lib/influence';
+import { signalClass, signalLabel } from '../lib/signals';
 import { phaseLabelFor, roundFromPhase } from '../lib/phase';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
 // modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
@@ -108,7 +109,7 @@ function Tooltip({ info }: { info: TooltipInfo | null }) {
   return (
     <div className="tooltip" style={{ left: x + 14, top: y + 14 }}>
       <div className="t-head">{agent.id} <span style={{color:'var(--text-3)', fontSize:10}}>· {agent.bracketDisplay}</span></div>
-      <div className="t-row"><span>Signal</span><strong className={`sig-${agent.signal}`} style={{padding:'1px 5px'}}>{(agent.signal || 'hold').toUpperCase()}</strong></div>
+      <div className="t-row"><span>Signal</span><strong className={signalClass(agent.signal)} style={{padding:'1px 5px'}}>{signalLabel(agent.signal)}</strong></div>
       <div className="t-row"><span>Confidence</span><strong>{(agent.confidence*100).toFixed(0)}%</strong></div>
       <div className="t-row"><span>Flipped R1→R3</span><strong>{agent.flipped ? 'Yes' : 'No'}</strong></div>
       <div style={{marginTop:6, fontSize:10, color:'var(--text-3)'}}>Click to interview →</div>

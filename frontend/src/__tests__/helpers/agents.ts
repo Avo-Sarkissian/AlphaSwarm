@@ -3,7 +3,7 @@
 import { agentIdToBracket } from '../../adapter/agentId';
 import type { AgentSignal, AgentView } from '../../types';
 
-export function makeAgent(id: string, signal: AgentSignal = 'hold', confidence = 0.5): AgentView {
+export function makeAgent(id: string, signal: AgentSignal | null = 'hold', confidence = 0.5): AgentView {
   return {
     id,
     bracket: agentIdToBracket(id),
@@ -12,6 +12,6 @@ export function makeAgent(id: string, signal: AgentSignal = 'hold', confidence =
     confidence,
     flipped: 0,
     roundLastSpoke: null,
-    thinking: false,
+    thinking: signal === null,
   };
 }

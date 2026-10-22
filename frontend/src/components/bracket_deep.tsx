@@ -16,6 +16,7 @@ import { useState, useMemo } from 'react';
 import { Icon } from './icons';
 import { useEdgesCtx } from '../context/EdgesContext';
 import { normalizeBracketKey } from '../data';
+import { signalClass, signalColor, signalLabel } from '../lib/signals';
 import type { AgentView } from '../types';
 
 const BRACKET_COLORS: Record<string, string> = {
@@ -210,14 +211,14 @@ export function BracketDeepDive({
                   onClick={() => onAgentInterview?.(a)}
                 >
                   <div className="bd-agent-id mono" style={{ color }}>{a.id}</div>
-                  <div className={`bd-agent-sig rationale-signal sig-${a.signal}`}>
-                    {(a.signal ?? 'hold').toUpperCase()}
+                  <div className={`bd-agent-sig rationale-signal ${signalClass(a.signal)}`}>
+                    {signalLabel(a.signal)}
                   </div>
                   <div className="bd-agent-conf">
                     <div className="bd-conf-bar">
                       <div
                         className="bd-conf-fill"
-                        style={{ width: `${a.confidence * 100}%`, background: sigColor(a.signal) }}
+                        style={{ width: `${a.confidence * 100}%`, background: signalColor(a.signal) }}
                       />
                     </div>
                     <span className="mono" style={{ fontSize: 10 }}>

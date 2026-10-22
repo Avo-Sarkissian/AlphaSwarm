@@ -24,7 +24,8 @@ import { Icon } from './icons';
 import { askAgent } from '../api/interview';
 import { useRationales } from '../context/RationalesContext';
 import { useEdgesCtx } from '../context/EdgesContext';
-import type { AgentView, RationaleView } from '../types';
+import { signalClass, signalColor, signalLabel } from '../lib/signals';
+import type { AgentSignal, AgentView, RationaleView } from '../types';
 
 type RoundMap = Record<number, RationaleView[]>;
 
@@ -38,22 +39,12 @@ function SignalTrajectory({ agent, byRound }: SignalTrajectoryProps) {
     return [1, 2, 3].map((round) => {
       const list = byRound[round] ?? [];
       const r = list[list.length - 1]; // latest in round
-      if (r) {
-        // RationaleView carries the per-entry wire signal — use it so each
-        // round shows what the agent said THEN, not its current signal.
-        return {
-          round,
-          signal: r.signal,
-          conf: agent.confidence, // per-round confidence not in RationaleView; show current
-          present: true,
-        };
-      }
-      return { round, signal: agent.signal, conf: 0, present: false };
+      // RationaleView carries the per-entry wire signal: each round shows what
+      // the agent said THEN, not its current signal.
+      const signal: AgentSignal | null = r ? r.signal : null;
+      return { round, signal, conf: r ? agent.confidence : 0, present: r !== undefined };
     });
   }, [byRound, agent]);
-
-  const sigColor = (s: string) =>
-    s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : 'var(--hold)';
 
   return (
     <div className="iv2-trajectory">
@@ -66,13 +57,19 @@ function SignalTrajectory({ agent, byRound }: SignalTrajectoryProps) {
                 className="iv2-traj-bar"
                 style={{
                   height: rd.present ? `${rd.conf * 100}%` : '0%',
-                  background: rd.present ? sigColor(rd.signal) : 'var(--bg-3)',
-                  boxShadow: i === 2 && rd.present ? `0 0 8px ${sigColor(rd.signal)}` : 'none',
+                  background: rd.present ? signalColor(rd.signal) : 'var(--bg-3)',
+                  boxShadow:
+                    i === trajectory.length - 1 && rd.present
+                      ? `0 0 8px ${signalColor(rd.signal)}`
+                      : 'none',
                 }}
               />
             </div>
-            <div className="iv2-traj-signal" style={{ color: rd.present ? sigColor(rd.signal) : 'var(--text-3)' }}>
-              {rd.present ? rd.signal.toUpperCase() : '—'}
+            <div
+              className="iv2-traj-signal"
+              style={{ color: rd.present ? signalColor(rd.signal) : 'var(--text-3)' }}
+            >
+              {rd.present ? signalLabel(rd.signal) : '—'}
             </div>
             <div className="iv2-traj-label label">R{rd.round}</div>
             <div className="iv2-traj-conf mono">
@@ -142,7 +139,7 @@ function CitationGraph({ agent, cited, citedBy }: CitationGraphProps) {
         </defs>
         <circle
           cx={cx} cy={cy} r="10"
-          fill={agent.signal === 'buy' ? 'var(--buy)' : agent.signal === 'sell' ? 'var(--sell)' : 'var(--hold)'}
+          fill={signalColor(agent.signal)}
         />
         <text x={cx} y={cy + 3.5} textAnchor="middle" fill="#000" fontSize="6.5" fontWeight="700" fontFamily="JetBrains Mono">
           {agent.id}
@@ -177,7 +174,7 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
     {
       role: 'agent',
       ts: nowTs(),
-      text: `${agent.bracketDisplay}. Round 3 close: ${agent.signal.toUpperCase()}, confidence ${(agent.confidence * 100).toFixed(0)}%.${
+      text: `${agent.bracketDisplay}. Round 3 close: ${signalLabel(agent.signal)}, confidence ${(agent.confidence * 100).toFixed(0)}%.${
         agent.flipped ? ' Flipped from Round 1.' : ''
       } Ask me about my reasoning.`,
     },
@@ -229,9 +226,6 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
     }
   };
 
-  const sigColor = (s: string) =>
-    s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : 'var(--hold)';
-
   // Generic suggested prompts (not bracket-specific — PERSONA dict removed per KR-41.6-03).
   const prompts = [
     'What drove your signal?',
@@ -248,7 +242,7 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
             <Icon name="close" />
           </button>
           <div className="iv2-agent-id">
-            <div className="iv2-id-pill" style={{ background: sigColor(agent.signal) }}>
+            <div className="iv2-id-pill" style={{ background: signalColor(agent.signal) }}>
               {agent.id}
             </div>
             <div>
@@ -257,10 +251,10 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
             </div>
           </div>
           <div
-            className={`rationale-signal sig-${agent.signal}`}
+            className={`rationale-signal ${signalClass(agent.signal)}`}
             style={{ marginLeft: 8, fontSize: 11 }}
           >
-            {agent.signal.toUpperCase()} {(agent.confidence * 100).toFixed(0)}%
+            {signalLabel(agent.signal)} {(agent.confidence * 100).toFixed(0)}%
           </div>
         </div>
         <div className="iv2-head-right">
@@ -391,8 +385,8 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
                   <div key={`${round}-${i}`} className="iv2-round-block">
                     <div className="iv2-round-head">
                       <span className="iv2-round-num">Round {round}</span>
-                      <span className={`rationale-signal sig-${agent.signal}`}>
-                        {agent.signal.toUpperCase()}
+                      <span className={`rationale-signal ${signalClass(agent.signal)}`}>
+                        {signalLabel(agent.signal)}
                       </span>
                     </div>
                     <div className="iv2-round-text">{r.text}</div>

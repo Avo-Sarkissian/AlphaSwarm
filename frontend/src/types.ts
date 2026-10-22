@@ -20,11 +20,11 @@ export interface AgentView {
   id: string;
   bracket: BracketKey;
   bracketDisplay: string; // human-readable bracket label (backend BracketSummary.display_name)
-  signal: AgentSignal; // derived from backend agent_states[id].signal (lowercased; default 'hold')
+  signal: AgentSignal | null; // null = pending: no decision yet this round (never shown as HOLD)
   confidence: number;
   flipped: 0 | 1; // KR-41.1-03: stubbed 0 until backend emits
   roundLastSpoke: number | null; // KR-41.1-03: stubbed null
-  thinking: boolean; // true when wire signal=null (mid-dispatch placeholder)
+  thinking: boolean; // true exactly when signal === null (dim/pulsing node)
 }
 
 export interface BracketSummaryView {

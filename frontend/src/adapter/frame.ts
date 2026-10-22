@@ -54,6 +54,14 @@ function normaliseSignal(raw: unknown): AgentSignal {
   return 'hold';
 }
 
+// Agent signal from the wire: null, missing or unrecognised means the agent has
+// not decided yet this round. It is never coerced to HOLD.
+function parseAgentSignal(raw: unknown): AgentSignal | null {
+  if (typeof raw !== 'string') return null;
+  const s = raw.toLowerCase();
+  return s === 'buy' || s === 'sell' || s === 'hold' || s === 'parse_error' ? s : null;
+}
+
 const finiteOr = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 
@@ -160,18 +168,18 @@ export function adaptSnapshot(raw: unknown): StateFrame {
       const confidence =
         typeof s.confidence === 'number' ? s.confidence : 0;
       const bracket = agentIdToBracket(id);
-      // Backend deliberately emits signal=null during dispatch — render the
-      // node as "thinking" (neutral hold visual, dimmed/pulsing in viz).
-      const thinking = s.signal === null || s.signal === undefined;
+      // signal=null during dispatch means "no decision yet": pending, rendered
+      // as a dim pulsing node and counted nowhere (lib/tally.ts).
+      const signal = parseAgentSignal(s.signal);
       return {
         id,
         bracket,
         bracketDisplay: BRACKET_DISPLAY[bracket] ?? bracket,
-        signal: normaliseSignal(s.signal),
+        signal,
         confidence,
         flipped: 0, // KR-41.1-03
         roundLastSpoke: null, // KR-41.1-03
-        thinking,
+        thinking: signal === null,
       };
     },
   );
