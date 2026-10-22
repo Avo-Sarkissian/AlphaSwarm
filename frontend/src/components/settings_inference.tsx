@@ -34,7 +34,7 @@ import {
   roleViewToForm,
   type RoleFormState,
 } from '../lib/settingsForm';
-import { advisoryOptInHelp, hostOf, isOffMachine, type RoleFacts } from '../lib/privacyCopy';
+import { advisoryOptInHelp, isOffMachine, roleFactsOf } from '../lib/privacyCopy';
 
 // ── sub-component: per-role form ──────────────────────────────────────────
 
@@ -391,11 +391,9 @@ export function InferenceSettings() {
 
   const anyCloud =
     isCloudProvider(orch.provider) || isCloudProvider(worker.provider);
-  const orchFacts: RoleFacts = {
-    provider: orch.provider,
-    model: orch.model,
-    host: hostOf(orch.provider, orch.base_url.trim() || null),
-  };
+  // The orchestrator Save would store: formToRolePut drops base_url for every
+  // provider but openai_compatible, so a URL left in the form is not used.
+  const orchFacts = roleFactsOf(formToRolePut(orch));
   // Shown for an off-machine orchestrator, and whenever the opt-in is ticked or
   // stored, so one left over from a cloud orchestrator can be seen and cleared.
   const showOptIn =

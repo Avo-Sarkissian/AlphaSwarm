@@ -120,7 +120,8 @@ export function isOffMachine(facts: RoleFacts): boolean {
   return isCloud(facts.provider) || isCloudOllamaModel(facts.model) || facts.host !== null;
 }
 
-function roleFacts(role: RoleView): RoleFacts {
+/** Facts for a stored role (GET /api/settings) or the role a Save sends (formToRolePut). */
+export function roleFactsOf(role: Pick<RoleView, 'provider' | 'model' | 'base_url'>): RoleFacts {
   return { provider: role.provider, model: role.model, host: hostOf(role.provider, role.base_url) };
 }
 
@@ -138,8 +139,8 @@ function modeOf(orchestrator: RoleFacts, worker: RoleFacts): InferenceMode {
  * "local". Whenever no Ollama role is off-machine the two agree.
  */
 export function privacyFactsFromSettings(view: SettingsView): PrivacyFacts {
-  const orchestrator = roleFacts(view.config.orchestrator);
-  const worker = roleFacts(view.config.worker);
+  const orchestrator = roleFactsOf(view.config.orchestrator);
+  const worker = roleFactsOf(view.config.worker);
   return {
     mode: modeOf(orchestrator, worker),
     orchestrator,

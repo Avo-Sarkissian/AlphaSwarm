@@ -19,6 +19,12 @@ const ANTHROPIC_ROLE: RoleView = {
   base_url: null,
   api_key: { set: true, last4: '0000' },
 };
+const OPENROUTER_ROLE: RoleView = {
+  provider: 'openai_compatible',
+  model: 'meta-llama/llama-3.3-70b-instruct',
+  base_url: 'https://openrouter.ai/api/v1',
+  api_key: { set: true, last4: '1111' },
+};
 
 function settingsView(
   orchestrator: RoleView,
@@ -95,5 +101,20 @@ describe('the cloud-advisory opt-in', () => {
     const box = screen.getByLabelText('Allow cloud advisory') as HTMLInputElement;
     expect(box.checked).toBe(true);
     expect(screen.getByText(/The orchestrator looks local/)).toBeDefined();
+  });
+
+  it('describes the orchestrator Save will store, not a base URL it drops', async () => {
+    // Save sends base_url only for an OpenAI-compatible role (formToRolePut), so a
+    // URL left in the form after a provider switch is not where prompts go.
+    stubFetchRoutes({ 'GET /api/settings': { body: settingsView(OPENROUTER_ROLE, LOCAL_ROLE, false) } });
+    render(<InferenceSettings />);
+    expect(await screen.findByText(/openrouter\.ai/)).toBeDefined();
+
+    fireEvent.change(providerSelect('Orchestrator'), { target: { value: 'anthropic' } });
+    expect(screen.getByText(/to Anthropic \(api\.anthropic\.com\)/)).toBeDefined();
+    expect(screen.queryByText(/openrouter\.ai/)).toBeNull();
+
+    fireEvent.change(providerSelect('Orchestrator'), { target: { value: 'ollama' } });
+    expect(screen.queryByLabelText('Allow cloud advisory')).toBeNull();
   });
 });
