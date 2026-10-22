@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import hashlib
+import random
 import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
@@ -175,6 +176,17 @@ def _stable_peer_jitter(reader_id: str, candidate_id: str) -> float:
         f"{reader_id}:{candidate_id}".encode(), digest_size=8
     ).digest()
     return (int.from_bytes(digest, "big") & 0xFFFF) / 1e9
+
+
+def peer_rng(run_seed: str, reader_id: str, round_num: int) -> random.Random:
+    """Per-(run, reader, round) RNG for peer sampling (docs/DECISIONS.md#adr-diverse-peer-context).
+
+    Seeded from blake2b, never the process-salted builtin ``hash()``, so the
+    same run seed reproduces the same peer draws in any process.
+    ``round_num`` is the round being dispatched (2 for peers drawn from Round 1).
+    """
+    digest = hashlib.blake2b(f"{run_seed}:{reader_id}:{round_num}".encode(), digest_size=8).digest()
+    return random.Random(int.from_bytes(digest, "big"))
 
 
 def select_diverse_peers(

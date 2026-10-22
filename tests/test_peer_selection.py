@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import random
 import re
 from collections.abc import Sequence
 from typing import Any
@@ -14,6 +16,7 @@ from alphaswarm.simulation import (
     _build_diverse_peer_contexts,
     _peer_and_provenance_metrics,
     compute_exposure_metrics,
+    peer_rng,
 )
 from alphaswarm.types import AgentDecision, AgentPersona, BracketType, SignalType
 from tests.inference.fakes import FakeInferenceProvider
@@ -303,3 +306,24 @@ class TestPeerAndProvenanceMetrics:
         )
 
         assert all(isinstance(v, (int, float, str, bool)) for v in metrics.values())
+
+
+class TestPeerRng:
+    def test_matches_pinned_value(self) -> None:
+        """Pinned so a refactor cannot silently change every run's peer draws."""
+        rng = peer_rng("00000000-0000-4000-8000-000000000001", "sell_side_01", 2)
+
+        assert rng.random() == 0.11489473118130222
+
+    def test_seed_is_blake2b_of_run_reader_round(self) -> None:
+        digest = hashlib.blake2b(b"run:quants_01:3", digest_size=8).digest()
+        expected = random.Random(int.from_bytes(digest, "big"))
+
+        assert peer_rng("run", "quants_01", 3).random() == expected.random()
+
+    def test_differs_by_reader_round_and_run(self) -> None:
+        base = peer_rng("run", "quants_01", 2).random()
+
+        assert peer_rng("run", "quants_02", 2).random() != base
+        assert peer_rng("run", "quants_01", 3).random() != base
+        assert peer_rng("other", "quants_01", 2).random() != base
