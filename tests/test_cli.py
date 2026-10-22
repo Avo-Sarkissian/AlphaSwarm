@@ -364,6 +364,48 @@ def test_print_round_report_all_parse_error_warning(
     assert "Notable Decisions" not in captured.out
 
 
+def test_print_round_report_header_counts_parse_errors(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A partly failed round shows 'X/Y (Z PARSE_ERROR)'; a clean round shows 'N/N' only."""
+    from alphaswarm.cli import _print_round_report
+
+    agent_decisions: list[tuple[str, AgentDecision]] = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="ok")),
+        ("quants_02", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="x")),
+        ("degens_01", AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="ok")),
+        ("degens_02", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="x")),
+    ]
+
+    _print_round_report(2, "test-cycle", agent_decisions, _TEST_PERSONAS, _TEST_BRACKETS)
+    assert "  Agents:   2/4 (2 PARSE_ERROR)\n" in capsys.readouterr().out
+
+    clean = [(aid, d) for aid, d in agent_decisions if d.signal != SignalType.PARSE_ERROR]
+    _print_round_report(2, "test-cycle", clean, _TEST_PERSONAS, _TEST_BRACKETS)
+    out = capsys.readouterr().out
+    assert "  Agents:   2/2\n" in out
+    assert "PARSE_ERROR" not in out
+
+
+def test_print_round_report_truncates_long_rationale(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Notable Decisions cut a rationale at 80 characters and append '...'."""
+    from alphaswarm.cli import _print_round_report
+
+    agent_decisions: list[tuple[str, AgentDecision]] = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.99, rationale="A" * 120)),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="short")),
+    ]
+
+    _print_round_report(3, "test-cycle", agent_decisions, _TEST_PERSONAS, _TEST_BRACKETS)
+
+    out = capsys.readouterr().out
+    assert "A" * 80 + "..." in out
+    assert "A" * 81 not in out
+    assert "short" in out
+
+
 def test_shift_analysis_output(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
