@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 import structlog
 from neo4j.exceptions import Neo4jError
 
+from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
 from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
 
@@ -189,6 +190,20 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
     "CREATE CONSTRAINT shock_id_unique IF NOT EXISTS FOR (se:ShockEvent) REQUIRE se.shock_id IS UNIQUE",
 ]
+
+# Bracket display names and order come from config so report rows match the
+# live frame (simulation.compute_bracket_summaries) — docs/DECISIONS.md#adr-swarm-composition-v2.
+_BRACKET_DISPLAY_NAMES: Final[dict[str, str]] = {
+    b.bracket_type.value: b.display_name for b in DEFAULT_BRACKETS
+}
+_BRACKET_ORDER: Final[dict[str, int]] = {
+    b.bracket_type.value: i for i, b in enumerate(DEFAULT_BRACKETS)
+}
+
+
+def _bracket_sort_key(bracket: str) -> tuple[int, str]:
+    """Config order first; unknown (legacy) brackets last, alphabetically."""
+    return (_BRACKET_ORDER.get(bracket, len(_BRACKET_ORDER)), bracket)
 
 
 # ---------------------------------------------------------------------------
@@ -1512,98 +1527,129 @@ class GraphStateManager:
             async for r in result
         ]
 
-    async def read_bracket_narratives(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
-        """Return per-bracket signal stance and confidence for Round 3 (REPORT-02).
+    async def read_bracket_narratives(self, cycle_id: str) -> list[BracketNarrativeRow]:
+        """Per-bracket final-round stance in config order.
 
-        Returns list ordered by bracket name.
+        Totals and averages exclude PARSE_ERROR; a bracket whose agents all
+        failed has total 0 and majority None (never a default BUY).
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_bracket_narratives_tx, cycle_id,
-                )
+                rows = await session.execute_read(self._read_bracket_narratives_tx, cycle_id)
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 f"Failed to read bracket narratives for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_bracket_narratives", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_bracket_narratives", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_bracket_narratives_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for per-bracket stance summary."""
+    ) -> list[BracketNarrativeRow]:
         result = await tx.run(
             """
-            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            WITH coalesce(c.num_rounds, 3) AS fr
+            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            WHERE d.round = fr
+            WITH a.bracket AS bracket, d, toLower(d.signal) AS s
+            WITH bracket,
+                 sum(CASE WHEN s = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                 sum(CASE WHEN s = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                 sum(CASE WHEN s = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                 avg(CASE WHEN s <> 'parse_error' THEN d.confidence END) AS avg_confidence,
+                 avg(CASE WHEN s <> 'parse_error' THEN d.sentiment END) AS avg_sentiment
             RETURN
-                a.bracket AS bracket,
-                sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count,
-                avg(d.confidence) AS avg_confidence,
-                avg(d.sentiment) AS avg_sentiment
-            ORDER BY bracket
+                bracket, buy_count, sell_count, hold_count,
+                buy_count + sell_count + hold_count AS total,
+                coalesce(avg_confidence, 0.0) AS avg_confidence,
+                coalesce(avg_sentiment, 0.0) AS avg_sentiment,
+                CASE
+                    WHEN buy_count + sell_count + hold_count = 0 THEN null
+                    WHEN buy_count >= sell_count AND buy_count >= hold_count THEN 'BUY'
+                    WHEN sell_count >= hold_count THEN 'SELL'
+                    ELSE 'HOLD'
+                END AS majority
             """,
             cycle_id=cycle_id,
         )
-        return [dict(record) async for record in result]
+        rows = [
+            BracketNarrativeRow(
+                bracket=str(r["bracket"]),
+                display_name=_BRACKET_DISPLAY_NAMES.get(str(r["bracket"]), str(r["bracket"])),
+                buy_count=int(r["buy_count"]),
+                sell_count=int(r["sell_count"]),
+                hold_count=int(r["hold_count"]),
+                total=int(r["total"]),
+                avg_confidence=float(r["avg_confidence"]),
+                avg_sentiment=float(r["avg_sentiment"]),
+                majority=r["majority"],
+            )
+            async for r in result
+        ]
+        return sorted(rows, key=lambda row: _bracket_sort_key(row["bracket"]))
 
-    async def read_key_dissenters(self, cycle_id: str) -> list[dict]:  # type: ignore[type-arg]
-        """Find agents whose Round 3 signal differs from their bracket majority (REPORT-02).
+    async def read_key_dissenters(self, cycle_id: str) -> list[KeyDissenterRow]:
+        """Agents whose final-round signal differs from their bracket's majority.
 
-        Returns list of dissenters with agent_id, name, bracket, signal, bracket_majority.
+        PARSE_ERROR decisions are excluded before the majority is computed, so
+        a failed agent is never a dissenter and an all-failed bracket yields none.
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_key_dissenters_tx, cycle_id,
-                )
+                rows = await session.execute_read(self._read_key_dissenters_tx, cycle_id)
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 f"Failed to read key dissenters for cycle {cycle_id}",
                 original_error=exc,
             ) from exc
-        self._log.debug("report_key_dissenters", cycle_id=cycle_id, count=len(records))
-        return records
+        self._log.debug("report_key_dissenters", cycle_id=cycle_id, count=len(rows))
+        return rows
 
     @staticmethod
     async def _read_key_dissenters_tx(
         tx: AsyncManagedTransaction,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for finding dissenters vs bracket majority."""
+    ) -> list[KeyDissenterRow]:
         result = await tx.run(
             """
-            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: 3})
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            WITH coalesce(c.num_rounds, 3) AS fr
+            MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            WHERE d.round = fr AND toLower(d.signal) <> 'parse_error'
             WITH a.bracket AS bracket,
-                 collect({agent_id: a.id, name: a.name, signal: d.signal}) AS agents,
+                 collect({agent_id: a.id, name: a.name, signal: toUpper(d.signal)}) AS agents,
                  sum(CASE WHEN toLower(d.signal) = 'buy' THEN 1 ELSE 0 END) AS buy_count,
                  sum(CASE WHEN toLower(d.signal) = 'sell' THEN 1 ELSE 0 END) AS sell_count,
                  sum(CASE WHEN toLower(d.signal) = 'hold' THEN 1 ELSE 0 END) AS hold_count
             WITH bracket, agents,
                  CASE
-                   WHEN buy_count >= sell_count AND buy_count >= hold_count THEN 'BUY'
-                   WHEN sell_count >= buy_count AND sell_count >= hold_count THEN 'SELL'
-                   ELSE 'HOLD'
+                     WHEN buy_count >= sell_count AND buy_count >= hold_count THEN 'BUY'
+                     WHEN sell_count >= hold_count THEN 'SELL'
+                     ELSE 'HOLD'
                  END AS bracket_majority
             UNWIND agents AS ag
             WITH bracket, bracket_majority, ag
-            WHERE toUpper(ag.signal) <> bracket_majority
-            RETURN
-                ag.agent_id AS agent_id,
-                ag.name AS name,
-                bracket AS bracket,
-                ag.signal AS signal,
-                bracket_majority AS bracket_majority
+            WHERE ag.signal <> bracket_majority
+            RETURN ag.agent_id AS agent_id, ag.name AS name, bracket,
+                   ag.signal AS signal, bracket_majority
             ORDER BY bracket, agent_id
             """,
             cycle_id=cycle_id,
         )
-        return [dict(record) async for record in result]
+        return [
+            KeyDissenterRow(
+                agent_id=str(r["agent_id"]),
+                name=str(r["name"]),
+                bracket=str(r["bracket"]),
+                signal=str(r["signal"]),
+                bracket_majority=str(r["bracket_majority"]),
+            )
+            async for r in result
+        ]
 
     async def read_influence_leaders(
         self, cycle_id: str, limit: int = 10,

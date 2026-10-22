@@ -1,7 +1,7 @@
 ## Bracket Narratives
 
-| Bracket | BUY | SELL | HOLD | Avg Confidence | Avg Sentiment |
-|---------|-----|------|------|----------------|---------------|
+| Bracket | BUY | SELL | HOLD | Total | Majority | Avg Confidence | Avg Sentiment |
+|---------|-----|------|------|-------|----------|----------------|---------------|
 {% for b in data %}
-| {{ b.bracket }} | {{ b.buy_count }} | {{ b.sell_count }} | {{ b.hold_count }} | {{ "%.2f"|format(b.avg_confidence) }} | {{ "%.2f"|format(b.avg_sentiment) }} |
+| {{ b.display_name | md_cell }} | {{ b.buy_count }} | {{ b.sell_count }} | {{ b.hold_count }} | {{ b.total }} | {{ b.majority or "—" }} | {{ b.avg_confidence | num(2) }} | {{ b.avg_sentiment | num(2) }} |
 {% endfor %}

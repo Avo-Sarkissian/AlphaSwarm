@@ -39,7 +39,6 @@ async def test_consensus_summary_uses_the_final_round(
     )
 
 
-@_T15
 async def test_bracket_narratives_use_the_final_round(
     graph_manager_test: GraphStateManager, two_round_cycle: SeededCycle
 ) -> None:
@@ -47,14 +46,13 @@ async def test_bracket_narratives_use_the_final_round(
     assert {r["bracket"] for r in rows} >= {p.bracket.value for p in two_round_cycle.personas}
 
 
-@_T15
 async def test_key_dissenters_use_the_final_round(
     graph_manager_test: GraphStateManager, two_round_cycle: SeededCycle
 ) -> None:
     rows = await graph_manager_test.read_key_dissenters(two_round_cycle.cycle_id)
     final = dict(two_round_cycle.decisions[2])
     assert rows
-    assert all(final[r["agent_id"]].signal.value == r["signal"] for r in rows)
+    assert all(final[r["agent_id"]].signal.value.upper() == r["signal"] for r in rows)
 
 
 @_T15

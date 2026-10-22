@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.interview import _strip_json_instructions
 from alphaswarm.types import SeedEvent, SignalType
 from alphaswarm.write_buffer import compute_flip_type
@@ -158,8 +159,8 @@ async def test_read_bracket_narratives_counts(
         if r["bracket"] in expected
     }
     assert got == expected
-    brackets = [r["bracket"] for r in rows]
-    assert brackets == sorted(brackets)
+    assert [r["bracket"] for r in rows] == [b.bracket_type.value for b in DEFAULT_BRACKETS]
+    assert_golden("reads/read_bracket_narratives.json", rows)
 
 
 async def test_read_key_dissenters_valid_rows(
@@ -172,7 +173,7 @@ async def test_read_key_dissenters_valid_rows(
         b: _majority(*c) for b, c in _counts_by_bracket(seeded_cycle, final_round).items()
     }
     expected = sorted(
-        (bracket_of[agent_id], agent_id, d.signal.value, majorities[bracket_of[agent_id]])
+        (bracket_of[agent_id], agent_id, d.signal.value.upper(), majorities[bracket_of[agent_id]])
         for agent_id, d in seeded_cycle.decisions[final_round]
         if d.signal in _VALID and d.signal.value.upper() != majorities[bracket_of[agent_id]]
     )
@@ -182,6 +183,7 @@ async def test_read_key_dissenters_valid_rows(
         if r["signal"] != SignalType.PARSE_ERROR.value
     ]
     assert got == expected
+    assert_golden("reads/read_key_dissenters.json", rows)
 
 
 async def test_read_influence_leaders_rank_by_citations(
@@ -344,19 +346,14 @@ async def test_replay_bracket_rows_carry_total(
         assert row["total"] >= decided > 0
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: failed agents are listed as key dissenters (fix: plan 06)"
-)
 async def test_key_dissenters_exclude_parse_errors(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
     rows = await graph_reader.read_key_dissenters(seeded_cycle.cycle_id)
-    assert [r["agent_id"] for r in rows if r["signal"] == SignalType.PARSE_ERROR.value] == []
+    failed = [r["agent_id"] for r in rows if r["signal"].lower() == SignalType.PARSE_ERROR.value]
+    assert failed == []
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: a bracket with no valid decision gets a majority (fix: plan 06)"
-)
 async def test_empty_bracket_has_no_majority(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -384,9 +381,6 @@ async def test_round_timeline_counts_parse_errors(
     ]
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.3: bracket averages include failed agents' 0.0 (fix: plan 06)"
-)
 async def test_bracket_averages_exclude_parse_errors(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:

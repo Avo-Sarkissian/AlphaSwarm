@@ -101,3 +101,77 @@ async def test_unknown_cycle_returns_zero_summary(graph_manager_test: GraphState
     )
 
     assert summary == ZERO_SUMMARY
+
+
+async def test_all_failed_bracket_has_no_majority_and_no_dissenters(
+    graph_manager_test: GraphStateManager,
+) -> None:
+    cycle_id = await write_mini_cycle(
+        graph_manager_test,
+        num_rounds=2,
+        rounds={
+            1: [("quants_01", dec(BUY)), ("degens_01", dec(BUY))],
+            2: [
+                ("quants_01", dec(PERR, 0.0)),
+                ("quants_02", dec(PERR, 0.0)),
+                ("degens_01", dec(BUY)),
+                ("degens_02", dec(BUY)),
+                ("degens_03", dec(SELL)),
+            ],
+        },
+    )
+
+    narratives = await graph_manager_test.read_bracket_narratives(cycle_id)
+    dissenters = await graph_manager_test.read_key_dissenters(cycle_id)
+
+    assert [r["bracket"] for r in narratives] == ["quants", "degens"]  # config order
+    assert narratives[0] == {
+        "bracket": "quants",
+        "display_name": "Quants",
+        "buy_count": 0,
+        "sell_count": 0,
+        "hold_count": 0,
+        "total": 0,
+        "avg_confidence": 0.0,
+        "avg_sentiment": 0.0,
+        "majority": None,
+    }
+    assert narratives[1] == {
+        "bracket": "degens",
+        "display_name": "Degens",
+        "buy_count": 2,
+        "sell_count": 1,
+        "hold_count": 0,
+        "total": 3,
+        "avg_confidence": pytest.approx(0.7),
+        "avg_sentiment": pytest.approx(0.1),
+        "majority": "BUY",
+    }
+    assert dissenters == [
+        {
+            "agent_id": "degens_03",
+            "name": "Degens 3",
+            "bracket": "degens",
+            "signal": "SELL",
+            "bracket_majority": "BUY",
+        }
+    ]
+
+
+async def test_majority_tie_break_is_buy_then_sell_then_hold(
+    graph_manager_test: GraphStateManager,
+) -> None:
+    cycle_id = await write_mini_cycle(
+        graph_manager_test,
+        num_rounds=2,
+        rounds={
+            1: [("macro_01", dec(HOLD))],
+            2: [("macro_01", dec(SELL)), ("macro_02", dec(HOLD)), ("shorts_01", dec(HOLD))],
+        },
+    )
+
+    rows = await graph_manager_test.read_bracket_narratives(cycle_id)
+    narratives = {r["bracket"]: r for r in rows}
+
+    assert narratives["macro"]["majority"] == "SELL"  # SELL 1 vs HOLD 1 -> SELL
+    assert narratives["shorts"]["majority"] == "HOLD"

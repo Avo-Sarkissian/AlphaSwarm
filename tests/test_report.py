@@ -371,15 +371,20 @@ _BRACKET_OBS = ToolObservation(
     tool_name="bracket_narratives",
     tool_input={"cycle_id": "test-html"},
     result=[
-        {"bracket": "Quants", "buy_count": 8, "sell_count": 1, "hold_count": 1,
-         "avg_confidence": 0.85, "avg_sentiment": 0.72},
+        {"bracket": "quants", "display_name": "Quants", "buy_count": 8, "sell_count": 1,
+         "hold_count": 1, "total": 10, "avg_confidence": 0.85, "avg_sentiment": 0.72,
+         "majority": "BUY"},
+        {"bracket": "degens", "display_name": "Degens", "buy_count": 0, "sell_count": 0,
+         "hold_count": 0, "total": 0, "avg_confidence": 0.0, "avg_sentiment": 0.0,
+         "majority": None},
     ],
 )
 _DISSENTERS_OBS = ToolObservation(
     tool_name="key_dissenters",
     tool_input={"cycle_id": "test-html"},
     result=[
-        {"agent_id": "a1", "bracket": "Quants", "signal": "SELL", "bracket_majority": "BUY"},
+        {"agent_id": "a1", "name": "Quants 1", "bracket": "quants", "signal": "SELL",
+         "bracket_majority": "BUY"},
     ],
 )
 
@@ -675,3 +680,16 @@ def test_round_timeline_template_has_parse_error_column() -> None:
     )
     assert "| Round | BUY | SELL | HOLD | PARSE_ERROR | Total |" in md
     assert "| 2 | 48 | 32 | 17 | 3 | 100 |" in md
+
+
+def test_bracket_template_shows_display_name_total_and_dash_for_no_majority() -> None:
+    md = ReportAssembler().render_section(
+        "03_bracket_narratives.j2", data=_BRACKET_OBS.result, cycle_id="c",
+    )
+    assert "| Quants | 8 | 1 | 1 | 10 | BUY | 0.85 | 0.72 |" in md
+    assert "| Degens | 0 | 0 | 0 | 0 | — | 0.00 | 0.00 |" in md
+
+
+def test_dissenters_template_empty_state() -> None:
+    md = ReportAssembler().render_section("04_key_dissenters.j2", data=[], cycle_id="c")
+    assert "_No final-round dissenters._" in md
