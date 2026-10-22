@@ -220,7 +220,7 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
               <li key={c.name}>
                 <span className="mono">{c.name}</span>
                 {c.detail && <span className="ob-health-detail"> — {c.detail}</span>}
-                {c.fix && <code className="ob-health-fix">{c.fix}</code>}
+                {c.fix && <div className="ob-health-fix">{c.fix}</div>}
               </li>
             ))}
           </ul>

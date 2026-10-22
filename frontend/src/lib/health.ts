@@ -1,6 +1,6 @@
 // GET /api/health → what onboarding shows. A required component
-// that is not ok makes the backend "degraded"; each component carries the
-// command that fixes it.
+// that is not ok makes the backend "degraded"; a component that is down
+// usually carries a fix, either a command or a one-line instruction.
 export interface HealthComponentView {
   name: string;
   ok: boolean;
