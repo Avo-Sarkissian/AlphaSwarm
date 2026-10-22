@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -186,3 +188,91 @@ def test_header_names_the_effective_peer_knobs(peer_exposure: ModuleType) -> Non
         " budget_chars=4000 seed_source=cycle_id"
     )
     assert header.endswith("\n")  # print() adds the blank line before the first table
+
+
+class _FakeDriver:
+    def __init__(self, session: _FakeSession) -> None:
+        self._session = session
+        self.databases: list[str] = []
+        self.closed = False
+
+    @contextlib.contextmanager
+    def session(self, *, database: str) -> Iterator[_FakeSession]:
+        self.databases.append(database)
+        yield self._session
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _main(
+    monkeypatch: pytest.MonkeyPatch,
+    peer_exposure: ModuleType,
+    props: dict[str, Any] | None,
+    *flags: str,
+) -> tuple[int, _FakeDriver]:
+    """Run main() for one cycle against a fake driver; no Neo4j and no .env."""
+    driver = _FakeDriver(_FakeSession(props, []))
+    neo4j_settings = SimpleNamespace(
+        uri="bolt://127.0.0.1:7687",
+        username="neo4j",
+        database="neo4j",
+        require_password=lambda: "test-only",
+    )
+    monkeypatch.setattr(peer_exposure, "AppSettings", lambda: SimpleNamespace(neo4j=neo4j_settings))
+    monkeypatch.setattr("neo4j.GraphDatabase", SimpleNamespace(driver=lambda *a, **k: driver))
+    code = peer_exposure.main(["--cycle", "00000000-0000-4000-8000-000000000005", *flags])
+    return code, driver
+
+
+def _balanced_props(brackets: tuple[str, ...]) -> dict[str, Any]:
+    props: dict[str, Any] = {"agent_count": 100, "r2_distinct_peers_shown": 100}
+    for bracket in brackets:
+        props[f"r2_exposure_{bracket}"] = 100
+        props[f"r2_readers_seeing_{bracket}"] = 60
+    return props
+
+
+@pytest.mark.parametrize(
+    ("balanced", "flags", "expected"),
+    [
+        (False, ("--check",), 1),
+        (False, (), 0),
+        (True, ("--check",), 0),
+    ],
+    ids=["check-fails", "report-only", "check-passes"],
+)
+def test_main_exit_code_follows_the_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    peer_exposure: ModuleType,
+    balanced: bool,
+    flags: tuple[str, ...],
+    expected: int,
+) -> None:
+    """Exit 1 only when --check finds a failing round; the report prints either way."""
+    builder = _balanced_props if balanced else _legacy_props
+    props = builder(peer_exposure.BRACKETS)
+
+    code, driver = _main(monkeypatch, peer_exposure, props, *flags)
+
+    assert code == expected
+    assert driver.databases == ["neo4j"]
+    assert driver.closed
+    assert ("-> PASS" if balanced else "-> FAIL") in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "props", [None, {"agent_count": 100}], ids=["missing-cycle", "no-exposure-keys"]
+)
+def test_main_exits_2_when_a_cycle_has_nothing_to_report(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    peer_exposure: ModuleType,
+    props: dict[str, Any] | None,
+) -> None:
+    code, driver = _main(monkeypatch, peer_exposure, props, "--check")
+
+    assert code == 2
+    assert driver.closed
+    assert "missing, or no exposure metric keys" in capsys.readouterr().err
