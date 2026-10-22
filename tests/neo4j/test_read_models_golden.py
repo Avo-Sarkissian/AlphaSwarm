@@ -297,6 +297,18 @@ async def test_read_bracket_narratives_for_round_counts(
     assert got == expected
 
 
+async def test_read_bracket_narratives_for_round_golden(
+    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
+) -> None:
+    by_round: dict[str, list[dict[str, object]]] = {}
+    for n in range(1, seeded_cycle.num_rounds + 1):
+        rows = await graph_reader.read_bracket_narratives_for_round(seeded_cycle.cycle_id, n)
+        valid = sum(1 for _, d in seeded_cycle.decisions[n] if d.signal in _VALID)
+        assert sum(r["total"] for r in rows) == valid
+        by_round[f"round_{n}"] = [dict(r) for r in rows]
+    assert_golden("reads/read_bracket_narratives_for_round.json", by_round)
+
+
 async def test_read_rationale_entries_for_round(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:
@@ -335,9 +347,6 @@ async def test_shock_impact_bracket_pivots_carry_pre_dominant(
     assert_golden("reads/read_shock_impact.json", result)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T2.2: replay bracket rows have no total, so replay shows 0 (fix: plan 06)"
-)
 async def test_replay_bracket_rows_carry_total(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:

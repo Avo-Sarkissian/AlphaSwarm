@@ -1543,51 +1543,6 @@ async def test_read_completed_cycles(
     assert result[0]["cycle_id"] == "abc-123"
 
 
-@pytest.mark.asyncio()
-async def test_read_bracket_narratives_for_round(
-    mock_driver: MagicMock,
-    sample_personas_for_graph: list,
-) -> None:
-    """REPLAY-01 — read_bracket_narratives_for_round accepts (cycle_id, round_num) and returns bracket dicts."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(return_value=[
-        {"bracket": "quants", "buy_count": 5, "sell_count": 3, "hold_count": 2, "avg_confidence": 0.7, "avg_sentiment": 0.3},
-        {"bracket": "degens", "buy_count": 8, "sell_count": 1, "hold_count": 1, "avg_confidence": 0.85, "avg_sentiment": 0.6},
-    ])
-
-    gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
-    result = await gm.read_bracket_narratives_for_round("test-cycle", 2)
-
-    assert isinstance(result, list)
-    assert len(result) == 2
-    assert result[0]["bracket"] == "quants"
-    assert result[0]["buy_count"] == 5
-
-
-@pytest.mark.asyncio()
-async def test_read_rationale_entries_for_round(
-    mock_driver: MagicMock,
-    sample_personas_for_graph: list,
-) -> None:
-    """REPLAY-01 — read_rationale_entries_for_round returns rationale dicts for given round."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(return_value=[
-        {"agent_id": "quants_01", "signal": "buy", "rationale": "Strong momentum", "round_num": 1},
-        {"agent_id": "degens_01", "signal": "sell", "rationale": "Overbought signal", "round_num": 1},
-        {"agent_id": "macro_01", "signal": "hold", "rationale": "Wait and see", "round_num": 1},
-    ])
-
-    gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
-    result = await gm.read_rationale_entries_for_round("test-cycle", 1, limit=10)
-
-    assert isinstance(result, list)
-    assert len(result) == 3
-
-
 # ---------------------------------------------------------------------------
 # Phase 35.1 — write_shock_event (B1 wiring fix)
 # ---------------------------------------------------------------------------

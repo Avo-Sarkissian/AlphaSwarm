@@ -2254,18 +2254,15 @@ class GraphStateManager:
 
     async def read_bracket_narratives_for_round(
         self, cycle_id: str, round_num: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Per-bracket signal distribution for a specific round (REPLAY-01, D-07).
+    ) -> list[BracketRoundRow]:
+        """Per-bracket distribution for one round (replay).
 
-        Unlike read_bracket_narratives (hardcoded Round 3 for reports),
-        this accepts a round_num parameter for replay per-round display.
-
-        IMPORTANT: Signal casing uses lowercase 'buy'/'sell'/'hold' to match
-        the stored SignalType enum values (Review concern #1).
+        total and averages exclude PARSE_ERROR, matching the live frame's
+        compute_bracket_summaries; the replay manager maps display names.
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows = await session.execute_read(
                     self._read_bracket_narratives_for_round_tx, cycle_id, round_num,
                 )
         except Neo4jError as exc:
@@ -2277,45 +2274,58 @@ class GraphStateManager:
             "read_bracket_narratives_for_round",
             cycle_id=cycle_id,
             round_num=round_num,
-            count=len(records),
+            count=len(rows),
         )
-        return records
+        return rows
 
     @staticmethod
     async def _read_bracket_narratives_for_round_tx(
-        tx: "AsyncManagedTransaction",
+        tx: AsyncManagedTransaction,
         cycle_id: str,
         round_num: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction: bracket signal distribution using LOWERCASE signal values (Review #1)."""
+    ) -> list[BracketRoundRow]:
         result = await tx.run(
             """
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: $round_num})
-            RETURN
-                a.bracket AS bracket,
-                sum(CASE WHEN d.signal = 'buy' THEN 1 ELSE 0 END) AS buy_count,
-                sum(CASE WHEN d.signal = 'sell' THEN 1 ELSE 0 END) AS sell_count,
-                sum(CASE WHEN d.signal = 'hold' THEN 1 ELSE 0 END) AS hold_count,
-                avg(d.confidence) AS avg_confidence,
-                avg(d.sentiment) AS avg_sentiment
+            WITH a.bracket AS bracket, d, toLower(d.signal) AS s
+            WITH bracket,
+                 sum(CASE WHEN s = 'buy' THEN 1 ELSE 0 END) AS buy_count,
+                 sum(CASE WHEN s = 'sell' THEN 1 ELSE 0 END) AS sell_count,
+                 sum(CASE WHEN s = 'hold' THEN 1 ELSE 0 END) AS hold_count,
+                 avg(CASE WHEN s <> 'parse_error' THEN d.confidence END) AS avg_confidence,
+                 avg(CASE WHEN s <> 'parse_error' THEN d.sentiment END) AS avg_sentiment
+            RETURN bracket, buy_count, sell_count, hold_count,
+                   buy_count + sell_count + hold_count AS total,
+                   coalesce(avg_confidence, 0.0) AS avg_confidence,
+                   coalesce(avg_sentiment, 0.0) AS avg_sentiment
             ORDER BY bracket
             """,
             cycle_id=cycle_id,
             round_num=round_num,
         )
-        return [dict(record) async for record in result]
+        return [
+            BracketRoundRow(
+                bracket=str(r["bracket"]),
+                buy_count=int(r["buy_count"]),
+                sell_count=int(r["sell_count"]),
+                hold_count=int(r["hold_count"]),
+                total=int(r["total"]),
+                avg_confidence=float(r["avg_confidence"]),
+                avg_sentiment=float(r["avg_sentiment"]),
+            )
+            async for r in result
+        ]
 
     async def read_rationale_entries_for_round(
         self, cycle_id: str, round_num: int, limit: int = 10,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Top rationale entries for a specific round, ordered by confidence (REPLAY-01, D-07).
+    ) -> list[RationaleRoundRow]:
+        """Top rationales for a round by confidence, read from the Decision node.
 
-        Returns agent_id, signal, rationale text, and round_num for the sidebar.
-        Limit defaults to 10 per round for readable sidebar display.
+        RationaleEpisode.rationale is no longer the source (docs/DECISIONS.md#adr-neo4j-schema).
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows = await session.execute_read(
                     self._read_rationale_entries_for_round_tx, cycle_id, round_num, limit,
                 )
         except Neo4jError as exc:
@@ -2327,32 +2337,38 @@ class GraphStateManager:
             "read_rationale_entries_for_round",
             cycle_id=cycle_id,
             round_num=round_num,
-            count=len(records),
+            count=len(rows),
         )
-        return records
+        return rows
 
     @staticmethod
     async def _read_rationale_entries_for_round_tx(
-        tx: "AsyncManagedTransaction",
+        tx: AsyncManagedTransaction,
         cycle_id: str,
         round_num: int,
         limit: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction: top rationale entries for a round, ordered by confidence DESC."""
+    ) -> list[RationaleRoundRow]:
         result = await tx.run(
             """
             MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: $round_num})
-            MATCH (d)-[:HAS_EPISODE]->(re:RationaleEpisode)
             RETURN
                 a.id AS agent_id,
-                d.signal AS signal,
-                re.rationale AS rationale,
+                toLower(d.signal) AS signal,
+                coalesce(d.rationale, '') AS rationale,
                 d.round AS round_num
-            ORDER BY d.confidence DESC
+            ORDER BY d.confidence DESC, agent_id
             LIMIT $limit
             """,
             cycle_id=cycle_id,
             round_num=round_num,
             limit=limit,
         )
-        return [dict(record) async for record in result]
+        return [
+            RationaleRoundRow(
+                agent_id=str(r["agent_id"]),
+                signal=str(r["signal"]),
+                rationale=str(r["rationale"]),
+                round_num=int(r["round_num"]),
+            )
+            async for r in result
+        ]

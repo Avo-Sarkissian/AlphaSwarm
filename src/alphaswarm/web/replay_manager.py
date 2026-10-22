@@ -5,17 +5,18 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 import structlog
 
+from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.state import BracketSummary, RationaleEntry, ReplayStore
-from alphaswarm.types import SimulationPhase
+from alphaswarm.types import SignalType, SimulationPhase
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
-    from alphaswarm.graph import GraphStateManager
+    from alphaswarm.graph import BracketRoundRow, GraphStateManager, RationaleRoundRow
     from alphaswarm.state import AgentState
     from alphaswarm.web.connection_manager import ConnectionManager
 
@@ -37,6 +38,55 @@ class SimulationActiveError(Exception):
     check and the actual replay start: the route check happens before an
     awaited Neo4j read, during which a simulation could start.
     """
+
+
+def _empty_or_row_summary(
+    bracket: str, display_name: str, row: BracketRoundRow | None,
+) -> BracketSummary:
+    if row is None:
+        return BracketSummary(
+            bracket=bracket, display_name=display_name, buy_count=0, sell_count=0,
+            hold_count=0, total=0, avg_confidence=0.0, avg_sentiment=0.0,
+        )
+    return BracketSummary(
+        bracket=bracket,
+        display_name=display_name,
+        buy_count=row["buy_count"],
+        sell_count=row["sell_count"],
+        hold_count=row["hold_count"],
+        total=row["total"],
+        avg_confidence=row["avg_confidence"],
+        avg_sentiment=row["avg_sentiment"],
+    )
+
+
+def _bracket_summaries_from_rows(rows: Sequence[BracketRoundRow]) -> tuple[BracketSummary, ...]:
+    """Every configured bracket in config order, like the live frame.
+
+    Brackets that are not in DEFAULT_BRACKETS (pre-v2 cycles) are appended
+    with their raw key as the display name, so no decisions disappear.
+    """
+    by_key = {row["bracket"]: row for row in rows}
+    summaries = [
+        _empty_or_row_summary(
+            b.bracket_type.value, b.display_name, by_key.pop(b.bracket_type.value, None),
+        )
+        for b in DEFAULT_BRACKETS
+    ]
+    summaries.extend(_empty_or_row_summary(key, key, by_key[key]) for key in sorted(by_key))
+    return tuple(summaries)
+
+
+def _rationale_entries_from_rows(rows: Sequence[RationaleRoundRow]) -> tuple[RationaleEntry, ...]:
+    return tuple(
+        RationaleEntry(
+            agent_id=row["agent_id"],
+            signal=SignalType(row["signal"]),
+            rationale=row["rationale"],
+            round_num=row["round_num"],
+        )
+        for row in rows
+    )
 
 
 class ReplayManager:
@@ -133,32 +183,12 @@ class ReplayManager:
                 store = ReplayStore(cycle_id, signals)
                 store.set_round(1)
                 # Load bracket summaries and rationale entries for round 1
-                brackets = await graph_manager.read_bracket_narratives_for_round(cycle_id, 1)
-                bracket_summaries = tuple(
-                    BracketSummary(
-                        bracket=b["bracket"],
-                        display_name=b.get("display_name", b["bracket"]),
-                        buy_count=b.get("buy_count", 0),
-                        sell_count=b.get("sell_count", 0),
-                        hold_count=b.get("hold_count", 0),
-                        total=b.get("total", 0),
-                        avg_confidence=b.get("avg_confidence", 0.0),
-                        avg_sentiment=b.get("avg_sentiment", 0.0),
-                    )
-                    for b in brackets
-                )
-                store.set_bracket_summaries(bracket_summaries)
-                rationales_raw = await graph_manager.read_rationale_entries_for_round(cycle_id, 1)
-                rationale_entries = tuple(
-                    RationaleEntry(
-                        agent_id=r["agent_id"],
-                        signal=r["signal"],
-                        rationale=r["rationale"],
-                        round_num=r["round_num"],
-                    )
-                    for r in rationales_raw
-                )
-                store.set_rationale_entries(rationale_entries)
+                store.set_bracket_summaries(_bracket_summaries_from_rows(
+                    await graph_manager.read_bracket_narratives_for_round(cycle_id, 1),
+                ))
+                store.set_rationale_entries(_rationale_entries_from_rows(
+                    await graph_manager.read_rationale_entries_for_round(cycle_id, 1),
+                ))
                 # All loads succeeded — commit replay state atomically.
                 self._store = store
                 self._cycle_id = cycle_id
@@ -198,32 +228,16 @@ class ReplayManager:
             self._store.set_round(self._round_num)
             # Load bracket summaries and rationale entries for new round
             assert self._cycle_id is not None
-            brackets = await graph_manager.read_bracket_narratives_for_round(self._cycle_id, self._round_num)
-            bracket_summaries = tuple(
-                BracketSummary(
-                    bracket=b["bracket"],
-                    display_name=b.get("display_name", b["bracket"]),
-                    buy_count=b.get("buy_count", 0),
-                    sell_count=b.get("sell_count", 0),
-                    hold_count=b.get("hold_count", 0),
-                    total=b.get("total", 0),
-                    avg_confidence=b.get("avg_confidence", 0.0),
-                    avg_sentiment=b.get("avg_sentiment", 0.0),
-                )
-                for b in brackets
-            )
-            self._store.set_bracket_summaries(bracket_summaries)
-            rationales_raw = await graph_manager.read_rationale_entries_for_round(self._cycle_id, self._round_num)
-            rationale_entries = tuple(
-                RationaleEntry(
-                    agent_id=r["agent_id"],
-                    signal=r["signal"],
-                    rationale=r["rationale"],
-                    round_num=r["round_num"],
-                )
-                for r in rationales_raw
-            )
-            self._store.set_rationale_entries(rationale_entries)
+            self._store.set_bracket_summaries(_bracket_summaries_from_rows(
+                await graph_manager.read_bracket_narratives_for_round(
+                    self._cycle_id, self._round_num,
+                ),
+            ))
+            self._store.set_rationale_entries(_rationale_entries_from_rows(
+                await graph_manager.read_rationale_entries_for_round(
+                    self._cycle_id, self._round_num,
+                ),
+            ))
             snap = self._store.snapshot()
             d = dataclasses.asdict(snap)
             connection_manager.broadcast(json.dumps(d))
