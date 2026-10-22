@@ -1,17 +1,9 @@
-"""Report endpoints for post-simulation markdown viewer (Phase 36).
+"""Report endpoints: GET serves the markdown, POST starts a background generation.
 
-Revision round 1 (reviews mode): fixes two MEDIUM concerns from the cross-AI review.
-- Codex MEDIUM (T-36-14): replace synchronous Path.exists()/Path.stat() with
-  aiofiles.os equivalents so the async event loop stays responsive
-  (CLAUDE.md Hard Constraint 1).
-- Codex MEDIUM (T-36-15): attach a done_callback to the generation Task that
-  captures failures into app.state.report_generation_error[cycle_id], so the
-  GET endpoint can return 500 and the frontend can stop polling instead of
-  waiting for the 10-minute timeout.
-
-Accepted risk (T-36-16, both reviewers LOW): the atomic file-write race on
-write_report. Window is milliseconds; poll cadence is 3 s; actual collisions
-are extremely rare at the 5-10 KB file size. Noted — no code change.
+POST gates on durable cycle state (complete, no simulation running) and on the
+orchestrator slot; GET answers 409 while that cycle's job runs, 500 after a
+recorded failure and 404 when no report exists. Writes are atomic
+(docs/DECISIONS.md#adr-background-tasks).
 """
 
 from __future__ import annotations
@@ -37,7 +29,14 @@ from alphaswarm.report import (
     write_report,
     write_sentinel,
 )
-from alphaswarm.types import SimulationPhase
+from alphaswarm.state import JobStatus
+from alphaswarm.web.errors import ApiError
+from alphaswarm.web.guards import (
+    require_complete_cycle,
+    require_orchestrator_free,
+    running_job_cycle,
+)
+from alphaswarm.web.params import CycleId
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
@@ -45,8 +44,6 @@ if TYPE_CHECKING:
 log = structlog.get_logger(component="web.report")
 
 router = APIRouter()
-
-REPORTS_DIR = Path("reports")
 
 # T-36-01: path traversal guard. Regex allows only the charset used in cycle UUIDs.
 _CYCLE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -79,65 +76,45 @@ def _validate_cycle_id(cycle_id: str) -> None:
         )
 
 
+def reports_dir(app_state: AppState) -> Path:
+    """Absolute report directory: settings.reports_dir anchored at the project root."""
+    return app_state.settings.resolve_path(app_state.settings.reports_dir)
+
+
 @router.get("/report/{cycle_id}", response_model=ReportResponse)
-async def get_report(cycle_id: str, request: Request) -> ReportResponse:
-    """Read the generated report file from disk (D-05).
-
-    Returns 200 with {cycle_id, content, generated_at} when the file exists.
-    Returns 404 'report_not_found' when reports/{cycle_id}_report.md is absent AND
-      no failure has been recorded for this cycle.
-    Returns 500 'report_generation_failed' when app.state.report_generation_error
-      contains an entry for cycle_id (T-36-15). The frontend uses this to stop
-      polling.
-    Returns 400 'invalid_cycle_id' when cycle_id fails the regex guard (T-36-01).
-
-    Uses aiofiles.os.path.exists and aiofiles.os.stat (NOT Path.exists / Path.stat)
-    so the event loop is never blocked — CLAUDE.md Hard Constraint 1, T-36-14.
-    """
-    _validate_cycle_id(cycle_id)
-
-    report_path = REPORTS_DIR / f"{cycle_id}_report.md"
-
-    # Async filesystem probe — does not hold the event loop (T-36-14).
-    exists = await aiofiles.os.path.exists(report_path)
-
-    if not exists:
-        # Before returning 404, surface any recorded failure so the frontend
-        # can stop polling instead of timing out after 10 minutes (T-36-15).
+async def get_report(cycle_id: CycleId, request: Request) -> ReportResponse:
+    """200 with the file; 409 while this cycle's job runs; 500 after a recorded
+    failure; 404 when no report exists. File probes use aiofiles.os
+    (docs/DECISIONS.md#t-36-14)."""
+    app_state = request.app.state.app_state
+    if running_job_cycle(app_state, "report") == cycle_id:
+        raise ApiError(
+            409,
+            "report_generation_in_progress",
+            "The report for this cycle is being generated",
+            extra={"cycle_id": cycle_id},
+        )
+    report_path = reports_dir(app_state) / f"{cycle_id}_report.md"
+    if not await aiofiles.os.path.exists(report_path):
         errors: dict[str, dict[str, str]] = (
             getattr(request.app.state, "report_generation_error", {}) or {}
         )
         recorded = errors.get(cycle_id)
         if recorded is not None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "error": recorded.get("error", "report_generation_failed"),
-                    "message": recorded.get("message", "Report generation failed"),
-                    "cycle_id": cycle_id,
-                },
+            raise ApiError(
+                500,
+                recorded.get("error", "report_generation_failed"),
+                recorded.get("message", "Report generation failed"),
+                extra={"cycle_id": cycle_id},
             )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "report_not_found",
-                "message": f"No report exists for cycle {cycle_id}",
-            },
-        )
+        raise ApiError(404, "report_not_found", f"No report exists for cycle {cycle_id}")
 
     async with aiofiles.open(report_path, encoding="utf-8") as f:
         content = await f.read()
-
-    # Async stat — returns os.stat_result with st_mtime (T-36-14).
     statres = await aiofiles.os.stat(report_path)
-    generated_at = datetime.datetime.fromtimestamp(
-        statres.st_mtime, tz=datetime.UTC,
-    ).isoformat()
-
+    generated_at = datetime.datetime.fromtimestamp(statres.st_mtime, tz=datetime.UTC).isoformat()
     log.info("report_served", cycle_id=cycle_id, size=len(content))
-    return ReportResponse(
-        cycle_id=cycle_id, content=content, generated_at=generated_at,
-    )
+    return ReportResponse(cycle_id=cycle_id, content=content, generated_at=generated_at)
 
 
 @router.post(
@@ -145,157 +122,77 @@ async def get_report(cycle_id: str, request: Request) -> ReportResponse:
     status_code=status.HTTP_202_ACCEPTED,
     response_model=GenerateResponse,
 )
-async def generate_report(cycle_id: str, request: Request) -> GenerateResponse:
-    """Spawn ReACT + assembler as a background task (D-01, D-02).
-
-    Guards:
-    - 400 if cycle_id fails regex (T-36-01)
-    - 503 if graph_manager / ollama_client / model_manager is None
-    - 409 if snapshot.phase != SimulationPhase.COMPLETE (D-01)
-    - 409 if app.state.report_task exists and is not .done() (D-02)
-
-    On successful spawn:
-    - Clears app.state.report_generation_error[cycle_id] so a previous failure
-      does not poison the new run (related to T-36-15).
-    - Attaches _on_report_task_done as a done_callback so unhandled exceptions
-      are captured into app.state.report_generation_error[cycle_id] (T-36-15).
-
-    Returns 202 immediately with the cycle_id; the background task writes
-    reports/{cycle_id}_report.md, updates .alphaswarm/last_report.json, and
-    unloads the orchestrator model in a finally block.
-    """
-    _validate_cycle_id(cycle_id)
-
+async def generate_report(cycle_id: CycleId, request: Request) -> GenerateResponse:
+    """Start a report for a complete cycle (any cycle, not just the last run)."""
     app_state = request.app.state.app_state
-    graph_manager = app_state.graph_manager
-    ollama_client = app_state.ollama_client
-    model_manager = app_state.model_manager
-
-    if graph_manager is None or ollama_client is None or model_manager is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": "services_unavailable",
-                "message": "Neo4j, Ollama, or ModelManager is not connected",
-            },
-        )
-
-    # D-01 phase guard.
-    snap = app_state.state_store.snapshot()
-    if snap.phase != SimulationPhase.COMPLETE:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "report_unavailable",
-                "message": "Reports can only be generated after a simulation completes",
-                "current_phase": snap.phase.value,
-            },
-        )
-
-    # D-02 in-progress guard.
-    existing = getattr(request.app.state, "report_task", None)
-    if existing is not None and not existing.done():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "report_generation_in_progress",
-                "message": "A report generation is already running",
-            },
-        )
-
-    # Pitfall 4 (bidirectional): an in-flight advisory also owns the
-    # orchestrator model — running both would unload it out from under
-    # whichever task finishes second. Mirrors advisory.py's cross-guard.
-    existing_advisory = getattr(request.app.state, "advisory_task", None)
-    if existing_advisory is not None and not existing_advisory.done():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "advisory_generation_in_progress",
-                "message": "An advisory generation is already running — retry when it completes",
-            },
-        )
-
-    # Ensure the error dict exists and clear any stale entry for this cycle so
-    # prior failures do not poison the new run (T-36-15).
-    if (
-        not hasattr(request.app.state, "report_generation_error")
-        or request.app.state.report_generation_error is None
-    ):
-        request.app.state.report_generation_error = {}
-    errors: dict[str, dict[str, str]] = request.app.state.report_generation_error
-    if cycle_id in errors:
-        errors.pop(cycle_id, None)
-
-    task = asyncio.create_task(_run_report_generation(app_state, cycle_id))
-    request.app.state.report_task = task
-
-    # T-36-15: capture background exceptions instead of letting asyncio log
-    # "Task exception was never retrieved" while the frontend polls to timeout.
-    app_ref = request.app
-    task.add_done_callback(
-        lambda t: _on_report_task_done(t, cycle_id, app_ref),
-    )
-
+    await require_complete_cycle(app_state, request.app.state.sim_manager, cycle_id)
+    require_orchestrator_free(app_state)
+    start_report_job(request.app, cycle_id)
     log.info("report_generation_started", cycle_id=cycle_id)
     return GenerateResponse(status="accepted", cycle_id=cycle_id)
 
 
-def _on_report_task_done(
-    task: asyncio.Task[Any], cycle_id: str, app: FastAPI,
-) -> None:
-    """Done-callback for the background generation task (T-36-15).
+def start_report_job(app: FastAPI, cycle_id: str) -> asyncio.Task[None]:
+    """Start report generation as a tracked task and mark the report job running.
 
-    On failure: records {error, message} into
-    app.state.report_generation_error[cycle_id] so the GET endpoint can surface
-    500 instead of the frontend polling to timeout.
-
-    On success: no-op (file on disk is the success signal for GET).
-
-    Must be safe to call on CancelledError (treat as failure with message 'cancelled').
-    The callback itself must never raise (FastAPI's asyncio loop would swallow
-    the exception and log "Task exception was never retrieved").
+    Shared by POST /api/report/{id}/generate and the post-run pipeline; callers
+    have already checked the cycle and the orchestrator slot.
     """
-    if task.cancelled():
-        try:
-            errors = getattr(app.state, "report_generation_error", None)
-            if errors is None:
-                app.state.report_generation_error = {}
-                errors = app.state.report_generation_error
-            errors[cycle_id] = {
-                "error": "report_generation_failed",
-                "message": "cancelled",
-            }
-            log.warning("report_task_cancelled", cycle_id=cycle_id)
-        except Exception:  # defensive — callback must never raise
-            pass
-        return
+    app_state: AppState = app.state.app_state
+    errors = getattr(app.state, "report_generation_error", None)
+    if errors is None:
+        errors = {}
+        app.state.report_generation_error = errors
+    errors.pop(cycle_id, None)
+    task: asyncio.Task[None] = asyncio.create_task(
+        _run_report_generation(app_state, cycle_id), name=f"report_{cycle_id}",
+    )
+    app.state.report_task = task
+    app_state.state_store.set_job_status("report", JobStatus("running", cycle_id))
+    task.add_done_callback(lambda t: _on_report_task_done(t, cycle_id, app))
+    return task
 
-    exc = task.exception()
-    if exc is None:
-        # Success — leave app.state.report_generation_error untouched for this cycle.
-        log.info("report_task_completed", cycle_id=cycle_id)
-        return
 
-    # Failure — record a machine-parseable error for the GET endpoint to surface.
+def _record_report_failure(app: FastAPI, cycle_id: str, message: str) -> None:
+    errors = getattr(app.state, "report_generation_error", None)
+    if errors is None:
+        errors = {}
+        app.state.report_generation_error = errors
+    errors[cycle_id] = {"error": "report_generation_failed", "message": message}
+
+
+def _set_report_status(app: FastAPI, job_status: JobStatus) -> None:
+    app_state = getattr(app.state, "app_state", None)
+    if app_state is not None:
+        app_state.state_store.set_job_status("report", job_status)
+
+
+def _on_report_task_done(task: asyncio.Task[Any], cycle_id: str, app: FastAPI) -> None:
+    """Record the outcome for GET and the job status. Must never raise."""
     try:
-        errors = getattr(app.state, "report_generation_error", None)
-        if errors is None:
-            app.state.report_generation_error = {}
-            errors = app.state.report_generation_error
-        errors[cycle_id] = {
-            "error": "report_generation_failed",
-            "message": str(exc) or exc.__class__.__name__,
-        }
+        if task.cancelled():
+            _record_report_failure(app, cycle_id, "Report generation was cancelled")
+            _set_report_status(app, JobStatus("failed", cycle_id, "report_generation_failed"))
+            log.warning("report_task_cancelled", cycle_id=cycle_id)
+            return
+        exc = task.exception()
+        if exc is None:
+            _set_report_status(app, JobStatus("idle", cycle_id))
+            log.info("report_task_completed", cycle_id=cycle_id)
+            return
+        _record_report_failure(
+            app, cycle_id, f"Report generation failed ({exc.__class__.__name__})",
+        )
+        _set_report_status(app, JobStatus("failed", cycle_id, "report_generation_failed"))
+        # Event name and exc_info are pinned by tests/test_task_failure_logging.py.
         log.error(
             "report_task_exception_recorded",
             cycle_id=cycle_id,
-            error=str(exc),
             exc_type=exc.__class__.__name__,
             exc_info=exc,
         )
-    except Exception:  # defensive — callback must never raise
-        log.error("report_task_exception_record_failed", cycle_id=cycle_id)
+    except Exception:  # a done-callback must never raise
+        log.exception("report_task_done_callback_failed", cycle_id=cycle_id)
 
 
 async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
@@ -390,7 +287,7 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
         assembler = ReportAssembler()
         content = assembler.assemble(observations, cycle_id)
 
-        output_path = REPORTS_DIR / f"{cycle_id}_report.md"
+        output_path = reports_dir(app_state) / f"{cycle_id}_report.md"
         await write_report(output_path, content)
         await write_sentinel(cycle_id, str(output_path))
 

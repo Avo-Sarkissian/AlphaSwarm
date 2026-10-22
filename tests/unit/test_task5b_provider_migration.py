@@ -467,8 +467,11 @@ class TestReportRouteBuildsProvider:
         )
 
         from types import SimpleNamespace
+
+        from tests.support.web_app import route_test_settings
+
         app_state = SimpleNamespace(
-            settings=MagicMock(),
+            settings=route_test_settings(tmp_path),  # the report is written under tmp_path
             graph_manager=AsyncMock(),
             ollama_client=MagicMock(),
             model_manager=AsyncMock(),
