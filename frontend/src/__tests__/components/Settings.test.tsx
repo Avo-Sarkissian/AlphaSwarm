@@ -208,3 +208,31 @@ describe('Settings privacy copy', () => {
     expect(screen.queryByText(/Checking where prompts are sent/)).toBeNull();
   });
 });
+
+describe('Settings rows the backend can override', () => {
+  // This page cannot see the backend's environment, so these rows show the
+  // default and name the variable that changes it instead of posing as live.
+  it('label storage paths and addresses as defaults with their variables', async () => {
+    stubFetchRoutes({
+      'GET /api/settings': { body: settingsView(LOCAL_ROLE, LOCAL_ROLE, false) },
+      'GET /api/health': { body: HEALTH },
+    });
+    renderWithFrame(<Settings onClose={vi.fn()} />);
+    await screen.findByText('local only');
+
+    openSection('Storage');
+    expect((screen.getByLabelText('Graph database') as HTMLInputElement).value).toBe(
+      'bolt://localhost:7687',
+    );
+    expect(screen.getByText(/ALPHASWARM_NEO4J__URI/)).toBeDefined();
+    expect(screen.getByText(/ALPHASWARM_REPORTS_DIR/)).toBeDefined();
+    expect(screen.getByText(/ALPHASWARM_ADVISORY_DIR/)).toBeDefined();
+    expect(screen.queryByText(/loopback only/)).toBeNull();
+
+    openSection('API keys');
+    expect((screen.getByLabelText('Key file') as HTMLInputElement).value).toBe(
+      '.secrets/inference.json',
+    );
+    expect(screen.getByText(/ALPHASWARM_INFERENCE_CONFIG_PATH/)).toBeDefined();
+  });
+});

@@ -10,7 +10,9 @@
 //   • Privacy copy, the version and the live slot counts come from the backend
 //     (GET /api/settings, GET /api/health, the WebSocket frame), never from
 //     constants (docs/DECISIONS.md#adr-local-first-inference).
-import { useEffect, useState } from 'react';
+//   • Paths and addresses the backend reads from its environment, which this
+//     page cannot see, show their default and name the variable that changes it.
+import { useEffect, useId, useState } from 'react';
 import { getHealth } from '../api/settings';
 import { useTelemetry } from '../context/TelemetryContext';
 import { usePrivacyFacts } from '../hooks/usePrivacyFacts';
@@ -245,9 +247,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {section === 'keys' && (
             <SettingGroup
               title="API keys"
-              desc="Cloud API keys are entered in Settings → Model and stored in .secrets/inference.json, an owner-only file (mode 0600) that the API never returns. yfinance prices and RSS headlines need no keys."
+              desc="Cloud API keys are entered in Settings → Model and stored in the inference config file, an owner-only file (mode 0600) that the API never returns. yfinance prices and RSS headlines need no keys."
             >
-              <LiveRow label="Key file" value=".secrets/inference.json" />
+              <DefaultRow
+                label="Key file"
+                value=".secrets/inference.json"
+                envVar="ALPHASWARM_INFERENCE_CONFIG_PATH"
+              />
               <LiveRow label="Roles using a cloud API" value={cloudRolesSummary(privacy)} />
             </SettingGroup>
           )}
@@ -255,11 +261,23 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {section === 'storage' && (
             <SettingGroup
               title="Storage"
-              desc="Cycles, decisions and influence edges are stored in the local Neo4j database (Docker, loopback only). Reports and advisories are written as owner-only files."
+              desc="Cycles, decisions and influence edges are stored in Neo4j; reports and advisories are written as owner-only files. The values below are the defaults: the backend reads overrides from its environment (.env), which this page cannot see."
             >
-              <LiveRow label="Graph database" value="Neo4j on 127.0.0.1:7687" />
-              <LiveRow label="Reports" value="reports/{cycle_id}_report.md" />
-              <LiveRow label="Advisories" value="advisory/{cycle_id}_advisory.json" />
+              <DefaultRow
+                label="Graph database"
+                value="bolt://localhost:7687"
+                envVar="ALPHASWARM_NEO4J__URI"
+              />
+              <DefaultRow
+                label="Reports"
+                value="reports/{cycle_id}_report.md"
+                envVar="ALPHASWARM_REPORTS_DIR"
+              />
+              <DefaultRow
+                label="Advisories"
+                value="advisory/{cycle_id}_advisory.json"
+                envVar="ALPHASWARM_ADVISORY_DIR"
+              />
             </SettingGroup>
           )}
 
@@ -341,6 +359,29 @@ function LiveRow({ label, value, desc }: { label: string; value: string; desc?: 
       <label style={{ minWidth: 220, color: 'var(--text-2)', fontSize: 12 }}>{label}</label>
       <input type="text" value={value} disabled readOnly style={VALUE_STYLE} />
     </div>
+  );
+}
+
+// Read-only row for a value the backend reads from its environment: the default,
+// plus the variable that overrides it.
+function DefaultRow({ label, value, envVar }: { label: string; value: string; envVar: string }) {
+  const id = useId();
+  return (
+    <label htmlFor={id} className="settings-row" style={ROW_STYLE}>
+      <span style={{ minWidth: 220, color: 'var(--text-2)', fontSize: 12 }}>{label}</span>
+      <input
+        id={id}
+        aria-label={label}
+        type="text"
+        value={value}
+        disabled
+        readOnly
+        style={VALUE_STYLE}
+      />
+      <span className="settings-note mono" style={{ whiteSpace: 'nowrap' }}>
+        default · {envVar}
+      </span>
+    </label>
   );
 }
 
