@@ -171,7 +171,7 @@ that names a held company exercises the advisory. Then check:
 - [ ] Rationale feed fills live during the round, and R3 entries remain after completion.
 - [ ] During R3, DevTools → Network shows `/api/edges/<this run's cycle_id>?round=2`, never the previous cycle's id.
 - [ ] Restart the backend: the dashboard shell (Settings, replay, reports) is usable while idle.
-- [ ] Press Run while the report is generating: the button reads "Report generating…" and is disabled (owner gate G-13 A; with G-13 B it reads "Cancel report & run").
+- [ ] Press Run while the report is generating: the button reads "Report generating…" and is disabled.
 - [ ] Signal Wire shows real yfinance/RSS calls, not the DEV mock seed.
 - [ ] Bracket bars fill in live during each round (pending agents leave the bar blank). At each round start the ring reads PENDING and the KPI "0/100 decided", never "HOLD 100%".
 - [ ] After completion:
