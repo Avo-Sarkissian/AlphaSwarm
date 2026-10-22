@@ -14,16 +14,25 @@ Rationale: docs/DECISIONS.md#adr-docs-sync.
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import sys
+import tomllib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.types import BracketConfig
 
 ROOT: Final = Path(__file__).resolve().parents[1]
 EXPERIMENTS: Final = "docs/experiments.md"
+CAPTURES: Final = "docs/media/captures.json"
+REPO_BLOB: Final = "https://github.com/Avo-Sarkissian/AlphaSwarm/blob"
+EXAMPLE_HOLDINGS: Final = "examples/holdings.example.csv"
+EXPORT_SCHEMA: Final = "alphaswarm.cycle-export/1"
 NOT_MEASURED: Final = "not measured"
 NOT_PUBLISHED: Final = "not published"
 
@@ -64,6 +73,8 @@ VERDICTS: Final[Mapping[str, frozenset[str]]] = {
     "eval_verdict": frozenset({"better", "no-difference", "worse", NOT_MEASURED}),
     "peer_effect_verdict": frozenset({"positive", "null", "negative", NOT_MEASURED}),
 }
+RELEASE_OPTIONAL: Final = frozenset({"demo_url"})
+OPTIONAL_TARGETS: Final = frozenset({"CHANGELOG.md"})  # created late in the release work
 
 BRACKET_ROLES: Final[Mapping[str, str]] = {
     "institutions": "Benchmark-bound buy-side managers; act on corroborated news, default to HOLD",
@@ -77,9 +88,35 @@ BRACKET_ROLES: Final[Mapping[str, str]] = {
     "shorts": "Forensic short sellers; lean SELL on hype",
     "allocators": "Decades-horizon capital; rebalance against crowd extremes",
 }
+IMAGE_SPECS: Final[tuple[tuple[str, str], ...]] = (
+    (
+        "dashboard-live.png",
+        "Live dashboard during Round 2: agents fill in as they decide, dim dots are still thinking",
+    ),
+    (
+        "influence-graph.png",
+        "Influence graph after the final round with one agent focused: arrows run from the "
+        "cited agent to the citing agent",
+    ),
+    (
+        "round-story.png",
+        "Replay with the round scrubber: rings mark the agents that flipped since the "
+        "previous round",
+    ),
+    ("report.png", "Cycle report: round-by-round convergence, influence leaders and dissent"),
+    (
+        "advisory.png",
+        "Advisory on the fictional example holdings, under the not-investment-advice banner",
+    ),
+)
 
+TOP_ENTRY: Final = re.compile(
+    r"^## (?P<tag>v\d\S*) \((?P<version>\d+\.\d+\.\d+)\) — "
+    r"(?P<date>Unreleased|\d{4}-\d{2}-\d{2})$"
+)
 _LINK_TARGET: Final = re.compile(r"\]\(([^)\s]+)\)")
 _SCHEME: Final = re.compile(r"^[a-z][a-z0-9+.-]*:")
+_BLOCK_MARKER: Final = re.compile(r"^<!-- [a-z_]+:(?:start|end) -->$")
 
 
 class DocsSyncError(Exception):
@@ -96,6 +133,28 @@ class HeadlineRow:
     @property
     def measured(self) -> bool:
         return self.value not in {NOT_MEASURED, NOT_PUBLISHED}
+
+
+@dataclass(frozen=True)
+class Captures:
+    cycle_id: str
+    seed_rumor: str
+    num_rounds: int
+    final_buy: int
+    final_sell: int
+    final_hold: int
+    total_flips: int
+    total_seconds: float
+    round_seconds: tuple[float, ...]
+    holdings_file: str
+    images: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ChangelogEntry:
+    tag: str
+    version: str
+    date: str | None  # None while the entry is "Unreleased"
 
 
 # --------------------------------------------------------------------------- blocks
@@ -119,6 +178,14 @@ def block_body(text: str, name: str) -> str:
 def replace_block(text: str, name: str, body: str) -> str:
     i, j = _span(text, name)
     return text[:i] + "\n" + body.strip("\n") + "\n" + text[j:]
+
+
+def _read(root: Path, rel: str) -> str:
+    """Read a source or target file; a missing one is malformed input, not a stale block."""
+    try:
+        return (root / rel).read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise DocsSyncError(f"missing {rel}") from exc
 
 
 # --------------------------------------------------------------------------- headline table
@@ -206,3 +273,380 @@ def render_brackets(brackets: Sequence[BracketConfig]) -> str:
         )
     out.append(f"| **Total** | **{sum(b.count for b in brackets)}** | | | |")
     return "\n".join(out)
+
+
+def render_demo(rows: Mapping[str, HeadlineRow]) -> str:
+    url = rows["demo_url"].value
+    if url.startswith("https://"):
+        return (
+            f"**[Live demo]({url})**: a read-only replay of a real cycle in your browser, "
+            "no install needed."
+        )
+    return (
+        "**Demo:** a read-only replay of a real cycle. Build it locally with "
+        "`VITE_DEMO=1 npm --prefix frontend run build && npm --prefix frontend run preview`."
+    )
+
+
+def load_captures(path: Path) -> Captures:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        captures = Captures(
+            cycle_id=str(data["cycle_id"]),
+            seed_rumor=str(data["seed_rumor"]),
+            num_rounds=int(data["num_rounds"]),
+            final_buy=int(data["final_buy"]),
+            final_sell=int(data["final_sell"]),
+            final_hold=int(data["final_hold"]),
+            total_flips=int(data["total_flips"]),
+            total_seconds=float(data["total_seconds"]),
+            round_seconds=tuple(float(s) for s in data["round_seconds"]),
+            holdings_file=str(data["holdings_file"]),
+            images=tuple(str(name) for name in data["images"]),
+        )
+    except FileNotFoundError as exc:
+        raise DocsSyncError(f"missing {CAPTURES}; run the capture step first") from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DocsSyncError(f"malformed {CAPTURES}: {exc!r}") from exc
+    if len(captures.round_seconds) != captures.num_rounds:
+        raise DocsSyncError(f"{CAPTURES} round_seconds must have one value per round")
+    if captures.holdings_file != EXAMPLE_HOLDINGS:
+        raise DocsSyncError(f"captures must use the fictional {EXAMPLE_HOLDINGS}")
+    expected = tuple(name for name, _ in IMAGE_SPECS)
+    if captures.images != expected:
+        raise DocsSyncError(f"{CAPTURES} must list exactly {list(expected)}")
+    return captures
+
+
+def render_screenshots(captures: Captures) -> str:
+    (first, first_alt), *rest = IMAGE_SPECS
+    out = [f"![{first_alt}](docs/media/{first})", "", f"*{first_alt}.*", "", "| | |", "|---|---|"]
+    for (left, left_alt), (right, right_alt) in zip(rest[0::2], rest[1::2], strict=True):
+        out.append(f"| ![{left_alt}](docs/media/{left}) | ![{right_alt}](docs/media/{right}) |")
+        out.append(f"| *{left_alt}.* | *{right_alt}.* |")
+    minutes = round(captures.total_seconds / 60)
+    per_round = ", ".join(
+        f"R{n} {seconds:.0f} s" for n, seconds in enumerate(captures.round_seconds, start=1)
+    )
+    out += [
+        "",
+        f"All five captures come from one real run: cycle `{captures.cycle_id[:8]}`, seed "
+        f'"{captures.seed_rumor}", {captures.num_rounds} rounds in {minutes} min '
+        f"({per_round}), final BUY {captures.final_buy} / SELL {captures.final_sell} / "
+        f"HOLD {captures.final_hold}, {captures.total_flips} flips. The advisory used the "
+        f"fictional `{captures.holdings_file}`.",
+    ]
+    return "\n".join(out)
+
+
+def _measured(rows: Mapping[str, HeadlineRow], key: str) -> str | None:
+    row = rows[key]
+    return row.value if row.measured else None
+
+
+def _resume_project(rows: Mapping[str, HeadlineRow], agents: int, brackets: int) -> str:
+    base = (
+        "Built **AlphaSwarm**, a local-first multi-agent LLM simulation engine (Python 3.11 "
+        f"asyncio, FastAPI, Neo4j, Ollama on MLX) that runs {agents} market personas in "
+        f"{brackets} archetypes through a multi-round consensus cascade and streams it to a "
+        "live influence graph."
+    )
+    accuracy, verdict = _measured(rows, "eval_accuracy"), rows["eval_verdict"].value
+    if accuracy is None or verdict == NOT_MEASURED:
+        return base + (
+            " It ships a point-in-time evaluation harness with pre-registered metrics and "
+            "single-model baselines."
+        )
+    if verdict == "better":
+        return base + (
+            " On a point-in-time evaluation against real outcomes it beat the best "
+            f"single-model baseline: {accuracy}."
+        )
+    if verdict == "worse":
+        return base + (
+            " On a point-in-time evaluation against real outcomes it trailed the best "
+            f"single-model baseline ({accuracy}), reported as measured with pre-registered metrics."
+        )
+    return base + (
+        " On a point-in-time evaluation against real outcomes it showed no significant edge over "
+        f"single-model baselines ({accuracy}), a result the pre-registered harness reproduces "
+        "from stored run manifests."
+    )
+
+
+def _resume_method(rows: Mapping[str, HeadlineRow]) -> str:
+    effect, verdict = _measured(rows, "peer_effect"), rows["peer_effect_verdict"].value
+    if effect is None or verdict == NOT_MEASURED:
+        lead = "Added a seeded no-peer control group to separate peer influence from noise"
+    elif verdict == "positive":
+        lead = (
+            "Turned round-to-round opinion flips into a measured effect with a seeded no-peer "
+            f"control group (peer-attributable flip rate {effect})"
+        )
+    elif verdict == "negative":
+        lead = (
+            "Tested peer influence against a seeded no-peer control group and found that "
+            f"peers reduce flips ({effect})"
+        )
+    else:
+        lead = (
+            "Tested whether peers move opinions with a seeded no-peer control group and found no "
+            f"significant peer-attributable flip rate ({effect})"
+        )
+    exposure = _measured(rows, "peer_exposure")
+    fix = "after fixing a peer-selection bias that hid 6 of 10 brackets from every feed"
+    if exposure is not None:
+        fix += f" ({exposure})"
+    return (
+        f"{lead}, {fix}; every run stores a manifest (seeds, model digests, prompt hashes) "
+        "so results reproduce."
+    )
+
+
+def _resume_performance(rows: Mapping[str, HeadlineRow]) -> str:
+    text = (
+        "Designed a memory-aware concurrency governor for a 64 GB M1 Max (macOS kernel memory "
+        "signal, crisis escalation, gradual recovery) and per-call inference telemetry"
+    )
+    speedup = _measured(rows, "speedup")
+    if speedup is not None:
+        text += f"; telemetry-driven changes cut mean round time {speedup}"
+    worker = _measured(rows, "mlx_prefill_worker")
+    orchestrator = _measured(rows, "mlx_prefill_orchestrator")
+    if worker is not None and orchestrator is not None:
+        text += f"; benchmarked MLX prefill: worker {worker}, orchestrator {orchestrator}"
+    return text + "."
+
+
+def _resume_ui(rows: Mapping[str, HeadlineRow]) -> str:
+    published = rows["demo_url"].value.startswith("https://")
+    demo = (
+        "a static read-only demo on GitHub Pages" if published else "a static read-only demo build"
+    )
+    return (
+        "Built a real-time React/TypeScript dashboard on a versioned 5 Hz WebSocket contract "
+        "with latest-wins backpressure, a deterministic influence graph that replays the "
+        f"round-by-round citation cascade, and {demo}."
+    )
+
+
+_RESUME_PRIVACY: Final = (
+    "Delivered a privacy-isolated portfolio advisory: holdings never reach agent prompts, "
+    "Neo4j, WebSocket frames or logs, which an import-linter contract and a four-surface "
+    "canary test enforce, and no ticker reaches a cloud model without an explicit opt-in."
+)
+
+
+def _resume_quality(rows: Mapping[str, HeadlineRow]) -> str:
+    tests = _measured(rows, "backend_tests")
+    coverage = _measured(rows, "backend_coverage")
+    frontend = _measured(rows, "frontend_tests")
+    contracts = _measured(rows, "import_contracts")
+    gates = "gated mypy strict, ruff, ESLint and " + (
+        f"{contracts} import-linter contracts"
+        if contracts is not None
+        else "import-linter contracts"
+    )
+    if tests is not None and coverage is not None and frontend is not None:
+        lead = (
+            f"Raised the quality bar to {tests} backend tests ({coverage} coverage) and {frontend} "
+            f"frontend tests, with golden tests against a throwaway Neo4j in CI and {gates}"
+        )
+    else:
+        lead = (
+            f"Raised the quality bar with golden tests against a throwaway Neo4j in CI and {gates}"
+        )
+    return lead + "; fixed 35 audit findings and 6 security-scan issues with regression tests."
+
+
+def render_resume(rows: Mapping[str, HeadlineRow], brackets: Sequence[BracketConfig]) -> str:
+    bullets = (
+        _resume_project(rows, sum(b.count for b in brackets), len(brackets)),
+        _resume_method(rows),
+        _resume_performance(rows),
+        _resume_ui(rows),
+        _RESUME_PRIVACY,
+        _resume_quality(rows),
+    )
+    return "\n".join(f"{n}. {bullet}" for n, bullet in enumerate(bullets, start=1))
+
+
+# --------------------------------------------------------------------------- sync
+
+
+def expected_blocks(root: Path, brackets: Sequence[BracketConfig]) -> dict[tuple[str, str], str]:
+    rows = parse_headline(_read(root, EXPERIMENTS))
+    results = render_rows(rows, RESULT_KEYS)
+    return {
+        ("README.md", "demo"): render_demo(rows),
+        ("README.md", "runtime"): render_rows(rows, RUNTIME_KEYS),
+        ("README.md", "results"): results,
+        ("README.md", "screenshots"): render_screenshots(load_captures(root / CAPTURES)),
+        ("README.md", "brackets"): render_brackets(brackets),
+        ("README.md", "quality"): render_rows(rows, QUALITY_KEYS),
+        ("CHANGELOG.md", "results"): results,
+        ("docs/HISTORY.md", "resume"): render_resume(rows, brackets),
+    }
+
+
+def sync(root: Path, brackets: Sequence[BracketConfig], *, write: bool) -> list[str]:
+    """Return the stale blocks as "path:block"; with write=True also rewrite them."""
+    texts: dict[str, str] = {}
+    stale: list[str] = []
+    for (rel, name), body in expected_blocks(root, brackets).items():
+        path = root / rel
+        if rel in OPTIONAL_TARGETS and not path.exists():
+            continue
+        text = texts.get(rel)
+        if text is None:
+            text = _read(root, rel)
+        if block_body(text, name) != body.strip("\n"):
+            stale.append(f"{rel}:{name}")
+            text = replace_block(text, name, body)
+        texts[rel] = text
+    if write:
+        for rel in sorted({entry.split(":", 1)[0] for entry in stale}):
+            (root / rel).write_text(texts[rel], encoding="utf-8")
+    return stale
+
+
+# --------------------------------------------------------------------------- release
+
+
+def changelog_top_entry(changelog_md: str) -> ChangelogEntry:
+    for line in changelog_md.splitlines():
+        if line.startswith("## "):
+            match = TOP_ENTRY.match(line)
+            if match is None:
+                raise DocsSyncError(f"the top CHANGELOG entry is malformed: {line!r}")
+            date = match.group("date")
+            return ChangelogEntry(
+                tag=match.group("tag"),
+                version=match.group("version"),
+                date=None if date == "Unreleased" else date,
+            )
+    raise DocsSyncError("CHANGELOG.md has no entries")
+
+
+def release_notes(changelog_md: str, tag: str) -> str:
+    lines = changelog_md.splitlines()
+    start = next((i for i, ln in enumerate(lines) if ln.startswith(f"## {tag} ")), None)
+    if start is None:
+        raise DocsSyncError(f"CHANGELOG.md has no entry for {tag}")
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    body = "\n".join(ln for ln in lines[start + 1 : end] if not _BLOCK_MARKER.match(ln)).strip()
+
+    def absolute(target: str) -> str:
+        if _SCHEME.match(target):
+            return target
+        if target.startswith("#"):  # a release page has no CHANGELOG headings to jump to
+            return f"{REPO_BLOB}/{tag}/CHANGELOG.md{target}"
+        return f"{REPO_BLOB}/{tag}/{target}"
+
+    return _rewrite_links(body, absolute) + "\n"
+
+
+def release_problems(root: Path) -> list[str]:
+    rows = parse_headline(_read(root, EXPERIMENTS))
+    problems = [
+        f"headline value not measured: {key}"
+        for key in HEADLINE_KEYS
+        if key not in RELEASE_OPTIONAL and rows[key].value == NOT_MEASURED
+    ]
+    with (root / "pyproject.toml").open("rb") as handle:
+        version = str(tomllib.load(handle)["project"]["version"])
+    try:
+        changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise DocsSyncError("CHANGELOG.md is missing") from exc
+    entry = changelog_top_entry(changelog)
+    if entry.version != version:
+        problems.append(
+            f"the top CHANGELOG entry is {entry.version}; pyproject.toml says {version}"
+        )
+    if entry.date is None:
+        problems.append("the top CHANGELOG entry is still 'Unreleased'")
+    return problems
+
+
+def capture_meta(export_json: str) -> dict[str, object]:
+    """Build docs/media/captures.json from the output of `alphaswarm cycles export CYCLE_ID`."""
+    payload = json.loads(export_json)
+    if not isinstance(payload, dict) or payload.get("schema") != EXPORT_SCHEMA:
+        raise DocsSyncError(f"expected an {EXPORT_SCHEMA} document from `alphaswarm cycles export`")
+    cycle = payload.get("cycle")
+    metrics = cycle.get("metrics") if isinstance(cycle, dict) else None
+    if not isinstance(cycle, dict) or not isinstance(metrics, dict):
+        raise DocsSyncError("the export has no cycle metrics")
+    if cycle.get("status") != "complete":
+        raise DocsSyncError("the captured cycle must be complete")
+    rounds = cycle.get("num_rounds")
+    if not isinstance(rounds, int) or rounds < 1:
+        raise DocsSyncError("the export has no num_rounds")
+    needed = ["final_buy", "final_sell", "final_hold", "total_seconds"]
+    needed += [f"r{n}_seconds" for n in range(1, rounds + 1)]
+    needed += [f"r{n}_flips" for n in range(2, rounds + 1)]
+    absent = [key for key in needed if metrics.get(key) is None]
+    if absent:
+        raise DocsSyncError(f"the cycle metrics lack {', '.join(absent)}")
+    return {
+        "cycle_id": cycle["cycle_id"],
+        "seed_rumor": cycle["seed_rumor"],
+        "num_rounds": rounds,
+        "final_buy": metrics["final_buy"],
+        "final_sell": metrics["final_sell"],
+        "final_hold": metrics["final_hold"],
+        "total_flips": sum(int(metrics[f"r{n}_flips"]) for n in range(2, rounds + 1)),
+        "total_seconds": metrics["total_seconds"],
+        "round_seconds": [metrics[f"r{n}_seconds"] for n in range(1, rounds + 1)],
+        "holdings_file": EXAMPLE_HOLDINGS,
+        "images": [name for name, _ in IMAGE_SPECS],
+    }
+
+
+# --------------------------------------------------------------------------- CLI
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="docs_sync.py", description="Keep the generated Markdown blocks in sync."
+    )
+    parser.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="command", required=True)
+    check = sub.add_parser("check", help="exit 1 when a generated block is stale")
+    check.add_argument("--release", action="store_true", help="also require release-ready values")
+    sub.add_parser("write", help="rewrite the stale generated blocks")
+    notes = sub.add_parser("release-notes", help="print a CHANGELOG entry with absolute links")
+    notes.add_argument("tag")
+    sub.add_parser(
+        "capture-meta", help="captures.json from `alphaswarm cycles export` JSON on stdin"
+    )
+    args = parser.parse_args(argv)
+    root: Path = args.root
+    try:
+        if args.command == "release-notes":
+            changelog = _read(root, "CHANGELOG.md")
+            sys.stdout.write(release_notes(changelog, args.tag))
+            return 0
+        if args.command == "capture-meta":
+            print(json.dumps(capture_meta(sys.stdin.read()), indent=2))
+            return 0
+        stale = sync(root, DEFAULT_BRACKETS, write=args.command == "write")
+        if args.command == "write":
+            print("updated: " + ", ".join(stale) if stale else "all generated blocks are current")
+            return 0
+        problems = [f"stale block: {entry}" for entry in stale]
+        if args.release:
+            problems += release_problems(root)
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        if stale:
+            print("run: uv run python scripts/docs_sync.py write", file=sys.stderr)
+        return 1 if problems else 0
+    except DocsSyncError as exc:
+        print(f"docs_sync: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
