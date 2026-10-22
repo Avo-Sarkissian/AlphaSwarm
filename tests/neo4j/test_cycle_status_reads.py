@@ -1,4 +1,4 @@
-"""read_cycle_status / cycle_exists against the isolated neo4j-test database (C-PERS-02).
+"""read_cycle_status / cycle_exists against the isolated neo4j-test database.
 
 Cycles are created with raw Cypher so each status shape (including legacy cycles
 without ``c.status``) is exercised directly. graph_manager_test deletes every

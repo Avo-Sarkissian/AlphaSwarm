@@ -1,4 +1,4 @@
-"""Validated request input types (C-WEB-09)."""
+"""Validated request input types in web/params.py (docs/DECISIONS.md#adr-background-tasks)."""
 
 from __future__ import annotations
 

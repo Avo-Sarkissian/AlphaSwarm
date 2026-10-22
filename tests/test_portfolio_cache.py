@@ -60,8 +60,8 @@ async def test_loads_once_until_mtime_changes(tmp_path: Path, load_calls: list[P
 
 async def test_malformed_file_is_none_then_recovers(tmp_path: Path) -> None:
     csv_path = tmp_path / "holdings.csv"
-    # A non-numeric value fails with or without Task 8's stricter rules, so this
-    # test also holds on the fast track (Task 8 is not part of it).
+    # A non-numeric share count fails the loader however strict its row
+    # validation is, so this test does not depend on those rules.
     _write(csv_path, "brokerage,ZZZT,not-a-number,98.76")
     cache = PortfolioCache(csv_path)
     assert await cache.get() is None

@@ -1,4 +1,4 @@
-"""Error envelope and exception handlers (C-WEB-11)."""
+"""Error envelope and exception handlers (docs/DECISIONS.md#adr-background-tasks)."""
 
 from __future__ import annotations
 
