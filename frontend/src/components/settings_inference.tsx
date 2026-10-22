@@ -23,93 +23,17 @@ import {
   type ProviderPreset,
   type RoleView,
   type SettingsView,
-  type RolePut,
 } from '../api/settings';
-import { ApiError } from '../api/client';
-import { parseErrorEnvelope } from '../lib/apiError';
-
-// ── local form state ──────────────────────────────────────────────────────
-
-interface RoleFormState {
-  provider: ProviderType;
-  model: string;
-  base_url: string;
-  /** Raw text; empty = keep stored key. */
-  api_key: string;
-}
-
-function roleViewToForm(r: RoleView): RoleFormState {
-  return {
-    provider: r.provider,
-    model: r.model,
-    base_url: r.base_url ?? '',
-    api_key: '',
-  };
-}
-
-function formToRolePut(f: RoleFormState): RolePut {
-  return {
-    provider: f.provider,
-    model: f.model,
-    base_url:
-      f.provider === 'openai_compatible' && f.base_url.trim()
-        ? f.base_url.trim()
-        : null,
-    // Omit api_key when empty (backend keeps stored key).
-    api_key: f.api_key.trim() || undefined,
-  };
-}
-
-/**
- * Apply a provider preset to a role form.
- * Pre-fills provider, base_url, and — if the model field is empty — the first
- * preset model. The caller may freely edit any field after applying.
- */
-export function applyPreset(
-  form: RoleFormState,
-  preset: ProviderPreset,
-): RoleFormState {
-  return {
-    ...form,
-    provider: preset.provider,
-    base_url: preset.base_url ?? '',
-    model: form.model.trim() === '' && preset.models.length > 0
-      ? preset.models[0]!
-      : form.model,
-  };
-}
-
-// ── helpers ────────────────────────────────────────────────────────────────
-
-function isCloudProvider(p: ProviderType): boolean {
-  return p === 'openai_compatible' || p === 'anthropic';
-}
-
-function providerLabel(p: ProviderType): string {
-  if (p === 'ollama') return 'Local (Ollama)';
-  if (p === 'openai_compatible') return 'OpenAI-compatible';
-  return 'Anthropic';
-}
-
-function extractErrorDetail(e: unknown): string {
-  if (e instanceof ApiError) {
-    if (e.status === 409) return 'Stop the running simulation first.';
-    const { message } = parseErrorEnvelope(e.body);
-    if (message) return message;
-    if (typeof e.body === 'object' && e.body !== null) {
-      const b = e.body as Record<string, unknown>;
-      if (typeof b['detail'] === 'string') return b['detail'];
-      try {
-        return JSON.stringify(b);
-      } catch {
-        /* fall through */
-      }
-    }
-    return `Error ${e.status}`;
-  }
-  if (e instanceof Error) return e.message;
-  return String(e);
-}
+import {
+  applyPreset,
+  extractErrorDetail,
+  formToRolePut,
+  isCloudProvider,
+  maskedKeyPlaceholder,
+  providerLabel,
+  roleViewToForm,
+  type RoleFormState,
+} from '../lib/settingsForm';
 
 // ── sub-component: per-role form ──────────────────────────────────────────
 
@@ -314,11 +238,7 @@ function RoleForm({
             className="st-inf-input"
             value={form.api_key}
             onChange={(e) => onChange({ api_key: e.target.value })}
-            placeholder={
-              keySet
-                ? `key set ••••${last4 ?? ''} — leave blank to keep`
-                : 'enter API key'
-            }
+            placeholder={maskedKeyPlaceholder(keySet, last4)}
             style={{
               flex: 1,
               padding: '6px 10px',
