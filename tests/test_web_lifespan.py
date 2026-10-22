@@ -35,6 +35,7 @@ import alphaswarm.web.app as web_app
 from alphaswarm.app import AppState, create_app_state
 from alphaswarm.config import AppSettings
 from alphaswarm.graph import GraphStateManager
+from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
 from alphaswarm.types import AgentPersona
 from alphaswarm.web.simulation_manager import SimulationManager
 from tests.support.web_app import route_test_settings
@@ -252,17 +253,17 @@ class _RecordingLog:
 
 
 @pytest.mark.parametrize(
-    ("error", "fix_fragment"),
+    ("error", "expected_fix"),
     [
-        (ServiceUnavailable("connection refused"), "docker compose up -d neo4j"),
-        (Neo4jAuthError("unauthorized"), "ALPHASWARM_NEO4J__PASSWORD"),
+        (ServiceUnavailable("connection refused"), NEO4J_FIX),
+        (Neo4jAuthError("unauthorized"), NEO4J_AUTH_FIX),
     ],
     ids=["neo4j-down", "wrong-password"],
 )
 async def test_the_startup_warning_names_the_fix(
-    monkeypatch: pytest.MonkeyPatch, error: Exception, fix_fragment: str
+    monkeypatch: pytest.MonkeyPatch, error: Exception, expected_fix: str
 ) -> None:
-    """One neo4j_unavailable_at_startup warning, with the fix for that failure.
+    """One neo4j_unavailable_at_startup warning, with the fix /api/health shows.
 
     Calls the lifespan helper directly with self-contained fakes, so it does not
     depend on how the other tests in this file build the app.
@@ -279,7 +280,7 @@ async def test_the_startup_warning_names_the_fix(
     warnings = [kw for event, kw in log.calls if event == "neo4j_unavailable_at_startup"]
     assert len(warnings) == 1
     assert warnings[0]["error_type"] == type(error).__name__
-    assert fix_fragment in warnings[0]["fix"]
+    assert warnings[0]["fix"] == expected_fix
 
 
 async def test_lifespan_pins_the_git_revision_it_started_from(

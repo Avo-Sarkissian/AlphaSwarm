@@ -19,6 +19,7 @@ from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.manifest import current_git_revision
+from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers
@@ -53,8 +54,9 @@ async def _prepare_neo4j(graph_manager: GraphStateManager | None) -> bool:
     ensure_schema() also seeds the 100 Agent nodes every write MATCHes, so a
     fresh database persists nothing until it has run (docs/DECISIONS.md#p4-d-05).
     A down or misconfigured database must not stop the server from starting,
-    so driver and auth errors are logged (with the fix for that failure) and
-    reported as not ready.
+    so driver and auth errors are logged (with the fix for that failure, the
+    same text /api/health shows) and reported as not ready. Once the database
+    answers, /api/health applies the schema.
     """
     if graph_manager is None:
         return False
@@ -62,13 +64,7 @@ async def _prepare_neo4j(graph_manager: GraphStateManager | None) -> bool:
         await graph_manager.verify_connectivity()
         await graph_manager.ensure_schema()
     except (DriverError, Neo4jError) as exc:
-        fix = (
-            "set ALPHASWARM_NEO4J__PASSWORD in .env to the database's password, "
-            "then restart the server"
-            if isinstance(exc, Neo4jAuthError)
-            else "start Neo4j (docker compose up -d neo4j, or docker start <name> for a "
-            "container you created yourself), then restart the server"
-        )
+        fix = NEO4J_AUTH_FIX if isinstance(exc, Neo4jAuthError) else NEO4J_FIX
         log.warning(
             "neo4j_unavailable_at_startup",
             error_type=type(exc).__name__,

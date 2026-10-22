@@ -7,9 +7,17 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from neo4j.exceptions import AuthError as Neo4jAuthError
 
 from alphaswarm.errors import Neo4jUnavailableError
-from alphaswarm.readiness import NEO4J_FIX, OLLAMA_FIX, ComponentStatus, check_neo4j, check_ollama
+from alphaswarm.readiness import (
+    NEO4J_AUTH_FIX,
+    NEO4J_FIX,
+    OLLAMA_FIX,
+    ComponentStatus,
+    check_neo4j,
+    check_ollama,
+)
 
 
 class _Graph:
@@ -19,6 +27,8 @@ class _Graph:
     async def verify_connectivity(self) -> None:
         if self.behaviour == "down":
             raise Neo4jUnavailableError("refused", op="verify_connectivity")
+        if self.behaviour == "auth":
+            raise Neo4jAuthError("unauthorized")
         if self.behaviour == "hang":
             await asyncio.sleep(10)
 
@@ -54,6 +64,25 @@ async def test_neo4j_failures(graph: _Graph | None, detail: str) -> None:
         detail,
         NEO4J_FIX,
     )
+
+
+async def test_neo4j_rejected_password_names_the_password_fix() -> None:
+    """A wrong password is not a stopped database: starting Neo4j would not fix it."""
+    status = await check_neo4j(_Graph("auth"))  # type: ignore[arg-type]
+    assert (status.ok, status.required, status.detail, status.fix) == (
+        False,
+        True,
+        "credentials rejected (AuthError)",
+        NEO4J_AUTH_FIX,
+    )
+    assert "ALPHASWARM_NEO4J__PASSWORD" in NEO4J_AUTH_FIX
+    assert "docker" not in NEO4J_AUTH_FIX
+
+
+def test_neo4j_start_fix_covers_a_container_you_created_yourself() -> None:
+    """Compose would start a second, empty database next to a stopped hand-made one."""
+    assert "docker compose up -d neo4j" in NEO4J_FIX
+    assert "docker start <name>" in NEO4J_FIX
 
 
 async def test_neo4j_timeout() -> None:

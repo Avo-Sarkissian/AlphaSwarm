@@ -21,6 +21,7 @@ from neo4j.exceptions import DriverError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from alphaswarm.errors import Neo4jUnavailableError
+from alphaswarm.readiness import NEO4J_FIX
 from alphaswarm.web.replay_manager import (
     NoReplayActiveError,
     ReplayAlreadyActiveError,
@@ -144,10 +145,7 @@ async def _graph_unavailable_handler(request: Request, exc: Exception) -> JSONRe
     )
     return _respond(
         503,
-        error_body(
-            "graph_unavailable",
-            "Neo4j is unavailable; start it with `docker compose up -d neo4j`",
-        ),
+        error_body("graph_unavailable", f"Neo4j is unavailable. {NEO4J_FIX}."),
     )
 
 

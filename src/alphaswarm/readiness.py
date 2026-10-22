@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 import structlog
+from neo4j.exceptions import AuthError as Neo4jAuthError
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
@@ -20,7 +21,17 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(component="readiness")
 
-NEO4J_FIX: Final = "docker compose up -d neo4j"
+# Shared with the web lifespan's startup warning and the 503 graph_unavailable
+# message. Once the database answers, the next /api/health probe applies the
+# schema, so starting it needs no server restart (docs/DECISIONS.md#p4-d-05). A
+# password change does: the driver keeps the credential it was built with.
+NEO4J_FIX: Final = (
+    "Start Neo4j (docker compose up -d neo4j, or docker start <name> for a container "
+    "you created yourself)"
+)
+NEO4J_AUTH_FIX: Final = (
+    "Set ALPHASWARM_NEO4J__PASSWORD in .env to the database's password, then restart the server"
+)
 OLLAMA_FIX: Final = "Start Ollama with OLLAMA_USE_MLX=1 (docs/RUNBOOK.md section 1)"
 _MODELFILES: Final[dict[str, str]] = {
     "alphaswarm-orchestrator": "modelfiles/Modelfile.orchestrator",
@@ -58,13 +69,18 @@ async def check_neo4j(gm: GraphStateManager | None, *, timeout_s: float = 1.0) -
             fix=NEO4J_FIX,
         )
     except Exception as exc:
-        log.warning("readiness_neo4j_failed", exc_type=exc.__class__.__name__)
+        exc_type = exc.__class__.__name__
+        log.warning("readiness_neo4j_failed", exc_type=exc_type)
+        if isinstance(exc, Neo4jAuthError):
+            return ComponentStatus(
+                "neo4j",
+                ok=False,
+                required=True,
+                detail=f"credentials rejected ({exc_type})",
+                fix=NEO4J_AUTH_FIX,
+            )
         return ComponentStatus(
-            "neo4j",
-            ok=False,
-            required=True,
-            detail=f"unreachable ({exc.__class__.__name__})",
-            fix=NEO4J_FIX,
+            "neo4j", ok=False, required=True, detail=f"unreachable ({exc_type})", fix=NEO4J_FIX
         )
     return ComponentStatus("neo4j", ok=True, required=True)
 
