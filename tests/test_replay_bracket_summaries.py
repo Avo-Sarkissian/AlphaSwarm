@@ -58,6 +58,11 @@ def test_rationale_rows_become_typed_entries() -> None:
 
     assert _rationale_entries_from_rows(rows) == (
         RationaleEntry(
-            agent_id="quants_01", signal=SignalType.BUY, rationale="fictional", round_num=1
+            agent_id="quants_01",
+            signal=SignalType.BUY,
+            rationale="fictional",
+            round_num=1,
+            seq=1,
+            ts=0.0,
         ),
     )
