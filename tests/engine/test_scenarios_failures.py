@@ -170,7 +170,7 @@ async def test_budget_exceeded_halts_run_without_persisting_the_round(
     scenario_controller: ImmediateController,
 ) -> None:
     worker = make_scripted_worker(failing_in_round(2, _budget_stop, agent_ids={"quants_01"}))
-    # Pins today's wrapping; tightens to pytest.raises(BudgetExceededError) once it is unwrapped.
+    # Pins today's wrapping: pytest.raises(ExceptionGroup) until the error surfaces unwrapped.
     with pytest.raises(ExceptionGroup) as excinfo:
         await run_scenario(worker=worker)
     assert excinfo.group_contains(BudgetExceededError)
