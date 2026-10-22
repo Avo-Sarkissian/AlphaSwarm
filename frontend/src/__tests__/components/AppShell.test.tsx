@@ -7,8 +7,21 @@ import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App as DashboardShell } from '../../components/app_v2';
 import { makeAgent } from '../helpers/agents';
+import { stubFetchRoutes } from '../helpers/fetchRoutes';
 import { renderAt } from '../helpers/lifecycleFrames';
 import type { StateFrame } from '../../types';
+
+const SEED = 'ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.';
+const LOCAL_ESTIMATE = { calls: 300, low_usd: '0.00', high_usd: '0.00', mode: 'local' };
+const ALREADY_RUNNING = {
+  status: 409,
+  body: { detail: { error: 'simulation_already_running', message: 'Simulation already running' } },
+};
+
+function pressRun() {
+  fireEvent.change(screen.getByLabelText('Seed rumor'), { target: { value: SEED } });
+  fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
+}
 
 const h = vi.hoisted(() => ({
   edges: [] as Array<{ source_id: string; target_id: string; weight: number }>,
@@ -132,5 +145,19 @@ describe('run failures', () => {
       } as StateFrame['lastError'],
     });
     expect(screen.getByRole('alert').textContent).toContain('Neo4j is not reachable');
+  });
+
+  it('shows a refused start inline, and Dismiss clears it', async () => {
+    stubFetchRoutes({
+      'GET /api/settings/estimate': { body: LOCAL_ESTIMATE },
+      'POST /api/simulate/start': ALREADY_RUNNING,
+    });
+    renderAt(<DashboardShell />, 'idle');
+    pressRun();
+    const row = (await screen.findByText('Simulation already running')).closest('[role="alert"]');
+    expect(row).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss error' }));
+    expect(screen.queryByText('Simulation already running')).toBeNull();
+    expect(screen.getByRole('button', { name: /^run$/i })).toHaveProperty('disabled', false);
   });
 });

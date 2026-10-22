@@ -22,6 +22,7 @@ function Harness({ onSettled }: { onSettled: (ok: boolean) => void }) {
   return (
     <div>
       <button type="button" onClick={() => gate.requestRun(SEED)}>request</button>
+      <button type="button" onClick={gate.clearError}>dismiss</button>
       <span data-testid="pending">{String(gate.pending)}</span>
       <span data-testid="error">{gate.error ?? ''}</span>
       {gate.modal}
@@ -70,6 +71,8 @@ describe('useRunGate', () => {
       'The advisory/report jobs are using the orchestrator; retry when they finish',
     );
     expect(screen.getByTestId('pending').textContent).toBe('false');
+    fireEvent.click(screen.getByText('dismiss'));
+    expect(screen.getByTestId('error').textContent).toBe('');
   });
 
   it('turns a network failure into a reachability hint', async () => {

@@ -483,7 +483,7 @@ export function App() {
         </div>
       </div>
 
-      <InlineError error={runGate.error} />
+      <InlineError error={runGate.error} onDismiss={runGate.clearError} />
       <InlineError error={actionError} onDismiss={() => setActionError(null)} />
       <RunErrorBanner />
 

@@ -29,6 +29,8 @@ export interface RunGateState {
   modal: ReactNode;
   error: string | null;
   pending: boolean;
+  /** Forget `error` (the error row's Dismiss; also once a run is under way). */
+  clearError(): void;
 }
 
 export function useRunGate(opts: RunGateOptions = {}): RunGateState {
@@ -100,6 +102,8 @@ export function useRunGate(opts: RunGateOptions = {}): RunGateState {
     [settle, start],
   );
 
+  const clearError = useCallback(() => setError(null), []);
+
   const modal: ReactNode =
     confirm !== null ? (
       <RunConfirmModal
@@ -110,5 +114,5 @@ export function useRunGate(opts: RunGateOptions = {}): RunGateState {
       />
     ) : null;
 
-  return { requestRun, modal, error, pending };
+  return { requestRun, modal, error, pending, clearError };
 }
