@@ -26,6 +26,8 @@ from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import agent_worker
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from alphaswarm.config import GovernorSettings
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
@@ -59,6 +61,7 @@ async def _safe_agent_inference(
     jitter_max: float,
     state_store: StateStore | None = None,
     round_num: int = 0,
+    own_prior: str | None = None,
 ) -> AgentDecision:
     """Run a single agent inference with jitter and exception safety.
 
@@ -103,6 +106,7 @@ async def _safe_agent_inference(
                 user_message=user_message,
                 peer_context=peer_context,
                 market_context=market_context,
+                own_prior=own_prior,
             )
     except _NEVER_CATCH:
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
@@ -166,6 +170,7 @@ async def dispatch_wave(
     market_context: str | None = None,
     state_store: StateStore | None = None,
     round_num: int = 0,
+    own_priors: Sequence[str | None] | None = None,
 ) -> list[AgentDecision]:
     """Dispatch a wave of agent inferences using asyncio.TaskGroup.
 
@@ -192,6 +197,7 @@ async def dispatch_wave(
             agents). Round 1 only -- _dispatch_round does not accept this param.
         state_store: Optional StateStore for TPS metric collection (Phase 10, TUI-04).
             Threaded through to AgentWorker.infer() via agent_worker context manager.
+        own_priors: Optional per-agent own-prior lines (same length as personas).
 
     Returns:
         List of AgentDecision, one per persona. Failed agents have
@@ -211,6 +217,8 @@ async def dispatch_wave(
         raise ValueError(
             f"peer_contexts length {len(peer_contexts)} != personas length {len(personas)}"
         )
+    if own_priors is not None and len(own_priors) != len(personas):
+        raise ValueError(f"own_priors length {len(own_priors)} != personas length {len(personas)}")
 
     tasks: list[asyncio.Task[AgentDecision]] = []
 
@@ -229,6 +237,7 @@ async def dispatch_wave(
                         settings.jitter_max_seconds,
                         state_store=state_store,
                         round_num=round_num,
+                        own_prior=own_priors[i] if own_priors is not None else None,
                     )
                 )
                 for i, p in enumerate(personas)

@@ -528,3 +528,39 @@ async def test_agent_worker_passes_last_total_tokens_to_release(
             await worker.infer(user_message="test")
 
     mock_release.assert_called_once_with(success=True, result_tokens=150)
+
+
+# ---------------------------------------------------------------------------
+# Own prior, fast track (docs/DECISIONS.md#adr-diverse-peer-context)
+# ---------------------------------------------------------------------------
+
+_FT_RUMOR = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
+_FT_OWN = "Your Round 1 position: BUY (conf 0.80): strong momentum"
+
+
+async def test_ft_own_prior_goes_into_the_user_message_before_the_rumor(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    provider = _fake_provider()
+    await AgentWorker(sample_persona, provider).infer(
+        user_message=_FT_RUMOR,
+        peer_context=(
+            'Peer Decisions (Round 1):\n1. [degens_01|degens] SELL (conf: 0.60) "overpriced"'
+        ),
+        own_prior=_FT_OWN,
+    )
+    messages = provider.calls[0]["messages"]
+    user = messages[-1]["content"]
+
+    assert messages[-1]["role"] == "user"
+    assert user.index(_FT_OWN) < user.index(_FT_RUMOR)
+    assert all(_FT_OWN not in m["content"] for m in messages if m["role"] == "system")
+
+
+async def test_ft_without_own_prior_the_user_message_is_unchanged(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    provider = _fake_provider()
+    await AgentWorker(sample_persona, provider).infer(user_message=_FT_RUMOR)
+
+    assert provider.calls[0]["messages"][-1]["content"] == _FT_RUMOR

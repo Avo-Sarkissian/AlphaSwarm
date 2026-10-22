@@ -254,6 +254,7 @@ async def test_partial_failure_produces_parse_error(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        **_: object,
     ) -> AgentDecision:
         nonlocal call_count
         call_count += 1
@@ -312,6 +313,7 @@ async def test_high_failure_rate_calls_report_wave_failures(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        **_: object,
     ) -> AgentDecision:
         nonlocal call_idx
         call_idx += 1
@@ -362,6 +364,7 @@ async def test_low_failure_rate_does_not_call_report(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        **_: object,
     ) -> AgentDecision:
         nonlocal call_idx
         call_idx += 1
@@ -575,6 +578,7 @@ async def test_dispatch_wave_per_agent_peer_contexts(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        **_: object,
     ) -> AgentDecision:
         received_contexts.append(peer_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
@@ -640,6 +644,7 @@ async def test_dispatch_wave_peer_contexts_none_falls_back_to_scalar(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        **_: object,
     ) -> AgentDecision:
         received_contexts.append(peer_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
@@ -687,6 +692,7 @@ async def test_dispatch_wave_forwards_market_context(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        **_: object,
     ) -> AgentDecision:
         received_market_contexts.append(market_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
@@ -733,6 +739,7 @@ async def test_dispatch_wave_market_context_default_none(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        **_: object,
     ) -> AgentDecision:
         received_market_contexts.append(market_context)
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
@@ -793,6 +800,7 @@ async def test_safe_agent_inference_streams_state_on_success(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        **_: object,
     ) -> AgentDecision:
         return AgentDecision(signal=SignalType.BUY, confidence=0.84)
 
@@ -887,6 +895,7 @@ async def test_safe_agent_inference_streams_parse_error_from_parse_fallback(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        **_: object,
     ) -> AgentDecision:
         return AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0)
 
@@ -935,6 +944,7 @@ async def test_dispatch_wave_streams_state_progressively(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        **_: object,
     ) -> AgentDecision:
         return AgentDecision(signal=SignalType.BUY, confidence=0.8)
 
@@ -1278,3 +1288,62 @@ async def test_several_hard_stops_raise_only_the_first_bare(
     group = exc_info.value.__cause__
     assert isinstance(group, ExceptionGroup)
     assert all(isinstance(e, BudgetExceededError) for e in group.exceptions)
+
+
+# ---------------------------------------------------------------------------
+# Own priors per agent, fast track (docs/DECISIONS.md#adr-diverse-peer-context)
+# ---------------------------------------------------------------------------
+
+
+def _ft_personas(ids: list[str]) -> list[WorkerPersonaConfig]:
+    return [
+        WorkerPersonaConfig(
+            agent_id=agent_id,
+            bracket="quants",
+            influence_weight=0.7,
+            temperature=0.3,
+            system_prompt=f"persona {agent_id}",
+            risk_profile="0.4",
+        )
+        for agent_id in ids
+    ]
+
+
+def _ft_recording_provider(seen: dict[str, str]) -> FakeInferenceProvider:
+    def respond(*, messages: list[dict[str, str]], **_: object) -> InferenceResult:
+        persona = next(m["content"] for m in messages if m["role"] == "system")
+        seen[persona.removeprefix("persona ")] = messages[-1]["content"]
+        return InferenceResult(content=_VALID_BUY_JSON, model="fake-model")
+
+    return FakeInferenceProvider(role=ProviderRole.WORKER, model="fake-model", scripted=respond)
+
+
+async def test_ft_dispatch_wave_routes_own_priors(governor: ResourceGovernor) -> None:
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    seen: dict[str, str] = {}
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        await dispatch_wave(
+            personas=_ft_personas(["quants_01", "quants_02"]),
+            governor=governor,
+            provider=_ft_recording_provider(seen),
+            user_message="shared rumor",
+            settings=GovernorSettings(baseline_parallel=16),
+            own_priors=["prior A", None],
+        )
+
+    assert seen == {"quants_01": "prior A\n\nshared rumor", "quants_02": "shared rumor"}
+
+
+async def test_ft_dispatch_wave_rejects_misaligned_own_priors(governor: ResourceGovernor) -> None:
+    from alphaswarm.batch_dispatcher import dispatch_wave
+
+    with pytest.raises(ValueError, match="own_priors length 1 != personas length 2"):
+        await dispatch_wave(
+            personas=_ft_personas(["quants_01", "quants_02"]),
+            governor=governor,
+            provider=_ft_recording_provider({}),
+            user_message="shared rumor",
+            settings=GovernorSettings(baseline_parallel=16),
+            own_priors=[None],
+        )

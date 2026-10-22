@@ -3491,10 +3491,14 @@ async def test_run_simulation_through_dispatch_wave(
         user_message: str,
         peer_context: str | None = None,
         market_context: str | None = None,
+        *,
+        own_prior: str | None = None,
     ) -> AgentDecision:
         """Mirror AgentWorker.infer message construction so we can assert on
         the same messages list the real worker would send to ollama_client.chat.
         """
+        if own_prior:
+            user_message = f"{own_prior}\n\n{user_message}"
         messages: list[dict[str, str]] = [
             {"role": "system", "content": "test-persona-prompt"},
         ]
