@@ -49,6 +49,19 @@ class TestGovernorSettingsExtensions:
         s = GovernorSettings()
         assert s.jitter_max_seconds == 1.5
 
+    def test_zero_jitter_accepted(self) -> None:
+        """Jitter 0..0 is valid: deterministic harnesses disable jitter entirely."""
+        s = GovernorSettings(jitter_min_seconds=0.0, jitter_max_seconds=0.0)
+        assert (s.jitter_min_seconds, s.jitter_max_seconds) == (0.0, 0.0)
+
+    def test_negative_jitter_max_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            GovernorSettings(jitter_min_seconds=0.0, jitter_max_seconds=-0.1)
+
+    def test_default_jitter_unchanged(self) -> None:
+        s = GovernorSettings()
+        assert (s.jitter_min_seconds, s.jitter_max_seconds) == (0.5, 1.5)
+
     def test_custom_values_accepted(self) -> None:
         s = GovernorSettings(
             scale_up_threshold_percent=50.0,
