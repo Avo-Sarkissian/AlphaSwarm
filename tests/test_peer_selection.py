@@ -9,8 +9,14 @@ from typing import Any
 import pytest
 
 from alphaswarm.config import DEFAULT_BRACKETS, SimulationSettings, generate_personas
-from alphaswarm.simulation import _build_diverse_peer_contexts, compute_exposure_metrics
+from alphaswarm.inference.types import ProviderRole
+from alphaswarm.simulation import (
+    _build_diverse_peer_contexts,
+    _peer_and_provenance_metrics,
+    compute_exposure_metrics,
+)
 from alphaswarm.types import AgentDecision, AgentPersona, BracketType, SignalType
+from tests.inference.fakes import FakeInferenceProvider
 
 
 def _persona(agent_id: str, bracket: BracketType, weight: float = 0.5) -> AgentPersona:
@@ -208,3 +214,92 @@ class TestBuildDiversePeerContexts:
         assert first["min_brackets"] == 2
         assert contexts == [None] * len(SMALL_PERSONAS)
         assert exposures == [()] * len(SMALL_PERSONAS)
+
+
+def _provider(role: ProviderRole, model: str, *, local: bool) -> FakeInferenceProvider:
+    return FakeInferenceProvider(role, model, scripted=[], is_local=local)
+
+
+ORCH = ProviderRole.ORCHESTRATOR
+WORKER = ProviderRole.WORKER
+
+
+class TestPeerAndProvenanceMetrics:
+    @pytest.mark.parametrize(
+        ("orch_local", "worker_local", "orch_label", "worker_label", "mode"),
+        [
+            (True, True, "ollama", "ollama", "local"),
+            (True, False, "ollama", "cloud", "mixed"),
+            (False, True, "cloud", "ollama", "mixed"),
+            (False, False, "cloud", "cloud", "cloud"),
+        ],
+    )
+    def test_provider_labels_models_and_mode(
+        self,
+        orch_local: bool,
+        worker_local: bool,
+        orch_label: str,
+        worker_label: str,
+        mode: str,
+    ) -> None:
+        """Cloud and mixed runs are labelled from the protocol alone."""
+        orch = _provider(ORCH, "orch-model", local=orch_local)
+        worker = _provider(WORKER, "worker-model", local=worker_local)
+
+        metrics = _peer_and_provenance_metrics(
+            SimulationSettings(), orch, worker, git_sha="a" * 40, git_dirty=False
+        )
+
+        assert metrics["orchestrator_provider"] == orch_label
+        assert metrics["worker_provider"] == worker_label
+        assert metrics["orchestrator_model"] == "orch-model"
+        assert metrics["worker_model"] == "worker-model"
+        assert metrics["inference_mode"] == mode
+        assert metrics["git_sha"] == "a" * 40
+        assert metrics["git_dirty"] is False
+
+    def test_peer_params_reflect_settings(self) -> None:
+        sim = SimulationSettings(
+            peer_limit=12,
+            min_brackets=5,
+            bracket_cap=2,
+            personal_boost=0.05,
+            peer_budget_chars=6000,
+        )
+
+        metrics = _peer_and_provenance_metrics(
+            sim,
+            _provider(ORCH, "o", local=True),
+            _provider(WORKER, "w", local=True),
+            git_sha=None,
+            git_dirty=None,
+        )
+
+        assert metrics["peer_selection_version"] == 1
+        assert metrics["peer_limit"] == 12
+        assert metrics["peer_min_brackets"] == 5
+        assert metrics["peer_budget_chars"] == 6000
+        assert metrics["peer_personal_boost"] == 0.05
+
+    def test_unknown_git_state_is_empty_sha_and_no_dirty_key(self) -> None:
+        metrics = _peer_and_provenance_metrics(
+            SimulationSettings(),
+            _provider(ORCH, "o", local=True),
+            _provider(WORKER, "w", local=True),
+            git_sha=None,
+            git_dirty=None,
+        )
+
+        assert metrics["git_sha"] == ""
+        assert "git_dirty" not in metrics
+
+    def test_values_are_flat_scalars(self) -> None:
+        metrics = _peer_and_provenance_metrics(
+            SimulationSettings(),
+            _provider(ORCH, "o", local=False),
+            _provider(WORKER, "w", local=True),
+            git_sha="c" * 40,
+            git_dirty=True,
+        )
+
+        assert all(isinstance(v, (int, float, str, bool)) for v in metrics.values())

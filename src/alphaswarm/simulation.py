@@ -18,7 +18,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import structlog
 
@@ -29,6 +29,7 @@ from alphaswarm.errors import RoundFailedError
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.types import ContextPacket
+from alphaswarm.manifest import current_git_revision
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
@@ -548,6 +549,62 @@ def compute_exposure_metrics(
     return metrics
 
 
+_PEER_SELECTION_VERSION: Final = 1
+"""Stamped as ``peer_selection_version``: 1 = legacy deterministic top-weight fill."""
+
+
+def _provider_label(provider: InferenceProvider) -> str:
+    """Provider kind for the cycle metrics (docs/DECISIONS.md#adr-cycle-metrics).
+
+    The InferenceProvider protocol exposes only ``is_local()``. Ollama is the
+    only local provider type, so local providers report its ProviderType value
+    "ollama"; cloud providers report "cloud" and are told apart by model id.
+    """
+    return "ollama" if provider.is_local() else "cloud"
+
+
+def _mode_from_providers(orchestrator: InferenceProvider, worker: InferenceProvider) -> str:
+    """Return "local", "cloud" or "mixed": the classification inference_mode(cfg) uses."""
+    orchestrator_local = orchestrator.is_local()
+    worker_local = worker.is_local()
+    if orchestrator_local and worker_local:
+        return "local"
+    if not orchestrator_local and not worker_local:
+        return "cloud"
+    return "mixed"
+
+
+def _peer_and_provenance_metrics(
+    sim: SimulationSettings,
+    orchestrator: InferenceProvider,
+    worker: InferenceProvider,
+    *,
+    git_sha: str | None,
+    git_dirty: bool | None,
+) -> dict[str, float | int | str | bool]:
+    """Effective peer parameters and run provenance as flat cycle-metric keys.
+
+    ``git_sha`` is "" when unknown. ``git_dirty`` is omitted when unknown,
+    because a Neo4j property cannot hold null (docs/DECISIONS.md#adr-cycle-metrics).
+    """
+    metrics: dict[str, float | int | str | bool] = {
+        "peer_selection_version": _PEER_SELECTION_VERSION,
+        "peer_limit": sim.peer_limit,
+        "peer_min_brackets": sim.min_brackets,
+        "peer_budget_chars": sim.peer_budget_chars,
+        "peer_personal_boost": sim.personal_boost,
+        "orchestrator_provider": _provider_label(orchestrator),
+        "orchestrator_model": orchestrator.model,
+        "worker_provider": _provider_label(worker),
+        "worker_model": worker.model,
+        "inference_mode": _mode_from_providers(orchestrator, worker),
+        "git_sha": git_sha or "",
+    }
+    if git_dirty is not None:
+        metrics["git_dirty"] = git_dirty
+    return metrics
+
+
 def _compute_shifts(
     prev_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
     curr_decisions: list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...],
@@ -1059,6 +1116,9 @@ async def run_simulation(
         ollama_client,
         model_manager,
     )
+    # Provenance stamped into the cycle metrics (docs/DECISIONS.md#adr-cycle-metrics).
+    # git runs as a subprocess: cached per process and kept off the event loop.
+    git_sha, git_dirty = await asyncio.to_thread(current_git_revision)
 
     # Phase 13: Seed injection with modifier generation (D-06: same orchestrator session)
     phase = SimulationPhase.SEEDING
@@ -1599,6 +1659,11 @@ async def run_simulation(
         "agent_count": len(personas),
     }
     cycle_metrics.update(exposure_metrics)
+    cycle_metrics.update(
+        _peer_and_provenance_metrics(
+            settings.simulation, orch, worker, git_sha=git_sha, git_dirty=git_dirty
+        )
+    )
     # Inference failures separately from all PARSE_ERRORs, for every round
     # actually run (docs/DECISIONS.md#adr-cycle-metrics).
     rounds_run: dict[int, Sequence[tuple[str, AgentDecision]]] = {

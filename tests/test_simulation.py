@@ -3832,6 +3832,24 @@ _EXPOSURE_KEYS_TEST_BRACKETS: frozenset[str] = frozenset(
     | {"r2_distinct_peers_shown", "r3_distinct_peers_shown"}
 )
 
+# Peer parameters and run provenance stamped on every cycle (docs/DECISIONS.md#adr-cycle-metrics).
+_PROVENANCE_KEYS: frozenset[str] = frozenset(
+    {
+        "peer_selection_version",
+        "peer_limit",
+        "peer_min_brackets",
+        "peer_budget_chars",
+        "peer_personal_boost",
+        "orchestrator_provider",
+        "orchestrator_model",
+        "worker_provider",
+        "worker_model",
+        "inference_mode",
+        "git_sha",
+        "git_dirty",
+    }
+)
+
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
@@ -3875,9 +3893,9 @@ async def test_run_simulation_writes_cycle_metrics(
         "r1_inference_errors", "r2_inference_errors", "r3_inference_errors",
         "final_round",
     }
-    assert set(metrics.keys()) == expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS
+    assert set(metrics.keys()) == expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS | _PROVENANCE_KEYS
     # All values are flat scalars (Neo4j property constraint)
-    assert all(isinstance(v, (int, float)) for v in metrics.values())
+    assert all(isinstance(v, (int, float, str, bool)) for v in metrics.values())
     assert metrics["agent_count"] == len(TEST_PERSONAS)
     # Final distribution covers all non-PARSE_ERROR round-3 decisions
     assert (
@@ -3934,6 +3952,65 @@ async def test_run_simulation_writes_peer_exposure_metrics(
         assert not any(key.startswith(r3_keys) for key in metrics)
 
 
+@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
+@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
+async def test_run_simulation_stamps_peer_params_and_provenance(
+    mock_inject: AsyncMock,
+    mock_round1: AsyncMock,
+    mock_dispatch_wave: AsyncMock,
+    mock_settings: AppSettings,
+    mock_ollama_client: MagicMock,
+    mock_model_manager: AsyncMock,
+    mock_graph_manager: AsyncMock,
+    mock_governor: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cycle metrics carry the effective peer knobs, model ids, provider mode and git state."""
+    from alphaswarm.config import SimulationSettings
+    from alphaswarm.inference.types import InferenceResult, ProviderRole
+    from alphaswarm.simulation import run_simulation
+    from tests.inference.fakes import FakeInferenceProvider
+
+    monkeypatch.setattr("alphaswarm.simulation.current_git_revision", lambda: ("b" * 40, True))
+    cloud_worker = FakeInferenceProvider(
+        ProviderRole.WORKER,
+        "cloud-worker-model",
+        scripted=lambda **_: InferenceResult(content="narrative", model="cloud-worker-model"),
+        is_local=False,
+    )
+    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
+    mock_round1.return_value = _mock_round1_result()
+    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
+    tuned = mock_settings.model_copy(
+        update={"simulation": SimulationSettings(peer_limit=7, personal_boost=0.05)}
+    )
+
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=tuned,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        worker_provider=cloud_worker,
+    )
+
+    _, metrics = mock_graph_manager.write_cycle_metrics.await_args.args
+    assert metrics["peer_selection_version"] == 1
+    assert metrics["peer_limit"] == 7
+    assert metrics["peer_personal_boost"] == 0.05
+    assert metrics["orchestrator_provider"] == "ollama"
+    assert metrics["orchestrator_model"] == mock_settings.ollama.orchestrator_model_alias
+    assert metrics["worker_provider"] == "cloud"
+    assert metrics["worker_model"] == "cloud-worker-model"
+    assert metrics["inference_mode"] == "mixed"
+    assert metrics["git_sha"] == "b" * 40
+    assert metrics["git_dirty"] is True
+
+
 # ---------------------------------------------------------------------------
 # Task 15a: Injected provider routing tests
 # ---------------------------------------------------------------------------
@@ -3968,6 +4045,7 @@ async def test_run_simulation_uses_injected_worker_provider(
     fake_worker.aclose = AsyncMock()
     fake_worker.model = "fake-worker"
     fake_worker.role = None  # not inspected by dispatch_wave
+    fake_worker.is_local = MagicMock(return_value=False)  # sync, like the protocol
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()
