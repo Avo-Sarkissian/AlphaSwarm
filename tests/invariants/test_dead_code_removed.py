@@ -72,3 +72,10 @@ def test_cli_round1_report_helpers_are_gone() -> None:
 
     assert not hasattr(cli, "_print_round1_report"), "run prints through _print_round_report"
     assert not hasattr(cli, "_aggregate_brackets"), "use simulation.compute_bracket_summaries"
+
+
+def test_stale_diagnose_script_is_gone() -> None:
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    assert not (repo_root / "scripts" / "diagnose_sim.py").exists(), "probed dead code paths"
