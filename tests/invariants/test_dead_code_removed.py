@@ -48,3 +48,11 @@ def test_drain_rationales_shim_is_gone() -> None:
     from alphaswarm.state import StateStore
 
     assert not hasattr(StateStore, "drain_rationales"), "snapshots carry the rationale window"
+
+
+def test_report_sentinel_and_missing_template_mapping_are_gone() -> None:
+    import alphaswarm.report as report
+
+    assert not hasattr(report, "write_sentinel"), "nothing reads .alphaswarm/last_report.json"
+    assert "portfolio_impact" not in report.TOOL_TO_TEMPLATE, "10_portfolio_impact.j2 never existed"
+    assert "portfolio_impact" not in report.SECTION_ORDER

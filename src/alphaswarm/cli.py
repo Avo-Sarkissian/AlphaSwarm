@@ -719,7 +719,7 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     3. Print model lifecycle warning
     4. Load orchestrator model
     5. Build tool registry -> run ReACT engine -> collect observations
-    6. Assemble report -> write to disk -> write sentinel
+    6. Assemble report -> write to disk
     7. Unload orchestrator model + close graph manager (finally)
     """
     from pathlib import Path
@@ -731,7 +731,6 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
         ReportAssembler,
         ReportEngine,
         write_report,
-        write_sentinel,
     )
 
     settings = AppSettings()
@@ -809,9 +808,8 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
             else settings.resolve_path(settings.reports_dir) / f"{cycle_id}_report.md"
         )
 
-        # Write report and sentinel (per D-10, D-05)
+        # Write the report (per D-10)
         await write_report(output_path, content)
-        await write_sentinel(cycle_id, str(output_path))
 
         print(f"Report generated: {output_path}")
 

@@ -42,7 +42,7 @@ async def test_report_generation_pipeline(
 ) -> None:
     """_run_report_generation runs the exact sequence:
     provider.prepare -> engine.run -> assembler.assemble ->
-    write_report -> write_sentinel -> provider.teardown.
+    write_report -> provider.teardown.
     Mirrors cli.py _handle_report (D-03).
 
     Uses build_providers seam: monkeypatches build_providers in the report module
@@ -101,15 +101,11 @@ async def test_report_generation_pipeline(
     async def _fake_write_report(_path: Path, _content: str) -> None:
         call_order.append("write_report")
 
-    async def _fake_write_sentinel(_cid: str, _path: str) -> None:
-        call_order.append("write_sentinel")
-
     with patch.object(report_module, "build_providers", return_value=fake_built), \
             patch.object(report_module, "load_inference_config", return_value=MagicMock()), \
             patch.object(report_module, "ReportEngine") as mock_engine, \
             patch.object(report_module, "ReportAssembler") as mock_assembler, \
-            patch.object(report_module, "write_report", side_effect=_fake_write_report), \
-            patch.object(report_module, "write_sentinel", side_effect=_fake_write_sentinel):
+            patch.object(report_module, "write_report", side_effect=_fake_write_report):
         engine_instance = MagicMock()
         engine_instance.run = _fake_run
         mock_engine.return_value = engine_instance
@@ -124,7 +120,6 @@ async def test_report_generation_pipeline(
         "engine_run",
         "assemble",
         "write_report",
-        "write_sentinel",
         "unload_model",
     ]
 

@@ -215,25 +215,6 @@ class TestReportAssembler:
         assert report_path.exists()
         assert report_path.read_text() == "# Report Content"
 
-    async def test_sentinel_file_schema(self, tmp_path: pytest.TempdirFactory) -> None:
-        """write_sentinel creates JSON with cycle_id, path, and generated_at ISO timestamp."""
-        import json
-        from datetime import datetime
-
-        from alphaswarm.report import write_sentinel
-
-        await write_sentinel("cycle1", "./reports/cycle1_report.md", sentinel_dir=tmp_path)  # type: ignore[arg-type]
-
-        sentinel_file = tmp_path / "last_report.json"  # type: ignore[operator]
-        assert sentinel_file.exists()
-
-        data = json.loads(sentinel_file.read_text())
-        assert set(data.keys()) == {"cycle_id", "path", "generated_at"}
-        assert data["cycle_id"] == "cycle1"
-        assert data["path"] == "./reports/cycle1_report.md"
-        # Validate ISO timestamp
-        datetime.fromisoformat(data["generated_at"])
-
 
 # ---------------------------------------------------------------------------
 # Phase 24: HTML Report Tests
@@ -421,13 +402,14 @@ def test_tool_to_template_contains_shock_impact() -> None:
     assert TOOL_TO_TEMPLATE.get("shock_impact") == "11_shock_impact.j2"
 
 
-def test_section_order_contains_shock_impact_after_portfolio() -> None:
-    """Phase 27 SHOCK-05 — SECTION_ORDER ends with 'shock_impact' after 'portfolio_impact'."""
-    from alphaswarm.report import SECTION_ORDER
+def test_section_order_ends_with_shock_impact() -> None:
+    """Phase 27 SHOCK-05 — 'shock_impact' is the last section; every section has a template."""
+    from alphaswarm.report import SECTION_ORDER, TEMPLATE_DIR, TOOL_TO_TEMPLATE
 
-    assert "shock_impact" in SECTION_ORDER
-    assert "portfolio_impact" in SECTION_ORDER
-    assert SECTION_ORDER.index("shock_impact") > SECTION_ORDER.index("portfolio_impact")
+    assert SECTION_ORDER[-1] == "shock_impact"
+    assert "portfolio_impact" not in SECTION_ORDER
+    for tool_name in SECTION_ORDER:
+        assert (TEMPLATE_DIR / TOOL_TO_TEMPLATE[tool_name]).is_file(), tool_name
 
 
 def test_assemble_includes_shock_section_when_observation_present() -> None:
