@@ -31,6 +31,7 @@ from alphaswarm.web.simulation_manager import (
     PostRunJobsInProgressError,
     ReplayActiveError,
     ShockAlreadyQueuedError,
+    ShockWindowClosedError,
     SimulationAlreadyRunningError,
 )
 
@@ -46,6 +47,7 @@ DOMAIN_ERROR_STATUS: dict[type[Exception], tuple[int, str]] = {
     PostRunJobsInProgressError: (409, "post_run_jobs_in_progress"),
     NoSimulationRunningError: (409, "no_simulation_running"),
     ShockAlreadyQueuedError: (409, "shock_already_queued"),
+    ShockWindowClosedError: (409, "shock_window_closed"),
     ReplayAlreadyActiveError: (409, "replay_already_active"),
     SimulationActiveError: (409, "simulation_in_progress"),
     NoReplayActiveError: (409, "no_replay_active"),

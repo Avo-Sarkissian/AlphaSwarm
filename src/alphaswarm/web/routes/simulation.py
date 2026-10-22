@@ -6,6 +6,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
+from alphaswarm.web.params import ShockText
 from alphaswarm.web.simulation_manager import (
     NoSimulationRunningError,
     ReplayActiveError,
@@ -38,9 +39,9 @@ class SimulateStopResponse(BaseModel):
 
 
 class SimulateShockRequest(BaseModel):
-    """Request body for POST /simulate/shock."""
+    """Request body for POST /simulate/shock (10-1000 characters after stripping)."""
 
-    shock_text: str
+    shock_text: ShockText
 
 
 class SimulateShockResponse(BaseModel):
@@ -112,8 +113,8 @@ async def simulate_stop(request: Request) -> SimulateStopResponse:
 async def simulate_shock(body: SimulateShockRequest, request: Request) -> SimulateShockResponse:
     """Queue a shock for the next simulation round.
 
-    Returns 200 when the shock is queued.
-    Returns 409 Conflict when no simulation is running or shock already queued.
+    200 when queued; 409 when no run is active, the shock window is closed, or a
+    shock is already queued; 422 bad length.
     """
     sim_manager = request.app.state.sim_manager
     try:
