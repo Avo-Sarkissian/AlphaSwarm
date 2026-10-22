@@ -1,224 +1,240 @@
-// Wire-contract tests for adaptSnapshot() — the #1 frontend failure mode is
-// adapter drift against the backend snapshot shape.
-//
-// The canned snapshot below EXACTLY mirrors what the backend emits:
-// dataclasses.asdict(StateSnapshot) from src/alphaswarm/state.py, serialized
-// by src/alphaswarm/web/broadcaster.py:snapshot_to_json(). SignalType and
-// SimulationPhase are str-Enums, so wire values are lowercase strings
-// ('buy'/'sell'/'hold'/'parse_error', 'idle'/'seeding'/'round_1'/.../'replay').
-// signal=null means the agent is still thinking (dispatch window placeholder).
-// If the backend shape changes, THIS FILE must change with it — deliberately.
+// Wire-contract tests for adaptSnapshot(). The frames come from
+// src/__tests__/fixtures/, written by tests/test_wire_contract.py from a real
+// StateStore and serialised exactly as the broadcaster sends them. When the
+// backend frame changes, regenerate the fixtures (UPDATE_GOLDEN=1) in the same
+// commit; never edit them by hand.
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { adaptSnapshot, SUPPORTED_SCHEMA_VERSION } from '../adapter/frame';
+import live from './fixtures/ws_snapshot.json';
+import replay from './fixtures/ws_snapshot_replay.json';
+import {
+  AGENT_STATE_KEYS,
+  APPLIED_SHOCK_KEYS,
+  AUDIT_KEYS,
+  BRACKET_SUMMARY_KEYS,
+  FRAME_KEYS,
+  GOVERNOR_KEYS,
+  JOB_STATUS_KEYS,
+  JOBS_KEYS,
+  RATIONALE_KEYS,
+  RUN_ERROR_KEYS,
+} from './helpers/wireKeys';
 
-import { describe, expect, it } from 'vitest';
-import { adaptSnapshot } from '../adapter/frame';
+const sorted = (keys: readonly string[]): string[] => [...keys].sort();
+const keysOf = (value: object): string[] => sorted(Object.keys(value));
 
-/** Mirrors json.loads(snapshot_to_json(state_store)) mid-round_2. */
-const WIRE_SNAPSHOT = {
-  phase: 'round_2',
-  round_num: 2,
-  agent_count: 100,
-  agent_states: {
-    // signal=null → agent still thinking (set_phase round-entry placeholder)
-    sell_side_03: { signal: null, confidence: 0.0 },
-    institutions_01: { signal: 'buy', confidence: 0.82 },
-    event_driven_05: { signal: 'sell', confidence: 0.4 },
-    degens_07: { signal: 'parse_error', confidence: 0.0 },
-    macro_02: { signal: 'hold', confidence: 0.55 },
-  },
-  elapsed_seconds: 123.45,
-  governor_metrics: {
-    current_slots: 16,
-    active_count: 12,
-    pressure_level: 'green',
-    memory_percent: 61.2,
-    governor_state: 'normal',
-    timestamp: 98765.4,
-  },
-  tps: 42.7,
-  rationale_entries: [
-    {
-      agent_id: 'quants_01',
-      signal: 'buy',
-      rationale: 'Momentum + volume confirm the rumor priced in',
-      round_num: 1,
-    },
-    {
-      agent_id: 'shorts_02',
-      signal: 'sell',
-      rationale: 'Crowded long, fade the cascade',
-      round_num: 2,
-    },
-  ],
-  bracket_summaries: [
-    {
-      bracket: 'sell_side',
-      display_name: 'Sell-Side',
-      buy_count: 4,
-      sell_count: 3,
-      hold_count: 3,
-      total: 10,
-      avg_confidence: 0.61,
-      avg_sentiment: 0.1,
-    },
-    {
-      bracket: 'event_driven',
-      display_name: 'Event-Driven',
-      buy_count: 5,
-      sell_count: 2,
-      hold_count: 3,
-      total: 10,
-      avg_confidence: 0.55,
-      avg_sentiment: -0.2,
-    },
-  ],
-  data_source_audit: [
-    {
-      ts: 1765432100.5,
-      source: 'yfinance',
-      query: 'AAPL 1d OHLCV',
-      result: 'ok',
-      used: true,
-    },
-  ],
-};
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
-describe('adaptSnapshot — wire contract', () => {
-  it('passes phase/round through and derives running', () => {
-    const frame = adaptSnapshot(WIRE_SNAPSHOT);
+describe('fixtures match the TypeScript wire mirror (types.ts)', () => {
+  it.each([
+    ['live', live],
+    ['replay', replay],
+  ] as const)('%s frame has exactly the WireStateFrame keys', (_name, frame) => {
+    expect(keysOf(frame)).toEqual(sorted(FRAME_KEYS));
+    expect(keysOf(frame.governor_metrics)).toEqual(sorted(GOVERNOR_KEYS));
+    expect(keysOf(frame.jobs)).toEqual(sorted(JOBS_KEYS));
+    expect(keysOf(frame.jobs.advisory)).toEqual(sorted(JOB_STATUS_KEYS));
+    expect(keysOf(frame.jobs.report)).toEqual(sorted(JOB_STATUS_KEYS));
+    for (const state of Object.values(frame.agent_states)) {
+      expect(keysOf(state)).toEqual(sorted(AGENT_STATE_KEYS));
+    }
+    for (const entry of frame.rationale_entries) {
+      expect(keysOf(entry)).toEqual(sorted(RATIONALE_KEYS));
+    }
+    for (const summary of frame.bracket_summaries) {
+      expect(keysOf(summary)).toEqual(sorted(BRACKET_SUMMARY_KEYS));
+    }
+  });
+
+  it('live frame carries one audit entry and one applied shock with the mirrored keys', () => {
+    expect(live.data_source_audit).toHaveLength(1);
+    expect(keysOf(live.data_source_audit[0]!)).toEqual(sorted(AUDIT_KEYS));
+    expect(live.applied_shocks).toHaveLength(1);
+    expect(keysOf(live.applied_shocks[0]!)).toEqual(sorted(APPLIED_SHOCK_KEYS));
+  });
+
+  it('the fixtures use the schema version this bundle supports', () => {
+    expect(live.schema_version).toBe(SUPPORTED_SCHEMA_VERSION);
+    expect(replay.schema_version).toBe(SUPPORTED_SCHEMA_VERSION);
+  });
+});
+
+describe('adaptSnapshot — live frame (mid round 2)', () => {
+  const frame = adaptSnapshot(live);
+
+  it('maps identity, mode and versioning', () => {
+    expect(frame.schemaVersion).toBe(1);
+    expect(frame.mode).toBe('live');
     expect(frame.phase).toBe('round_2');
     expect(frame.roundNum).toBe(2);
     expect(frame.running).toBe(true);
+    expect(frame.cycleId).toBe('00000000-0000-4000-8000-000000000001');
+    expect(frame.numRounds).toBe(3);
+    expect(frame.edgesVersion).toBe(0);
   });
 
-  it.each([
-    ['idle', false],
-    ['seeding', true],
-    ['round_1', true],
-    ['round_2', true],
-    ['round_3', true],
-    ['finalizing', true],
-    ['complete', false],
-    ['replay', true],
-  ])('accepts backend phase %s (running=%s)', (phase, running) => {
-    const frame = adaptSnapshot({ ...WIRE_SNAPSHOT, phase });
-    expect(frame.phase).toBe(phase);
-    expect(frame.running).toBe(running);
-  });
-
-  it('maps signal=null to thinking=true with neutral hold visual', () => {
-    const frame = adaptSnapshot(WIRE_SNAPSHOT);
-    const thinking = frame.agents.find((a) => a.id === 'sell_side_03');
-    expect(thinking).toBeDefined();
-    expect(thinking!.thinking).toBe(true);
-    expect(thinking!.signal).toBe('hold'); // neutral fallback while thinking
-
-    const decided = frame.agents.find((a) => a.id === 'institutions_01');
-    expect(decided!.thinking).toBe(false);
-    expect(decided!.signal).toBe('buy');
-    expect(decided!.confidence).toBe(0.82);
-  });
-
-  it('preserves parse_error as a distinct signal (not coerced to hold)', () => {
-    const frame = adaptSnapshot(WIRE_SNAPSHOT);
-    const broken = frame.agents.find((a) => a.id === 'degens_07');
-    expect(broken!.signal).toBe('parse_error');
-    expect(broken!.thinking).toBe(false);
-  });
-
-  it('maps multi-word bracket agent IDs to the right BracketKey', () => {
-    const frame = adaptSnapshot(WIRE_SNAPSHOT);
+  it('maps signal=null to thinking and keeps parse_error distinct', () => {
     const byId = Object.fromEntries(frame.agents.map((a) => [a.id, a]));
-    expect(byId.sell_side_03.bracket).toBe('SellSide');
-    expect(byId.sell_side_03.bracketDisplay).toBe('Sell-Side');
-    expect(byId.event_driven_05.bracket).toBe('EventDriven');
-    expect(byId.institutions_01.bracket).toBe('Institutions');
-    expect(byId.macro_02.bracket).toBe('Macro');
+    expect(byId.sell_side_03!.thinking).toBe(true);
+    expect(byId.sell_side_03!.signal).toBe('hold'); // neutral visual while thinking
+    expect(byId.degens_07!.signal).toBe('parse_error');
+    expect(byId.degens_07!.thinking).toBe(false);
+    expect(byId.institutions_01!.signal).toBe('buy');
+    expect(byId.institutions_01!.confidence).toBe(0.82);
   });
 
-  it('keeps per-entry signal and round_num on rationale entries', () => {
-    const frame = adaptSnapshot(WIRE_SNAPSHOT);
-    expect(frame.rationales).toHaveLength(2);
-    const [first, second] = frame.rationales;
-    expect(first.agentId).toBe('quants_01');
-    expect(first.signal).toBe('buy'); // per-entry wire signal, NOT current agent state
-    expect(first.round).toBe(1); // round_num from the entry, NOT current round (2)
-    expect(first.text).toBe('Momentum + volume confirm the rumor priced in');
-    expect(second.agentId).toBe('shorts_02');
-    expect(second.signal).toBe('sell');
-    expect(second.round).toBe(2);
+  it('maps multi-word bracket ids to BracketKeys', () => {
+    const byId = Object.fromEntries(frame.agents.map((a) => [a.id, a]));
+    expect(byId.sell_side_03!.bracket).toBe('SellSide');
+    expect(byId.sell_side_03!.bracketDisplay).toBe('Sell-Side');
+    expect(byId.event_driven_05!.bracket).toBe('EventDriven');
   });
 
-  it('maps governor metrics to slotsUsed/slotsMax/governorState', () => {
-    const { telemetry } = adaptSnapshot(WIRE_SNAPSHOT);
-    expect(telemetry.slotsUsed).toBe(12); // governor_metrics.active_count
-    expect(telemetry.slotsMax).toBe(16); // governor_metrics.current_slots
-    expect(telemetry.governorState).toBe('normal');
-    expect(telemetry.memMb).toBe(61.2); // KR-41.1-04: percent, not MB
+  it('keeps per-entry signal, round, seq and ts (seconds -> ms) on rationales', () => {
+    expect(frame.rationales.map((r) => [r.seq, r.agentId, r.signal, r.round, r.ts])).toEqual([
+      [1, 'quants_01', 'buy', 1, 1_790_000_010_000],
+      [2, 'shorts_02', 'sell', 2, 1_790_000_015_000],
+    ]);
   });
 
-  it('passes elapsed_seconds and tps through telemetry', () => {
-    const { telemetry } = adaptSnapshot(WIRE_SNAPSHOT);
-    expect(telemetry.elapsedSeconds).toBe(123.45);
-    expect(telemetry.tps).toBe(42.7);
+  it('maps governor metrics and telemetry', () => {
+    expect(frame.telemetry).toMatchObject({
+      slotsUsed: 12,
+      slotsMax: 16,
+      governorState: 'running',
+      memMb: 61.2,
+      tps: 42.7,
+      elapsedSeconds: 754.25,
+    });
   });
 
-  it('maps snake_case bracket_summaries to PascalCase BracketKeys', () => {
-    const frame = adaptSnapshot(WIRE_SNAPSHOT);
-    expect(frame.bracketSummaries).toHaveLength(2);
-    const [sellSide, eventDriven] = frame.bracketSummaries;
-    expect(sellSide.bracket).toBe('SellSide');
-    expect(sellSide.display).toBe('Sell-Side');
-    expect(sellSide.buy).toBe(4);
-    expect(sellSide.sell).toBe(3);
-    expect(sellSide.hold).toBe(3);
-    expect(sellSide.total).toBe(10);
-    expect(sellSide.agentCount).toBe(10);
-    expect(sellSide.avgConfidence).toBe(0.61);
-    expect(eventDriven.bracket).toBe('EventDriven');
-    // consensus = mean of avg_sentiment across brackets: (0.1 + -0.2) / 2
+  it('maps bracket summaries and the derived consensus', () => {
+    expect(frame.bracketSummaries.map((b) => [b.bracket, b.display, b.total])).toEqual([
+      ['SellSide', 'Sell-Side', 10],
+      ['EventDriven', 'Event-Driven', 10],
+    ]);
     expect(frame.consensus).toBeCloseTo(-0.05, 10);
   });
 
-  it('passes the data_source_audit slice through to camelCase views', () => {
-    const frame = adaptSnapshot(WIRE_SNAPSHOT);
-    expect(frame.dataSourceAudit).toEqual([
-      {
-        ts: 1765432100.5,
-        source: 'yfinance',
-        query: 'AAPL 1d OHLCV',
-        result: 'ok',
-        used: true,
-      },
+  it('maps jobs, error, shocks and the audit log', () => {
+    expect(frame.jobs).toEqual({
+      advisory: { state: 'idle', cycleId: null, errorCode: null },
+      report: { state: 'idle', cycleId: null, errorCode: null },
+    });
+    expect(frame.lastError).toBeNull();
+    expect(frame.pendingShock).toBe('ZZZT Holdings confirms the financing is fully committed.');
+    expect(frame.appliedShocks).toEqual([
+      { text: 'QQQX Robotics board rejects the offer as undervalued.', roundNum: 2 },
     ]);
+    expect(frame.shockWindowOpen).toBe(true);
+    expect(frame.dataSourceAudit).toEqual([
+      { ts: 1_790_000_015, source: 'yfinance', query: 'ZZZT 1d OHLCV', result: 'ok', used: true },
+    ]);
+  });
+});
+
+describe('adaptSnapshot — replay frame', () => {
+  const frame = adaptSnapshot(replay);
+
+  it('identifies the replayed cycle and its round depth', () => {
+    expect(frame.mode).toBe('replay');
+    expect(frame.cycleId).toBe('00000000-0000-4000-8000-000000000002');
+    expect(frame.numRounds).toBe(2);
+    expect(frame.roundNum).toBe(2);
+    expect(frame.edgesVersion).toBe(1);
+  });
+
+  it('carries the live job status, so a reload during replay still sees the report job', () => {
+    expect(frame.jobs.report).toEqual({
+      state: 'running',
+      cycleId: '00000000-0000-4000-8000-000000000002',
+      errorCode: null,
+    });
+  });
+
+  it('numbers replay rationales 1..n with unknown time', () => {
+    expect(frame.rationales.map((r) => [r.seq, r.ts])).toEqual([
+      [1, 0],
+      [2, 0],
+    ]);
+  });
+});
+
+describe('adaptSnapshot — defensive mapping', () => {
+  it('maps a failed run to lastError', () => {
+    const lastError = { code: 'round_failed', message: 'Round 2 failed', round_num: 2, ts: 1.5 };
+    expect(keysOf(lastError)).toEqual(sorted(RUN_ERROR_KEYS));
+    const frame = adaptSnapshot({ ...live, phase: 'idle', mode: 'idle', last_error: lastError });
+    expect(frame.lastError).toEqual({
+      code: 'round_failed',
+      message: 'Round 2 failed',
+      roundNum: 2,
+      ts: 1.5,
+    });
+  });
+
+  it.each([
+    ['idle', 'idle'],
+    ['seeding', 'live'],
+    ['round_3', 'live'],
+    ['finalizing', 'live'],
+    ['complete', 'live'],
+    ['replay', 'replay'],
+  ])('derives mode %s -> %s when the frame has none', (phase, mode) => {
+    expect(adaptSnapshot({ phase }).mode).toBe(mode);
   });
 
   it('returns a sane frame for an empty snapshot ({})', () => {
     const frame = adaptSnapshot({});
-    expect(frame.phase).toBe('idle');
-    expect(frame.running).toBe(false);
-    expect(frame.roundNum).toBeNull();
-    expect(frame.agents).toEqual([]);
-    expect(frame.bracketSummaries).toEqual([]);
-    expect(frame.rationales).toEqual([]);
-    expect(frame.dataSourceAudit).toEqual([]);
-    expect(frame.consensus).toBeNull();
-    expect(frame.cycleId).toBeNull();
-    expect(frame.telemetry.slotsUsed).toBe(0);
-    expect(frame.telemetry.slotsMax).toBe(0);
-    expect(frame.telemetry.governorState).toBeNull();
-    expect(frame.telemetry.tps).toBe(0);
-    expect(frame.telemetry.elapsedSeconds).toBe(0);
+    expect(frame).toMatchObject({
+      schemaVersion: 0,
+      mode: 'idle',
+      phase: 'idle',
+      running: false,
+      roundNum: null,
+      cycleId: null,
+      numRounds: 3,
+      edgesVersion: 0,
+      agents: [],
+      bracketSummaries: [],
+      rationales: [],
+      dataSourceAudit: [],
+      consensus: null,
+      lastError: null,
+      pendingShock: null,
+      appliedShocks: [],
+      shockWindowOpen: false,
+    });
+    expect(frame.jobs.report).toEqual({ state: 'idle', cycleId: null, errorCode: null });
   });
 
-  it('does not throw on null/undefined or partially-missing fields', () => {
+  it('does not throw on null, undefined or malformed fields', () => {
     expect(() => adaptSnapshot(null)).not.toThrow();
     expect(() => adaptSnapshot(undefined)).not.toThrow();
     expect(() =>
-      adaptSnapshot({ phase: 'round_1', agent_states: { quants_01: null } }),
+      adaptSnapshot({
+        agent_states: { quants_01: null },
+        rationale_entries: [null],
+        bracket_summaries: [{}],
+        governor_metrics: null,
+        jobs: { report: 'running' },
+        last_error: { code: 7 },
+        applied_shocks: [null, { text: 3 }],
+      }),
     ).not.toThrow();
-    expect(() =>
-      adaptSnapshot({ rationale_entries: [null], bracket_summaries: [{}] }),
-    ).not.toThrow();
-    expect(() => adaptSnapshot({ governor_metrics: null })).not.toThrow();
+  });
+
+  it('warns once when the backend speaks a different schema_version, and still adapts', async () => {
+    vi.resetModules();
+    const { adaptSnapshot: fresh } = await import('../adapter/frame');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const frame = fresh({ ...live, schema_version: 2 });
+    fresh({ ...live, schema_version: 2 });
+    expect(frame.schemaVersion).toBe(2);
+    expect(frame.cycleId).toBe('00000000-0000-4000-8000-000000000001');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toContain('schema_version 2');
   });
 });
