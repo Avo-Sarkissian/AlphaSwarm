@@ -377,6 +377,20 @@ def _select(
     )
 
 
+class _ScriptedRandom(random.Random):
+    """``random()`` returns ``values`` in order, then continues a seeded stream."""
+
+    def __init__(self, values: Sequence[float]) -> None:
+        super().__init__(0)
+        self._values = list(values)
+
+    def random(self) -> float:
+        return self._values.pop(0) if self._values else super().random()
+
+
+_LUCKIEST_DRAW = 1.0 - 2.0**-53  # the largest value random() can return
+
+
 class TestSelectDiversePeers:
     def test_requires_an_explicit_rng(self) -> None:
         with pytest.raises(TypeError, match="rng"):
@@ -445,6 +459,37 @@ class TestSelectDiversePeers:
         for seed in range(50):
             out = _select("degens_02", weights, personas, seed=seed, limit=1, min_brackets=0)
             assert out == ["degens_01"]
+
+    @pytest.mark.parametrize(
+        ("draws", "min_brackets"),
+        [
+            # Candidate keys draw first, in roster order: quants_01, then degens_01.
+            ((_LUCKIEST_DRAW, 0.5), 0),
+            # Then the bracket keys: quants, then degens.
+            ((0.5, 0.5, _LUCKIEST_DRAW, 0.5), 1),
+        ],
+        ids=["fill", "guaranteed-bracket"],
+    )
+    def test_degenerate_weight_loses_even_its_luckiest_draw(
+        self, draws: tuple[float, ...], min_brackets: int
+    ) -> None:
+        """No draw lifts a weight without reach over a positive one, in either phase."""
+        personas = [
+            _persona("quants_01", BracketType.QUANTS),
+            _persona("degens_01", BracketType.DEGENS),
+        ]
+        weights = {"quants_01": math.nan, "degens_01": 0.5}
+
+        out = select_diverse_peers(
+            "macro_01",
+            weights,
+            personas,
+            rng=_ScriptedRandom(draws),
+            limit=1,
+            min_brackets=min_brackets,
+        )
+
+        assert out == ["degens_01"]
 
     def test_min_brackets_larger_than_limit(self) -> None:
         """An odd but legal setting degrades to one peer per bracket."""

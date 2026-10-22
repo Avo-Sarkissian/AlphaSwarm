@@ -170,26 +170,27 @@ def peer_rng(run_seed: str, reader_id: str, round_num: int) -> random.Random:
     return random.Random(int.from_bytes(digest, "big"))
 
 
-_MIN_SAMPLING_WEIGHT: Final = 1e-9
-"""Stand-in for non-finite or non-positive weights, so such candidates sort last."""
+def _reach(weight: float) -> float:
+    """Sampling weight: ``weight`` when finite and positive, else 0.0 (no reach)."""
+    return weight if math.isfinite(weight) and weight > 0.0 else 0.0
 
 
-def _effective_weight(weight: float) -> float:
-    """Sampling weight: ``weight`` when finite and positive, else a tiny positive value."""
-    return weight if math.isfinite(weight) and weight > 0.0 else _MIN_SAMPLING_WEIGHT
+def _sampling_key(rng: random.Random, weight: float) -> tuple[bool, float]:
+    """Efraimidis–Spirakis key; larger wins.
 
-
-def _sampling_key(rng: random.Random, weight: float) -> float:
-    """Efraimidis–Spirakis key ``log(u) / w``, the log of ``u ** (1/w)``; larger wins.
-
-    Sorting candidates by this key, descending, is weighted sampling without
-    replacement. The log form avoids underflow for small weights. ``weight``
-    must already be positive (see ``_effective_weight``).
+    The float is ``log(u) / w``, the log of ``u ** (1/w)``: sorting by it,
+    descending, is weighted sampling without replacement, and the log form
+    avoids underflow for small weights. The flag is False for a weight without
+    reach (non-finite or not positive), whose float then draws as weight 1:
+    such keys sort behind every positive weight, whatever ``u`` is, and stay in
+    random order among themselves. One ``u`` is drawn either way.
     """
     u = rng.random()
     while u == 0.0:  # random() is in [0, 1); log(0) is undefined
         u = rng.random()
-    return math.log(u) / weight
+    if math.isfinite(weight) and weight > 0.0:
+        return True, math.log(u) / weight
+    return False, math.log(u)
 
 
 def select_diverse_peers(
@@ -221,7 +222,8 @@ def select_diverse_peers(
 
     Production passes ``rng=peer_rng(run_seed, agent_id, round_num)``; the same
     rng state always yields the same list. Non-finite or non-positive weights
-    count as a tiny positive weight: such candidates go to the back and
+    have no reach: such candidates, and brackets with no positive weight, sort
+    behind every positive weight (in random order among themselves) and
     nothing raises.
 
     Raises:
@@ -238,7 +240,7 @@ def select_diverse_peers(
     if limit <= 0 or not candidates:
         return []
 
-    weight = {p.id: _effective_weight(influence_weights.get(p.id, 0.0)) for p in candidates}
+    weight = {p.id: _reach(influence_weights.get(p.id, 0.0)) for p in candidates}
     key = {p.id: _sampling_key(rng, weight[p.id]) for p in candidates}
     bracket_of = {p.id: p.bracket.value for p in candidates}
     members: dict[str, list[str]] = {}
