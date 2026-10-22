@@ -36,9 +36,9 @@ def _app() -> FastAPI:
     async def graph_down() -> None:
         raise Neo4jUnavailableError("refused at /Users/someone/x", op="read_cycle_status")
 
-    @app.get("/legacy-graph-down")
-    async def legacy_graph_down() -> None:
-        raise Neo4jConnectionError("refused at /Users/someone/x")
+    @app.get("/legacy-query-error")
+    async def legacy_query_error() -> None:
+        raise Neo4jConnectionError("syntax error at /Users/someone/x")
 
     @app.get("/driver-down")
     async def driver_down() -> None:
@@ -94,7 +94,7 @@ def test_validation_error_is_422_envelope_without_input_values() -> None:
     assert "short-x" not in r.text
 
 
-@pytest.mark.parametrize("path", ["/graph-down", "/legacy-graph-down", "/driver-down"])
+@pytest.mark.parametrize("path", ["/graph-down", "/driver-down"])
 def test_graph_errors_map_to_503(path: str) -> None:
     r = TestClient(_app()).get(path)
     assert r.status_code == 503
@@ -116,6 +116,16 @@ def test_http_exception_with_dict_detail_keeps_shape() -> None:
     r = TestClient(_app()).get("/legacy")
     assert r.status_code == 409
     assert r.json() == {"detail": {"error": "legacy_code", "message": "m"}}
+
+
+def test_query_error_wrapper_is_500_not_graph_unavailable() -> None:
+    # graph.py wraps server-side query errors (syntax, constraint) in
+    # Neo4jConnectionError; an outage arrives as DriverError instead. A query
+    # error is a bug, so it must reach the logged 500 path, not a 503.
+    r = TestClient(_app(), raise_server_exceptions=False).get("/legacy-query-error")
+    assert r.status_code == 500
+    assert r.json()["detail"]["error"] == "internal_error"
+    assert "/Users" not in r.text
 
 
 def test_unknown_route_404_uses_envelope() -> None:

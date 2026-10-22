@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from neo4j.exceptions import DriverError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from alphaswarm.errors import Neo4jConnectionError, Neo4jUnavailableError
+from alphaswarm.errors import Neo4jUnavailableError
 from alphaswarm.web.replay_manager import (
     NoReplayActiveError,
     ReplayAlreadyActiveError,
@@ -177,9 +177,6 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, _validation_handler)
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
     app.add_exception_handler(Neo4jUnavailableError, _graph_unavailable_handler)
-    # graph.py still wraps read failures in the legacy Neo4jConnectionError;
-    # without this they would surface as a 500 instead of graph_unavailable.
-    app.add_exception_handler(Neo4jConnectionError, _graph_unavailable_handler)
     app.add_exception_handler(DriverError, _graph_unavailable_handler)
     for exc_type in DOMAIN_ERROR_STATUS:
         app.add_exception_handler(exc_type, _domain_error_handler)
