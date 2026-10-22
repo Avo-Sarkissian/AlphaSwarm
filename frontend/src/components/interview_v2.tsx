@@ -9,7 +9,7 @@
 //     block (KR-41.1-11 non-streaming).
 //   - roundRationales mock REPLACED with useRationales() filtered by agent.id and
 //     grouped by round.
-//   - CitationGraph hardcoded cited/citedBy arrays REPLACED with fetchEdges() against
+//   - CitationGraph reads cites/citedBy for the round on screen from EdgesContext,
 //     the verified codex MEDIUM-7 semantics (source_id = citing, target_id = cited).
 //   - SignalTrajectory 3-round mock DERIVED from useRationales() per round, with '—'
 //     for missing rounds.
@@ -22,9 +22,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Icon } from './icons';
 import { askAgent } from '../api/interview';
-import { fetchEdges, type Edge } from '../api/edges';
 import { useRationales } from '../context/RationalesContext';
-import { useCurrentCycle } from '../hooks/useCurrentCycle';
+import { useEdgesCtx } from '../context/EdgesContext';
 import type { AgentView, RationaleView } from '../types';
 
 type RoundMap = Record<number, RationaleView[]>;
@@ -150,7 +149,7 @@ function CitationGraph({ agent, cited, citedBy }: CitationGraphProps) {
         </text>
       </svg>
       <div className="iv2-cite-legend">
-        <div><span className="iv2-cite-dot cited" /> read {cited.length}</div>
+        <div><span className="iv2-cite-dot cited" /> cites {cited.length}</div>
         <div><span className="iv2-cite-dot citedby" /> cited by {citedBy.length}</div>
       </div>
     </div>
@@ -202,38 +201,11 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
     return m;
   }, [agentRationales]);
 
-  // Edges — fetch once when cycleId resolves; final round (3).
-  const { cycleId } = useCurrentCycle();
-  const [edges, setEdges] = useState<Edge[]>([]);
-  useEffect(() => {
-    if (!cycleId) return;
-    let cancelled = false;
-    fetchEdges(cycleId, 3)
-      .then((e) => {
-        if (!cancelled) setEdges(e);
-      })
-      .catch(() => {
-        if (!cancelled) setEdges([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [cycleId]);
-
-  // codex MEDIUM-7 — verified semantics:
-  //   source_id = citing agent; target_id = cited agent.
-  //   `cited`   = list of agents THIS agent cited (out-going citations from agent.id)
-  //               → edges where source_id === agent.id, take target_id
-  //   `citedBy` = list of agents who cited THIS agent (in-coming citations to agent.id)
-  //               → edges where target_id === agent.id, take source_id
-  const cited = useMemo(
-    () => edges.filter((e) => e.source_id === agent.id).map((e) => e.target_id),
-    [edges, agent.id],
-  );
-  const citedBy = useMemo(
-    () => edges.filter((e) => e.target_id === agent.id).map((e) => e.source_id),
-    [edges, agent.id],
-  );
+  // Citations of the round on screen, from the shared EdgesContext
+  // (source_id cites target_id; docs/DECISIONS.md#adr-neo4j-schema).
+  const { cites, citedBy: citedByMap } = useEdgesCtx();
+  const cited = cites.get(agent.id) ?? [];
+  const citedBy = citedByMap.get(agent.id) ?? [];
 
   // Auto-scroll log on new messages.
   useEffect(() => {
@@ -308,8 +280,8 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
           <div className="iv2-stats">
             <div className="label" style={{ marginBottom: 8 }}>CYCLE STATS</div>
             {([
-              ['Out-degree', String(cited.length)],
-              ['In-degree', String(citedBy.length)],
+              ['Cites', String(cited.length)],
+              ['Cited by', String(citedBy.length)],
               // KR-41.6-09: peer reads / shock impact / data sources have no live source.
               ['Peer reads', '—'],
               ['Shock impact', '—'],
