@@ -1803,6 +1803,8 @@ class GraphStateManager:
 
         Only the cycle's own MENTIONS entities count, so same-name entities
         from other cycles or types cannot leak in (docs/DECISIONS.md#p11-d-08).
+        Each decision counts once per entity, even when a seed that listed the
+        entity twice left duplicate MENTIONS and REFERENCES edges.
         """
         try:
             async with self._driver.session(database=self._database) as session:
@@ -1828,6 +1830,7 @@ class GraphStateManager:
             WITH c, coalesce(c.num_rounds, 3) AS fr
             MATCH (c)-[:MENTIONS]->(e:Entity)<-[:REFERENCES]-(d:Decision {cycle_id: $cycle_id})
             WHERE d.round = fr AND toLower(d.signal) <> 'parse_error'
+            WITH DISTINCT e, d
             WITH e, d, toLower(d.signal) AS s
             RETURN
                 e.name AS entity_name,

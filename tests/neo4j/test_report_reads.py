@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from alphaswarm.graph import GraphStateManager
-from alphaswarm.types import SignalType
+from alphaswarm.types import EntityType, SeedEntity, SignalType
 from tests.support.mini_cycle import cypher, dec, write_mini_cycle
 
 pytestmark = pytest.mark.neo4j
@@ -290,6 +290,79 @@ async def test_entity_impact_uses_final_round_and_skips_failures(
             "mention_count": 1,
             "buy_mentions": 0,
             "sell_mentions": 1,
+            "hold_mentions": 0,
+        },
+    ]
+
+
+async def test_entity_impact_counts_each_decision_once_for_the_cycles_own_entities(
+    graph_manager_test: GraphStateManager,
+) -> None:
+    zzzt = SeedEntity(name="ZZZT Holdings", type=EntityType.COMPANY, relevance=0.9, sentiment=0.6)
+    zzzt_sector = SeedEntity(
+        name="ZZZT Holdings", type=EntityType.SECTOR, relevance=0.5, sentiment=0.2
+    )
+    # Another cycle MENTIONS a same-name entity of another type. It is written first,
+    # so the name-matched REFERENCES of the cycle under test reach it as well.
+    other_id = await write_mini_cycle(
+        graph_manager_test,
+        num_rounds=2,
+        rounds={2: [("quants_04", dec(BUY, sentiment=0.9, rationale="ZZZT Holdings sector bid"))]},
+        entities=[zzzt_sector],
+    )
+    # The orchestrator listed the same entity twice; seed parsing keeps both.
+    cycle_id = await write_mini_cycle(
+        graph_manager_test,
+        num_rounds=2,
+        rounds={
+            1: [("quants_01", dec(BUY, rationale="ZZZT Holdings looks cheap"))],
+            2: [
+                ("quants_01", dec(SELL, sentiment=-0.4, rationale="ZZZT Holdings is overpriced")),
+                ("quants_02", dec(BUY, sentiment=0.6, rationale="ZZZT Holdings closes the deal")),
+            ],
+        },
+        entities=[zzzt, zzzt],
+    )
+    # The setup must hold both hazards, or the reads below prove nothing: two MENTIONS
+    # of one entity, and REFERENCES to an entity this cycle never MENTIONS.
+    mentions = await cypher(
+        graph_manager_test,
+        "MATCH (:Cycle {cycle_id: $cid})-[m:MENTIONS]->(e:Entity) "
+        "RETURN e.type AS type, count(m) AS n",
+        cid=cycle_id,
+    )
+    assert mentions == [{"type": "company", "n": 2}]
+    stray = await cypher(
+        graph_manager_test,
+        "MATCH (d:Decision {cycle_id: $cid})-[:REFERENCES]->(:Entity {type: 'sector'}) "
+        "RETURN count(DISTINCT d) AS n",
+        cid=cycle_id,
+    )
+    assert stray == [{"n": 3}]
+
+    rows = await graph_manager_test.read_entity_impact(cycle_id)
+    other_rows = await graph_manager_test.read_entity_impact(other_id)
+
+    assert rows == [
+        {
+            "entity_name": "ZZZT Holdings",
+            "entity_type": "company",
+            "avg_sentiment": pytest.approx(0.1),
+            "mention_count": 2,
+            "buy_mentions": 1,
+            "sell_mentions": 1,
+            "hold_mentions": 0,
+        },
+    ]
+    # The other cycle counts only its own decision, not the stray REFERENCES above.
+    assert other_rows == [
+        {
+            "entity_name": "ZZZT Holdings",
+            "entity_type": "sector",
+            "avg_sentiment": pytest.approx(0.9),
+            "mention_count": 1,
+            "buy_mentions": 1,
+            "sell_mentions": 0,
             "hold_mentions": 0,
         },
     ]
