@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,10 +16,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import alphaswarm.web.guards as guards_module
 import alphaswarm.web.routes.report as report_module
-from alphaswarm.errors import Neo4jUnavailableError
+from alphaswarm.errors import InferenceConfigError, Neo4jUnavailableError
 from alphaswarm.state import JobStatus, StateStore
 from alphaswarm.web.routes.report import router as report_router
+from tests.support.log_capture import RenderedLog
 from tests.support.web_app import (
     CYCLE_A,
     CYCLE_B,
@@ -27,6 +30,8 @@ from tests.support.web_app import (
     make_route_app,
     route_test_settings,
 )
+
+_REAL_GENERATION = report_module._run_report_generation
 
 
 @pytest.fixture(autouse=True)
@@ -190,6 +195,35 @@ def test_post_503_when_neo4j_is_down(tmp_path: Path) -> None:
         r = client.post(f"/api/report/{CYCLE_A}/generate")
     assert r.status_code == 503
     assert r.json()["detail"]["error"] == "graph_unavailable"
+
+
+async def test_generation_fails_with_a_fixed_error_on_an_invalid_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The config error's text quotes the path and raw values, keys included, so the
+    job logs only its type and raises a fixed InferenceConfigError from None."""
+    canary = "".join(["sk-", "fictional", "-REPORT-CANARY"])  # never in this source
+    settings = route_test_settings(tmp_path)
+    roles = {
+        "orchestrator": {"provider": "anthropic", "api_key": canary},
+        "worker": {"provider": "ollama", "model": "alphaswarm-worker"},
+    }
+    settings.inference_config_path.write_text(json.dumps(roles), encoding="utf-8")
+    rendered = RenderedLog()
+    monkeypatch.setattr(report_module, "log", rendered)
+    monkeypatch.setattr(guards_module, "log", rendered, raising=False)
+    app_state = SimpleNamespace(
+        settings=settings, graph_manager=object(), ollama_client=object(), model_manager=object(),
+    )
+    with pytest.raises(InferenceConfigError) as exc_info:
+        await _REAL_GENERATION(app_state, CYCLE_A)  # type: ignore[arg-type]
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__suppress_context__ is True
+    assert canary not in str(exc_info.value)
+    assert rendered.events == ["job_inference_config_invalid"]
+    assert canary not in rendered.text
+    assert str(tmp_path) not in rendered.text
 
 
 def test_reports_dir_is_resolved_from_settings(tmp_path: Path) -> None:

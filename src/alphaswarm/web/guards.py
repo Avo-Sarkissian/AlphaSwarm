@@ -2,7 +2,8 @@
 
 They turn a missing graph, cycle state and orchestrator contention into
 ApiErrors with stable codes, so every route reports the same condition the same
-way (docs/DECISIONS.md#adr-background-tasks).
+way (docs/DECISIONS.md#adr-background-tasks). The jobs themselves share the
+sanitized inference-config failure (job_config_error).
 """
 
 from __future__ import annotations
@@ -10,7 +11,10 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+import structlog
+
 from alphaswarm.config import InferenceConfig, load_inference_config
+from alphaswarm.errors import InferenceConfigError
 from alphaswarm.web.errors import ApiError
 
 if TYPE_CHECKING:
@@ -18,6 +22,8 @@ if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
     from alphaswarm.state import JobKind
     from alphaswarm.web.simulation_manager import SimulationManager
+
+log = structlog.get_logger(component="web.guards")
 
 
 def require_graph(app_state: AppState) -> GraphStateManager:
@@ -97,3 +103,23 @@ async def load_inference_config_or_422(app_state: AppState) -> InferenceConfig:
             "inference_config_invalid",
             "The stored inference config is invalid; fix it in Settings or remove the stored file",
         ) from exc
+
+
+def job_config_error(exc: Exception, *, job: JobKind, cycle_id: str) -> InferenceConfigError:
+    """Log a report or advisory job's inference-config failure; return the error to raise.
+
+    The ValueError/OSError text can quote the file path and raw config values,
+    API keys included, so only its type is logged. The job raises the returned
+    fixed error ``from None``, so the traceback its done-callback logs never
+    renders that text (docs/DECISIONS.md#adr-local-first-inference).
+    """
+    log.error(
+        "job_inference_config_invalid",
+        job=job,
+        cycle_id=cycle_id,
+        error_type=type(exc).__name__,
+    )
+    return InferenceConfigError(
+        "The saved inference configuration is invalid. "
+        "Open Settings and save a valid configuration."
+    )

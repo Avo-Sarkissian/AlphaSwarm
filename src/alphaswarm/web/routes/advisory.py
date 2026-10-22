@@ -28,6 +28,7 @@ from alphaswarm.inference.factory import advisory_block_reason, build_providers
 from alphaswarm.state import JobStatus
 from alphaswarm.web.errors import ApiError
 from alphaswarm.web.guards import (
+    job_config_error,
     load_inference_config_or_422,
     require_complete_cycle,
     require_orchestrator_free,
@@ -316,7 +317,10 @@ async def _run_advisory_synthesis(
     assert ollama_client is not None
     assert model_manager is not None
 
-    cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
+    try:
+        cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
+    except (ValueError, OSError) as exc:
+        raise job_config_error(exc, job="advisory", cycle_id=cycle_id) from None
     reason = _orchestrator_block_reason(cfg, app_state)
     if reason is not None:
         # The config can change between the POST and this task starting.

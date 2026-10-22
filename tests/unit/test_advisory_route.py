@@ -17,14 +17,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import alphaswarm.web.guards as guards_module
 import alphaswarm.web.routes.advisory as advisory_module
 from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
-from alphaswarm.errors import Neo4jUnavailableError
+from alphaswarm.errors import InferenceConfigError, Neo4jUnavailableError
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.factory import BuiltProviders
 from alphaswarm.state import JobStatus, StateStore
 from alphaswarm.web.routes.advisory import router as advisory_router
+from tests.support.log_capture import RenderedLog
 from tests.support.web_app import (
     CYCLE_A,
     CYCLE_B,
@@ -310,6 +312,37 @@ async def test_synthesis_writes_atomically_into_advisory_dir(
     assert sorted(p.name for p in out.parent.iterdir()) == [out.name]
     if os.name == "posix":
         assert stat.S_IMODE(out.stat().st_mode) == 0o600
+
+
+async def test_synthesis_fails_with_a_fixed_error_on_an_invalid_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The config error's text quotes raw values, keys included, so the job logs only
+    its type and raises a fixed InferenceConfigError from None."""
+    canary = "".join(["sk-", "fictional", "-ADVISORY-CANARY"])  # never in this source
+    settings = route_test_settings(tmp_path)
+    roles = {
+        "orchestrator": {"provider": "anthropic", "api_key": canary},
+        "worker": {"provider": "ollama", "model": "alphaswarm-worker"},
+    }
+    settings.inference_config_path.write_text(json.dumps(roles), encoding="utf-8")
+    rendered = RenderedLog()
+    monkeypatch.setattr(advisory_module, "log", rendered)
+    monkeypatch.setattr(guards_module, "log", rendered, raising=False)
+    client = SimpleNamespace(
+        base_url="http://127.0.0.1:11434", is_remote_model=AsyncMock(return_value=False),
+    )
+    app_state = SimpleNamespace(
+        settings=settings, graph_manager=object(), ollama_client=client, model_manager=object(),
+    )
+    with pytest.raises(InferenceConfigError) as exc_info:
+        await _REAL_SYNTHESIS(app_state, CYCLE_A, _portfolio())  # type: ignore[arg-type]
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__suppress_context__ is True
+    assert canary not in str(exc_info.value)
+    assert rendered.events == ["job_inference_config_invalid"]
+    assert canary not in rendered.text
+    assert '"error_type": "ValueError"' in rendered.text
 
 
 # ------ Cloud-advisory guard: host and model checks at the route ------

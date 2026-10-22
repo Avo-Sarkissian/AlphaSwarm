@@ -31,6 +31,7 @@ from alphaswarm.report import (
 from alphaswarm.state import JobStatus
 from alphaswarm.web.errors import ApiError
 from alphaswarm.web.guards import (
+    job_config_error,
     require_complete_cycle,
     require_orchestrator_free,
     running_job_cycle,
@@ -207,7 +208,10 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     assert gm is not None, "graph_manager must be set (POST guard enforces this)"
     assert ollama_client is not None, "ollama_client must be set (POST guard enforces this)"
 
-    cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
+    try:
+        cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
+    except (ValueError, OSError) as exc:
+        raise job_config_error(exc, job="report", cycle_id=cycle_id) from None
     built = build_providers(
         cfg,
         ollama_client=ollama_client,

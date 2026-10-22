@@ -7,6 +7,7 @@ import pytest
 from alphaswarm.inference.concurrency import ConcurrencyController
 from tests.support.aio import eventually
 from tests.support.controllers import ImmediateController
+from tests.support.log_capture import RenderedLog
 
 
 async def test_eventually_returns_once_predicate_holds() -> None:
@@ -49,3 +50,18 @@ async def test_immediate_controller_context_manager_marks_failures() -> None:
     async with ctrl:
         pass
     assert (ctrl.acquired, ctrl.released, ctrl.failures) == (2, 2, 1)
+
+
+def test_rendered_log_renders_tracebacks_with_the_exception_text() -> None:
+    """Positive control: a leak through exc_info would show up in RenderedLog.text."""
+    log = RenderedLog()
+    canary = "".join(["fictional", "-", "CANARY"])
+    try:
+        raise ValueError(f"config at /fictional/inference.json quoted {canary}")
+    except ValueError:
+        log.error("job_failed", exc_info=True, cycle_id="c1")
+    log.info("job_done")
+    assert log.events == ["job_failed", "job_done"]
+    assert canary in log.text
+    assert '"exc_type": "ValueError"' in log.text
+    assert '"locals"' not in log.text

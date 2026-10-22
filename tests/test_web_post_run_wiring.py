@@ -6,6 +6,7 @@ allowed, and the report runs after every completed simulation.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -14,6 +15,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+import alphaswarm.web.guards as guards_module
+import alphaswarm.web.post_run as post_run_module
 import alphaswarm.web.routes.advisory as advisory_module
 import alphaswarm.web.routes.report as report_module
 from alphaswarm.app import create_app_state
@@ -30,6 +33,7 @@ from alphaswarm.web.app import WebPostRunJobs
 from alphaswarm.web.errors import install_error_handlers
 from alphaswarm.web.post_run import PostRunPipeline
 from alphaswarm.web.routes.advisory import router as advisory_router
+from tests.support.log_capture import RenderedLog
 from tests.support.web_app import CYCLE_A, CYCLE_B, StaticPortfolioCache, route_test_settings
 
 
@@ -165,6 +169,41 @@ async def test_an_unreadable_config_fails_closed_and_is_recorded(
     r = await _get_advisory(app, CYCLE_A)
     assert (r.status_code, r.json()["detail"]["error"]) == (500, "inference_config_invalid")
     assert str(tmp_path) not in r.text
+
+
+async def test_the_config_error_text_never_reaches_the_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An invalid config's error text quotes the file path and raw values, API keys
+    included: the gate, the real report job and its done-callback log only error
+    types and a fixed InferenceConfigError (docs/DECISIONS.md#adr-local-first-inference)."""
+    canary = "".join(["sk-", "fictional", "-PIPELINE-CANARY"])  # never in this source
+    app = _app(tmp_path, portfolio=object())
+    app.state.app_state.graph_manager = MagicMock()
+    app.state.app_state.model_manager = MagicMock()
+    # No orchestrator model: pydantic quotes the whole role, key included.
+    roles = {
+        "orchestrator": {"provider": "anthropic", "api_key": canary},
+        "worker": {"provider": "ollama", "model": "alphaswarm-worker"},
+    }
+    config_path = app.state.app_state.settings.inference_config_path
+    config_path.write_text(json.dumps(roles), encoding="utf-8")
+    rendered = RenderedLog()
+    for module in (post_run_module, guards_module, advisory_module, report_module):
+        monkeypatch.setattr(module, "log", rendered, raising=False)
+
+    outcome = await PostRunPipeline(jobs=WebPostRunJobs(app)).on_complete(CYCLE_A)
+
+    assert (outcome.advisory, outcome.report) == ("skipped_cloud_advisory_disabled", "failed")
+    assert app.state.report_generation_error[CYCLE_A]["message"] == (
+        "Report generation failed (InferenceConfigError)"
+    )
+    # Positive control: the report failure was rendered with its traceback.
+    assert "report_task_exception_recorded" in rendered.events
+    assert '"exc_type": "InferenceConfigError"' in rendered.text
+    assert canary not in rendered.text
+    assert str(config_path) not in rendered.text
 
 
 async def test_report_runs_after_advisory_failure(
