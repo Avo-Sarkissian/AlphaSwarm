@@ -28,7 +28,9 @@ import { Icon } from './icons';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useConnection } from '../context/ConnectionContext';
 import { useAgents } from '../context/AgentsContext';
-import { useCurrentCycle } from '../hooks/useCurrentCycle';
+import { useFrameMeta } from '../context/FrameMetaContext';
+import { useLatestCompletedCycle } from '../hooks/useLatestCompletedCycle';
+import { defaultCycleId } from '../lib/defaultCycle';
 import { usePolling } from '../hooks/usePolling';
 import { useDataSourceAudit } from '../hooks/useDataSourceAudit';
 import { advisoryFetch, type AdvisoryContent } from '../api/advisory';
@@ -777,7 +779,9 @@ interface HoldingAnalysis {
 }
 
 export function AdvisoryV2({ onClose }: { onClose: () => void }) {
-  const { cycleId } = useCurrentCycle();
+  const meta = useFrameMeta();
+  const { cycleId: latestCompleted } = useLatestCompletedCycle();
+  const cycleId = defaultCycleId(meta, latestCompleted);
   const { agents: liveAgents } = useAgents();
   const liveAgentIds = useMemo(
     () => new Set(liveAgents.map((a) => a.id)),
