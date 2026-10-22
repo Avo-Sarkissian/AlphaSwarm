@@ -210,7 +210,10 @@ def select_diverse_peers(
     1. Candidates are every persona except the reader and agents whose
        previous-round decision is PARSE_ERROR.
     2. Phase 1 samples ``min(min_brackets, limit)`` brackets, each weighted by
-       its best candidate's weight, and takes one peer from each by key.
+       the summed weight of its candidates, and takes one peer from each by
+       key. A guaranteed slot is therefore a weighted draw over agents that
+       skips brackets already chosen, so a small bracket's members do not gain
+       per agent merely because the bracket is small.
     3. Phase 2 fills the remaining slots by key, skipping any bracket that
        already holds ``bracket_cap`` peers. The cap is hard: with few eligible
        brackets the result is shorter than ``limit``.
@@ -242,7 +245,7 @@ def select_diverse_peers(
     for p in candidates:
         members.setdefault(p.bracket.value, []).append(p.id)
     bracket_key = {
-        bracket: _sampling_key(rng, max(weight[pid] for pid in ids))
+        bracket: _sampling_key(rng, sum(weight[pid] for pid in ids))
         for bracket, ids in members.items()
     }
 

@@ -509,6 +509,49 @@ class TestSelectDiversePeers:
 
         assert hits(base) < hits(boosted) < 400
 
+    def test_guaranteed_bracket_odds_follow_summed_reach(self) -> None:
+        """One guaranteed slot is a weighted draw over agents, whatever the bracket size.
+
+        Nine quants and one degen of equal weight give the lone degen about 1 in
+        10. Weighting a bracket by its best member alone gives it about 1 in 2.
+        """
+        personas = [_persona(f"quants_{i:02d}", BracketType.QUANTS) for i in range(1, 10)] + [
+            _persona("degens_01", BracketType.DEGENS)
+        ]
+        weights = {p.id: 0.5 for p in personas}
+
+        hits = sum(
+            _select("macro_01", weights, personas, seed=seed, limit=1, min_brackets=1)
+            == ["degens_01"]
+            for seed in range(1000)
+        )
+
+        assert 50 <= hits <= 150
+
+    def test_highest_reach_brackets_are_seen_most_per_agent(self) -> None:
+        """Per agent, the two highest-weight brackets lead visibility on the production roster.
+
+        Per-agent visibility is a bracket's slots divided by its size. The bracket
+        floor and the per-bracket cap flatten the order below the top two, so
+        only the top two are pinned (docs/DECISIONS.md#adr-diverse-peer-context).
+        """
+        personas = generate_personas(DEFAULT_BRACKETS)
+        weights = {p.id: p.influence_weight_base for p in personas}
+        size = Counter(p.bracket.value for p in personas)
+        reach = {p.bracket.value: p.influence_weight_base for p in personas}
+        top_two = sorted(size, key=lambda b: reach[b], reverse=True)[:2]
+        slots: Counter[str] = Counter()
+        for i in range(100):
+            for p in personas:
+                rng = peer_rng(f"reach-{i}", p.id, 2)
+                peers = select_diverse_peers(p.id, weights, personas, rng=rng)
+                slots.update(_bracket(pid) for pid in peers)
+
+        per_agent = {b: slots[b] / size[b] for b in size}
+        assert set(top_two) == {"sell_side", "narrators"}
+        others = max(per_agent[b] for b in size if b not in top_two)
+        assert min(per_agent[b] for b in top_two) > others, per_agent
+
 
 _ALL_BRACKETS = tuple(BracketType)
 
