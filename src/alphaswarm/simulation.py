@@ -1246,9 +1246,13 @@ async def run_simulation(
             round2_active = sum(
                 1 for _, d in round2_decisions if d.signal != SignalType.PARSE_ERROR
             )
-            round2_weights = await graph_manager.compute_influence_edges(
-                cycle_id, up_to_round=2, total_agents=round2_active,
-            )
+            round2_weights: dict[str, float] = {}
+            if round2_active > 0:
+                round2_weights = await graph_manager.compute_influence_edges(
+                    cycle_id, up_to_round=2, total_agents=round2_active,
+                )
+            else:
+                logger.warning("influence_edges_skipped", cycle_id=cycle_id, round_num=2)
 
             # Compute Round 2 bracket summaries (D-08)
             round2_summaries = compute_bracket_summaries(round2_decisions, personas, brackets)
@@ -1403,9 +1407,13 @@ async def run_simulation(
                 round3_active = sum(
                     1 for _, d in round3_decisions if d.signal != SignalType.PARSE_ERROR
                 )
-                round3_weights = await graph_manager.compute_influence_edges(
-                    cycle_id, up_to_round=3, total_agents=round3_active,
-                )
+                round3_weights: dict[str, float] = {}
+                if round3_active > 0:
+                    round3_weights = await graph_manager.compute_influence_edges(
+                        cycle_id, up_to_round=3, total_agents=round3_active,
+                    )
+                else:
+                    logger.warning("influence_edges_skipped", cycle_id=cycle_id, round_num=3)
 
                 # Compute Round 3 bracket summaries (D-08)
                 round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)

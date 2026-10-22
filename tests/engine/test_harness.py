@@ -111,18 +111,10 @@ async def test_influence_stand_in_matches_compute_influence_edges(
     fake_graph: MagicMock, total_agents: int
 ) -> None:
     """Given the pairs its query returns for the same writes, the real method agrees with the
-    stand-in, a zero-agent error included. When compute_influence_edges changes, so must the
+    stand-in, the zero-agent guard included. When compute_influence_edges changes, so must the
     stand-in."""
     await _record_citations(fake_graph)
     query_rows = [("quants_01", "sell_side_01"), ("degens_01", "sell_side_01")]
-    try:
-        expected: object = await _real_weights(query_rows, total_agents)
-    except ZeroDivisionError:
-        expected = ZeroDivisionError
-    try:
-        actual: object = influence_weights_from_writes(
-            fake_graph, up_to_round=3, total_agents=total_agents
-        )
-    except ZeroDivisionError:
-        actual = ZeroDivisionError
+    expected = await _real_weights(query_rows, total_agents)
+    actual = influence_weights_from_writes(fake_graph, up_to_round=3, total_agents=total_agents)
     assert actual == expected

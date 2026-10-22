@@ -120,3 +120,25 @@ async def test_budget_error_in_round_2_raises_bare_budget_error(
 
     assert isinstance(exc_info.value.__cause__, ExceptionGroup)
     assert persisted_rounds(graph) == [1]
+
+
+async def test_fully_failed_final_round_skips_influence_edges(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    def decide(agent_id: str, round_num: int, call: ScriptedCall) -> AgentDecision | BaseException:
+        if round_num == 3:
+            return RuntimeError("model server died")
+        return default_decision_script(agent_id, round_num, call)
+
+    worker = ScriptedProvider(personas=all_personas, decide=decide)
+    result = await run_case(
+        settings=with_threshold(scenario_settings, 100.0), graph=graph, worker=worker,
+        personas=all_personas, brackets=all_brackets,
+    )
+
+    assert len(result.round3_decisions) == len(all_personas)
+    rounds = [c.kwargs["up_to_round"] for c in graph.compute_influence_edges.await_args_list]
+    assert rounds == [2]

@@ -1015,6 +1015,17 @@ class GraphStateManager:
         """
         from collections import Counter
 
+        if total_agents <= 0:
+            # A round in which every agent failed has no denominator
+            # (docs/DECISIONS.md#p8-d-01); write nothing.
+            self._log.warning(
+                "influence_edges_skipped",
+                cycle_id=cycle_id,
+                up_to_round=up_to_round,
+                total_agents=total_agents,
+            )
+            return {}
+
         try:
             async with self._driver.session(database=self._database) as session:
                 # Read citation PAIRS (source_id, target_id) for pair-aware INFLUENCED_BY edges

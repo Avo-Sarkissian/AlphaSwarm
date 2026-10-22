@@ -1799,3 +1799,17 @@ async def test_batch_write_tx_returns_the_cypher_created_count() -> None:
 
     assert await GraphStateManager._batch_write_decisions_tx(tx, rows, "cycle-1", 1) == 0
     assert "RETURN count(dec) AS created" in tx.run.await_args_list[0].args[0]
+
+
+@pytest.mark.asyncio()
+async def test_compute_influence_edges_skips_when_no_active_agents(mock_driver: MagicMock) -> None:
+    """A fully failed round must not divide by zero (docs/DECISIONS.md#p8-d-01)."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value=[{"source_id": "a", "target_id": "b"}])
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    assert await gsm.compute_influence_edges("c1", up_to_round=3, total_agents=0) == {}
+    session.execute_read.assert_not_awaited()
+    session.execute_write.assert_not_awaited()

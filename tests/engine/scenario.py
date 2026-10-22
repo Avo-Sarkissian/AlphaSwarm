@@ -93,9 +93,11 @@ def influence_weights_from_writes(
 
     Mirrors the real query: DISTINCT (author, cited) pairs from rounds 1..up_to_round
     with self-citations dropped, weight = pairs naming the agent / total_agents. Like
-    the real method it returns {} when nothing is cited and otherwise divides
-    unguarded, so total_agents=0 raises ZeroDivisionError here too.
+    the real method it returns {} when total_agents <= 0 (a fully failed round) or
+    when nothing is cited.
     """
+    if total_agents <= 0:
+        return {}
     pairs = {
         (author, cited)
         for round_num, decisions in recorded_decisions(graph).items()
