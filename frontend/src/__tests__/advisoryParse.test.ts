@@ -7,8 +7,10 @@ import {
   AGENT_ID_RE,
   countAgentCitations,
   countAgentCitationsAgainst,
+  extractField,
   parseConvergence,
   parseInfluences,
+  parseMoments,
 } from '../lib/advisoryParse';
 
 // AGENT_ID_RE carries the /g flag (stateful lastIndex), so use String.match()
@@ -91,5 +93,22 @@ describe('parseInfluences — dedup (F-34)', () => {
     expect(ids.filter((id) => id === 'quants_01')).toEqual(['quants_01']);
     const q = rows!.find((r) => r.agentId === 'quants_01');
     expect(q!.weight).toBe(0.55); // highest of 0.40 / 0.55
+  });
+});
+
+describe('extractField / parseMoments — ":" and "-" separators', () => {
+  it.each([
+    ['**Risk**: integration delays', 'integration delays'],
+    ['Risk - integration delays', 'integration delays'],
+  ])('extractField reads %j', (line, expected) => {
+    expect(extractField(`ZZZT\n${line}\n`, 'risk')).toBe(expected);
+  });
+
+  it('parseMoments reads "Round N:" and "RN -" items', () => {
+    const md = '## Key Moments\n- Round 2: Sell-side flipped\n- R3 - consensus held\n';
+    expect(parseMoments(md)).toEqual([
+      { round: 2, description: 'Sell-side flipped' },
+      { round: 3, description: 'consensus held' },
+    ]);
   });
 });

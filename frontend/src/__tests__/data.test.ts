@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { BRACKETS, normalizeBracketKey } from '../data';
+import backendBrackets from './fixtures/brackets.json';
 
 const V2_WIRE_VALUES = [
   'institutions',
@@ -25,6 +26,12 @@ describe('BRACKETS — v2 composition', () => {
 
   it('covers exactly the 10 v2 wire bracket values', () => {
     expect(BRACKETS.map((b) => b.value)).toEqual(V2_WIRE_VALUES);
+  });
+
+  it('matches the backend registry (fixtures/brackets.json from DEFAULT_BRACKETS)', () => {
+    expect(BRACKETS.map((b) => [b.value, b.display, b.count])).toEqual(
+      backendBrackets.map((b) => [b.key, b.display_name, b.count]),
+    );
   });
 });
 

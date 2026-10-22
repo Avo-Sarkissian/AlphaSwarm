@@ -12,16 +12,15 @@ The report/advisory cross-guard lives in web/guards.require_orchestrator_free.
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import TYPE_CHECKING, Any
 
 import aiofiles
 import aiofiles.os
 import structlog
 from fastapi import APIRouter, FastAPI, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
-from alphaswarm.advisory import synthesize
+from alphaswarm.advisory import AdvisoryReport, synthesize
 from alphaswarm.config import ProviderType, load_inference_config
 from alphaswarm.fsutil import atomic_write_text
 from alphaswarm.inference.factory import advisory_block_reason, build_providers
@@ -189,10 +188,10 @@ async def generate_advisory(cycle_id: CycleId, request: Request) -> GenerateAdvi
     return GenerateAdvisoryResponse(status="accepted", cycle_id=cycle_id)
 
 
-@router.get("/advisory/{cycle_id}")
-async def get_advisory(cycle_id: CycleId, request: Request) -> dict[str, Any]:
-    """200 with the JSON; 409 while this cycle's job runs; 500 after a recorded
-    failure; 404 when no advisory exists."""
+@router.get("/advisory/{cycle_id}", response_model=AdvisoryReport)
+async def get_advisory(cycle_id: CycleId, request: Request) -> AdvisoryReport:
+    """200 with the AdvisoryReport; 409 while this cycle's job runs; 500 after a
+    recorded failure or when the stored file no longer parses; 404 when no advisory exists."""
     app_state = request.app.state.app_state
     if running_job_cycle(app_state, "advisory") == cycle_id:
         raise ApiError(
@@ -214,9 +213,19 @@ async def get_advisory(cycle_id: CycleId, request: Request) -> dict[str, Any]:
         raise ApiError(404, "advisory_not_found", f"No advisory exists for cycle {cycle_id}")
     async with aiofiles.open(path, encoding="utf-8") as f:
         content = await f.read()
-    payload: dict[str, Any] = json.loads(content)
+    try:
+        report = AdvisoryReport.model_validate_json(content)
+    except ValidationError as exc:
+        # The file holds portfolio data: log the error count only, never the content.
+        log.warning("advisory_file_invalid", cycle_id=cycle_id, error_count=exc.error_count())
+        raise ApiError(
+            500,
+            "advisory_generation_failed",
+            "The stored advisory for this cycle is unreadable; generate it again",
+            extra={"cycle_id": cycle_id},
+        ) from None
     log.info("advisory_served", cycle_id=cycle_id, bytes=len(content))
-    return payload
+    return report
 
 
 def start_advisory_job(

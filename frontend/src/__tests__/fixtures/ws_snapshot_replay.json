@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "mode": "replay",
+  "phase": "replay",
+  "cycle_id": "00000000-0000-4000-8000-000000000002",
+  "num_rounds": 2,
+  "round_num": 2,
+  "agent_count": 100,
+  "agent_states": {
+    "institutions_01": {
+      "signal": "buy",
+      "confidence": 0.82
+    },
+    "event_driven_05": {
+      "signal": "sell",
+      "confidence": 0.4
+    },
+    "degens_07": {
+      "signal": "parse_error",
+      "confidence": 0.0
+    },
+    "macro_02": {
+      "signal": "hold",
+      "confidence": 0.55
+    },
+    "shorts_02": {
+      "signal": "sell",
+      "confidence": 0.8
+    }
+  },
+  "elapsed_seconds": 0.0,
+  "governor_metrics": {
+    "current_slots": 0,
+    "active_count": 0,
+    "pressure_level": "green",
+    "memory_percent": 61.2,
+    "governor_state": "idle",
+    "timestamp": 0.0
+  },
+  "tps": 0.0,
+  "rationale_entries": [
+    {
+      "seq": 1,
+      "ts": 0.0,
+      "agent_id": "institutions_01",
+      "signal": "buy",
+      "rationale": "Deal spread is attractive",
+      "round_num": 2
+    },
+    {
+      "seq": 2,
+      "ts": 0.0,
+      "agent_id": "shorts_02",
+      "signal": "sell",
+      "rationale": "Crowded long; fade the cascade",
+      "round_num": 2
+    }
+  ],
+  "bracket_summaries": [
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "buy_count": 4,
+      "sell_count": 3,
+      "hold_count": 3,
+      "total": 10,
+      "avg_confidence": 0.61,
+      "avg_sentiment": 0.1
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "buy_count": 5,
+      "sell_count": 2,
+      "hold_count": 3,
+      "total": 10,
+      "avg_confidence": 0.55,
+      "avg_sentiment": -0.2
+    }
+  ],
+  "data_source_audit": [],
+  "edges_version": 1,
+  "jobs": {
+    "advisory": {
+      "state": "idle",
+      "cycle_id": null,
+      "error_code": null
+    },
+    "report": {
+      "state": "running",
+      "cycle_id": "00000000-0000-4000-8000-000000000002",
+      "error_code": null
+    }
+  },
+  "last_error": null,
+  "pending_shock": null,
+  "applied_shocks": [],
+  "shock_window_open": false
+}

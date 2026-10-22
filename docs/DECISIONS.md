@@ -269,13 +269,16 @@ Contents
   - Rationales live in a persistent `deque(maxlen=50)` and are not drained.
 - **Rationale:** Rounds take minutes. The TUI-era "clear and batch-write after the round" contract made the 5 Hz UI look frozen (debug session `ws-agent-states-not-emitted-mid-sim`, fixed in fe366ce, 1da741e, and 0003375).
 
-### <a id="adr-ws-broadcaster"></a>WebSocket broadcaster: full snapshot at 5 Hz, drop-oldest per client
+### <a id="adr-ws-broadcaster"></a>WebSocket broadcaster: versioned StateFrame at 5 Hz, drop-oldest per client
 - **Decision:**
-  - An always-on lifespan task serializes `dataclasses.asdict(StateSnapshot)` every 200 ms.
+  - An always-on lifespan task builds one `StateFrame` every 200 ms. `web/wire.py:build_frame` maps the live `StateSnapshot` (or the active replay's) field by field onto frozen pydantic models with `extra="forbid"`; internal dataclasses are never serialized directly. The replay manager's immediate broadcasts use the same path.
+  - The frame carries `schema_version` (1), `mode` (`live`/`replay`/`idle`, derived from the phase), `cycle_id` (set right after `inject_seed`, reset on SEEDING), `num_rounds`, `edges_version` (influence-edge steps finished for the cycle; in replay, round − 1), `jobs` (advisory/report status from the live store, also during replay), `last_error`, the shock fields, and a monotonic `seq` plus wall-clock `ts` on each rationale entry.
+  - Adding a field keeps `schema_version`; renaming, removing or changing the meaning of a field bumps it together with the frontend adapter's `SUPPORTED_SCHEMA_VERSION`.
+  - `tests/test_wire_contract.py` writes golden frames into `frontend/src/__tests__/fixtures/`; the frontend tests read them, and `tsc` checks their keys against the TypeScript mirror in `frontend/src/types.ts`.
   - Each client gets an `asyncio.Queue(maxsize=100)` with drop-oldest and its own writer task, which cleans up its registry entry in `finally` (B7).
   - Host RAM% is overlaid on every frame ([p999-3-d-01](#p999-3-d-01)).
   - `/ws/state` is unauthenticated, but the handshake Origin is validated (Aug 2026).
-- **Rationale:** The simulation must never block on a slow client (CLAUDE.md hard constraint 4).
+- **Rationale:** The simulation must never block on a slow client (CLAUDE.md hard constraint 4). An explicit, versioned frame turns a renamed internal field into a failing test instead of a silently broken UI, and gives the UI the cycle identity it needs to fetch the right cycle's edges.
 
 ### <a id="adr-replaystore-separate"></a>ReplayStore is separate from StateStore
 - **Decision:** Replay builds its own `ReplayStore` (`state.py:323`) inside `ReplayManager`. While replay is active, the broadcaster reads it instead of live state. Replay and live simulation exclude each other (B4). Replay never writes the live StateStore phase: start and stop leave IDLE or COMPLETE as they were, so a replay cannot block a report or a new run ([p34-d-10](#p34-d-10), 2026-10).
@@ -369,10 +372,10 @@ Contents
 ### <a id="adr-frontend-quant-terminal"></a>Frontend: React + TS "Quant Terminal"
 - **Decision:**
   - React 19 + Vite 6 + TypeScript, ported from the AlphaSwarm-2 design export (Phase 41.6).
-  - Six split React contexts so 5 Hz frames do not re-render everything.
+  - Seven split React contexts (Connection, FrameMeta, Telemetry, Agents, Bracket, Rationales, Edges) so 5 Hz frames do not re-render everything.
   - Deterministic SVG agent layout instead of d3-force ([KR-41.1-01](#kr-41-1-01)).
   - Design mocks are loaded only through DEV-only dynamic imports, and a production grep gate keeps them out of `dist` ([KR-41.6-14](#kr-41-6-14)).
-  - Vitest wire-contract tests pin the backend snapshot shape (`frontend/TESTING.md`).
+  - Tests and lint (`frontend/TESTING.md`): vitest runs pure tests in node and hook/component tests on happy-dom with React Testing Library; backend-written golden frames pin the wire contract ([adr-ws-broadcaster](#adr-ws-broadcaster)); ESLint (typescript-eslint, react-hooks; jsx-a11y at `warn` until the accessibility pass) runs in CI. ESLint stays on 9.x while eslint-plugin-jsx-a11y supports nothing newer.
 - **History:** Textual TUI, then Vue 3 + D3 force graph, then a React port of the Claude Design UI, then the AlphaSwarm-2 Quant Terminal. See HISTORY.md.
 
 ### <a id="adr-test-network-gate"></a>Tests are offline by default
@@ -602,10 +605,10 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p30-d-04"></a>`D-04` | Broadcaster includes rationale entries in each frame (now the persistent sliding window, not a drain). | partial | web/broadcaster.py:39 |
-| <a id="p30-d-05"></a>`D-05` | Wire format is json.dumps(dataclasses.asdict(snapshot)); no separate pydantic wire model. | active | web/broadcaster.py:39 |
-| <a id="p30-d-06"></a>`D-06` | snapshot_to_json() helper encapsulates the frame pipeline. | active | web/broadcaster.py:39 |
-| <a id="p30-d-07"></a>`D-07` | Broadcaster is an always-on lifespan task ticking at 200 ms (5 Hz). | active | web/broadcaster.py:113 |
+| <a id="p30-d-04"></a>`D-04` | Broadcaster includes rationale entries in each frame (now the persistent sliding window, not a drain), each stamped with `seq` and `ts`. | partial | web/wire.py (`build_frame`); state.py (`push_rationale`) |
+| <a id="p30-d-05"></a>`D-05` | Wire format was json.dumps(dataclasses.asdict(snapshot)) with no separate pydantic wire model. Superseded by the versioned `StateFrame` built by `web/wire.py:build_frame` ([adr-ws-broadcaster](#adr-ws-broadcaster)). | superseded | web/wire.py; web/broadcaster.py |
+| <a id="p30-d-06"></a>`D-06` | snapshot_to_json() helper encapsulates the frame pipeline (snapshot → `build_frame` → JSON). | active | web/broadcaster.py (`snapshot_to_json`) |
+| <a id="p30-d-07"></a>`D-07` | Broadcaster is an always-on lifespan task ticking at 200 ms (5 Hz). | active | web/broadcaster.py:66,96 |
 | <a id="p30-d-08"></a>`D-08` | /ws/state registered without a prefix. | active | web/app.py:217 |
 | <a id="p30-d-10"></a>`D-10` | WebSocket is unauthenticated (local only). Since Aug 2026 the handshake Origin is validated against an allow-list. | partial | web/routes/websocket.py:7 |
 
@@ -631,7 +634,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, builds ReplayStore, sets round 1, broadcasts. | active | web/replay_manager.py:115; web/routes/replay.py:38,103 |
 | <a id="p34-d-09"></a>`D-09` | replay_advance increments the round (capped at the cycle's real depth since F-12) and broadcasts. | active | web/replay_manager.py:185; web/routes/replay.py:46,175 |
 | <a id="p34-d-10"></a>`D-10` | POST /api/replay/stop ends the replay (ReplayManager inactive again) and never writes the live StateStore phase, which stays IDLE or COMPLETE. Revised 2026-10 (start set the live phase to REPLAY and stop set it to IDLE). | revised | web/replay_manager.py:249; web/routes/replay.py:54,130 |
-| <a id="p34-d-11"></a>`D-11` | Broadcaster reads the replay snapshot instead of live state while replay is active. | active | web/broadcaster.py:8,36; tests/test_web.py:1265 |
+| <a id="p34-d-11"></a>`D-11` | Broadcaster reads the replay snapshot instead of live state while replay is active. | active | web/broadcaster.py (`snapshot_to_json`); tests/test_broadcaster_frames.py |
 
 ### Phase 35: Agent interviews (web)
 
@@ -743,12 +746,12 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p41-6-d-03"></a>`D-03` | Convert the CDN-globals JSX design export to native ES modules. | active | fe/components/app_v2.tsx:4; fe/components/history.tsx:4; fe/components/icons.jsx:3; fe/components/panels.jsx:3; fe/components/settings.tsx:3; fe/components/states.jsx:5; fe/components/tweaks.jsx:3; fe/components/v2.tsx:5; fe/components/viz.jsx:3 |
-| <a id="p41-6-d-07"></a>`D-07` | App shell = six-context provider tree (Connection, Telemetry, Agents, Bracket, Rationales, Edges). | active | fe/App.tsx:1; fe/components/app_v2.tsx:4 |
+| <a id="p41-6-d-07"></a>`D-07` | App shell = seven-context provider tree (Connection, FrameMeta, Telemetry, Agents, Bracket, Rationales, Edges). Revised 2026-10 (six contexts until FrameMeta took the frame identity, [adr-frontend-quant-terminal](#adr-frontend-quant-terminal)). | revised | fe/App.tsx:1; fe/components/app_v2.tsx:4 |
 | <a id="p41-6-d-08"></a>`D-08` | AdvisoryV2: derive what the backend supports, stub the rest (stubs tracked as KRs). | active | fe/components/modals.jsx:9; fe/components/v2.tsx:17,743,810,838,1044; fe/lib/advisoryParse.ts:2,24,51 |
 | <a id="p41-6-d-09"></a>`D-09` | Render portfolio_outlook markdown via renderMarkdown(). | active | fe/components/v2.tsx:18,743,974; fe/lib/advisoryParse.ts:2,11; fe/lib/markdown.ts:3 |
 | <a id="p41-6-d-10"></a>`D-10` | AdvisoryV2 keeps four tabs; Holdings and Overview share items[]. | active | fe/components/v2.tsx:18,743,1012 |
 | <a id="p41-6-d-11"></a>`D-11` | interview_v2 is the canonical interview surface (real /api/interview). | active | fe/components/interview_v2.tsx:2; fe/components/modals.jsx:7 |
-| <a id="p41-6-d-12"></a>`D-12` | Onboarding first-run flow gated by a localStorage flag and /api/health. | active | fe/App.tsx:2,26; fe/components/onboarding.tsx:1 |
+| <a id="p41-6-d-12"></a>`D-12` | Onboarding first-run flow gated by a localStorage flag and /api/health. | active | fe/App.tsx:2,23; fe/components/onboarding.tsx:1 |
 | <a id="p41-6-d-13"></a>`D-13` | bracket_deep full-screen view filtered from AgentsContext. | active | fe/components/bracket_deep.tsx:2,10,59 |
 | <a id="p41-6-d-14"></a>`D-14` | Design data file is reference only; keep just the BRACKETS constant. | active | fe/components/app_v2.tsx:4; fe/components/states.jsx:6; fe/data.ts:1 |
 | <a id="p41-6-d-19"></a>`D-19` | usePolling surfaces timeout as an Error so modals can show it. | active | fe/components/v2.tsx:792; fe/hooks/usePolling.ts:92 |
@@ -761,7 +764,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p999-3-d-01"></a>`D-01` | Broadcaster overlays live host RAM% (psutil) on every frame, including idle and replay. | active | web/broadcaster.py:47,67,90; tests/test_web.py:462,588 |
+| <a id="p999-3-d-01"></a>`D-01` | Broadcaster overlays live host RAM% (psutil) on every frame, including idle and replay. | active | web/broadcaster.py (`_host_memory_percent`); web/wire.py (`_governor`); tests/test_wire_models.py |
 
 ---
 
@@ -776,14 +779,14 @@ Status checked against current code.
 |---|---|---|---|
 | <a id="kr-41-1-01"></a>KR-41.1-01 | Agent graph uses the design's deterministic SVG layout, with no d3-force physics | active (deliberate design) | CLAUDE.md:20; fe/components/viz.jsx:4 |
 | <a id="kr-41-1-02"></a>KR-41.1-02 | Signal Wire and Data Sources render static mocks (no backend) | partial: Signal Wire is live via `data_source_audit` (260512-jqn ITEM 5) with a DEV-only mock fallback; Data Sources is still mock in DEV and a placeholder in prod | fe/components/states.jsx:15; fe/mocks/index.ts:5; fe/mocks/sources.ts:1; fe/mocks/wire.ts:1 |
-| <a id="kr-41-1-03"></a>KR-41.1-03 | Per-agent `flipped`, `roundLastSpoke`, `thinking` stubbed | partial: `thinking` is derived from `signal===null`; `flipped` and `roundLastSpoke` are still 0/null (frame.ts:109-110) | fe/adapter/frame.ts:109,110; fe/types.ts:25,26 |
-| <a id="kr-41-1-04"></a>KR-41.1-04 | Memory shown as percent, not MB; GB literals in MemoryPaused are design copy | active | fe/__tests__/frame.test.ts:155; fe/adapter/frame.ts:83; fe/components/states.jsx:134,160; fe/types.ts:44 |
-| <a id="kr-41-1-05"></a>KR-41.1-05 | Slot counts stubbed | **closed** (260512-jqn ITEM 3: `active_count`/`current_slots` on the wire) | fe/adapter/frame.ts:69; fe/types.ts:45,46; tests/test_state.py:126 |
+| <a id="kr-41-1-03"></a>KR-41.1-03 | Per-agent `flipped`, `roundLastSpoke`, `thinking` stubbed | partial: `thinking` is derived from `signal===null`; `flipped` and `roundLastSpoke` are still 0/null (frame.ts:172-173) | fe/adapter/frame.ts:172,173; fe/types.ts:25,26 |
+| <a id="kr-41-1-04"></a>KR-41.1-04 | Memory shown as percent, not MB; GB literals in MemoryPaused are design copy | active | fe/adapter/frame.ts:146; fe/components/states.jsx:134,160; fe/types.ts:44 |
+| <a id="kr-41-1-05"></a>KR-41.1-05 | Slot counts stubbed | **closed** (260512-jqn ITEM 3: `active_count`/`current_slots` on the wire) | fe/adapter/frame.ts:132; fe/types.ts:45,46; tests/test_state.py:126 |
 | <a id="kr-41-1-06"></a>KR-41.1-06 | Replay Rewind disabled (no endpoint) | open | fe/components/modals.jsx:136,185,189 |
 | <a id="kr-41-1-07"></a>KR-41.1-07 | CycleHistory consensus/flips/duration/shocks show "—" (`/api/replay/cycles` is minimal) | open; now cheap, because the Cycle node carries these metrics ([adr-cycle-metrics](#adr-cycle-metrics)) but `CycleItem` (`web/routes/replay.py:22-28`) does not expose them | fe/api/replay.ts:3; fe/components/history.tsx:9,158,269 |
 | <a id="kr-41-1-08"></a>KR-41.1-08 | Error log lines are design copy (no structured error stream) | open | fe/components/history.tsx:56; fe/components/modals.jsx:158,234,309; fe/components/states.jsx:176,198 |
 | <a id="kr-41-1-09"></a>KR-41.1-09 | Top Influencers ranked by confidence during live view | partial: switches to OUT-DEGREE from `/api/edges` after the cycle (b116ddc) | fe/components/app_v2.tsx:316 |
-| <a id="kr-41-1-10"></a>KR-41.1-10 | Rationale `citations`/`sources` stubbed `[]` (RationaleEntry has no `cited_agents`) | open | fe/adapter/frame.ts:162,163; fe/components/app_v2.tsx:298; fe/types.ts:58,59 |
+| <a id="kr-41-1-10"></a>KR-41.1-10 | Rationale `citations`/`sources` stubbed `[]` (RationaleEntry has no `cited_agents`) | open | fe/adapter/frame.ts:226,227; fe/components/app_v2.tsx:298; fe/types.ts:59,60 |
 | <a id="kr-41-1-11"></a>KR-41.1-11 | Interview is non-streaming (single POST) | open | fe/api/interview.ts:2; fe/components/interview_v2.tsx:2,9 |
 | <a id="kr-41-6-01"></a>KR-41.6-01 | AdvisoryV2 shares/basis/last/sentiment shown as "—" (not on AdvisoryItem) | open (holdings API has qty/cost_basis, so a client-side join could fill two of them) | fe/components/v2.tsx:838,1044,1054,1206; fe/lib/advisoryParse.ts:9 |
 | <a id="kr-41-6-02"></a>KR-41.6-02 | `new_features.jsx` (What-If Compare, Watch Mode, Multi-seed, Seed Suggestions) deferred; overflow items say "Coming in v6.x" | open (no code reference) | — |
@@ -832,7 +835,7 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-21"></a>F-21 | Any monitor-loop exception silently killed throttling | 78744f6 | governor.py:346,360 |
 | <a id="f-22"></a>F-22 | Anthropic missing-tool ValueError escaped the provider error contract | c99d00b | inference/anthropic_provider.py:242 |
 | <a id="f-23"></a>F-23 | Retry-After HTTP-date ignored; now a shared clamped parser | c99d00b, 9312419 | inference/anthropic_provider.py:273; inference/openai_provider.py:317 |
-| <a id="f-24"></a>F-24 | Broadcaster crashed every tick during replay start-up (`has_store` gate) | 66d680f | web/broadcaster.py:86; web/replay_manager.py:82 |
+| <a id="f-24"></a>F-24 | Broadcaster crashed every tick during replay start-up (`has_store` gate) | 66d680f | web/broadcaster.py:44,46; web/replay_manager.py:134 |
 | <a id="f-25"></a>F-25 | Inference config save was not atomic (now temp file + `os.replace`) | 902d7b5 | config.py:335 |
 | <a id="f-26"></a>F-26 | `/replay/start` skipped the cycle_id guard | 66d680f | web/routes/replay.py:114 |
 | <a id="f-27"></a>F-27 | A binary WS frame dropped the connection | 66d680f | web/routes/websocket.py:133 |
@@ -841,8 +844,8 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-30"></a>F-30 | Inconsistent ticker casing across items | 35471d4 | advisory/engine.py:225 |
 | <a id="f-31"></a>F-31 | Inverted governor thresholds passed validation | 902d7b5 | config.py:105 |
 | <a id="f-32"></a>F-32 | A failed unload aborted `ensure_clean_state`, risking the two-model invariant | 66d680f | ollama_models.py:118,171 |
-| <a id="f-33"></a>F-33 | Double-click could start two simulations | df2f26a | fe/hooks/useRunGate.tsx:47 |
-| <a id="f-34"></a>F-34 | `parseInfluences` produced duplicate React keys | df2f26a | fe/__tests__/advisoryParse.test.ts:79; fe/lib/advisoryParse.ts:175 |
+| <a id="f-33"></a>F-33 | Double-click could start two simulations | df2f26a | fe/hooks/useRunGate.tsx:48 |
+| <a id="f-34"></a>F-34 | `parseInfluences` produced duplicate React keys | df2f26a | fe/__tests__/advisoryParse.test.ts:81; fe/lib/advisoryParse.ts:175 |
 | <a id="f-35"></a>F-35 | Top Influencers showed "0" filler rows | df2f26a | fe/components/app_v2.tsx:329 |
 | <a id="u1-u4"></a>U1/U2/U4 | Uncertain findings, also fixed: per-record episode stamping (U1), sysctl child reaped on cancel (U2), convergence weight normalization (U4) | 63d70da | — |
 
@@ -892,7 +895,7 @@ code. Their status is in BACKLOG.md.
 | <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,89; simulation.py:56; tests/test_rss_provider.py:142,164,549 |
 | <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/integration/test_holdings_route.py:14,215,259 |
 | <a id="t-41-6-13"></a>T-41.6-13 | XSS through interview responses. Rendered as plain text, not markdown | fe/components/interview_v2.tsx:19 |
-| <a id="t-260512-jqn-03"></a>T-260512-jqn-03 | Data-source audit buffer leaking raw bodies or env vars. Only bounded summary fields are recorded | data_audit.py:14,83; tests/test_data_audit.py:67 |
+| <a id="t-260512-jqn-03"></a>T-260512-jqn-03 | Data-source audit buffer leaking raw bodies or env vars. Only bounded summary fields are recorded | data_audit.py:14,83; tests/test_data_audit.py:68 |
 | <a id="t-260512-jqn-09"></a>T-260512-jqn-09 | Audit buffer mistaken for a compliance trail. It is a bounded in-memory UX ring buffer only | data_audit.py:10 |
 
 ---
@@ -923,7 +926,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-hold"></a>HOLD-01..04 | CSV loader (01), account number hashed with `sha256_first8` (02/04), `GET /api/holdings` (03) | config.py:452; holdings/loader.py:1,13,73,145; holdings/types.py:33; security/hashing.py:5; web/routes/holdings.py:1; tests/... |
 | <a id="req-advis"></a>ADVIS-01 / 02 | `synthesize()` ranked items / `POST /api/advisory` with serialization | advisory/__init__.py:1; advisory/engine.py:1; advisory/types.py:1; web/routes/advisory.py:1,99; tests/unit/... |
 | <a id="req-sim-04"></a>SIM-04 | `run_simulation` takes optional providers; backward compatible without them | tests/test_simulation.py:3269 |
-| <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:47,56,67; tests/test_web.py:462,469,494,525,554; docs/design/inference-providers.md:142 |
+| <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:27,53; web/wire.py:167; tests/test_web.py:464,471,496,527,556; docs/design/inference-providers.md:142 |
 | <a id="req-auto"></a>AUTO-01..05 | Run the post-run jobs on completion (capture cycle_id, schedule from the done-callback). Revised 2026-10: PostRunPipeline calls the advisory and report jobs directly instead of an in-process POST, and the report runs in every case | tests/unit/test_simulation_manager_auto_advisory.py; tests/test_post_run_pipeline.py; tests/test_web_post_run_wiring.py |
 
 ---

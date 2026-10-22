@@ -109,7 +109,7 @@ function layoutGrid(agents, w, h) {
   return { positions, bracketOrder, cellW, cellH, pad, rows, maxCols };
 }
 
-export function Viz({ agents: rawAgents, edges: rawEdges = /** @type {Array<[string, string]>} */ ([]), layout, direction, onAgentHover, onAgentClick, highlightId, showEdges = true, round = 2 }) {
+export function Viz({ agents: rawAgents, edges: rawEdges = /** @type {Array<[string, string]>} */ ([]), layout, direction, onAgentHover, onAgentClick, highlightId, showEdges = true, round: _round = 2 }) {
   // Enrich live agents with derived `index` (stable per-frame position) and
   // `radius` (BRACKETS lookup, default 5). Mock buildAgents() set these in the
   // AlphaSwarm-2 design; live useAgents() doesn't. Memoize so reference is
@@ -141,13 +141,16 @@ export function Viz({ agents: rawAgents, edges: rawEdges = /** @type {Array<[str
   // parse_error gets a distinct muted treatment (not coerced to hold color).
   const sigColor = (s) => s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : s === 'parse_error' ? 'var(--text-3)' : 'var(--hold)';
 
-  const gridData = layout === 'grid' ? layoutGrid(agents, size.w, size.h) : null;
+  const gridData = useMemo(
+    () => (layout === 'grid' ? layoutGrid(agents, size.w, size.h) : null),
+    [agents, layout, size.w, size.h],
+  );
   const positions = useMemo(() => {
     if (layout === 'force')  return layoutForce(agents, size.w, size.h);
     if (layout === 'radial') return layoutRadial(agents, size.w, size.h);
-    if (layout === 'grid')   return gridData.positions;
+    if (gridData)            return gridData.positions;
     return {};
-  }, [agents, layout, size.w, size.h]);
+  }, [agents, layout, size.w, size.h, gridData]);
 
   // Real INFLUENCED_BY edges from EdgesContext — [source, target] tuples.
   // Empty until the backend persists edges for the round (no fabricated edges).

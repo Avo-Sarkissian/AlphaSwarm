@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Final, Literal
 
 from alphaswarm.data_audit import DataSourceAuditBuffer, DataSourceAuditEntry
@@ -63,6 +63,10 @@ class RationaleEntry:
     signal: SignalType   # BUY, SELL, HOLD for color-coding
     rationale: str       # truncated at 50 chars by producer
     round_num: int       # which round this came from
+    # Stamped by StateStore.push_rationale: a process-lifetime monotonic sequence
+    # and the wall-clock time. Replay numbers entries 1..n per round with ts 0.0.
+    seq: int = 0
+    ts: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -133,10 +137,17 @@ class StateSnapshot:
     # Typed, UI-safe description of the last failed run; cleared when a new
     # run starts (docs/DECISIONS.md#adr-taskgroup-dispatch).
     last_error: RunError | None = None
-    # Shock state, broadcast via asdict (docs/DECISIONS.md#adr-ws-broadcaster).
+    # Shock state; mapped onto the wire by web/wire.py:build_frame.
     pending_shock: str | None = None
     applied_shocks: tuple[AppliedShock, ...] = ()
     shock_window_open: bool = False
+    # Run identity for the wire frame (docs/DECISIONS.md#adr-ws-broadcaster).
+    cycle_id: str | None = None
+    num_rounds: int = 3
+    edges_version: int = 0
+    jobs: JobsSnapshot = field(
+        default_factory=lambda: JobsSnapshot(advisory=JobStatus(), report=JobStatus())
+    )
 
 
 class StateStore:
@@ -188,6 +199,10 @@ class StateStore:
         self._num_rounds: int = 3
         self._pending_shock: str | None = None
         self._applied_shocks: list[AppliedShock] = []
+        # Run identity (reset on SEEDING) and the rationale sequence (never reset).
+        self._cycle_id: str | None = None
+        self._edges_version: int = 0
+        self._rationale_seq: int = 0
 
     async def update_agent_state(
         self,
@@ -224,6 +239,8 @@ class StateStore:
                 self._cumulative_eval_ns = 0
                 self._bracket_summaries = ()
                 self._rationale_window.clear()
+                self._cycle_id = None
+                self._edges_version = 0
                 self._applied_shocks.clear()
                 # Not _num_rounds: it must be set before SEEDING, and a reset here
                 # would reopen the shock window in the last round of a 2-round run.
@@ -258,8 +275,17 @@ class StateStore:
         async with self._lock:
             self._round_num = round_num
 
+    async def set_cycle(self, cycle_id: str | None) -> None:
+        """Record the cycle being simulated (called right after inject_seed)."""
+        async with self._lock:
+            self._cycle_id = cycle_id
+
+    def bump_edges_version(self) -> None:
+        """Count one finished influence-edge step for the current cycle."""
+        self._edges_version += 1
+
     async def push_rationale(self, entry: RationaleEntry) -> None:
-        """Append rationale entry to the sliding window (maxlen=50).
+        """Append a rationale entry, stamped with ``seq`` and ``ts``, to the window (maxlen=50).
 
         ITEM 4 of quick task 260512-jqn: replaced drain semantics with peek
         semantics. The deque silently drops the oldest entry when full, so
@@ -272,7 +298,8 @@ class StateStore:
         simulation.py / batch_dispatcher.py; deque.append is O(1) and the
         GIL keeps it consistent under the StateStore's single-loop usage.
         """
-        self._rationale_window.append(entry)
+        self._rationale_seq += 1
+        self._rationale_window.append(replace(entry, seq=self._rationale_seq, ts=time.time()))
 
     def update_tps(self, eval_count: int, eval_duration_ns: int) -> None:
         """Accumulate TPS from Ollama response metadata (D-05, TUI-04).
@@ -339,6 +366,10 @@ class StateStore:
             pending_shock=self._pending_shock,
             applied_shocks=tuple(self._applied_shocks),
             shock_window_open=self.shock_window_open(),
+            cycle_id=self._cycle_id,
+            num_rounds=self._num_rounds,
+            edges_version=self._edges_version,
+            jobs=self.job_statuses(),
         )
 
     def peek_rationales(self) -> tuple[RationaleEntry, ...]:
@@ -445,12 +476,24 @@ class ReplayStore:
     not accumulated over time.
     """
 
-    def __init__(self, cycle_id: str, signals: dict[tuple[str, int], AgentState]) -> None:
+    def __init__(
+        self,
+        cycle_id: str,
+        signals: dict[tuple[str, int], AgentState],
+        *,
+        num_rounds: int = 3,
+    ) -> None:
         self._cycle_id = cycle_id
+        self._num_rounds = num_rounds
         self._signals = signals
         self._current_round: int = 0
         self._bracket_summaries: tuple[BracketSummary, ...] = ()
         self._rationale_entries: tuple[RationaleEntry, ...] = ()
+
+    @property
+    def cycle_id(self) -> str:
+        """The cycle being replayed."""
+        return self._cycle_id
 
     def set_round(self, round_num: int) -> None:
         """Set the active round for snapshot filtering."""
@@ -486,4 +529,8 @@ class ReplayStore:
             rationale_entries=self._rationale_entries,
             bracket_summaries=self._bracket_summaries,
             data_source_audit=(),
+            cycle_id=self._cycle_id,
+            num_rounds=self._num_rounds,
+            # A replayed cycle is complete, so round r's edges exist once r >= 2.
+            edges_version=max(0, self._current_round - 1),
         )

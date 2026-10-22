@@ -10,7 +10,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 |---|---|---|
 | FastAPI + uvicorn | `alphaswarm.web.app:create_app`, bound to 127.0.0.1:8000 (`start` script → `cli.main_web`) | REST `/api/*`, WebSocket `/ws/state`, and the built `frontend/dist` when present |
 | Simulation task | `web/simulation_manager.py` → `simulation.run_simulation` | One background asyncio task per run, held under an `asyncio.Lock` for its whole lifetime |
-| Broadcaster | `web/broadcaster.py` + `web/connection_manager.py` | ~5 Hz task: `StateStore.snapshot()` → JSON → one `Queue(maxsize=100)` per client, dropping the oldest frame when full |
+| Broadcaster | `web/broadcaster.py` + `web/wire.py` + `web/connection_manager.py` | ~5 Hz task: `StateStore.snapshot()` (or the replay store's) → `build_frame` → versioned `StateFrame` JSON → one `Queue(maxsize=100)` per client, dropping the oldest frame when full |
 | Ollama (MLX) | `localhost:11434`, `modelfiles/` | Aliases `alphaswarm-orchestrator` (qwen3.6:27b-nvfp4) and `alphaswarm-worker` (qwen3.6:35b-a3b-nvfp4); `OllamaModelManager` loads and unloads them one at a time |
 | Optional cloud LLMs | `.secrets/inference.json` (Settings UI) | OpenAI-compatible or Anthropic, chosen per role, wrapped in `BudgetTrackingProvider` and throttled by `RateLimitController` |
 | Neo4j 5.26 | `docker-compose.yml`, bolt on `127.0.0.1:7687` | Durable graph of cycles, decisions, episodes, and influence |
@@ -61,7 +61,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `logging.py`: structlog plus the fail-closed PII redaction processor.
   - `security/hashing.py`.
 - **Web**
-  - `web/`: `simulation_manager`, `replay_manager`, `post_run` (PostRunPipeline), `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `connection_manager`, and `origin_guard` (a CSRF Origin guard).
+  - `web/`: `simulation_manager`, `replay_manager`, `post_run` (PostRunPipeline), `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `wire` (the versioned `StateFrame` and its mapper), `connection_manager`, and `origin_guard` (a CSRF Origin guard).
   - `web/routes/`: health, simulation (start/stop/shock), edges, replay, interview, holdings, report, advisory, settings, websocket.
 
 ## Data flow: seed → rounds → graph → web → UI
@@ -99,8 +99,8 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    If anything in steps 1-6 fails instead (an invalid inference config, a hard stop, `RoundFailedError`, a Neo4j error), `SimulationManager._run` publishes a UI-safe `RunError` as `StateStore.last_error`, logs the exception once with its traceback, and resets the phase to IDLE. A cancelled run sets no error.
 7. **Post-run pipeline.** `PostRunPipeline` runs the advisory when holdings are loaded (`PortfolioCache`) and allowed, writing `advisory/{id}_advisory.json`, then always the report (`reports/{id}_report.md`: the ReAct loop, up to 10 orchestrator calls over 8 graph tools, rendered through Jinja). Both write atomically; job status is in the StateStore.
 8. **Live UI.**
-   - The broadcaster sends `asdict(StateSnapshot)` plus a live memory overlay over `/ws/state`.
-   - On the frontend, `useWebSocket` feeds `adapter/frame.ts`, which updates the React contexts (Agents, Bracket, Rationales, Telemetry, Edges), which render the D3/SVG graph.
+   - The broadcaster sends a versioned `StateFrame` over `/ws/state`: `schema_version`, `mode`, `cycle_id`, `num_rounds`, `edges_version`, `jobs`, `last_error`, the shock fields, agent states, rationale entries with `seq`/`ts`, bracket summaries, the data-source audit, and governor metrics with the live host memory.
+   - On the frontend, `useWebSocket` feeds `adapter/frame.ts`, which updates the React contexts (`FrameProviders`: Connection, FrameMeta, Telemetry, Agents, Bracket, Rationales; plus Edges), which render the D3/SVG graph.
    - Edges, report, advisory, replay, and settings come over REST.
 9. **Replay.** ReplayManager loads a cycle's signals from Neo4j into a ReplayStore, and the broadcaster switches its snapshot source. No inference runs, and the live phase is left alone.
 10. **Interview.** `POST /api/interview/{agent_id}` takes the request's `cycle_id` or the latest complete cycle, reads the agent's context with `read_agent_interview_context`, and runs InterviewEngine on the worker provider.

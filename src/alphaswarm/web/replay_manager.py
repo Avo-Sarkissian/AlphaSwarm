@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
-import json
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
@@ -13,6 +11,7 @@ import structlog
 from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.state import BracketSummary, RationaleEntry, ReplayStore
 from alphaswarm.types import SignalType
+from alphaswarm.web.broadcaster import snapshot_to_json
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
@@ -78,14 +77,17 @@ def _bracket_summaries_from_rows(rows: Sequence[BracketRoundRow]) -> tuple[Brack
 
 
 def _rationale_entries_from_rows(rows: Sequence[RationaleRoundRow]) -> tuple[RationaleEntry, ...]:
+    """Typed entries for one replayed round, numbered 1..n; replay has no wall-clock time."""
     return tuple(
         RationaleEntry(
             agent_id=row["agent_id"],
             signal=SignalType(row["signal"]),
             rationale=row["rationale"],
             round_num=row["round_num"],
+            seq=seq,
+            ts=0.0,
         )
-        for row in rows
+        for seq, row in enumerate(rows, start=1)
     )
 
 
@@ -180,7 +182,8 @@ class ReplayManager:
                 )
             self._starting = True
             try:
-                store = ReplayStore(cycle_id, signals)
+                num_rounds = max((rnd for (_, rnd) in signals), default=1)
+                store = ReplayStore(cycle_id, signals, num_rounds=num_rounds)
                 store.set_round(1)
                 # Load bracket summaries and rationale entries for round 1
                 store.set_bracket_summaries(_bracket_summaries_from_rows(
@@ -196,16 +199,15 @@ class ReplayManager:
                 # Cap advance() at the cycle's actual round depth so a 2-round
                 # cycle never advances to an empty round 3 (F-12). signals keys
                 # are (agent_id, round_num).
-                self._max_rounds = max((rnd for (_, rnd) in signals), default=1)
+                self._max_rounds = num_rounds
             finally:
                 self._starting = False
             # The live phase is left alone: ReplayStore.snapshot() reports REPLAY and the
             # broadcaster serves it while a store is committed
             # (docs/DECISIONS.md#adr-replaystore-separate).
             # Broadcast round-1 snapshot immediately
-            snap = self._store.snapshot()
-            d = dataclasses.asdict(snap)
-            connection_manager.broadcast(json.dumps(d))
+            # Same StateFrame as every broadcaster tick.
+            connection_manager.broadcast(snapshot_to_json(self._app_state.state_store, self))
             log.info("replay_started", cycle_id=cycle_id, round_num=1)
 
     async def advance(
@@ -239,9 +241,7 @@ class ReplayManager:
                     self._cycle_id, self._round_num,
                 ),
             ))
-            snap = self._store.snapshot()
-            d = dataclasses.asdict(snap)
-            connection_manager.broadcast(json.dumps(d))
+            connection_manager.broadcast(snapshot_to_json(self._app_state.state_store, self))
             log.info("replay_advanced", cycle_id=self._cycle_id, round_num=self._round_num)
             return self._round_num
 

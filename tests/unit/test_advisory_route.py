@@ -11,7 +11,7 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 import alphaswarm.web.guards as guards_module
 import alphaswarm.web.routes.advisory as advisory_module
+from alphaswarm.advisory import AdvisoryItem, AdvisoryReport
 from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
 from alphaswarm.errors import InferenceConfigError, Neo4jUnavailableError
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
@@ -46,6 +47,34 @@ def _portfolio() -> PortfolioSnapshot:
         as_of=datetime.now(UTC),
         account_number_hash="cafebabe",
     )
+
+
+def _stored_report() -> AdvisoryReport:
+    return AdvisoryReport(
+        cycle_id=CYCLE_A,
+        generated_at=datetime(2026, 10, 3, 12, 0, tzinfo=UTC),
+        portfolio_outlook="Fictional outlook for the test portfolio.",
+        items=(
+            AdvisoryItem(
+                ticker="ZZZT",
+                consensus_signal="BUY",
+                confidence=0.7,
+                rationale_summary="Fictional summary.",
+                position_exposure=Decimal("1234.56"),
+            ),
+        ),
+        total_holdings=1,
+        affected_holdings=1,
+    )
+
+
+def _unreadable_contents() -> list[str]:
+    valid = json.loads(_stored_report().model_dump_json())
+    return [
+        json.dumps({"cycle_id": CYCLE_A, "items": []}),
+        "not json at all",
+        json.dumps({**valid, "unexpected": 1}),
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -235,15 +264,15 @@ def test_get_200_reads_from_settings_dir_not_cwd(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (tmp_path / "advisory").mkdir()
-    payload = {"cycle_id": CYCLE_A, "items": []}
-    (tmp_path / "advisory" / f"{CYCLE_A}_advisory.json").write_text(json.dumps(payload))
+    stored = _stored_report()
+    (tmp_path / "advisory" / f"{CYCLE_A}_advisory.json").write_text(stored.model_dump_json())
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
     with TestClient(_app(tmp_path)) as client:
         r = client.get(f"/api/advisory/{CYCLE_A}")
     assert r.status_code == 200
-    assert r.json() == payload
+    assert r.json() == json.loads(stored.model_dump_json())
 
 
 def test_get_404_500_and_409(tmp_path: Path) -> None:
@@ -476,3 +505,35 @@ async def test_a_refused_job_keeps_its_own_fixed_message() -> None:
     assert app.state.app_state.state_store.job_statuses().advisory == JobStatus(
         "failed", CYCLE_A, "cloud_advisory_disabled",
     )
+
+
+@pytest.mark.parametrize(
+    "content", _unreadable_contents(), ids=["older-shape", "not-json", "extra-field"]
+)
+def test_get_500_when_the_stored_advisory_is_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str
+) -> None:
+    (tmp_path / "advisory").mkdir()
+    (tmp_path / "advisory" / f"{CYCLE_A}_advisory.json").write_text(content)
+    recorder = MagicMock()
+    monkeypatch.setattr(advisory_module, "log", recorder)
+    with TestClient(_app(tmp_path)) as client:
+        r = client.get(f"/api/advisory/{CYCLE_A}")
+    assert r.status_code == 500
+    assert r.json()["detail"]["error"] == "advisory_generation_failed"
+    assert r.json()["detail"]["cycle_id"] == CYCLE_A
+    assert "ZZZT" not in r.text and "1234.56" not in r.text
+    recorder.warning.assert_called_once()
+    assert recorder.warning.call_args.args == ("advisory_file_invalid",)
+    assert set(recorder.warning.call_args.kwargs) == {"cycle_id", "error_count"}
+    assert "ZZZT" not in repr(recorder.mock_calls) and "1234.56" not in repr(recorder.mock_calls)
+
+
+def test_openapi_declares_the_advisory_report_response(tmp_path: Path) -> None:
+    schema = _app(tmp_path).openapi()
+    ok = schema["paths"]["/api/advisory/{cycle_id}"]["get"]["responses"]["200"]
+    assert ok["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/AdvisoryReport"
+    }
+    declared = schema["components"]["schemas"]["AdvisoryReport"]["properties"]
+    assert set(declared) == set(AdvisoryReport.model_fields)

@@ -23,7 +23,7 @@ Decision context lives in [DECISIONS.md](DECISIONS.md), and anchors are cited as
 | 1.1 | **Report "social post reach" section is always empty for new cycles.** Post nodes are still written. The June 2026 peer-context rewrite removed READ_POST writes on purpose ("~10k edges/round recording 'everyone read everything' carried no analytical value", `simulation.py:1163-1165, 1321`), but the report tool that reads them was left in place | open | `graph.py:1573-1610` reads `(:Agent)-[:READ_POST]->(:Post)`, and both report paths still register it (`cli.py:767`, `web/routes/report.py:363`). `simulation.py:1091,1213,1364` call `write_posts`, but nothing calls `write_read_post_edges` (`graph.py:671`) | Write READ_POST from the actual in-memory peer sets (reader → each peer's post), which is more meaningful than the old "all posts", or re-base the tool on CITED counts. Add a regression test. See D#hist-read-post |
 | 1.2 | **Shock text has no length cap.** The 4096-char cap from STATE.md is not enforced, and the text is concatenated into every agent's user message | open | `web/routes/simulation.py:40-43` (`shock_text: str`, no `max_length`); `graph.py:1924` says "caller enforces"; `simulation.py:1150,1307` | `Field(..., min_length=1, max_length=4096)`, plus the same fencing used for RSS headlines. D#hist-shock-max-len |
 | 1.3 | **Historical cycles cannot be regenerated or interviewed after a restart.** Report, advisory, and interview all require the in-memory phase to be COMPLETE, and interview always uses the latest cycle (Phase 41.2 D-06, BUGFIX B12) | done (2026-10, post-run pipeline work) | `web/routes/report.py:183-192`; `web/routes/advisory.py:161`; `web/routes/interview.py:67-76,95` | Gate on "cycle exists in Neo4j" (404 `cycle_not_found`) instead of phase. Keep the orchestrator 409 guards. Pass `cycle_id` explicitly to the interview route. The unmerged branch `gsd/phase-41.3-codex-remediation` has a stale take on this. Done: status-based gating, interview cycle_id, replay no longer writes the live phase |
-| 1.4 | **Frontend hardcodes three rounds.** This blocks making `ALPHASWARM_NUM_ROUNDS=2` the default | open | `fe/components/app_v2.tsx:372`, `fe/components/panels.jsx:121`, `fe/components/v2.tsx:369`, `fe/components/modals.jsx:196`. `round_count` is available from `/api/replay/cycles` (`graph.py:2091`) but not on the live frame | Add `num_rounds` to StateSnapshot and read it in the adapter |
+| 1.4 | **Frontend hardcodes three rounds.** This blocks making `ALPHASWARM_NUM_ROUNDS=2` the default | open (backend half done 2026-10: num_rounds is on the WebSocket frame and mapped to StateFrame.numRounds; the UI still hard-codes 3) | `fe/components/app_v2.tsx:656` (round tabs), `fe/components/panels.jsx:121`, `fe/components/v2.tsx:369`, `fe/components/modals.jsx:146,194,196`. Live and replay frames carry `num_rounds` (`useFrameMeta().numRounds`); `/api/replay/cycles` returns `round_count` (`graph.py:2318`) | Read `useFrameMeta().numRounds` in those components instead of the literal 3 |
 | 1.5 | **`scripts/start_ollama.sh` omits `OLLAMA_USE_MLX=1`**, so the nvfp4 models silently fall back when Ollama is started from a terminal. Its header still says NUM_PARALLEL=16 fits a "9B q4 worker" | done (2026-10): exports OLLAMA_USE_MLX=1 with a corrected header; one shared variable file for both start scripts was left optional (each script stays self-contained) | `scripts/start_ollama.sh:4-9,17-19` vs `scripts/configure_ollama_app_env.sh:24-28` | Export `OLLAMA_USE_MLX=1`, refresh the comment, and source both scripts from one var list |
 | 1.6 | **The Neo4j restore command printed by the backup script fails as written.** `neo4j-admin database load` expects `neo4j.dump`, but the backups are renamed `neo4j-<stamp>.dump` | open | `scripts/backup_neo4j.sh` (last line); the README notes the filename rule | Print a restore that copies or symlinks the chosen dump to `neo4j.dump` in a temp dir, or ship `scripts/restore_neo4j.sh` |
 | 1.7 | **A unit test writes into the real `advisory/` directory** (`advisory/c1_advisory.json`) | done (2026-10, post-run pipeline work) | `tests/unit/test_task5b_provider_migration.py:414` calls `_run_advisory_synthesis(app_state, "c1", …)`; the route writes to the CWD-relative `ADVISORY_DIR = Path("advisory")` (`web/routes/advisory.py:41,356-357`) with no redirect | `monkeypatch.chdir(tmp_path)` or inject the output dir. Done: test uses tmp settings |
@@ -49,6 +49,7 @@ Decision context lives in [DECISIONS.md](DECISIONS.md), and anchors are cited as
 | 2.9 | `scripts/diagnose_sim.py` (April 2026) tallies uppercase `"BUY"/"SELL"/"HOLD"` against lowercase `SignalType` values, so its RESULT line always prints zeros. Fix or delete | open | `scripts/diagnose_sim.py:192-195`; `types.py:65-70` |
 | 2.10 | mypy strict is configured but not gated (about 34 baseline errors), and ruff is not gated. Decide whether to burn down and gate, or relax the config | partial (2026-10): mypy strict gated in the CI `lint` job, remaining errors exempt through a shrink-only override list (`tests/invariants/test_mypy_overrides.py`). Open: gate ruff | `pyproject.toml [tool.mypy]` and `[[tool.mypy.overrides]]`; `.github/workflows/ci.yml` (`lint` job: mypy + lint-imports) |
 | 2.11 | Archive or delete the unmerged branch `gsd/phase-41.3-codex-remediation` | done (2026-10-03): tagged `archive/gsd-41.3-codex-remediation`, branch deleted | `git log master..gsd/phase-41.3-codex-remediation` shows 2 commits from 2026-05-06; it touches the deleted `tui.py` |
+| 2.12 | Optional: generate REST types from the OpenAPI schema with `openapi-typescript` and add a CI drift check. Deferred 2026-10 as the default option, taken while small decisions were delegated rather than chosen by the owner: the WebSocket frame is already pinned by golden fixtures, and the advisory GET declares `response_model=AdvisoryReport` | open (optional) | hand-written types in `frontend/src/api/*.ts`; `create_app().openapi()` |
 
 ## 3. Documentation and presentation (resume-facing)
 
@@ -110,7 +111,7 @@ improve the product:
 | 41.5 | Advisory hero, KPI strip, per-holding table | done (absorbed by 41.6 AdvisoryV2) | `fe/components/v2.tsx:743+` |
 | 41.6 | Quant Terminal port | code done. **Formal UAT never signed off** (6 HUMAN-UAT items pending; 31 parity rows unsigned) | see section 7 |
 | 999.1 | Auto-trigger advisory on completion | done; the in-process trigger was replaced by PostRunPipeline (2026-10) | `web/post_run.py`; `web/app.py:WebPostRunJobs` |
-| 999.3 | Live memory telemetry | done | `web/broadcaster.py:47-90` |
+| 999.3 | Live memory telemetry | done | `web/broadcaster.py` (`_host_memory_percent`); `web/wire.py` (`_governor`) |
 | 41.3 (branch only) | Codex remediation | superseded, never merged | item 2.11 |
 
 ## 7. UAT that was never signed off (needs one live run)
@@ -122,8 +123,8 @@ tick them off there.
 | Check | Code evidence | Status |
 |---|---|---|
 | Agent dots fill in progressively during a round and do not vanish at round entry | `state.py:143-185`; `batch_dispatcher.py:105-126` | likely done |
-| Rationale feed updates live mid-round; R3 rationales stay after completion | `state.py` `_rationale_window`; `broadcaster.py:95` | likely done |
-| PARALLEL SLOTS shows live numbers | `fe/adapter/frame.ts:69-78` | likely done |
+| Rationale feed updates live mid-round; R3 rationales stay after completion | `state.py` `_rationale_window`; `web/wire.py` (`build_frame`) | likely done |
+| PARALLEL SLOTS shows live numbers | `fe/adapter/frame.ts:132-141` | likely done |
 | Signal Wire shows real provider calls, not the mock seed | `data_audit.py`; `fe/hooks/useDataSourceAudit.ts` | likely done (falls back to the DEV mock when empty) |
 | After completion, Top Influencers switches to OUT-DEGREE and the top strip shows "N active edges" | `simulation.py:1396-1416` (R3 edges); `fe/components/app_v2.tsx:316-329` | likely done |
 | Advisory auto-fires, one item per holding, Overview tiles show real values; report auto-generates afterwards | `web/app.py:118`; `advisory/engine.py:148-260`; `web/routes/advisory.py:288` | likely done |
@@ -139,7 +140,7 @@ tick them off there.
 - **Debug `parallel-swarm-serial-dispatch` (2026-05-07): done.**
   - Dispatch was never serial.
   - 0 edges: peer IDs are now in the prompt and agents are told to cite them (`simulation.py:388-400`).
-  - Empty feed: the adapter reads `rationale` and `round_num` (`fe/adapter/frame.ts:160-161`).
+  - Empty feed: the adapter reads `rationale` and `round_num` (`fe/adapter/frame.ts:224-225`).
   - Slowness: addressed by the MLX stack.
 - **Debug `ws-agent-states-not-emitted-mid-sim` (2026-05-10): likely done.** The status was "awaiting_human_verify", but the fix is in code (see section 7).
 - **SWEEP-260528:**

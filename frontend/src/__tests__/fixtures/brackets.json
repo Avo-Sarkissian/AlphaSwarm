@@ -1,0 +1,62 @@
+[
+  {
+    "key": "institutions",
+    "display_name": "Institutions",
+    "count": 18,
+    "influence_weight_base": 0.65
+  },
+  {
+    "key": "sell_side",
+    "display_name": "Sell-Side",
+    "count": 10,
+    "influence_weight_base": 0.75
+  },
+  {
+    "key": "event_driven",
+    "display_name": "Event-Driven",
+    "count": 10,
+    "influence_weight_base": 0.6
+  },
+  {
+    "key": "quants",
+    "display_name": "Quants",
+    "count": 12,
+    "influence_weight_base": 0.55
+  },
+  {
+    "key": "degens",
+    "display_name": "Degens",
+    "count": 15,
+    "influence_weight_base": 0.5
+  },
+  {
+    "key": "narrators",
+    "display_name": "Narrators",
+    "count": 8,
+    "influence_weight_base": 0.7
+  },
+  {
+    "key": "algos",
+    "display_name": "Algos",
+    "count": 8,
+    "influence_weight_base": 0.45
+  },
+  {
+    "key": "macro",
+    "display_name": "Macro",
+    "count": 7,
+    "influence_weight_base": 0.55
+  },
+  {
+    "key": "shorts",
+    "display_name": "Shorts",
+    "count": 7,
+    "influence_weight_base": 0.6
+  },
+  {
+    "key": "allocators",
+    "display_name": "Allocators",
+    "count": 5,
+    "influence_weight_base": 0.6
+  }
+]

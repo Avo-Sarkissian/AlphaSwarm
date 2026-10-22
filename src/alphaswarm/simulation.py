@@ -1138,12 +1138,17 @@ async def run_simulation(
     phase = SimulationPhase.SEEDING
     logger.info("simulation_phase_transition", phase=phase.value)
     if state_store is not None:
+        state_store.set_num_rounds(settings.num_rounds)
         await state_store.set_phase(SimulationPhase.SEEDING)
 
     cycle_id, parsed_result, modifier_result = await inject_seed(
         rumor, settings, orch, graph_manager,
         modifier_generator=generate_modifiers,
     )
+    if state_store is not None:
+        # The frame's cycle id: the canvas fetches this cycle's edges, never the
+        # previous run's (docs/DECISIONS.md#adr-ws-broadcaster).
+        await state_store.set_cycle(cycle_id)
 
     # Phase 13: Regenerate personas with entity-aware modifiers (D-01, D-02)
     if modifier_result is not None:
@@ -1413,6 +1418,8 @@ async def run_simulation(
                 )
             else:
                 logger.warning("influence_edges_skipped", cycle_id=cycle_id, round_num=2)
+            if state_store is not None:
+                state_store.bump_edges_version()  # round-2 edges are now readable
 
             # Compute Round 2 bracket summaries (D-08)
             round2_summaries = compute_bracket_summaries(round2_decisions, personas, brackets)
@@ -1583,6 +1590,8 @@ async def run_simulation(
                     )
                 else:
                     logger.warning("influence_edges_skipped", cycle_id=cycle_id, round_num=3)
+                if state_store is not None:
+                    state_store.bump_edges_version()  # round-3 edges are now readable
 
                 # Compute Round 3 bracket summaries (D-08)
                 round3_summaries = compute_bracket_summaries(round3_decisions, personas, brackets)

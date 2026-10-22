@@ -195,7 +195,8 @@ uv run pytest -q -m "not neo4j"
 uv run pytest -q tests/engine -rxX
                           # the real run_simulation on scripted fakes, about 2 s; XFAIL
                           # lines are pinned engine bugs (DECISIONS#adr-engine-scenario-harness)
-cd frontend && npx tsc -b --noEmit && npx vitest run && npm run build
+(cd frontend && npx tsc -b --noEmit && npx vitest run && npm run lint && npm run build)
+                          # npm run lint is ESLint: 0 errors required (frontend/TESTING.md)
 uv run lint-imports       # holdings isolation contract: must report "kept"
 uv run mypy src           # strict; must report "Success: no issues found"
 ```
@@ -240,4 +241,4 @@ uv run mypy src           # strict; must report "Success: no issues found"
 - Ruff is not gated yet (BACKLOG 2.10): run `uv run ruff check <changed files>` and keep the lines you changed clean.
 - Hooks (optional): `uv tool install pre-commit` once, then `pre-commit install` per clone; it runs the import-linter hook in `.pre-commit-config.yaml`.
 
-**Frontend.** CI (Node 20) runs `npm ci`, `npx tsc -b --noEmit`, `npx vitest run` and `npm run build`.
+**Frontend.** CI (Node 20) runs `npm ci`, `npx tsc -b --noEmit`, `npm run lint` (ESLint), `npx vitest run` and `npm run build`. Test layout, rules and the lint baseline: `frontend/TESTING.md`.

@@ -1577,13 +1577,13 @@ async def test_m8x_replay_manager_advance_and_stop_hold_lock() -> None:
     """B9: advance() and stop() acquire self._lock exactly once per call."""
     from unittest.mock import AsyncMock, MagicMock
 
-    from alphaswarm.state import AgentState
+    from alphaswarm.state import AgentState, StateStore
     from alphaswarm.types import SignalType
     from alphaswarm.web.replay_manager import ReplayManager
 
     mock_app_state = MagicMock()
-    mock_app_state.state_store = MagicMock()
-    mock_app_state.state_store.set_phase = AsyncMock()
+    # A real StateStore: start() and advance() broadcast a StateFrame built from it.
+    mock_app_state.state_store = StateStore()
     rm = ReplayManager(mock_app_state)
 
     # Count lock acquisitions by wrapping _lock.acquire.

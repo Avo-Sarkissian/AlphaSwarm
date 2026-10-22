@@ -1,12 +1,13 @@
 """Tests for the DataSourceAuditBuffer (ITEM 5 of quick task 260512-jqn)."""
 from __future__ import annotations
 
-import dataclasses
+import json
 
 import pytest
 
 from alphaswarm.data_audit import DataSourceAuditBuffer, DataSourceAuditEntry
 from alphaswarm.state import StateStore
+from alphaswarm.web.broadcaster import snapshot_to_json
 
 
 def test_data_audit_entry_frozen() -> None:
@@ -94,23 +95,20 @@ def test_state_store_record_data_source_threading() -> None:
     assert peek == snap.data_source_audit
 
 
-def test_data_audit_serializes_through_dataclasses_asdict() -> None:
-    """dataclasses.asdict (used by broadcaster.py) preserves data_source_audit."""
+def test_data_audit_reaches_the_wire_frame() -> None:
+    """The audit slice is mapped onto the WebSocket StateFrame."""
     store = StateStore()
-    store.record_data_source(
-        source="yfinance", query="AAPL OHLCV", result="ok", used=True,
+    store.record_data_source(source="yfinance", query="ZZZT 1d OHLCV", result="ok", used=True)
+    frame = json.loads(snapshot_to_json(store))
+    assert len(frame["data_source_audit"]) == 1
+    first = frame["data_source_audit"][0]
+    assert (first["source"], first["query"], first["result"], first["used"]) == (
+        "yfinance",
+        "ZZZT 1d OHLCV",
+        "ok",
+        True,
     )
-    snap = store.snapshot()
-    d = dataclasses.asdict(snap)
-    assert "data_source_audit" in d
-    # dataclasses.asdict preserves the tuple container but converts each
-    # nested DataSourceAuditEntry into a dict — that's the shape the
-    # broadcaster json.dumps()s (json handles both tuples and lists).
-    assert len(d["data_source_audit"]) == 1
-    first = d["data_source_audit"][0]
-    assert isinstance(first, dict)
-    assert first["source"] == "yfinance"
-    assert first["query"] == "AAPL OHLCV"
+    assert isinstance(first["ts"], float)
 
 
 def test_data_audit_empty_initially() -> None:
