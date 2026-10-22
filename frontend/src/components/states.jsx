@@ -14,8 +14,9 @@ import { BRACKETS } from '../data';
 // ─── IDLE ─────────────────────────────────────────────────────────────
 // Overlay inside the dashboard canvas while idle: the topbar (seed, Run,
 // Settings, replay) stays usable above it. The seed is entered in
-// the topbar only. SystemCheck rows are design copy until they are fed
-// from /api/health.
+// the topbar only. SystemCheck rows are static design copy until they are
+// fed from /api/health (docs/DECISIONS.md#kr-41-6-11); the Data sources row
+// says the feed is mocked (docs/DECISIONS.md#kr-41-1-02).
 export function IdleState({ seed, numRounds, onShowHistory }) {
   const totalPersonas = BRACKETS.reduce((sum, b) => sum + b.count, 0);
   return (

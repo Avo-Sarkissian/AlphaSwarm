@@ -118,7 +118,8 @@ export function ShockDrawer({ onClose }) {
 // ─── ReplayBar ───────────────────────────────────────────────────────────
 // Driven entirely by the frame (mode === 'replay' decides whether the app
 // mounts it), so it survives a page reload: the backend replay is the source
-// of truth, not local UI state. Rewind has no backend endpoint yet.
+// of truth, not local UI state. Rewind has no backend endpoint yet
+// (docs/DECISIONS.md#kr-41-1-06).
 export function ReplayBar() {
   const { cycleId } = useFrameMeta();
   const { rounds, numRounds, currentRound } = useRounds();
@@ -144,6 +145,7 @@ export function ReplayBar() {
       <div className="label" style={{ color: 'var(--accent)' }}>
         <Icon name="replay" size={11} /> REPLAY · {cycleId ?? ''}
       </div>
+      {/* Disabled until the backend can rewind (docs/DECISIONS.md#kr-41-1-06). */}
       <button className="btn ghost" disabled title="Rewind is not supported yet">
         <Icon name="rewind" />
       </button>
