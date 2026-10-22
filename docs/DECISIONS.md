@@ -134,6 +134,36 @@ Contents
   - A deterministic blake2b tie-break, `_stable_peer_jitter` (F-08), stops equal-weight Round 2 readers from all picking the same peers.
   - The format is `[agent_id|bracket] SIGNAL (conf)`, so agents can cite IDs (`simulation.py:388-400`).
 - **Rationale:** The old `read_ranked_posts` path showed all 100 agents the same authority top-10 (SWEEP-260528 §3.3), and also cost 100 sequential Neo4j reads per round.
+- **Evidence (benchmark seed `apple-anthropic`, 3 rounds, one inference configuration for both cycles):**
+  - *Before* (legacy selector, `peer_selection_version` 1): cycle `5c59c533-e841-40fb-91ca-071ac239c1ab`, git `8ae04cac`, mode `local`, worker `alphaswarm-worker`, parse errors R2 `0` / R3 `0`.
+
+    | bracket | slots | slot % | readers % | citations % |
+    |---|---|---|---|---|
+    | institutions | 100 | 18.0% | 100% | 20.5% |
+    | sell_side | 256 | 46.0% | 100% | 46.7% |
+    | event_driven | 100 | 18.0% | 100% | 23.5% |
+    | quants | 0 | 0.0% | 0% | 0.0% |
+    | degens | 0 | 0.0% | 0% | 0.0% |
+    | narrators | 100 | 18.0% | 100% | 9.3% |
+    | algos | 0 | 0.0% | 0% | 0.0% |
+    | macro | 0 | 0.0% | 0% | 0.0% |
+    | shorts | 0 | 0.0% | 0% | 0.0% |
+    | allocators | 0 | 0.0% | 0% | 0.0% |
+    R2: distinct peers shown 46/100; max slot share 46.0% (limit 35%); min readers 0% (limit 15%) -> FAIL
+    | bracket | slots | slot % | readers % | citations % |
+    |---|---|---|---|---|
+    | institutions | 100 | 16.9% | 100% | 24.9% |
+    | sell_side | 290 | 49.2% | 100% | 44.4% |
+    | event_driven | 100 | 16.9% | 100% | 23.9% |
+    | quants | 0 | 0.0% | 0% | 0.0% |
+    | degens | 0 | 0.0% | 0% | 0.0% |
+    | narrators | 100 | 16.9% | 100% | 6.8% |
+    | algos | 0 | 0.0% | 0% | 0.0% |
+    | macro | 0 | 0.0% | 0% | 0.0% |
+    | shorts | 0 | 0.0% | 0% | 0.0% |
+    | allocators | 0 | 0.0% | 0% | 0.0% |
+    R3: distinct peers shown 45/100; max slot share 49.2% (limit 35%); min readers 0% (limit 15%) -> FAIL
+
 - **Leftovers:**
   - `read_ranked_posts`, `_dispatch_round`, and `read_peer_decisions` are dead code.
   - READ_POST edges are no longer written, which empties the report's `social_post_reach` section. See BACKLOG.
