@@ -55,12 +55,15 @@ class BracketSummary:
 class RationaleEntry:
     """Single agent rationale entry for the UI rationale feed (docs/DECISIONS.md#p10-d-03).
 
-    Produced by simulation.py after each round and pushed to StateStore queue.
-    Agent ID is a short identifier (e.g. "A_42"). Rationale is truncated to
-    50 chars by the producer per D-03.
+    In a live run, batch_dispatcher produces one for each decision except
+    PARSE_ERROR as the agent resolves, and pushes it into StateStore's 50-entry
+    sliding window (docs/DECISIONS.md#p10-d-02); replay builds them from stored
+    decisions.
+    Agent ID is the persona id (e.g. "quants_07"). The live producer truncates
+    the rationale to 50 chars.
     """
 
-    agent_id: str        # e.g. "A_42" -- short agent ID
+    agent_id: str        # persona id, e.g. "quants_07"
     signal: SignalType   # BUY, SELL, HOLD for color-coding
     rationale: str       # truncated at 50 chars by producer
     round_num: int       # which round this came from
@@ -477,9 +480,9 @@ class StateStore:
 class ReplayStore:
     """Read-only store for replay mode. Feeds StateSnapshot to the broadcaster.
 
-    Unlike StateStore, snapshot() has NO side effects (no queue drain).
-    Rationale entries and bracket summaries are set once per round transition,
-    not accumulated over time.
+    snapshot() has no side effects, as in StateStore. Rationale entries and
+    bracket summaries are set once per round transition, not accumulated over
+    time.
     """
 
     def __init__(

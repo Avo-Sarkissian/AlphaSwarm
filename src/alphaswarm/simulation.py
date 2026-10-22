@@ -955,10 +955,13 @@ async def run_simulation(
     `context_fixture_used` is logged instead.
 
     Lifecycle:
-    1. run_round1() handles SEEDING + ROUND_1 (owns its own governor session per D-06)
-    2. Phase 40 context assembly: inject_seed -> asyncio.gather(get_prices + get_headlines)
-       -> format_market_context -> forward to run_round1 (D-01)
-    3. Compute influence edges after Round 1 (D-02: shapes Round 2 peer selection)
+    1. SEEDING: inject_seed parses the rumor and generates the persona modifiers
+       (docs/DECISIONS.md#p13-d-06). run_simulation always seeds; run_round1 never does
+    2. Phase 40 context assembly: asyncio.gather(get_prices + get_headlines)
+       -> format_market_context -> forward to run_round1 (docs/DECISIONS.md#p40-d-01)
+    3. run_round1() runs ROUND_1 on the seeded cycle and owns its own governor session
+       (docs/DECISIONS.md#p7-d-06). No influence edges after Round 1: its agents see no
+       peers, so they cite none (docs/DECISIONS.md#sweep-b-5)
     4. Compute Round 1 bracket summaries (D-08)
     5. Fire on_round_complete for Round 1 (shift=None, no prior round to compare)
     6. ensure_clean_state + reload worker (D-05: one cold load for modularity)

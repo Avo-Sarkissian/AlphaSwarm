@@ -52,9 +52,10 @@ class InferenceProvider(Protocol):
         ...
 
     async def teardown(self) -> None:
-        """Release provider resources (unload model, close sessions, etc.).
+        """Release the model ``prepare`` loaded (Ollama unloads it; cloud providers do nothing).
 
-        Symmetric to ``prepare``.  After teardown, ``chat`` must not be called.
+        Symmetric to ``prepare``: after teardown, ``chat`` must not be called until
+        ``prepare`` runs again. HTTP clients stay open; ``aclose`` closes them.
         """
         ...
 
