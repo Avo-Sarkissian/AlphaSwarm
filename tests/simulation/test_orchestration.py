@@ -1,4 +1,9 @@
-"""run_simulation orchestration: rounds, lifecycle, shocks, context, metrics."""
+"""run_simulation's public surface (signature, SimulationDeps, no eager narratives) and
+the Round 1 market-context assembly.
+
+The run itself (rounds, model lifecycle, shocks, metrics) is tested on the scripted
+harness in tests/engine/.
+"""
 
 from __future__ import annotations
 

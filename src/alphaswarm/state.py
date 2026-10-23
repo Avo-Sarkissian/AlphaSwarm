@@ -328,7 +328,7 @@ class StateStore:
     async def set_bracket_summaries(self, summaries: tuple[BracketSummary, ...]) -> None:
         """Store bracket summaries after each round completes (docs/DECISIONS.md#p10-d-08).
 
-        Called by simulation.py after compute_bracket_summaries() for each round.
+        Called by rounds.run_round after compute_bracket_summaries() for each round.
         """
         async with self._lock:
             self._bracket_summaries = summaries

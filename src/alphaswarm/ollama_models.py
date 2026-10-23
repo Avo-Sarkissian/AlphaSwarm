@@ -138,12 +138,11 @@ class OllamaModelManager:
         Does NOT unload unrelated models loaded by other Ollama users.
         Addresses review concern: ensure_clean_state was too broad.
 
-        Best-effort on the ``ps()` probe: in a pure-cloud run (both roles on a
-        cloud provider) the Ollama daemon may not be running at all. This method
-        is called unconditionally at simulation start, so a hard failure here
-        would abort an otherwise all-cloud run before any cloud call is made.
-        If the daemon is unreachable there is nothing local to clean, so we log
-        and return rather than propagate the connection error.
+        Only the Ollama worker provider calls this, from ``prepare()`` right before
+        it loads the worker (docs/DECISIONS.md#adr-round-runner); a cloud worker
+        never does. The ``ps()`` probe is best-effort: if the daemon is unreachable
+        there is nothing local to clean, so this logs and returns, and the
+        ``load_model()`` that follows reports the failure as a ``ModelLoadError``.
         """
         try:
             ps_response = await self._client.raw_client.ps()
