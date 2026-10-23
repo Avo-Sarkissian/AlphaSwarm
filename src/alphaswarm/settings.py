@@ -43,6 +43,11 @@ class OllamaSettings(BaseModel):
     request_timeout_seconds: float = Field(default=600.0, ge=30.0, le=3600.0)
     orchestrator_model_alias: str = "alphaswarm-orchestrator"
     worker_model_alias: str = "alphaswarm-worker"
+    # Mirrors PARAMETER num_ctx in modelfiles/Modelfile.worker (pinned by
+    # tests/invariants/test_modelfile_mirrors.py). Used only to flag prompts near
+    # the context limit (r{n}_ctx_warnings); never sent per request
+    # (docs/DECISIONS.md#adr-model-aliases).
+    worker_num_ctx: int = Field(default=4096, ge=512, le=262144)
 
 
 class Neo4jSettings(BaseModel):

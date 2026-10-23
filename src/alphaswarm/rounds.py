@@ -29,6 +29,7 @@ from alphaswarm.peers import (
 )
 from alphaswarm.personas import persona_to_worker_config
 from alphaswarm.state import BracketSummary
+from alphaswarm.telemetry import RoundTelemetry
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
@@ -415,6 +416,11 @@ async def run_round(
     )
 
     worker_configs = [persona_to_worker_config(p) for p in personas]
+    # One telemetry aggregate per round (docs/DECISIONS.md#adr-inference-telemetry);
+    # a cloud worker has no local context window to warn about.
+    telemetry = RoundTelemetry(
+        num_ctx=deps.settings.ollama.worker_num_ctx if deps.worker.is_local() else None,
+    )
     raw = await dispatch_wave(
         personas=worker_configs,
         governor=deps.controller,
@@ -426,6 +432,7 @@ async def run_round(
         state_store=deps.state,
         round_num=round_num,
         own_priors=own_priors,
+        telemetry=telemetry,
     )
     if len(raw) != len(worker_configs):
         raise RoundAlignmentError(round_num, expected=len(worker_configs), actual=len(raw))
@@ -490,6 +497,19 @@ async def run_round(
         )
     )
     metrics.update(parse_tier_metrics(round_num, decisions))
+    round_telemetry = telemetry.to_metrics(round_num)
+    metrics.update(round_telemetry)
+    near_limit = round_telemetry[f"r{round_num}_ctx_warnings"]
+    if near_limit:
+        # Prompts this close to num_ctx risk being cut; once per round
+        # (docs/DECISIONS.md#adr-inference-telemetry).
+        logger.warning(
+            "prompt_near_context_limit",
+            cycle_id=ctx.cycle_id,
+            round_num=round_num,
+            calls=near_limit,
+            num_ctx=deps.settings.ollama.worker_num_ctx,
+        )
     logger.info(
         "round_complete",
         cycle_id=ctx.cycle_id,
