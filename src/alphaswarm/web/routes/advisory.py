@@ -23,7 +23,7 @@ from pydantic import BaseModel, ValidationError
 
 from alphaswarm.advisory import AdvisoryReport, synthesize
 from alphaswarm.config import ProviderType, load_inference_config
-from alphaswarm.fsutil import atomic_write_text
+from alphaswarm.fsutil import atomic_write_text, prune_old_files
 from alphaswarm.inference.factory import advisory_block_reason, build_providers
 from alphaswarm.logging import validation_error_summary
 from alphaswarm.state import JobStatus
@@ -324,6 +324,27 @@ def _on_advisory_task_done(task: asyncio.Task[Any], cycle_id: str, app: FastAPI)
         log.exception("advisory_task_done_callback_failed", cycle_id=cycle_id)
 
 
+async def _prune_old_advisories(app_state: AppState, directory: Path, cycle_id: str) -> None:
+    """Keep only the newest ``advisory_keep_last`` advisory files after a write.
+
+    Advisory JSON holds cost-basis exposure (docs/DECISIONS.md#adr-holdings-isolation).
+    Only ``*_advisory.json`` regular files the job writes are touched. A failed prune
+    is logged by type and does not fail the advisory just written.
+    """
+    try:
+        pruned = await asyncio.to_thread(
+            prune_old_files,
+            directory,
+            "*_advisory.json",
+            keep=app_state.settings.advisory_keep_last,
+        )
+    except OSError as exc:
+        log.warning("advisory_prune_failed", cycle_id=cycle_id, error_type=type(exc).__name__)
+        return
+    if pruned:
+        log.info("advisory_files_pruned", cycle_id=cycle_id, count=len(pruned))
+
+
 async def _run_advisory_synthesis(
     app_state: AppState,
     cycle_id: str,
@@ -379,6 +400,7 @@ async def _run_advisory_synthesis(
             output_path,
             report_obj.model_dump_json(indent=2),
         )
+        await _prune_old_advisories(app_state, output_path.parent, cycle_id)
 
         log.info(
             "advisory_generation_complete",

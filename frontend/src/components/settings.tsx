@@ -167,7 +167,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {section === 'storage' && (
             <SettingGroup
               title="Storage"
-              desc="Cycles, decisions and influence edges are stored in Neo4j; reports and advisories are written as owner-only files. The values below are the defaults: the backend reads overrides from its environment (.env), which this page cannot see."
+              desc="Cycles, decisions and influence edges are stored in Neo4j; reports and advisories are written as owner-only files, and only the newest advisories are kept (ALPHASWARM_ADVISORY_KEEP_LAST, default 20). The values below are the defaults: the backend reads overrides from its environment (.env), which this page cannot see."
             >
               <DefaultRow
                 label="Graph database"

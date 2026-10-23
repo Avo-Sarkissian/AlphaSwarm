@@ -566,6 +566,9 @@ class AppSettings(BaseSettings):
     # resolve against PROJECT_ROOT (see resolve_path).
     reports_dir: Path = Path("reports")
     advisory_dir: Path = Path("advisory")
+    # Advisory JSON holds cost-basis exposure, so only the newest N files are kept
+    # (docs/DECISIONS.md#adr-holdings-isolation). Env ALPHASWARM_ADVISORY_KEEP_LAST.
+    advisory_keep_last: int = Field(default=20, ge=1)
 
     def resolve_path(self, p: Path) -> Path:
         """Return *p* as an absolute path; relative paths are anchored at PROJECT_ROOT."""
