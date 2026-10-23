@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, TypeVar, cast, get_args
+from typing import TYPE_CHECKING, Any, Final, TypeVar, cast, get_args
 
 import structlog
 from neo4j import unit_of_work
@@ -21,6 +21,23 @@ from alphaswarm.errors import (
     Neo4jQueryError,
     Neo4jUnavailableError,
     Neo4jWriteError,
+)
+from alphaswarm.graph.rows import (
+    AgentDecisionRow,
+    BracketNarrativeRow,
+    BracketRoundRow,
+    CompletedCycleRow,
+    ConsensusSummaryRow,
+    CycleStatus,
+    EntityImpactRow,
+    InfluenceEdgeRow,
+    InfluenceLeaderRow,
+    KeyDissenterRow,
+    PersistRoundResult,
+    RationaleRoundRow,
+    RoundTimelineRow,
+    ShockImpactRow,
+    SignalFlipRow,
 )
 from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
 from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas, load_bracket_configs
@@ -107,162 +124,6 @@ class RankedPost:
     round_num: int
 
 
-@dataclass(frozen=True)
-class PersistRoundResult:
-    """What one persist_round transaction wrote (docs/DECISIONS.md#p4-d-08)."""
-
-    decision_ids: tuple[str, ...]
-    decisions_written: int
-    episodes_written: int
-    citations_written: int
-    citations_dropped: int  # CITED targets that matched no Agent -> r{n}_citations_dropped
-    references_written: int
-
-
-# ---------------------------------------------------------------------------
-# Read-model rows returned by the read_* queries. Templates and consumers read
-# only these keys; mypy catches drift (docs/DECISIONS.md#adr-report-react).
-# ---------------------------------------------------------------------------
-
-
-class ConsensusSummaryRow(TypedDict):
-    """Final-round counts; total = buy + sell + hold + parse_error."""
-
-    buy_count: int
-    sell_count: int
-    hold_count: int
-    parse_error_count: int
-    total: int
-
-
-class RoundTimelineRow(TypedDict):
-    round_num: int
-    buy_count: int
-    sell_count: int
-    hold_count: int
-    parse_error_count: int
-    total: int
-
-
-class BracketNarrativeRow(TypedDict):
-    """Final-round stance per bracket; totals and averages exclude parse errors."""
-
-    bracket: str
-    display_name: str
-    buy_count: int
-    sell_count: int
-    hold_count: int
-    total: int
-    avg_confidence: float
-    avg_sentiment: float
-    majority: str | None
-
-
-class KeyDissenterRow(TypedDict):
-    agent_id: str
-    name: str
-    bracket: str
-    signal: str
-    bracket_majority: str
-
-
-class InfluenceLeaderRow(TypedDict):
-    agent_id: str
-    name: str
-    bracket: str
-    citation_count: int
-    influence_share: float
-
-
-class SignalFlipRow(TypedDict):
-    agent_id: str
-    name: str
-    bracket: str
-    round_num: int
-    flip_type: str
-    final_signal: str
-
-
-class EntityImpactRow(TypedDict):
-    entity_name: str
-    entity_type: str
-    avg_sentiment: float
-    mention_count: int
-    buy_mentions: int
-    sell_mentions: int
-    hold_mentions: int
-
-
-class ShockImpactRow(TypedDict):
-    """bracket_pivots entries: bracket, display_name, comparable, pivots,
-    pre_dominant, post_dominant, pre_buy_pct, post_buy_pct, delta_buy_pct,
-    dominant_arrow, agents (list of {agent_id, pre_signal, post_signal})."""
-
-    shock_text: str
-    injected_before_round: int
-    pre_dominant: str | None
-    post_dominant: str | None
-    pivot_count: int
-    pivot_rate: float
-    bracket_pivots: list[dict[str, object]]
-
-
-class InfluenceEdgeRow(TypedDict):
-    source_id: str  # citing agent
-    target_id: str  # cited agent
-    weight: float
-
-
-class CompletedCycleRow(TypedDict):
-    """One complete cycle with the run metrics stamped on its Cycle node.
-
-    Metric columns are None for cycles recorded before metrics existed
-    (docs/DECISIONS.md#adr-cycle-metrics).
-    """
-
-    cycle_id: str
-    created_at: str
-    seed_rumor: str
-    round_count: int
-    status: str
-    final_buy: int | None
-    final_sell: int | None
-    final_hold: int | None
-    total_flips: int | None
-    total_seconds: float | None
-    agent_count: int | None
-
-
-class AgentDecisionRow(TypedDict):
-    """One stored decision of one agent; signal is lowercase."""
-
-    round_num: int
-    signal: str
-    confidence: float
-    sentiment: float
-    rationale: str
-    cited_agents: list[str]
-
-
-class BracketRoundRow(TypedDict):
-    """Replay per-round bracket row; totals and averages exclude parse errors."""
-
-    bracket: str
-    buy_count: int
-    sell_count: int
-    hold_count: int
-    total: int
-    avg_confidence: float
-    avg_sentiment: float
-
-
-class RationaleRoundRow(TypedDict):
-    agent_id: str
-    signal: str
-    rationale: str
-    round_num: int
-
-
 # ---------------------------------------------------------------------------
 # Schema constants
 # ---------------------------------------------------------------------------
@@ -325,8 +186,6 @@ LEGACY_PROPERTY_CLEANUP: Final[tuple[str, ...]] = (
     # the shared Agent property paired one cycle's text with another's decisions.
     "MATCH (a:Agent) WHERE a.decision_narrative IS NOT NULL REMOVE a.decision_narrative",
 )
-
-CycleStatus = Literal["running", "complete", "failed", "cancelled"]
 
 # Completion rule for cycles written before Cycle.status existed
 # (docs/DECISIONS.md#adr-cycle-metrics): metrics stamped, or a round-3 decision.

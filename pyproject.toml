@@ -135,6 +135,7 @@ source_modules = [
     "alphaswarm.governor",
     "alphaswarm.graph",
     "alphaswarm.graph.manager",
+    "alphaswarm.graph.rows",
     "alphaswarm.inference",
     "alphaswarm.inference.anthropic_provider",
     "alphaswarm.inference.budget",
