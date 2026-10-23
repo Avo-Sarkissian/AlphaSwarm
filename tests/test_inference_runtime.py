@@ -120,3 +120,11 @@ async def test_incomplete_role_raises_the_fixed_settings_message(tmp_path: Path)
         await _runtime(settings).open_role(ProviderRole.ORCHESTRATOR, "settings_test")
     assert str(exc.value) == INFERENCE_CONFIG_INCOMPLETE_MESSAGE
     assert exc.value.__cause__ is None and exc.value.__suppress_context__
+
+
+def test_ollama_client_is_the_injected_client(tmp_path: Path) -> None:
+    settings = route_test_settings(tmp_path)
+    assert _runtime(settings).ollama_client is None
+    client = object()
+    runtime = InferenceRuntime(settings, ollama_client=client, model_manager=None)  # type: ignore[arg-type]
+    assert runtime.ollama_client is client

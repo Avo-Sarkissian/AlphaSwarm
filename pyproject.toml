@@ -127,7 +127,7 @@ ignore_missing_imports = true
 root_package = "alphaswarm"
 
 [[tool.importlinter.contracts]]
-name = "Holdings isolation — only advisory and web.routes.holdings may import alphaswarm.holdings"
+name = "Holdings isolation — only advisory, services.advisory and web.routes.{holdings,advisory} may import alphaswarm.holdings"
 type = "forbidden"
 source_modules = [
     "alphaswarm.app",
@@ -172,7 +172,9 @@ source_modules = [
     "alphaswarm.security",
     "alphaswarm.security.hashing",
     "alphaswarm.services",
+    "alphaswarm.services.advisory",
     "alphaswarm.services.jobs",
+    "alphaswarm.services.report",
     "alphaswarm.services.runtime",
     "alphaswarm.seed",
     "alphaswarm.simulation",
@@ -227,6 +229,11 @@ ignore_imports = [
     # because alphaswarm.advisory is itself on the D-04 whitelist.
     "alphaswarm.web.routes.advisory -> alphaswarm.advisory",
     "alphaswarm.web.routes.advisory -> alphaswarm.holdings.types",
+    # The advisory service is the third sanctioned holdings consumer. It may import
+    # the advisory package and the holdings TYPES only, never the loader
+    # (docs/DECISIONS.md#adr-holdings-isolation).
+    "alphaswarm.services.advisory -> alphaswarm.advisory",
+    "alphaswarm.services.advisory -> alphaswarm.holdings.types",
 ]
 
 [[tool.importlinter.contracts]]

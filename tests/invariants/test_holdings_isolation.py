@@ -402,3 +402,60 @@ def test_no_source_assigns_a_portfolio_snapshot_attribute() -> None:
         if re.search(r"\bportfolio_snapshot\b", line)
     ]
     assert hits == [], f"portfolio_snapshot reappeared at {hits}"
+
+
+async def test_advisory_service_logs_carry_no_sentinels(
+    sentinel_portfolio: PortfolioSnapshot,
+    capture_logs: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The service layer adds logging and a file write around synthesize(): its logs stay clean."""
+    from typing import cast
+
+    import alphaswarm.services.advisory as advisory_service
+    from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
+    from alphaswarm.services.advisory import AdvisoryService
+    from alphaswarm.services.jobs import JobRunner
+    from alphaswarm.services.runtime import InferenceRuntime
+    from alphaswarm.state import StateStore
+
+    _fresh_advisory_loggers(monkeypatch)
+    monkeypatch.setattr(advisory_service, "log", structlog.get_logger(component="services.advisory"))
+    prompts: list[str] = []
+    provider = CanaryFakeOllamaClient(prompt_sink=prompts, canned_content=canary_valid_advisory_json())
+
+    class _LocalOllama:
+        base_url = "http://127.0.0.1:11434"
+
+        async def is_remote_model(self, model: str) -> bool:
+            return False
+
+    class _Inference:
+        ollama_client = _LocalOllama()
+
+        async def config(self) -> InferenceConfig:
+            return InferenceConfig(
+                orchestrator=RoleConfig(provider=ProviderType.OLLAMA, model="o"),
+                worker=RoleConfig(provider=ProviderType.OLLAMA, model="w"),
+            )
+
+        async def open_operation(self, name: str) -> BuiltProviders:
+            return BuiltProviders(orchestrator=provider, worker=provider, budget_meter=BudgetMeter(None, {}))  # type: ignore[arg-type]
+
+    async def _portfolio() -> PortfolioSnapshot:
+        return sentinel_portfolio
+
+    service = AdvisoryService(
+        graph=CanaryFakeGraphManager(neo4j_sink=[]),  # type: ignore[arg-type]
+        inference=cast(InferenceRuntime, _Inference()),
+        jobs=JobRunner(StateStore()),
+        advisory_dir=tmp_path,
+        portfolio=_portfolio,
+    )
+    assert await service.gate("canary_cycle") == "run"
+    await service.generate("canary_cycle")
+    log_output = capture_logs.getvalue()
+    assert "advisory_written" in log_output  # positive control: the service logs were captured
+    for sentinel in all_sentinel_representations():
+        assert sentinel not in log_output, f"{sentinel!r} leaked into service logs"

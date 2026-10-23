@@ -82,6 +82,11 @@ class InferenceRuntime:
         return self._settings.resolve_path(self._settings.inference_config_path)
 
     @property
+    def ollama_client(self) -> OllamaClient | None:
+        """The shared OllamaClient (None without Ollama); the advisory gate reads its host."""
+        return self._ollama_client
+
+    @property
     def last_meter(self) -> BudgetMeter | None:
         """Budget meter of the most recently opened operation (telemetry)."""
         return self._last_meter
@@ -154,3 +159,21 @@ class InferenceRuntime:
             orchestrator_provider=cfg.orchestrator.provider.value,
             worker_provider=cfg.worker.provider.value,
         )
+
+
+async def close_operation(built: BuiltProviders, *, teardown: bool) -> None:
+    """Unload the orchestrator (when *teardown*) and close both providers' clients.
+
+    Runs in every operation's ``finally`` (docs/DECISIONS.md#p15-d-12). Failures
+    here are logged, never raised, so they cannot mask the operation's own result.
+    """
+    if teardown:
+        try:
+            await built.orchestrator.teardown()
+        except Exception:
+            log.warning("orchestrator_teardown_failed", exc_info=True)
+    for provider in (built.orchestrator, built.worker):
+        try:
+            await provider.aclose()
+        except Exception:
+            log.warning("provider_close_failed", role=str(provider.role), exc_info=True)
