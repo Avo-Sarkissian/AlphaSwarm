@@ -30,6 +30,9 @@ Phase 37 / Task 17 additions (API key redaction):
   Covers RoleConfig.api_key, HTTP Authorization headers, and the spec's
   orchestrator_key/worker_key naming variants. Bare "token" is deliberately
   excluded (too broad — would clobber unrelated fields like "next_page_token").
+
+Phase 3 (2026-10): API-key shapes (sk-…, nvapi-…, Bearer …) are scrubbed from
+every string value at any depth, whatever its key.
 """
 
 from __future__ import annotations
@@ -94,6 +97,17 @@ _FREE_TEXT_NORMALIZED: frozenset[str] = frozenset({"note", "summary", "message",
 _CURRENCY_RE = re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?")
 _SSN_RE = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 
+# API-key shapes are scrubbed from EVERY string value, whatever its key
+# (docs/DECISIONS.md#adr-holdings-isolation): free-text error= fields and exception
+# text can carry a token past the key-name rules. The patterns are vendor prefixes
+# and "Bearer <token>", so ordinary text ("risk-adjusted", "task-123") is untouched.
+_SECRET_TOKEN_RE = re.compile(
+    r"\bsk-(?:ant-|proj-)?[A-Za-z0-9_\-]{8,}"
+    r"|\bnvapi-[A-Za-z0-9_\-]{8,}"
+    r"|\bBearer\s+[A-Za-z0-9._~+/=\-]{8,}"
+)
+_SECRET_SENTINEL = "[REDACTED_SECRET]"
+
 _MAX_REDACTION_DEPTH = 8
 _CYCLE_SENTINEL = "[REDACTED_CYCLE]"
 _DEPTH_SENTINEL = "[REDACTED_DEPTH]"
@@ -112,6 +126,10 @@ def _hash_account(value: Any) -> str:
     if s == "":
         return "acct:[EMPTY]"
     return f"acct:{sha256_first8(s)}"
+
+
+def _scrub_secrets(s: str) -> str:
+    return _SECRET_TOKEN_RE.sub(_SECRET_SENTINEL, s)
 
 
 def _scrub_free_text(s: str) -> str:
@@ -150,6 +168,9 @@ def _redact_value(value: Any, *, depth: int, seen: set[int]) -> Any:
     # Scalar — scalars inside arbitrary (non-free-text) keys are passed through;
     # only mapping-level key rules decide redaction. Scalar-level scrubs happen
     # in _redact_mapping when the key matches _FREE_TEXT_NORMALIZED.
+    # API-key shapes are the exception: they are scrubbed from every string.
+    if isinstance(value, str):
+        return _scrub_secrets(value)
     return value
 
 
@@ -174,7 +195,7 @@ def _redact_mapping(mapping: dict[Any, Any], *, depth: int, seen: set[int]) -> d
 
         # Not a sensitive key. If it's a free-text key, apply regex backstop to string.
         if norm in _FREE_TEXT_NORMALIZED and isinstance(value, str):
-            out[key] = _scrub_free_text(value)
+            out[key] = _scrub_free_text(_scrub_secrets(value))
             continue
 
         # Recurse into children so nested sensitive keys are caught.
