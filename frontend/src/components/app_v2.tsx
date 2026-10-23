@@ -224,7 +224,6 @@ interface UiState {
   historyOpen: boolean;
   bracketDeepDive: any | null;
   overflowOpen: boolean;
-  seedSuggestOpen: boolean;
   tooltip: TooltipInfo | null;
   // Coming-in-v6.x placeholders surfaced from the overflow menu.
   comingSoon: 'whatif' | 'multiseed' | 'stress' | 'brackets' | null;
@@ -278,7 +277,6 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
     historyOpen: false,
     bracketDeepDive: null,
     overflowOpen: false,
-    seedSuggestOpen: false,
     tooltip: null,
     comingSoon: null,
   });
@@ -337,7 +335,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
 
   // Round on screen from the frame (useRound), never parsed from the phase
   // string, so replay and 2-round runs label correctly (lib/phase.ts).
-  const { numRounds, rounds } = useRounds();
+  const { numRounds } = useRounds();
   const currentRound = useRound();
   const round = currentRound ?? 1;
   const phaseLabel = phaseLabelFor(phase, currentRound, numRounds);
@@ -407,11 +405,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
               placeholder="Seed rumor…"
               aria-label="Seed rumor"
             />
-            <span className="seed-entities">3 entities</span>
           </div>
-          <button className="btn ghost-btn" title="Inspire — suggest a seed scenario"
-            style={{color: ui.seedSuggestOpen ? 'var(--accent)' : undefined}}
-            onClick={() => setUi(u => ({...u, seedSuggestOpen: !u.seedSuggestOpen}))}>✦</button>
         </div>
 
         <RunControls
@@ -562,12 +556,6 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
         {/* Center */}
         <div className="col col-center">
           <div className="canvas-topstrip">
-            <div className="round-tabs">
-              {rounds.map(r => (
-                <button key={r} className="round-tab" data-active={round === r && phase !== 'complete'}>R{r}</button>
-              ))}
-              <button className="round-tab" data-active={phase === 'complete'}>FINAL</button>
-            </div>
             <span className="topstrip-meta">{agents.filter(a => a.flipped).length} flips since R1 · {hasEdges ? `${edges.length} active edges` : `${agents.length} agents`}</span>
             <div className="layout-tabs">
               <span className="label" style={{marginRight:6}}>LAYOUT</span>

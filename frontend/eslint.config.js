@@ -43,4 +43,19 @@ export default tseslint.config(
     files: ['src/components/app_v2.tsx'],
     rules: { '@typescript-eslint/no-explicit-any': 'warn' },
   },
+  // Placebo controls are deleted, not disabled: every <button> needs a handler.
+  {
+    files: ['src/**/*.{jsx,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "JSXOpeningElement[name.name='button']:not(:has(JSXAttribute[name.name='onClick'])):not(:has(JSXSpreadAttribute)):not(:has(JSXAttribute[name.name='type'][value.value='submit']))",
+          message:
+            'Every <button> needs an onClick handler (or type="submit"). Delete placebo controls instead of disabling them.',
+        },
+      ],
+    },
+  },
 );
