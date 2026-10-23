@@ -10,7 +10,13 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.errors import InferenceConfigError, run_error_from_exception
+from alphaswarm.errors import (
+    INFERENCE_CONFIG_INCOMPLETE_MESSAGE,
+    INFERENCE_CONFIG_INVALID_MESSAGE,
+    InferenceConfigError,
+    InferenceConfigIncompleteError,
+    run_error_from_exception,
+)
 from alphaswarm.types import SimulationPhase
 
 if TYPE_CHECKING:
@@ -184,19 +190,28 @@ class SimulationManager:
             try:
                 # Load inference config off the event loop (sync file I/O).
                 cfg = await _asyncio.to_thread(load_inference_config, self._app_state.settings)
+            except (ValueError, OSError) as exc:
+                # The load error text can quote the file path, so neither the
+                # UI nor the log gets it; the fix is the file itself
+                # (docs/DECISIONS.md#adr-local-first-inference).
+                log.error("inference_config_invalid", error_type=type(exc).__name__)
+                raise InferenceConfigError(INFERENCE_CONFIG_INVALID_MESSAGE) from None
+            try:
                 built = build_providers(
                     cfg,
                     ollama_client=self._app_state.ollama_client,
                     ollama_model_manager=self._app_state.model_manager,
                 )
             except ValueError as exc:
-                # The ValueError text can quote the file path and raw config
-                # values, API keys included, so neither the UI nor the log gets
-                # it (docs/DECISIONS.md#adr-local-first-inference).
-                log.error("inference_config_invalid", error_type=type(exc).__name__)
-                raise InferenceConfigError(
-                    "The saved inference configuration is invalid. Open Settings and save a valid configuration."
-                ) from None
+                # The file loads (the health check reports it ok), but a cloud
+                # role lacks its API key or base URL: the fix is in Settings.
+                log.error(
+                    "inference_config_incomplete",
+                    error_type=type(exc).__name__,
+                    orchestrator_provider=cfg.orchestrator.provider.value,
+                    worker_provider=cfg.worker.provider.value,
+                )
+                raise InferenceConfigIncompleteError(INFERENCE_CONFIG_INCOMPLETE_MESSAGE) from None
             controller = build_controller(
                 cfg,
                 self._app_state.settings.governor,

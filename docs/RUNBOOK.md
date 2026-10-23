@@ -148,7 +148,10 @@ npm --prefix frontend run dev                           # http://localhost:5173
 
 ### Cloud mode quick reference
 - Provider config lives in `.secrets/inference.json` (gitignored). Edit it through
-  Settings or `PUT /api/settings`. Delete it to fall back to local Ollama.
+  Settings or `PUT /api/settings`. Move it aside (or delete it) to fall back to local
+  Ollama. The file is strict: an unknown key or an out-of-range limit makes it
+  invalid; it is never rewritten automatically, and `/api/health` shows it as the
+  `inference_config` component.
 - NVIDIA NIM free tier (`https://integrate.api.nvidia.com/v1`):
   - Models: worker `meta/llama-3.1-8b-instruct`, orchestrator `meta/llama-3.3-70b-instruct`.
   - Limits: `requests_per_min: 40`, `max_in_flight: 1`, `max_retries: 8`. The tier
@@ -169,7 +172,9 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -1
 ```
 
 Expect `api ok`. A component that is down but not required (Ollama and the
-aliases when both roles are cloud) does not degrade it. `/api/health` answers 200
+aliases when both roles are cloud) does not degrade it. The `inference_config`
+component is always required and read fresh on every request: `DOWN (rejected: ...)`
+names the rejected keys and error types (never values). `/api/health` answers 200
 even when it is `degraded`, so read the status, not the HTTP code; each `DOWN`
 line prints its fix. `/api/health/live` only says the process answers.
 
@@ -195,7 +200,7 @@ that names a held company exercises the advisory. Then check:
 - [ ] Replay: start a past cycle; frames keep streaming (F-24); Forward stops at the cycle's real depth (F-12); live start is blocked during replay (B4). Reload the page during replay: the bar is still there and Exit replay works.
 - [ ] CycleHistory, Settings, Data Sources, and BracketDeepDive open as styled full-screen takeovers.
 - [ ] Double-clicking Run starts once (F-33).
-- [ ] Onboarding. `/api/health` answers from a 5 s cache, so an answer can be up to 5 s old: when a Re-check still shows the previous state, wait 5 s and press Re-check again.
+- [ ] Onboarding. `/api/health` caches its Neo4j, Ollama and alias probes for 5 s, so those components can be up to 5 s old (the `inference_config` component is read fresh on every request): when a Re-check still shows the previous state, wait 5 s and press Re-check again.
   - Stop Neo4j (`docker compose stop neo4j`, or `docker stop <name>` for a container you created yourself), clear the `localStorage` key `as_onboarding_v1_complete` and reload the page.
   - Click "Get started" and type a seed of at least 10 characters (or click an example). The step lists `neo4j` with its fix, and the run button reads "Fix the items above first" and stays disabled.
   - Start Neo4j again (`docker compose start neo4j`, or `docker start <name>`) and wait until it accepts connections, which takes several seconds: `docker compose ps` shows it `healthy`, or `docker logs <name>` ends with `Started.` for your own container. Press Re-check: the status reads "Backend ready" and "Run first cycle" is enabled.
@@ -233,7 +238,8 @@ uv run ruff check src tests && uv run ruff format --check src tests
 | `/api/holdings` → `holdings_unavailable` (503); advisory never appears | The CSV is missing, not UTF-8, or malformed (empty symbol, NaN/infinite/negative numbers) | A missing file logs no `holdings_load_failed`, and no log line names the path: check that `ALPHASWARM_HOLDINGS_CSV_PATH` (default `Schwab/holdings.csv`, resolved against the repo root) names an existing file. The setting is read at startup, so restart the server after changing it in `.env`. For a file that exists, `holdings_load_failed` in the server log gives the reason (and the row number for a bad row); fix the file: it is re-read when it changes, no restart needed. See `examples/holdings.example.csv` |
 | Advisory GET returns 409 `advisory_generation_in_progress` | Generating | Wait; 404 now means no advisory exists (no holdings, or the run or the advisory job has not finished yet) |
 | Advisory GET returns 500 `cloud_advisory_disabled` or `inference_config_invalid` | The orchestrator is a cloud or remote model without `allow_cloud_advisory`, or the inference config cannot be read. The advisory was refused (after a run, the report still runs) | Switch the orchestrator to a local Ollama model, or tick **Allow cloud advisory** in Settings → Model. The checkbox is shown for an orchestrator that looks cloud or remote from its settings; when it is not shown (an alias of an Ollama cloud model, a remote `OLLAMA_HOST`), set `allow_cloud_advisory` to `true` in `.secrets/inference.json`. For an invalid config, see the next row |
-| Settings shows "Failed to load inference settings" (422 `inference_config_invalid`) | The stored inference config (`ALPHASWARM_INFERENCE_CONFIG_PATH`, default `.secrets/inference.json`) is not valid JSON or no longer matches the config model. Settings can neither load it nor save over it | Fix the file by hand or delete it (the local defaults apply without it), then reopen Settings. It holds API keys: never paste its contents into an issue or a log |
+| Settings shows "Failed to load inference settings" (422 `inference_config_invalid`) | The stored inference config (`ALPHASWARM_INFERENCE_CONFIG_PATH`, default `.secrets/inference.json`) is not valid JSON or no longer matches the config model. Settings can neither load it nor save over it | `GET /api/health` → `components.inference_config.detail` lists the rejected keys (no values), or reads `unreadable (<error type>)` when the file cannot be read (for example its permissions). Fix the file by hand, or move it aside (the local defaults apply without it), then reopen Settings and save again. It holds API keys: never paste its contents into an issue or a log |
+| A run stops at once with `inference_config_invalid` ("The saved inference configuration is incomplete …") while `/api/health` shows `inference_config` ok | The file loads, but a cloud role has no API key, or an OpenAI-compatible role has no base URL, so the providers cannot be built | Open Settings, complete that role and save; its **Test connection** button names the missing field. Do not move the file aside: it still holds the other role's working settings |
 | `404 cycle_not_found` / `422 cycle_not_ready` / `409 simulation_running` | Unknown cycle, unfinished cycle, or a run in progress | Pick a complete cycle; wait for the run to finish |
 | `409 *_generation_in_progress` | The other orchestrator job (report/advisory) is running | Wait. The two jobs are serialized on purpose |
 | `409 post_run_jobs_in_progress` on Run | Advisory or report still running after the last run | Wait for the report to finish (`post_run_pipeline_completed` in the server log), then Run again. The UI shows this message in an error row under the top bar, which × dismisses; on the onboarding seed step it appears above the buttons |

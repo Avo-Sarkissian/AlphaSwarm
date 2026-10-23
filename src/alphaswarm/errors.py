@@ -3,7 +3,9 @@
 New domain errors derive from ``AlphaSwarmError``. The older inference errors
 (``InferenceError``, ``BudgetExceededError``, ``GovernorCrisisError``) keep
 their parents so existing ``except`` clauses behave exactly as before
-(docs/DECISIONS.md#adr-taskgroup-dispatch).
+(docs/DECISIONS.md#adr-taskgroup-dispatch). A domain error that callers also
+catch as a built-in type adds it as a second base (``InferenceConfigFileError``
+is also a ``ValueError``).
 """
 
 from __future__ import annotations
@@ -178,6 +180,43 @@ class InferenceConfigError(AlphaSwarmError):
     """The persisted inference configuration could not be loaded or built."""
 
 
+# Shown wherever the stored inference config stops a run, a report or an
+# advisory. Settings cannot open an invalid file either, so the fix is the file
+# itself (docs/DECISIONS.md#adr-local-first-inference).
+INFERENCE_CONFIG_INVALID_MESSAGE: Final = (
+    "The saved inference configuration is invalid. Fix or move aside the file named by "
+    "ALPHASWARM_INFERENCE_CONFIG_PATH (the health check lists the rejected keys), then save "
+    "Settings again."
+)
+
+
+class InferenceConfigIncompleteError(InferenceConfigError):
+    """The stored config loads, but a cloud role lacks its API key or base URL.
+
+    The health check reports such a file ok and Settings opens it, so the fix is
+    in Settings, not in the file (INFERENCE_CONFIG_INCOMPLETE_MESSAGE).
+    """
+
+
+INFERENCE_CONFIG_INCOMPLETE_MESSAGE: Final = (
+    "The saved inference configuration is incomplete: a cloud role needs an API key, and an "
+    "OpenAI-compatible role also needs a base URL. Open Settings, complete that role and save."
+)
+
+
+class InferenceConfigFileError(InferenceConfigError, ValueError):
+    """The stored inference config file fails the strict config models.
+
+    ``problems`` lists each rejected key path and error type and never a value;
+    the message adds the file path. Also a ValueError, so every caller that
+    treats an invalid config as ValueError keeps doing so.
+    """
+
+    def __init__(self, path: object, problems: str) -> None:
+        super().__init__(f"Invalid inference config at {path}: {problems}")
+        self.problems = problems
+
+
 class AgentNotFoundError(AlphaSwarmError):
     """The agent, or its persona, is unknown for this cycle.
 
@@ -282,9 +321,14 @@ def _describe(exc: BaseException) -> tuple[RunErrorCode, str]:
             "graph_error",
             f"A Neo4j operation failed ({exc.op or 'unknown'}). See the server log for details.",
         )
+    if isinstance(exc, InferenceConfigIncompleteError):
+        return (
+            "inference_config_invalid",
+            INFERENCE_CONFIG_INCOMPLETE_MESSAGE,
+        )
     if isinstance(exc, InferenceConfigError):
         return (
             "inference_config_invalid",
-            "The saved inference configuration is invalid. Open Settings and save a valid configuration.",
+            INFERENCE_CONFIG_INVALID_MESSAGE,
         )
     return ("internal_error", f"Unexpected {type(exc).__name__}. See the server log for details.")

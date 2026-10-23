@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import alphaswarm.web.routes.interview as interview_module
+from alphaswarm.errors import INFERENCE_CONFIG_INCOMPLETE_MESSAGE
 from alphaswarm.web.routes.interview import router as interview_router
 from tests.support.web_app import (
     CYCLE_A,
@@ -154,3 +156,39 @@ def test_missing_graph_is_503(tmp_path: Path, engine_cls: MagicMock) -> None:
         r = client.post(f"/api/interview/{AGENT}", json={"message": "Q"})
     assert r.status_code == 503
     assert r.json()["detail"]["error"] == "graph_unavailable"
+
+
+def test_invalid_stored_config_is_422_and_leaves_no_session(tmp_path: Path, engine_cls: MagicMock) -> None:
+    """A file the strict models reject gets Settings' 422, not a 500, and never its path."""
+    (tmp_path / "inference.json").write_text('{"spend_cap": 5}', encoding="utf-8")
+    graph = FakeCycleGraph({CYCLE_A: "complete"}, latest=CYCLE_A, contexts={(CYCLE_A, AGENT): _context()})
+    app = _app(tmp_path, graph)
+    with TestClient(app) as client:
+        r = client.post(f"/api/interview/{AGENT}", json={"message": "Q"})
+        assert r.status_code == 422
+        detail = r.json()["detail"]
+        assert detail["error"] == "inference_config_invalid"
+        assert "move aside" in detail["message"]
+        assert str(tmp_path) not in r.text
+        assert app.state.interview_sessions == {}
+    engine_cls.assert_not_called()
+
+
+def test_cloud_worker_without_api_key_is_422_pointing_at_settings(tmp_path: Path, engine_cls: MagicMock) -> None:
+    """The file loads, but the worker cannot be built: the fix is in Settings."""
+    stored = {
+        "orchestrator": {"provider": "ollama", "model": "alphaswarm-orchestrator"},
+        "worker": {"provider": "anthropic", "model": "fictional-model-3"},
+    }
+    (tmp_path / "inference.json").write_text(json.dumps(stored), encoding="utf-8")
+    graph = FakeCycleGraph({CYCLE_A: "complete"}, latest=CYCLE_A, contexts={(CYCLE_A, AGENT): _context()})
+    app = _app(tmp_path, graph)
+    with TestClient(app) as client:
+        r = client.post(f"/api/interview/{AGENT}", json={"message": "Q"})
+        assert r.status_code == 422
+        assert r.json()["detail"] == {
+            "error": "inference_config_invalid",
+            "message": INFERENCE_CONFIG_INCOMPLETE_MESSAGE,
+        }
+        assert app.state.interview_sessions == {}
+    engine_cls.assert_not_called()

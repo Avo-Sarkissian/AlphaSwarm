@@ -124,3 +124,21 @@ async def test_unreadable_inference_config_is_422_without_path(
         await load_inference_config_or_422(_state())
     assert (exc.value.status, exc.value.code) == (422, "inference_config_invalid")
     assert "/Users" not in exc.value.message
+
+
+async def test_invalid_config_message_says_move_aside_not_delete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Settings is where an invalid file shows up first; deleting the file would
+    # throw away the stored API keys, and the health check names the bad keys.
+    def _broken(settings: object) -> object:
+        raise ValueError("Invalid inference config at /Users/someone/x.json: spend_cap extra_forbidden")
+
+    monkeypatch.setattr("alphaswarm.web.guards.load_inference_config", _broken)
+    with pytest.raises(ApiError) as exc:
+        await load_inference_config_or_422(_state())
+    message = exc.value.message
+    assert "move aside" in message
+    assert "health check lists the rejected keys" in message
+    assert "delete" not in message.lower()
+    assert "ALPHASWARM_INFERENCE_CONFIG_PATH" in message

@@ -32,7 +32,7 @@ from alphaswarm.inference.budget import DEFAULT_PRICING, BudgetMeter, RunEstimat
 from alphaswarm.inference.factory import _build_single_provider, inference_mode
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.web.errors import ApiError, validation_fields
-from alphaswarm.web.guards import load_inference_config_or_422
+from alphaswarm.web.guards import STORED_CONFIG_INVALID_MESSAGE, load_inference_config_or_422
 
 log = structlog.get_logger(component="web.settings")
 
@@ -191,26 +191,19 @@ class RoleUpdate(BaseModel, extra="forbid"):
     api_key: str | None = None
 
 
-class LimitsUpdate(ProviderLimits, extra="forbid"):
-    """ProviderLimits in a PUT body; the stored-config model itself is unchanged."""
-
-
-class PriceUpdate(ModelPrice, extra="forbid"):
-    """ModelPrice in a PUT body; the stored-config model itself is unchanged."""
-
-
 class SettingsUpdateRequest(BaseModel, extra="forbid"):
     """Typed PUT /api/settings body.
 
     Unknown keys (typos) are rejected at every level, inside a role, a limits
-    entry or a price included, never ignored.
+    entry or a price included, never ignored (the stored-config models
+    ProviderLimits and ModelPrice are strict themselves).
     """
 
     orchestrator: RoleUpdate | None = None
     worker: RoleUpdate | None = None
-    limits: dict[ProviderType, LimitsUpdate] | None = None
+    limits: dict[ProviderType, ProviderLimits] | None = None
     spend_cap_usd: Decimal | None = None
-    pricing_overrides: dict[str, PriceUpdate] | None = None
+    pricing_overrides: dict[str, ModelPrice] | None = None
     # Cloud-advisory opt-in (docs/DECISIONS.md#adr-advisory-pipeline). Omitted or
     # null keeps the stored value; only a JSON boolean changes it ("yes" is a 422).
     allow_cloud_advisory: StrictBool | None = None
@@ -440,7 +433,9 @@ async def test_connection(
     Builds a transient provider, issues a 1-token ping, then closes it.
     NEVER persists anything. Returns {ok: false, error: ...} on any failure;
     never raises a 500. Returns 409 simulation_running while a run is in
-    progress (a test could load a second large model mid-run).
+    progress (a test could load a second large model mid-run). A stored file
+    that cannot be loaded gets the fixed Settings message: the load error's
+    text names the file path (docs/DECISIONS.md#adr-local-first-inference).
     """
     if request.app.state.sim_manager.is_running:
         raise ApiError(
@@ -452,7 +447,11 @@ async def test_connection(
 
     try:
         cfg: InferenceConfig = await asyncio.to_thread(load_inference_config, app_state.settings)
+    except (ValueError, OSError) as exc:
+        log.info("settings_test_failed", role=body.role, error_type=type(exc).__name__)
+        return TestConnectionResponse(ok=False, error=STORED_CONFIG_INVALID_MESSAGE)
 
+    try:
         role_cfg: RoleConfig = cfg.orchestrator if body.role == "orchestrator" else cfg.worker
 
         # Build a single provider for the requested role

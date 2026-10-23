@@ -299,7 +299,7 @@ def test_simulate_start_409_when_running() -> None:
             new=AsyncMock(side_effect=SimulationAlreadyRunningError("Simulation already running")),
         ),
     ):
-        r = client.post("/api/simulate/start", json={"seed": "test seed"})
+        r = client.post("/api/simulate/start", json={"seed": "test seed rumor"})
         assert r.status_code == 409
         data = r.json()
         assert "detail" in data

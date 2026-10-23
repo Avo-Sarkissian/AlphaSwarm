@@ -9,12 +9,12 @@ sanitized inference-config failure (job_config_error).
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import structlog
 
 from alphaswarm.config import InferenceConfig, load_inference_config
-from alphaswarm.errors import InferenceConfigError
+from alphaswarm.errors import INFERENCE_CONFIG_INVALID_MESSAGE, InferenceConfigError
 from alphaswarm.web.errors import ApiError
 
 if TYPE_CHECKING:
@@ -100,23 +100,27 @@ async def require_complete_cycle(
         )
 
 
+# Settings cannot open an invalid file, so the message names the file's setting
+# rather than Settings. It says to move the file aside, not to delete it: the
+# file holds the stored API keys (docs/DECISIONS.md#adr-local-first-inference).
+STORED_CONFIG_INVALID_MESSAGE: Final = (
+    "The stored inference config is invalid, so Settings cannot open it. Fix or "
+    "move aside the file named by ALPHASWARM_INFERENCE_CONFIG_PATH (the health check "
+    "lists the rejected keys); without it the local defaults apply."
+)
+
+
 async def load_inference_config_or_422(app_state: AppState) -> InferenceConfig:
     """Load the stored inference config off the loop; 422 (no path) when it is invalid.
 
     An unreadable file (OSError, e.g. no read permission) counts as invalid, so
     callers that gate on the config fail closed. The Settings routes use this
-    guard too, so the message names the file's setting rather than Settings.
+    guard too (STORED_CONFIG_INVALID_MESSAGE).
     """
     try:
         return await asyncio.to_thread(load_inference_config, app_state.settings)
     except (ValueError, OSError) as exc:
-        raise ApiError(
-            422,
-            "inference_config_invalid",
-            "The stored inference config is invalid, so Settings cannot open it. Fix or "
-            "delete the file named by ALPHASWARM_INFERENCE_CONFIG_PATH; without it the "
-            "local defaults apply.",
-        ) from exc
+        raise ApiError(422, "inference_config_invalid", STORED_CONFIG_INVALID_MESSAGE) from exc
 
 
 def job_config_error(exc: Exception, *, job: JobKind, cycle_id: str) -> InferenceConfigError:
@@ -133,6 +137,4 @@ def job_config_error(exc: Exception, *, job: JobKind, cycle_id: str) -> Inferenc
         cycle_id=cycle_id,
         error_type=type(exc).__name__,
     )
-    return InferenceConfigError(
-        "The saved inference configuration is invalid. Open Settings and save a valid configuration."
-    )
+    return InferenceConfigError(INFERENCE_CONFIG_INVALID_MESSAGE)

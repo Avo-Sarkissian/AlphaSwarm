@@ -14,7 +14,6 @@ Schwab/
 # src/alphaswarm/advisory/ (the actual source package).
 /advisory/
 /reports/
-/frontend/reports/
 # mypy stubs installed by `mypy --install-types`
 /typings/
 

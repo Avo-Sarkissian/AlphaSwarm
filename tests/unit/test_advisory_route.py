@@ -416,7 +416,7 @@ async def test_synthesis_fails_with_a_fixed_error_on_an_invalid_config(
     assert canary not in str(exc_info.value)
     assert rendered.events == ["job_inference_config_invalid"]
     assert canary not in rendered.text
-    assert '"error_type": "ValueError"' in rendered.text
+    assert '"error_type": "InferenceConfigFileError"' in rendered.text
 
 
 # ------ Cloud-advisory guard: host and model checks at the route ------

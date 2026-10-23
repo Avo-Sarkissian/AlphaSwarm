@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -595,6 +596,24 @@ class TestConnectionTest:
 
         assert r.status_code == 200
         assert r.json()["ok"] is False
+
+    def test_invalid_stored_file_is_reported_without_its_path(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The load error names the file path; the response carries the fixed Settings message."""
+        from alphaswarm.web.guards import STORED_CONFIG_INVALID_MESSAGE
+
+        stored = tmp_path / "inference.json"
+        stored.write_text('{"spend_cap": 5}', encoding="utf-8")
+        monkeypatch.setenv("ALPHASWARM_INFERENCE_CONFIG_PATH", str(stored))
+        with TestClient(_make_settings_test_app()) as client:
+            r = client.post("/api/settings/test", json={"role": "worker"})
+
+        assert r.status_code == 200
+        assert r.json() == {"ok": False, "error": STORED_CONFIG_INVALID_MESSAGE}
+        assert str(tmp_path) not in r.text
 
 
 # ---------------------------------------------------------------------------

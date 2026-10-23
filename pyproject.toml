@@ -114,7 +114,6 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = [
     "alphaswarm.cli",
-    "alphaswarm.graph",
     "alphaswarm.simulation",
     "alphaswarm.web.simulation_manager",
 ]

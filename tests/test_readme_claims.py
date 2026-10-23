@@ -10,8 +10,9 @@ import re
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from alphaswarm.config import DEFAULT_BRACKETS
+from alphaswarm.config import DEFAULT_BRACKETS, InferenceConfig
 
 ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
@@ -82,6 +83,24 @@ def test_readme_links_the_license_file() -> None:
 
 def test_readme_shows_no_prototype_screenshots() -> None:
     assert "docs/screenshots/" not in README.read_text(encoding="utf-8")
+
+
+def test_readme_inference_config_example_passes_the_strict_models() -> None:
+    """The README invites hand-editing .secrets/inference.json; its example must load.
+
+    The stored config rejects unknown keys and out-of-range limits, so an example
+    with a comment key or a renamed field would teach users to write a file the
+    backend refuses.
+    """
+    blocks = re.findall(r"```json\n(.*?)```", README.read_text(encoding="utf-8"), flags=re.DOTALL)
+    examples = [block for block in blocks if '"orchestrator"' in block and '"worker"' in block]
+    assert examples, "README.md no longer shows an inference.json example; drop this test with it"
+    for block in examples:
+        try:
+            InferenceConfig.model_validate_json(block)
+        except ValidationError as exc:
+            problems = [(err["loc"], err["type"]) for err in exc.errors(include_input=False, include_url=False)]
+            pytest.fail(f"README.md inference.json example fails the config models: {problems}")
 
 
 def test_env_example_never_sends_test_runs_to_the_dev_password() -> None:

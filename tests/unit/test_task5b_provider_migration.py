@@ -322,8 +322,8 @@ class TestInterviewEngineAcceptsProvider:
         """Window trim summary generation must also use provider.chat() — RED until migrated."""
         from alphaswarm.interview import InterviewEngine
 
-        # 11 ask responses + 1 summary = 12 total
-        scripted = [_make_result("Response") for _ in range(12)]
+        # 13 ask responses + 1 summary = 14
+        scripted = [_make_result("Response") for _ in range(14)]
         fake_provider = FakeInferenceProvider(
             role=ProviderRole.WORKER,
             model="test-worker",
@@ -332,11 +332,11 @@ class TestInterviewEngineAcceptsProvider:
         ctx = self._make_context()
 
         engine = InterviewEngine(context=ctx, provider=fake_provider)
-        for i in range(11):
+        for i in range(13):
             await engine.ask(f"Question {i}")
 
-        # 11 ask calls + 1 summary generation = 12 provider calls
-        assert len(fake_provider.calls) == 12
+        # 13 ask responses + 1 summary = 14
+        assert len(fake_provider.calls) == 14
 
 
 # ---------------------------------------------------------------------------
