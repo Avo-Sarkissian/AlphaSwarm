@@ -1009,3 +1009,60 @@ def test_web_prints_the_banner_to_stderr(
     err = capsys.readouterr().err
     assert "  Inference: local" in err
     assert started and started[0]["workers"] == 1
+
+
+def _run_on_a_private_loop(coro: Any) -> Any:
+    """asyncio.run() would orphan pytest-asyncio's loop (see tests/test_cli_exit_codes.py)."""
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+@pytest.mark.parametrize(("ok", "code"), [(True, 0), (False, 1)])
+def test_doctor_exit_code_and_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], ok: bool, code: int
+) -> None:
+    import json
+
+    from alphaswarm import cli
+    from alphaswarm.doctor import DoctorReport
+    from alphaswarm.readiness import ComponentStatus
+
+    report = DoctorReport(components=(ComponentStatus("neo4j", ok=ok, required=True),), inference_mode="local")
+
+    async def _collect(settings: object, **_: object) -> DoctorReport:
+        return report
+
+    monkeypatch.setattr("alphaswarm.doctor.collect_report", _collect)
+    monkeypatch.setattr("asyncio.run", _run_on_a_private_loop)
+    monkeypatch.setattr("sys.argv", ["alphaswarm", "doctor", "--json"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == code
+    assert json.loads(capsys.readouterr().out)["ok"] is ok
+
+
+def test_doctor_text_output_starts_with_the_banner(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from alphaswarm import cli
+    from alphaswarm.doctor import DoctorReport
+    from alphaswarm.readiness import ComponentStatus
+
+    report = DoctorReport(components=(ComponentStatus("neo4j", ok=True, required=True),), inference_mode="local")
+
+    async def _collect(settings: object, **_: object) -> DoctorReport:
+        return report
+
+    monkeypatch.setattr("alphaswarm.doctor.collect_report", _collect)
+    monkeypatch.setattr("asyncio.run", _run_on_a_private_loop)
+    monkeypatch.setattr("sys.argv", ["alphaswarm", "doctor"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    out = capsys.readouterr().out
+    assert exc.value.code == 0
+    assert "  Inference: local" in out and out.rstrip().endswith("Result: ready")

@@ -128,6 +128,7 @@ source_modules = [
     "alphaswarm.cli",
     "alphaswarm.context_formatter",
     "alphaswarm.data_audit",
+    "alphaswarm.doctor",
     "alphaswarm.episodes",
     "alphaswarm.errors",
     "alphaswarm.evaluation",

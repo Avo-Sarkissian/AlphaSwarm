@@ -522,6 +522,19 @@ def _handle_web(host: str, port: int) -> None:
     )
 
 
+def _handle_doctor(json_output: bool) -> None:
+    """``alphaswarm doctor``: exit 0 when every required check passes, else 1."""
+    from alphaswarm import doctor
+
+    settings = AppSettings()
+    report = asyncio.run(doctor.collect_report(settings))
+    if json_output:
+        print(doctor.render_json(report))
+    else:
+        print(doctor.render_text(report, banner=banner_for(settings)))
+    raise SystemExit(0 if report.ok else 1)
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -619,6 +632,12 @@ def build_parser() -> argparse.ArgumentParser:
     web = sub.add_parser("web", parents=[verbose], help="Start the web UI server")
     web.add_argument("--host", type=str, default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
     web.add_argument("--port", type=int, default=8000, help="Port number (default: 8000)")
+    doctor = sub.add_parser(
+        "doctor",
+        parents=[verbose],
+        help="Check Neo4j, Ollama, model aliases, MLX, launchctl and the UI build",
+    )
+    doctor.add_argument("--json", action="store_true", help="Print the report as JSON")
     return parser
 
 
@@ -695,6 +714,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         "run": lambda: _invoke(_handle_run, args.rumor, **_run_context_kwargs(args)),
         "report": lambda: _invoke(_handle_report, report_cycle, args.output),
         "web": lambda: _invoke(_handle_web, args.host, args.port),
+        "doctor": lambda: _invoke(_handle_doctor, args.json),
     }
     return _run_command(args.command, commands[args.command], verbose=getattr(args, "verbose", False))
 
