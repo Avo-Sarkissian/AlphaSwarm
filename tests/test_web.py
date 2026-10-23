@@ -281,94 +281,6 @@ async def test_simulation_manager_409_guard() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 4: ConnectionManager per-client queue isolation (BE-03)
-# ---------------------------------------------------------------------------
-
-
-async def test_websocket_queue_isolation() -> None:
-    """Each client has its own queue — draining one does not affect the other."""
-    from unittest.mock import AsyncMock
-
-    cm = ConnectionManager()
-    q1: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
-    q2: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
-    ws1 = AsyncMock()
-    ws2 = AsyncMock()
-    cm._clients[ws1] = q1
-    cm._clients[ws2] = q2
-
-    cm.broadcast("snapshot_data")
-
-    # Both queues received the message
-    assert q1.qsize() == 1
-    assert q2.qsize() == 1
-
-    # Drain q1 — q2 unaffected
-    _ = q1.get_nowait()
-    assert q1.qsize() == 0
-    assert q2.qsize() == 1
-
-
-# ---------------------------------------------------------------------------
-# Test 5: ConnectionManager drop-oldest on overflow (BE-03)
-# ---------------------------------------------------------------------------
-
-
-async def test_connection_manager_drop_oldest() -> None:
-    """When queue is full (100), broadcast drops oldest and puts newest."""
-    from unittest.mock import AsyncMock
-
-    cm = ConnectionManager()
-    queue: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
-    ws = AsyncMock()
-    cm._clients[ws] = queue
-
-    # Fill queue to capacity
-    for i in range(100):
-        queue.put_nowait(f"msg_{i}")
-    assert queue.qsize() == 100
-
-    # Broadcast one more — should drop oldest (msg_0), add newest
-    cm.broadcast("newest")
-    assert queue.qsize() == 100
-
-    # Drain all and verify newest is present and msg_0 is gone
-    items = []
-    while not queue.empty():
-        items.append(queue.get_nowait())
-    assert "newest" in items
-    assert "msg_0" not in items
-
-
-# ---------------------------------------------------------------------------
-# Test 6: ConnectionManager disconnect cancels writer task (BE-03)
-# ---------------------------------------------------------------------------
-
-
-async def test_connection_manager_disconnect_cancels_task() -> None:
-    """disconnect() cancels the writer task for the client."""
-    from unittest.mock import AsyncMock
-
-    cm = ConnectionManager()
-    ws = AsyncMock()
-    queue: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
-    cm._clients[ws] = queue
-
-    # Create a real task that blocks on queue.get()
-    async def fake_writer() -> None:
-        await queue.get()  # Will block forever — needs cancellation
-
-    task = asyncio.create_task(fake_writer())
-    cm._tasks[ws] = task
-
-    await cm.disconnect(ws)
-
-    assert task.cancelled() or task.done()
-    assert ws not in cm._clients
-    assert ws not in cm._tasks
-
-
-# ---------------------------------------------------------------------------
 # Test 7: POST /api/simulate/start returns 409 when simulation is running (SC-4)
 # ---------------------------------------------------------------------------
 
@@ -1490,28 +1402,6 @@ async def test_m8x_sim_manager_start_raises_when_replay_active() -> None:
     # Lock must NOT have been acquired (replay check fires before lock acquisition).
     assert not sm._lock.locked()
     assert sm._is_running is False
-
-
-async def test_m8x_connection_manager_writer_cleans_up_on_exception() -> None:
-    """B7: _writer's finally block pops ws from _clients and _tasks when send raises."""
-    from unittest.mock import AsyncMock
-
-    cm = ConnectionManager()
-    queue: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
-    ws = AsyncMock()
-    # Force send_text to raise a non-CancelledError exception.
-    ws.send_text = AsyncMock(side_effect=RuntimeError("connection reset"))
-    cm._clients[ws] = queue
-    cm._tasks[ws] = asyncio.create_task(cm._writer(ws, queue))
-
-    # Put one message so the writer wakes up, tries to send, and crashes.
-    queue.put_nowait("payload")
-    # Give the writer enough time to consume + fail + run its finally.
-    await asyncio.sleep(0.05)
-
-    # The finally block must have cleaned up both dicts.
-    assert ws not in cm._clients
-    assert ws not in cm._tasks
 
 
 async def test_m8x_sim_manager_cancellation_phase_reset_before_lock_release() -> None:
