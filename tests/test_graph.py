@@ -293,37 +293,53 @@ async def test_write_influence_edges_tx_empty_edges() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Narrative and entity methods
+# Narrative storage and legacy cleanup
 # ---------------------------------------------------------------------------
 
 
-async def test_write_decision_narratives(mock_driver: MagicMock) -> None:
-    """write_decision_narratives calls execute_write with narratives list."""
+async def test_ensure_schema_runs_legacy_property_cleanup(mock_driver: MagicMock) -> None:
+    """ensure_schema removes retired properties through a managed write."""
     from alphaswarm.graph import GraphStateManager
 
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    narratives = [
-        {"agent_id": "quants_01", "narrative": "Maintained buy signal across all 3 rounds."},
-        {"agent_id": "degens_01", "narrative": "Flipped from buy to sell after peer influence."},
-    ]
+    with patch.object(gsm, "seed_agents", new_callable=AsyncMock):
+        await gsm.ensure_schema()
 
-    await gsm.write_decision_narratives(narratives)
+    write_fns = [c.args[0] for c in session.execute_write.await_args_list]
+    assert GraphStateManager._legacy_property_cleanup_tx in write_fns
+
+
+async def test_legacy_property_cleanup_tx_runs_each_statement() -> None:
+    from alphaswarm.graph import LEGACY_PROPERTY_CLEANUP, GraphStateManager
+
+    tx = AsyncMock()
+    await GraphStateManager._legacy_property_cleanup_tx(tx)
+
+    assert [c.args[0] for c in tx.run.await_args_list] == list(LEGACY_PROPERTY_CLEANUP)
+    assert any("REMOVE a.decision_narrative" in stmt for stmt in LEGACY_PROPERTY_CLEANUP)
+
+
+async def test_write_decision_narrative_without_target_is_a_no_op(mock_driver: MagicMock) -> None:
+    """A narrative for an agent with no decision in the cycle writes nothing and does not raise."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_write.return_value = 0
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    await gsm.write_decision_narrative("c1", "degens_09", "orphan")
 
     session.execute_write.assert_awaited_once()
-    call_args = session.execute_write.call_args
-    narratives_param = call_args[0][1]
-    assert len(narratives_param) == 2
-    assert narratives_param[0]["agent_id"] == "quants_01"
+    assert session.execute_write.await_args.args[1:] == ("c1", "degens_09", "orphan")
 
 
 async def test_write_decision_narratives_empty_is_noop(mock_driver: MagicMock) -> None:
-    """write_decision_narratives with empty list does not open a session."""
     from alphaswarm.graph import GraphStateManager
 
     gsm = GraphStateManager(driver=mock_driver, personas=[])
-    await gsm.write_decision_narratives([])
+    await gsm.write_decision_narratives("c1", [])
     mock_driver.session.assert_not_called()
 
 

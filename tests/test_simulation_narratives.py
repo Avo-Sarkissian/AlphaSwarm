@@ -39,6 +39,7 @@ async def test_budget_error_during_narratives_raises_bare(all_personas: list[Age
             graph_manager=graph,
             governor=ResourceGovernor(GovernorSettings(baseline_parallel=4)),
             provider=FakeInferenceProvider(ProviderRole.WORKER, "fake-worker", scripted=_script),
+            cycle_id="c1",
         )
     graph.write_decision_narratives.assert_not_awaited()
 
@@ -59,9 +60,15 @@ async def test_ordinary_failure_skips_only_that_agent(all_personas: list[AgentPe
         graph_manager=graph,
         governor=ResourceGovernor(GovernorSettings(baseline_parallel=4)),
         provider=FakeInferenceProvider(ProviderRole.WORKER, "fake-worker", scripted=_script),
+        cycle_id="c1",
     )
     assert sorted(n["agent_id"] for n in narratives) == sorted([personas[0].id, personas[2].id])
     graph.write_decision_narratives.assert_awaited_once()
+    written_cycle_id, written_pairs = graph.write_decision_narratives.await_args.args
+    assert written_cycle_id == "c1"
+    assert sorted(written_pairs) == sorted(
+        [(personas[0].id, "Held BUY throughout."), (personas[2].id, "Held BUY throughout.")]
+    )
 
 
 async def test_prompt_names_the_number_of_rounds_that_ran(
@@ -84,6 +91,7 @@ async def test_prompt_names_the_number_of_rounds_that_ran(
         graph_manager=AsyncMock(),
         governor=ResourceGovernor(GovernorSettings(baseline_parallel=4)),
         provider=FakeInferenceProvider(ProviderRole.WORKER, "fake-worker", scripted=_script),
+        cycle_id="c1",
     )
 
     [prompt] = user_prompts

@@ -664,6 +664,7 @@ async def test_generate_decision_narratives_uses_injected_provider(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         provider=TrackingProvider(),
+        cycle_id="test-cycle-id",
     )
 
     assert len(result) == 1
@@ -3310,7 +3311,7 @@ async def test_generate_decision_narratives_produces_output(
 
     Helper signature (simulation.py):
         _generate_decision_narratives(personas, all_decisions, graph_manager,
-                                      governor, provider)
+                                      governor, provider, *, cycle_id)
     """
     from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
     from alphaswarm.simulation import _generate_decision_narratives
@@ -3368,6 +3369,7 @@ async def test_generate_decision_narratives_produces_output(
         graph_manager=mock_graph_manager,
         governor=mock_governor,
         provider=FakeNarrativeProvider(),
+        cycle_id="test-cycle-id",
     )
 
     assert isinstance(result, list)

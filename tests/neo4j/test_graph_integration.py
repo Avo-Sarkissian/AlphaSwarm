@@ -331,20 +331,3 @@ async def test_references_edges_case_insensitive(
         )
         entities = [dict(r)["entity_name"] async for r in result]
     assert "NVIDIA" in entities  # Original casing preserved, not "nvidia"
-
-
-async def test_write_decision_narratives_integration(
-    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
-) -> None:
-    """write_decision_narratives sets decision_narrative property on Agent nodes (D-10)."""
-    agent_id = all_personas[0].id
-    narratives = [{"agent_id": agent_id, "narrative": "This agent shifted from BUY to SELL over 3 rounds."}]
-    await graph_manager_test.write_decision_narratives(narratives)
-
-    async with graph_manager_test._driver.session(database="neo4j") as session:
-        result = await session.run(
-            "MATCH (a:Agent {id: $aid}) RETURN a.decision_narrative AS narrative",
-            aid=agent_id,
-        )
-        record = await result.single()
-    assert record["narrative"] == "This agent shifted from BUY to SELL over 3 rounds."

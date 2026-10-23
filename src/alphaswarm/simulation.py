@@ -1547,6 +1547,7 @@ async def _run_simulation(
                     graph_manager=graph_manager,
                     governor=governor,
                     provider=worker,
+                    cycle_id=cycle_id,
                 )
                 logger.info("narrative_generation_complete", count=len(narratives))
             narratives_seconds = time.monotonic() - narratives_start
@@ -1729,6 +1730,8 @@ async def _generate_decision_narratives(
     graph_manager: GraphStateManager,
     governor: ConcurrencyController,
     provider: InferenceProvider,
+    *,
+    cycle_id: str,
 ) -> list[dict]:
     """Generate natural-language decision narrative for each agent (D-10, D-11).
 
@@ -1746,6 +1749,9 @@ async def _generate_decision_narratives(
             configured cloud provider. Behavior is identical for local (same
             model, same prompt) — only the call site changes from client.generate
             to provider.chat with equivalent messages.
+        cycle_id: The cycle whose decisions these are; each narrative is stored
+            on the agent's final-round Decision of this cycle
+            (docs/DECISIONS.md#p11-d-10).
 
     Returns list of {"agent_id": str, "narrative": str} dicts that were written.
     """
@@ -1841,8 +1847,11 @@ async def _generate_decision_narratives(
     if failed:
         logger.warning("narrative_generation_partial_failures", error_count=failed)
 
-    # Batch-write all successful narratives to Agent nodes
+    # Batch-write all successful narratives onto each agent's final-round Decision
     if narratives:
-        await graph_manager.write_decision_narratives(narratives)
+        await graph_manager.write_decision_narratives(
+            cycle_id,
+            [(n["agent_id"], n["narrative"]) for n in narratives],
+        )
 
     return narratives

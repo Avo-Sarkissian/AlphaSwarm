@@ -265,6 +265,13 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)",
 ]
 
+# Idempotent data cleanups run by ensure_schema (no migration framework).
+LEGACY_PROPERTY_CLEANUP: Final[tuple[str, ...]] = (
+    # Narratives moved to the final-round Decision (docs/DECISIONS.md#p11-d-10);
+    # the shared Agent property paired one cycle's text with another's decisions.
+    "MATCH (a:Agent) WHERE a.decision_narrative IS NOT NULL REMOVE a.decision_narrative",
+)
+
 CycleStatus = Literal["running", "complete", "failed", "cancelled"]
 
 # Completion rule for cycles written before Cycle.status existed
@@ -491,6 +498,7 @@ class GraphStateManager:
         backfilled = await self._write(self._backfill_cycle_status_tx, op="backfill_cycle_status")
         if backfilled:
             self._log.info("cycle_status_backfilled", count=backfilled)
+        await self._write(self._legacy_property_cleanup_tx, op="legacy_property_cleanup")
         await self.seed_agents(self._personas)
 
     @staticmethod
@@ -499,6 +507,13 @@ class GraphStateManager:
         result = await tx.run(CYCLE_STATUS_BACKFILL)
         record = await result.single()
         return int(record["backfilled"]) if record else 0
+
+    @staticmethod
+    async def _legacy_property_cleanup_tx(tx: AsyncManagedTransaction) -> None:
+        """Idempotent removal of retired properties (no migration framework)."""
+        for stmt in LEGACY_PROPERTY_CLEANUP:
+            result = await tx.run(stmt)
+            await result.consume()
 
     async def set_cycle_status(
         self,
@@ -964,32 +979,110 @@ class GraphStateManager:
         )
         return [EntityRef(str(r["name"]), str(r["type"])) async for r in result]
 
+    async def read_decision_narrative(self, cycle_id: str, agent_id: str) -> str | None:
+        """Narrative stored on the agent's final-round Decision of this cycle, or None."""
+        return await self._read(
+            self._read_decision_narrative_tx,
+            cycle_id,
+            agent_id,
+            op="read_decision_narrative",
+        )
+
+    @staticmethod
+    async def _read_decision_narrative_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        agent_id: str,
+    ) -> str | None:
+        result = await tx.run(
+            """
+            MATCH (:Agent {id: $agent_id})-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            RETURN d.narrative AS narrative
+            ORDER BY d.round DESC
+            LIMIT 1
+            """,
+            cycle_id=cycle_id,
+            agent_id=agent_id,
+        )
+        record = await result.single()
+        if record is None or record["narrative"] is None:
+            return None
+        return str(record["narrative"])
+
+    async def write_decision_narrative(self, cycle_id: str, agent_id: str, narrative: str) -> None:
+        """Store a narrative on the agent's final-round Decision of this cycle.
+
+        Narratives are per cycle; the shared Agent node never holds one again
+        (docs/DECISIONS.md#p11-d-10). With no matching Decision the write is a
+        logged no-op.
+        """
+        updated = await self._write(
+            self._write_decision_narrative_tx,
+            cycle_id,
+            agent_id,
+            narrative,
+            op="write_decision_narrative",
+        )
+        if updated == 0:
+            self._log.warning("decision_narrative_target_missing", cycle_id=cycle_id, agent_id=agent_id)
+            return
+        self._log.info("decision_narrative_written", cycle_id=cycle_id, agent_id=agent_id)
+
+    @staticmethod
+    async def _write_decision_narrative_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        agent_id: str,
+        narrative: str,
+    ) -> int:
+        result = await tx.run(
+            """
+            MATCH (:Agent {id: $agent_id})-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            WITH d ORDER BY d.round DESC LIMIT 1
+            SET d.narrative = $narrative
+            RETURN count(d) AS updated
+            """,
+            cycle_id=cycle_id,
+            agent_id=agent_id,
+            narrative=narrative,
+        )
+        record = await result.single()
+        return int(record["updated"]) if record is not None else 0
+
     async def write_decision_narratives(
         self,
-        narratives: list[dict],  # [{"agent_id": str, "narrative": str}]
+        cycle_id: str,
+        narratives: Sequence[tuple[str, str]],
     ) -> None:
-        """Batch-write decision_narrative property to Agent nodes (D-10).
-
-        Args:
-            narratives: List of {"agent_id": str, "narrative": str} dicts.
-        """
+        """Batch form for eager narratives: (agent_id, narrative) pairs, each
+        stored on that agent's final-round Decision of this cycle
+        (docs/DECISIONS.md#p11-d-10)."""
         if not narratives:
             return
-        await self._write(self._batch_write_narratives_tx, narratives, op="write_decision_narratives")
-        self._log.info("narratives_written", count=len(narratives))
+        params = [{"agent_id": agent_id, "narrative": text} for agent_id, text in narratives]
+        await self._write(
+            self._batch_write_narratives_tx,
+            cycle_id,
+            params,
+            op="write_decision_narratives",
+        )
+        self._log.info("narratives_written", cycle_id=cycle_id, count=len(params))
 
     @staticmethod
     async def _batch_write_narratives_tx(
         tx: AsyncManagedTransaction,
-        narratives: list[dict],  # type: ignore[type-arg]
+        cycle_id: str,
+        narratives: list[dict[str, str]],
     ) -> None:
-        """UNWIND batch SET decision_narrative on Agent nodes."""
         await tx.run(
             """
             UNWIND $narratives AS n
-            MATCH (a:Agent {id: n.agent_id})
-            SET a.decision_narrative = n.narrative
+            MATCH (:Agent {id: n.agent_id})-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            WITH n, d ORDER BY d.round DESC
+            WITH n, collect(d)[0] AS final
+            SET final.narrative = n.narrative
             """,
+            cycle_id=cycle_id,
             narratives=narratives,
         )
 
