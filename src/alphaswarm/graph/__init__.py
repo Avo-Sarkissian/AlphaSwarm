@@ -21,6 +21,7 @@ from alphaswarm.graph.rows import (
     PivotAgentRow,
     RationaleRoundRow,
     RoundTimelineRow,
+    ShockEventRow,
     ShockImpactRow,
     SignalFlipRow,
 )
@@ -42,6 +43,7 @@ __all__ = [
     "PivotAgentRow",
     "RationaleRoundRow",
     "RoundTimelineRow",
+    "ShockEventRow",
     "ShockImpactRow",
     "SignalFlipRow",
 ]

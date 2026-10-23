@@ -197,3 +197,28 @@ def test_graph_and_influence_emit_no_display_glyphs() -> None:
     assert "dominant_arrow" not in aggregate_shock_impact([row])["bracket_pivots"][0]
     for path in [*_graph_sources(), SRC / "influence.py"]:
         assert not {"▲", "▼"} & set(path.read_text(encoding="utf-8")), path
+
+
+DELEGATES: dict[str, str] = {
+    # graph/analytics.py
+    "read_bracket_narratives": "analytics",
+    "read_consensus_summary": "analytics",
+    "read_entity_impact": "analytics",
+    "read_influence_edges": "analytics",
+    "read_influence_leaders": "analytics",
+    "read_key_dissenters": "analytics",
+    "read_round_timeline": "analytics",
+    "read_shock_event": "analytics",
+    "read_shock_impact": "analytics",
+    "read_signal_flips": "analytics",
+}
+
+
+@pytest.mark.parametrize(("method", "module"), sorted(DELEGATES.items()))
+def test_facade_method_delegates_to_its_module(method: str, module: str) -> None:
+    import importlib
+
+    operations = importlib.import_module(f"alphaswarm.graph.{module}")
+    assert inspect.iscoroutinefunction(getattr(operations, method, None)), f"{module}.{method}"
+    body = "".join(inspect.getsource(getattr(GraphStateManager, method)).split())
+    assert f"{module}.{method}(self._" in body, body

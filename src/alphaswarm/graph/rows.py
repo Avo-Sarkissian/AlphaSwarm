@@ -31,6 +31,7 @@ __all__ = [
     "PivotAgentRow",
     "RationaleRoundRow",
     "RoundTimelineRow",
+    "ShockEventRow",
     "ShockImpactRow",
     "SignalFlipRow",
     "TxRunner",
@@ -129,6 +130,13 @@ class EntityImpactRow(TypedDict):
     buy_mentions: int
     sell_mentions: int
     hold_mentions: int
+
+
+class ShockEventRow(TypedDict):
+    shock_id: str
+    shock_text: str
+    injected_before_round: int
+    created_at: Any  # neo4j DateTime as stored; the golden normalises it
 
 
 class InfluenceEdgeRow(TypedDict):

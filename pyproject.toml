@@ -134,6 +134,7 @@ source_modules = [
     "alphaswarm.fsutil",
     "alphaswarm.governor",
     "alphaswarm.graph",
+    "alphaswarm.graph.analytics",
     "alphaswarm.graph.manager",
     "alphaswarm.graph.rows",
     "alphaswarm.inference",
