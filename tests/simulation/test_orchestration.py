@@ -842,7 +842,8 @@ async def test_run_simulation_fires_on_round_complete_round1(
     mock_governor: AsyncMock,
 ) -> None:
     """on_round_complete called after Round 1 with round_num=1, shift=None."""
-    from alphaswarm.simulation import RoundCompleteEvent, run_simulation
+    from alphaswarm.rounds import RoundCompleteEvent
+    from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()
@@ -883,7 +884,8 @@ async def test_run_simulation_fires_on_round_complete_round2(
     mock_governor: AsyncMock,
 ) -> None:
     """on_round_complete called after Round 2 with round_num=2, shift=ShiftMetrics."""
-    from alphaswarm.simulation import RoundCompleteEvent, ShiftMetrics, run_simulation
+    from alphaswarm.rounds import RoundCompleteEvent, ShiftMetrics
+    from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()
@@ -924,7 +926,8 @@ async def test_run_simulation_fires_on_round_complete_round3(
     mock_governor: AsyncMock,
 ) -> None:
     """on_round_complete called after Round 3 with round_num=3, shift=ShiftMetrics."""
-    from alphaswarm.simulation import RoundCompleteEvent, ShiftMetrics, run_simulation
+    from alphaswarm.rounds import RoundCompleteEvent, ShiftMetrics
+    from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()

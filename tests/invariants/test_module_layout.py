@@ -46,6 +46,13 @@ MOVED: dict[str, tuple[str, ...]] = {
         "peer_rng",
         "select_diverse_peers",
     ),
+    "alphaswarm.rounds": (
+        "OnRoundComplete",
+        "RoundCompleteEvent",
+        "ShiftMetrics",
+        "compute_bracket_summaries",
+        "compute_shifts",
+    ),
     "alphaswarm.prompts.decision": ("JSON_OUTPUT_INSTRUCTIONS",),
     "alphaswarm.prompts.modifiers": (
         "MODIFIER_GENERATION_PROMPT",

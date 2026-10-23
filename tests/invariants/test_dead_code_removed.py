@@ -73,7 +73,7 @@ def test_cli_round1_report_helpers_are_gone() -> None:
     import alphaswarm.cli as cli
 
     assert not hasattr(cli, "_print_round1_report"), "run prints through _print_round_report"
-    assert not hasattr(cli, "_aggregate_brackets"), "use simulation.compute_bracket_summaries"
+    assert not hasattr(cli, "_aggregate_brackets"), "use rounds.compute_bracket_summaries"
 
 
 def test_stale_diagnose_script_is_gone() -> None:

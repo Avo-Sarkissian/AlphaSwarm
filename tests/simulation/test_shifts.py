@@ -38,7 +38,7 @@ def test_round1_result_is_frozen() -> None:
 
 def test_compute_shifts_signal_flips() -> None:
     """2 agents BUY->SELL and 1 SELL->HOLD produces correct ShiftMetrics."""
-    from alphaswarm.simulation import _compute_shifts
+    from alphaswarm.rounds import compute_shifts
 
     prev = [
         ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8)),
@@ -81,7 +81,7 @@ def test_compute_shifts_signal_flips() -> None:
         ),
     ]
 
-    shifts = _compute_shifts(prev, curr, personas)
+    shifts = compute_shifts(prev, curr, personas)
 
     assert shifts.total_flips == 3
     assert shifts.agents_shifted == 3
@@ -92,7 +92,7 @@ def test_compute_shifts_signal_flips() -> None:
 
 def test_compute_shifts_no_flips() -> None:
     """Identical decisions across rounds produces total_flips=0."""
-    from alphaswarm.simulation import _compute_shifts
+    from alphaswarm.rounds import compute_shifts
 
     decisions = [
         ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8)),
@@ -120,7 +120,7 @@ def test_compute_shifts_no_flips() -> None:
         ),
     ]
 
-    shifts = _compute_shifts(decisions, decisions, personas)
+    shifts = compute_shifts(decisions, decisions, personas)
 
     assert shifts.total_flips == 0
     assert shifts.agents_shifted == 0
@@ -128,7 +128,7 @@ def test_compute_shifts_no_flips() -> None:
 
 def test_compute_shifts_bracket_confidence() -> None:
     """Bracket-grouped confidence delta is computed correctly (mean of per-agent deltas)."""
-    from alphaswarm.simulation import _compute_shifts
+    from alphaswarm.rounds import compute_shifts
 
     prev = [
         ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.6)),
@@ -160,7 +160,7 @@ def test_compute_shifts_bracket_confidence() -> None:
         ),
     ]
 
-    shifts = _compute_shifts(prev, curr, personas)
+    shifts = compute_shifts(prev, curr, personas)
 
     bracket_deltas = dict(shifts.bracket_confidence_delta)
     # Both agents shifted +0.1, so mean delta = +0.1
@@ -169,7 +169,7 @@ def test_compute_shifts_bracket_confidence() -> None:
 
 def test_shift_metrics_is_frozen() -> None:
     """ShiftMetrics is frozen dataclass with tuple fields."""
-    from alphaswarm.simulation import ShiftMetrics
+    from alphaswarm.rounds import ShiftMetrics
 
     assert dataclasses.is_dataclass(ShiftMetrics)
     sm = ShiftMetrics(
@@ -184,7 +184,8 @@ def test_shift_metrics_is_frozen() -> None:
 
 def test_simulation_result_is_frozen() -> None:
     """SimulationResult is frozen dataclass with tuple fields for round decisions."""
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
 
     assert dataclasses.is_dataclass(SimulationResult)
 
@@ -224,7 +225,7 @@ def test_simulation_result_is_frozen() -> None:
 
 def test_bracket_summary_is_frozen() -> None:
     """BracketSummary is a frozen dataclass."""
-    from alphaswarm.simulation import BracketSummary
+    from alphaswarm.state import BracketSummary
 
     bs = BracketSummary(
         bracket="quants",
@@ -243,7 +244,7 @@ def test_bracket_summary_is_frozen() -> None:
 
 def test_compute_bracket_summaries_signal_counts() -> None:
     """compute_bracket_summaries correctly counts signals per bracket."""
-    from alphaswarm.simulation import compute_bracket_summaries
+    from alphaswarm.rounds import compute_bracket_summaries
     from alphaswarm.types import BracketConfig
 
     # 2 BUY quants, 1 SELL degens
@@ -312,7 +313,7 @@ def test_compute_bracket_summaries_signal_counts() -> None:
 
 def test_compute_bracket_summaries_excludes_parse_error() -> None:
     """compute_bracket_summaries excludes PARSE_ERROR agents."""
-    from alphaswarm.simulation import compute_bracket_summaries
+    from alphaswarm.rounds import compute_bracket_summaries
     from alphaswarm.types import BracketConfig
 
     decisions = [
@@ -357,7 +358,7 @@ def test_compute_bracket_summaries_excludes_parse_error() -> None:
 
 def test_compute_bracket_summaries_avg_confidence() -> None:
     """compute_bracket_summaries computes correct avg_confidence."""
-    from alphaswarm.simulation import compute_bracket_summaries
+    from alphaswarm.rounds import compute_bracket_summaries
     from alphaswarm.types import BracketConfig
 
     decisions = [
@@ -413,7 +414,9 @@ def test_compute_bracket_summaries_avg_confidence() -> None:
 
 def test_simulation_result_has_bracket_summaries() -> None:
     """SimulationResult contains round1_summaries, round2_summaries, round3_summaries fields."""
-    from alphaswarm.simulation import BracketSummary, ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
+    from alphaswarm.state import BracketSummary
 
     dummy_shift = ShiftMetrics(
         signal_transitions=(),
@@ -454,7 +457,8 @@ def test_simulation_result_has_bracket_summaries() -> None:
 
 def test_round_complete_event_has_bracket_summaries() -> None:
     """RoundCompleteEvent contains bracket_summaries field of type tuple[BracketSummary, ...]."""
-    from alphaswarm.simulation import BracketSummary, RoundCompleteEvent
+    from alphaswarm.rounds import RoundCompleteEvent
+    from alphaswarm.state import BracketSummary
 
     dummy_summary = BracketSummary(
         bracket="degens",

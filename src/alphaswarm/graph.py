@@ -412,7 +412,7 @@ RETURN count(*) AS n
 """
 
 # Bracket display names and order come from config so report rows match the
-# live frame (simulation.compute_bracket_summaries) — docs/DECISIONS.md#adr-swarm-composition-v2.
+# live frame (rounds.compute_bracket_summaries) — docs/DECISIONS.md#adr-swarm-composition-v2.
 _BRACKET_DISPLAY_NAMES: Final[dict[str, str]] = {b.bracket_type.value: b.display_name for b in DEFAULT_BRACKETS}
 _BRACKET_ORDER: Final[dict[str, int]] = {b.bracket_type.value: i for i, b in enumerate(DEFAULT_BRACKETS)}
 

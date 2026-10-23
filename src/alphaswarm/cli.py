@@ -32,12 +32,9 @@ if TYPE_CHECKING:
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.ingestion.types import ContextPacket
-    from alphaswarm.simulation import (
-        BracketSummary,
-        RoundCompleteEvent,
-        ShiftMetrics,
-        SimulationResult,
-    )
+    from alphaswarm.rounds import RoundCompleteEvent, ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
+    from alphaswarm.state import BracketSummary
     from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, ParsedSeedResult
 
 logger = structlog.get_logger(component="cli")
@@ -149,7 +146,7 @@ def _print_round_report(
       Agents:   {success}/{total} ({errors} PARSE_ERROR)
 
     When bracket_summaries is provided (Phase 8+), renders from summaries.
-    Otherwise computes them with simulation.compute_bracket_summaries().
+    Otherwise computes them with rounds.compute_bracket_summaries().
     Handles all-PARSE_ERROR edge case with warning (Codex review).
     """
     all_decisions = [d for _, d in agent_decisions]
@@ -176,7 +173,7 @@ def _print_round_report(
     if bracket_summaries is not None:
         _print_bracket_table_from_summaries(bracket_summaries)
     else:
-        from alphaswarm.simulation import compute_bracket_summaries
+        from alphaswarm.rounds import compute_bracket_summaries
 
         _print_bracket_table_from_summaries(compute_bracket_summaries(agent_decisions, personas, brackets))
 
@@ -259,7 +256,7 @@ def _print_simulation_summary(
     Convergence compares R1->R2 with R2->R3 flips, so it is only reported for
     3-round runs (docs/DECISIONS.md#adr-num-rounds).
     """
-    from alphaswarm.simulation import compute_bracket_summaries
+    from alphaswarm.rounds import compute_bracket_summaries
 
     final_round = 3 if num_rounds >= 3 else 2
     r2_flips = result.round2_shifts.total_flips

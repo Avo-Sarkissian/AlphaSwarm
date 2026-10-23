@@ -470,7 +470,7 @@ def test_shift_analysis_output(
 ) -> None:
     """_print_shift_analysis prints transition counts in two-column layout."""
     from alphaswarm.cli import _print_shift_analysis
-    from alphaswarm.simulation import ShiftMetrics
+    from alphaswarm.rounds import ShiftMetrics
 
     shift = ShiftMetrics(
         signal_transitions=(("BUY->SELL", 3), ("SELL->BUY", 2)),
@@ -494,7 +494,7 @@ def test_shift_analysis_no_flips(
 ) -> None:
     """_print_shift_analysis with total_flips=0 prints no-change message."""
     from alphaswarm.cli import _print_shift_analysis
-    from alphaswarm.simulation import ShiftMetrics
+    from alphaswarm.rounds import ShiftMetrics
 
     shift = ShiftMetrics(
         signal_transitions=(),
@@ -514,7 +514,7 @@ def test_shift_analysis_confidence_drift(
 ) -> None:
     """_print_shift_analysis prints confidence drift with signed delta values."""
     from alphaswarm.cli import _print_shift_analysis
-    from alphaswarm.simulation import ShiftMetrics
+    from alphaswarm.rounds import ShiftMetrics
 
     shift = ShiftMetrics(
         signal_transitions=(("BUY->SELL", 1),),
@@ -538,7 +538,8 @@ def test_simulation_summary_output(
 ) -> None:
     """_print_simulation_summary prints 'Simulation Complete' block with total flips."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
 
     r2_shifts = ShiftMetrics(
         signal_transitions=(("BUY->SELL", 3),),
@@ -595,7 +596,8 @@ def test_simulation_summary_convergence_yes(
 ) -> None:
     """When round2 flips > round3 flips, convergence = 'Yes (flips decreased between rounds)'."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
 
     r2_shifts = ShiftMetrics(
         signal_transitions=(("BUY->SELL", 5),),
@@ -636,7 +638,8 @@ def test_simulation_summary_convergence_no_increased(
 ) -> None:
     """When round2 flips < round3 flips, convergence = 'No (flips increased between rounds)'."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
 
     r2_shifts = ShiftMetrics(
         signal_transitions=(),
@@ -677,7 +680,8 @@ def test_simulation_summary_convergence_no_unchanged(
 ) -> None:
     """When round2 flips == round3 flips, convergence = 'No (flips unchanged between rounds)'."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
 
     r2_shifts = ShiftMetrics(
         signal_transitions=(),
@@ -718,7 +722,8 @@ def test_simulation_summary_final_bracket_table(
 ) -> None:
     """_print_simulation_summary prints 'Final Consensus Distribution' bracket table from Round 3."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
 
     r2_shifts = ShiftMetrics(
         signal_transitions=(),
@@ -769,7 +774,7 @@ async def test_round_complete_handler_prints_report_and_shift(
 ) -> None:
     """The on_round_complete handler prints round report + shift analysis."""
     from alphaswarm.cli import _make_round_complete_handler
-    from alphaswarm.simulation import RoundCompleteEvent, ShiftMetrics
+    from alphaswarm.rounds import RoundCompleteEvent, ShiftMetrics
 
     handler = _make_round_complete_handler(_TEST_PERSONAS, _TEST_BRACKETS)
 
@@ -808,7 +813,7 @@ async def test_round_complete_handler_round1_no_shift(
 ) -> None:
     """Round 1 handler prints report but no shift analysis."""
     from alphaswarm.cli import _make_round_complete_handler
-    from alphaswarm.simulation import RoundCompleteEvent
+    from alphaswarm.rounds import RoundCompleteEvent
 
     handler = _make_round_complete_handler(_TEST_PERSONAS, _TEST_BRACKETS)
 
@@ -838,7 +843,8 @@ async def test_run_pipeline_calls_run_simulation_with_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_run_pipeline calls run_simulation with on_round_complete handler (D-17, D-14)."""
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
 
     # Create mock AppState
     mock_app = MagicMock()
@@ -1000,7 +1006,8 @@ async def test_run_pipeline_constructs_providers() -> None:
     established pattern in test_run_pipeline_calls_run_simulation_with_callback.
     """
     from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
 
     # Minimal AppState surface — _run_pipeline only reads these attributes.
     mock_app = MagicMock()
@@ -1051,7 +1058,8 @@ async def test_run_pipeline_point_in_time_runs_build_no_live_providers(mode: str
     from decimal import Decimal
 
     from alphaswarm.ingestion.fixture import build_fixture_packet
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
 
     packet = build_fixture_packet(
         event_id="evt-001",
@@ -1098,7 +1106,7 @@ async def test_run_pipeline_point_in_time_runs_build_no_live_providers(mode: str
 
 def test_shift_analysis_uses_actual_agent_count(capsys: pytest.CaptureFixture[str]) -> None:
     from alphaswarm.cli import _print_shift_analysis
-    from alphaswarm.simulation import ShiftMetrics
+    from alphaswarm.rounds import ShiftMetrics
 
     shift = ShiftMetrics(
         signal_transitions=(("BUY->SELL", 2),),
@@ -1115,7 +1123,8 @@ def test_shift_analysis_uses_actual_agent_count(capsys: pytest.CaptureFixture[st
 
 def test_simulation_summary_for_two_rounds(capsys: pytest.CaptureFixture[str]) -> None:
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
+    from alphaswarm.simulation import SimulationResult
 
     empty = ShiftMetrics(signal_transitions=(), total_flips=0, bracket_confidence_delta=(), agents_shifted=0)
     result = SimulationResult(
@@ -1164,7 +1173,7 @@ def test_round_report_fallback_table_matches_engine_summaries(
 ) -> None:
     """Without precomputed summaries the round table equals the engine's summaries."""
     from alphaswarm.cli import _print_round_report
-    from alphaswarm.simulation import compute_bracket_summaries
+    from alphaswarm.rounds import compute_bracket_summaries
 
     _print_round_report(2, "c1", _MIXED_DECISIONS, _TEST_PERSONAS, _TEST_BRACKETS)
     fallback = capsys.readouterr().out
@@ -1185,7 +1194,8 @@ def test_simulation_summary_fallback_table_matches_engine_summaries(
 ) -> None:
     """An empty round3_summaries tuple renders the same table as computed summaries."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult, compute_bracket_summaries
+    from alphaswarm.rounds import ShiftMetrics, compute_bracket_summaries
+    from alphaswarm.simulation import SimulationResult
 
     shifts = ShiftMetrics(
         signal_transitions=(),

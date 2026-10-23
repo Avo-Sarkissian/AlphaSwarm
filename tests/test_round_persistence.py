@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from alphaswarm.episodes import EntityRef
-from alphaswarm.simulation import _persist_round_records
+from alphaswarm.rounds import _persist_round_records
 from alphaswarm.types import AgentDecision, AgentPersona, SignalType
 from tests.support.graph_fakes import fake_persist_round
 

@@ -9,7 +9,7 @@ import pytest
 
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.personas import compute_prompt_template_hash
-from alphaswarm.simulation import RoundCompleteEvent
+from alphaswarm.rounds import RoundCompleteEvent
 from alphaswarm.types import AgentPersona, BracketConfig, BracketType
 from tests.engine.scenario import (
     SCENARIO_CYCLE_ID,

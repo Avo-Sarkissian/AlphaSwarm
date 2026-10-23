@@ -17,8 +17,9 @@ from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
 from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
+from alphaswarm.rounds import OnRoundComplete
 from alphaswarm.settings import AppSettings, GovernorSettings
-from alphaswarm.simulation import OnRoundComplete, SimulationResult, run_simulation
+from alphaswarm.simulation import SimulationResult, run_simulation
 from alphaswarm.types import AgentPersona, BracketConfig
 from tests.engine.scenario import (
     SCENARIO_CYCLE_ID,
