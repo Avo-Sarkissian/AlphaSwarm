@@ -536,10 +536,13 @@ class GraphStateManager:
     async def ensure_schema(self) -> None:
         """Apply idempotent schema constraints and indexes, then seed agents.
 
-        Per D-05: open one session, execute each statement sequentially,
-        then seed all agent nodes. Duplicate decision ids found while the
-        decision_id_unique constraint is absent keep the plain index in its
-        place and log ``decision_id_duplicates_found``; no data is deleted.
+        Opens one session and runs each statement in order
+        (docs/DECISIONS.md#p4-d-05), back-fills ``Cycle.status``, runs
+        ``LEGACY_PROPERTY_CLEANUP`` (it removes the retired Agent-level
+        ``decision_narrative``) and seeds all agent nodes. Duplicate decision
+        ids found while the decision_id_unique constraint is absent keep the
+        plain index in its place and log ``decision_id_duplicates_found``;
+        they are never deleted.
         """
         duplicates = await self._read(self._count_decision_id_duplicates_tx, op="ensure_schema")
         if duplicates:
