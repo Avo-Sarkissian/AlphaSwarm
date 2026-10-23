@@ -67,3 +67,15 @@ def test_tests_carry_no_red_phase_markers() -> None:
         if p.resolve() != THIS_FILE and RED_MARKER.search(p.read_text(encoding="utf-8"))
     )
     assert offenders == []
+
+
+# Modules this cleanup rewrote end to end: legacy ids must be DECISIONS links.
+FULLY_CLEANED = ("web/replay_manager.py", "web/routes/replay.py")
+LEGACY_ID = re.compile(r"(?<![#\w-])(?:D-\d{2}|F-\d{2}|B\d{1,2}|T-\d{2}-\d{2}|KR-\d+\.\d+-\d+)\b")
+
+
+@pytest.mark.parametrize("rel", FULLY_CLEANED)
+def test_edited_modules_cite_anchors_not_bare_ids(rel: str) -> None:
+    source = (SRC / rel).read_text(encoding="utf-8")
+    hits = sorted({m.group(0) for m in LEGACY_ID.finditer(source)} | {m.group(0) for m in PROCESS_TAG.finditer(source)})
+    assert hits == [], f"{rel}: {hits}"
