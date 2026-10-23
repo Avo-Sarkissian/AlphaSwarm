@@ -53,10 +53,9 @@ def test_aggregate_reports_dominants_pivots_and_bracket_order() -> None:
         "pre_buy_pct": 100.0,
         "post_buy_pct": 50.0,
         "delta_buy_pct": -50.0,
-        "dominant_arrow": "▼",
         "agents": [{"agent_id": "quants_01", "pre_signal": "BUY", "post_signal": "SELL"}],
     }
-    assert degens["pivots"] == 0 and degens["agents"] == [] and degens["dominant_arrow"] == "·"
+    assert degens["pivots"] == 0 and degens["agents"] == []
 
 
 def test_aggregate_without_rows_is_zero_filled() -> None:
@@ -107,3 +106,8 @@ def test_bracket_order_and_display_names_come_from_personas() -> None:
     assert sorted(reversed(keys), key=bracket_sort_key) == keys
     assert bracket_sort_key("legacy_suits") == (len(keys), "legacy_suits")
     assert BRACKET_DISPLAY_NAMES["sell_side"] == "Sell-Side"
+
+
+def test_bracket_pivots_carry_no_glyph() -> None:
+    rows = [_row("quants_01", "quants", "BUY", "SELL")]
+    assert "dominant_arrow" not in aggregate_shock_impact(rows)["bracket_pivots"][0]

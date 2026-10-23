@@ -42,7 +42,6 @@ class BracketPivotRow(TypedDict):
     pre_buy_pct: float
     post_buy_pct: float
     delta_buy_pct: float
-    dominant_arrow: str
     agents: list[PivotAgentRow]
 
 
@@ -118,8 +117,6 @@ def aggregate_shock_impact(rows: Sequence[ShockComparisonRow]) -> ShockImpactRow
                 pre_buy_pct=pre_buy_pct,
                 post_buy_pct=post_buy_pct,
                 delta_buy_pct=delta,
-                # The arrow glyph stays in the row until the templates own presentation.
-                dominant_arrow="▲" if delta > 0 else "▼" if delta < 0 else "·",
                 agents=[
                     PivotAgentRow(
                         agent_id=r["agent_id"],

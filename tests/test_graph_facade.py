@@ -181,3 +181,19 @@ def test_pure_math_is_not_in_the_graph() -> None:
     assert not hasattr(manager.GraphStateManager, "_aggregate_shock_impact")
     for name in ("_majority", "_bracket_sort_key", "_BRACKET_DISPLAY_NAMES", "_BRACKET_ORDER"):
         assert not hasattr(manager, name), name
+
+
+def test_graph_and_influence_emit_no_display_glyphs() -> None:
+    from alphaswarm.influence import ShockComparisonRow, aggregate_shock_impact
+
+    row = ShockComparisonRow(
+        agent_id="quants_01",
+        bracket="quants",
+        pre_signal="BUY",
+        post_signal="SELL",
+        shock_round=2,
+        shock_text="Fictional regulator opens a review",
+    )
+    assert "dominant_arrow" not in aggregate_shock_impact([row])["bracket_pivots"][0]
+    for path in [*_graph_sources(), SRC / "influence.py"]:
+        assert not {"▲", "▼"} & set(path.read_text(encoding="utf-8")), path

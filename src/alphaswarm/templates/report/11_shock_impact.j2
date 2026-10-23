@@ -1,3 +1,4 @@
+{% from "_macros.j2" import shock_arrow %}
 ## Shock Impact Analysis
 
 {% set comparable = data.bracket_pivots | sum(attribute="comparable") %}
@@ -18,7 +19,7 @@
 | Bracket | Pre-Dominant | Post-Dominant | Arrow | Delta Buy% |
 |---------|-------------|---------------|-------|-----------|
 {% for bp in data.bracket_pivots %}
-| {{ bp.display_name | md_cell }} | {{ bp.pre_dominant or "—" }} | {{ bp.post_dominant or "—" }} | {{ bp.dominant_arrow }} | {{ bp.delta_buy_pct | num(1) }}% |
+| {{ bp.display_name | md_cell }} | {{ bp.pre_dominant or "—" }} | {{ bp.post_dominant or "—" }} | {{ shock_arrow(bp.delta_buy_pct) }} | {{ bp.delta_buy_pct | num(1) }}% |
 {% endfor %}
 {% set pivot_brackets = data.bracket_pivots | selectattr("pivots") | list %}
 {% if pivot_brackets %}

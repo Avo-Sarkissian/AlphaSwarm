@@ -1,0 +1,5 @@
+{#- Shared report macros. Display glyphs live here, never in graph read rows
+    (docs/DECISIONS.md#adr-neo4j-schema). -#}
+{%- macro shock_arrow(delta) -%}
+{%- if delta > 0 -%}▲{%- elif delta < 0 -%}▼{%- else -%}·{%- endif -%}
+{%- endmacro -%}

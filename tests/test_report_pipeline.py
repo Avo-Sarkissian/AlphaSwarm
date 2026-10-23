@@ -124,7 +124,9 @@ def _headings(markdown: str) -> list[str]:
 
 
 def test_section_templates_cover_every_template_file() -> None:
-    assert {template for _, template in SECTION_TEMPLATES} == {path.name for path in TEMPLATE_DIR.glob("*.j2")}
+    assert {template for _, template in SECTION_TEMPLATES} == {
+        path.name for path in TEMPLATE_DIR.glob("*.j2") if not path.name.startswith("_")
+    }
 
 
 async def test_render_orders_header_summary_tables_and_narrative() -> None:
