@@ -784,6 +784,7 @@ interface HoldingAnalysis {
 
 export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   const meta = useFrameMeta();
+  const { numRounds } = useRounds();
   const { cycleId: latestCompleted, loading: latestLoading } = useLatestCompletedCycle();
   const cycleId = defaultCycleId(meta, latestCompleted);
   // No cycle yet only means "none completed" once the lookup has answered.
@@ -802,7 +803,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   // auto-fired by SimulationManager.on_complete (per quick task 260507-19f).
   // 404 → null (pending); 500 → polled.error (D-19 surfaces).
   // Cap = 1200 attempts × 3000ms = 60min. Realistic on M1 Max where
-  // post-R3 narrative generation (~12-25min) + worker→orchestrator swap
+  // post-run narrative generation (~12-25min) + worker→orchestrator swap
   // (~30-90s) + advisory synthesis (~2-5min) can exceed the prior 10min cap.
   // See debug session ws-agent-states-not-emitted-mid-sim (symptom 2 UX).
   const polled = usePolling<AdvisoryContent | null>({
@@ -956,7 +957,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
               Generating advisory…{polled.attempt > 0 ? ` (poll #${polled.attempt})` : ''}
             </div>
             <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
-              The orchestrator is running post-R3 narrative generation, swapping
+              The orchestrator is running post-run narrative generation, swapping
               from worker → orchestrator model, then synthesizing your portfolio
               advisory. Total wall-clock on M1 Max is ~25–50 min — leave this
               tab open and the report will appear here automatically when ready.
@@ -969,7 +970,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
               Advisory not yet generated
             </div>
             <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
-              Synthesis can take 25–50 min on M1 Max (post-R3 narrative + worker→orchestrator
+              Synthesis can take 25–50 min on M1 Max (post-run narrative + worker→orchestrator
               model swap + advisory pass). Check back later — backend auto-fires on cycle complete.
             </div>
           </div>
@@ -1135,7 +1136,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
                 <div className="adv-iso-layer swarm">
                   <div className="adv-iso-layer-title">Swarm Layer</div>
                   <div className="adv-iso-layer-desc">
-                    100 agents · 3 rounds · real market data
+                    100 agents · {numRounds} rounds · real market data
                   </div>
                   <div className="adv-iso-items">
                     <div className="adv-iso-item">✓ Sees: seed rumor</div>
