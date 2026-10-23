@@ -8,19 +8,22 @@ import os
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
+from typing import Final
 
 import structlog
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.staticfiles import StaticFiles
 
 from alphaswarm.manifest import current_git_revision
 from alphaswarm.personas import load_bracket_configs
+from alphaswarm.readiness import DIST_FIX
 from alphaswarm.services.advisory import AdvisoryService, PortfolioSource
 from alphaswarm.services.post_run import PostRunPipeline, ServicePostRunJobs
 from alphaswarm.services.report import ReportService
 from alphaswarm.services.runtime import Runtime, RuntimeFactory, open_runtime
-from alphaswarm.settings import AppSettings, legacy_origin_settings
+from alphaswarm.settings import PROJECT_ROOT, AppSettings, legacy_origin_settings
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers
@@ -41,6 +44,35 @@ from alphaswarm.web.routes.websocket import router as ws_router
 from alphaswarm.web.simulation_manager import SimulationManager
 
 log = structlog.get_logger(component="web.app")
+
+DIST_HINT_HTML: Final = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>AlphaSwarm</title></head>
+<body style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; line-height: 1.5">
+<h1>AlphaSwarm API is running</h1>
+<p>The web UI has not been built, so there is nothing to show at <code>/</code> yet.</p>
+<p>Build it once: <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code>, then reload.</p>
+<p>For development: <code>npm --prefix frontend run dev</code> and open
+<a href="http://localhost:5173">http://localhost:5173</a>.</p>
+<p>Check the whole setup with <code>uv run alphaswarm doctor</code>.</p>
+</body></html>
+"""
+
+
+def mount_frontend(app: FastAPI, dist_dir: Path) -> None:
+    """Serve the built SPA at / (must be the last mount), or a build hint.
+
+    html=True serves index.html as the fallback for every non-API path, so
+    client-side routes resolve (docs/DECISIONS.md#p31-d-02). Without a build, /
+    used to return a bare JSON 404 (docs/DECISIONS.md#adr-web-lifespan).
+    """
+    if (dist_dir / "index.html").is_file():
+        app.mount("/", StaticFiles(directory=dist_dir, html=True), name="frontend")
+        return
+    log.warning("frontend_dist_missing", dist_dir=str(dist_dir), hint=DIST_FIX)
+
+    @app.get("/", include_in_schema=False)
+    async def frontend_build_hint() -> HTMLResponse:
+        return HTMLResponse(DIST_HINT_HTML)
 
 
 def make_session_clearer(app: FastAPI) -> Callable[[], None]:
@@ -278,11 +310,8 @@ def create_app(
     app.include_router(settings_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
 
-    # Serve the React SPA production build as static files (docs/DECISIONS.md#p31-d-02).
-    # Must be LAST mount — html=True serves index.html as fallback for all non-API paths,
-    # so client-side routes resolve. Only mounted when dist/ exists (production build).
-    frontend_dist = os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend", "dist")
-    if os.path.isdir(frontend_dist):
-        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+    # Built SPA at / when present, otherwise a page that says how to build it
+    # (docs/DECISIONS.md#adr-web-lifespan). Must stay the last mount.
+    mount_frontend(app, PROJECT_ROOT / "frontend" / "dist")
 
     return app
