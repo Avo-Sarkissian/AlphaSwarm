@@ -777,21 +777,18 @@ async def test_round_complete_handler_round1_no_shift(
 
 
 def test_report_subcommand_registered() -> None:
-    """CLI report subparser registers correctly with --cycle and --output arguments."""
-    parser = argparse.ArgumentParser(prog="alphaswarm")
-    subparsers = parser.add_subparsers(dest="command")
-    report_parser = subparsers.add_parser("report", help="Generate post-simulation analysis report")
-    report_parser.add_argument("--cycle", type=str, default=None)
-    report_parser.add_argument("--output", type=str, default=None)
+    """The report subparser takes a positional CYCLE_ID, --cycle and --output."""
+    from alphaswarm import cli
 
+    parser = cli.build_parser()
     args = parser.parse_args(["report", "--cycle", "test-id"])
     assert args.command == "report"
-    assert args.cycle == "test-id"
+    assert args.cycle_flag == "test-id"
     assert args.output is None
 
-    # Verify default behavior when --cycle is omitted
+    # Neither form given: the handler picks the latest complete cycle.
     args_no_cycle = parser.parse_args(["report"])
-    assert args_no_cycle.cycle is None
+    assert args_no_cycle.cycle_id is None and args_no_cycle.cycle_flag is None
 
 
 def test_shift_analysis_uses_actual_agent_count(capsys: pytest.CaptureFixture[str]) -> None:

@@ -175,3 +175,43 @@ def test_python_m_alphaswarm_without_arguments_prints_help() -> None:
     )
     assert proc.returncode == 0
     assert proc.stdout.startswith("usage: alphaswarm")
+
+
+CYCLE_A = "00000000-0000-4000-8000-0000000000a1"
+CYCLE_B = "00000000-0000-4000-8000-0000000000b2"
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["report"], None),
+        (["report", CYCLE_A], CYCLE_A),
+        (["report", "--cycle", CYCLE_A], CYCLE_A),
+        (["report", CYCLE_A, "--cycle", CYCLE_A], CYCLE_A),
+    ],
+)
+def test_report_takes_the_cycle_id_positionally_or_as_a_flag(
+    argv: list[str],
+    expected: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[tuple[str | None, str | None]] = []
+    monkeypatch.setattr(cli, "_handle_report", lambda cycle_id, output: seen.append((cycle_id, output)))
+    assert cli.run_cli(argv) == cli.EXIT_OK
+    assert seen == [(expected, None)]
+
+
+def test_report_with_two_different_ids_is_a_usage_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli, "_handle_report", raising(AssertionError("must not run")))
+    assert cli.run_cli(["report", CYCLE_A, "--cycle", CYCLE_B]) == cli.EXIT_USAGE
+    assert "give the cycle id once" in capsys.readouterr().err
+
+
+def test_report_passes_the_output_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[tuple[str | None, str | None]] = []
+    monkeypatch.setattr(cli, "_handle_report", lambda cycle_id, output: seen.append((cycle_id, output)))
+    assert cli.run_cli(["report", CYCLE_A, "--output", "out/zzzt_report.md"]) == cli.EXIT_OK
+    assert seen == [(CYCLE_A, "out/zzzt_report.md")]

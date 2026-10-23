@@ -410,7 +410,8 @@ Contents
 - **Decision:**
   - structlog writes to the `sys.stderr` current at each write; stdout carries only command output (tables, report paths, help).
   - Every subcommand runs through `cli._run_command`. Exit codes: `0` success, `1` runtime failure, `2` usage or configuration error (argparse errors, `pydantic.ValidationError` from settings, `InferenceConfigError`), `130` interrupted (Ctrl-C). Tracebacks print only with `-v/--verbose`, accepted before or after the subcommand. Bare `alphaswarm` prints help and exits 0. A handler that raises `SystemExit` on purpose (after printing its own message) keeps its exit code.
-- **Rationale:** JSON log lines interleaved with the CLI's tables on stdout, so piping a command captured both. Every failure, Ctrl-C included, exited 1 without a traceback, and bare `alphaswarm` printed a banner.
+  - `alphaswarm report` takes the cycle id positionally (as the README documents) or with `--cycle`; two different ids are a usage error.
+- **Rationale:** JSON log lines interleaved with the CLI's tables on stdout, so piping a command captured both. Every failure, Ctrl-C included, exited 1 without a traceback, and bare `alphaswarm` printed a banner. The documented `report <cycle_id>` did not parse.
 - **Not chosen:** logging from the runner. It would run before logging is configured for configuration errors and land on stdout; the code that failed logs its own error.
 
 ### <a id="adr-web-lifespan"></a>Web process shape

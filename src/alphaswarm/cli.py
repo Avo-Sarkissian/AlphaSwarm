@@ -537,10 +537,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = sub.add_parser("report", parents=[verbose], help="Generate the post-simulation report")
     report.add_argument(
+        "cycle_id",
+        nargs="?",
+        default=None,
+        metavar="CYCLE_ID",
+        help="Cycle to report on (default: the most recent complete cycle)",
+    )
+    report.add_argument(
         "--cycle",
+        dest="cycle_flag",
         type=str,
         default=None,
-        help="Cycle ID to report on (defaults to the most recent complete cycle)",
+        metavar="CYCLE_ID",
+        help="Same as the positional CYCLE_ID (kept for existing scripts)",
     )
     report.add_argument("--output", type=str, default=None, help="Also write the markdown to this path")
 
@@ -593,6 +602,15 @@ def _run_command(name: str, call: Callable[[], None], *, verbose: bool) -> int:
     return EXIT_OK
 
 
+def _report_cycle(parser: argparse.ArgumentParser, args: argparse.Namespace) -> str | None:
+    """The report's cycle id from the positional argument or ``--cycle``; both must agree."""
+    positional: str | None = args.cycle_id
+    flag: str | None = args.cycle_flag
+    if positional is not None and flag is not None and positional != flag:
+        parser.error("give the cycle id once: positional CYCLE_ID or --cycle, not two different ids")
+    return positional if positional is not None else flag
+
+
 def run_cli(argv: Sequence[str] | None = None) -> int:
     """Parse *argv* (default: ``sys.argv[1:]``), run the subcommand, return its exit code."""
     parser = build_parser()
@@ -603,10 +621,16 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return EXIT_OK
+    report_cycle: str | None = None
+    if args.command == "report":
+        try:
+            report_cycle = _report_cycle(parser, args)
+        except SystemExit as exc:  # parser.error exits 2
+            return exc.code if isinstance(exc.code, int) else EXIT_USAGE
     commands: dict[str, Callable[[], None]] = {
         "inject": lambda: _invoke(_handle_inject, args.rumor),
         "run": lambda: _invoke(_handle_run, args.rumor, **_run_context_kwargs(args)),
-        "report": lambda: _invoke(_handle_report, args.cycle, args.output),
+        "report": lambda: _invoke(_handle_report, report_cycle, args.output),
         "web": lambda: _invoke(_handle_web, args.host, args.port),
     }
     return _run_command(args.command, commands[args.command], verbose=getattr(args, "verbose", False))
