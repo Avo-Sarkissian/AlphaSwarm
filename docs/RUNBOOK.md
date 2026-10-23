@@ -13,7 +13,7 @@ This file covers what README does not, and points to README where they overlap.
 
 AlphaSwarm's throughput depends on Ollama **server** environment variables.
 `ALPHASWARM_OLLAMA__NUM_PARALLEL` and `ALPHASWARM_OLLAMA__MAX_LOADED_MODELS`
-in `.env` are dead config: the app never reads them (`config.py:40-41`).
+in `.env` are dead config: the app never reads them (`settings.py:OllamaSettings`).
 
 | Variable | Value | Why |
 |---|---|---|
@@ -45,7 +45,7 @@ launchctl getenv OLLAMA_NUM_PARALLEL   # what the app will get on next launch
 ## 2. Models
 
 Code always calls the **aliases** `alphaswarm-worker` and
-`alphaswarm-orchestrator` (`config.py:48-49`). The Modelfile `FROM` line decides
+`alphaswarm-orchestrator` (`settings.py:OllamaSettings`). The Modelfile `FROM` line decides
 which model actually runs. Changing `ALPHASWARM_OLLAMA__WORKER_MODEL` changes
 only the CLI banner.
 

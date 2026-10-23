@@ -10,7 +10,7 @@
 //   • SignalWire / DataSourcesTakeover — the live data_source_audit slice
 //     only; there are no mocks (docs/DECISIONS.md#kr-41-1-02).
 //   • ModelStatus — wired to useTelemetry() + useConnection(); model name
-//     hardcoded 'qwen3:8b' per KR-41.6-08 (matches src/alphaswarm/config.py:32
+//     hardcoded 'qwen3:8b' per KR-41.6-08 (matches src/alphaswarm/settings.py
 //     OllamaSettings.worker_model default).
 //   • AdvisoryV2 — derive-or-stub per D-08; portfolio_outlook via renderMarkdown()
 //     per D-09; 4 tabs per D-10; "HOLDINGS AFFECTED" relabel per D-22; strict

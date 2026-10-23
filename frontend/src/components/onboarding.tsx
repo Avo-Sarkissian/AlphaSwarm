@@ -2,7 +2,7 @@
 //
 // 2026-06-11: the old "Choose your model" step removed — it rendered a stale
 // hardcoded model list (qwen3:8b / llama3.3:70b era) and was render-only
-// anyway. Models are configured backend-side (src/alphaswarm/config.py /
+// anyway. Models are configured backend-side (src/alphaswarm/settings.py /
 // .env / modelfiles) and DISPLAYED in Settings → Model. The /api/health
 // gate moved onto the seed step's Run button.
 //

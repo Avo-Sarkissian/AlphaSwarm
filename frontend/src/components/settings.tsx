@@ -111,7 +111,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <BackendRow
                 label="Memory ceiling"
                 value="90 %"
-                desc="Inference pauses when RAM usage crosses this threshold. Configured in src/alphaswarm/config.py — Coming in v6.x as a runtime setting."
+                desc="Inference pauses when RAM usage crosses this threshold. Configured in src/alphaswarm/settings.py — Coming in v6.x as a runtime setting."
               />
               {/* Live from the memory governor (governor_metrics in every frame) */}
               <LiveRow

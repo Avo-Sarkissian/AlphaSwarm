@@ -93,7 +93,7 @@ The swarm models the active price-setting margin of the narrative ecosystem: who
 forms and spreads opinions about a rumor. Its 10 brackets are Institutions, Sell-Side,
 Event-Driven, Quants, Degens, Narrators, Algos, Macro, Shorts and Allocators. Passive
 index capital and market makers are left out on purpose. Counts, reach weights and
-prompts live in `DEFAULT_BRACKETS` in `src/alphaswarm/config.py`.
+prompts live in `DEFAULT_BRACKETS` in `src/alphaswarm/personas.py`.
 
 ---
 

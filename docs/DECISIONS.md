@@ -73,14 +73,14 @@ Contents
   | Orchestrator | 27b GGUF, 111 t/s | 3395 t/s | about 30x |
 
   Dense-model parallel decode is capped by memory bandwidth on the M1 Max, so a fast MoE stream beats parallel dense 8B.
-- **Where:** `config.py:31-41` (`OllamaSettings` defaults), plus the header comments in `modelfiles/Modelfile.worker` and `modelfiles/Modelfile.orchestrator`.
+- **Where:** `settings.py:OllamaSettings` (defaults), plus the header comments in `modelfiles/Modelfile.worker` and `modelfiles/Modelfile.orchestrator`.
 - **Rollback:**
   - First fallback: qwen3.5:35b GGUF MoE.
   - Second fallback: qwen3:8b plus qwen3.6:27b-q4_K_M, the stack from the 2026-05-06 decision ([adr-think-off](#adr-think-off)).
 - **Revisit when:** a new MoE beats 2361 t/s prefill on 64 GB. Gemma 4 26B MoE is untested.
 
 ### <a id="adr-model-aliases"></a>Code calls Modelfile aliases; `num_ctx` lives only in Modelfiles
-- **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`config.py:48-49`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`).
+- **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`).
 - **Rationale:** A per-request `num_ctx` makes Ollama silently reload the model.
 - **Caveats:**
   - `OllamaSettings.worker_model` and `orchestrator_model` are only displayed in the CLI banner (`cli.py:70-71`). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
@@ -106,7 +106,7 @@ Contents
 - **Rationale:** On 64 GB the worker and orchestrator cannot both stay warm, and either task unloading the orchestrator under the other corrupts the run.
 
 ### <a id="adr-swarm-composition-v2"></a>Swarm composition v2 (2026-06-10)
-- **Decision:** Ten brackets that model the price-setting margin of the narrative ecosystem. Counts and weights live in `config.py:DEFAULT_BRACKETS`; the rationale is in the `types.py:BracketType` docstring.
+- **Decision:** Ten brackets that model the price-setting margin of the narrative ecosystem. Counts and weights live in `personas.py:DEFAULT_BRACKETS`; the rationale is in the `types.py:BracketType` docstring.
 
   | Bracket | Count | Weight |
   |---|---|---|
@@ -263,7 +263,7 @@ Contents
 - **Decision:**
   - `agent_worker(persona, governor, provider)` is an `@asynccontextmanager`. It acquires one governor or rate-limit slot, yields an `AgentWorker`, and releases the slot in `finally` (`worker.py:1-9, 226-232`).
   - No raw client calls outside it, except interviews, which bypass the governor ([p14-d-13](#p14-d-13)).
-  - The runtime persona is a lightweight `WorkerPersonaConfig` TypedDict derived from the frozen `AgentPersona`, which stays the source of truth (`worker.py:95`).
+  - The runtime persona is a lightweight `WorkerPersonaConfig` TypedDict derived from the frozen `AgentPersona`, which stays the source of truth (`types.py:WorkerPersonaConfig`).
   - Transient Ollama errors retry with exponential backoff (`ollama_client.py:122-127`).
 - **Rationale:** One choke point for concurrency accounting and failure handling. The comments in `worker.py` that cite "CONTEXT.md locked decision" mean this entry.
 
@@ -439,7 +439,7 @@ Contents
   - The API-key file and its directory are created owner-only (CWE-276).
   - One origin list, `AppSettings.allowed_origins` (`ALPHASWARM_ALLOWED_ORIGINS`), serves the HTTP CSRF guard and the WebSocket handshake through `origin_guard.is_allowed`; the WebSocket no longer accepts an Origin derived from the request's own Host. `ALPHASWARM_WS_ALLOWED_ORIGINS` and `ALPHASWARM_HTTP_ALLOWED_ORIGINS` are no longer read; startup logs `legacy_origin_settings_ignored` when they are set (2026-10, SPEC T7.3, T11.8).
   - `TrustedHostMiddleware` answers only `AppSettings.trusted_hosts` (default `localhost`, `127.0.0.1`, `[::1]`; `ALPHASWARM_TRUSTED_HOSTS`), so a DNS-rebinding page can no longer read `GET /api/holdings`, the advisories or the live stream. It is the outermost middleware; it became possible once the in-process `testserver` calls were removed (2026-10, SPEC T7.3). Entries are lower-cased and checked when the app is built: a port, a scheme or path, a bare `*` or a wildcard anywhere but a leading `*.` fails startup, instead of answering every request with 400 or failing the first request with 500 (2026-10). Starlette compares only the text before the first `:` of the Host, so the `[::1]` entry never matches today and an IPv6-loopback Host is refused (fail-closed; the server binds 127.0.0.1 by default).
-  - Peer rationales are sanitized (`utils.sanitize_peer_rationale`: every Unicode Cc, Cf, Zl and Zp character becomes a space, the headline rule, so zero-width, bidi and invisible tag characters go too) and fenced in `<peer_observations>` in the user message behind the fixed `PEER_CONTEXT_GUARD`; no model-generated or third-party text reaches the system role (2026-10, SPEC T7.6).
+  - Peer rationales are sanitized (`security/sanitize.py:sanitize_peer_rationale`: every Unicode Cc, Cf, Zl and Zp character becomes a space, the headline rule, so zero-width, bidi and invisible tag characters go too) and fenced in `<peer_observations>` in the user message behind the fixed `PEER_CONTEXT_GUARD`; no model-generated or third-party text reaches the system role (2026-10, SPEC T7.6).
   - Logging bridge (2026-10): `configure_logging` routes stdlib logging through structlog's `ProcessorFormatter`, so uvicorn, httpx and provider-SDK records get the same processors as structlog events, redaction included, and the same format; `httpx`, `httpcore` and `neo4j` stay at WARNING, and the four inference modules log through structlog. `alphaswarm web` and `./start` configure logging before uvicorn starts and pass `log_config=None`. On a direct `uvicorn alphaswarm.web.app:app` launch, uvicorn's default config gives its loggers their own handlers with propagation off; the lifespan's `configure_logging` removes those handlers and turns propagation on (a logger without handlers, such as an access log turned off with `--no-access-log`, is left alone), so only uvicorn's first two startup lines keep its own format.
   - Run context (2026-10): `run_simulation` binds `cycle_id`, every agent call binds `round` and `agent_id`, and the report and advisory jobs bind `cycle_id` and `job`, all with `structlog.contextvars`. Each binding is task-local, so concurrent work never mixes context, and every log line of a run carries it.
   - Threat model, mitigations with file pointers and known limitations: [SECURITY.md](SECURITY.md) (2026-10).
@@ -483,18 +483,18 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p3-d-01"></a>`D-01` | After a pressure crisis clears, restore slots gradually (+2 per check) instead of snapping back; avoids re-triggering pressure. The ramp in RECOVERING never runs today: crisis exit already grows the pool to baseline ([D-03](#p3-d-03)), and RECOVERING is entered only from there. Pinned as a strict xfail ([adr-governor](#adr-governor)). | partial | config.py:99; governor.py:556,568 |
-| <a id="p3-d-02"></a>`D-02` | Scale above baseline (up to max_parallel) only after consecutive calm memory checks. | active | config.py:94; tests/test_governor.py:360,365 |
+| <a id="p3-d-01"></a>`D-01` | After a pressure crisis clears, restore slots gradually (+2 per check) instead of snapping back; avoids re-triggering pressure. The ramp in RECOVERING never runs today: crisis exit already grows the pool to baseline ([D-03](#p3-d-03)), and RECOVERING is entered only from there. Pinned as a strict xfail ([adr-governor](#adr-governor)). | partial | settings.py:GovernorSettings; governor.py:556,568 |
+| <a id="p3-d-02"></a>`D-02` | Scale above baseline (up to max_parallel) only after consecutive calm memory checks. | active | settings.py:GovernorSettings; tests/test_governor.py:360,365 |
 | <a id="p3-d-03"></a>`D-03` | After crisis recovery reset to baseline, not the pre-incident slot count. | active | governor.py:514,535,539; tests/test_governor.py:277 |
-| <a id="p3-d-04"></a>`D-04` | If >=20% of a dispatch wave fails, shrink the governor (per-wave failure scope). | active | config.py:94; governor.py:292; tests/test_governor.py:480,488 |
-| <a id="p3-d-05"></a>`D-05` | Shrink by a fixed step (2) per trigger, never below 1 slot; gradual degradation, not halving. | active | config.py:94; governor.py:292,304; tests/test_governor.py:480,502 |
-| <a id="p3-d-07"></a>`D-07` | Abort with GovernorCrisisError after a sustained crisis (default 5 min) with no successful inference. | active | config.py:99; governor.py:514,518; tests/test_governor.py:428,436 |
+| <a id="p3-d-04"></a>`D-04` | If >=20% of a dispatch wave fails, shrink the governor (per-wave failure scope). | active | settings.py:GovernorSettings; governor.py:292; tests/test_governor.py:480,488 |
+| <a id="p3-d-05"></a>`D-05` | Shrink by a fixed step (2) per trigger, never below 1 slot; gradual degradation, not halving. | active | settings.py:GovernorSettings; governor.py:292,304; tests/test_governor.py:480,502 |
+| <a id="p3-d-07"></a>`D-07` | Abort with GovernorCrisisError after a sustained crisis (default 5 min) with no successful inference. | active | settings.py:GovernorSettings; governor.py:514,518; tests/test_governor.py:428,436 |
 | <a id="p3-d-08"></a>`D-08` | Any successful inference resets the crisis timeout clock, even at 1 slot. | active | governor.py:241; tests/test_governor.py:428,459 |
 | <a id="p3-d-09"></a>`D-09` | Governor reports via structlog AND StateStore metrics (GovernorMetrics) so the UI can show telemetry. | active | governor.py:419; state.py:25 |
 | <a id="p3-d-11"></a>`D-11` | Metrics emitted to StateStore on state change. Later (8521e91, Jun 2026) also emitted every check for the live UI. | partial | governor.py:419; state.py:25 |
 | <a id="p3-d-12"></a>`D-12` | Dual-signal memory sensing: psutil percent plus macOS kernel pressure. Implemented with sysctl kern.memorystatus_vm_pressure_level (not the memory_pressure CLI); unknown values map to GREEN, read failures are fail-stale since F-17. | partial | memory_monitor.py:39 |
 | <a id="p3-d-13"></a>`D-13` | Kernel pressure YELLOW/RED is the master signal: halt the queue and drop to 1 slot. | active | governor.py:444; tests/test_governor.py:268 |
-| <a id="p3-d-14"></a>`D-14` | Random jitter (0.5-1.5s) before each agent dispatch, applied in batch_dispatcher, not inside the worker; spreads load spikes. Both bounds accept 0.0 (2026-10) so deterministic tests can turn jitter off ([adr-engine-scenario-harness](#adr-engine-scenario-harness)); the defaults are unchanged. | active | batch_dispatcher.py:52; config.py:99,107 |
+| <a id="p3-d-14"></a>`D-14` | Random jitter (0.5-1.5s) before each agent dispatch, applied in batch_dispatcher, not inside the worker; spreads load spikes. Both bounds accept 0.0 (2026-10) so deterministic tests can turn jitter off ([adr-engine-scenario-harness](#adr-engine-scenario-harness)); the defaults are unchanged. | active | batch_dispatcher.py:52; settings.py:GovernorSettings |
 
 ### Phase 4: Neo4j graph state
 
@@ -593,16 +593,16 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p13-d-01"></a>`D-01` | Orchestrator generates one entity-aware modifier per bracket from the seed. | active | simulation.py:963 |
-| <a id="p13-d-02"></a>`D-02` | Generated modifier replaced the static one for all agents in a bracket. Superseded: static round-robin modifier always applies; generated text is layered on as a 'this cycle' focus line (config.py:1102-1109). | superseded | config.py:1072,1091; simulation.py:963 |
-| <a id="p13-d-04"></a>`D-04` | Modifier prompt inputs: all extracted entities plus the raw rumor. | active | config.py:567,602,624 |
-| <a id="p13-d-05"></a>`D-05` | Output is a flat JSON dict keyed by bracket value; exactly 10 keys for a full parse. | active | config.py:567,624; parsing.py:268 |
-| <a id="p13-d-06"></a>`D-06` | Modifier generation runs in the same orchestrator session as seed parsing (no reload). | active | config.py:567,624; seed.py:56,95; simulation.py:952 |
+| <a id="p13-d-02"></a>`D-02` | Generated modifier replaced the static one for all agents in a bracket. Superseded: static round-robin modifier always applies; generated text is layered on as a 'this cycle' focus line (personas.py:generate_personas). | superseded | personas.py:generate_personas; simulation.py:963 |
+| <a id="p13-d-04"></a>`D-04` | Modifier prompt inputs: all extracted entities plus the raw rumor. | active | prompts/modifiers.py:MODIFIER_GENERATION_PROMPT,build_modifier_user_message; seed.py:generate_modifiers |
+| <a id="p13-d-05"></a>`D-05` | Output is a flat JSON dict keyed by bracket value; exactly 10 keys for a full parse. | active | prompts/modifiers.py:MODIFIER_GENERATION_PROMPT; seed.py:generate_modifiers; parsing.py:268 |
+| <a id="p13-d-06"></a>`D-06` | Modifier generation runs in the same orchestrator session as seed parsing (no reload). | active | prompts/modifiers.py:MODIFIER_GENERATION_PROMPT; seed.py:generate_modifiers; seed.py:56,95; simulation.py:952 |
 | <a id="p13-d-07"></a>`D-07` | Total parse failure falls back to static modifiers with a warning. | active | parsing.py:268,335 |
 | <a id="p13-d-08"></a>`D-08` | Partial failure falls back per bracket. | active | parsing.py:268,277,294 |
 | <a id="p13-d-09"></a>`D-09` | ParsedModifiersResult carries parse_tier for observability. | active | types.py:131 |
-| <a id="p13-d-10"></a>`D-10` | Sanitise entity names at injection time; stored SeedEntity names stay untouched. | active | config.py:603 |
-| <a id="p13-d-11"></a>`D-11` | Sanitisation: truncate to 100 chars, strip control/format characters, keep normal punctuation. | active | config.py:484,489 |
-| <a id="p13-d-12"></a>`D-12` | sanitize_entity_name() helper; raw rumor goes in a clearly labelled block. | active | config.py:484,489,603 |
+| <a id="p13-d-10"></a>`D-10` | Sanitise entity names at injection time; stored SeedEntity names stay untouched. | active | prompts/modifiers.py:build_modifier_user_message |
+| <a id="p13-d-11"></a>`D-11` | Sanitisation: truncate to 100 chars, strip control/format characters, keep normal punctuation. | active | security/sanitize.py:sanitize_entity_name |
+| <a id="p13-d-12"></a>`D-12` | sanitize_entity_name() helper; raw rumor goes in a clearly labelled block. | active | security/sanitize.py:sanitize_entity_name; prompts/modifiers.py:build_modifier_user_message |
 
 ### Phase 14: Agent interviews
 
@@ -746,7 +746,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p39-d-02"></a>`D-02` | Holding.cost_basis is total position cost (shares x per-share basis). | active | holdings/loader.py:10,145; tests/test_holdings_loader.py:79 |
 | <a id="p39-d-03"></a>`D-03` | Multiple accounts merge into one PortfolioSnapshot. | active | holdings/loader.py:11; tests/test_holdings_loader.py:132,152,171 |
 | <a id="p39-d-04"></a>`D-04` | All positions included (no money-market filtering). | active | holdings/loader.py:12; tests/test_holdings_loader.py:132,136,141 |
-| <a id="p39-d-05"></a>`D-05` | Path from ALPHASWARM_HOLDINGS_CSV_PATH, default Schwab/holdings.csv, resolved against the repo root. | active | config.py:472; web/app.py:219 |
+| <a id="p39-d-05"></a>`D-05` | Path from ALPHASWARM_HOLDINGS_CSV_PATH, default Schwab/holdings.csv, resolved against the repo root. | active | settings.py:AppSettings; web/app.py:219 |
 | <a id="p39-d-06"></a>`D-06` | GET /api/holdings returns account hash, as_of, holdings with Decimals as strings. | active | web/routes/holdings.py:17,54,67; tests/unit/test_holdings_route.py:17,89,94,141 |
 | <a id="p39-d-07"></a>`D-07` | Holdings load at lifespan startup into PortfolioCache on app.state and reload when the CSV's mtime changes; never assigned onto AppState. Revised 2026-10 (was loaded once, with a lazy reload in the advisory route). | revised | web/app.py:221; web/routes/holdings.py:18,120 |
 | <a id="p39-d-08"></a>`D-08` | Missing/malformed CSV -> snapshot None -> structured 503; never crashes the WS loop. | active | holdings/loader.py:52; web/app.py:130,137; web/routes/holdings.py:21,82,136,146; tests/unit/test_holdings_route.py:18,217,222; tests/test_holdings_loader.py:277 |
@@ -885,13 +885,13 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-22"></a>F-22 | Anthropic missing-tool ValueError escaped the provider error contract | c99d00b | inference/anthropic_provider.py:242 |
 | <a id="f-23"></a>F-23 | Retry-After HTTP-date ignored; now a shared clamped parser | c99d00b, 9312419 | inference/anthropic_provider.py:269; inference/openai_provider.py:307 |
 | <a id="f-24"></a>F-24 | Broadcaster crashed every tick during replay start-up (`has_store` gate) | 66d680f | web/broadcaster.py:44,46; web/replay_manager.py:144 |
-| <a id="f-25"></a>F-25 | Inference config save was not atomic (now temp file + `os.replace`) | 902d7b5 | config.py:327 |
+| <a id="f-25"></a>F-25 | Inference config save was not atomic (now temp file + `os.replace`) | 902d7b5 | inference/config.py:save_inference_config |
 | <a id="f-26"></a>F-26 | `/replay/start` skipped the cycle_id guard | 66d680f | web/routes/replay.py:112 |
 | <a id="f-27"></a>F-27 | A binary WS frame dropped the connection | 66d680f | web/routes/websocket.py:89 |
 | <a id="f-28"></a>F-28 | Sector seed-match used bare substrings (false positives) | 35471d4 | advisory/engine.py:65 |
 | <a id="f-29"></a>F-29 | A negative aggregate cost basis inverted the ranking | 35471d4 | advisory/engine.py:141 |
 | <a id="f-30"></a>F-30 | Inconsistent ticker casing across items | 35471d4 | advisory/engine.py:218 |
-| <a id="f-31"></a>F-31 | Inverted governor thresholds passed validation | 902d7b5 | config.py:105 |
+| <a id="f-31"></a>F-31 | Inverted governor thresholds passed validation | 902d7b5 | settings.py:GovernorSettings |
 | <a id="f-32"></a>F-32 | A failed unload aborted `ensure_clean_state`, risking the two-model invariant | 66d680f | ollama_models.py:118,175 |
 | <a id="f-33"></a>F-33 | Double-click could start two simulations | df2f26a | fe/hooks/useRunGate.tsx:51 |
 | <a id="f-34"></a>F-34 | `parseInfluences` produced duplicate React keys | df2f26a | fe/__tests__/advisoryParse.test.ts:81; fe/lib/advisoryParse.ts:175 |
@@ -972,7 +972,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-be"></a>BE-01 / 03 / 04 / 08 / 09 / 10 | v5.0 web-backend IDs (definitions recovered from `git show 343669f^:.planning/...`). BE-01: FastAPI app whose lifespan owns the event loop, plus `/api/health`. BE-03: per-client WebSocket queue with drop-oldest and writer-task cleanup (ConnectionManager). BE-04: `/ws/state` 5 Hz snapshot stream (Phase 30). BE-08: `GET /api/replay/cycles` (real Neo4j query). BE-09: `POST /api/replay/start/{cycle_id}`. BE-10: `POST /api/replay/advance` (BE-09/10 began as Phase 32 stubs and were filled in by Phase 34) | BE-01: tests/test_web.py:102,226. BE-03: tests/test_connection_manager.py. BE-04: tests/test_web.py:356,735. BE-08..10: tests/test_web.py:1130 |
 | <a id="req-isol"></a>ISOL-01..07 | v6.0 isolation: stdlib holdings types (01), frozen ingestion models (02), import contract (03), PII redaction (04), provider protocols (05), socket gate (06), four-surface canary (07) | see the `ISOL-` lines in `holdings/`, `ingestion/`, `logging.py`, `tests/invariants/`, `tests/test_network_gate.py` |
 | <a id="req-ingest"></a>INGEST-01 / 02 | yfinance provider / RSS provider | ingestion/__init__.py:9; ingestion/yfinance_provider.py:1; ingestion/rss_provider.py:1; tests/... |
-| <a id="req-hold"></a>HOLD-01..04 | CSV loader (01), account number hashed with `sha256_first8` (02/04), `GET /api/holdings` (03) | config.py:446; holdings/loader.py:1,13,73,161; holdings/types.py:33; security/hashing.py:5; web/routes/holdings.py:1; tests/... |
+| <a id="req-hold"></a>HOLD-01..04 | CSV loader (01), account number hashed with `sha256_first8` (02/04), `GET /api/holdings` (03) | settings.py:AppSettings; holdings/loader.py:1,13,73,161; holdings/types.py:33; security/hashing.py:5; web/routes/holdings.py:1; tests/... |
 | <a id="req-advis"></a>ADVIS-01 / 02 | `synthesize()` ranked items / `POST /api/advisory` with serialization | advisory/__init__.py:1; advisory/engine.py:1; advisory/types.py:1; web/routes/advisory.py:1,98; tests/unit/... |
 | <a id="req-sim-04"></a>SIM-04 | `run_simulation` takes optional providers; backward compatible without them | tests/test_simulation.py:3384 |
 | <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:27,53; web/wire.py:165; tests/test_web.py:380,387,412,443,472; docs/design/inference-providers.md:142 |
@@ -1000,7 +1000,7 @@ are the live references.
 |---|---|---|---|
 | 1 | Project foundation (config, types, logging) | 5 | simulation.py, governor.py |
 | 2 | Ollama integration (client, model manager, worker context manager, parsing) | 11 | app.py, governor.py, simulation.py |
-| 3 | Resource governance | 7 | config.py, governor.py, memory_monitor.py, state.py |
+| 3 | Resource governance | 7 | settings.py, governor.py, memory_monitor.py, state.py |
 | 4 | Neo4j graph state | 2 | app.py, tests/conftest.py |
 | 5 | Seed injection + personas | 5 | parsing.py, tests |
 | 6 | Round 1 standalone | 3 | simulation.py |
@@ -1009,7 +1009,7 @@ are the live references.
 | 10 | TUI panels/telemetry (StateStore contracts) | 9 | state.py, simulation.py, worker.py |
 | 11 | Live graph memory | 23 | simulation.py, graph.py, interview.py |
 | 12 | Posts / social layer | 10 | simulation.py, graph.py |
-| 13 | Dynamic persona modifiers | 14 | config.py, simulation.py, seed.py, parsing.py |
+| 13 | Dynamic persona modifiers | 14 | personas.py, prompts/modifiers.py, seed.py, simulation.py, parsing.py |
 | 14 | Agent interviews | 1 | graph.py |
 | 15 | ReAct report | 4 | cli.py, graph.py, web/routes/report.py |
 | 24 | HTML report export ([lost](#hist-pygal-html-report)) | 1 | tests/test_report.py |
@@ -1019,7 +1019,7 @@ are the live references.
 | 35.1 | Shock injection wiring (B1) | 8 | simulation.py, graph.py, fe/components/app_v2.tsx |
 | 37 | Isolation foundation | 10 | logging.py, tests/invariants/ |
 | 38 | yfinance + RSS providers | 6 | ingestion/ |
-| 39 | Holdings loader | 5 | config.py, holdings/loader.py, security/hashing.py, web/app.py |
+| 39 | Holdings loader | 5 | settings.py, holdings/loader.py, security/hashing.py, web/app.py |
 | 40 | Simulation context wiring | 38 | simulation.py, app.py, context_formatter.py, ingestion/, tests |
 | 41 | Advisory pipeline | 11 | web/routes/advisory.py, tests/invariants/ |
 | 41.1 | First React port (Claude Design UI) | 1 | fe/components/modals.jsx |
