@@ -1,8 +1,9 @@
-"""ConcurrencyController protocol — type-level seam for concurrency management.
+"""ConcurrencyController protocol: the seam between the engine and its concurrency backend.
 
-Defines the minimal interface shared by ResourceGovernor (local/Ollama path) and
-the cloud RateLimitController (not yet implemented). The factory layer returns
-either concrete type behind this protocol so callers remain backend-agnostic.
+ResourceGovernor (alphaswarm.governor) implements it for the local Ollama path,
+RateLimitController (alphaswarm.inference.rate_limit) for the cloud path.
+inference.factory.build_controller returns one of them behind this protocol, so
+callers stay backend-agnostic (docs/DECISIONS.md#adr-governor).
 """
 
 from __future__ import annotations

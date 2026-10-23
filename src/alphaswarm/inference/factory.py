@@ -23,7 +23,7 @@ import ipaddress
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import urlsplit
 
 from alphaswarm.governor import ResourceGovernor
@@ -36,6 +36,12 @@ from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.rate_limit import RateLimitController
 from alphaswarm.inference.types import ProviderRole
+
+if TYPE_CHECKING:
+    from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.ollama_models import OllamaModelManager
+    from alphaswarm.settings import GovernorSettings
+    from alphaswarm.state import StateStore
 
 # ---------------------------------------------------------------------------
 # inference_mode
@@ -220,8 +226,8 @@ def _build_single_provider(
     api_key: str | None,
     base_url: str | None,
     *,
-    ollama_client: Any,
-    ollama_model_manager: Any,
+    ollama_client: OllamaClient | None,
+    ollama_model_manager: OllamaModelManager | None,
     meter: BudgetMeter,
     max_retries: int = 3,
 ) -> InferenceProvider:
@@ -232,6 +238,11 @@ def _build_single_provider(
     preserving prior behavior; the Anthropic path is unaffected).
     """
     if provider_type == ProviderType.OLLAMA:
+        if ollama_client is None:
+            raise ValueError(
+                f"InferenceConfig: role {role.value!r} with provider='ollama' model={model!r} "
+                "requires a running Ollama client, but this process was started without one."
+            )
         return OllamaProvider(
             role,
             model,
@@ -272,8 +283,8 @@ def build_role_provider(
     cfg: InferenceConfig,
     role: ProviderRole,
     *,
-    ollama_client: Any,
-    ollama_model_manager: Any,
+    ollama_client: OllamaClient | None,
+    ollama_model_manager: OllamaModelManager | None,
     meter: BudgetMeter | None = None,
 ) -> InferenceProvider:
     """Build the provider for one role only (interviews and connection tests need a single role).
@@ -307,8 +318,8 @@ def build_role_provider(
 def build_providers(
     cfg: InferenceConfig,
     *,
-    ollama_client: Any,
-    ollama_model_manager: Any,
+    ollama_client: OllamaClient | None,
+    ollama_model_manager: OllamaModelManager | None,
 ) -> BuiltProviders:
     """Construct role-bound providers from an InferenceConfig.
 
@@ -321,11 +332,10 @@ def build_providers(
     cfg:
         Fully-validated ``InferenceConfig`` (pydantic model).
     ollama_client:
-        Shared ``OllamaClient`` instance.  Passed through to ``OllamaProvider``
-        unchanged; not called during construction.
+        Shared ``OllamaClient``, or ``None`` when this process runs without Ollama
+        (allowed only when both roles are cloud). Not called during construction.
     ollama_model_manager:
-        Shared ``OllamaModelManager`` instance.  Passed through to
-        ``OllamaProvider``; not called during construction.
+        Shared ``OllamaModelManager``, or ``None``.
 
     Returns
     -------
@@ -336,7 +346,7 @@ def build_providers(
     ------
     ValueError
         If a cloud role is missing ``api_key`` or (for OPENAI_COMPATIBLE)
-        ``base_url``.  Raised before any provider is constructed so the error
+        ``base_url``, or a local role has no ``ollama_client``.  Raised before any provider is constructed so the error
         is unambiguous.
     """
     # Build ONE shared pricing table and meter for the whole run
@@ -366,9 +376,9 @@ def build_providers(
 
 def build_controller(
     cfg: InferenceConfig,
-    governor_settings: Any,
+    governor_settings: GovernorSettings,
     *,
-    state_store: Any = None,
+    state_store: StateStore | None = None,
 ) -> ConcurrencyController:
     """Select and construct the right ConcurrencyController for the worker role.
 

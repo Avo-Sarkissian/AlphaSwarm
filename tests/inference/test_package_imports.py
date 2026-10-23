@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import subprocess
 import sys
 
@@ -47,3 +48,12 @@ def test_all_lists_the_eager_and_lazy_names_once() -> None:
 def test_unknown_attribute_raises_attribute_error() -> None:
     with pytest.raises(AttributeError, match="has no attribute 'NoSuchProvider'"):
         _ = inference.NoSuchProvider
+
+
+def test_package_docs_are_current() -> None:
+    from alphaswarm.inference import concurrency, provider
+
+    assert "not yet implemented" not in (concurrency.__doc__ or "")
+    source = inspect.getsource(provider)
+    assert "is an alias" not in source
+    assert "Alias for ``teardown``" not in source

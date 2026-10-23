@@ -590,3 +590,37 @@ class TestBuildRoleProvider:
         )
         assert isinstance(worker, OllamaProvider)
         assert (worker.role, worker.model) == (ProviderRole.WORKER, "alphaswarm-worker")
+
+
+class TestTypedFactory:
+    """Factory parameters are typed; a missing Ollama client fails at build time."""
+
+    def test_cloud_only_config_builds_without_ollama_client(self) -> None:
+        cfg = InferenceConfig(orchestrator=_anthropic_role(), worker=_openai_role())
+
+        built = build_providers(cfg, ollama_client=None, ollama_model_manager=None)
+
+        assert not built.orchestrator.is_local()
+        assert not built.worker.is_local()
+
+    def test_local_role_without_ollama_client_raises_clear_error(self) -> None:
+        cfg = InferenceConfig(orchestrator=_anthropic_role(), worker=_ollama_role())
+
+        with pytest.raises(ValueError, match="requires a running Ollama client") as exc_info:
+            build_providers(cfg, ollama_client=None, ollama_model_manager=None)
+        assert "'worker'" in str(exc_info.value)
+        assert "sk-" not in str(exc_info.value)
+
+    def test_parameters_carry_real_types(self) -> None:
+        import inspect
+
+        from alphaswarm.inference import factory
+
+        for fn in (factory.build_providers, factory.build_role_provider):
+            params = inspect.signature(fn).parameters
+            assert params["ollama_client"].annotation == "OllamaClient | None", fn
+            assert params["ollama_model_manager"].annotation == "OllamaModelManager | None", fn
+        controller = inspect.signature(factory.build_controller).parameters
+        assert controller["governor_settings"].annotation == "GovernorSettings"
+        assert controller["state_store"].annotation == "StateStore | None"
+        assert "Lazy import avoids circular dependency" not in inspect.getsource(factory)
