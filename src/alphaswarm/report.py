@@ -9,10 +9,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from alphaswarm.errors import AlphaSwarmError
 from alphaswarm.fsutil import atomic_write_text
@@ -343,6 +344,122 @@ async def collect_report_data(
         entities=list(entities),
         shock=shock,
         generated_at=datetime.now(UTC),
+    )
+
+
+#: Section order (docs/DECISIONS.md#p15-d-07): ReportData attribute -> template.
+SECTION_TEMPLATES: Final[tuple[tuple[str, str], ...]] = (
+    ("consensus", "01_consensus_summary.j2"),
+    ("timeline", "02_round_timeline.j2"),
+    ("brackets", "03_bracket_narratives.j2"),
+    ("dissenters", "04_key_dissenters.j2"),
+    ("influence", "05_influence_leaders.j2"),
+    ("flips", "06_signal_flip_analysis.j2"),
+    ("entities", "07_entity_impact.j2"),
+    ("shock", "11_shock_impact.j2"),
+)
+
+NARRATIVE_UNAVAILABLE: Final = (
+    "_Narrative unavailable: the orchestrator's reply could not be parsed. Every table below is complete._"
+)
+_NARRATIVE_LIMITS: Final[dict[str, int]] = {"moments": 6, "dissent": 5, "followups": 5}
+_ITEM_MAX_CHARS: Final = 400
+_SUMMARY_MAX_CHARS: Final = 1200
+# Leading list/heading/quote markup followed by whitespace ("## ", "- ", "> "). The
+# whitespace is required so a signed number ("-12% guidance") keeps its sign.
+_LEADING_MARKUP_RE: Final = re.compile(r"^(?:[#>*\-+]+\s+)+")
+_SPACES_RE: Final = re.compile(r"\s+")
+
+
+def _clean_text(value: str, max_chars: int) -> str:
+    """One line: whitespace collapsed, leading markdown stripped, length capped."""
+    text = _LEADING_MARKUP_RE.sub("", _SPACES_RE.sub(" ", value).strip())
+    return text if len(text) <= max_chars else text[: max_chars - 1].rstrip() + "…"
+
+
+class ReportNarrativeLLMOutput(BaseModel):
+    """The single orchestrator reply a report needs.
+
+    Lenient so formatting slips never cost a retry: extra keys ignored, text
+    collapsed to one line, lists capped instead of rejected. Only an empty
+    summary fails validation (docs/DECISIONS.md#adr-structured-output).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    summary: str = Field(min_length=1)
+    moments: list[str] = Field(default_factory=list)
+    dissent: list[str] = Field(default_factory=list)
+    followups: list[str] = Field(default_factory=list)
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def _clean_summary(cls, value: object) -> object:
+        return _clean_text(value, _SUMMARY_MAX_CHARS) if isinstance(value, str) else value
+
+    @field_validator("moments", "dissent", "followups", mode="before")
+    @classmethod
+    def _clean_items(cls, value: object, info: ValidationInfo) -> object:
+        if value is None:
+            return []
+        items = [value] if isinstance(value, str) else value
+        if not isinstance(items, list):
+            return items
+        cleaned = [_clean_text(item, _ITEM_MAX_CHARS) for item in items if isinstance(item, str)]
+        limit = _NARRATIVE_LIMITS[info.field_name or ""]
+        return [item for item in cleaned if item][:limit]
+
+
+@dataclass(frozen=True)
+class ReportSections:
+    """Structured report view served next to the markdown for the web UI."""
+
+    summary: str
+    convergence: list[RoundTimelineRow]
+    influence: list[InfluenceLeaderRow]
+    moments: list[str]
+    dissent: list[str]
+    followups: list[str]
+
+
+def render_report(data: ReportData, narrative: ReportNarrativeLLMOutput | None) -> str:
+    """Markdown report: header, executive summary, the section tables, narrative lists."""
+    assembler = ReportAssembler()
+    parts = [
+        "# Post-Simulation Analysis Report\n\n"
+        f"**Cycle:** {data.cycle_id}\n"
+        f"**Generated:** {data.generated_at.isoformat()}\n"
+        f"**Rounds:** {data.final_round}\n"
+        f"**Rumor:** {md_cell(data.seed_rumor) or '—'}\n\n"
+        "---\n",
+        "## Executive Summary\n\n" + (narrative.summary if narrative is not None else NARRATIVE_UNAVAILABLE) + "\n",
+    ]
+    for attribute, template in SECTION_TEMPLATES:
+        rows = getattr(data, attribute)
+        if attribute == "shock" and rows is None:
+            continue
+        rendered = assembler.render_section(template, data=rows, cycle_id=data.cycle_id)
+        parts.append(rendered.rstrip() + "\n")
+    if narrative is not None:
+        for heading, items in (
+            ("Key Moments", narrative.moments),
+            ("Dissent", narrative.dissent),
+            ("Follow-ups", narrative.followups),
+        ):
+            if items:
+                parts.append(f"## {heading}\n\n" + "\n".join(f"- {item}" for item in items) + "\n")
+    return "\n".join(parts)
+
+
+def build_sections(data: ReportData, narrative: ReportNarrativeLLMOutput | None) -> ReportSections:
+    """The structured view the web UI charts: convergence and influence rows plus the narrative."""
+    return ReportSections(
+        summary=narrative.summary if narrative is not None else "",
+        convergence=list(data.timeline),
+        influence=list(data.influence),
+        moments=list(narrative.moments) if narrative is not None else [],
+        dissent=list(narrative.dissent) if narrative is not None else [],
+        followups=list(narrative.followups) if narrative is not None else [],
     )
 
 
