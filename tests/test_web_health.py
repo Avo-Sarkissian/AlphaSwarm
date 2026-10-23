@@ -18,9 +18,7 @@ from tests.support.web_app import make_route_app, route_test_settings
 
 
 class _Probes:
-    def __init__(
-        self, neo4j_ok: bool = True, missing: tuple[str, ...] = (), ollama_ok: bool = True
-    ) -> None:
+    def __init__(self, neo4j_ok: bool = True, missing: tuple[str, ...] = (), ollama_ok: bool = True) -> None:
         self.neo4j_ok = neo4j_ok
         self.missing = missing
         self.ollama_ok = ollama_ok
@@ -93,15 +91,11 @@ def test_missing_alias_is_degraded(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert aliases["ok"] is False
 
 
-def test_cloud_only_config_does_not_require_ollama(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cloud_only_config_does_not_require_ollama(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     probes = _Probes(ollama_ok=False)
     app = _app(tmp_path, monkeypatch, probes)
     cloud = RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-test", api_key="sk-x")
-    save_inference_config(
-        InferenceConfig(orchestrator=cloud, worker=cloud), tmp_path / "inference.json"
-    )
+    save_inference_config(InferenceConfig(orchestrator=cloud, worker=cloud), tmp_path / "inference.json")
     with TestClient(app) as client:
         data = client.get("/api/health").json()
     assert data["inference_mode"] == "cloud"
@@ -109,9 +103,7 @@ def test_cloud_only_config_does_not_require_ollama(
     assert probes.ollama_calls == [((), False)]
 
 
-def test_components_are_cached_for_five_seconds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_components_are_cached_for_five_seconds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     probes = _Probes()
     clock = [1000.0]
     monkeypatch.setattr(health_module, "_clock", lambda: clock[0])
@@ -125,9 +117,7 @@ def test_components_are_cached_for_five_seconds(
     assert probes.neo4j_calls == 2
 
 
-def test_schema_is_applied_once_when_neo4j_recovers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_schema_is_applied_once_when_neo4j_recovers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app = _app(tmp_path, monkeypatch, _Probes())
     with TestClient(app) as client:
         app.state.neo4j_ready = False

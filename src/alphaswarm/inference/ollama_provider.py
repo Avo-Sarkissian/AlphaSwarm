@@ -141,9 +141,7 @@ class OllamaProvider:
         # Build options only when temperature is explicitly set.
         # Do NOT pass num_ctx — OllamaClient strips it, but omitting it
         # avoids a spurious log-warning on every single call.
-        options: dict[str, Any] | None = (
-            {"temperature": temperature} if temperature is not None else None
-        )
+        options: dict[str, Any] | None = {"temperature": temperature} if temperature is not None else None
 
         resp = await self._client.chat(
             model=self.model,

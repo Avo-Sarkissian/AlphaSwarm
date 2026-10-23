@@ -23,8 +23,7 @@ async def _create_cycle(gm: GraphStateManager, **props: object) -> str:
     cycle_id = str(uuid.uuid4())
     async with gm._driver.session(database=gm._database) as session:
         await session.run(
-            "CREATE (c:Cycle {cycle_id: $cycle_id, created_at: datetime(), seed_rumor: $rumor}) "
-            "SET c += $props",
+            "CREATE (c:Cycle {cycle_id: $cycle_id, created_at: datetime(), seed_rumor: $rumor}) SET c += $props",
             cycle_id=cycle_id,
             rumor=_RUMOR,
             props=dict(props),

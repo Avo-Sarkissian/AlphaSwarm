@@ -9,8 +9,8 @@ Run from `frontend/`:
 | `npm run lint` | ESLint: typescript-eslint and react-hooks are errors; jsx-a11y rules are warnings until the accessibility pass |
 | `npm run build` | `tsc -b` plus the production bundle |
 
-The CI `frontend` job runs `npm ci`, `npx tsc -b --noEmit`, `npm run lint`, `npx vitest run`
-and `npm run build` on Node 20.
+The CI `frontend` job runs `npm ci`, `npm audit --omit=dev --audit-level=high`, `npm run lint`,
+`npx vitest run` and `npm run build` (which runs `tsc -b`) on Node 22 (`frontend/.nvmrc`).
 
 ## Layout
 
@@ -38,7 +38,10 @@ and `npm run build` on Node 20.
 5. Under happy-dom, DOMPurify stops at the first element it removes (happy-dom's NodeIterator
    skips the DOM's removal steps; browsers continue). Give each sanitizer case in
    `markdown.test.ts` at most one element to remove; the `it.fails` test there flags the day
-   happy-dom fixes this.
+   happy-dom fixes this. happy-dom's `Node.prototype.nodeName` getter also returns `''` for
+   elements (browsers return the tag name), and DOMPurify reads that getter, so
+   `markdown.test.ts` patches it in a `vi.hoisted` block before DOMPurify loads; a test there
+   fails once the patch is no longer needed.
 
 ## Wire contract
 

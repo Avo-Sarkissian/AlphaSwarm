@@ -11,6 +11,7 @@ Pitfall 2: NEVER json.dumps over raw Decimal. All holdings values are stringifie
 before prompt construction.
 Pitfall 3: one bounded retry on ValidationError; second failure raises.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -66,10 +67,7 @@ def _enrich_holdings(
         seed_match = (
             1.0
             if (ticker and re.search(rf"\b{re.escape(ticker)}\b", seed_text, re.IGNORECASE))
-            or (
-                sector_phrase
-                and re.search(rf"\b{re.escape(sector_phrase)}\b", seed_text, re.IGNORECASE)
-            )
+            or (sector_phrase and re.search(rf"\b{re.escape(sector_phrase)}\b", seed_text, re.IGNORECASE))
             else 0.0
         )
         relevance = abs(entity_impact) * abs(sm["macro_beta"]) + 0.5 * seed_match
@@ -136,10 +134,7 @@ async def synthesize(
     except Exception:  # noqa: BLE001 - synthesize still runs without seed text
         log.warning("advisory_seed_fetch_failed", cycle_id=cycle_id)
 
-    _total_cb = sum(
-        (h.cost_basis if h.cost_basis is not None else Decimal("0"))
-        for h in portfolio.holdings
-    )
+    _total_cb = sum((h.cost_basis if h.cost_basis is not None else Decimal("0")) for h in portfolio.holdings)
     # D-07: the denominator must be POSITIVE. The old `or Decimal("1")` only
     # caught a falsy (zero) sum; a NEGATIVE aggregate (data-entry error or a
     # credit/short lot) is truthy and would divide positive exposures by a
@@ -269,10 +264,7 @@ async def synthesize(
 
     # `affected_holdings` counts only items the LLM had real conviction on —
     # NOT the server-padded HOLD placeholders.
-    affected_count = sum(
-        1 for it in conviction_items
-        if it.consensus_signal != "HOLD" or it.confidence > 0.4
-    )
+    affected_count = sum(1 for it in conviction_items if it.consensus_signal != "HOLD" or it.confidence > 0.4)
 
     final = report.model_copy(
         update={

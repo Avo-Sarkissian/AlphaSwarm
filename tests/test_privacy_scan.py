@@ -21,10 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "privacy_scan.py"
 
 FICTIONAL_CSV = (
-    "account,symbol,shares,cost_basis_per_share\n"
-    "acct_a,ZZZT,12.3456,98.7654\n"
-    "acct_b,QQQX,40,25.50\n"
-    "acct_b,XQZW,7,310\n"
+    "account,symbol,shares,cost_basis_per_share\nacct_a,ZZZT,12.3456,98.7654\nacct_b,QQQX,40,25.50\nacct_b,XQZW,7,310\n"
 )
 # Strings the scan must detect and must never print.
 SECRET_STRINGS = (
@@ -74,9 +71,7 @@ def _git(repo: Path, *args: str) -> str:
         "GIT_COMMITTER_NAME": "Test",
         "GIT_COMMITTER_EMAIL": "test@example.invalid",
     }
-    result = subprocess.run(
-        ["git", *args], cwd=repo, env=env, check=True, capture_output=True, text=True
-    )
+    result = subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True, text=True)
     return result.stdout.strip()
 
 
@@ -115,9 +110,7 @@ def test_distinctive_value_matches_without_ticker(
     ps: ModuleType, holdings_csv: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     target = tmp_path / "notes.md"
-    target.write_text(
-        "intro\nposition size 12.3456 shares\nunrelated 12.34567\n", encoding="utf-8"
-    )
+    target.write_text("intro\nposition size 12.3456 shares\nunrelated 12.34567\n", encoding="utf-8")
     code = ps.main(["--csv", str(holdings_csv), "--repo", str(tmp_path), "--paths", str(target)])
     out = capsys.readouterr().out
     assert code == 1
@@ -154,9 +147,7 @@ def test_range_mode_counts_blobs_deleted_later_in_range(
     _git(repo, "rm", "-q", "leak.md")
     _git(repo, "commit", "-q", "-m", "remove")
     assert _git(repo, "diff", base, "HEAD") == ""  # the net diff hides the leak
-    code = ps.main(
-        ["--csv", str(holdings_csv), "--repo", str(repo), "--range", f"{base}..HEAD"]
-    )
+    code = ps.main(["--csv", str(holdings_csv), "--repo", str(repo), "--range", f"{base}..HEAD"])
     assert code == 1
     assert _count_line(capsys.readouterr().out, "leak.md") == 1
 
@@ -184,9 +175,7 @@ def test_output_and_errors_never_echo_values(
         "ZZZT 12.3456 98.7654 1219.32\nQQQX,40,25.50 1,020.00\nXQZW 310 2,170.00\n",
         encoding="utf-8",
     )
-    assert ps.main(
-        ["--csv", str(holdings_csv), "--repo", str(tmp_path), "--paths", str(target)]
-    ) == 1
+    assert ps.main(["--csv", str(holdings_csv), "--repo", str(tmp_path), "--paths", str(target)]) == 1
     bad = tmp_path / "bad.csv"
     bad.write_text(
         "account,symbol,shares,cost_basis_per_share\nacct_a,ZZZT,12.3456,not-a-number\n",
@@ -199,9 +188,7 @@ def test_output_and_errors_never_echo_values(
         assert secret not in captured.out + captured.err
 
 
-def test_missing_columns_is_an_input_error(
-    ps: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_missing_columns_is_an_input_error(ps: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     bad = tmp_path / "bad.csv"
     bad.write_text("account,symbol,shares\nacct_a,ZZZT,1\n", encoding="utf-8")
     target = tmp_path / "x.md"
@@ -214,9 +201,7 @@ def test_emit_refuses_a_path_inside_the_repository(
     ps: ModuleType, holdings_csv: Path, repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     target = repo / "rules.txt"
-    code = ps.main(
-        ["--csv", str(holdings_csv), "--repo", str(repo), "--emit-replace-text", str(target)]
-    )
+    code = ps.main(["--csv", str(holdings_csv), "--repo", str(repo), "--emit-replace-text", str(target)])
     assert code == 2
     assert not target.exists()
     assert "inside the repository" in capsys.readouterr().err
@@ -226,21 +211,13 @@ def test_emitted_rules_are_owner_only_and_redact_every_match(
     ps: ModuleType, holdings_csv: Path, repo: Path, tmp_path: Path
 ) -> None:
     out_file = tmp_path / "archive" / "replacements.txt"
-    code = ps.main(
-        ["--csv", str(holdings_csv), "--repo", str(repo), "--emit-replace-text", str(out_file)]
-    )
+    code = ps.main(["--csv", str(holdings_csv), "--repo", str(repo), "--emit-replace-text", str(out_file)])
     assert code == 0
     assert stat.S_IMODE(out_file.stat().st_mode) == 0o600
     rules = out_file.read_text(encoding="utf-8").splitlines()
     assert rules
     assert all(rule.startswith("regex:") and "==>" in rule for rule in rules)
-    sample = (
-        "QQQX,40,25.50\n"
-        "ZZZT holds 12.3456 at 98.7654\n"
-        "cost 1,020.00 for QQQX\n"
-        "40 units of QQQX\n"
-        "keep 40 tests\n"
-    )
+    sample = "QQQX,40,25.50\nZZZT holds 12.3456 at 98.7654\ncost 1,020.00 for QQQX\n40 units of QQQX\nkeep 40 tests\n"
     redacted = _apply_rules(rules, sample)
     needles = ps.build_needles(ps.load_positions(holdings_csv))
     assert ps.count_matching_lines(sample, needles) == 4

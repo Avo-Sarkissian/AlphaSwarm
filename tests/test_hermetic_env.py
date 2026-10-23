@@ -46,9 +46,7 @@ def test_the_inference_config_path_is_outside_the_repo(hermetic_env: Path) -> No
 
 
 def test_dotenv_files_are_ignored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    (tmp_path / ".env").write_text(
-        "ALPHASWARM_APP_NAME=FromDotEnv\nALPHASWARM_DEBUG=true\n", encoding="utf-8"
-    )
+    (tmp_path / ".env").write_text("ALPHASWARM_APP_NAME=FromDotEnv\nALPHASWARM_DEBUG=true\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     settings = AppSettings()
     assert settings.app_name == "AlphaSwarm"
@@ -60,16 +58,12 @@ def test_clean_env_keeps_the_hermetic_paths(clean_env: None, hermetic_env: Path)
     assert "ALPHASWARM_HOLDINGS_CSV_PATH" in os.environ
 
 
-def test_default_settings_use_the_hermetic_config_path(
-    default_settings: AppSettings, hermetic_env: Path
-) -> None:
+def test_default_settings_use_the_hermetic_config_path(default_settings: AppSettings, hermetic_env: Path) -> None:
     assert default_settings.inference_config_path == hermetic_env
 
 
 def test_a_saved_cloud_config_is_visible_inside_the_test(hermetic_env: Path) -> None:
-    role = RoleConfig(
-        provider=ProviderType.ANTHROPIC, model="claude-fictional", api_key="sk-fictional-1111"
-    )
+    role = RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-fictional", api_key="sk-fictional-1111")
     save_inference_config(InferenceConfig(orchestrator=role, worker=role), settings=AppSettings())
     assert hermetic_env.is_file()
     assert load_inference_config(AppSettings()).orchestrator.provider == ProviderType.ANTHROPIC

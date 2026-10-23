@@ -13,7 +13,6 @@ from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.governor import GovernorState, ResourceGovernor, TokenPool
 from alphaswarm.memory_monitor import MemoryReading, PressureLevel
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -317,9 +316,7 @@ class TestGovernorStateTransitions:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
         # Enter THROTTLED
-        await gov._apply_state_transition(
-            _reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.THROTTLED
         # Then CRISIS
         await gov._apply_state_transition(_reading(pressure_level=PressureLevel.YELLOW))
@@ -328,33 +325,23 @@ class TestGovernorStateTransitions:
     async def test_throttled_to_paused(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        await gov._apply_state_transition(
-            _reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.THROTTLED
-        await gov._apply_state_transition(
-            _reading(psutil_percent=92.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=92.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.PAUSED
 
     async def test_throttled_back_to_running(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        await gov._apply_state_transition(
-            _reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.THROTTLED
-        await gov._apply_state_transition(
-            _reading(psutil_percent=50.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=50.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.RUNNING
 
     async def test_paused_to_crisis(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        await gov._apply_state_transition(
-            _reading(psutil_percent=92.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=92.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.PAUSED
         await gov._apply_state_transition(_reading(pressure_level=PressureLevel.RED))
         assert gov.state == GovernorState.CRISIS
@@ -362,13 +349,9 @@ class TestGovernorStateTransitions:
     async def test_paused_to_running_when_pressure_drops(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        await gov._apply_state_transition(
-            _reading(psutil_percent=92.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=92.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.PAUSED
-        await gov._apply_state_transition(
-            _reading(psutil_percent=50.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=50.0, pressure_level=PressureLevel.GREEN))
         # Should go back to RUNNING (not throttled since below throttle threshold)
         assert gov.state == GovernorState.RUNNING
 
@@ -576,16 +559,12 @@ class TestGovernorLogging:
         gov = ResourceGovernor(settings)
 
         with patch("alphaswarm.governor.log") as mock_log:
-            await gov._apply_state_transition(
-                _reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN)
-            )
+            await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
             # Verify warning was called with reason
             mock_log.warning.assert_called()
             call_kwargs = mock_log.warning.call_args
             # Check that keyword args contain old_state, new_state, reason
-            assert "old_state" in call_kwargs.kwargs or any(
-                "old_state" in str(a) for a in call_kwargs.args
-            )
+            assert "old_state" in call_kwargs.kwargs or any("old_state" in str(a) for a in call_kwargs.args)
             assert "reason" in call_kwargs.kwargs
 
 
@@ -605,9 +584,7 @@ class TestGovernorStateStore:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings, state_store=mock_store)
 
-        await gov._apply_state_transition(
-            _reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
         mock_store.update_governor_metrics.assert_called_once()
 
     async def test_state_store_none_no_error(self) -> None:
@@ -616,9 +593,7 @@ class TestGovernorStateStore:
         gov = ResourceGovernor(settings, state_store=None)
 
         # Should not raise
-        await gov._apply_state_transition(
-            _reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.THROTTLED
 
     async def test_state_store_metrics_have_correct_fields(self) -> None:
@@ -630,9 +605,7 @@ class TestGovernorStateStore:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings, state_store=mock_store)
 
-        await gov._apply_state_transition(
-            _reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN)
-        )
+        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
         assert len(captured_metrics) == 1
         metrics = captured_metrics[0]
         assert hasattr(metrics, "current_slots")

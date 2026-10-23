@@ -27,9 +27,7 @@ from alphaswarm.web.routes import advisory as advisory_route
 
 
 def _cloud_cfg(*, opt_in: bool) -> InferenceConfig:
-    role = RoleConfig(
-        provider=ProviderType.ANTHROPIC, model="claude-fictional", api_key="sk-fictional-4444"
-    )
+    role = RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-fictional", api_key="sk-fictional-4444")
     return InferenceConfig(orchestrator=role, worker=role, allow_cloud_advisory=opt_in)
 
 
@@ -49,9 +47,7 @@ def _local_cfg(model: str = "alphaswarm-orchestrator", *, opt_in: bool = False) 
     )
 
 
-def _ollama_client(
-    *, base_url: str = "http://127.0.0.1:11434", remote: bool | Exception = False
-) -> MagicMock:
+def _ollama_client(*, base_url: str = "http://127.0.0.1:11434", remote: bool | Exception = False) -> MagicMock:
     """A shared OllamaClient stand-in whose /api/show answers *remote* (or raises it)."""
     client = MagicMock(base_url=base_url)
     if isinstance(remote, Exception):
@@ -71,9 +67,7 @@ async def test_the_job_refuses_a_cloud_orchestrator_without_opt_in(
     """The config can change between the POST and the job: the job checks again."""
     build_providers = MagicMock()
     synthesize = AsyncMock()
-    monkeypatch.setattr(
-        advisory_route, "load_inference_config", lambda _s: _cloud_cfg(opt_in=False)
-    )
+    monkeypatch.setattr(advisory_route, "load_inference_config", lambda _s: _cloud_cfg(opt_in=False))
     monkeypatch.setattr(advisory_route, "build_providers", build_providers)
     monkeypatch.setattr(advisory_route, "synthesize", synthesize)
     app_state = SimpleNamespace(
@@ -85,7 +79,9 @@ async def test_the_job_refuses_a_cloud_orchestrator_without_opt_in(
 
     with pytest.raises(advisory_route.CloudAdvisoryDisabledError):
         await advisory_route._run_advisory_synthesis(
-            app_state, "cycle-1", _fictional_portfolio()  # type: ignore[arg-type]
+            app_state,
+            "cycle-1",
+            _fictional_portfolio(),  # type: ignore[arg-type]
         )
 
     build_providers.assert_not_called()
@@ -112,7 +108,9 @@ async def test_the_job_refuses_a_remote_ollama_orchestrator_without_opt_in(
 
     with pytest.raises(advisory_route.CloudAdvisoryDisabledError):
         await advisory_route._run_advisory_synthesis(
-            app_state, "cycle-1", _fictional_portfolio()  # type: ignore[arg-type]
+            app_state,
+            "cycle-1",
+            _fictional_portfolio(),  # type: ignore[arg-type]
         )
 
     build_providers.assert_not_called()
@@ -144,7 +142,9 @@ async def test_the_job_refuses_when_the_server_runs_the_model_remotely(
 
     with pytest.raises(advisory_route.CloudAdvisoryDisabledError):
         await advisory_route._run_advisory_synthesis(
-            app_state, "cycle-1", _fictional_portfolio()  # type: ignore[arg-type]
+            app_state,
+            "cycle-1",
+            _fictional_portfolio(),  # type: ignore[arg-type]
         )
 
     client.is_remote_model.assert_awaited_once_with("alphaswarm-orchestrator")
@@ -166,7 +166,9 @@ async def test_the_job_runs_when_the_server_confirms_a_local_model(
 
     with pytest.raises(_ReachedError):
         await advisory_route._run_advisory_synthesis(
-            app_state, "cycle-1", _fictional_portfolio()  # type: ignore[arg-type]
+            app_state,
+            "cycle-1",
+            _fictional_portfolio(),  # type: ignore[arg-type]
         )
 
 
@@ -175,9 +177,7 @@ async def test_the_job_runs_when_the_server_confirms_a_local_model(
     [_local_cfg("gpt-oss:120b-cloud", opt_in=True), _cloud_cfg(opt_in=True)],
     ids=["ollama-cloud-model-opted-in", "cloud-provider-opted-in"],
 )
-async def test_the_opt_in_skips_the_server_check(
-    monkeypatch: pytest.MonkeyPatch, cfg: InferenceConfig
-) -> None:
+async def test_the_opt_in_skips_the_server_check(monkeypatch: pytest.MonkeyPatch, cfg: InferenceConfig) -> None:
     monkeypatch.setattr(advisory_route, "load_inference_config", lambda _s: cfg)
     monkeypatch.setattr(advisory_route, "build_providers", MagicMock(side_effect=_ReachedError))
     client = _ollama_client(remote=True)
@@ -190,7 +190,9 @@ async def test_the_opt_in_skips_the_server_check(
 
     with pytest.raises(_ReachedError):
         await advisory_route._run_advisory_synthesis(
-            app_state, "cycle-1", _fictional_portfolio()  # type: ignore[arg-type]
+            app_state,
+            "cycle-1",
+            _fictional_portfolio(),  # type: ignore[arg-type]
         )
 
     client.is_remote_model.assert_not_awaited()

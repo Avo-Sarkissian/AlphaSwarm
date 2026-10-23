@@ -119,11 +119,7 @@ class GovernorSettings(BaseModel):
         semantically inverted, causing the governor to pause before throttling
         or scale up while already memory-pressured. Fail fast at startup instead.
         """
-        if not (
-            self.scale_up_threshold_percent
-            < self.memory_throttle_percent
-            < self.memory_pause_percent
-        ):
+        if not (self.scale_up_threshold_percent < self.memory_throttle_percent < self.memory_pause_percent):
             raise ValueError(
                 "GovernorSettings ordering invariant violated: require "
                 "scale_up_threshold_percent < memory_throttle_percent < "
@@ -320,12 +316,8 @@ def default_inference_config(app_settings: AppSettings) -> InferenceConfig:
         base_url=app_settings.ollama.base_url,
         api_key=None,
     )
-    orchestrator = role.model_copy(
-        update={"model": app_settings.ollama.orchestrator_model_alias}
-    )
-    worker = role.model_copy(
-        update={"model": app_settings.ollama.worker_model_alias}
-    )
+    orchestrator = role.model_copy(update={"model": app_settings.ollama.orchestrator_model_alias})
+    worker = role.model_copy(update={"model": app_settings.ollama.worker_model_alias})
     return InferenceConfig(
         orchestrator=orchestrator,
         worker=worker,
@@ -344,8 +336,12 @@ def load_inference_config(
     Falls back to local defaults when the file does not exist; raises ValueError
     with a clear message when it exists but is invalid.
     """
-    target = path if path is not None else app_settings.resolve_path(
-        app_settings.inference_config_path,
+    target = (
+        path
+        if path is not None
+        else app_settings.resolve_path(
+            app_settings.inference_config_path,
+        )
     )
     if not target.exists():
         return default_inference_config(app_settings)
@@ -353,9 +349,7 @@ def load_inference_config(
     try:
         return InferenceConfig.model_validate_json(raw)
     except Exception as exc:
-        raise ValueError(
-            f"Failed to parse inference config at {target}: {exc}"
-        ) from exc
+        raise ValueError(f"Failed to parse inference config at {target}: {exc}") from exc
 
 
 def save_inference_config(
@@ -526,9 +520,7 @@ class AppSettings(BaseSettings):
     # and read the whole live simulation state. Override with a JSON array in
     # ALPHASWARM_WS_ALLOWED_ORIGINS. Compared exactly (case- and trailing-slash
     # insensitive); the server's own origin is always accepted in addition.
-    ws_allowed_origins: list[str] = Field(
-        default_factory=lambda: list(DEFAULT_WS_ALLOWED_ORIGINS)
-    )
+    ws_allowed_origins: list[str] = Field(default_factory=lambda: list(DEFAULT_WS_ALLOWED_ORIGINS))
 
     # CSRF guard (CWE-352): origins allowed to send state-changing HTTP requests.
     # Consumed by alphaswarm.web.origin_guard, wired in web/app.py:create_app().
@@ -542,14 +534,14 @@ class AppSettings(BaseSettings):
 # ---------------------------------------------------------------------------
 
 JSON_OUTPUT_INSTRUCTIONS = (
-    '\n\nRespond ONLY with a JSON object:\n'
+    "\n\nRespond ONLY with a JSON object:\n"
     '{"signal": "buy"|"sell"|"hold", "confidence": 0.0-1.0, '
     '"sentiment": -1.0 to 1.0, "rationale": "brief reasoning", '
     '"cited_agents": []}\n'
-    'Confidence calibration (use the full scale honestly): 0.9+ means '
-    'exceptional conviction you would stake your reputation on; 0.6-0.8 a '
-    'solid thesis with real evidence; 0.4-0.6 a weak lean; below 0.4 little '
-    'more than a guess.'
+    "Confidence calibration (use the full scale honestly): 0.9+ means "
+    "exceptional conviction you would stake your reputation on; 0.6-0.8 a "
+    "solid thesis with real evidence; 0.4-0.6 a weak lean; below 0.4 little "
+    "more than a guess."
 )
 
 
@@ -566,10 +558,7 @@ def sanitize_entity_name(name: str) -> str:
     hyphens, periods, apostrophes, ampersands, and parentheses.
     """
     truncated = name[:100]
-    return "".join(
-        c for c in truncated
-        if unicodedata.category(c) not in ("Cc", "Cf")
-    )
+    return "".join(c for c in truncated if unicodedata.category(c) not in ("Cc", "Cf"))
 
 
 # ---------------------------------------------------------------------------
@@ -610,10 +599,7 @@ def sanitize_headline(headline: str, *, max_len: int = HEADLINE_MAX_LEN) -> str:
     Returns "" when nothing survives — callers must skip empty results.
     """
     cleaned = "".join(
-        " "
-        if (c in "<>" or unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp"))
-        else c
-        for c in headline
+        " " if (c in "<>" or unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp")) else c for c in headline
     )
     cleaned = " ".join(cleaned.split())  # collapse whitespace runs, strip ends
     cleaned = _EQUALS_RUN_RE.sub("=", cleaned)
@@ -651,7 +637,7 @@ MODIFIER_GENERATION_PROMPT = (
     " for each of the 10 market participant brackets.\n\n"
     "Each modifier should be 8-20 words describing a specialist persona tailored"
     " to the specific entities and themes in this rumor. The modifier completes"
-    " the sentence \"You are a ...\" so it should read naturally after that prefix.\n\n"
+    ' the sentence "You are a ..." so it should read naturally after that prefix.\n\n'
     "The 10 brackets (use these exact keys):\n"
     "- institutions: Buy-side institutional portfolio managers\n"
     "- sell_side: Sell-side equity research analysts\n"
@@ -664,15 +650,15 @@ MODIFIER_GENERATION_PROMPT = (
     "- shorts: Forensic / activist short sellers\n"
     "- allocators: Sovereign wealth and family-office allocators\n\n"
     "Examples of good modifiers:\n"
-    "- \"quantitative analyst modeling EV supply chain disruption and margin compression\"\n"
-    "- \"merger-arb specialist handicapping antitrust approval odds for this deal\"\n"
-    "- \"tech-desk analyst defending a published price target on the acquirer\"\n\n"
+    '- "quantitative analyst modeling EV supply chain disruption and margin compression"\n'
+    '- "merger-arb specialist handicapping antitrust approval odds for this deal"\n'
+    '- "tech-desk analyst defending a published price target on the acquirer"\n\n'
     "Respond with a JSON object mapping each bracket key to its modifier string."
     " All 10 keys must be present.\n"
-    "Example: {\"institutions\": \"...\", \"sell_side\": \"...\","
-    " \"event_driven\": \"...\", \"quants\": \"...\", \"degens\": \"...\","
-    " \"narrators\": \"...\", \"algos\": \"...\", \"macro\": \"...\","
-    " \"shorts\": \"...\", \"allocators\": \"...\"}"
+    'Example: {"institutions": "...", "sell_side": "...",'
+    ' "event_driven": "...", "quants": "...", "degens": "...",'
+    ' "narrators": "...", "algos": "...", "macro": "...",'
+    ' "shorts": "...", "allocators": "..."}'
 )
 
 
@@ -687,15 +673,11 @@ def _build_modifier_user_message(seed_event: SeedEvent) -> str:
     for e in seed_event.entities:
         safe_name = sanitize_entity_name(e.name)
         entity_lines.append(
-            f"- {safe_name} (type: {e.type.value}, "
-            f"relevance: {e.relevance:.2f}, sentiment: {e.sentiment:+.2f})"
+            f"- {safe_name} (type: {e.type.value}, relevance: {e.relevance:.2f}, sentiment: {e.sentiment:+.2f})"
         )
     entities_block = "\n".join(entity_lines) if entity_lines else "(no entities extracted)"
 
-    return (
-        f"SEED RUMOR:\n{seed_event.raw_rumor}\n\n"
-        f"EXTRACTED ENTITIES:\n{entities_block}"
-    )
+    return f"SEED RUMOR:\n{seed_event.raw_rumor}\n\nEXTRACTED ENTITIES:\n{entities_block}"
 
 
 async def generate_modifiers(

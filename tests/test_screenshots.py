@@ -110,9 +110,7 @@ def test_media_pngs_are_web_sized(sp: ModuleType) -> None:
 
 def test_media_matches_the_captures_file() -> None:
     docs_sync = load_script("docs_sync")
-    assert not [name for name, _ in docs_sync.IMAGE_SPECS if "settings" in name], (
-        "never capture the Settings view"
-    )
+    assert not [name for name, _ in docs_sync.IMAGE_SPECS if "settings" in name], "never capture the Settings view"
     captures_path = ROOT / docs_sync.CAPTURES
     pngs = {p.name for p in _pngs()}
     if not captures_path.exists():

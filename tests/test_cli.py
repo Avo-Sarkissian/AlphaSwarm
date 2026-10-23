@@ -51,7 +51,6 @@ def fallback_parsed_result() -> ParsedSeedResult:
 
 def test_parse_inject_args() -> None:
     """Parsing ['inject', 'NVIDIA announces...'] sets command='inject' and rumor."""
-    from alphaswarm.cli import main
 
     parser = argparse.ArgumentParser(prog="alphaswarm")
     subparsers = parser.add_subparsers(dest="command")
@@ -129,9 +128,11 @@ def test_print_banner_outputs_alphaswarm_version(
     mock_settings.ollama.orchestrator_model = "qwen3.5:32b"
     mock_settings.ollama.worker_model = "qwen3.5:7b"
 
-    with patch("alphaswarm.cli.AppSettings", return_value=mock_settings), \
-         patch("alphaswarm.cli.load_bracket_configs") as mock_brackets, \
-         patch("alphaswarm.cli.generate_personas") as mock_personas:
+    with (
+        patch("alphaswarm.cli.AppSettings", return_value=mock_settings),
+        patch("alphaswarm.cli.load_bracket_configs") as mock_brackets,
+        patch("alphaswarm.cli.generate_personas") as mock_personas,
+    ):
         mock_brackets.return_value = [MagicMock()] * 10
         mock_personas.return_value = [MagicMock()] * 100
         _print_banner()
@@ -174,8 +175,7 @@ def test_main_inject_failure_prints_error_to_stderr(
 
     monkeypatch.setattr("sys.argv", ["alphaswarm", "inject", "bad rumor"])
 
-    with patch("alphaswarm.cli.asyncio") as mock_asyncio, \
-         patch("alphaswarm.cli.logger"):
+    with patch("alphaswarm.cli.asyncio") as mock_asyncio, patch("alphaswarm.cli.logger"):
         mock_asyncio.run.side_effect = Exception("Connection failed")
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -204,37 +204,61 @@ _MOCK_PARSED_RESULT = ParsedSeedResult(seed_event=_MOCK_SEED_EVENT, parse_tier=1
 
 _TEST_PERSONAS = [
     AgentPersona(
-        id="quants_01", name="Quants 1", bracket=BracketType.QUANTS,
-        risk_profile=0.4, temperature=0.3, system_prompt="test",
+        id="quants_01",
+        name="Quants 1",
+        bracket=BracketType.QUANTS,
+        risk_profile=0.4,
+        temperature=0.3,
+        system_prompt="test",
         influence_weight_base=0.7,
     ),
     AgentPersona(
-        id="quants_02", name="Quants 2", bracket=BracketType.QUANTS,
-        risk_profile=0.4, temperature=0.3, system_prompt="test",
+        id="quants_02",
+        name="Quants 2",
+        bracket=BracketType.QUANTS,
+        risk_profile=0.4,
+        temperature=0.3,
+        system_prompt="test",
         influence_weight_base=0.7,
     ),
     AgentPersona(
-        id="degens_01", name="Degens 1", bracket=BracketType.DEGENS,
-        risk_profile=0.95, temperature=1.2, system_prompt="test",
+        id="degens_01",
+        name="Degens 1",
+        bracket=BracketType.DEGENS,
+        risk_profile=0.95,
+        temperature=1.2,
+        system_prompt="test",
         influence_weight_base=0.3,
     ),
     AgentPersona(
-        id="degens_02", name="Degens 2", bracket=BracketType.DEGENS,
-        risk_profile=0.95, temperature=1.2, system_prompt="test",
+        id="degens_02",
+        name="Degens 2",
+        bracket=BracketType.DEGENS,
+        risk_profile=0.95,
+        temperature=1.2,
+        system_prompt="test",
         influence_weight_base=0.3,
     ),
 ]
 
 _TEST_BRACKETS = [
     BracketConfig(
-        bracket_type=BracketType.QUANTS, display_name="Quants", count=2,
-        risk_profile=0.4, temperature=0.3,
-        system_prompt_template="test", influence_weight_base=0.7,
+        bracket_type=BracketType.QUANTS,
+        display_name="Quants",
+        count=2,
+        risk_profile=0.4,
+        temperature=0.3,
+        system_prompt_template="test",
+        influence_weight_base=0.7,
     ),
     BracketConfig(
-        bracket_type=BracketType.DEGENS, display_name="Degens", count=2,
-        risk_profile=0.95, temperature=1.2,
-        system_prompt_template="test", influence_weight_base=0.3,
+        bracket_type=BracketType.DEGENS,
+        display_name="Degens",
+        count=2,
+        risk_profile=0.95,
+        temperature=1.2,
+        system_prompt_template="test",
+        influence_weight_base=0.3,
     ),
 ]
 
@@ -482,12 +506,16 @@ def test_simulation_summary_output(
     from alphaswarm.simulation import ShiftMetrics, SimulationResult
 
     r2_shifts = ShiftMetrics(
-        signal_transitions=(("BUY->SELL", 3),), total_flips=3,
-        bracket_confidence_delta=(), agents_shifted=3,
+        signal_transitions=(("BUY->SELL", 3),),
+        total_flips=3,
+        bracket_confidence_delta=(),
+        agents_shifted=3,
     )
     r3_shifts = ShiftMetrics(
-        signal_transitions=(("SELL->BUY", 1),), total_flips=1,
-        bracket_confidence_delta=(), agents_shifted=1,
+        signal_transitions=(("SELL->BUY", 1),),
+        total_flips=1,
+        bracket_confidence_delta=(),
+        agents_shifted=1,
     )
 
     result = SimulationResult(
@@ -535,12 +563,16 @@ def test_simulation_summary_convergence_yes(
     from alphaswarm.simulation import ShiftMetrics, SimulationResult
 
     r2_shifts = ShiftMetrics(
-        signal_transitions=(("BUY->SELL", 5),), total_flips=5,
-        bracket_confidence_delta=(), agents_shifted=5,
+        signal_transitions=(("BUY->SELL", 5),),
+        total_flips=5,
+        bracket_confidence_delta=(),
+        agents_shifted=5,
     )
     r3_shifts = ShiftMetrics(
-        signal_transitions=(("SELL->BUY", 2),), total_flips=2,
-        bracket_confidence_delta=(), agents_shifted=2,
+        signal_transitions=(("SELL->BUY", 2),),
+        total_flips=2,
+        bracket_confidence_delta=(),
+        agents_shifted=2,
     )
 
     result = SimulationResult(
@@ -572,12 +604,16 @@ def test_simulation_summary_convergence_no_increased(
     from alphaswarm.simulation import ShiftMetrics, SimulationResult
 
     r2_shifts = ShiftMetrics(
-        signal_transitions=(), total_flips=2,
-        bracket_confidence_delta=(), agents_shifted=2,
+        signal_transitions=(),
+        total_flips=2,
+        bracket_confidence_delta=(),
+        agents_shifted=2,
     )
     r3_shifts = ShiftMetrics(
-        signal_transitions=(), total_flips=5,
-        bracket_confidence_delta=(), agents_shifted=5,
+        signal_transitions=(),
+        total_flips=5,
+        bracket_confidence_delta=(),
+        agents_shifted=5,
     )
 
     result = SimulationResult(
@@ -609,12 +645,16 @@ def test_simulation_summary_convergence_no_unchanged(
     from alphaswarm.simulation import ShiftMetrics, SimulationResult
 
     r2_shifts = ShiftMetrics(
-        signal_transitions=(), total_flips=3,
-        bracket_confidence_delta=(), agents_shifted=3,
+        signal_transitions=(),
+        total_flips=3,
+        bracket_confidence_delta=(),
+        agents_shifted=3,
     )
     r3_shifts = ShiftMetrics(
-        signal_transitions=(), total_flips=3,
-        bracket_confidence_delta=(), agents_shifted=3,
+        signal_transitions=(),
+        total_flips=3,
+        bracket_confidence_delta=(),
+        agents_shifted=3,
     )
 
     result = SimulationResult(
@@ -646,12 +686,16 @@ def test_simulation_summary_final_bracket_table(
     from alphaswarm.simulation import ShiftMetrics, SimulationResult
 
     r2_shifts = ShiftMetrics(
-        signal_transitions=(), total_flips=1,
-        bracket_confidence_delta=(), agents_shifted=1,
+        signal_transitions=(),
+        total_flips=1,
+        bracket_confidence_delta=(),
+        agents_shifted=1,
     )
     r3_shifts = ShiftMetrics(
-        signal_transitions=(), total_flips=0,
-        bracket_confidence_delta=(), agents_shifted=0,
+        signal_transitions=(),
+        total_flips=0,
+        bracket_confidence_delta=(),
+        agents_shifted=0,
     )
 
     result = SimulationResult(
@@ -776,8 +820,10 @@ async def test_run_pipeline_calls_run_simulation_with_callback(
 
     # Create a minimal SimulationResult for the mock return
     empty_shifts = ShiftMetrics(
-        signal_transitions=(), total_flips=0,
-        bracket_confidence_delta=(), agents_shifted=0,
+        signal_transitions=(),
+        total_flips=0,
+        bracket_confidence_delta=(),
+        agents_shifted=0,
     )
     mock_result = MagicMock(spec=SimulationResult)
     mock_result.round2_shifts = empty_shifts
@@ -790,6 +836,7 @@ async def test_run_pipeline_calls_run_simulation_with_callback(
 
     with patch("alphaswarm.cli.run_simulation", mock_sim, create=True):
         from alphaswarm.cli import _run_pipeline
+
         # Need to reload to pick up the patched import
         # Actually, _run_pipeline does `from alphaswarm.simulation import run_simulation`
         # at function scope, so we need to patch the source module
@@ -798,6 +845,7 @@ async def test_run_pipeline_calls_run_simulation_with_callback(
     # Patch at the source module since _run_pipeline uses a local import
     with patch("alphaswarm.simulation.run_simulation", mock_sim):
         from alphaswarm.cli import _run_pipeline
+
         await _run_pipeline("test rumor", mock_settings, mock_app, _TEST_PERSONAS, _TEST_BRACKETS)
 
     # Verify run_simulation was called with on_round_complete kwarg
@@ -907,7 +955,6 @@ async def test_shock_impact_not_preseeded_when_no_shock_event() -> None:
 # ---------------------------------------------------------------------------
 
 
-
 # ---------------------------------------------------------------------------
 # Phase 40 Plan 03 Task 2: CLI provider construction (D-11)
 # ---------------------------------------------------------------------------
@@ -940,8 +987,10 @@ async def test_run_pipeline_constructs_providers() -> None:
     # (which accesses .round2_shifts, .round3_shifts, .round3_decisions, etc.)
     # does not explode.
     empty_shifts = ShiftMetrics(
-        signal_transitions=(), total_flips=0,
-        bracket_confidence_delta=(), agents_shifted=0,
+        signal_transitions=(),
+        total_flips=0,
+        bracket_confidence_delta=(),
+        agents_shifted=0,
     )
     mock_result = MagicMock(spec=SimulationResult)
     mock_result.round2_shifts = empty_shifts
@@ -993,9 +1042,7 @@ async def test_run_pipeline_point_in_time_runs_build_no_live_providers(mode: str
     mock_app.governor = AsyncMock()
     mock_settings = MagicMock()
     mock_settings.num_rounds = 3
-    empty_shifts = ShiftMetrics(
-        signal_transitions=(), total_flips=0, bracket_confidence_delta=(), agents_shifted=0
-    )
+    empty_shifts = ShiftMetrics(signal_transitions=(), total_flips=0, bracket_confidence_delta=(), agents_shifted=0)
     mock_result = MagicMock(spec=SimulationResult)
     mock_result.round2_shifts = empty_shifts
     mock_result.round3_shifts = empty_shifts
@@ -1011,9 +1058,7 @@ async def test_run_pipeline_point_in_time_runs_build_no_live_providers(mode: str
     ):
         from alphaswarm.cli import _run_pipeline
 
-        await _run_pipeline(
-            "test rumor", mock_settings, mock_app, _TEST_PERSONAS, _TEST_BRACKETS, **run_kwargs
-        )
+        await _run_pipeline("test rumor", mock_settings, mock_app, _TEST_PERSONAS, _TEST_BRACKETS, **run_kwargs)
 
     market_cls.assert_not_called()
     news_cls.assert_not_called()
@@ -1028,8 +1073,10 @@ def test_shift_analysis_uses_actual_agent_count(capsys: pytest.CaptureFixture[st
     from alphaswarm.simulation import ShiftMetrics
 
     shift = ShiftMetrics(
-        signal_transitions=(("BUY->SELL", 2),), total_flips=2,
-        bracket_confidence_delta=(), agents_shifted=2,
+        signal_transitions=(("BUY->SELL", 2),),
+        total_flips=2,
+        bracket_confidence_delta=(),
+        agents_shifted=2,
     )
     _print_shift_analysis(shift, 1, 2, agent_count=4)
 
@@ -1042,8 +1089,7 @@ def test_simulation_summary_for_two_rounds(capsys: pytest.CaptureFixture[str]) -
     from alphaswarm.cli import _print_simulation_summary
     from alphaswarm.simulation import ShiftMetrics, SimulationResult
 
-    empty = ShiftMetrics(signal_transitions=(), total_flips=0,
-                         bracket_confidence_delta=(), agents_shifted=0)
+    empty = ShiftMetrics(signal_transitions=(), total_flips=0, bracket_confidence_delta=(), agents_shifted=0)
     result = SimulationResult(
         cycle_id="test-cycle",
         parsed_result=_MOCK_PARSED_RESULT,
@@ -1053,10 +1099,13 @@ def test_simulation_summary_for_two_rounds(capsys: pytest.CaptureFixture[str]) -
             ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="r")),
         ),
         round3_decisions=(),
-        round2_shifts=ShiftMetrics(signal_transitions=(("BUY->SELL", 1),), total_flips=1,
-                                   bracket_confidence_delta=(), agents_shifted=1),
+        round2_shifts=ShiftMetrics(
+            signal_transitions=(("BUY->SELL", 1),), total_flips=1, bracket_confidence_delta=(), agents_shifted=1
+        ),
         round3_shifts=empty,
-        round1_summaries=(), round2_summaries=(), round3_summaries=(),
+        round1_summaries=(),
+        round2_summaries=(),
+        round3_summaries=(),
     )
 
     _print_simulation_summary(result, _TEST_PERSONAS, _TEST_BRACKETS, num_rounds=2)
@@ -1093,7 +1142,11 @@ def test_round_report_fallback_table_matches_engine_summaries(
     fallback = capsys.readouterr().out
     summaries = compute_bracket_summaries(_MIXED_DECISIONS, _TEST_PERSONAS, _TEST_BRACKETS)
     _print_round_report(
-        2, "c1", _MIXED_DECISIONS, _TEST_PERSONAS, _TEST_BRACKETS,
+        2,
+        "c1",
+        _MIXED_DECISIONS,
+        _TEST_PERSONAS,
+        _TEST_BRACKETS,
         bracket_summaries=summaries,
     )
     assert capsys.readouterr().out == fallback
@@ -1107,7 +1160,10 @@ def test_simulation_summary_fallback_table_matches_engine_summaries(
     from alphaswarm.simulation import ShiftMetrics, SimulationResult, compute_bracket_summaries
 
     shifts = ShiftMetrics(
-        signal_transitions=(), total_flips=0, bracket_confidence_delta=(), agents_shifted=0,
+        signal_transitions=(),
+        total_flips=0,
+        bracket_confidence_delta=(),
+        agents_shifted=0,
     )
 
     def _result(summaries: tuple[object, ...]) -> SimulationResult:

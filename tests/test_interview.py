@@ -38,9 +38,7 @@ def sample_personas_for_interview() -> list[AgentPersona]:
             bracket=BracketType.QUANTS,
             risk_profile=0.4,
             temperature=0.3,
-            system_prompt=(
-                f"You are a quantitative analyst in the Quants bracket.{JSON_OUTPUT_INSTRUCTIONS}"
-            ),
+            system_prompt=(f"You are a quantitative analyst in the Quants bracket.{JSON_OUTPUT_INSTRUCTIONS}"),
             influence_weight_base=0.7,
         ),
         AgentPersona(
@@ -49,9 +47,7 @@ def sample_personas_for_interview() -> list[AgentPersona]:
             bracket=BracketType.DEGENS,
             risk_profile=0.95,
             temperature=1.2,
-            system_prompt=(
-                f"You are a high-risk speculator in the Degens bracket.{JSON_OUTPUT_INSTRUCTIONS}"
-            ),
+            system_prompt=(f"You are a high-risk speculator in the Degens bracket.{JSON_OUTPUT_INSTRUCTIONS}"),
             influence_weight_base=0.3,
         ),
     ]
@@ -67,7 +63,10 @@ class TestRoundDecision:
         from alphaswarm.interview import RoundDecision
 
         rd = RoundDecision(
-            round_num=1, signal="buy", confidence=0.85, sentiment=0.6,
+            round_num=1,
+            signal="buy",
+            confidence=0.85,
+            sentiment=0.6,
             rationale="Strong fundamentals",
         )
         assert rd.round_num == 1
@@ -90,10 +89,18 @@ class TestInterviewContext:
 
         decisions = [
             RoundDecision(
-                round_num=1, signal="buy", confidence=0.8, sentiment=0.5, rationale="r1",
+                round_num=1,
+                signal="buy",
+                confidence=0.8,
+                sentiment=0.5,
+                rationale="r1",
             ),
             RoundDecision(
-                round_num=2, signal="hold", confidence=0.6, sentiment=0.2, rationale="r2",
+                round_num=2,
+                signal="hold",
+                confidence=0.6,
+                sentiment=0.2,
+                rationale="r2",
             ),
         ]
         ctx = InterviewContext(
@@ -146,31 +153,50 @@ class TestStripJsonInstructions:
 class TestReadAgentInterviewContext:
     @pytest.mark.asyncio()
     async def test_returns_context_with_3_decisions(
-        self, mock_driver: MagicMock, sample_personas_for_interview: list[AgentPersona],
+        self,
+        mock_driver: MagicMock,
+        sample_personas_for_interview: list[AgentPersona],
     ) -> None:
         from alphaswarm.graph import GraphStateManager
 
         session = mock_driver.session.return_value
-        session.execute_read = AsyncMock(return_value=[
-            {
-                "agent_id": "quants_01", "name": "Quants 1", "bracket": "quants",
-                "decision_narrative": "Went bullish then cautious.",
-                "round_num": 1, "signal": "buy", "confidence": 0.85,
-                "sentiment": 0.6, "rationale": "Strong data",
-            },
-            {
-                "agent_id": "quants_01", "name": "Quants 1", "bracket": "quants",
-                "decision_narrative": "Went bullish then cautious.",
-                "round_num": 2, "signal": "hold", "confidence": 0.6,
-                "sentiment": 0.2, "rationale": "Mixed signals",
-            },
-            {
-                "agent_id": "quants_01", "name": "Quants 1", "bracket": "quants",
-                "decision_narrative": "Went bullish then cautious.",
-                "round_num": 3, "signal": "sell", "confidence": 0.7,
-                "sentiment": -0.3, "rationale": "Risk off",
-            },
-        ])
+        session.execute_read = AsyncMock(
+            return_value=[
+                {
+                    "agent_id": "quants_01",
+                    "name": "Quants 1",
+                    "bracket": "quants",
+                    "decision_narrative": "Went bullish then cautious.",
+                    "round_num": 1,
+                    "signal": "buy",
+                    "confidence": 0.85,
+                    "sentiment": 0.6,
+                    "rationale": "Strong data",
+                },
+                {
+                    "agent_id": "quants_01",
+                    "name": "Quants 1",
+                    "bracket": "quants",
+                    "decision_narrative": "Went bullish then cautious.",
+                    "round_num": 2,
+                    "signal": "hold",
+                    "confidence": 0.6,
+                    "sentiment": 0.2,
+                    "rationale": "Mixed signals",
+                },
+                {
+                    "agent_id": "quants_01",
+                    "name": "Quants 1",
+                    "bracket": "quants",
+                    "decision_narrative": "Went bullish then cautious.",
+                    "round_num": 3,
+                    "signal": "sell",
+                    "confidence": 0.7,
+                    "sentiment": -0.3,
+                    "rationale": "Risk off",
+                },
+            ]
+        )
 
         gsm = GraphStateManager(mock_driver, sample_personas_for_interview)
         ctx = await gsm.read_agent_interview_context("quants_01", "cycle-123")
@@ -186,19 +212,28 @@ class TestReadAgentInterviewContext:
 
     @pytest.mark.asyncio()
     async def test_handles_missing_decision_narrative(
-        self, mock_driver: MagicMock, sample_personas_for_interview: list[AgentPersona],
+        self,
+        mock_driver: MagicMock,
+        sample_personas_for_interview: list[AgentPersona],
     ) -> None:
         from alphaswarm.graph import GraphStateManager
 
         session = mock_driver.session.return_value
-        session.execute_read = AsyncMock(return_value=[
-            {
-                "agent_id": "quants_01", "name": "Quants 1", "bracket": "quants",
-                "decision_narrative": None,
-                "round_num": 1, "signal": "buy", "confidence": 0.8,
-                "sentiment": 0.5, "rationale": "test",
-            },
-        ])
+        session.execute_read = AsyncMock(
+            return_value=[
+                {
+                    "agent_id": "quants_01",
+                    "name": "Quants 1",
+                    "bracket": "quants",
+                    "decision_narrative": None,
+                    "round_num": 1,
+                    "signal": "buy",
+                    "confidence": 0.8,
+                    "sentiment": 0.5,
+                    "rationale": "test",
+                },
+            ]
+        )
 
         gsm = GraphStateManager(mock_driver, sample_personas_for_interview)
         ctx = await gsm.read_agent_interview_context("quants_01", "cycle-123")
@@ -207,19 +242,28 @@ class TestReadAgentInterviewContext:
 
     @pytest.mark.asyncio()
     async def test_strips_json_instructions_from_system_prompt(
-        self, mock_driver: MagicMock, sample_personas_for_interview: list[AgentPersona],
+        self,
+        mock_driver: MagicMock,
+        sample_personas_for_interview: list[AgentPersona],
     ) -> None:
         from alphaswarm.graph import GraphStateManager
 
         session = mock_driver.session.return_value
-        session.execute_read = AsyncMock(return_value=[
-            {
-                "agent_id": "quants_01", "name": "Quants 1", "bracket": "quants",
-                "decision_narrative": "Narrative text.",
-                "round_num": 1, "signal": "buy", "confidence": 0.8,
-                "sentiment": 0.5, "rationale": "test",
-            },
-        ])
+        session.execute_read = AsyncMock(
+            return_value=[
+                {
+                    "agent_id": "quants_01",
+                    "name": "Quants 1",
+                    "bracket": "quants",
+                    "decision_narrative": "Narrative text.",
+                    "round_num": 1,
+                    "signal": "buy",
+                    "confidence": 0.8,
+                    "sentiment": 0.5,
+                    "rationale": "test",
+                },
+            ]
+        )
 
         gsm = GraphStateManager(mock_driver, sample_personas_for_interview)
         ctx = await gsm.read_agent_interview_context("quants_01", "cycle-123")
@@ -229,7 +273,9 @@ class TestReadAgentInterviewContext:
 
     @pytest.mark.asyncio()
     async def test_raises_neo4j_connection_error_on_failure(
-        self, mock_driver: MagicMock, sample_personas_for_interview: list[AgentPersona],
+        self,
+        mock_driver: MagicMock,
+        sample_personas_for_interview: list[AgentPersona],
     ) -> None:
         from neo4j.exceptions import Neo4jError
 
@@ -260,15 +306,24 @@ def _make_context() -> InterviewContext:
         decision_narrative="Agent went from BUY to HOLD to SELL across 3 rounds.",
         decisions=[
             RoundDecision(
-                round_num=1, signal="buy", confidence=0.85, sentiment=0.6,
+                round_num=1,
+                signal="buy",
+                confidence=0.85,
+                sentiment=0.6,
                 rationale="Strong fundamentals",
             ),
             RoundDecision(
-                round_num=2, signal="hold", confidence=0.6, sentiment=0.2,
+                round_num=2,
+                signal="hold",
+                confidence=0.6,
+                sentiment=0.2,
                 rationale="Mixed signals",
             ),
             RoundDecision(
-                round_num=3, signal="sell", confidence=0.7, sentiment=-0.3,
+                round_num=3,
+                signal="sell",
+                confidence=0.7,
+                sentiment=-0.3,
                 rationale="Risk off mode",
             ),
         ],
@@ -321,7 +376,8 @@ class TestInterviewEngineAsk:
         assert len(engine._history) == 2  # 1 user + 1 assistant
         assert engine._history[0] == {"role": "user", "content": "Why did you buy in round 1?"}
         assert engine._history[1] == {
-            "role": "assistant", "content": "I bought because data was strong.",
+            "role": "assistant",
+            "content": "I bought because data was strong.",
         }
 
     @pytest.mark.asyncio()
@@ -390,11 +446,7 @@ class TestBuildMessages:
         engine = InterviewEngine(context=ctx, provider=provider)
 
         block = engine._build_context_block()
-        assert (
-            "Narrative Summary" in block
-            or "decision_narrative" in block.lower()
-            or ctx.decision_narrative in block
-        )
+        assert "Narrative Summary" in block or "decision_narrative" in block.lower() or ctx.decision_narrative in block
         assert "Round 1" in block
         assert "Round 2" in block
         assert "Round 3" in block

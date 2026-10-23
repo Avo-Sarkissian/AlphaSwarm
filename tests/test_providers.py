@@ -17,8 +17,6 @@ import typing
 from datetime import UTC, datetime
 from decimal import Decimal
 
-import pytest
-
 from alphaswarm.ingestion import (
     FakeMarketDataProvider,
     FakeNewsProvider,
@@ -28,7 +26,6 @@ from alphaswarm.ingestion import (
     NewsSlice,
     StalenessState,
 )
-
 
 # --------- Structural (mypy-enforced) conformance ---------
 
@@ -64,24 +61,18 @@ def test_market_protocol_methods_are_async_def() -> None:
     the event loop under Phase 38's 100-ticker concurrent aggregation."""
     for method_name in ("get_prices", "get_fundamentals", "get_volume"):
         method = getattr(MarketDataProvider, method_name)
-        assert inspect.iscoroutinefunction(method), (
-            f"MarketDataProvider.{method_name} must be `async def`"
-        )
+        assert inspect.iscoroutinefunction(method), f"MarketDataProvider.{method_name} must be `async def`"
 
 
 def test_news_protocol_method_is_async_def() -> None:
-    assert inspect.iscoroutinefunction(NewsProvider.get_headlines), (
-        "NewsProvider.get_headlines must be `async def`"
-    )
+    assert inspect.iscoroutinefunction(NewsProvider.get_headlines), "NewsProvider.get_headlines must be `async def`"
 
 
 def test_fake_market_methods_are_async_def() -> None:
     fake = FakeMarketDataProvider()
     for method_name in ("get_prices", "get_fundamentals", "get_volume"):
         method = getattr(fake, method_name)
-        assert inspect.iscoroutinefunction(method), (
-            f"FakeMarketDataProvider.{method_name} must be `async def`"
-        )
+        assert inspect.iscoroutinefunction(method), f"FakeMarketDataProvider.{method_name} must be `async def`"
 
 
 def test_fake_news_methods_are_async_def() -> None:

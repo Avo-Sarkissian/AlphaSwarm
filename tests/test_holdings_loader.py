@@ -187,8 +187,7 @@ def test_same_ticker_multiple_accounts(tmp_path: Path) -> None:
 
     # Contract: two separate Holding entries, not one summed entry
     assert len(snap.holdings) == 2, (
-        "Same ticker in two accounts MUST produce two Holding entries — "
-        "summing would conflate tax-distinct lots"
+        "Same ticker in two accounts MUST produce two Holding entries — summing would conflate tax-distinct lots"
     )
 
     # Both entries are ZZZT
@@ -265,9 +264,7 @@ def test_single_account_hash(tmp_path: Path) -> None:
     assert snap.account_number_hash == sha256_first8("individual")
 
 
-def test_account_labels_never_reach_the_log(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_account_labels_never_reach_the_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A label is free text and may be an account number, so the log gets a count only."""
     rendered = RenderedLog()
     monkeypatch.setattr(loader_module, "log", rendered)
@@ -348,11 +345,7 @@ def test_load_bom_prefixed_csv(tmp_path: Path) -> None:
     """
     path = tmp_path / "holdings.csv"
     # Write BOM (3 bytes: 0xEF 0xBB 0xBF) followed by the CSV body as UTF-8
-    csv_body = (
-        "account,symbol,shares,cost_basis_per_share\n"
-        "individual,ZZZT,2,3\n"
-        "roth_ira,QQQX,5,7\n"
-    )
+    csv_body = "account,symbol,shares,cost_basis_per_share\nindividual,ZZZT,2,3\nroth_ira,QQQX,5,7\n"
     path.write_bytes(b"\xef\xbb\xbf" + csv_body.encode("utf-8"))
 
     # Without encoding='utf-8-sig' this would raise HoldingsLoadError
@@ -390,8 +383,7 @@ def test_loader_module_uses_utf8_sig_encoding() -> None:
     # open() call. (Other occurrences of "utf-8" in docstrings/comments are OK
     # because they're not in a keyword-arg position; this check is stricter.)
     assert 'path.open(newline="", encoding="utf-8")' not in content, (
-        "loader.py must NOT use plain encoding='utf-8' on path.open — "
-        "use 'utf-8-sig' for BOM safety"
+        "loader.py must NOT use plain encoding='utf-8' on path.open — use 'utf-8-sig' for BOM safety"
     )
 
 

@@ -22,10 +22,18 @@ from alphaswarm.ingestion.types import (
     NewsSlice,
 )
 
-SENSITIVE_FIELD_NAMES = frozenset({
-    "holdings", "portfolio", "positions", "cost_basis",
-    "qty", "shares", "account_number", "account_id",
-})
+SENSITIVE_FIELD_NAMES = frozenset(
+    {
+        "holdings",
+        "portfolio",
+        "positions",
+        "cost_basis",
+        "qty",
+        "shares",
+        "account_number",
+        "account_id",
+    }
+)
 
 
 # ------ MarketSlice ------

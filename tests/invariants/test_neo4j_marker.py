@@ -32,9 +32,7 @@ def test_module_is_marked_neo4j(name: str) -> None:
     module = importlib.import_module(f"tests.neo4j.{name}")
     marks = getattr(module, "pytestmark", [])
     marks = marks if isinstance(marks, list) else [marks]
-    assert any(mark.name == "neo4j" for mark in marks), (
-        f"tests/neo4j/{name}.py needs `pytestmark = pytest.mark.neo4j`"
-    )
+    assert any(mark.name == "neo4j" for mark in marks), f"tests/neo4j/{name}.py needs `pytestmark = pytest.mark.neo4j`"
 
 
 def test_no_test_clears_the_protected_cycle_set() -> None:

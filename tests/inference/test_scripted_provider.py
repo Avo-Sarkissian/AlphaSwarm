@@ -43,11 +43,7 @@ def test_agent_header_regex_names_every_generated_persona() -> None:
 
 
 def test_peer_line_regex_reads_ids_and_brackets_but_not_headers() -> None:
-    text = (
-        "Peer Decisions (Round 1):\n"
-        '1. [sell_side_03|sell_side] BUY (conf: 0.82) "momentum"\n'
-        "2. [degens_11] SELL"
-    )
+    text = 'Peer Decisions (Round 1):\n1. [sell_side_03|sell_side] BUY (conf: 0.82) "momentum"\n2. [degens_11] SELL'
     found = [(m.group("agent_id"), m.group("bracket")) for m in PEER_LINE_RE.finditer(text)]
     assert found == [("sell_side_03", "sell_side"), ("degens_11", None)]
     assert PEER_LINE_RE.search(BY_ID["sell_side_03"].system_prompt) is None
@@ -138,18 +134,14 @@ async def test_returned_exception_is_raised_from_chat() -> None:
 
     worker = ScriptedProvider(personas=PERSONAS, decide=_decide)
     with pytest.raises(InferenceError, match="ollama died"):
-        await worker.chat(
-            _decision_messages(BY_ID["algos_01"]), response_schema=DECISION_JSON_SCHEMA
-        )
+        await worker.chat(_decision_messages(BY_ID["algos_01"]), response_schema=DECISION_JSON_SCHEMA)
     assert worker.calls_for("decision")[0].round_num == 1  # the failed call still counted
 
 
 async def test_unknown_persona_name_fails_loudly() -> None:
     worker = ScriptedProvider(personas=PERSONAS[:5])
     with pytest.raises(AssertionError, match="unknown persona name 'Shorts 7'"):
-        await worker.chat(
-            _decision_messages(BY_ID["shorts_07"]), response_schema=DECISION_JSON_SCHEMA
-        )
+        await worker.chat(_decision_messages(BY_ID["shorts_07"]), response_schema=DECISION_JSON_SCHEMA)
 
 
 def test_default_decision_script_is_deterministic_and_cites_shown_peers() -> None:

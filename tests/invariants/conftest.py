@@ -240,11 +240,13 @@ class CanaryFakeGraphManager:
 
 def canary_valid_advisory_json() -> str:
     """A minimally valid AdvisoryReport JSON — no sentinel values inside."""
-    return _json_for_canary.dumps({
-        "cycle_id": "canary_cycle",
-        "generated_at": "2026-04-19T22:00:00+00:00",
-        "portfolio_outlook": "Canary outlook — no sentinels.",
-        "items": [],
-        "total_holdings": 1,
-        "affected_holdings": 0,
-    })
+    return _json_for_canary.dumps(
+        {
+            "cycle_id": "canary_cycle",
+            "generated_at": "2026-04-19T22:00:00+00:00",
+            "portfolio_outlook": "Canary outlook — no sentinels.",
+            "items": [],
+            "total_holdings": 1,
+            "affected_holdings": 0,
+        }
+    )

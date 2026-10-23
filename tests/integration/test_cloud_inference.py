@@ -7,11 +7,10 @@ so they never fail in CI.
 Opt-in:
   export ALPHASWARM_TEST_ANTHROPIC_KEY="sk-ant-..."
   export ALPHASWARM_TEST_OPENAI_KEY="sk-..."
-  uv run pytest tests/integration/test_cloud_inference.py -v
+  uv run pytest -q --run-live tests/integration/test_cloud_inference.py -v
 
-Network access is granted automatically because
-tests/integration/conftest.py auto-applies @pytest.mark.enable_socket
-to every test in this subtree.
+Marked ``live_network``: skipped unless ``--run-live``; with it, each test still skips
+when its key variable is absent.
 
 Optional env-vars:
   ALPHASWARM_TEST_ANTHROPIC_MODEL   default: claude-3-5-haiku-latest
@@ -32,19 +31,17 @@ from alphaswarm.parsing import parse_agent_decision
 from alphaswarm.types import SignalType
 from alphaswarm.worker import DECISION_JSON_SCHEMA
 
+pytestmark = pytest.mark.live_network
+
 # ---------------------------------------------------------------------------
 # Key / config resolution (module-level, at collection time)
 # ---------------------------------------------------------------------------
 
 _ANTHROPIC_KEY: str | None = os.environ.get("ALPHASWARM_TEST_ANTHROPIC_KEY")
-_ANTHROPIC_MODEL: str = os.environ.get(
-    "ALPHASWARM_TEST_ANTHROPIC_MODEL", "claude-3-5-haiku-latest"
-)
+_ANTHROPIC_MODEL: str = os.environ.get("ALPHASWARM_TEST_ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
 
 _OPENAI_KEY: str | None = os.environ.get("ALPHASWARM_TEST_OPENAI_KEY")
-_OPENAI_BASE_URL: str = os.environ.get(
-    "ALPHASWARM_TEST_OPENAI_BASE_URL", "https://api.openai.com/v1"
-)
+_OPENAI_BASE_URL: str = os.environ.get("ALPHASWARM_TEST_OPENAI_BASE_URL", "https://api.openai.com/v1")
 _OPENAI_MODEL: str = os.environ.get("ALPHASWARM_TEST_OPENAI_MODEL", "gpt-4o-mini")
 
 _PROMPT: list[dict[str, str]] = [

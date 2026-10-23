@@ -41,9 +41,7 @@ async def test_cycle_id_and_edges_version_follow_a_three_round_run(
     assert (final.cycle_id, final.edges_version, final.num_rounds) == (SCENARIO_CYCLE_ID, 2, 3)
 
 
-async def test_two_round_run_reports_two_rounds(
-    run_scenario: RunScenario, scenario_store: RecordingStateStore
-) -> None:
+async def test_two_round_run_reports_two_rounds(run_scenario: RunScenario, scenario_store: RecordingStateStore) -> None:
     await run_scenario(num_rounds=2)
     snap = scenario_store.snapshot()
     assert (snap.num_rounds, snap.edges_version) == (2, 1)
@@ -67,9 +65,7 @@ async def test_second_run_reports_its_own_cycle_and_restarts_edges_version(
         orchestrator_script=[SCENARIO_SEED_JSON, SCENARIO_MODIFIERS_JSON],
     )
     seen: list[tuple[int, str | None, int]] = []
-    await run_scenario(
-        orchestrator=second_orchestrator, on_round_complete=_recorder(scenario_store, seen)
-    )
+    await run_scenario(orchestrator=second_orchestrator, on_round_complete=_recorder(scenario_store, seen))
 
     assert seen[0] == (1, SECOND_CYCLE_ID, 0)
     assert scenario_store.snapshot().edges_version == 2

@@ -40,12 +40,20 @@ class SimulationActiveError(Exception):
 
 
 def _empty_or_row_summary(
-    bracket: str, display_name: str, row: BracketRoundRow | None,
+    bracket: str,
+    display_name: str,
+    row: BracketRoundRow | None,
 ) -> BracketSummary:
     if row is None:
         return BracketSummary(
-            bracket=bracket, display_name=display_name, buy_count=0, sell_count=0,
-            hold_count=0, total=0, avg_confidence=0.0, avg_sentiment=0.0,
+            bracket=bracket,
+            display_name=display_name,
+            buy_count=0,
+            sell_count=0,
+            hold_count=0,
+            total=0,
+            avg_confidence=0.0,
+            avg_sentiment=0.0,
         )
     return BracketSummary(
         bracket=bracket,
@@ -68,7 +76,9 @@ def _bracket_summaries_from_rows(rows: Sequence[BracketRoundRow]) -> tuple[Brack
     by_key = {row["bracket"]: row for row in rows}
     summaries = [
         _empty_or_row_summary(
-            b.bracket_type.value, b.display_name, by_key.pop(b.bracket_type.value, None),
+            b.bracket_type.value,
+            b.display_name,
+            by_key.pop(b.bracket_type.value, None),
         )
         for b in DEFAULT_BRACKETS
     ]
@@ -177,21 +187,23 @@ class ReplayManager:
             if self.is_active:
                 raise ReplayAlreadyActiveError("Replay already active")
             if self._sim_running_check is not None and self._sim_running_check():
-                raise SimulationActiveError(
-                    "Cannot start replay while a simulation is running"
-                )
+                raise SimulationActiveError("Cannot start replay while a simulation is running")
             self._starting = True
             try:
                 num_rounds = max((rnd for (_, rnd) in signals), default=1)
                 store = ReplayStore(cycle_id, signals, num_rounds=num_rounds)
                 store.set_round(1)
                 # Load bracket summaries and rationale entries for round 1
-                store.set_bracket_summaries(_bracket_summaries_from_rows(
-                    await graph_manager.read_bracket_narratives_for_round(cycle_id, 1),
-                ))
-                store.set_rationale_entries(_rationale_entries_from_rows(
-                    await graph_manager.read_rationale_entries_for_round(cycle_id, 1),
-                ))
+                store.set_bracket_summaries(
+                    _bracket_summaries_from_rows(
+                        await graph_manager.read_bracket_narratives_for_round(cycle_id, 1),
+                    )
+                )
+                store.set_rationale_entries(
+                    _rationale_entries_from_rows(
+                        await graph_manager.read_rationale_entries_for_round(cycle_id, 1),
+                    )
+                )
                 # All loads succeeded — commit replay state atomically.
                 self._store = store
                 self._cycle_id = cycle_id
@@ -231,16 +243,22 @@ class ReplayManager:
             self._store.set_round(self._round_num)
             # Load bracket summaries and rationale entries for new round
             assert self._cycle_id is not None
-            self._store.set_bracket_summaries(_bracket_summaries_from_rows(
-                await graph_manager.read_bracket_narratives_for_round(
-                    self._cycle_id, self._round_num,
-                ),
-            ))
-            self._store.set_rationale_entries(_rationale_entries_from_rows(
-                await graph_manager.read_rationale_entries_for_round(
-                    self._cycle_id, self._round_num,
-                ),
-            ))
+            self._store.set_bracket_summaries(
+                _bracket_summaries_from_rows(
+                    await graph_manager.read_bracket_narratives_for_round(
+                        self._cycle_id,
+                        self._round_num,
+                    ),
+                )
+            )
+            self._store.set_rationale_entries(
+                _rationale_entries_from_rows(
+                    await graph_manager.read_rationale_entries_for_round(
+                        self._cycle_id,
+                        self._round_num,
+                    ),
+                )
+            )
             connection_manager.broadcast(snapshot_to_json(self._app_state.state_store, self))
             log.info("replay_advanced", cycle_id=self._cycle_id, round_num=self._round_num)
             return self._round_num

@@ -55,9 +55,7 @@ async def test_rounds_two_and_three_carry_the_own_prior(
             user = call.messages[-1]["content"]
             assert marker in user and user.index(marker) < user.index(SCENARIO_RUMOR)
             assert all(marker not in m["content"] for m in call.messages if m["role"] == "system")
-    assert all(
-        "position: " not in c.messages[-1]["content"] for c in round_calls(scripted_worker, 1)
-    )
+    assert all("position: " not in c.messages[-1]["content"] for c in round_calls(scripted_worker, 1))
 
 
 async def test_own_prior_memory_off_sends_no_prior(
@@ -66,9 +64,7 @@ async def test_own_prior_memory_off_sends_no_prior(
     scenario_settings.simulation = SimulationSettings(own_prior_memory=False, control_fraction=0.0)
     await run_scenario()
 
-    assert all(
-        "position: " not in c.messages[-1]["content"] for c in scripted_worker.calls_for("decision")
-    )
+    assert all("position: " not in c.messages[-1]["content"] for c in scripted_worker.calls_for("decision"))
 
 
 async def test_control_readers_see_no_peers_in_rounds_two_and_three(
@@ -97,10 +93,7 @@ async def test_control_readers_see_no_peers_in_rounds_two_and_three(
     metrics = _metrics(fake_graph)
     for n in (2, 3):
         assert metrics[f"r{n}_control_agents"] == 20
-        assert (
-            metrics[f"r{n}_flips_control"] + metrics[f"r{n}_flips_treated"]
-            == metrics[f"r{n}_flips"]
-        )
+        assert metrics[f"r{n}_flips_control"] + metrics[f"r{n}_flips_treated"] == metrics[f"r{n}_flips"]
 
 
 async def test_holdout_exposure_metrics_count_only_rendered_peers(

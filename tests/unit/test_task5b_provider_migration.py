@@ -11,6 +11,7 @@ All tests here are RED until:
 
 pytest-socket --disable-socket is active project-wide; these tests use pure Fakes.
 """
+
 from __future__ import annotations
 
 import json
@@ -265,8 +266,11 @@ class TestInterviewEngineAcceptsProvider:
             decision_narrative="Agent went bullish then cautious.",
             decisions=[
                 RoundDecision(
-                    round_num=1, signal="buy", confidence=0.85,
-                    sentiment=0.6, rationale="Strong fundamentals",
+                    round_num=1,
+                    signal="buy",
+                    confidence=0.85,
+                    sentiment=0.6,
+                    rationale="Strong fundamentals",
                 ),
             ],
         )
@@ -355,7 +359,9 @@ class TestAdvisoryRouteBuildsProvider:
 
     @pytest.mark.asyncio
     async def test_run_advisory_calls_provider_prepare_and_teardown(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """_run_advisory_synthesis must call provider.prepare() and provider.teardown()
         via the build_providers seam (honours InferenceConfig, not hardcoded Ollama)."""
@@ -411,8 +417,10 @@ class TestAdvisoryRouteBuildsProvider:
             model_manager=AsyncMock(),
         )
 
-        with patch.object(advisory_module, "build_providers", return_value=fake_built), \
-                patch.object(advisory_module, "load_inference_config", return_value=MagicMock()):
+        with (
+            patch.object(advisory_module, "build_providers", return_value=fake_built),
+            patch.object(advisory_module, "load_inference_config", return_value=MagicMock()),
+        ):
             await advisory_module._run_advisory_synthesis(app_state, "c1", portfolio)  # type: ignore[arg-type]
 
         assert prepare_called == [True], "provider.prepare() not called"
@@ -430,7 +438,9 @@ class TestReportRouteBuildsProvider:
 
     @pytest.mark.asyncio
     async def test_run_report_calls_provider_prepare_and_teardown(
-        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """_run_report_generation must call provider.prepare() and provider.teardown()
         via the build_providers seam (honours InferenceConfig, not hardcoded Ollama)."""
@@ -479,8 +489,10 @@ class TestReportRouteBuildsProvider:
         )
         app_state.graph_manager.read_shock_event = AsyncMock(return_value=None)
 
-        with patch.object(report_module, "build_providers", return_value=fake_built), \
-                patch.object(report_module, "load_inference_config", return_value=MagicMock()):
+        with (
+            patch.object(report_module, "build_providers", return_value=fake_built),
+            patch.object(report_module, "load_inference_config", return_value=MagicMock()),
+        ):
             await report_module._run_report_generation(app_state, "c1")  # type: ignore[arg-type]
 
         assert prepare_called == [True], "provider.prepare() not called"

@@ -29,6 +29,7 @@ entities, and price/fundamentals only when the orchestrator happens to
 emit a ticker-shaped entity (uncommon). The infrastructure is in place:
 once a resolver lands, no call-site in Phase 40 changes.
 """
+
 from __future__ import annotations
 
 from typing import Final
@@ -41,9 +42,7 @@ from alphaswarm.ingestion.types import ContextPacket
 HEADLINES_PER_ENTITY: Final = 5
 
 
-def format_market_context(
-    packet: ContextPacket, *, budget: int = 4000
-) -> str | None:
+def format_market_context(packet: ContextPacket, *, budget: int = 4000) -> str | None:
     """Format a ContextPacket into a human-readable market-context string.
 
     Args:
@@ -60,12 +59,8 @@ def format_market_context(
         entity's data is entirely missing). Callers MUST skip appending a
         system message when the return value is None (Pitfall 5).
     """
-    market_by_ticker = {
-        s.ticker: s for s in packet.market if s.staleness != "fetch_failed"
-    }
-    news_by_entity = {
-        s.entity: s for s in packet.news if s.staleness != "fetch_failed"
-    }
+    market_by_ticker = {s.ticker: s for s in packet.market if s.staleness != "fetch_failed"}
+    news_by_entity = {s.entity: s for s in packet.news if s.staleness != "fetch_failed"}
 
     blocks: list[str] = []
     for entity in packet.entities:
@@ -95,9 +90,7 @@ def format_market_context(
             # template can never emit a headline that forges "== ENTITY =="
             # headers, extra "  - " bullets, or the worker's data fence.
             headline_lines = [
-                f"  - {clean}"
-                for clean in (sanitize_headline(h) for h in n.headlines[:HEADLINES_PER_ENTITY])
-                if clean
+                f"  - {clean}" for clean in (sanitize_headline(h) for h in n.headlines[:HEADLINES_PER_ENTITY]) if clean
             ]
             if headline_lines:
                 lines.append("Recent headlines:")

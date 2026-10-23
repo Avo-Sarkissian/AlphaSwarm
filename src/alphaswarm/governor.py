@@ -223,9 +223,7 @@ class ResourceGovernor:
             return
         if isinstance(exc, GovernorCrisisError):
             raise exc
-        duration = (
-            time.monotonic() - self._crisis_start if self._crisis_start is not None else 0.0
-        )
+        duration = time.monotonic() - self._crisis_start if self._crisis_start is not None else 0.0
         raise GovernorCrisisError(
             "Monitor task died — cannot acquire slot",
             duration_seconds=duration,
@@ -390,10 +388,7 @@ class ResourceGovernor:
         - RECOVERING: crisis -> CRISIS, at baseline -> RUNNING
         """
         old_state = self._state
-        reason = (
-            f"sysctl={reading.pressure_level.value}, "
-            f"psutil={reading.psutil_percent:.1f}%"
-        )
+        reason = f"sysctl={reading.pressure_level.value}, psutil={reading.psutil_percent:.1f}%"
 
         if self._state == GovernorState.RUNNING:
             await self._handle_running(reading)

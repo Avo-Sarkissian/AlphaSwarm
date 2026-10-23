@@ -13,6 +13,7 @@ Design notes:
     • result/query/source are short summary strings. Providers MUST NEVER
       pass raw response bodies or env-vars (threat T-260512-jqn-03).
 """
+
 from __future__ import annotations
 
 import time
@@ -86,9 +87,7 @@ class DataSourceAuditBuffer:
         # providers SHOULD never reach this guard in normal use.
         lowered = result.lower()
         if "sk-" in lowered or "api_key=" in lowered or "bearer " in lowered:
-            raise ValueError(
-                "DataSourceAuditBuffer.record refuses to log a secret-looking string"
-            )
+            raise ValueError("DataSourceAuditBuffer.record refuses to log a secret-looking string")
         self._buf.append(
             DataSourceAuditEntry(
                 ts=time.time(),

@@ -6,9 +6,7 @@ import asyncio
 from collections.abc import Callable
 
 
-async def eventually(
-    predicate: Callable[[], bool], *, max_yields: int = 200, what: str = "condition"
-) -> None:
+async def eventually(predicate: Callable[[], bool], *, max_yields: int = 200, what: str = "condition") -> None:
     """Yield to the event loop until ``predicate()`` is true.
 
     Only ``asyncio.sleep(0)`` is used, so this never waits on wall-clock time and

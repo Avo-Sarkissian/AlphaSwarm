@@ -188,10 +188,7 @@ class BudgetMeter:
             if self._cap is None:
                 return Decimal(0)
             price = self._unknown_price
-        return (
-            Decimal(in_tokens) / _MTOK * price.input_per_mtok
-            + Decimal(out_tokens) / _MTOK * price.output_per_mtok
-        )
+        return Decimal(in_tokens) / _MTOK * price.input_per_mtok + Decimal(out_tokens) / _MTOK * price.output_per_mtok
 
     # ------------------------------------------------------------------
     # Public API
@@ -284,10 +281,7 @@ def estimate_run(
                 model,
             )
             return Decimal(0)
-        per_call = (
-            Decimal(avg_in) / _MTOK * mp.input_per_mtok
-            + Decimal(avg_out) / _MTOK * mp.output_per_mtok
-        )
+        per_call = Decimal(avg_in) / _MTOK * mp.input_per_mtok + Decimal(avg_out) / _MTOK * mp.output_per_mtok
         return per_call * n
 
     point = (

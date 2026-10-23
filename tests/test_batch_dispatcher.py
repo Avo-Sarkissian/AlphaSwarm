@@ -26,8 +26,7 @@ from tests.inference.fakes import FakeInferenceProvider
 # ---------------------------------------------------------------------------
 
 _VALID_BUY_JSON = (
-    '{"signal": "buy", "confidence": 0.8, "sentiment": 0.4, '
-    '"rationale": "strong momentum", "cited_agents": []}'
+    '{"signal": "buy", "confidence": 0.8, "sentiment": 0.4, "rationale": "strong momentum", "cited_agents": []}'
 )
 
 
@@ -55,10 +54,7 @@ def _fake_provider(content: str = _VALID_BUY_JSON, *, n: int = 1000) -> FakeInfe
 
 def _fake_provider_with_metadata() -> FakeInferenceProvider:
     """Like _fake_provider() but returns a full result with rationale for ITEM 4 tests."""
-    content = (
-        '{"signal": "buy", "confidence": 0.8, "sentiment": 0.4, '
-        '"rationale": "strong buy", "cited_agents": []}'
-    )
+    content = '{"signal": "buy", "confidence": 0.8, "sentiment": 0.4, "rationale": "strong buy", "cited_agents": []}'
     return _fake_provider(content=content)
 
 
@@ -205,9 +201,7 @@ async def test_jitter_within_settings_range(
     from alphaswarm.batch_dispatcher import dispatch_wave
 
     provider = _fake_provider(n=len(sample_personas))
-    settings = GovernorSettings(
-        baseline_parallel=16, jitter_min_seconds=0.5, jitter_max_seconds=0.8
-    )
+    settings = GovernorSettings(baseline_parallel=16, jitter_min_seconds=0.5, jitter_max_seconds=0.8)
     sleep_values: list[float] = []
 
     async def capture_sleep(duration: float) -> None:
@@ -239,12 +233,20 @@ async def test_partial_failure_produces_parse_error(
 
     personas = [
         WorkerPersonaConfig(
-            agent_id="ok_01", bracket="quants", influence_weight=0.7,
-            temperature=0.3, system_prompt="test", risk_profile="0.4",
+            agent_id="ok_01",
+            bracket="quants",
+            influence_weight=0.7,
+            temperature=0.3,
+            system_prompt="test",
+            risk_profile="0.4",
         ),
         WorkerPersonaConfig(
-            agent_id="fail_01", bracket="quants", influence_weight=0.7,
-            temperature=0.3, system_prompt="test", risk_profile="0.4",
+            agent_id="fail_01",
+            bracket="quants",
+            influence_weight=0.7,
+            temperature=0.3,
+            system_prompt="test",
+            risk_profile="0.4",
         ),
     ]
 
@@ -301,8 +303,12 @@ async def test_high_failure_rate_calls_report_wave_failures(
     # 3 out of 10 fail = 30% > 20% threshold
     personas = [
         WorkerPersonaConfig(
-            agent_id=f"agent_{i:02d}", bracket="quants", influence_weight=0.7,
-            temperature=0.3, system_prompt="test", risk_profile="0.4",
+            agent_id=f"agent_{i:02d}",
+            bracket="quants",
+            influence_weight=0.7,
+            temperature=0.3,
+            system_prompt="test",
+            risk_profile="0.4",
         )
         for i in range(10)
     ]
@@ -352,8 +358,12 @@ async def test_low_failure_rate_does_not_call_report(
 
     personas = [
         WorkerPersonaConfig(
-            agent_id=f"agent_{i:02d}", bracket="quants", influence_weight=0.7,
-            temperature=0.3, system_prompt="test", risk_profile="0.4",
+            agent_id=f"agent_{i:02d}",
+            bracket="quants",
+            influence_weight=0.7,
+            temperature=0.3,
+            system_prompt="test",
+            risk_profile="0.4",
         )
         for i in range(10)
     ]
@@ -438,9 +448,7 @@ async def test_governor_crisis_error_propagates(
     provider = _fake_provider(n=len(sample_personas))
 
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
-        mock_aw.return_value.__aenter__ = AsyncMock(
-            side_effect=GovernorCrisisError("crisis", duration_seconds=300.0)
-        )
+        mock_aw.return_value.__aenter__ = AsyncMock(side_effect=GovernorCrisisError("crisis", duration_seconds=300.0))
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
         settings = GovernorSettings(baseline_parallel=16)
@@ -473,16 +481,18 @@ async def test_cancelled_error_propagates(
     from alphaswarm.batch_dispatcher import _safe_agent_inference
 
     persona = WorkerPersonaConfig(
-        agent_id="test_01", bracket="quants", influence_weight=0.7,
-        temperature=0.3, system_prompt="test", risk_profile="0.4",
+        agent_id="test_01",
+        bracket="quants",
+        influence_weight=0.7,
+        temperature=0.3,
+        system_prompt="test",
+        risk_profile="0.4",
     )
 
     provider = _fake_provider(n=1)
 
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
-        mock_aw.return_value.__aenter__ = AsyncMock(
-            side_effect=asyncio.CancelledError()
-        )
+        mock_aw.return_value.__aenter__ = AsyncMock(side_effect=asyncio.CancelledError())
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with (
@@ -513,16 +523,18 @@ async def test_keyboard_interrupt_propagates(
     from alphaswarm.batch_dispatcher import _safe_agent_inference
 
     persona = WorkerPersonaConfig(
-        agent_id="test_01", bracket="quants", influence_weight=0.7,
-        temperature=0.3, system_prompt="test", risk_profile="0.4",
+        agent_id="test_01",
+        bracket="quants",
+        influence_weight=0.7,
+        temperature=0.3,
+        system_prompt="test",
+        risk_profile="0.4",
     )
 
     provider = _fake_provider(n=1)
 
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
-        mock_aw.return_value.__aenter__ = AsyncMock(
-            side_effect=KeyboardInterrupt()
-        )
+        mock_aw.return_value.__aenter__ = AsyncMock(side_effect=KeyboardInterrupt())
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with (
@@ -790,8 +802,12 @@ async def test_safe_agent_inference_streams_state_on_success(
     from alphaswarm.state import StateStore
 
     persona = WorkerPersonaConfig(
-        agent_id="quants_42", bracket="quants", influence_weight=0.7,
-        temperature=0.3, system_prompt="test", risk_profile="0.4",
+        agent_id="quants_42",
+        bracket="quants",
+        influence_weight=0.7,
+        temperature=0.3,
+        system_prompt="test",
+        risk_profile="0.4",
     )
     store = StateStore()
     provider = _fake_provider(n=1)
@@ -847,16 +863,18 @@ async def test_safe_agent_inference_streams_parse_error_on_inference_failure(
     from alphaswarm.state import StateStore
 
     persona = WorkerPersonaConfig(
-        agent_id="degens_07", bracket="degens", influence_weight=0.3,
-        temperature=1.2, system_prompt="test", risk_profile="0.95",
+        agent_id="degens_07",
+        bracket="degens",
+        influence_weight=0.3,
+        temperature=1.2,
+        system_prompt="test",
+        risk_profile="0.95",
     )
     store = StateStore()
     await store.update_agent_state("degens_07", SignalType.SELL, 0.6)
 
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
-        mock_aw.return_value.__aenter__ = AsyncMock(
-            side_effect=OllamaInferenceError("boom", model="test")
-        )
+        mock_aw.return_value.__aenter__ = AsyncMock(side_effect=OllamaInferenceError("boom", model="test"))
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
@@ -886,8 +904,12 @@ async def test_safe_agent_inference_streams_parse_error_from_parse_fallback(
     from alphaswarm.state import StateStore
 
     persona = WorkerPersonaConfig(
-        agent_id="macro_03", bracket="macro", influence_weight=0.5,
-        temperature=0.5, system_prompt="test", risk_profile="0.5",
+        agent_id="macro_03",
+        bracket="macro",
+        influence_weight=0.5,
+        temperature=0.5,
+        system_prompt="test",
+        risk_profile="0.5",
     )
     store = StateStore()
 
@@ -1114,9 +1136,7 @@ async def test_budget_exceeded_error_propagates(
     provider = _fake_provider(n=len(sample_personas))
 
     with patch("alphaswarm.batch_dispatcher.agent_worker") as mock_aw:
-        mock_aw.return_value.__aenter__ = AsyncMock(
-            side_effect=BudgetExceededError(Decimal("5"), Decimal("4"))
-        )
+        mock_aw.return_value.__aenter__ = AsyncMock(side_effect=BudgetExceededError(Decimal("5"), Decimal("4")))
         mock_aw.return_value.__aexit__ = AsyncMock(return_value=False)
 
         settings = GovernorSettings(baseline_parallel=16)
@@ -1245,7 +1265,9 @@ async def test_inference_exception_becomes_inference_error_kind(
         raise RuntimeError("connection refused by the model server")
 
     provider = FakeInferenceProvider(
-        role=ProviderRole.WORKER, model="fake-model", scripted=_boom,
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=_boom,
     )
     with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
         results = await dispatch_wave(
@@ -1271,7 +1293,9 @@ async def test_several_hard_stops_raise_only_the_first_bare(
         raise BudgetExceededError(Decimal("5"), Decimal("4"))
 
     provider = FakeInferenceProvider(
-        role=ProviderRole.WORKER, model="fake-model", scripted=_over_budget,
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=_over_budget,
     )
     with (
         patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),

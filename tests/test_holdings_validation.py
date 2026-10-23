@@ -31,9 +31,7 @@ def test_spaces_after_commas_are_ignored(tmp_path: Path) -> None:
 
 
 def test_header_names_are_normalised(tmp_path: Path) -> None:
-    path = _csv(
-        tmp_path, "brokerage,XQZW,3.5,410", header=" Account ,SYMBOL, shares ,Cost_Basis_Per_Share"
-    )
+    path = _csv(tmp_path, "brokerage,XQZW,3.5,410", header=" Account ,SYMBOL, shares ,Cost_Basis_Per_Share")
     assert HoldingsLoader.load(path).holdings[0].ticker == "XQZW"
 
 

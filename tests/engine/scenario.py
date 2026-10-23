@@ -25,9 +25,7 @@ from tests.inference.fakes import (
 )
 
 SCENARIO_CYCLE_ID: Final = "00000000-0000-4000-8000-000000000001"
-SCENARIO_RUMOR: Final = (
-    "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
-)
+SCENARIO_RUMOR: Final = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
 SCENARIO_ENTITY_NAMES: Final = ("ZZZT Holdings", "QQQX Robotics", "Industrial Automation")
 SCENARIO_SHOCK_TEXT: Final = "QQQX Robotics board rejects the offer as undervalued."
 SCENARIO_SEED_JSON: Final = json.dumps(
@@ -41,10 +39,7 @@ SCENARIO_SEED_JSON: Final = json.dumps(
     }
 )
 SCENARIO_MODIFIERS_JSON: Final = json.dumps(
-    {
-        b.value: f"specialist tracking the ZZZT-QQQX deal for the {b.value} desk"
-        for b in BracketType
-    },
+    {b.value: f"specialist tracking the ZZZT-QQQX deal for the {b.value} desk" for b in BracketType},
     sort_keys=True,
 )
 
@@ -86,9 +81,7 @@ def round_calls(worker: ScriptedProvider, round_num: int) -> list[ScriptedCall]:
     return [c for c in worker.calls_for("decision") if c.round_num == round_num]
 
 
-def influence_weights_from_writes(
-    graph: MagicMock, *, up_to_round: int, total_agents: int
-) -> dict[str, float]:
+def influence_weights_from_writes(graph: MagicMock, *, up_to_round: int, total_agents: int) -> dict[str, float]:
     """In-memory stand-in for GraphStateManager.compute_influence_edges.
 
     Mirrors the real query: DISTINCT (author, cited) pairs from rounds 1..up_to_round
@@ -163,12 +156,7 @@ def scenario_summary(
     return {
         "phases": [phase.value for phase in store.phases],
         "rounds": rounds,
-        "shocks": [
-            [c.args[1], c.kwargs["injected_before_round"]]
-            for c in graph.write_shock_event.await_args_list
-        ],
+        "shocks": [[c.args[1], c.kwargs["injected_before_round"]] for c in graph.write_shock_event.await_args_list],
         "metrics": {k: v for k, v in sorted(metrics.items()) if not k.endswith("_seconds")},
-        "narratives_written": sum(
-            len(c.args[0]) for c in graph.write_decision_narratives.await_args_list
-        ),
+        "narratives_written": sum(len(c.args[0]) for c in graph.write_decision_narratives.await_args_list),
     }

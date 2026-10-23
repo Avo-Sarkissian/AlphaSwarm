@@ -185,7 +185,7 @@ async def test_rationale_window_appends_and_caps_at_50() -> None:
     snap = store.snapshot()
     # The deque keeps the most-recent 50 entries; oldest 10 are dropped.
     assert len(snap.rationale_entries) == 50
-    assert snap.rationale_entries[0].agent_id == "A_10"   # A_0..A_9 dropped
+    assert snap.rationale_entries[0].agent_id == "A_10"  # A_0..A_9 dropped
     assert snap.rationale_entries[-1].agent_id == "A_59"  # newest preserved
 
 
@@ -197,9 +197,7 @@ async def test_rationale_window_peek_non_destructive() -> None:
     reconnecting client all see the same data.
     """
     store = StateStore()
-    await store.push_rationale(
-        RationaleEntry(agent_id="A_0", signal=SignalType.BUY, rationale="test", round_num=1)
-    )
+    await store.push_rationale(RationaleEntry(agent_id="A_0", signal=SignalType.BUY, rationale="test", round_num=1))
     snap1 = store.snapshot()
     snap2 = store.snapshot()
     # Both snapshots carry the entry — no drain.
@@ -239,9 +237,7 @@ async def test_rationale_window_survives_round_transitions() -> None:
     still expected) but NOT the rationale window.
     """
     store = StateStore()
-    await store.push_rationale(
-        RationaleEntry(agent_id="R1_AGENT", signal=SignalType.BUY, rationale="r1", round_num=1)
-    )
+    await store.push_rationale(RationaleEntry(agent_id="R1_AGENT", signal=SignalType.BUY, rationale="r1", round_num=1))
     await store.set_phase(SimulationPhase.ROUND_2)
     snap = store.snapshot()
     assert len(snap.rationale_entries) == 1

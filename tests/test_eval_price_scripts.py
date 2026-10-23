@@ -86,9 +86,7 @@ def test_fixture_after_an_early_close_keeps_that_session() -> None:
 
 def test_only_headlines_published_before_the_event_are_kept() -> None:
     before = [
-        FixtureHeadline(
-            published_at=EVENT.timestamp - timedelta(hours=h), title=f"Fictional item {h}"
-        )
+        FixtureHeadline(published_at=EVENT.timestamp - timedelta(hours=h), title=f"Fictional item {h}")
         for h in range(10, 0, -1)
     ]
     after = FixtureHeadline(published_at=EVENT.timestamp, title="Fictional leak at the event time")
@@ -101,32 +99,19 @@ def test_build_all_writes_named_and_anonymized_and_respects_force(tmp_path: Path
     paths = EvalPaths(tmp_path)
     write_events(paths.events, [EVENT, make_event(2)])
     paths.headlines.mkdir(parents=True)
-    headline = FixtureHeadline(
-        published_at=EVENT.timestamp - timedelta(days=1), title="ZZZT Holdings item"
-    )
-    paths.headline_file(EVENT.event_id).write_text(
-        headline.model_dump_json() + "\n", encoding="utf-8"
-    )
+    headline = FixtureHeadline(published_at=EVENT.timestamp - timedelta(days=1), title="ZZZT Holdings item")
+    paths.headline_file(EVENT.event_id).write_text(headline.model_dump_json() + "\n", encoding="utf-8")
     download = FakeDownload({"ZZZT": alternating_series(0.05)})  # no QQQX bars -> evt-002 fails
     lines: list[str] = []
     events = read_jsonl(paths.events, type(EVENT))
-    assert build_fixtures.build_all(
-        events, paths=paths, download=download, force=False, out=lines.append
-    ) == (1, 1)
+    assert build_fixtures.build_all(events, paths=paths, download=download, force=False, out=lines.append) == (1, 1)
     named = load_context_fixture(paths.fixture("evt-001", "named"), not_after=EVENT.timestamp)
     anon = load_context_fixture(paths.fixture("evt-001", "anon"), not_after=EVENT.timestamp)
     assert named.news[0].headlines == ("ZZZT Holdings item",)
-    assert (
-        anon.entities == (ANON_LABEL,)
-        and "ZZZT" not in paths.fixture("evt-001", "anon").read_text()
-    )
+    assert anon.entities == (ANON_LABEL,) and "ZZZT" not in paths.fixture("evt-001", "anon").read_text()
     assert any(line.startswith("[fail] evt-002") for line in lines)
-    assert build_fixtures.build_all(
-        events[:1], paths=paths, download=download, force=False, out=lines.append
-    ) == (0, 0)
-    assert build_fixtures.build_all(
-        events[:1], paths=paths, download=download, force=True, out=lines.append
-    ) == (1, 0)
+    assert build_fixtures.build_all(events[:1], paths=paths, download=download, force=False, out=lines.append) == (0, 0)
+    assert build_fixtures.build_all(events[:1], paths=paths, download=download, force=True, out=lines.append) == (1, 0)
 
 
 def test_every_stored_headline_reaches_the_market_block(tmp_path: Path) -> None:
@@ -146,9 +131,7 @@ def test_every_stored_headline_reaches_the_market_block(tmp_path: Path) -> None:
     )
     lines: list[str] = []
     download = FakeDownload({"ZZZT": alternating_series(0.05)})
-    assert build_fixtures.build_all(
-        [EVENT], paths=paths, download=download, force=False, out=lines.append
-    ) == (1, 0)
+    assert build_fixtures.build_all([EVENT], paths=paths, download=download, force=False, out=lines.append) == (1, 0)
     block = format_market_context(load_context_fixture(paths.fixture("evt-001", "named")))
     assert block is not None
     rendered = [line for line in block.splitlines() if line.startswith("  - ")]
@@ -188,9 +171,7 @@ def test_label_all_keeps_existing_and_reports_failures() -> None:
         }
     )
     lines: list[str] = []
-    labels, failed = label_outcomes.label_all(
-        [EVENT, short], [old], download=download, out=lines.append
-    )
+    labels, failed = label_outcomes.label_all([EVENT, short], [old], download=download, out=lines.append)
     assert failed == 1 and set(labels) == {"evt-001", "evt-009"}
     assert any(line.startswith("[fail] evt-002") for line in lines)
 
@@ -201,9 +182,7 @@ def test_label_main_writes_in_event_order(tmp_path: Path, monkeypatch: pytest.Mo
     write_events(paths.events, [EVENT, second])
     write_jsonl(paths.labels, [])
     monkeypatch.setattr(label_outcomes, "PATHS", paths)
-    fake = FakeDownload(
-        {"ZZZT": alternating_series(0.05), "QQQX": alternating_series(-0.05), "SPY": flat_series()}
-    )
+    fake = FakeDownload({"ZZZT": alternating_series(0.05), "QQQX": alternating_series(-0.05), "SPY": flat_series()})
     monkeypatch.setattr(label_outcomes, "yfinance_closes", fake)
     assert label_outcomes.main([]) == 0
     written = [json.loads(line) for line in paths.labels.read_text().splitlines()]

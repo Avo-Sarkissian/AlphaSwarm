@@ -227,9 +227,7 @@ async def test_max_tokens_accepted_but_ignored() -> None:
     await p.chat([{"role": "user", "content": "x"}], max_tokens=512)
     assert fc.kwargs is not None
     # num_predict should NOT appear in options
-    assert fc.kwargs.get("options") is None or "num_predict" not in (
-        fc.kwargs.get("options") or {}
-    )
+    assert fc.kwargs.get("options") is None or "num_predict" not in (fc.kwargs.get("options") or {})
 
 
 # ---------------------------------------------------------------------------

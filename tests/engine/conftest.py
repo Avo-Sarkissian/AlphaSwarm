@@ -132,9 +132,7 @@ def fake_graph() -> MagicMock:
         return [f"post-r{round_num}-{i:03d}" for i in range(len(agent_decisions))]
 
     def _influence(cycle_id: str, up_to_round: int, total_agents: int) -> dict[str, float]:
-        return influence_weights_from_writes(
-            graph, up_to_round=up_to_round, total_agents=total_agents
-        )
+        return influence_weights_from_writes(graph, up_to_round=up_to_round, total_agents=total_agents)
 
     graph.write_decisions.side_effect = _write_decisions
     graph.write_posts.side_effect = _write_posts

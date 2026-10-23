@@ -14,11 +14,8 @@ OR is one of the three known non-source entries:
 
 from __future__ import annotations
 
-import sys
 import tomllib
 from pathlib import Path
-
-import pytest
 
 ROOT = Path(__file__).parent.parent.parent
 SRC = ROOT / "src" / "alphaswarm"
@@ -134,14 +131,10 @@ def test_forbidden_modules_is_exactly_alphaswarm_holdings() -> None:
         data = tomllib.load(f)
     contracts = data["tool"]["importlinter"]["contracts"]
     contract = next(
-        c
-        for c in contracts
-        if c.get("type") == "forbidden"
-        and "alphaswarm.holdings" in c.get("forbidden_modules", [])
+        c for c in contracts if c.get("type") == "forbidden" and "alphaswarm.holdings" in c.get("forbidden_modules", [])
     )
     assert contract["forbidden_modules"] == ["alphaswarm.holdings"], (
-        "Holdings isolation contract must forbid ONLY alphaswarm.holdings. "
-        f"Current: {contract['forbidden_modules']}"
+        f"Holdings isolation contract must forbid ONLY alphaswarm.holdings. Current: {contract['forbidden_modules']}"
     )
 
 
@@ -150,7 +143,6 @@ def test_enumeration_skips_icloud_conflict_copies(tmp_path: Path) -> None:
     pkg = tmp_path / "alphaswarm"
     (pkg / "web").mkdir(parents=True)
     (pkg / "src 2").mkdir()
-    for rel in ("__init__.py", "config.py", "config 2.py", "web/__init__.py",
-                "web/app 3.py", "src 2/__init__.py"):
+    for rel in ("__init__.py", "config.py", "config 2.py", "web/__init__.py", "web/app 3.py", "src 2/__init__.py"):
         (pkg / rel).write_text("", encoding="utf-8")
     assert _enumerate_actual_packages(pkg) == {"alphaswarm.config", "alphaswarm.web"}

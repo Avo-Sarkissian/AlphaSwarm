@@ -271,9 +271,7 @@ class RateLimitController:
         if wait > 0:
             await asyncio.sleep(wait)
 
-    def release(
-        self, *, success: bool = True, result_tokens: int | None = None
-    ) -> None:
+    def release(self, *, success: bool = True, result_tokens: int | None = None) -> None:
         """Free the in-flight slot and reconcile TPM bucket if token count known.
 
         Parameters
@@ -307,9 +305,7 @@ class RateLimitController:
         self._semaphore.release()
         self._in_flight = max(0, self._in_flight - 1)
 
-    def report_wave_failures(
-        self, success_count: int, failure_count: int
-    ) -> None:
+    def report_wave_failures(self, success_count: int, failure_count: int) -> None:
         """Shrink effective max_in_flight if failure rate >= threshold.
 
         Parameters
@@ -330,10 +326,7 @@ class RateLimitController:
             return
 
         failure_rate = failure_count / total
-        if (
-            failure_rate >= self._failure_shrink_threshold
-            and self._target_slots > self._min_in_flight
-        ):
+        if failure_rate >= self._failure_shrink_threshold and self._target_slots > self._min_in_flight:
             self._target_slots -= 1
             self._shrink_pending += 1
             logger.info(
@@ -349,9 +342,7 @@ class RateLimitController:
         """Launch background metrics emitter task (~2 s cadence)."""
         if self._monitor_task is not None:
             return  # idempotent
-        self._monitor_task = asyncio.create_task(
-            self._monitoring_loop(), name="rate-limit-monitor"
-        )
+        self._monitor_task = asyncio.create_task(self._monitoring_loop(), name="rate-limit-monitor")
 
     async def stop_monitoring(self) -> None:
         """Cancel and await the background monitoring task cleanly."""

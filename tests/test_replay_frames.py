@@ -34,9 +34,7 @@ class _ReplayGraph:
     def __init__(self, rationale_rows: dict[int, list[dict[str, Any]]]) -> None:
         self._rows = rationale_rows
 
-    async def read_bracket_narratives_for_round(
-        self, cycle_id: str, round_num: int
-    ) -> list[dict[str, Any]]:
+    async def read_bracket_narratives_for_round(self, cycle_id: str, round_num: int) -> list[dict[str, Any]]:
         return []
 
     async def read_rationale_entries_for_round(
@@ -46,9 +44,7 @@ class _ReplayGraph:
 
 
 def test_rationale_rows_are_numbered_per_round_without_wall_clock() -> None:
-    entries = _rationale_entries_from_rows(
-        [_row("quants_01", "buy", 1), _row("degens_02", "sell", 1)]
-    )
+    entries = _rationale_entries_from_rows([_row("quants_01", "buy", 1), _row("degens_02", "sell", 1)])
     assert [(e.seq, e.ts, e.agent_id, e.signal) for e in entries] == [
         (1, 0.0, "quants_01", SignalType.BUY),
         (2, 0.0, "degens_02", SignalType.SELL),

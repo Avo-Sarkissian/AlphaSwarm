@@ -9,6 +9,7 @@ Mirrors web/routes/report.py line-for-line:
 
 The report/advisory cross-guard lives in web/guards.require_orchestrator_free.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -82,9 +83,7 @@ def _orchestrator_block_reason(cfg: InferenceConfig, app_state: AppState) -> str
     return advisory_block_reason(cfg, ollama_base_url=client.base_url)
 
 
-async def _refuse_remote_ollama_model(
-    cfg: InferenceConfig, app_state: AppState, cycle_id: str
-) -> None:
+async def _refuse_remote_ollama_model(cfg: InferenceConfig, app_state: AppState, cycle_id: str) -> None:
     """Ask the Ollama server whether the orchestrator model runs remotely.
 
     A name check cannot see an alias whose Modelfile is ``FROM`` a cloud model
@@ -177,14 +176,18 @@ async def generate_advisory(cycle_id: CycleId, request: Request) -> GenerateAdvi
     portfolio: PortfolioSnapshot | None = await request.app.state.portfolio_cache.get()
     if portfolio is None:
         raise ApiError(
-            503, "holdings_unavailable", "Holdings file could not be loaded; see the server log",
+            503,
+            "holdings_unavailable",
+            "Holdings file could not be loaded; see the server log",
         )
     # Again after the awaits, with none before the job starts: a run may have started.
     require_no_simulation(sim_manager)
     require_orchestrator_free(app_state)
     start_advisory_job(request.app, cycle_id, portfolio)
     log.info(
-        "advisory_generation_started", cycle_id=cycle_id, holdings_count=len(portfolio.holdings),
+        "advisory_generation_started",
+        cycle_id=cycle_id,
+        holdings_count=len(portfolio.holdings),
     )
     return GenerateAdvisoryResponse(status="accepted", cycle_id=cycle_id)
 
@@ -230,7 +233,9 @@ async def get_advisory(cycle_id: CycleId, request: Request) -> AdvisoryReport:
 
 
 def start_advisory_job(
-    app: FastAPI, cycle_id: str, portfolio: PortfolioSnapshot,
+    app: FastAPI,
+    cycle_id: str,
+    portfolio: PortfolioSnapshot,
 ) -> asyncio.Task[None]:
     """Start advisory synthesis as a tracked task and mark the advisory job running.
 
@@ -240,7 +245,8 @@ def start_advisory_job(
     app_state: AppState = app.state.app_state
     _advisory_errors(app).pop(cycle_id, None)
     task: asyncio.Task[None] = asyncio.create_task(
-        _run_advisory_synthesis(app_state, cycle_id, portfolio), name=f"advisory_{cycle_id}",
+        _run_advisory_synthesis(app_state, cycle_id, portfolio),
+        name=f"advisory_{cycle_id}",
     )
     app.state.advisory_task = task
     app_state.state_store.set_job_status("advisory", JobStatus("running", cycle_id))
@@ -251,7 +257,9 @@ def start_advisory_job(
 def _advisory_errors(app: FastAPI) -> dict[str, dict[str, str]]:
     """The per-cycle failure records GET reads, created on first use."""
     errors: dict[str, dict[str, str]] | None = getattr(
-        app.state, "advisory_generation_error", None,
+        app.state,
+        "advisory_generation_error",
+        None,
     )
     if errors is None:
         errors = {}
@@ -279,7 +287,10 @@ def _on_advisory_task_done(task: asyncio.Task[Any], cycle_id: str, app: FastAPI)
     try:
         if task.cancelled():
             _record_advisory_failure(
-                app, cycle_id, "advisory_generation_failed", "Advisory generation was cancelled",
+                app,
+                cycle_id,
+                "advisory_generation_failed",
+                "Advisory generation was cancelled",
             )
             _set_advisory_status(app, JobStatus("failed", cycle_id, "advisory_generation_failed"))
             log.warning("advisory_task_cancelled", cycle_id=cycle_id)
@@ -360,7 +371,9 @@ async def _run_advisory_synthesis(
 
         output_path = advisory_dir(app_state) / f"{cycle_id}_advisory.json"
         await asyncio.to_thread(
-            atomic_write_text, output_path, report_obj.model_dump_json(indent=2),
+            atomic_write_text,
+            output_path,
+            report_obj.model_dump_json(indent=2),
         )
 
         log.info(

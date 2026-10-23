@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from alphaswarm.types import FlipType, SignalType
 from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_type
-
 
 # ---------------------------------------------------------------------------
 # Helpers

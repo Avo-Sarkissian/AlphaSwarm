@@ -41,7 +41,7 @@ class BracketSummary:
     import: StateSnapshot needs BracketSummary, simulation.py imports StateStore.
     """
 
-    bracket: str          # BracketType.value
+    bracket: str  # BracketType.value
     display_name: str
     buy_count: int
     sell_count: int
@@ -63,10 +63,10 @@ class RationaleEntry:
     the rationale to 50 chars.
     """
 
-    agent_id: str        # persona id, e.g. "quants_07"
-    signal: SignalType   # BUY, SELL, HOLD for color-coding
-    rationale: str       # truncated at 50 chars by producer
-    round_num: int       # which round this came from
+    agent_id: str  # persona id, e.g. "quants_07"
+    signal: SignalType  # BUY, SELL, HOLD for color-coding
+    rationale: str  # truncated at 50 chars by producer
+    round_num: int  # which round this came from
     # Stamped by StateStore.push_rationale: a process-lifetime monotonic sequence
     # and the wall-clock time. Replay numbers entries 1..n per round with ts 0.0.
     seq: int = 0
@@ -149,9 +149,7 @@ class StateSnapshot:
     cycle_id: str | None = None
     num_rounds: int = 3
     edges_version: int = 0
-    jobs: JobsSnapshot = field(
-        default_factory=lambda: JobsSnapshot(advisory=JobStatus(), report=JobStatus())
-    )
+    jobs: JobsSnapshot = field(default_factory=lambda: JobsSnapshot(advisory=JobStatus(), report=JobStatus()))
 
 
 class StateStore:
@@ -230,8 +228,7 @@ class StateStore:
         """
         async with self._lock:
             self._agent_states = {
-                agent_id: AgentState(signal=None, confidence=0.0)
-                for agent_id in dict.fromkeys(agent_ids)
+                agent_id: AgentState(signal=None, confidence=0.0) for agent_id in dict.fromkeys(agent_ids)
             }
 
     async def set_phase(self, phase: SimulationPhase) -> None:
@@ -264,10 +261,7 @@ class StateStore:
                 self._applied_shocks.clear()
                 # Not _num_rounds: it must be set before SEEDING, and a reset here
                 # would reopen the shock window in the last round of a 2-round run.
-                self._agent_states = {
-                    aid: AgentState(signal=None, confidence=0.0)
-                    for aid in self._agent_states
-                }
+                self._agent_states = {aid: AgentState(signal=None, confidence=0.0) for aid in self._agent_states}
             # Reset signals to "thinking" placeholder on round entry while preserving
             # dict keys so broadcaster snapshots stay non-empty during dispatch.
             if phase in (
@@ -275,10 +269,7 @@ class StateStore:
                 SimulationPhase.ROUND_2,
                 SimulationPhase.ROUND_3,
             ):
-                self._agent_states = {
-                    aid: AgentState(signal=None, confidence=0.0)
-                    for aid in self._agent_states
-                }
+                self._agent_states = {aid: AgentState(signal=None, confidence=0.0) for aid in self._agent_states}
             # Start elapsed timer on first live phase. REPLAY is excluded: merely
             # viewing a replay must not start (or corrupt) the live-run clock.
             if self._start_time is None and phase not in (
@@ -469,7 +460,10 @@ class StateStore:
         SignalWire ticker scrolls live activity.
         """
         self._data_source_audit.record(
-            source=source, query=query, result=result, used=used,
+            source=source,
+            query=query,
+            result=result,
+            used=used,
         )
 
     def peek_data_source_audit(self) -> tuple[DataSourceAuditEntry, ...]:
@@ -523,9 +517,7 @@ class ReplayStore:
         (StateStore keeps a sliding window instead; neither store drains).
         """
         agent_states = {
-            agent_id: state
-            for (agent_id, rnd), state in self._signals.items()
-            if rnd == self._current_round
+            agent_id: state for (agent_id, rnd), state in self._signals.items() if rnd == self._current_round
         }
         return StateSnapshot(
             phase=SimulationPhase.REPLAY,

@@ -1,4 +1,5 @@
 """Tests for the DataSourceAuditBuffer (ITEM 5 of quick task 260512-jqn)."""
+
 from __future__ import annotations
 
 import json
@@ -80,10 +81,16 @@ def test_state_store_record_data_source_threading() -> None:
     and the resulting entries surface in snapshot().data_source_audit."""
     store = StateStore()
     store.record_data_source(
-        source="yfinance", query="NVDA OHLCV", result="ok", used=True,
+        source="yfinance",
+        query="NVDA OHLCV",
+        result="ok",
+        used=True,
     )
     store.record_data_source(
-        source="rss", query="headlines:NVDA", result="ok", used=False,
+        source="rss",
+        query="headlines:NVDA",
+        result="ok",
+        used=False,
     )
     snap = store.snapshot()
     assert len(snap.data_source_audit) == 2

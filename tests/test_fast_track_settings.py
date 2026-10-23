@@ -49,9 +49,7 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
         ("OWN_PRIOR_MEMORY", "maybe", "own_prior_memory"),
     ],
 )
-def test_bad_values_fail_at_load(
-    monkeypatch: pytest.MonkeyPatch, key: str, value: str, field: str
-) -> None:
+def test_bad_values_fail_at_load(monkeypatch: pytest.MonkeyPatch, key: str, value: str, field: str) -> None:
     _clear(monkeypatch)
     monkeypatch.setenv(f"ALPHASWARM_SIMULATION__{key}", value)
 

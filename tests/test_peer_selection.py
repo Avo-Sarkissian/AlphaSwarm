@@ -162,9 +162,7 @@ class TestBuildDiversePeerContexts:
         """Peers cut by the character budget are not exposure."""
         long_take = "word " * 400  # 2,000 characters per rationale
 
-        contexts, exposures = _build(
-            SMALL_PERSONAS, _decisions(SMALL_PERSONAS, rationale=long_take), 1
-        )
+        contexts, exposures = _build(SMALL_PERSONAS, _decisions(SMALL_PERSONAS, rationale=long_take), 1)
 
         for ctx, shown in zip(contexts, exposures, strict=True):
             assert ctx is not None
@@ -197,9 +195,7 @@ class TestBuildDiversePeerContexts:
     def test_peer_limit_sets_selection_and_rendered_line_count(self) -> None:
         personas = [_persona(f"{b.value}_{i:02d}", b) for b in FIVE_BRACKETS for i in range(1, 4)]
 
-        _, exposures = _build(
-            personas, _decisions(personas), 1, sim=SimulationSettings(peer_limit=12)
-        )
+        _, exposures = _build(personas, _decisions(personas), 1, sim=SimulationSettings(peer_limit=12))
 
         assert {len(shown) for shown in exposures} == {12}
 
@@ -208,16 +204,12 @@ class TestBuildDiversePeerContexts:
         decisions = _decisions(SMALL_PERSONAS, rationale="word " * 60)  # 300-char takes
 
         _, roomy = _build(SMALL_PERSONAS, decisions, 1)
-        _, tight = _build(
-            SMALL_PERSONAS, decisions, 1, sim=SimulationSettings(peer_budget_chars=500)
-        )
+        _, tight = _build(SMALL_PERSONAS, decisions, 1, sim=SimulationSettings(peer_budget_chars=500))
 
         assert {len(shown) for shown in roomy} == {len(SMALL_PERSONAS) - 1}
         assert {len(shown) for shown in tight} == {1}
 
-    def test_personal_boost_and_limits_come_from_settings(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_personal_boost_and_limits_come_from_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: list[dict[str, Any]] = []
 
         def fake_select(
@@ -233,9 +225,7 @@ class TestBuildDiversePeerContexts:
         monkeypatch.setattr("alphaswarm.simulation.select_diverse_peers", fake_select)
         sim = SimulationSettings(personal_boost=0.05, peer_limit=7, min_brackets=2, bracket_cap=2)
 
-        contexts, exposures = _build(
-            SMALL_PERSONAS, _decisions(SMALL_PERSONAS, cited=("degens_01",)), 2, sim=sim
-        )
+        contexts, exposures = _build(SMALL_PERSONAS, _decisions(SMALL_PERSONAS, cited=("degens_01",)), 2, sim=sim)
 
         first = captured[0]  # reader quants_01 cited degens_01 last round
         assert first["agent_id"] == "quants_01"
@@ -289,9 +279,7 @@ class TestPeerAndProvenanceMetrics:
         orch = _provider(ORCH, "orch-model", local=orch_local)
         worker = _provider(WORKER, "worker-model", local=worker_local)
 
-        metrics = _peer_and_provenance_metrics(
-            SimulationSettings(), orch, worker, git_sha="a" * 40, git_dirty=False
-        )
+        metrics = _peer_and_provenance_metrics(SimulationSettings(), orch, worker, git_sha="a" * 40, git_dirty=False)
 
         assert metrics["orchestrator_provider"] == orch_label
         assert metrics["worker_provider"] == worker_label
@@ -327,13 +315,9 @@ class TestPeerAndProvenanceMetrics:
         assert metrics["peer_personal_boost"] == 0.05
 
     @pytest.mark.parametrize(("own_prior_memory", "control_fraction"), [(True, 0.0), (False, 0.2)])
-    def test_experiment_knobs_reflect_settings(
-        self, own_prior_memory: bool, control_fraction: float
-    ) -> None:
+    def test_experiment_knobs_reflect_settings(self, own_prior_memory: bool, control_fraction: float) -> None:
         """A cycle run without the own prior or with a holdout must not look like a default one."""
-        sim = SimulationSettings(
-            own_prior_memory=own_prior_memory, control_fraction=control_fraction
-        )
+        sim = SimulationSettings(own_prior_memory=own_prior_memory, control_fraction=control_fraction)
 
         metrics = _peer_and_provenance_metrics(
             sim,
@@ -404,9 +388,7 @@ def _select(
     seed: int = 0,
     **kwargs: Any,
 ) -> list[str]:
-    return select_diverse_peers(
-        agent_id, weights, personas, prev, rng=random.Random(seed), **kwargs
-    )
+    return select_diverse_peers(agent_id, weights, personas, prev, rng=random.Random(seed), **kwargs)
 
 
 class _ScriptedRandom(random.Random):
@@ -502,9 +484,7 @@ class TestSelectDiversePeers:
         ],
         ids=["fill", "guaranteed-bracket"],
     )
-    def test_degenerate_weight_loses_even_its_luckiest_draw(
-        self, draws: tuple[float, ...], min_brackets: int
-    ) -> None:
+    def test_degenerate_weight_loses_even_its_luckiest_draw(self, draws: tuple[float, ...], min_brackets: int) -> None:
         """No draw lifts a weight without reach over a positive one, in either phase."""
         personas = [
             _persona("quants_01", BracketType.QUANTS),
@@ -552,18 +532,12 @@ class TestSelectDiversePeers:
     def test_equal_weights_disperse_across_readers(self) -> None:
         """Successor of the F-08 tie-break test: equal weights still differ per reader."""
         personas = [
-            _persona(f"{b.value}_{j:02d}", b)
-            for b in (*FIVE_BRACKETS[:4], BracketType.NARRATORS)
-            for j in range(1, 21)
+            _persona(f"{b.value}_{j:02d}", b) for b in (*FIVE_BRACKETS[:4], BracketType.NARRATORS) for j in range(1, 21)
         ]
         weights = {p.id: 0.5 for p in personas}
 
         peer_sets = {
-            tuple(
-                select_diverse_peers(
-                    p.id, weights, personas, rng=peer_rng(RUN_SEED, p.id, 2), limit=5
-                )
-            )
+            tuple(select_diverse_peers(p.id, weights, personas, rng=peer_rng(RUN_SEED, p.id, 2), limit=5))
             for p in personas
         }
 
@@ -578,9 +552,7 @@ class TestSelectDiversePeers:
         def hits(weights: dict[str, float]) -> int:
             return sum(
                 "degens_01"
-                in select_diverse_peers(
-                    "quants_01", weights, personas, rng=peer_rng(f"seed-{i}", "quants_01", 3)
-                )
+                in select_diverse_peers("quants_01", weights, personas, rng=peer_rng(f"seed-{i}", "quants_01", 3))
                 for i in range(400)
             )
 
@@ -598,8 +570,7 @@ class TestSelectDiversePeers:
         weights = {p.id: 0.5 for p in personas}
 
         hits = sum(
-            _select("macro_01", weights, personas, seed=seed, limit=1, min_brackets=1)
-            == ["degens_01"]
+            _select("macro_01", weights, personas, seed=seed, limit=1, min_brackets=1) == ["degens_01"]
             for seed in range(1000)
         )
 
@@ -647,9 +618,7 @@ class _SelectionCase:
 
 @st.composite
 def _selection_cases(draw: st.DrawFn) -> _SelectionCase:
-    counts = draw(
-        st.lists(st.integers(0, 6), min_size=len(_ALL_BRACKETS), max_size=len(_ALL_BRACKETS))
-    )
+    counts = draw(st.lists(st.integers(0, 6), min_size=len(_ALL_BRACKETS), max_size=len(_ALL_BRACKETS)))
     personas = tuple(
         _persona(f"{bracket.value}_{i:02d}", bracket)
         for bracket, count in zip(_ALL_BRACKETS, counts, strict=True)
@@ -691,9 +660,7 @@ def test_selection_properties(case: _SelectionCase) -> None:
     out = run()
     bracket_of = {p.id: p.bracket.value for p in case.personas}
     per_bracket = Counter(bracket_of[pid] for pid in out)
-    eligible = Counter(
-        p.bracket.value for p in case.personas if p.id != case.reader and p.id not in case.prev
-    )
+    eligible = Counter(p.bracket.value for p in case.personas if p.id != case.reader and p.id not in case.prev)
 
     assert case.reader not in out
     assert not set(out) & set(case.prev)

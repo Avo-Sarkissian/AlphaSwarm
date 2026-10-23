@@ -48,9 +48,7 @@ async def inject_seed(
     orchestrator: InferenceProvider,
     graph_manager: GraphStateManager,
     *,
-    modifier_generator: (
-        Callable[[SeedEvent, InferenceProvider], Awaitable[ParsedModifiersResult]] | None
-    ) = None,
+    modifier_generator: (Callable[[SeedEvent, InferenceProvider], Awaitable[ParsedModifiersResult]] | None) = None,
 ) -> tuple[str, ParsedSeedResult, ParsedModifiersResult | None]:
     """End-to-end seed injection pipeline. Returns (cycle_id, parsed_result, modifier_result).
 

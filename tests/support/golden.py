@@ -25,9 +25,7 @@ GOLDEN_ROOT: Final[Path] = Path(__file__).resolve().parents[1] / "golden"
 UPDATE_ENV: Final = "UPDATE_GOLDEN"
 
 _UUID_RE: Final = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-_ISO_TS_RE: Final = re.compile(
-    r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?"
-)
+_ISO_TS_RE: Final = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
 
 GoldenValue = str | Mapping[str, object] | Sequence[object]
 
@@ -102,8 +100,7 @@ def assert_golden_file(path: Path, actual: GoldenValue, *, normalize_values: boo
         return
     if not path.exists():
         raise AssertionError(
-            f"golden file missing: {path}\n"
-            f"Create it with {UPDATE_ENV}=1 and review it before committing."
+            f"golden file missing: {path}\nCreate it with {UPDATE_ENV}=1 and review it before committing."
         )
     expected = path.read_text(encoding="utf-8")
     if expected != rendered:

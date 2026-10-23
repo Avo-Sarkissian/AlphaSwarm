@@ -72,11 +72,7 @@ async def replay_cycles(request: Request) -> ReplayCyclesResponse:
     cycles = [
         CycleItem(
             cycle_id=c["cycle_id"],
-            created_at=(
-                c["created_at"].isoformat()
-                if isinstance(c["created_at"], datetime)
-                else str(c["created_at"])
-            ),
+            created_at=(c["created_at"].isoformat() if isinstance(c["created_at"], datetime) else str(c["created_at"])),
             seed_rumor=c.get("seed_rumor", ""),
             # Actual cascade depth (2 under ALPHASWARM_NUM_ROUNDS=2);
             # cycles predating metrics stamping default to 3.
@@ -100,7 +96,9 @@ async def replay_start(cycle_id: CycleId, request: Request) -> ReplayStartRespon
     replay_manager = request.app.state.replay_manager
     if request.app.state.sim_manager.is_running:
         raise ApiError(
-            409, "simulation_in_progress", "Cannot start replay while a simulation is running",
+            409,
+            "simulation_in_progress",
+            "Cannot start replay while a simulation is running",
         )
     graph = require_graph(request.app.state.app_state)
     if replay_manager.is_active:

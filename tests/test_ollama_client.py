@@ -12,7 +12,7 @@ Tests verify:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import ollama
 import pytest
@@ -46,9 +46,7 @@ def ollama_client(mock_async_client: AsyncMock) -> Any:
     return client
 
 
-async def test_chat_returns_response(
-    ollama_client: Any, mock_async_client: AsyncMock
-) -> None:
+async def test_chat_returns_response(ollama_client: Any, mock_async_client: AsyncMock) -> None:
     """OllamaClient.chat() delegates to mocked AsyncClient.chat() and returns ChatResponse."""
     result = await ollama_client.chat(
         model="test",
@@ -73,13 +71,9 @@ async def test_no_num_ctx(ollama_client: Any, mock_async_client: AsyncMock) -> N
     assert passed_options.get("temperature") == 0.5
 
 
-async def test_backoff_retry(
-    ollama_client: Any, mock_async_client: AsyncMock, mock_chat_response: MagicMock
-) -> None:
+async def test_backoff_retry(ollama_client: Any, mock_async_client: AsyncMock, mock_chat_response: MagicMock) -> None:
     """When mocked client raises ResponseError on first call then succeeds, returns success."""
-    mock_async_client.chat = AsyncMock(
-        side_effect=[ollama.ResponseError("server error"), mock_chat_response]
-    )
+    mock_async_client.chat = AsyncMock(side_effect=[ollama.ResponseError("server error"), mock_chat_response])
     result = await ollama_client.chat(
         model="test",
         messages=[{"role": "user", "content": "hi"}],
@@ -88,13 +82,9 @@ async def test_backoff_retry(
     assert result.message.content == '{"signal": "buy", "confidence": 0.8}'
 
 
-async def test_max_retries_error(
-    ollama_client: Any, mock_async_client: AsyncMock
-) -> None:
+async def test_max_retries_error(ollama_client: Any, mock_async_client: AsyncMock) -> None:
     """When mocked client raises ResponseError 3 times, raises OllamaInferenceError."""
-    mock_async_client.chat = AsyncMock(
-        side_effect=ollama.ResponseError("server error")
-    )
+    mock_async_client.chat = AsyncMock(side_effect=ollama.ResponseError("server error"))
     with pytest.raises(OllamaInferenceError) as exc_info:
         await ollama_client.chat(
             model="qwen3.5:7b",
@@ -104,13 +94,9 @@ async def test_max_retries_error(
     assert isinstance(exc_info.value.original_error, ollama.ResponseError)
 
 
-async def test_no_retry_on_request_error(
-    ollama_client: Any, mock_async_client: AsyncMock
-) -> None:
+async def test_no_retry_on_request_error(ollama_client: Any, mock_async_client: AsyncMock) -> None:
     """RequestError is wrapped in OllamaInferenceError immediately (no retries)."""
-    mock_async_client.chat = AsyncMock(
-        side_effect=ollama.RequestError("bad request")
-    )
+    mock_async_client.chat = AsyncMock(side_effect=ollama.RequestError("bad request"))
     with pytest.raises(OllamaInferenceError):
         await ollama_client.chat(
             model="test",
@@ -120,9 +106,7 @@ async def test_no_retry_on_request_error(
     assert mock_async_client.chat.call_count == 1
 
 
-async def test_format_json_passed(
-    ollama_client: Any, mock_async_client: AsyncMock
-) -> None:
+async def test_format_json_passed(ollama_client: Any, mock_async_client: AsyncMock) -> None:
     """OllamaClient.chat() passes format='json' to underlying client."""
     await ollama_client.chat(
         model="test",
@@ -140,9 +124,7 @@ async def test_format_json_passed(
 
 
 @pytest.mark.parametrize("proxy_var", ["HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"])
-def test_the_http_client_ignores_proxy_env(
-    monkeypatch: pytest.MonkeyPatch, proxy_var: str
-) -> None:
+def test_the_http_client_ignores_proxy_env(monkeypatch: pytest.MonkeyPatch, proxy_var: str) -> None:
     """A proxy set in the environment (or macOS system settings) must not receive
     requests meant for the local Ollama server: httpx gives localhost no bypass."""
     import httpx

@@ -59,19 +59,13 @@ async def test_template_renders_with_strict_undefined(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle, template: str
 ) -> None:
     data = await SOURCES[template](graph_reader, seeded_cycle.cycle_id)
-    rendered = (
-        _strict_env().get_template(template).render(data=data, cycle_id=seeded_cycle.cycle_id)
-    )
+    rendered = _strict_env().get_template(template).render(data=data, cycle_id=seeded_cycle.cycle_id)
     assert rendered.startswith("## ")
 
 
-async def test_signal_flip_template_golden(
-    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
-) -> None:
+async def test_signal_flip_template_golden(graph_reader: GraphStateManager, seeded_cycle: SeededCycle) -> None:
     rows = await graph_reader.read_signal_flips(seeded_cycle.cycle_id)
-    rendered = ReportAssembler().render_section(
-        "06_signal_flip_analysis.j2", data=rows, cycle_id=seeded_cycle.cycle_id
-    )
+    rendered = ReportAssembler().render_section("06_signal_flip_analysis.j2", data=rows, cycle_id=seeded_cycle.cycle_id)
     assert len(_table_rows(rendered)) == len(rows)
     assert_golden("report/06_signal_flip_analysis.md", rendered)
 
@@ -81,21 +75,15 @@ async def test_entity_impact_table_has_no_blank_cells(
 ) -> None:
     rows = await graph_reader.read_entity_impact(seeded_cycle.cycle_id)
     assert rows
-    rendered = ReportAssembler().render_section(
-        "07_entity_impact.j2", data=rows, cycle_id=seeded_cycle.cycle_id
-    )
+    rendered = ReportAssembler().render_section("07_entity_impact.j2", data=rows, cycle_id=seeded_cycle.cycle_id)
     table = _table_rows(rendered)
     assert table
     assert all(all(cells) for cells in table)
 
 
-async def test_consensus_shares_add_up_to_100(
-    graph_reader: GraphStateManager, seeded_cycle: SeededCycle
-) -> None:
+async def test_consensus_shares_add_up_to_100(graph_reader: GraphStateManager, seeded_cycle: SeededCycle) -> None:
     data = await graph_reader.read_consensus_summary(seeded_cycle.cycle_id)
-    rendered = ReportAssembler().render_section(
-        "01_consensus_summary.j2", data=data, cycle_id=seeded_cycle.cycle_id
-    )
+    rendered = ReportAssembler().render_section("01_consensus_summary.j2", data=data, cycle_id=seeded_cycle.cycle_id)
     shares = [float(m.group("share")) for m in _SHARE_RE.finditer(rendered)]
     assert len(shares) >= 3
     assert sum(shares) == pytest.approx(100.0, abs=0.3)

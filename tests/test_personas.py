@@ -75,17 +75,13 @@ def test_persona_inherits_bracket_values(
 def test_persona_unique_system_prompts(all_personas: list[AgentPersona]) -> None:
     """All 100 personas have unique system_prompt strings."""
     prompts = [p.system_prompt for p in all_personas]
-    assert len(set(prompts)) == 100, (
-        f"Expected 100 unique prompts, got {len(set(prompts))}"
-    )
+    assert len(set(prompts)) == 100, f"Expected 100 unique prompts, got {len(set(prompts))}"
 
 
 def test_persona_contains_json_instructions(all_personas: list[AgentPersona]) -> None:
     """Each persona's system_prompt contains the JSON field name 'signal'."""
     for p in all_personas:
-        assert "signal" in p.system_prompt, (
-            f"{p.id} system_prompt missing JSON field 'signal'"
-        )
+        assert "signal" in p.system_prompt, f"{p.id} system_prompt missing JSON field 'signal'"
 
 
 def test_persona_same_bracket_different_modifiers(all_personas: list[AgentPersona]) -> None:
@@ -104,19 +100,15 @@ def test_persona_deterministic_generation() -> None:
     brackets = load_bracket_configs()
     run1 = generate_personas(brackets)
     run2 = generate_personas(brackets)
-    for p1, p2 in zip(run1, run2):
-        assert p1.system_prompt == p2.system_prompt, (
-            f"{p1.id} prompt differs between generations"
-        )
+    for p1, p2 in zip(run1, run2, strict=True):
+        assert p1.system_prompt == p2.system_prompt, f"{p1.id} prompt differs between generations"
 
 
 def test_persona_word_count_under_350(all_personas: list[AgentPersona]) -> None:
     """Each persona's total system_prompt word count stays under 350 words."""
     for p in all_personas:
         word_count = len(p.system_prompt.split())
-        assert word_count < 350, (
-            f"{p.id} system_prompt has {word_count} words, expected <350"
-        )
+        assert word_count < 350, f"{p.id} system_prompt has {word_count} words, expected <350"
 
 
 def test_bracket_modifiers_completeness() -> None:
@@ -133,9 +125,7 @@ def test_bracket_modifiers_count_range() -> None:
     from alphaswarm.config import BRACKET_MODIFIERS
 
     for bt, mods in BRACKET_MODIFIERS.items():
-        assert 3 <= len(mods) <= 5, (
-            f"{bt.value} has {len(mods)} modifiers, expected 3-5"
-        )
+        assert 3 <= len(mods) <= 5, f"{bt.value} has {len(mods)} modifiers, expected 3-5"
 
 
 def test_persona_first_modifier_assignment() -> None:
@@ -212,7 +202,7 @@ def test_generate_personas_backward_compatible() -> None:
     original = generate_personas(brackets)
     with_none = generate_personas(brackets, modifiers=None)
     assert len(original) == len(with_none)
-    for p1, p2 in zip(original, with_none):
+    for p1, p2 in zip(original, with_none, strict=True):
         assert p1.system_prompt == p2.system_prompt, f"{p1.id} prompt differs"
 
 

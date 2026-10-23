@@ -34,6 +34,7 @@ def test_react_prompt_tool_names_match_registry() -> None:
     advertised.discard("FINAL_ANSWER")
     assert advertised == _REPORT_TOOL_REGISTRY_KEYS
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -46,7 +47,9 @@ def _make_provider(content: str | list[str]) -> FakeInferenceProvider:
     else:
         scripted = [InferenceResult(content=c, model="test") for c in content]
     return FakeInferenceProvider(
-        role=ProviderRole.ORCHESTRATOR, model="test", scripted=scripted,
+        role=ProviderRole.ORCHESTRATOR,
+        model="test",
+        scripted=scripted,
     )
 
 
@@ -58,11 +61,7 @@ def _make_provider(content: str | list[str]) -> FakeInferenceProvider:
 class TestParseActionInput:
     def test_basic_extraction(self) -> None:
         """Standard ACTION/INPUT block returns correct tuple."""
-        content = (
-            "THOUGHT: I need consensus data.\n"
-            'ACTION: bracket_summary\n'
-            'INPUT: {"cycle_id": "abc123"}'
-        )
+        content = 'THOUGHT: I need consensus data.\nACTION: bracket_summary\nINPUT: {"cycle_id": "abc123"}'
         action, input_json = _parse_action_input(content)
         assert action == "bracket_summary"
         assert input_json == '{"cycle_id": "abc123"}'
@@ -86,7 +85,7 @@ class TestParseActionInput:
         content = (
             "THOUGHT: I need to look at bracket breakdowns.\n"
             "Some additional reasoning here.\n"
-            'ACTION: bracket_narratives\n'
+            "ACTION: bracket_narratives\n"
             'INPUT: {"cycle_id": "xyz"}'
         )
         action, input_json = _parse_action_input(content)
@@ -137,7 +136,9 @@ class TestReportEngine:
             for i in range(MAX_ITERATIONS + 5)
         ]
         provider = FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR, model="test", scripted=scripted,
+            role=ProviderRole.ORCHESTRATOR,
+            model="test",
+            scripted=scripted,
         )
 
         engine = ReportEngine(
@@ -160,14 +161,18 @@ class TestReportEngine:
         # Scripted with the same response twice to trigger duplicate detection
         scripted = [
             InferenceResult(
-                content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}', model="test",
+                content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}',
+                model="test",
             ),
             InferenceResult(
-                content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}', model="test",
+                content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}',
+                model="test",
             ),
         ]
         provider = FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR, model="test", scripted=scripted,
+            role=ProviderRole.ORCHESTRATOR,
+            model="test",
+            scripted=scripted,
         )
 
         engine = ReportEngine(
@@ -194,11 +199,16 @@ class TestReportAssembler:
 
         assembler = ReportAssembler()
         data = {
-            "buy_count": 50, "sell_count": 30, "hold_count": 17,
-            "parse_error_count": 3, "total": 100,
+            "buy_count": 50,
+            "sell_count": 30,
+            "hold_count": 17,
+            "parse_error_count": 3,
+            "total": 100,
         }
         result = assembler.render_section(
-            "01_consensus_summary.j2", data=data, cycle_id="test-cycle",
+            "01_consensus_summary.j2",
+            data=data,
+            cycle_id="test-cycle",
         )
 
         assert "Consensus Summary" in result
@@ -241,39 +251,50 @@ from alphaswarm.report import ReportAssembler, ToolObservation  # noqa: E402
 _CONSENSUS_OBS = ToolObservation(
     tool_name="bracket_summary",
     tool_input={"cycle_id": "test-html"},
-    result={"buy_count": 50, "sell_count": 30, "hold_count": 17,
-            "parse_error_count": 3, "total": 100},
+    result={"buy_count": 50, "sell_count": 30, "hold_count": 17, "parse_error_count": 3, "total": 100},
 )
 _TIMELINE_OBS = ToolObservation(
     tool_name="round_timeline",
     tool_input={"cycle_id": "test-html"},
     result=[
-        {"round_num": 1, "buy_count": 45, "sell_count": 35, "hold_count": 18,
-         "parse_error_count": 2, "total": 100},
-        {"round_num": 2, "buy_count": 48, "sell_count": 32, "hold_count": 17,
-         "parse_error_count": 3, "total": 100},
-        {"round_num": 3, "buy_count": 50, "sell_count": 30, "hold_count": 17,
-         "parse_error_count": 3, "total": 100},
+        {"round_num": 1, "buy_count": 45, "sell_count": 35, "hold_count": 18, "parse_error_count": 2, "total": 100},
+        {"round_num": 2, "buy_count": 48, "sell_count": 32, "hold_count": 17, "parse_error_count": 3, "total": 100},
+        {"round_num": 3, "buy_count": 50, "sell_count": 30, "hold_count": 17, "parse_error_count": 3, "total": 100},
     ],
 )
 _BRACKET_OBS = ToolObservation(
     tool_name="bracket_narratives",
     tool_input={"cycle_id": "test-html"},
     result=[
-        {"bracket": "quants", "display_name": "Quants", "buy_count": 8, "sell_count": 1,
-         "hold_count": 1, "total": 10, "avg_confidence": 0.85, "avg_sentiment": 0.72,
-         "majority": "BUY"},
-        {"bracket": "degens", "display_name": "Degens", "buy_count": 0, "sell_count": 0,
-         "hold_count": 0, "total": 0, "avg_confidence": 0.0, "avg_sentiment": 0.0,
-         "majority": None},
+        {
+            "bracket": "quants",
+            "display_name": "Quants",
+            "buy_count": 8,
+            "sell_count": 1,
+            "hold_count": 1,
+            "total": 10,
+            "avg_confidence": 0.85,
+            "avg_sentiment": 0.72,
+            "majority": "BUY",
+        },
+        {
+            "bracket": "degens",
+            "display_name": "Degens",
+            "buy_count": 0,
+            "sell_count": 0,
+            "hold_count": 0,
+            "total": 0,
+            "avg_confidence": 0.0,
+            "avg_sentiment": 0.0,
+            "majority": None,
+        },
     ],
 )
 _DISSENTERS_OBS = ToolObservation(
     tool_name="key_dissenters",
     tool_input={"cycle_id": "test-html"},
     result=[
-        {"agent_id": "a1", "name": "Quants 1", "bracket": "quants", "signal": "SELL",
-         "bracket_majority": "BUY"},
+        {"agent_id": "a1", "name": "Quants 1", "bracket": "quants", "signal": "SELL", "bracket_majority": "BUY"},
     ],
 )
 
@@ -485,9 +506,7 @@ def test_shock_impact_template_renders_bracket_delta_table() -> None:
     from alphaswarm.report import ReportAssembler
 
     assembler = ReportAssembler()
-    result = assembler.render_section(
-        "11_shock_impact.j2", data=_SHOCK_IMPACT_DATA, cycle_id="test-cycle"
-    )
+    result = assembler.render_section("11_shock_impact.j2", data=_SHOCK_IMPACT_DATA, cycle_id="test-cycle")
 
     assert "Bracket Signal Shift" in result
     assert "Quants" in result
@@ -499,9 +518,7 @@ def test_shock_impact_template_renders_pivot_list() -> None:
     from alphaswarm.report import ReportAssembler
 
     assembler = ReportAssembler()
-    result = assembler.render_section(
-        "11_shock_impact.j2", data=_SHOCK_IMPACT_DATA, cycle_id="test-cycle"
-    )
+    result = assembler.render_section("11_shock_impact.j2", data=_SHOCK_IMPACT_DATA, cycle_id="test-cycle")
 
     assert "Agent Pivot List" in result
     assert "a01" in result
@@ -510,11 +527,14 @@ def test_shock_impact_template_renders_pivot_list() -> None:
 
 def test_shock_template_shows_pre_dominant_per_bracket() -> None:
     md = ReportAssembler().render_section(
-        "11_shock_impact.j2", data=_SHOCK_IMPACT_DATA, cycle_id="c",
+        "11_shock_impact.j2",
+        data=_SHOCK_IMPACT_DATA,
+        cycle_id="c",
     )
     assert "| Degens | HOLD | BUY | ▲ | 50.0% |" in md
     assert "| Pivot Rate | 50.0% |" in md
     assert "**Swarm Majority:** BUY → SELL" in md
+
 
 class TestReportFilters:
     def test_md_cell_escapes_pipes_and_collapses_whitespace(self) -> None:
@@ -561,7 +581,9 @@ class TestReportFilters:
 
 def test_consensus_template_has_parse_error_row_and_shares_sum_to_100() -> None:
     md = ReportAssembler().render_section(
-        "01_consensus_summary.j2", data=_CONSENSUS_OBS.result, cycle_id="test-cycle",
+        "01_consensus_summary.j2",
+        data=_CONSENSUS_OBS.result,
+        cycle_id="test-cycle",
     )
     assert "| PARSE_ERROR | 3 | 3.0% |" in md
     assert "| BUY | 50 | 50.0% |" in md
@@ -570,7 +592,9 @@ def test_consensus_template_has_parse_error_row_and_shares_sum_to_100() -> None:
 
 def test_round_timeline_template_has_parse_error_column() -> None:
     md = ReportAssembler().render_section(
-        "02_round_timeline.j2", data=_TIMELINE_OBS.result, cycle_id="test-cycle",
+        "02_round_timeline.j2",
+        data=_TIMELINE_OBS.result,
+        cycle_id="test-cycle",
     )
     assert "| Round | BUY | SELL | HOLD | PARSE_ERROR | Total |" in md
     assert "| 2 | 48 | 32 | 17 | 3 | 100 |" in md
@@ -578,7 +602,9 @@ def test_round_timeline_template_has_parse_error_column() -> None:
 
 def test_bracket_template_shows_display_name_total_and_dash_for_no_majority() -> None:
     md = ReportAssembler().render_section(
-        "03_bracket_narratives.j2", data=_BRACKET_OBS.result, cycle_id="c",
+        "03_bracket_narratives.j2",
+        data=_BRACKET_OBS.result,
+        cycle_id="c",
     )
     assert "| Quants | 8 | 1 | 1 | 10 | BUY | 0.85 | 0.72 |" in md
     assert "| Degens | 0 | 0 | 0 | 0 | — | 0.00 | 0.00 |" in md
@@ -590,23 +616,48 @@ def test_dissenters_template_empty_state() -> None:
 
 
 def test_influence_template_shows_citations_and_share_percent() -> None:
-    rows = [{"agent_id": "sell_side_01", "name": "Sell-Side 1", "bracket": "sell_side",
-             "citation_count": 2, "influence_share": 0.5}]
+    rows = [
+        {
+            "agent_id": "sell_side_01",
+            "name": "Sell-Side 1",
+            "bracket": "sell_side",
+            "citation_count": 2,
+            "influence_share": 0.5,
+        }
+    ]
     md = ReportAssembler().render_section("05_influence_leaders.j2", data=rows, cycle_id="c")
     assert "| Rank | Agent | Bracket | Citations | Influence Share |" in md
     assert "| 1 | sell_side_01 | sell_side | 2 | 50.0% |" in md
 
 
 def test_entity_impact_template_reads_contract_keys() -> None:
-    rows = [{"entity_name": "ZZZT Holdings", "entity_type": "company", "avg_sentiment": 0.4,
-             "mention_count": 3, "buy_mentions": 2, "sell_mentions": 1, "hold_mentions": 0}]
+    rows = [
+        {
+            "entity_name": "ZZZT Holdings",
+            "entity_type": "company",
+            "avg_sentiment": 0.4,
+            "mention_count": 3,
+            "buy_mentions": 2,
+            "sell_mentions": 1,
+            "hold_mentions": 0,
+        }
+    ]
     md = ReportAssembler().render_section("07_entity_impact.j2", data=rows, cycle_id="c")
     assert "| ZZZT Holdings | company | 0.40 | 3 | 2 | 1 | 0 |" in md
 
 
 def test_entity_impact_template_escapes_pipes_and_newlines() -> None:
-    rows = [{"entity_name": "ZZZT | QQQX\nJV", "entity_type": "company", "avg_sentiment": 0.0,
-             "mention_count": 1, "buy_mentions": 1, "sell_mentions": 0, "hold_mentions": 0}]
+    rows = [
+        {
+            "entity_name": "ZZZT | QQQX\nJV",
+            "entity_type": "company",
+            "avg_sentiment": 0.0,
+            "mention_count": 1,
+            "buy_mentions": 1,
+            "sell_mentions": 0,
+            "hold_mentions": 0,
+        }
+    ]
     md = ReportAssembler().render_section("07_entity_impact.j2", data=rows, cycle_id="c")
     row = next(line for line in md.splitlines() if line.startswith("| ZZZT"))
     assert row == "| ZZZT \\| QQQX JV | company | 0.00 | 1 | 1 | 0 | 0 |"
@@ -627,8 +678,7 @@ def test_social_post_reach_template_reads_query_keys() -> None:
     md = ReportAssembler().render_section("08_social_post_reach.j2", data=[row], cycle_id="c")
     table_row = next(line for line in md.splitlines() if line.startswith("| 1 |"))
     assert table_row == (
-        "| 1 | Quants 1 | quants | buy | 1 | 12 | "
-        "ZZZT Holdings \\| QQQX Robotics fictional deal chatter |"
+        "| 1 | Quants 1 | quants | buy | 1 | 12 | ZZZT Holdings \\| QQQX Robotics fictional deal chatter |"
     )
 
 
@@ -640,8 +690,14 @@ def test_signal_flip_template_empty_state() -> None:
 def test_strict_undefined_raises_on_missing_row_key() -> None:
     from jinja2.exceptions import UndefinedError
 
-    row = {"entity_name": "ZZZT Holdings", "avg_sentiment": 0.4, "mention_count": 2,
-           "buy_mentions": 1, "sell_mentions": 1, "hold_mentions": 0}  # entity_type missing
+    row = {
+        "entity_name": "ZZZT Holdings",
+        "avg_sentiment": 0.4,
+        "mention_count": 2,
+        "buy_mentions": 1,
+        "sell_mentions": 1,
+        "hold_mentions": 0,
+    }  # entity_type missing
     with pytest.raises(UndefinedError, match="entity_type"):
         ReportAssembler().render_section("07_entity_impact.j2", data=[row], cycle_id="c")
 

@@ -1,0 +1,44 @@
+name: Nightly live tests
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-live
+  cancel-in-progress: false
+
+jobs:
+  live-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Live network tests (Yahoo, Google News; cloud smoke skips without keys)
+        shell: bash
+        run: uv run pytest -q -rxXs --run-live -m live_network | tee pytest-live.txt
+
+      - name: Job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Nightly live tests"
+            echo '```'
+            tail -n 40 pytest-live.txt || echo "no output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

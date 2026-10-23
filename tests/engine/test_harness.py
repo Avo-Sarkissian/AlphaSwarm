@@ -99,18 +99,12 @@ async def test_influence_stand_in_counts_distinct_pairs_without_self_citations(
 ) -> None:
     await _record_citations(fake_graph)
     # Like the real query: DISTINCT (author, cited) pairs across rounds, self-citations dropped.
-    assert influence_weights_from_writes(fake_graph, up_to_round=2, total_agents=4) == {
-        "sell_side_01": 0.25
-    }
-    assert influence_weights_from_writes(fake_graph, up_to_round=3, total_agents=4) == {
-        "sell_side_01": 0.5
-    }
+    assert influence_weights_from_writes(fake_graph, up_to_round=2, total_agents=4) == {"sell_side_01": 0.25}
+    assert influence_weights_from_writes(fake_graph, up_to_round=3, total_agents=4) == {"sell_side_01": 0.5}
 
 
 @pytest.mark.parametrize("total_agents", [4, 0])
-async def test_influence_stand_in_matches_compute_influence_edges(
-    fake_graph: MagicMock, total_agents: int
-) -> None:
+async def test_influence_stand_in_matches_compute_influence_edges(fake_graph: MagicMock, total_agents: int) -> None:
     """Given the pairs its query returns for the same writes, the real method agrees with the
     stand-in, the zero-agent guard included. When compute_influence_edges changes, so must the
     stand-in."""

@@ -299,9 +299,7 @@ async def test_entity_impact_counts_each_decision_once_for_the_cycles_own_entiti
     graph_manager_test: GraphStateManager,
 ) -> None:
     zzzt = SeedEntity(name="ZZZT Holdings", type=EntityType.COMPANY, relevance=0.9, sentiment=0.6)
-    zzzt_sector = SeedEntity(
-        name="ZZZT Holdings", type=EntityType.SECTOR, relevance=0.5, sentiment=0.2
-    )
+    zzzt_sector = SeedEntity(name="ZZZT Holdings", type=EntityType.SECTOR, relevance=0.5, sentiment=0.2)
     # Another cycle MENTIONS a same-name entity of another type. It is written first,
     # so the name-matched REFERENCES of the cycle under test reach it as well.
     other_id = await write_mini_cycle(
@@ -327,15 +325,13 @@ async def test_entity_impact_counts_each_decision_once_for_the_cycles_own_entiti
     # of one entity, and REFERENCES to an entity this cycle never MENTIONS.
     mentions = await cypher(
         graph_manager_test,
-        "MATCH (:Cycle {cycle_id: $cid})-[m:MENTIONS]->(e:Entity) "
-        "RETURN e.type AS type, count(m) AS n",
+        "MATCH (:Cycle {cycle_id: $cid})-[m:MENTIONS]->(e:Entity) RETURN e.type AS type, count(m) AS n",
         cid=cycle_id,
     )
     assert mentions == [{"type": "company", "n": 2}]
     stray = await cypher(
         graph_manager_test,
-        "MATCH (d:Decision {cycle_id: $cid})-[:REFERENCES]->(:Entity {type: 'sector'}) "
-        "RETURN count(DISTINCT d) AS n",
+        "MATCH (d:Decision {cycle_id: $cid})-[:REFERENCES]->(:Entity {type: 'sector'}) RETURN count(DISTINCT d) AS n",
         cid=cycle_id,
     )
     assert stray == [{"n": 3}]

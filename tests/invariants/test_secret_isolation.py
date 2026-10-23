@@ -149,9 +149,7 @@ def _capture_buf() -> io.StringIO:
     return buf
 
 
-def _redact_mapping_processor(
-    logger: Any, method_name: str, event_dict: Any
-) -> Any:
+def _redact_mapping_processor(logger: Any, method_name: str, event_dict: Any) -> Any:
     """Thin shim: calls _redact_mapping directly so we can unit-test it."""
     return _redact_mapping(dict(event_dict), depth=0, seen=set())
 
@@ -162,9 +160,7 @@ def test_top_level_api_key_redacted_in_logs() -> None:
     result = _redact_mapping(event, depth=0, seen=set())
     result_str = json.dumps(result)
 
-    assert SNTL_API_KEY_DONOTLOG_0000 not in result_str, (
-        f"Sentinel leaked at top level. Result: {result_str}"
-    )
+    assert SNTL_API_KEY_DONOTLOG_0000 not in result_str, f"Sentinel leaked at top level. Result: {result_str}"
     assert "[REDACTED]" in result_str, "Expected [REDACTED] in result"
 
 
@@ -182,9 +178,7 @@ def test_nested_role_api_key_redacted_in_logs() -> None:
     result = _redact_mapping(event, depth=0, seen=set())
     result_str = json.dumps(result)
 
-    assert SNTL_API_KEY_DONOTLOG_0000 not in result_str, (
-        f"Sentinel leaked in nested config. Result: {result_str}"
-    )
+    assert SNTL_API_KEY_DONOTLOG_0000 not in result_str, f"Sentinel leaked in nested config. Result: {result_str}"
     assert "[REDACTED]" in result_str, "Expected [REDACTED] in result"
 
 
@@ -239,15 +233,12 @@ def test_sentinel_absent_from_get_settings_response() -> None:
     """GET /api/settings must NOT expose the raw sentinel API key."""
     from fastapi.testclient import TestClient
 
-    with _mock_load_cfg(_SENTINEL_INFERENCE_CFG), _mock_ollama_list(), \
-            TestClient(_make_settings_test_app()) as client:
+    with _mock_load_cfg(_SENTINEL_INFERENCE_CFG), _mock_ollama_list(), TestClient(_make_settings_test_app()) as client:
         r = client.get("/api/settings")
 
     assert r.status_code == 200
     raw = json.dumps(r.json())
-    assert SNTL_API_KEY_DONOTLOG_0000 not in raw, (
-        f"Sentinel API key leaked into GET /api/settings response:\n{raw}"
-    )
+    assert SNTL_API_KEY_DONOTLOG_0000 not in raw, f"Sentinel API key leaked into GET /api/settings response:\n{raw}"
 
     # Mask shape is present
     orch_key = r.json()["config"]["orchestrator"]["api_key"]
@@ -271,8 +262,6 @@ def test_masked_config_contains_no_sentinel() -> None:
     result = masked_config(_SENTINEL_INFERENCE_CFG)
     serialized = json.dumps(result)
 
-    assert SNTL_API_KEY_DONOTLOG_0000 not in serialized, (
-        f"Sentinel leaked through masked_config:\n{serialized}"
-    )
+    assert SNTL_API_KEY_DONOTLOG_0000 not in serialized, f"Sentinel leaked through masked_config:\n{serialized}"
     assert result["orchestrator"]["api_key"]["set"] is True
     assert result["worker"]["api_key"]["set"] is True

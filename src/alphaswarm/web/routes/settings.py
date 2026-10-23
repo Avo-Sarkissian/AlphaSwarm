@@ -44,8 +44,8 @@ router = APIRouter()
 
 # Representative average token counts for a single agent inference call.
 # These are deliberately rough; the real distribution varies by model+prompt.
-_AVG_IN_TOKENS: int = 1500   # typical prompt (persona + rumor + context)
-_AVG_OUT_TOKENS: int = 250   # typical structured-JSON completion
+_AVG_IN_TOKENS: int = 1500  # typical prompt (persona + rumor + context)
+_AVG_OUT_TOKENS: int = 250  # typical structured-JSON completion
 
 # Non-authoritative convenience list of well-known cloud model IDs for the
 # settings UI dropdown. Users can type any id — these are illustrative only.
@@ -58,9 +58,7 @@ _EXTRA_KNOWN_API_MODELS: list[str] = [
 ]
 
 # Deduplicated ordered list: DEFAULT_PRICING keys first, then any extras
-_KNOWN_API_MODELS: list[str] = list(
-    dict.fromkeys(list(DEFAULT_PRICING.keys()) + _EXTRA_KNOWN_API_MODELS)
-)
+_KNOWN_API_MODELS: list[str] = list(dict.fromkeys(list(DEFAULT_PRICING.keys()) + _EXTRA_KNOWN_API_MODELS))
 
 # ---------------------------------------------------------------------------
 # Provider presets
@@ -242,7 +240,7 @@ class EstimateResponse(BaseModel):
     """Response body for GET /api/settings/estimate."""
 
     calls: int
-    low_usd: str   # Decimal serialized as string for JSON safety
+    low_usd: str  # Decimal serialized as string for JSON safety
     high_usd: str
     mode: Literal["local", "cloud", "mixed"]
 
@@ -299,12 +297,8 @@ def _merge_role(
     # does not falsely drop a still-valid key, while a real endpoint switch
     # (openai_compatible A → B) still does.
     incoming_base_url = incoming.get("base_url")
-    base_url_changed = (
-        incoming_base_url is not None and incoming_base_url != stored_role.base_url
-    )
-    vendor_changed = (
-        str(effective_provider) != str(stored_role.provider) or base_url_changed
-    )
+    base_url_changed = incoming_base_url is not None and incoming_base_url != stored_role.base_url
+    vendor_changed = str(effective_provider) != str(stored_role.provider) or base_url_changed
     if stripped:
         effective_key = stripped
     elif vendor_changed:
@@ -386,7 +380,9 @@ async def put_settings(body: SettingsUpdateRequest, request: Request) -> Setting
     app_state = request.app.state.app_state
     if request.app.state.sim_manager.is_running:
         raise ApiError(
-            409, "simulation_running", "Cannot update settings while a simulation is running.",
+            409,
+            "simulation_running",
+            "Cannot update settings while a simulation is running.",
         )
     stored = await load_inference_config_or_422(app_state)
     merged: dict[str, Any] = stored.model_dump()
@@ -399,7 +395,8 @@ async def put_settings(body: SettingsUpdateRequest, request: Request) -> Setting
             continue
         try:
             merged[name] = _merge_role(
-                stored_role, update.model_dump(exclude_unset=True, mode="json"),
+                stored_role,
+                update.model_dump(exclude_unset=True, mode="json"),
             ).model_dump()
         except ValidationError as exc:
             raise _settings_validation_error(exc, "body", name) from exc
@@ -408,9 +405,7 @@ async def put_settings(body: SettingsUpdateRequest, request: Request) -> Setting
     if "spend_cap_usd" in body.model_fields_set:
         merged["spend_cap_usd"] = body.spend_cap_usd
     if body.pricing_overrides is not None:
-        merged["pricing_overrides"] = {
-            model: price.model_dump() for model, price in body.pricing_overrides.items()
-        }
+        merged["pricing_overrides"] = {model: price.model_dump() for model, price in body.pricing_overrides.items()}
     if body.allow_cloud_advisory is not None:
         merged["allow_cloud_advisory"] = body.allow_cloud_advisory
     try:
@@ -461,9 +456,7 @@ async def test_connection(
         role_cfg: RoleConfig = cfg.orchestrator if body.role == "orchestrator" else cfg.worker
 
         # Build a single provider for the requested role
-        provider_role = (
-            ProviderRole.ORCHESTRATOR if body.role == "orchestrator" else ProviderRole.WORKER
-        )
+        provider_role = ProviderRole.ORCHESTRATOR if body.role == "orchestrator" else ProviderRole.WORKER
         meter = BudgetMeter(cap_usd=None, pricing=dict(DEFAULT_PRICING))
 
         provider = _build_single_provider(

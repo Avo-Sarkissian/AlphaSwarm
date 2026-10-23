@@ -160,7 +160,8 @@ def test_post_409_when_a_run_starts_during_the_holdings_read(tmp_path: Path) -> 
     app = _app(tmp_path, portfolio=_portfolio())
     with TestClient(app) as client:
         app.state.portfolio_cache = _RunStartsDuringHoldingsRead(
-            _portfolio(), app.state.sim_manager,
+            _portfolio(),
+            app.state.sim_manager,
         )
         r = client.post(f"/api/advisory/{CYCLE_A}")
         assert r.status_code == 409
@@ -181,15 +182,19 @@ def _cloud_app(tmp_path: Path, *, opt_in: bool, portfolio: object | None) -> Fas
     settings = route_test_settings(tmp_path)
     cloud = InferenceConfig(
         orchestrator=RoleConfig(
-            provider=ProviderType.ANTHROPIC, model="claude-test", api_key="sk-x",
+            provider=ProviderType.ANTHROPIC,
+            model="claude-test",
+            api_key="sk-x",
         ),
         worker=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker"),
         allow_cloud_advisory=opt_in,
     )
     save_inference_config(cloud, settings.inference_config_path)
     return make_route_app(
-        advisory_router, settings=settings,
-        graph=FakeCycleGraph({CYCLE_A: "complete"}), portfolio=portfolio,
+        advisory_router,
+        settings=settings,
+        graph=FakeCycleGraph({CYCLE_A: "complete"}),
+        portfolio=portfolio,
     )
 
 
@@ -221,8 +226,10 @@ def test_unreadable_inference_config_fails_closed_without_path(tmp_path: Path) -
     settings = route_test_settings(tmp_path)
     settings.inference_config_path.write_text("{not json", encoding="utf-8")
     app = make_route_app(
-        advisory_router, settings=settings,
-        graph=FakeCycleGraph({CYCLE_A: "complete"}), portfolio=_portfolio(),
+        advisory_router,
+        settings=settings,
+        graph=FakeCycleGraph({CYCLE_A: "complete"}),
+        portfolio=_portfolio(),
     )
     with TestClient(app) as client:
         r = client.post(f"/api/advisory/{CYCLE_A}")
@@ -261,7 +268,8 @@ def test_malformed_ids_are_422(tmp_path: Path, bad: str) -> None:
 
 
 def test_get_200_reads_from_settings_dir_not_cwd(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (tmp_path / "advisory").mkdir()
     stored = _stored_report()
@@ -278,9 +286,7 @@ def test_get_200_reads_from_settings_dir_not_cwd(
 def test_get_404_500_and_409(tmp_path: Path) -> None:
     app = _app(tmp_path)
     with TestClient(app) as client:
-        assert client.get(f"/api/advisory/{CYCLE_A}").json()["detail"]["error"] == (
-            "advisory_not_found"
-        )
+        assert client.get(f"/api/advisory/{CYCLE_A}").json()["detail"]["error"] == ("advisory_not_found")
         app.state.advisory_generation_error = {
             CYCLE_A: {
                 "error": "advisory_generation_failed",
@@ -313,7 +319,9 @@ async def test_done_callback_failure_records_class_name_only() -> None:
         "message": "Advisory generation failed (ValueError)",
     }
     assert app.state.app_state.state_store.job_statuses().advisory == JobStatus(
-        "failed", CYCLE_A, "advisory_generation_failed",
+        "failed",
+        CYCLE_A,
+        "advisory_generation_failed",
     )
 
 
@@ -339,7 +347,8 @@ class _FakeReport:
 
 
 async def test_synthesis_writes_atomically_into_advisory_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = _FakeProvider()
     built = BuiltProviders(
@@ -357,7 +366,8 @@ async def test_synthesis_writes_atomically_into_advisory_dir(
     monkeypatch.setattr(advisory_module, "synthesize", _synthesize)
     # The job asks the shared client for its host and whether the model runs remotely.
     client = SimpleNamespace(
-        base_url="http://127.0.0.1:11434", is_remote_model=AsyncMock(return_value=False),
+        base_url="http://127.0.0.1:11434",
+        is_remote_model=AsyncMock(return_value=False),
     )
     app_state = SimpleNamespace(
         settings=route_test_settings(tmp_path),
@@ -374,7 +384,8 @@ async def test_synthesis_writes_atomically_into_advisory_dir(
 
 
 async def test_synthesis_fails_with_a_fixed_error_on_an_invalid_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The config error's text quotes raw values, keys included, so the job logs only
     its type and raises a fixed InferenceConfigError from None."""
@@ -389,10 +400,14 @@ async def test_synthesis_fails_with_a_fixed_error_on_an_invalid_config(
     monkeypatch.setattr(advisory_module, "log", rendered)
     monkeypatch.setattr(guards_module, "log", rendered, raising=False)
     client = SimpleNamespace(
-        base_url="http://127.0.0.1:11434", is_remote_model=AsyncMock(return_value=False),
+        base_url="http://127.0.0.1:11434",
+        is_remote_model=AsyncMock(return_value=False),
     )
     app_state = SimpleNamespace(
-        settings=settings, graph_manager=object(), ollama_client=client, model_manager=object(),
+        settings=settings,
+        graph_manager=object(),
+        ollama_client=client,
+        model_manager=object(),
     )
     with pytest.raises(InferenceConfigError) as exc_info:
         await _REAL_SYNTHESIS(app_state, CYCLE_A, _portfolio())  # type: ignore[arg-type]
@@ -414,8 +429,10 @@ def _ollama_cfg_app(tmp_path: Path, model: str, *, opt_in: bool) -> FastAPI:
     cfg = InferenceConfig(orchestrator=role, worker=role, allow_cloud_advisory=opt_in)
     save_inference_config(cfg, settings.inference_config_path)
     return make_route_app(
-        advisory_router, settings=settings,
-        graph=FakeCycleGraph({CYCLE_A: "complete"}), portfolio=_portfolio(),
+        advisory_router,
+        settings=settings,
+        graph=FakeCycleGraph({CYCLE_A: "complete"}),
+        portfolio=_portfolio(),
     )
 
 
@@ -431,7 +448,10 @@ def _ollama_cfg_app(tmp_path: Path, model: str, *, opt_in: bool) -> FastAPI:
 )
 @pytest.mark.parametrize("opt_in", [False, True], ids=["no-opt-in", "opted-in"])
 def test_a_cloud_or_remote_ollama_orchestrator_needs_the_opt_in(
-    tmp_path: Path, model: str, ollama_host: str, opt_in: bool,
+    tmp_path: Path,
+    model: str,
+    ollama_host: str,
+    opt_in: bool,
 ) -> None:
     """The guard reads the host the shared OllamaClient really connects to."""
     app = _ollama_cfg_app(tmp_path, model, opt_in=opt_in)
@@ -458,7 +478,8 @@ def test_no_ollama_client_fails_closed(tmp_path: Path) -> None:
 
 
 def test_a_permission_denied_config_fails_closed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _denied(_settings: Any) -> InferenceConfig:
         raise PermissionError("permission denied")
@@ -503,13 +524,13 @@ async def test_a_refused_job_keeps_its_own_fixed_message() -> None:
         "message": advisory_module._MODEL_CHECK_FAILED_MESSAGE,
     }
     assert app.state.app_state.state_store.job_statuses().advisory == JobStatus(
-        "failed", CYCLE_A, "cloud_advisory_disabled",
+        "failed",
+        CYCLE_A,
+        "cloud_advisory_disabled",
     )
 
 
-@pytest.mark.parametrize(
-    "content", _unreadable_contents(), ids=["older-shape", "not-json", "extra-field"]
-)
+@pytest.mark.parametrize("content", _unreadable_contents(), ids=["older-shape", "not-json", "extra-field"])
 def test_get_500_when_the_stored_advisory_is_unreadable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str
 ) -> None:
@@ -532,8 +553,6 @@ def test_get_500_when_the_stored_advisory_is_unreadable(
 def test_openapi_declares_the_advisory_report_response(tmp_path: Path) -> None:
     schema = _app(tmp_path).openapi()
     ok = schema["paths"]["/api/advisory/{cycle_id}"]["get"]["responses"]["200"]
-    assert ok["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/AdvisoryReport"
-    }
+    assert ok["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/AdvisoryReport"}
     declared = schema["components"]["schemas"]["AdvisoryReport"]["properties"]
     assert set(declared) == set(AdvisoryReport.model_fields)

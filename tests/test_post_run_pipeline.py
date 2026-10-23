@@ -122,9 +122,7 @@ async def test_gate_failure_counts_as_failed_advisory(recorder: MagicMock) -> No
 
 
 async def test_busy_slots_are_skipped(recorder: MagicMock) -> None:
-    jobs = FakeJobs(
-        advisory_exc=PostRunJobBusyError("advisory"), report_exc=PostRunJobBusyError("report")
-    )
+    jobs = FakeJobs(advisory_exc=PostRunJobBusyError("advisory"), report_exc=PostRunJobBusyError("report"))
     outcome = await PostRunPipeline(jobs=jobs).on_complete(CYCLE)
     assert (outcome.advisory, outcome.report) == ("skipped_busy", "skipped_busy")
 

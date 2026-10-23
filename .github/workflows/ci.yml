@@ -5,6 +5,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,6 +30,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: ruff check
+        run: uv run ruff check src tests
+
+      - name: ruff format
+        run: uv run ruff format --check src tests
+
       - name: mypy (strict; modules in [[tool.mypy.overrides]] exempt)
         run: uv run mypy src
 
@@ -38,7 +45,7 @@ jobs:
       - name: vulture (dead code)
         run: uv run vulture src vulture_whitelist.py --min-confidence 80
 
-  backend:
+  backend-unit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -54,9 +61,29 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      # Neo4j-marked tests run in backend-neo4j against a service container.
-      - name: Run pytest
-        run: uv run pytest -q -rxX -m "not neo4j"
+      # Neo4j-marked tests run in backend-neo4j; live_network tests run in nightly.yml;
+      # ollama tests need a local Ollama server and stay out of CI.
+      - name: Offline tests with coverage gate
+        shell: bash
+        run: >-
+          uv run pytest -q -rxX -m "not neo4j and not live_network and not ollama"
+          --cov=alphaswarm --cov-branch --cov-report=term-missing:skip-covered
+          --cov-fail-under=85 | tee pytest-unit.txt
+
+      - name: Job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Backend (offline)"
+            echo
+            uv run coverage report --format=markdown || echo "no coverage data"
+            echo
+            echo "### xfail / xpass"
+            echo '```'
+            grep -E '^(XFAIL|XPASS)' pytest-unit.txt || echo "none"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   backend-neo4j:
     runs-on: ubuntu-latest
@@ -89,7 +116,26 @@ jobs:
 
       # --require-neo4j turns an unreachable database into a failure, not a skip.
       - name: Read models, report templates and write paths against neo4j-test
-        run: uv run pytest -q -rxX -m neo4j --require-neo4j
+        shell: bash
+        run: >-
+          uv run pytest -q -rxX -m neo4j --require-neo4j
+          --cov=alphaswarm --cov-branch --cov-report= | tee pytest-neo4j.txt
+
+      - name: Job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Backend (neo4j-test)"
+            echo
+            uv run coverage report --format=markdown \
+              --include='src/alphaswarm/graph.py,src/alphaswarm/report.py' || echo "no coverage data"
+            echo
+            echo "### xfail / xpass"
+            echo '```'
+            grep -E '^(XFAIL|XPASS)' pytest-neo4j.txt || echo "none"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   frontend:
     runs-on: ubuntu-latest
@@ -103,21 +149,21 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: frontend/.nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check
-        run: npx tsc -b --noEmit
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Lint (ESLint)
         run: npm run lint
 
-      - name: Wire-contract tests
+      - name: Unit tests
         run: npx vitest run
 
-      - name: Build
+      - name: Type check and build
         run: npm run build
