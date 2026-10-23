@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import json
+from typing import Literal
 
 import structlog
 from pydantic import ValidationError
@@ -22,6 +23,7 @@ from alphaswarm.prompts.modifiers import truncate_modifier
 from alphaswarm.types import (
     AgentDecision,
     BracketType,
+    ErrorKind,
     ParsedModifiersResult,
     ParsedSeedResult,
     SeedEntity,
@@ -32,17 +34,18 @@ from alphaswarm.types import (
 logger = structlog.get_logger(component="parsing")
 
 
-def _engine_fields(decision: AgentDecision) -> AgentDecision:
-    """Make ``error_kind`` engine-owned: ``"parse"`` for a parse-error signal, else None.
+def _engine_fields(decision: AgentDecision, tier: Literal[1, 2]) -> AgentDecision:
+    """Make ``error_kind`` and ``parse_tier`` engine-owned.
 
-    The model may echo an ``error_kind`` key or answer ``"signal": "parse_error"``;
-    neither may masquerade as an engine classification
+    A parse-error signal is classified ``("parse", 3)`` whatever the model echoed;
+    any other decision carries the tier it was parsed at and no error kind
     (docs/DECISIONS.md#adr-structured-output).
     """
-    wanted = "parse" if decision.signal is SignalType.PARSE_ERROR else None
-    if decision.error_kind == wanted:
+    wanted_kind: ErrorKind | None = "parse" if decision.signal is SignalType.PARSE_ERROR else None
+    wanted_tier: Literal[1, 2, 3] = 3 if wanted_kind == "parse" else tier
+    if decision.error_kind == wanted_kind and decision.parse_tier == wanted_tier:
         return decision
-    return decision.model_copy(update={"error_kind": wanted})
+    return decision.model_copy(update={"error_kind": wanted_kind, "parse_tier": wanted_tier})
 
 
 def parse_agent_decision(raw: str) -> AgentDecision:
@@ -63,7 +66,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
     try:
         result = AgentDecision.model_validate_json(raw)
         logger.debug("parse succeeded", parse_tier=1, signal=result.signal.value)
-        return _engine_fields(result)
+        return _engine_fields(result, 1)
     except (ValidationError, ValueError):
         pass
 
@@ -78,7 +81,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
             parse_tier=2,
             signal=result.signal.value,
         )
-        return _engine_fields(result)
+        return _engine_fields(result, 2)
     except (ValidationError, ValueError):
         pass
 
@@ -91,7 +94,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
                 parse_tier=2,
                 signal=result.signal.value,
             )
-            return _engine_fields(result)
+            return _engine_fields(result, 2)
         except (ValidationError, ValueError):
             pass
 
@@ -105,21 +108,18 @@ def parse_agent_decision(raw: str) -> AgentDecision:
                     parse_tier=2,
                     signal=result.signal.value,
                 )
-                return _engine_fields(result)
+                return _engine_fields(result, 2)
             except (ValidationError, ValueError):
                 pass
 
-    # Tier 3: PARSE_ERROR fallback
-    logger.debug(
-        "parse failed at all tiers",
-        parse_tier=3,
-        raw_preview=raw[:500],
-    )
+    # Tier 3: PARSE_ERROR fallback, at WARNING so failures are visible
+    logger.warning("decision_parse_failed", parse_tier=3, raw_preview=raw[:200])
     return AgentDecision(
         signal=SignalType.PARSE_ERROR,
         confidence=0.0,
         rationale=f"Parse failed: {raw[:200]}",
         error_kind="parse",
+        parse_tier=3,
     )
 
 

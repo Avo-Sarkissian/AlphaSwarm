@@ -234,6 +234,9 @@ class AgentDecision(BaseModel, frozen=True):
     cited_agents: list[str] = Field(default_factory=list)
     # Never part of the LLM-facing schema; set by the parser or the dispatcher.
     error_kind: ErrorKind | None = None
+    # Engine-owned like error_kind (docs/DECISIONS.md#adr-structured-output): 1 direct
+    # JSON, 2 extracted, 3 parser fallback; None when the parser did not produce the decision.
+    parse_tier: Literal[1, 2, 3] | None = None
 
     @field_validator("signal", mode="before")
     @classmethod
