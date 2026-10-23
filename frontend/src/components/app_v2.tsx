@@ -84,6 +84,7 @@ interface TooltipInfo {
 }
 
 function Tooltip({ info }: { info: TooltipInfo | null }) {
+  const { finalRound } = useRounds();
   if (!info) return null;
   const { agent, x, y } = info;
   return (
@@ -91,7 +92,7 @@ function Tooltip({ info }: { info: TooltipInfo | null }) {
       <div className="t-head">{agent.id} <span style={{color:'var(--text-3)', fontSize:10}}>· {agent.bracketDisplay}</span></div>
       <div className="t-row"><span>Signal</span><strong className={signalClass(agent.signal)} style={{padding:'1px 5px'}}>{signalLabel(agent.signal)}</strong></div>
       <div className="t-row"><span>Confidence</span><strong>{(agent.confidence*100).toFixed(0)}%</strong></div>
-      <div className="t-row"><span>Flipped R1→R3</span><strong>{agent.flipped ? 'Yes' : 'No'}</strong></div>
+      <div className="t-row"><span>Flipped R1→R{finalRound}</span><strong>{agent.flipped ? 'Yes' : 'No'}</strong></div>
       <div style={{marginTop:6, fontSize:10, color:'var(--text-3)'}}>Click to interview →</div>
     </div>
   );
@@ -345,7 +346,7 @@ export function App() {
 
   // Round on screen from the frame (useRound), never parsed from the phase
   // string, so replay and 2-round runs label correctly (lib/phase.ts).
-  const { numRounds } = useRounds();
+  const { numRounds, rounds } = useRounds();
   const currentRound = useRound();
   const round = currentRound ?? 1;
   const phaseLabel = phaseLabelFor(phase, currentRound, numRounds);
@@ -576,7 +577,7 @@ export function App() {
         <div className="col col-center">
           <div className="canvas-topstrip">
             <div className="round-tabs">
-              {[1,2,3].map(r => (
+              {rounds.map(r => (
                 <button key={r} className="round-tab" data-active={round === r && phase !== 'complete'}>R{r}</button>
               ))}
               <button className="round-tab" data-active={phase === 'complete'}>FINAL</button>
@@ -635,6 +636,7 @@ export function App() {
             slotsMax={slotsMax}
             elapsed={Math.round(elapsedSeconds)}
             round={round}
+            numRounds={numRounds}
           />
         </div>
 

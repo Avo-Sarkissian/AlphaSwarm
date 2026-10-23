@@ -75,7 +75,7 @@ export function RationaleFeed({ rationales, onAgentClick, onCiteClick }) {
   );
 }
 
-export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round }) {
+export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round, numRounds }) {
   // Pending (null) and failed (parse_error) agents are never HOLD; the share is
   // over decided agents only (docs/DECISIONS.md#adr-streaming-state).
   const tally = tallySignals(agents);
@@ -121,9 +121,9 @@ export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round }) 
         <div className="kpi-bar"><span style={{ width: `${slots/slotCap*100}%` }} /></div>
       </div>
       <div className="kpi">
-        <span className="kpi-label">Elapsed · R{round}/3</span>
+        <span className="kpi-label">Elapsed · R{round}/{numRounds}</span>
         <span className="kpi-value">{fmt(elapsed)}</span>
-        <div className="kpi-bar"><span style={{ width: `${(round/3)*100}%` }} /></div>
+        <div className="kpi-bar"><span style={{ width: `${(round/numRounds)*100}%` }} /></div>
       </div>
     </div>
   );

@@ -30,6 +30,7 @@ import { useConnection } from '../context/ConnectionContext';
 import { useAgents } from '../context/AgentsContext';
 import { useFrameMeta } from '../context/FrameMetaContext';
 import { useLatestCompletedCycle } from '../hooks/useLatestCompletedCycle';
+import { useRounds } from '../hooks/useRounds';
 import { defaultCycleId } from '../lib/defaultCycle';
 import { usePolling } from '../hooks/usePolling';
 import { useDataSourceAudit } from '../hooks/useDataSourceAudit';
@@ -346,9 +347,9 @@ export function ModelStatus() {
   const phase = tel.phase;
   const tps = tel.telemetry.tps ?? 0;
   const slots = tel.telemetry.slotsUsed ?? 0;
-  // Round comes from the frame's roundNum — phase is a string like 'round_1',
-  // so interpolating it directly rendered "round round_1/3".
+  // Round and depth come from the frame (roundNum, num_rounds), never from the phase string.
   const roundNum = conn.lastFrame?.roundNum ?? null;
+  const { numRounds } = useRounds();
 
   // Live inference mode from /api/health — poll every 10 s.
   const { data: healthData, error: healthError } = usePolling({
@@ -374,7 +375,7 @@ export function ModelStatus() {
         : phase === 'idle'
           ? 'idle'
           : roundNum != null && roundNum >= 1
-            ? `round ${roundNum}/3`
+            ? `round ${roundNum}/${numRounds}`
             : phase // 'seeding' / pre-round frames have no round yet
     }`,
     `${slots} slots`,

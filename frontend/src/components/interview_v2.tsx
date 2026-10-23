@@ -25,6 +25,7 @@ import { Icon } from './icons';
 import { askAgent } from '../api/interview';
 import { useRationales } from '../context/RationalesContext';
 import { useEdgesCtx } from '../context/EdgesContext';
+import { useRounds } from '../hooks/useRounds';
 import { signalClass, signalColor, signalLabel } from '../lib/signals';
 import type { AgentSignal, AgentView, RationaleView } from '../types';
 
@@ -36,8 +37,9 @@ interface SignalTrajectoryProps {
 }
 
 function SignalTrajectory({ agent, byRound }: SignalTrajectoryProps) {
+  const { rounds } = useRounds();
   const trajectory = useMemo(() => {
-    return [1, 2, 3].map((round) => {
+    return rounds.map((round) => {
       const list = byRound[round] ?? [];
       const r = list[list.length - 1]; // latest in round
       // RationaleView carries the per-entry wire signal: each round shows what
@@ -45,7 +47,7 @@ function SignalTrajectory({ agent, byRound }: SignalTrajectoryProps) {
       const signal: AgentSignal | null = r ? r.signal : null;
       return { round, signal, conf: r ? agent.confidence : 0, present: r !== undefined };
     });
-  }, [byRound, agent]);
+  }, [byRound, agent, rounds]);
 
   return (
     <div className="iv2-trajectory">
@@ -170,12 +172,13 @@ interface InterviewV2Props {
 }
 
 export function InterviewV2({ agent, onClose }: InterviewV2Props) {
+  const { rounds, finalRound, currentRound } = useRounds();
   // Initial message — generic header, no PERSONA filler (KR-41.6-03).
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'agent',
       ts: nowTs(),
-      text: `${agent.bracketDisplay}. Round 3 close: ${signalLabel(agent.signal)}, confidence ${(agent.confidence * 100).toFixed(0)}%.${
+      text: `${agent.bracketDisplay}. Round ${currentRound ?? finalRound} close: ${signalLabel(agent.signal)}, confidence ${(agent.confidence * 100).toFixed(0)}%.${
         agent.flipped ? ' Flipped from Round 1.' : ''
       } Ask me about my reasoning.`,
     },
@@ -192,12 +195,12 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
     [rationales, agent.id],
   );
   const byRound = useMemo<RoundMap>(() => {
-    const m: RoundMap = { 1: [], 2: [], 3: [] };
+    const m: RoundMap = Object.fromEntries(rounds.map((r) => [r, [] as RationaleView[]]));
     agentRationales.forEach((r) => {
       if (m[r.round]) m[r.round].push(r);
     });
     return m;
-  }, [agentRationales]);
+  }, [agentRationales, rounds]);
 
   // Citations of the round on screen, from the shared EdgesContext
   // (source_id cites target_id; docs/DECISIONS.md#adr-neo4j-schema).
@@ -366,7 +369,7 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
 
           {tab === 'rationale' && (
             <div className="iv2-rationale-log">
-              {[1, 2, 3].map((round) => {
+              {rounds.map((round) => {
                 const list = byRound[round] ?? [];
                 if (list.length === 0) {
                   return (
@@ -378,7 +381,7 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
                       <div className="iv2-round-text" style={{ color: 'var(--text-3)' }}>
                         No rationale yet for this round.
                       </div>
-                      {round < 3 && <div className="iv2-round-connector" />}
+                      {round < finalRound && <div className="iv2-round-connector" />}
                     </div>
                   );
                 }
@@ -391,7 +394,7 @@ export function InterviewV2({ agent, onClose }: InterviewV2Props) {
                       </span>
                     </div>
                     <div className="iv2-round-text">{r.text}</div>
-                    {round < 3 && <div className="iv2-round-connector" />}
+                    {round < finalRound && <div className="iv2-round-connector" />}
                   </div>
                 ));
               })}

@@ -17,7 +17,7 @@ const mixed = [
 ];
 
 function kpi(agents: ReturnType<typeof makeAgent>[]) {
-  return <KpiStrip agents={agents} tps={0} mem={50} slots={0} slotsMax={8} elapsed={0} round={1} />;
+  return <KpiStrip agents={agents} tps={0} mem={50} slots={0} slotsMax={8} elapsed={0} round={1} numRounds={3} />;
 }
 
 describe('consensus panels while a round is in flight', () => {
@@ -62,5 +62,14 @@ describe('consensus panels while a round is in flight', () => {
     // JetBrains Mono advances 0.6em per character.
     const width = (line.textContent ?? '').length * 0.6 * Number(line.getAttribute('font-size'));
     expect(width).toBeLessThanOrEqual(chord);
+  });
+});
+
+describe('round progress', () => {
+  it('KPI strip counts rounds against num_rounds', () => {
+    render(
+      <KpiStrip agents={[]} tps={0} mem={50} slots={0} slotsMax={8} elapsed={0} round={2} numRounds={2} />,
+    );
+    expect(screen.queryByText('Elapsed · R2/2')).not.toBeNull();
   });
 });

@@ -228,7 +228,7 @@ Contents
   - Report and advisory reads resolve the final round inside Cypher with `coalesce(c.num_rounds, 3)`, because cycles from before 2026-10 that lack the property were all 3-round. The replay cycle list reports the same value as `round_count`.
   - Prompts describe the rounds that ran: the ReAct report prompt says "final round", and the eager narrative prompt names the agent's round count. The CLI summary uses the last round that ran and reports convergence only for 3-round runs, since it compares R1→R2 flips with R2→R3 flips.
   - With 2 rounds, the round-3 result fields are empty, and completed-cycle listing relies on `Cycle.metrics_recorded_at`.
-- **Rationale:** Most flips happen in Round 2, and 2 rounds save about a third of wall time. Keep the default at 3 until the A/B comparison is done and the frontend stops hardcoding "/3" (see BACKLOG).
+- **Rationale:** Most flips happen in Round 2, and 2 rounds save about a third of wall time. Keep the default at 3 until the 2-vs-3-round ablation is done. The UI reads `num_rounds` from the frame (`useRounds()`), so a 2-round run renders correctly end to end.
 
 ### <a id="adr-structured-output"></a>Structured outputs plus a 3-tier parser
 - **Decision:** Workers request JSON (the JSON schema `DECISION_JSON_SCHEMA` in `worker.py`) and still go through a 3-tier parser: JSON, then extraction, then PARSE_ERROR (`parsing.py`, INFRA-08). The brace scanner is string-aware since F-09.

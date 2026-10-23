@@ -4,6 +4,7 @@ import { cleanup, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InterviewV2 } from '../../components/interview_v2';
 import { makeAgent } from '../helpers/agents';
+import { renderAt } from '../helpers/lifecycleFrames';
 import { renderWithFrame } from '../helpers/renderWithFrame';
 
 const h = vi.hoisted(() => ({
@@ -33,5 +34,17 @@ describe('InterviewV2 citations', () => {
     renderWithFrame(<InterviewV2 agent={makeAgent('quants_01', 'buy', 0.7)} onClose={vi.fn()} />);
     expect(screen.queryByText('cites 1')).not.toBeNull();
     expect(screen.queryByText('cited by 2')).not.toBeNull();
+  });
+});
+
+describe('InterviewV2 rounds', () => {
+  it('renders two rounds for a 2-round run (vitest with num_rounds=2)', () => {
+    renderAt(<InterviewV2 agent={makeAgent('quants_01', 'buy', 0.7)} onClose={vi.fn()} />, 'live', {
+      numRounds: 2,
+      roundNum: 2,
+    });
+    const labels = Array.from(document.querySelectorAll('.iv2-traj-label')).map((el) => el.textContent);
+    expect(labels).toEqual(['R1', 'R2']);
+    expect(screen.queryByText(/Round 2 close/)).not.toBeNull();
   });
 });
