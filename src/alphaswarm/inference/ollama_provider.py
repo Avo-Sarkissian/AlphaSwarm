@@ -22,6 +22,7 @@ from typing import Any, Final
 
 import structlog
 
+from alphaswarm.inference.call_log import logged_call
 from alphaswarm.inference.provider import InferenceProvider  # noqa: F401  (Protocol)
 from alphaswarm.inference.types import (
     FinishReason,
@@ -131,6 +132,32 @@ class OllamaProvider:
         """No-op — the OllamaClient lifecycle is owned by the caller."""
 
     async def chat(
+        self,
+        messages: list[InferenceMessage],
+        *,
+        response_schema: dict[str, Any] | None = None,
+        json_mode: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> InferenceResult:
+        """Run chat completion via the local Ollama backend and log the call.
+
+        See ``_chat`` for the request mapping
+        (docs/DECISIONS.md#adr-inference-telemetry).
+        """
+        return await logged_call(
+            self.role,
+            self.model,
+            self._chat(
+                messages,
+                response_schema=response_schema,
+                json_mode=json_mode,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ),
+        )
+
+    async def _chat(
         self,
         messages: list[InferenceMessage],
         *,

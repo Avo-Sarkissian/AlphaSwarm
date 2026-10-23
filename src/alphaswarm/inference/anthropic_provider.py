@@ -25,6 +25,7 @@ import anthropic
 import structlog
 
 from alphaswarm.errors import AuthError, InferenceError
+from alphaswarm.inference.call_log import logged_call
 from alphaswarm.inference.schema import extract_anthropic_tool_json, to_anthropic_tool
 from alphaswarm.inference.types import (
     FinishReason,
@@ -178,7 +179,11 @@ class AnthropicProvider:
             kwargs["tools"] = [to_anthropic_tool(response_schema)]
             kwargs["tool_choice"] = {"type": "tool", "name": "emit_decision"}
 
-        return await self._call_with_retry(kwargs, use_tool=response_schema is not None)
+        return await logged_call(
+            self.role,
+            self.model,
+            self._call_with_retry(kwargs, use_tool=response_schema is not None),
+        )
 
     # ------------------------------------------------------------------
     # Private helpers

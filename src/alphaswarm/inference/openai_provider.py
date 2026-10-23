@@ -16,6 +16,7 @@ import httpx
 import structlog
 
 from alphaswarm.errors import AuthError, InferenceError
+from alphaswarm.inference.call_log import logged_call
 from alphaswarm.inference.schema import to_openai_json_object, to_openai_response_format
 from alphaswarm.inference.types import (
     FinishReason,
@@ -178,7 +179,7 @@ class OpenAICompatProvider:
             Cached prompt tokens and the finish reason are reported; timings are not (cloud).
         """
         body = self._build_body(messages, response_schema, json_mode, temperature, max_tokens)
-        return await self._post_with_retry(body, response_schema=response_schema)
+        return await logged_call(self.role, self.model, self._post_with_retry(body, response_schema=response_schema))
 
     # ------------------------------------------------------------------
     # Private helpers

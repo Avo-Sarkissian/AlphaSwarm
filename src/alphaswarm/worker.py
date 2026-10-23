@@ -203,14 +203,17 @@ class AgentWorker:
         )
         messages.append({"role": "user", "content": user_content})
 
-        result = await self._provider.chat(
-            messages,
-            response_schema=DECISION_JSON_SCHEMA,  # structured outputs: schema-constrained decode
-            temperature=self._persona["temperature"],
-            # Per-bracket sampling temperature (Degens 1.1 ... Algos 0.15).
-            # Without this, every agent ran at the Modelfile's temperature
-            # and the bracket temperature design was dead config.
-        )
+        # agent_id joins cycle_id/round on every log line of this call, including the
+        # provider's inference_call (docs/DECISIONS.md#adr-inference-telemetry).
+        with structlog.contextvars.bound_contextvars(agent_id=self._persona["agent_id"]):
+            result = await self._provider.chat(
+                messages,
+                response_schema=DECISION_JSON_SCHEMA,  # structured outputs: schema-constrained decode
+                temperature=self._persona["temperature"],
+                # Per-bracket sampling temperature (Degens 1.1 ... Algos 0.15).
+                # Without this, every agent ran at the Modelfile's temperature
+                # and the bracket temperature design was dead config.
+            )
 
         # Compute total billable tokens for this call. Used by agent_worker
         # context manager to pass result_tokens to governor.release() so
