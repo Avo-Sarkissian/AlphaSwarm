@@ -134,6 +134,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 
 Signals are stored lowercase (`SignalType.value`). Schema statements (constraints
 and indexes) live in `graph.py` `SCHEMA_STATEMENTS` and are applied by
-`ensure_schema()`. That function also seeds the Agent nodes, drops the retired indexes and
-the old Agent narrative property, and skips the `decision_id_unique` constraint while
+`ensure_schema()`. That function also seeds the Agent nodes, drops the retired indexes
+(it deletes no data: the old Agent narrative property stays until the owner runs
+`remove_legacy_properties()` after a backup, `docs/RUNBOOK.md` §3), and skips the `decision_id_unique` constraint while
 duplicate decision ids exist (`docs/DECISIONS.md#adr-neo4j-schema`).

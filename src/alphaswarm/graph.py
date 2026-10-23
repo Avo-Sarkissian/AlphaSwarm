@@ -317,7 +317,9 @@ def schema_statements(duplicate_decision_ids: int) -> list[str]:
     ]
 
 
-# Idempotent data cleanups run by ensure_schema (no migration framework).
+# Idempotent removal of retired properties. Not run by ensure_schema: removing data is the
+# owner's call after a backup (docs/RUNBOOK.md §3), so it runs only through
+# remove_legacy_properties().
 LEGACY_PROPERTY_CLEANUP: Final[tuple[str, ...]] = (
     # Narratives moved to the final-round Decision (docs/DECISIONS.md#p11-d-10);
     # the shared Agent property paired one cycle's text with another's decisions.
@@ -537,9 +539,9 @@ class GraphStateManager:
         """Apply idempotent schema constraints and indexes, then seed agents.
 
         Opens one session and runs each statement in order
-        (docs/DECISIONS.md#p4-d-05), back-fills ``Cycle.status``, runs
-        ``LEGACY_PROPERTY_CLEANUP`` (it removes the retired Agent-level
-        ``decision_narrative``) and seeds all agent nodes. Duplicate decision
+        (docs/DECISIONS.md#p4-d-05), back-fills ``Cycle.status`` and seeds all
+        agent nodes. It removes no data: the retired Agent-level
+        ``decision_narrative`` stays until ``remove_legacy_properties()`` runs. Duplicate decision
         ids found while the decision_id_unique constraint is absent keep the
         plain index in its place and log ``decision_id_duplicates_found``;
         they are never deleted.
@@ -559,8 +561,15 @@ class GraphStateManager:
         backfilled = await self._write(self._backfill_cycle_status_tx, op="backfill_cycle_status")
         if backfilled:
             self._log.info("cycle_status_backfilled", count=backfilled)
-        await self._write(self._legacy_property_cleanup_tx, op="legacy_property_cleanup")
         await self.seed_agents(self._personas)
+
+    async def remove_legacy_properties(self) -> None:
+        """Remove retired properties (``LEGACY_PROPERTY_CLEANUP``); idempotent.
+
+        Deletes data that nothing reads any more, so it never runs at startup;
+        take a backup first (docs/RUNBOOK.md §3).
+        """
+        await self._write(self._legacy_property_cleanup_tx, op="legacy_property_cleanup")
 
     @staticmethod
     async def _count_decision_id_duplicates_tx(tx: AsyncManagedTransaction) -> int:

@@ -298,8 +298,8 @@ async def test_write_influence_edges_tx_empty_edges() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_ensure_schema_runs_legacy_property_cleanup(mock_driver: MagicMock) -> None:
-    """ensure_schema removes retired properties through a managed write."""
+async def test_ensure_schema_never_runs_legacy_property_cleanup(mock_driver: MagicMock) -> None:
+    """ensure_schema removes no data; the cleanup is an explicit, owner-run step."""
     from alphaswarm.graph import GraphStateManager
 
     session = mock_driver.session.return_value
@@ -310,7 +310,19 @@ async def test_ensure_schema_runs_legacy_property_cleanup(mock_driver: MagicMock
         await gsm.ensure_schema()
 
     write_fns = [c.args[0] for c in session.execute_write.await_args_list]
-    assert GraphStateManager._legacy_property_cleanup_tx in write_fns
+    assert GraphStateManager._legacy_property_cleanup_tx not in write_fns
+
+
+async def test_remove_legacy_properties_runs_the_cleanup_write(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    await gsm.remove_legacy_properties()
+
+    write_fns = [c.args[0] for c in session.execute_write.await_args_list]
+    assert write_fns == [GraphStateManager._legacy_property_cleanup_tx]
 
 
 async def test_legacy_property_cleanup_tx_runs_each_statement() -> None:

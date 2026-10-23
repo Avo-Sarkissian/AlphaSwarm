@@ -60,21 +60,23 @@ async def test_narrative_write_without_decision_is_a_no_op(
     assert await graph_manager_test.read_decision_narrative(cycle_id, "degens_09") is None
 
 
-async def test_ensure_schema_removes_agent_level_narrative(
+async def test_only_remove_legacy_properties_drops_the_agent_level_narrative(
     graph_manager_test: GraphStateManager,
 ) -> None:
     await cypher(
         graph_manager_test,
         "MATCH (a:Agent {id: 'quants_01'}) SET a.decision_narrative = 'legacy text'",
     )
+    count = "MATCH (a:Agent) WHERE a.decision_narrative IS NOT NULL RETURN count(a) AS n"
 
-    await graph_manager_test.ensure_schema()
+    try:
+        await graph_manager_test.ensure_schema()
+        assert await cypher(graph_manager_test, count) == [{"n": 1}]
 
-    rows = await cypher(
-        graph_manager_test,
-        "MATCH (a:Agent) WHERE a.decision_narrative IS NOT NULL RETURN count(a) AS n",
-    )
-    assert rows == [{"n": 0}]
+        await graph_manager_test.remove_legacy_properties()
+        assert await cypher(graph_manager_test, count) == [{"n": 0}]
+    finally:
+        await cypher(graph_manager_test, "MATCH (a:Agent {id: 'quants_01'}) REMOVE a.decision_narrative")
 
 
 async def test_interview_prompt_contains_the_cycles_focus_line(

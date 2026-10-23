@@ -106,6 +106,11 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
     neo4j-admin database load neo4j --from-path=/backups --overwrite-destination=true
   docker start alphaswarm-neo4j
   ```
+- **Retired properties (one-off, optional):** narratives now live on each cycle's
+  final-round Decision, and nothing reads the old `Agent.decision_narrative`
+  property. Startup never removes it (`GraphStateManager.remove_legacy_properties()` does,
+  and nothing calls it automatically). To drop it, back up first, then run in the Neo4j browser:
+  `MATCH (a:Agent) WHERE a.decision_narrative IS NOT NULL REMOVE a.decision_narrative`.
 - **Tests never use this database.** Neo4j tests run against the throwaway
   `neo4j-test` container (`127.0.0.1:7688`, tmpfs, credential
   `neo4j/alphaswarm-test-only`): `scripts/neo4j_test.sh up`, then
