@@ -584,7 +584,7 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
     Lifecycle (per D-12: caller manages model lifecycle):
     1. Create AppState with Ollama + Neo4j
-    2. Resolve cycle_id (default to most recent)
+    2. Resolve cycle_id (default: the most recent complete cycle)
     3. Print model lifecycle warning
     4. Load orchestrator model
     5. Build tool registry -> run ReACT engine -> collect observations
@@ -757,7 +757,7 @@ def main() -> None:
         "--cycle",
         type=str,
         default=None,
-        help="Cycle ID to report on (defaults to most recent)",
+        help="Cycle ID to report on (defaults to the most recent complete cycle)",
     )
     report_parser.add_argument(
         "--output",

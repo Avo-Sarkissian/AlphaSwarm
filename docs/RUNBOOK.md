@@ -114,7 +114,7 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
   reports leftover cycles, run `scripts/neo4j_test.sh reset`.
 - Useful Cypher in the browser (http://127.0.0.1:7474):
   ```cypher
-  MATCH (c:Cycle) RETURN c.cycle_id, c.created_at, c.num_rounds, c.metrics_recorded_at ORDER BY c.created_at DESC LIMIT 10;
+  MATCH (c:Cycle) RETURN c.cycle_id, c.created_at, c.status, c.error_code, c.num_rounds ORDER BY c.created_at DESC LIMIT 10;
   MATCH (c:Cycle {cycle_id:$id}) RETURN c;   // run metrics: durations, flips, parse errors, final distribution
   ```
 - Compare runs: `uv run python scripts/compare_cycles.py --limit 5`. It lists
@@ -237,7 +237,7 @@ uv run ruff check src tests && uv run ruff format --check src tests
 | Neo4j auth error at startup | `ALPHASWARM_NEO4J__PASSWORD` unset, or it differs from the initialized volume | README §3 "Migrating". `NEO4J_AUTH` only applies when a volume is first initialized |
 | `pytest` Neo4j tests all skipped | neo4j-test is not running | `scripts/neo4j_test.sh up`; add `--require-neo4j` to make a missing database fail instead of skip |
 | pytest exits with code 3 ("Refusing to run Neo4j tests") | neo4j-test holds leftover cycles from a crashed session, or something else answers on 7688 | `scripts/neo4j_test.sh reset` |
-| Replay or history list empty | No metric-stamped cycles, or history wiped | `MATCH (c:Cycle) WHERE c.metrics_recorded_at IS NOT NULL RETURN count(c)`. Restore from `data/backups/` |
+| Replay or history list empty, or a finished run missing from it | The lists show only cycles whose `Cycle.status` is `complete`: a stopped run is `cancelled`, a failed one `failed` with an `error_code`, and a hard-killed one stays `running` (BACKLOG 1.15). Or the history was wiped | `MATCH (c:Cycle) RETURN c.status, count(c)`; for one cycle `MATCH (c:Cycle {cycle_id:$id}) RETURN c.status, c.error_code, c.metrics_recorded_at`. `alphaswarm report --cycle <id>` still reads a cycle that is not complete. If a checkout from before `Cycle.status` was mid-run when this version first started, the back-fill marked that cycle `failed` and it stays hidden after it finishes (`failed`, metrics set, no `error_code`): set it to `complete` by hand. Restore a wiped history from `data/backups/` |
 | Cloud run: many PARSE_ERRORs or 429s | Provider rate limit | Lower `requests_per_min`, set `max_in_flight: 1`, raise `max_retries` (see §4 cloud) |
 | `GovernorCrisisError` | Sustained macOS memory pressure (5 min with no successful inference) | Close memory-heavy apps. Check that `ollama ps` shows only 2 models. Lower `ALPHASWARM_GOVERNOR__BASELINE_PARALLEL` |
 
