@@ -6,7 +6,9 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
+from alphaswarm.inference.structured import chat_structured
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.personas import BRACKET_MODIFIERS
 from alphaswarm.seed import (
@@ -30,6 +32,14 @@ SEED_JSON = json.dumps(
         "overall_sentiment": 0.55,
     }
 )
+ENTITY_JSON = '{"name": "ZZZT Holdings", "type": "company", "relevance": 0.9, "sentiment": 0.5}'
+
+
+def _seed_reply(overall_sentiment: str | None) -> str:
+    """A seed reply with one valid entity; ``None`` leaves overall_sentiment out."""
+    if overall_sentiment is None:
+        return f'{{"entities": [{ENTITY_JSON}]}}'
+    return f'{{"entities": [{ENTITY_JSON}], "overall_sentiment": {overall_sentiment}}}'
 
 
 def _orchestrator(*contents: str) -> FakeInferenceProvider:
@@ -96,6 +106,45 @@ class TestSeedLLMOutput:
         )
         assert out.to_seed_event(RUMOR).raw_rumor == RUMOR
 
+    def test_entity_extra_keys_are_ignored(self) -> None:
+        out = SeedLLMOutput.model_validate_json(
+            json.dumps(
+                {
+                    "entities": [
+                        {
+                            "name": "ZZZT Holdings",
+                            "type": "company",
+                            "relevance": 0.9,
+                            "sentiment": 0.8,
+                            "reasoning": "fictional acquirer",
+                        }
+                    ],
+                    "overall_sentiment": 0.5,
+                    "summary": "bullish",
+                }
+            )
+        )
+        assert [e.name for e in out.entities] == ["ZZZT Holdings"]
+
+    @pytest.mark.parametrize("sentiment", ["NaN", '"NaN"', '"nan"'])
+    def test_nan_overall_sentiment_is_rejected(self, sentiment: str) -> None:
+        # Clamping cannot fix NaN, so the field's own range must reject it here,
+        # inside chat_structured, and never later in SeedEvent.
+        with pytest.raises(ValidationError):
+            SeedLLMOutput.model_validate_json(_seed_reply(sentiment))
+
+    def test_schema_advertises_the_sentiment_range(self) -> None:
+        sentiment = SeedLLMOutput.model_json_schema()["properties"]["overall_sentiment"]
+        assert (sentiment["minimum"], sentiment["maximum"]) == (-1.0, 1.0)
+
+    async def test_nan_then_valid_reply_is_tier1_after_one_retry(self) -> None:
+        provider = _orchestrator(_seed_reply("NaN"), SEED_JSON)
+        result = await chat_structured(provider, [{"role": "user", "content": RUMOR}], SeedLLMOutput)
+        assert (result.parse_tier, result.attempts) == (1, 2)
+        assert result.value.overall_sentiment == 0.55
+        correction = provider.calls[1]["messages"][-1]["content"]
+        assert "overall_sentiment" in correction
+
 
 class TestInjectSeed:
     async def test_tier1_sends_the_seed_schema_once(self) -> None:
@@ -138,6 +187,26 @@ class TestInjectSeed:
         assert parsed.seed_event.entities == []
         assert parsed.seed_event.overall_sentiment == 0.0
         assert parsed.seed_event.raw_rumor == RUMOR
+        assert len(provider.calls) == 2
+        graph.create_cycle_with_seed_event.assert_awaited_once()
+
+    @pytest.mark.parametrize(
+        "reply",
+        [_seed_reply("NaN"), _seed_reply('"NaN"'), _seed_reply(None)],
+        ids=["nan-literal", "nan-string", "missing"],
+    )
+    async def test_unusable_overall_sentiment_twice_falls_back_to_tier3(self, reply: str) -> None:
+        provider = _orchestrator(reply, reply)
+        graph = _graph()
+        _, parsed, _ = await inject_seed(
+            rumor=RUMOR,
+            settings=_settings(),
+            orchestrator=provider,
+            graph_manager=graph,
+        )
+        assert parsed.parse_tier == 3
+        assert parsed.seed_event.entities == []
+        assert parsed.seed_event.overall_sentiment == 0.0
         assert len(provider.calls) == 2
         graph.create_cycle_with_seed_event.assert_awaited_once()
 

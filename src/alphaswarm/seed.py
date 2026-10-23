@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 import structlog
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from alphaswarm.errors import StructuredOutputError
 from alphaswarm.inference.structured import chat_structured
@@ -63,12 +63,15 @@ class SeedLLMOutput(BaseModel):
     Lenient on purpose: extra keys are ignored, an entity that fails validation
     is dropped instead of failing the reply, and numbers are clamped by the
     ``SeedEntity`` validators (docs/DECISIONS.md#adr-structured-output).
+    ``overall_sentiment`` carries ``SeedEvent``'s range: clamping cannot fix
+    NaN, so it must fail here, where chat_structured retries and falls back,
+    and never later in ``to_seed_event``.
     """
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     entities: list[SeedEntity]
-    overall_sentiment: float
+    overall_sentiment: float = Field(ge=-1.0, le=1.0)
 
     @field_validator("entities", mode="before")
     @classmethod
