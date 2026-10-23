@@ -14,7 +14,10 @@ from neo4j.exceptions import AuthError as Neo4jAuthError
 from neo4j.exceptions import ServiceUnavailable
 
 from alphaswarm.errors import Neo4jUnavailableError
+from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
+from alphaswarm.memory_monitor import MemoryMonitor
 from alphaswarm.readiness import (
+    DIST_FIX,
     EXPECTED_OLLAMA_ENV,
     LAUNCHCTL_FIX,
     MLX_FIX,
@@ -25,13 +28,17 @@ from alphaswarm.readiness import (
     CommandRunner,
     ComponentStatus,
     check_docker,
+    check_foreign_models,
+    check_frontend_dist,
     check_launchctl_env,
+    check_memory,
     check_mlx,
     check_neo4j,
     check_ollama,
+    local_model_aliases,
     run_command,
 )
-from alphaswarm.settings import PROJECT_ROOT
+from alphaswarm.settings import PROJECT_ROOT, GovernorSettings, OllamaSettings
 
 
 class _Graph:
@@ -321,3 +328,79 @@ def _script_values() -> dict[str, str]:
 def test_expected_env_matches_the_setup_scripts() -> None:
     """The doctor and the setup scripts must agree on every value."""
     assert _script_values() == dict(EXPECTED_OLLAMA_ENV)
+
+
+# ---------------------------------------------------------------------------
+# State probes: foreign models, UI build, memory
+# ---------------------------------------------------------------------------
+
+
+class _Ps:
+    def __init__(self, loaded: list[tuple[str, int]] | None, behaviour: str = "ok") -> None:
+        self.raw_client = self
+        self._loaded = loaded or []
+        self._behaviour = behaviour
+
+    async def ps(self) -> Any:
+        if self._behaviour == "down":
+            raise ConnectionError("refused")
+        return SimpleNamespace(models=[SimpleNamespace(model=n, size=s) for n, s in self._loaded])
+
+
+async def test_foreign_models_listed_with_size_and_stop_command() -> None:
+    client = _Ps([("alphaswarm-worker:latest", 22 * 2**30), ("codellama:7b", 4 * 2**30)])
+    status = await check_foreign_models(
+        client,  # type: ignore[arg-type]
+        ["alphaswarm-worker", "alphaswarm-orchestrator"],
+    )
+    assert (status.ok, status.required) == (False, False)
+    assert "codellama:7b (4.0 GiB)" in (status.detail or "")
+    assert status.fix == "ollama stop codellama:7b"
+
+
+async def test_no_foreign_models_is_ok() -> None:
+    status = await check_foreign_models(_Ps([("alphaswarm-worker", 1)]), ["alphaswarm-worker"])  # type: ignore[arg-type]
+    assert status.ok
+
+
+async def test_foreign_models_not_checked_when_ollama_is_down() -> None:
+    status = await check_foreign_models(_Ps(None, "down"), ["alphaswarm-worker"])  # type: ignore[arg-type]
+    assert status.ok and "not checked" in (status.detail or "")
+
+
+async def test_foreign_models_not_checked_without_a_client() -> None:
+    status = await check_foreign_models(None, ["alphaswarm-worker"])
+    assert status.ok and "not checked" in (status.detail or "")
+
+
+async def test_frontend_dist(tmp_path: Path) -> None:
+    missing = await check_frontend_dist(tmp_path)
+    assert (missing.ok, missing.required, missing.fix) == (False, False, DIST_FIX)
+    (tmp_path / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    assert (await check_frontend_dist(tmp_path)).ok
+
+
+async def test_memory_reports_the_signal_and_zone() -> None:
+    calm = MemoryMonitor(
+        GovernorSettings(),
+        kernel=True,
+        sysctl=lambda n: 70 if n == "kern.memorystatus_level" else 1,
+    )
+    status = await check_memory(calm)
+    assert status.ok and status.detail == "kernel signal: 30.0% used, kernel pressure green"
+    tight = MemoryMonitor(
+        GovernorSettings(),
+        kernel=True,
+        sysctl=lambda n: 70 if n == "kern.memorystatus_level" else 4,
+    )
+    assert (await check_memory(tight)).ok is False
+
+
+def test_local_model_aliases() -> None:
+    ollama = OllamaSettings()
+    assert local_model_aliases(None, ollama) == ("alphaswarm-orchestrator", "alphaswarm-worker")
+    mixed = InferenceConfig(
+        orchestrator=RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-haiku-4-5", api_key="test-key"),
+        worker=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker"),
+    )
+    assert local_model_aliases(mixed, ollama) == ("alphaswarm-worker",)

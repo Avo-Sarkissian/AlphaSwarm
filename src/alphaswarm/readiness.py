@@ -20,9 +20,14 @@ from typing import TYPE_CHECKING, Final
 import structlog
 from neo4j.exceptions import AuthError as Neo4jAuthError
 
+from alphaswarm.inference.config import ProviderType
+
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
+    from alphaswarm.inference.config import InferenceConfig
+    from alphaswarm.memory_monitor import MemoryMonitor
     from alphaswarm.ollama_client import OllamaClient
+    from alphaswarm.settings import OllamaSettings
 
 log = structlog.get_logger(component="readiness")
 
@@ -380,3 +385,73 @@ async def check_docker(
         detail=f"container {names} not found (or the Docker daemon is not running)",
         fix=NEO4J_FIX,
     )
+
+
+DIST_FIX: Final = "cd frontend && npm ci && npm run build"
+
+
+def local_model_aliases(cfg: InferenceConfig | None, ollama: OllamaSettings) -> tuple[str, ...]:
+    """Model names the Ollama-backed roles call (empty when both roles are cloud)."""
+    if cfg is None:
+        return (ollama.orchestrator_model_alias, ollama.worker_model_alias)
+    roles = (cfg.orchestrator, cfg.worker)
+    return tuple(dict.fromkeys(r.model for r in roles if r.provider == ProviderType.OLLAMA))
+
+
+async def check_foreign_models(
+    client: OllamaClient | None, aliases: Collection[str], *, timeout_s: float = 3.0
+) -> ComponentStatus:
+    """Models loaded besides AlphaSwarm's own: they take memory the swarm needs."""
+    if client is None:
+        return ComponentStatus("foreign_models", ok=True, required=False, detail="not checked: no Ollama client")
+    try:
+        async with asyncio.timeout(timeout_s):
+            listing = await client.raw_client.ps()
+    except Exception as exc:  # readiness probes never raise
+        log.warning("readiness_ollama_ps_failed", exc_type=exc.__class__.__name__)
+        return ComponentStatus("foreign_models", ok=True, required=False, detail="not checked: Ollama is not reachable")
+    ours = {a.removesuffix(":latest") for a in aliases}
+    names: list[str] = []
+    shown: list[str] = []
+    for model in getattr(listing, "models", None) or []:
+        name = str(getattr(model, "model", None) or getattr(model, "name", "")).removesuffix(":latest")
+        if not name or name in ours:
+            continue
+        size = getattr(model, "size", None)
+        names.append(name)
+        shown.append(f"{name} ({size / 2**30:.1f} GiB)" if isinstance(size, int) else name)
+    if not names:
+        return ComponentStatus("foreign_models", ok=True, required=False)
+    return ComponentStatus(
+        "foreign_models",
+        ok=False,
+        required=False,
+        detail="loaded besides AlphaSwarm's models: " + ", ".join(shown),
+        fix=_join(f"ollama stop {n}" for n in names),
+    )
+
+
+async def check_frontend_dist(dist_dir: Path) -> ComponentStatus:
+    """Without frontend/dist the web server has no UI at / (it serves a hint page)."""
+    index = dist_dir / "index.html"
+    if await asyncio.to_thread(index.is_file):
+        return ComponentStatus("frontend_dist", ok=True, required=False)
+    return ComponentStatus("frontend_dist", ok=False, required=False, detail=f"{index} not found", fix=DIST_FIX)
+
+
+async def check_memory(monitor: MemoryMonitor) -> ComponentStatus:
+    """The governor's memory view right now (docs/DECISIONS.md#p3-d-12)."""
+    reading = await monitor.read_combined()
+    detail = (
+        f"{monitor.signal_source} signal: {reading.used_percent:.1f}% used, "
+        f"kernel pressure {reading.pressure_level.value}"
+    )
+    if reading.is_crisis or reading.is_pause_zone:
+        return ComponentStatus(
+            "memory",
+            ok=False,
+            required=False,
+            detail=detail,
+            fix="Close memory-heavy apps or unload foreign models before a run",
+        )
+    return ComponentStatus("memory", ok=True, required=False, detail=detail)
