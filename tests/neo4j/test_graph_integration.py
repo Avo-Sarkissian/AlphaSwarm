@@ -266,7 +266,7 @@ async def test_complete_reasoning_arc(
             OPTIONAL MATCH (d)-[:REFERENCES]->(e:Entity)
             RETURN d.round AS round,
                    d.signal AS signal,
-                   re.rationale AS rationale,
+                   d.rationale AS rationale,
                    re.peer_context_received AS peer_context,
                    re.flip_type AS flip_type,
                    collect(DISTINCT e.name) AS referenced_entities
@@ -348,57 +348,3 @@ async def test_write_decision_narratives_integration(
         )
         record = await result.single()
     assert record["narrative"] == "This agent shifted from BUY to SELL over 3 rounds."
-
-
-# ---------------------------------------------------------------------------
-# Phase 12 Plan 01: Post + READ_POST integration tests
-# ---------------------------------------------------------------------------
-
-
-async def test_write_posts_filters_parse_error_integration(
-    graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
-) -> None:
-    """write_posts filters out PARSE_ERROR decisions -- only valid posts are persisted."""
-    cycle_id = await _new_cycle(graph_manager_test, "Parse error filter test")
-
-    agent_01 = all_personas[0]
-    agent_02 = all_personas[1]
-
-    decisions = [
-        (
-            agent_01.id,
-            AgentDecision(
-                signal=SignalType.BUY,
-                confidence=0.8,
-                sentiment=0.5,
-                rationale="Strong buy signal from fundamentals",
-                cited_agents=[],
-            ),
-        ),
-        (
-            agent_02.id,
-            AgentDecision(
-                signal=SignalType.PARSE_ERROR,
-                confidence=0.0,
-                sentiment=0.0,
-                rationale="Failed to parse JSON: unexpected token",
-                cited_agents=[],
-            ),
-        ),
-    ]
-
-    decision_ids = await write_round(graph_manager_test, cycle_id, 1, decisions)
-    post_ids = await graph_manager_test.write_posts(decisions, decision_ids, cycle_id, round_num=1)
-
-    # Only 1 post should exist (PARSE_ERROR filtered)
-    assert len(post_ids) == 1
-
-    async with graph_manager_test._driver.session(database="neo4j") as session:
-        result = await session.run(
-            "MATCH (p:Post) WHERE p.cycle_id = $cid RETURN p.content AS content",
-            cid=cycle_id,
-        )
-        records = [dict(r) async for r in result]
-
-    assert len(records) == 1
-    assert records[0]["content"] == "Strong buy signal from fundamentals"

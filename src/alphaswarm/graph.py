@@ -295,7 +295,6 @@ CREATE (dec:Decision {
     error_kind: d.error_kind
 })
 CREATE (a)-[:MADE]->(dec)
-CREATE (dec)-[:FOR]->(c)
 RETURN count(dec) AS created
 """
 
@@ -310,11 +309,11 @@ FOREACH (ignored IN CASE WHEN agent IS NULL THEN [] ELSE [1] END |
 RETURN c.cited_id AS cited_id, agent IS NOT NULL AS written
 """
 
+# rationale lives on the Decision only (docs/DECISIONS.md#adr-neo4j-schema)
 _PERSIST_EPISODES: Final = """
 UNWIND $episodes AS ep
 MATCH (d:Decision {decision_id: ep.decision_id})
 CREATE (re:RationaleEpisode {
-    rationale: ep.rationale,
     timestamp: datetime(),
     peer_context_received: ep.peer_context_received,
     flip_type: ep.flip_type,
@@ -902,94 +901,6 @@ class GraphStateManager:
             references_written=references_written,
         )
         return summary, tuple(dropped)
-
-    # ------------------------------------------------------------------
-    # Phase 12: Post nodes for social influence dynamics
-    # ------------------------------------------------------------------
-
-    async def write_posts(
-        self,
-        agent_decisions: list[tuple[str, AgentDecision]],
-        decision_ids: list[str],
-        cycle_id: str,
-        round_num: int,
-    ) -> list[str]:
-        """Batch-write Post nodes from Decision rationale with zero extra inference (SOCIAL-01).
-
-        Creates Post nodes linked to Agent (AUTHORED) and Decision (HAS_POST).
-        Filters out PARSE_ERROR decisions to prevent error text from becoming posts.
-
-        Args:
-            agent_decisions: List of (agent_id, AgentDecision) tuples.
-            decision_ids: The round's decision IDs from persist_round(). Must match
-                length of agent_decisions. PARSE_ERROR entries are skipped along with
-                their corresponding decision_id.
-            cycle_id: Current simulation cycle ID.
-            round_num: Current round number (1, 2, or 3).
-
-        Returns:
-            list[str]: The post_id strings for each Post written (PARSE_ERROR excluded).
-        """
-        posts: list[dict] = []  # type: ignore[type-arg]
-        post_ids: list[str] = []
-        for did, (agent_id, decision) in zip(decision_ids, agent_decisions, strict=True):
-            if decision.signal == SignalType.PARSE_ERROR:
-                continue
-            pid = str(uuid.uuid4())
-            post_ids.append(pid)
-            posts.append(
-                {
-                    "post_id": pid,
-                    "decision_id": did,
-                    "agent_id": agent_id,
-                    "content": decision.rationale,
-                    "signal": decision.signal.value,
-                    "confidence": decision.confidence,
-                    "round_num": round_num,
-                    "cycle_id": cycle_id,
-                }
-            )
-        if not posts:
-            return []
-        await self._write(self._batch_write_posts_tx, posts, cycle_id, round_num, op="write_posts")
-        self._log.info(
-            "posts_written",
-            cycle_id=cycle_id,
-            round_num=round_num,
-            count=len(posts),
-        )
-        return post_ids
-
-    @staticmethod
-    async def _batch_write_posts_tx(
-        tx: AsyncManagedTransaction,
-        posts: list[dict],  # type: ignore[type-arg]
-        cycle_id: str,
-        round_num: int,
-    ) -> None:
-        """UNWIND batch create Post nodes linked to Agent (AUTHORED) and Decision (HAS_POST)."""
-        await tx.run(
-            """
-            UNWIND $posts AS p
-            MATCH (a:Agent {id: p.agent_id})
-            MATCH (d:Decision {decision_id: p.decision_id})
-            CREATE (post:Post {
-                post_id: p.post_id,
-                content: p.content,
-                agent_id: p.agent_id,
-                signal: p.signal,
-                confidence: p.confidence,
-                round_num: $round_num,
-                cycle_id: $cycle_id,
-                created_at: datetime()
-            })
-            CREATE (a)-[:AUTHORED]->(post)
-            CREATE (d)-[:HAS_POST]->(post)
-            """,
-            posts=posts,
-            cycle_id=cycle_id,
-            round_num=round_num,
-        )
 
     # ------------------------------------------------------------------
     # Entity reads and narrative writes

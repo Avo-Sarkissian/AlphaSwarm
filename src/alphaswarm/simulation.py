@@ -1135,14 +1135,6 @@ async def _run_simulation(
     phase = SimulationPhase.ROUND_1
     logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
 
-    # Phase 12: Write Round 1 Post nodes from Decision rationale (D-13)
-    round1_post_ids = await graph_manager.write_posts(
-        round1_result.agent_decisions,
-        round1_result.decision_ids,
-        cycle_id,
-        round_num=1,
-    )
-
     # Skip Round 1 influence-edge computation: Round 1 agents see only the
     # rumor (no peer context), so they can't populate `cited_agents`, so
     # `compute_influence_edges(up_to_round=1)` always returns {} and the
@@ -1242,7 +1234,6 @@ async def _run_simulation(
             personas,
             round_num=2,
         )
-        _ = round1_post_ids  # Posts still written for report/interview reads
 
         logger.info(
             "round_dispatch_start",
@@ -1292,15 +1283,6 @@ async def _run_simulation(
                 prev_decisions=round1_result.agent_decisions,
                 entities=entities,
                 control_ids=control_ids,
-            )
-            round2_ids = list(round2_persisted.decision_ids)
-
-            # Phase 12: Write Round 2 Post nodes (D-12 step 2)
-            round2_post_ids = await graph_manager.write_posts(
-                round2_decisions,
-                round2_ids,
-                cycle_id,
-                round_num=2,
             )
 
             # Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2).
@@ -1428,7 +1410,6 @@ async def _run_simulation(
                     control_ids=control_ids,
                 )
                 exposure_metrics.update(compute_exposure_metrics(round3_exposures, personas, round_num=3))
-                _ = round2_post_ids  # Posts still written for report/interview reads
 
                 logger.info(
                     "round_dispatch_start",
@@ -1474,16 +1455,7 @@ async def _run_simulation(
                     entities=entities,
                     control_ids=control_ids,
                 )
-                round3_ids = list(round3_persisted.decision_ids)
                 round3_citations_dropped = round3_persisted.citations_dropped
-
-                # Phase 12: Write Round 3 Post nodes
-                await graph_manager.write_posts(
-                    round3_decisions,
-                    round3_ids,
-                    cycle_id,
-                    round_num=3,
-                )
 
                 # Compute influence edges after Round 3 so /api/edges/{cycle}?round=3
                 # returns a non-empty array (ITEM 2 of quick task 260512-jqn).

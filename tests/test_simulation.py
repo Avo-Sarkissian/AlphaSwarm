@@ -131,8 +131,6 @@ def mock_graph_manager() -> AsyncMock:
     gm.compute_influence_edges = AsyncMock(return_value={})
     gm.read_cycle_entities = AsyncMock(return_value=[])  # Phase 11
     gm.write_decision_narratives = AsyncMock()  # Phase 11
-    # Phase 12: Post node methods
-    gm.write_posts = AsyncMock(return_value=["post_id_1", "post_id_2"])
     # Phase 35.1 — shock injection writer (B1 wiring fix)
     gm.write_shock_event = AsyncMock(return_value="shock-id-123")
     return gm
@@ -2183,47 +2181,6 @@ async def test_run_simulation_narrative_generation_gated(
 # ---------------------------------------------------------------------------
 # Phase 12 Task 3: Post-write and ranked-post integration tests
 # ---------------------------------------------------------------------------
-
-
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
-async def test_run_simulation_writes_posts_after_decisions(
-    mock_inject: AsyncMock,
-    mock_round1: AsyncMock,
-    mock_dispatch_wave: AsyncMock,
-    mock_settings: AppSettings,
-    mock_ollama_client: MagicMock,
-    mock_model_manager: AsyncMock,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-) -> None:
-    """write_posts called 3 times (once per round) with correct round_num."""
-    from alphaswarm.simulation import run_simulation
-
-    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
-    mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
-
-    await run_simulation(
-        rumor=MOCK_RUMOR,
-        settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        personas=TEST_PERSONAS,
-        brackets=TEST_BRACKETS,
-        generate_narratives=False,
-    )
-
-    # write_posts called 3 times (once per round)
-    assert mock_graph_manager.write_posts.await_count == 3
-    round_nums = [
-        call.kwargs.get("round_num", call.args[3] if len(call.args) > 3 else None)
-        for call in mock_graph_manager.write_posts.await_args_list
-    ]
-    assert round_nums == [1, 2, 3]
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
