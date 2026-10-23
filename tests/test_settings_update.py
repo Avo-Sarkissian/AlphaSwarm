@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from alphaswarm.config import (
+from alphaswarm.inference.config import (
     InferenceConfig,
     ProviderType,
     RoleConfig,

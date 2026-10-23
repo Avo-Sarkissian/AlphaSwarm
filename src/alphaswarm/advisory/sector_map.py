@@ -36,7 +36,7 @@ from typing import Final, Literal, TypedDict
 import structlog
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from alphaswarm.config import PROJECT_ROOT
+from alphaswarm.settings import PROJECT_ROOT
 
 log = structlog.get_logger(component="advisory.sector_map")
 

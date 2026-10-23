@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Final, Protocol
 import structlog
 
 from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS
-from alphaswarm.config import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.episodes import compute_flip_type
 from alphaswarm.inference.types import InferenceMessage
+from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:

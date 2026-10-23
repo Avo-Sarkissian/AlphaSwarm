@@ -22,19 +22,13 @@ from fastapi.testclient import TestClient
 import alphaswarm.web.routes.advisory as advisory_module
 import alphaswarm.web.routes.report as report_module
 from alphaswarm.app import create_app_state
-from alphaswarm.config import (
-    AppSettings,
-    InferenceConfig,
-    ProviderType,
-    RoleConfig,
-    generate_personas,
-    load_bracket_configs,
-    save_inference_config,
-)
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
+from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
 from alphaswarm.inference.factory import BuiltProviders
 from alphaswarm.inference.types import ProviderRole
+from alphaswarm.personas import generate_personas, load_bracket_configs
+from alphaswarm.settings import AppSettings
 from alphaswarm.web.app import WebPostRunJobs
 from alphaswarm.web.post_run import PostRunPipeline
 from alphaswarm.web.routes.advisory import router as advisory_router

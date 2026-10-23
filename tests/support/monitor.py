@@ -8,8 +8,8 @@ from collections import deque
 from collections.abc import Sequence
 from typing import Any, Final
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.memory_monitor import MemoryReading, PressureLevel
+from alphaswarm.settings import GovernorSettings
 
 _UNVALIDATED_TEST_KNOBS: Final = ("check_interval_seconds", "crisis_timeout_seconds")
 

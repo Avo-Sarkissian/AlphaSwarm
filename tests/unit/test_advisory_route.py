@@ -20,10 +20,10 @@ from fastapi.testclient import TestClient
 import alphaswarm.web.guards as guards_module
 import alphaswarm.web.routes.advisory as advisory_module
 from alphaswarm.advisory import AdvisoryItem, AdvisoryReport
-from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
 from alphaswarm.errors import InferenceConfigError, Neo4jUnavailableError
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
+from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
 from alphaswarm.inference.factory import BuiltProviders
 from alphaswarm.state import JobStatus, StateStore
 from alphaswarm.web.routes.advisory import router as advisory_router

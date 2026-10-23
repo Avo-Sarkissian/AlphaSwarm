@@ -23,7 +23,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from alphaswarm.config import HEADLINE_MAX_LEN
 from alphaswarm.context_formatter import format_market_context
 from alphaswarm.ingestion.types import (
     ContextPacket,
@@ -32,6 +31,7 @@ from alphaswarm.ingestion.types import (
     NewsSlice,
     StalenessState,
 )
+from alphaswarm.security.sanitize import HEADLINE_MAX_LEN
 
 FIXED_DT = datetime(2026, 4, 19, tzinfo=UTC)
 

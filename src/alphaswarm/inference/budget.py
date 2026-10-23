@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from alphaswarm.config import InferenceConfig, ModelPrice, ProviderType
 from alphaswarm.errors import BudgetExceededError
+from alphaswarm.inference.config import InferenceConfig, ModelPrice, ProviderType
 from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
 
 if TYPE_CHECKING:

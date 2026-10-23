@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import (
     AuthError,
     BudgetExceededError,
@@ -17,6 +16,7 @@ from alphaswarm.errors import (
 )
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
+from alphaswarm.settings import GovernorSettings
 from alphaswarm.types import AgentDecision, SignalType, WorkerPersonaConfig
 from tests.inference.fakes import FakeInferenceProvider
 

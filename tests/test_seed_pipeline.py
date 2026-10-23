@@ -407,7 +407,7 @@ async def test_inject_seed_persists_modifiers_and_default_prompt_hash(
     fake_provider: FakeInferenceProvider,
     mock_graph_manager: AsyncMock,
 ) -> None:
-    from alphaswarm.config import compute_prompt_template_hash, load_bracket_configs
+    from alphaswarm.personas import compute_prompt_template_hash, load_bracket_configs
     from alphaswarm.seed import inject_seed
     from alphaswarm.types import BracketType, ParsedModifiersResult
 

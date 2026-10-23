@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.testclient import WebSocketDenialResponse
 
-from alphaswarm.config import DEFAULT_TRUSTED_HOSTS, AppSettings
+from alphaswarm.settings import DEFAULT_TRUSTED_HOSTS, AppSettings
 from alphaswarm.web.app import create_app
 from alphaswarm.web.origin_guard import OriginGuardMiddleware
 

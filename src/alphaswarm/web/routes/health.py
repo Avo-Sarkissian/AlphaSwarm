@@ -23,13 +23,13 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from alphaswarm import __version__
-from alphaswarm.config import InferenceConfig, ProviderType, load_inference_config
 from alphaswarm.errors import InferenceConfigFileError
+from alphaswarm.inference.config import InferenceConfig, ProviderType, load_inference_config
 from alphaswarm.inference.factory import inference_mode
 from alphaswarm.readiness import ComponentStatus, check_neo4j, check_ollama
 
 if TYPE_CHECKING:
-    from alphaswarm.config import AppSettings
+    from alphaswarm.settings import AppSettings
 
 log = structlog.get_logger(component="web.health")
 

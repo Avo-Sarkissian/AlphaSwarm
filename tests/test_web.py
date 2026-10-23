@@ -33,8 +33,9 @@ def _make_test_app() -> FastAPI:
     """
 
     from alphaswarm.app import create_app_state
-    from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
     from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
+    from alphaswarm.personas import generate_personas, load_bracket_configs
+    from alphaswarm.settings import AppSettings
     from alphaswarm.web.connection_manager import ConnectionManager
     from alphaswarm.web.errors import install_error_handlers
     from alphaswarm.web.replay_manager import ReplayManager
@@ -139,7 +140,7 @@ def test_health_inference_mode_reflects_cloud_config(monkeypatch: pytest.MonkeyP
     """inference_mode returns 'cloud' when load_inference_config returns a cloud-only config."""
     from unittest.mock import MagicMock
 
-    from alphaswarm.config import ProviderType, RoleConfig
+    from alphaswarm.inference.config import ProviderType, RoleConfig
 
     def _fake_load(settings: object, path: object = None) -> MagicMock:  # type: ignore[return]
         cfg = MagicMock()
@@ -315,7 +316,8 @@ def _make_ws_test_app() -> FastAPI:
     """FastAPI test app for WebSocket tests. Starts broadcaster (unlike _unit_lifespan)."""
 
     from alphaswarm.app import create_app_state
-    from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+    from alphaswarm.personas import generate_personas, load_bracket_configs
+    from alphaswarm.settings import AppSettings
     from alphaswarm.web.broadcaster import start_broadcaster
     from alphaswarm.web.connection_manager import ConnectionManager
     from alphaswarm.web.routes.websocket import router as ws_router
@@ -961,7 +963,7 @@ async def test_sim_manager_run_passes_consume_shock() -> None:
     mock_built.orchestrator.aclose = AsyncMock()
     mock_built.worker.aclose = AsyncMock()
     with (
-        patch("alphaswarm.config.load_inference_config", return_value=MagicMock()),
+        patch("alphaswarm.inference.config.load_inference_config", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
         patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
@@ -1120,7 +1122,7 @@ async def test_sim_manager_cancellation_resets_phase_to_idle() -> None:
     # Patch inference factory functions so the test does not need a real AppSettings object.
     # Patch run_simulation so the REAL _run runs (including the B8 try/except).
     with (
-        patch("alphaswarm.config.load_inference_config", return_value=MagicMock()),
+        patch("alphaswarm.inference.config.load_inference_config", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
         patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
@@ -1478,7 +1480,7 @@ async def test_m8x_sim_manager_cancellation_phase_reset_before_lock_release() ->
     mock_built.worker.aclose = AsyncMock()
     # Patch inference factory so the test works with a MagicMock app_state.settings.
     with (
-        patch("alphaswarm.config.load_inference_config", return_value=MagicMock()),
+        patch("alphaswarm.inference.config.load_inference_config", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
         patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
@@ -1578,7 +1580,7 @@ async def test_m8x_sim_manager_complete_phase_set_once() -> None:
     mock_built.worker.aclose = AsyncMock()
     # Patch inference factory so the test works with a MagicMock app_state.settings.
     with (
-        patch("alphaswarm.config.load_inference_config", return_value=MagicMock()),
+        patch("alphaswarm.inference.config.load_inference_config", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
         patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.inference_mode", return_value="local"),

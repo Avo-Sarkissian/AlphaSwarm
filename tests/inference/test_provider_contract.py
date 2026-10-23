@@ -14,7 +14,6 @@ import httpx
 import ollama
 import pytest
 
-from alphaswarm.config import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.errors import AuthError, BudgetExceededError, InferenceError, OllamaInferenceError
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
 from alphaswarm.inference.ollama_provider import OllamaProvider
@@ -23,6 +22,7 @@ from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.parsing import parse_agent_decision
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.types import SignalType
 from alphaswarm.worker import DECISION_JSON_SCHEMA
 from tests.inference.fakes import FakeInferenceProvider, ScriptedProvider

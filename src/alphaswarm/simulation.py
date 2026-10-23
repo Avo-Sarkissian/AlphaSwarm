@@ -25,12 +25,6 @@ from typing import TYPE_CHECKING, Final
 import structlog
 
 from alphaswarm.batch_dispatcher import dispatch_wave
-from alphaswarm.config import (
-    compute_prompt_template_hash,
-    generate_modifiers,
-    generate_personas,
-    persona_to_worker_config,
-)
 from alphaswarm.context_formatter import format_market_context
 from alphaswarm.episodes import EpisodeRecord, compute_flip_type, match_entities, new_decision_ids
 from alphaswarm.errors import RoundFailedError, run_error_from_exception
@@ -39,13 +33,13 @@ from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.manifest import current_git_revision
 from alphaswarm.metrics import split_flips
-from alphaswarm.seed import inject_seed
+from alphaswarm.personas import compute_prompt_template_hash, generate_personas, persona_to_worker_config
+from alphaswarm.security.sanitize import sanitize_peer_rationale, sanitize_rationale
+from alphaswarm.seed import generate_modifiers, inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
-from alphaswarm.utils import sanitize_peer_rationale, sanitize_rationale
 
 if TYPE_CHECKING:
-    from alphaswarm.config import AppSettings, BracketConfig, SimulationSettings
     from alphaswarm.episodes import EntityRef
     from alphaswarm.errors import RunErrorCode
     from alphaswarm.graph import CycleStatus, GraphStateManager, PersistRoundResult, RankedPost
@@ -54,10 +48,12 @@ if TYPE_CHECKING:
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
     from alphaswarm.ollama_client import OllamaClient
     from alphaswarm.ollama_models import OllamaModelManager
+    from alphaswarm.settings import AppSettings, SimulationSettings
     from alphaswarm.state import StateStore
     from alphaswarm.types import (
         AgentDecision,
         AgentPersona,
+        BracketConfig,
         ParsedModifiersResult,
         ParsedSeedResult,
     )

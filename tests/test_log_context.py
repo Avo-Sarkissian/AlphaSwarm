@@ -12,8 +12,8 @@ import structlog
 import alphaswarm.web.routes.advisory as advisory_module
 import alphaswarm.web.routes.report as report_module
 from alphaswarm.batch_dispatcher import dispatch_wave
-from alphaswarm.config import GovernorSettings
 from alphaswarm.inference.types import InferenceResult, ProviderRole
+from alphaswarm.settings import GovernorSettings
 from alphaswarm.types import WorkerPersonaConfig
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.controllers import ImmediateController

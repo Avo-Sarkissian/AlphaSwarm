@@ -10,8 +10,8 @@ import sys
 import unicodedata
 
 from alphaswarm.graph import RankedPost
+from alphaswarm.security.sanitize import sanitize_peer_rationale
 from alphaswarm.simulation import _format_peer_context
-from alphaswarm.utils import sanitize_peer_rationale
 from tests.inference.fakes import PEER_LINE_RE
 
 FORGED = (

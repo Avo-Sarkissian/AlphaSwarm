@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from alphaswarm.config import DEFAULT_BRACKETS
+from alphaswarm.personas import DEFAULT_BRACKETS
 from alphaswarm.types import BracketConfig
 
 ROOT: Final = Path(__file__).resolve().parents[1]

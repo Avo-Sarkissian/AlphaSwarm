@@ -6,13 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from alphaswarm.config import (
-    PROJECT_ROOT,
-    AppSettings,
-    default_inference_config,
-    load_inference_config,
-    save_inference_config,
-)
+from alphaswarm.inference.config import default_inference_config, load_inference_config, save_inference_config
+from alphaswarm.settings import PROJECT_ROOT, AppSettings
 
 
 def _settings(**overrides: object) -> AppSettings:
@@ -21,7 +16,7 @@ def _settings(**overrides: object) -> AppSettings:
 
 def test_project_root_is_the_repository() -> None:
     assert (PROJECT_ROOT / "pyproject.toml").is_file()
-    assert (PROJECT_ROOT / "src" / "alphaswarm" / "config.py").is_file()
+    assert (PROJECT_ROOT / "src" / "alphaswarm" / "settings.py").is_file()
 
 
 def test_relative_paths_anchor_at_project_root_not_cwd(

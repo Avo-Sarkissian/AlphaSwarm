@@ -17,11 +17,11 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from alphaswarm.batch_dispatcher import dispatch_wave
-from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.governor import GovernorState, ResourceGovernor, TokenPool
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.memory_monitor import MemoryReading, PressureLevel
+from alphaswarm.settings import GovernorSettings
 from alphaswarm.types import WorkerPersonaConfig
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.aio import eventually

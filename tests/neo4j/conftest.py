@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest_asyncio
 
-from alphaswarm.config import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.graph import GraphStateManager
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
 from tests.conftest import NEO4J_TEST_DATABASE
 
 if TYPE_CHECKING:

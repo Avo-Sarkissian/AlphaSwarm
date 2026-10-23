@@ -16,8 +16,7 @@ from typing import Any
 
 import pytest
 
-from alphaswarm.config import (
-    AppSettings,
+from alphaswarm.inference.config import (
     InferenceConfig,
     ModelPrice,
     ProviderLimits,
@@ -28,6 +27,7 @@ from alphaswarm.config import (
     masked_config,
     save_inference_config,
 )
+from alphaswarm.settings import AppSettings
 
 # POSIX mode bits are meaningless on Windows (os.chmod there only toggles the
 # read-only flag), and save_inference_config skips them on non-POSIX platforms.

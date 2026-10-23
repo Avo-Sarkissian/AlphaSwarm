@@ -9,7 +9,7 @@ from collections import Counter
 from typing import Any
 from unittest.mock import MagicMock
 
-from alphaswarm.config import AppSettings, SimulationSettings
+from alphaswarm.settings import AppSettings, SimulationSettings
 from alphaswarm.types import AgentPersona
 from alphaswarm.worker import PEER_CONTEXT_GUARD, PEER_FENCE_CLOSE
 from tests.engine.scenario import SCENARIO_RUMOR, RunScenario, round_calls

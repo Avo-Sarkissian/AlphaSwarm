@@ -17,7 +17,9 @@ import structlog
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, StrictBool, ValidationError, field_validator
 
-from alphaswarm.config import (
+from alphaswarm.errors import AuthError, InferenceError
+from alphaswarm.inference.budget import DEFAULT_PRICING, BudgetMeter, RunEstimate, estimate_run
+from alphaswarm.inference.config import (
     InferenceConfig,
     ModelPrice,
     ProviderLimits,
@@ -27,8 +29,6 @@ from alphaswarm.config import (
     masked_config,
     save_inference_config,
 )
-from alphaswarm.errors import AuthError, InferenceError
-from alphaswarm.inference.budget import DEFAULT_PRICING, BudgetMeter, RunEstimate, estimate_run
 from alphaswarm.inference.factory import _build_single_provider, inference_mode
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.web.errors import ApiError, validation_fields

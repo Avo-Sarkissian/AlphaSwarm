@@ -6,12 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from alphaswarm.config import (
-    DEFAULT_ALLOWED_ORIGINS,
-    DEFAULT_TRUSTED_HOSTS,
-    AppSettings,
-    legacy_origin_settings,
-)
+from alphaswarm.settings import DEFAULT_ALLOWED_ORIGINS, DEFAULT_TRUSTED_HOSTS, AppSettings, legacy_origin_settings
 from alphaswarm.web.origin_guard import is_allowed, normalized_allowlist, normalized_trusted_hosts
 
 

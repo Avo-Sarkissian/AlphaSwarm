@@ -22,7 +22,7 @@ import psutil
 import structlog
 
 if TYPE_CHECKING:
-    from alphaswarm.config import GovernorSettings
+    from alphaswarm.settings import GovernorSettings
 
 log = structlog.get_logger(component="memory_monitor")
 

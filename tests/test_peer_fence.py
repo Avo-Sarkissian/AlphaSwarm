@@ -5,10 +5,10 @@ See docs/DECISIONS.md#adr-security-2026-08.
 
 from __future__ import annotations
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.graph import RankedPost
 from alphaswarm.inference.types import InferenceResult, ProviderRole
+from alphaswarm.settings import GovernorSettings
 from alphaswarm.simulation import _format_peer_context
 from alphaswarm.types import WorkerPersonaConfig
 from alphaswarm.worker import (

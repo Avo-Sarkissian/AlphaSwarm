@@ -17,16 +17,12 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.staticfiles import StaticFiles
 
 from alphaswarm.app import create_app_state
-from alphaswarm.config import (
-    AppSettings,
-    generate_personas,
-    legacy_origin_settings,
-    load_bracket_configs,
-)
 from alphaswarm.errors import GraphError
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.manifest import current_git_revision
+from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
+from alphaswarm.settings import AppSettings, legacy_origin_settings
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers

@@ -21,9 +21,10 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from alphaswarm import __version__
-from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.ingestion.fixture import load_context_fixture
+from alphaswarm.personas import generate_personas, load_bracket_configs
+from alphaswarm.settings import AppSettings
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
@@ -105,9 +106,9 @@ def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> 
 def _sanitize_rationale(text: str, max_len: int = 80) -> str:
     """Strip control characters, normalize whitespace, truncate.
 
-    Delegates to alphaswarm.utils.sanitize_rationale (shared utility).
+    Delegates to alphaswarm.security.sanitize.sanitize_rationale (shared utility).
     """
-    from alphaswarm.utils import sanitize_rationale
+    from alphaswarm.security.sanitize import sanitize_rationale
 
     return sanitize_rationale(text, max_len)
 
@@ -441,7 +442,7 @@ def _handle_run(
     _run_pipeline.
     """
     from alphaswarm.app import create_app_state
-    from alphaswarm.config import load_inference_config
+    from alphaswarm.inference.config import load_inference_config
     from alphaswarm.inference.factory import build_controller, build_providers, inference_mode
 
     settings = AppSettings()
@@ -502,7 +503,7 @@ async def _handle_inject(rumor: str) -> None:
     6. Close Neo4j driver in finally block
     """
     from alphaswarm.app import create_app_state
-    from alphaswarm.config import load_inference_config
+    from alphaswarm.inference.config import load_inference_config
     from alphaswarm.inference.factory import build_providers
     from alphaswarm.seed import inject_seed
 
@@ -594,7 +595,7 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     from pathlib import Path
 
     from alphaswarm.app import create_app_state
-    from alphaswarm.config import load_inference_config
+    from alphaswarm.inference.config import load_inference_config
     from alphaswarm.inference.factory import build_providers
     from alphaswarm.report import (
         ReportAssembler,
@@ -705,8 +706,8 @@ def _handle_web(host: str, port: int) -> None:
     """
     import uvicorn
 
-    from alphaswarm.config import AppSettings
     from alphaswarm.logging import configure_logging
+    from alphaswarm.settings import AppSettings
     from alphaswarm.web import create_app
 
     settings = AppSettings()

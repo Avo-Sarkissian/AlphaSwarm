@@ -12,8 +12,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from alphaswarm.config import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.episodes import compute_flip_type
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,

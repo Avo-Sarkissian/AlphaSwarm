@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
+from alphaswarm.settings import GovernorSettings
 from alphaswarm.types import AgentDecision, SignalType, WorkerPersonaConfig
 from alphaswarm.worker import (
     DECISION_JSON_SCHEMA,

@@ -19,11 +19,11 @@ import pytest
 from pydantic import ValidationError
 
 import alphaswarm.web.routes.advisory as advisory_module
-from alphaswarm.config import AppSettings
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.factory import BuiltProviders
 from alphaswarm.inference.types import ProviderRole
+from alphaswarm.settings import AppSettings
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.web_app import CYCLE_A, CYCLE_B, CYCLE_UNKNOWN, route_test_settings
 

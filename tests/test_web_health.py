@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import alphaswarm.web.routes.health as health_module
-from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
+from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
 from alphaswarm.readiness import ComponentStatus
 from alphaswarm.web.routes.health import router as health_router
 from tests.support.web_app import make_route_app, route_test_settings

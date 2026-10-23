@@ -10,7 +10,7 @@ import os
 import pytest
 from pydantic import ValidationError
 
-from alphaswarm.config import AppSettings
+from alphaswarm.settings import AppSettings
 
 # Product default: holdout off; experiment runs set 0.2
 # (docs/DECISIONS.md#adr-diverse-peer-context).

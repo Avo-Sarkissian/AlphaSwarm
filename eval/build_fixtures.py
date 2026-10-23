@@ -22,7 +22,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Final
 
-from alphaswarm.config import sanitize_headline
 from alphaswarm.context_formatter import HEADLINES_PER_ENTITY
 from alphaswarm.evaluation import (
     NEW_YORK,
@@ -38,6 +37,7 @@ from alphaswarm.evaluation import (
 )
 from alphaswarm.ingestion.fixture import anonymize_packet, build_fixture_packet
 from alphaswarm.ingestion.types import ContextPacket
+from alphaswarm.security.sanitize import sanitize_headline
 
 EVAL_DIR: Final = Path(__file__).resolve().parent
 PATHS: Final = EvalPaths(EVAL_DIR)

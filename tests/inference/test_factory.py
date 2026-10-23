@@ -11,13 +11,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from alphaswarm.config import InferenceConfig, ProviderLimits, ProviderType, RoleConfig
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference import (
     RateLimitController,
 )
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
 from alphaswarm.inference.budget import BudgetTrackingProvider
+from alphaswarm.inference.config import InferenceConfig, ProviderLimits, ProviderType, RoleConfig
 from alphaswarm.inference.factory import (
     BuiltProviders,
     advisory_allowed,

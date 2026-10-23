@@ -16,9 +16,9 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReader, MemoryReading
+from alphaswarm.settings import GovernorSettings
 
 if TYPE_CHECKING:
     from types import TracebackType

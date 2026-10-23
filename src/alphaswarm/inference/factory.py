@@ -25,10 +25,10 @@ from dataclasses import dataclass
 from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
-from alphaswarm.config import InferenceConfig, ProviderLimits, ProviderType
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
 from alphaswarm.inference.budget import DEFAULT_PRICING, BudgetMeter, BudgetTrackingProvider
 from alphaswarm.inference.concurrency import ConcurrencyController
+from alphaswarm.inference.config import InferenceConfig, ProviderLimits, ProviderType
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.provider import InferenceProvider

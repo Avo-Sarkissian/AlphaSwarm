@@ -29,14 +29,14 @@ from neo4j.exceptions import ServiceUnavailable
 from pydantic import BaseModel
 from uvicorn.importer import import_from_string
 
-import alphaswarm.config as config_module
 import alphaswarm.manifest as manifest
+import alphaswarm.settings as settings_module
 import alphaswarm.web.app as web_app
 from alphaswarm.app import AppState, create_app_state
-from alphaswarm.config import AppSettings
 from alphaswarm.errors import Neo4jUnavailableError, Neo4jWriteError
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
+from alphaswarm.settings import AppSettings
 from alphaswarm.types import AgentPersona
 from alphaswarm.web.simulation_manager import SimulationManager
 from tests.support.web_app import route_test_settings
@@ -220,7 +220,7 @@ def test_importing_the_module_builds_no_app(monkeypatch: pytest.MonkeyPatch) -> 
     def forbidden_settings(*args: Any, **kwargs: Any) -> AppSettings:
         raise AssertionError("importing alphaswarm.web.app must not construct AppSettings()")
 
-    monkeypatch.setattr(config_module, "AppSettings", forbidden_settings)
+    monkeypatch.setattr(settings_module, "AppSettings", forbidden_settings)
     spec = importlib.util.spec_from_file_location("_fresh_web_app", web_app.__file__)
     assert spec is not None
     assert spec.loader is not None

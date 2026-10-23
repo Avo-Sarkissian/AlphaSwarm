@@ -23,8 +23,8 @@ from pydantic import BaseModel, ValidationError
 
 from alphaswarm.advisory import AdvisoryReport, synthesize
 from alphaswarm.advisory.sector_map import load_sector_map
-from alphaswarm.config import ProviderType, load_inference_config
 from alphaswarm.fsutil import atomic_write_text, prune_old_files
+from alphaswarm.inference.config import ProviderType, load_inference_config
 from alphaswarm.inference.factory import advisory_block_reason, build_providers
 from alphaswarm.logging import validation_error_summary
 from alphaswarm.state import JobStatus
@@ -43,8 +43,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from alphaswarm.app import AppState
-    from alphaswarm.config import InferenceConfig
     from alphaswarm.holdings.types import PortfolioSnapshot
+    from alphaswarm.inference.config import InferenceConfig
 
 log = structlog.get_logger(component="web.advisory")
 

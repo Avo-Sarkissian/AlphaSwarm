@@ -22,8 +22,8 @@ from unittest.mock import MagicMock
 
 import httpx
 
-from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig
 from alphaswarm.inference.budget import BudgetTrackingProvider
+from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
 from alphaswarm.inference.factory import RateLimitController, build_controller, build_providers
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.types import ProviderRole
@@ -430,7 +430,8 @@ class TestPresetsInSettingsEndpoint:
         @asynccontextmanager
         async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             from alphaswarm.app import create_app_state
-            from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+            from alphaswarm.personas import generate_personas, load_bracket_configs
+            from alphaswarm.settings import AppSettings
             from alphaswarm.web.connection_manager import ConnectionManager
             from alphaswarm.web.replay_manager import ReplayManager
             from alphaswarm.web.simulation_manager import SimulationManager

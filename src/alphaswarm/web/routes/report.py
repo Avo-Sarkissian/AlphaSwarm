@@ -19,7 +19,7 @@ import structlog
 from fastapi import APIRouter, FastAPI, Request, status
 from pydantic import BaseModel
 
-from alphaswarm.config import load_inference_config
+from alphaswarm.inference.config import load_inference_config
 from alphaswarm.inference.factory import build_providers
 from alphaswarm.report import (
     ReportAssembler,

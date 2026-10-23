@@ -351,8 +351,8 @@ def test_parse_modifiers_tier2() -> None:
 
 def test_parse_modifiers_tier3_fallback() -> None:
     """Tier 3: garbage text falls back to static BRACKET_MODIFIERS[bracket][0]."""
-    from alphaswarm.config import BRACKET_MODIFIERS
     from alphaswarm.parsing import parse_modifier_response
+    from alphaswarm.personas import BRACKET_MODIFIERS
 
     result = parse_modifier_response("this is not json at all")
     assert result.parse_tier == 3
@@ -363,8 +363,8 @@ def test_parse_modifiers_tier3_fallback() -> None:
 
 def test_parse_modifiers_partial_fallback() -> None:
     """Partial JSON: present keys use generated value, missing keys use static fallback."""
-    from alphaswarm.config import BRACKET_MODIFIERS
     from alphaswarm.parsing import parse_modifier_response
+    from alphaswarm.personas import BRACKET_MODIFIERS
 
     partial = {bt.value: f"custom {bt.value}" for bt in list(BracketType)[:7]}
     result = parse_modifier_response(json_mod.dumps(partial))

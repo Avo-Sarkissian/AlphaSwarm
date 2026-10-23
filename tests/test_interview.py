@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from alphaswarm.config import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.interview import InterviewContext
+from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
 
 # ---------------------------------------------------------------------------
 # Data types tests

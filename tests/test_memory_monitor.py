@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReading, PressureLevel
+from alphaswarm.settings import GovernorSettings
 
 # ---------------------------------------------------------------------------
 # GovernorSettings new fields

@@ -30,7 +30,8 @@ def _make_interview_test_app() -> FastAPI:
     provider-close behaviour is exercised by the same code path as production.
     """
     from alphaswarm.app import create_app_state
-    from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+    from alphaswarm.personas import generate_personas, load_bracket_configs
+    from alphaswarm.settings import AppSettings
     from alphaswarm.web.app import make_session_clearer
     from alphaswarm.web.connection_manager import ConnectionManager
     from alphaswarm.web.errors import install_error_handlers

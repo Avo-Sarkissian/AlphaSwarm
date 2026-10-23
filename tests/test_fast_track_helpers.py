@@ -10,8 +10,9 @@ from collections import Counter
 
 import pytest
 
-from alphaswarm.config import DEFAULT_BRACKETS, SimulationSettings, generate_personas
 from alphaswarm.metrics import split_flips
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
+from alphaswarm.settings import SimulationSettings
 from alphaswarm.simulation import (
     apply_holdout_and_priors,
     own_prior_line,

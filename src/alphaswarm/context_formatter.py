@@ -34,8 +34,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from alphaswarm.config import sanitize_headline
 from alphaswarm.ingestion.types import ContextPacket
+from alphaswarm.security.sanitize import sanitize_headline
 
 # Headlines rendered per entity (docs/DECISIONS.md#p40-d-09). Point-in-time fixtures
 # store no more than this, so every stored headline reaches the prompt.

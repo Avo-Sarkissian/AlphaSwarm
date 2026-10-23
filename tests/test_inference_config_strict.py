@@ -8,8 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from alphaswarm.config import (
-    AppSettings,
+from alphaswarm.inference.config import (
     InferenceConfig,
     ModelPrice,
     ProviderLimits,
@@ -18,6 +17,7 @@ from alphaswarm.config import (
     default_inference_config,
     load_inference_config,
 )
+from alphaswarm.settings import AppSettings
 
 
 def _settings(tmp_path: Path, **overrides: object) -> AppSettings:

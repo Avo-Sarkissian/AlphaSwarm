@@ -4,12 +4,6 @@ from decimal import Decimal
 
 import pytest
 
-from alphaswarm.config import (
-    InferenceConfig,
-    ModelPrice,
-    ProviderType,
-    RoleConfig,
-)
 from alphaswarm.errors import BudgetExceededError
 from alphaswarm.inference.budget import (
     DEFAULT_PRICING,
@@ -18,6 +12,7 @@ from alphaswarm.inference.budget import (
     RunEstimate,
     estimate_run,
 )
+from alphaswarm.inference.config import InferenceConfig, ModelPrice, ProviderType, RoleConfig
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from tests.inference.fakes import FakeInferenceProvider

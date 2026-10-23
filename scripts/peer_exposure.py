@@ -27,7 +27,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from alphaswarm.config import DEFAULT_BRACKETS, AppSettings
+from alphaswarm.personas import DEFAULT_BRACKETS
+from alphaswarm.settings import AppSettings
 
 MAX_SLOT_SHARE = 0.35
 MIN_READER_SHARE = 0.15

@@ -7,10 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphaswarm.config import AppSettings, BracketConfig
+from alphaswarm.settings import AppSettings
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
+    BracketConfig,
     BracketType,
     EntityType,
     ParsedSeedResult,
@@ -633,7 +634,7 @@ def test_round1_result_is_frozen() -> None:
 
 def test_sanitize_rationale_in_utils() -> None:
     """sanitize_rationale in utils.py works identically to old _sanitize_rationale."""
-    from alphaswarm.utils import sanitize_rationale
+    from alphaswarm.security.sanitize import sanitize_rationale
 
     # Control chars stripped, whitespace normalized
     assert sanitize_rationale("hello\x00world\nfoo") == "hello world foo"
@@ -1727,8 +1728,8 @@ def test_bracket_summary_is_frozen() -> None:
 
 def test_compute_bracket_summaries_signal_counts() -> None:
     """compute_bracket_summaries correctly counts signals per bracket."""
-    from alphaswarm.config import BracketConfig
     from alphaswarm.simulation import compute_bracket_summaries
+    from alphaswarm.types import BracketConfig
 
     # 2 BUY quants, 1 SELL degens
     decisions = [
@@ -1796,8 +1797,8 @@ def test_compute_bracket_summaries_signal_counts() -> None:
 
 def test_compute_bracket_summaries_excludes_parse_error() -> None:
     """compute_bracket_summaries excludes PARSE_ERROR agents."""
-    from alphaswarm.config import BracketConfig
     from alphaswarm.simulation import compute_bracket_summaries
+    from alphaswarm.types import BracketConfig
 
     decisions = [
         ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8)),
@@ -1841,8 +1842,8 @@ def test_compute_bracket_summaries_excludes_parse_error() -> None:
 
 def test_compute_bracket_summaries_avg_confidence() -> None:
     """compute_bracket_summaries computes correct avg_confidence."""
-    from alphaswarm.config import BracketConfig
     from alphaswarm.simulation import compute_bracket_summaries
+    from alphaswarm.types import BracketConfig
 
     decisions = [
         ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, sentiment=0.4)),
@@ -3334,8 +3335,8 @@ async def test_run_simulation_stamps_peer_params_and_provenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Cycle metrics carry the effective peer knobs, model ids, provider mode and git state."""
-    from alphaswarm.config import SimulationSettings
     from alphaswarm.inference.types import InferenceResult, ProviderRole
+    from alphaswarm.settings import SimulationSettings
     from alphaswarm.simulation import run_simulation
     from tests.inference.fakes import FakeInferenceProvider
 

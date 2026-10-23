@@ -74,9 +74,9 @@ from urllib.parse import quote_plus
 import feedparser  # type: ignore[import-untyped]
 import httpx
 
-from alphaswarm.config import sanitize_headline
 from alphaswarm.ingestion.providers import _fetch_failed_news_slice
 from alphaswarm.ingestion.types import NewsSlice
+from alphaswarm.security.sanitize import sanitize_headline
 
 _SOURCE = "rss"
 _USER_AGENT = "Mozilla/5.0 AlphaSwarm/6.0"

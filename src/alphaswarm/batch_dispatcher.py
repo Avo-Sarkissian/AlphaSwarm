@@ -28,9 +28,9 @@ from alphaswarm.worker import agent_worker
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from alphaswarm.config import GovernorSettings
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
+    from alphaswarm.settings import GovernorSettings
     from alphaswarm.state import StateStore
     from alphaswarm.types import WorkerPersonaConfig
 
@@ -142,8 +142,8 @@ async def _safe_agent_inference(
 
     # ITEM 4 — streaming rationale push. Lazy imports keep batch_dispatcher
     # import-time minimal.
+    from alphaswarm.security.sanitize import sanitize_rationale
     from alphaswarm.state import RationaleEntry
-    from alphaswarm.utils import sanitize_rationale
 
     try:
         await state_store.push_rationale(
