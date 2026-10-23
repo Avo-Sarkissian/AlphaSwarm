@@ -70,8 +70,11 @@ loopback Host headers and allow-listed browser origins.
 - **History.** Before October 2026 some public commits contained the owner's real
   positions (planning documents and two test files). They were replaced with fictional
   values, but those older commits still contain them; the history was deliberately not
-  rewritten. Older commits also list the owner's tickers (without quantities) in the
-  previous src/alphaswarm/advisory/sector_map.py and its test.
+  rewritten. Older commits also name the owner's tickers (without quantities) in many
+  files, not only the curated map that `src/alphaswarm/advisory/sector_map.py` held and
+  its test: test fixtures, docstrings and comments across `src/`, `tests/` and
+  `frontend/src/`, and the retired planning documents. The current tree uses reserved
+  fictional tickers instead (October 2026); the older commits still contain the real ones.
 
 ## Reporting a vulnerability
 
