@@ -1,6 +1,6 @@
 // Dashboard shell: topbar, banners, the dashboard grid, the replay bar and the
 // single overlay slot (docs/DECISIONS.md#adr-frontend-quant-terminal).
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Icon } from '../components/Icon';
 import { Viz } from '../features/dashboard/Viz';
@@ -24,20 +24,13 @@ import { signalClass, signalLabel } from '../lib/signals';
 import { bracketTallies } from '../lib/tally';
 import { phaseLabelFor } from '../lib/phase';
 import { useRound, useRounds } from '../hooks/useRounds';
-import { AdvisoryPanel } from '../features/advisory/AdvisoryPanel';
 import { ModelStatus } from '../features/dashboard/ModelStatus';
-import { DataSourcesTakeover } from '../features/wire/DataSourcesTakeover';
 import { SignalWire } from '../features/wire/SignalWire';
-import { ShockDrawer } from '../features/dashboard/ShockDrawer';
 import { ReplayBar } from '../features/dashboard/ReplayBar';
-import { ReportModal } from '../features/report/ReportModal';
-import { CycleBrowser } from '../features/cycles/CycleBrowser';
-import { Settings } from '../features/settings/Settings';
-import { InterviewPanel } from '../features/interview/InterviewPanel';
-import { BracketDeepDive } from '../features/dashboard/BracketDeepDive';
 import { InlineError } from '../components/InlineError';
 import { RunErrorBanner } from '../features/dashboard/RunErrorBanner';
 import { RunControls } from './RunControls';
+import { ModalHost, type ActiveModal } from './ModalHost';
 import { useFrameMeta } from '../context/FrameMetaContext';
 import { formatApiError } from '../lib/apiError';
 import { lifecycleOf } from '../lib/lifecycle';
@@ -77,108 +70,6 @@ function Tooltip({ info }: { info: TooltipInfo | null }) {
   );
 }
 
-type ComingSoonKey = 'whatif' | 'multiseed' | 'stress' | 'brackets';
-
-const COMING_SOON_COPY: Record<ComingSoonKey, { title: string; subtitle: string; body: string }> = {
-  whatif: {
-    title: 'What-if Compare',
-    subtitle: 'COMPARE TWO SIMULATION SEEDS SIDE-BY-SIDE',
-    body:
-      'Run two seed rumors through the swarm in parallel and diff the resulting consensus, ' +
-      'bracket distributions, and influence topology. Useful for testing how the same agents ' +
-      'react to different framings of the same underlying event.\n\n' +
-      'Requires backend support for paired-cycle dispatch and a dual-snapshot WS contract.',
-  },
-  multiseed: {
-    title: 'Multi-seed Synthesis',
-    subtitle: 'AGGREGATE SIGNAL ACROSS MULTIPLE SEEDS',
-    body:
-      'Submit a batch of related rumors (e.g. 10 paraphrasings of one event) and have the ' +
-      'orchestrator synthesize a meta-advisory across all resulting cycles. Surfaces consensus ' +
-      'that is stable across framings vs. seed-dependent artifacts.\n\n' +
-      'Requires backend batch-orchestration and a synthesizer pass over N completed cycles.',
-  },
-  stress: {
-    title: 'Portfolio Stress Test',
-    subtitle: 'SHOCK YOUR PORTFOLIO THROUGH THE SWARM',
-    body:
-      'Inject a hypothetical macro/idiosyncratic shock mid-cycle and watch how each bracket ' +
-      'updates. Returns a per-holding sensitivity map and worst-case drawdown estimates ' +
-      'derived from the post-shock consensus distribution.\n\n' +
-      'Requires the existing shock-injection wiring (Phase 35.1) plus a portfolio-aware ' +
-      'risk aggregator on the orchestrator side.',
-  },
-  brackets: {
-    title: 'Customize Brackets',
-    subtitle: 'ADJUST BRACKET COMPOSITION + PERSONAS',
-    body:
-      'Edit the 10 bracket archetypes (counts, risk profiles, persona prompts) before a run. ' +
-      'Save and reload bracket presets to test how the swarm behaves with different ' +
-      'compositions (e.g. all degens, no allocators).\n\n' +
-      'Requires a persona-edit UI and a per-cycle bracket-override channel through the ' +
-      'config layer.',
-  },
-};
-
-function ComingSoonModal({
-  feature,
-  onClose,
-}: {
-  feature: ComingSoonKey;
-  onClose: () => void;
-}) {
-  const copy = COMING_SOON_COPY[feature];
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <button className="btn ghost-btn" onClick={onClose} aria-label="Close">
-            <Icon name="close" />
-          </button>
-          <div style={{ flex: 1 }}>
-            <div style={{ color: 'var(--text)', fontSize: 15, fontWeight: 600 }}>
-              {copy.title}
-            </div>
-            <div
-              className="label"
-              style={{ marginTop: 2, color: 'var(--text-3)', letterSpacing: '0.12em' }}
-            >
-              {copy.subtitle}
-            </div>
-          </div>
-          <span
-            style={{
-              padding: '3px 8px',
-              border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
-              borderRadius: 10,
-              color: 'var(--accent)',
-              fontSize: 10,
-              letterSpacing: '0.12em',
-            }}
-          >
-            COMING IN v6.x
-          </span>
-        </div>
-        <div className="modal-body">
-          {copy.body.split('\n\n').map((p, i) => (
-            <p
-              key={i}
-              style={{
-                color: 'var(--text-2)',
-                fontSize: 13,
-                lineHeight: 1.65,
-                margin: i === 0 ? '0 0 12px' : '0',
-              }}
-            >
-              {p}
-            </p>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function Legend() {
   return (
     <div className="legend">
@@ -190,22 +81,6 @@ function Legend() {
       <div className="legend-row"><span className="chip-line" /> Influence edge</div>
     </div>
   );
-}
-
-interface UiState {
-  shockOpen: boolean;
-  interviewAgentId: string | null;
-  reportOpen: boolean;
-  reportCycleId: string | null; // cycle picked in CycleBrowser (null = current)
-  advisoryOpen: boolean;
-  dataSourcesOpen: boolean;
-  settingsOpen: boolean;
-  historyOpen: boolean;
-  bracketDeepDive: any | null;
-  overflowOpen: boolean;
-  tooltip: TooltipInfo | null;
-  // Coming-in-v6.x placeholders surfaced from the overflow menu.
-  comingSoon: 'whatif' | 'multiseed' | 'stress' | 'brackets' | null;
 }
 
 export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
@@ -245,20 +120,10 @@ export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [layout, setLayout] = useState<VizLayout>('force');
   const [hintsDismissed, setHintsDismissed] = useState(false);
-  const [ui, setUi] = useState<UiState>({
-    shockOpen: false,
-    interviewAgentId: null,
-    reportOpen: false,
-    reportCycleId: null,
-    advisoryOpen: false,
-    dataSourcesOpen: false,
-    settingsOpen: false,
-    historyOpen: false,
-    bracketDeepDive: null,
-    overflowOpen: false,
-    tooltip: null,
-    comingSoon: null,
-  });
+  const [modal, setModal] = useState<ActiveModal>({ kind: 'none' });
+  const closeModal = useCallback(() => setModal({ kind: 'none' }), []);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
 
   // Bracket bars come from the agents on screen, so they always describe the
   // current round (wire bracket_summaries only arrive after a round ends);
@@ -306,13 +171,13 @@ export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
   const phaseState: 'live' | 'complete' = phase === 'complete' ? 'complete' : 'live';
 
   const onAgentHover = (agent: AgentView | null, e?: MouseEvent<SVGElement>) => {
-    if (!agent || !e) { setUi((u) => ({ ...u, tooltip: null })); return; }
+    if (!agent || !e) { setTooltip(null); return; }
     const wrap = e.currentTarget.closest('.canvas-wrap');
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
-    setUi((u) => ({ ...u, tooltip: { agent, x: e.clientX - rect.left, y: e.clientY - rect.top } }));
+    setTooltip({ agent, x: e.clientX - rect.left, y: e.clientY - rect.top });
   };
-  const openInterview = (agentId: string) => setUi((u) => ({ ...u, interviewAgentId: agentId }));
+  const openInterview = (agentId: string) => setModal({ kind: 'interview', agentId });
   const onAgentClick = (agent: { id: string }) => openInterview(agent.id);
 
   // Run gate: cost confirmation for cloud/mixed runs, then simStart. It keeps
@@ -384,33 +249,33 @@ export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
 
         <button
           className="btn ghost-btn"
-          onClick={() => setUi(u => ({...u, shockOpen: !u.shockOpen}))}
+          onClick={() => setModal((m) => (m.kind === 'shock' ? { kind: 'none' } : { kind: 'shock' }))}
           disabled={!shockWindowOpen}
           title={shockWindowOpen ? 'Inject shock event' : 'Shock window closed: a shock can only reach a later round'}
         >
           <Icon name="bolt" />
         </button>
-        <button className="btn ghost-btn" onClick={() => setUi(u => ({ ...u, historyOpen: true }))} title="Watch / replay">
+        <button className="btn ghost-btn" onClick={() => setModal({ kind: 'cycles' })} title="Watch / replay">
           <Icon name="replay" />
         </button>
-        <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, reportOpen: true}))} title="Simulation report">
+        <button className="btn ghost-btn" onClick={() => setModal({ kind: 'report', cycleId: null })} title="Simulation report">
           <Icon name="doc" />
         </button>
-        <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, settingsOpen: true}))} title="Settings">
+        <button className="btn ghost-btn" onClick={() => setModal({ kind: 'settings' })} title="Settings">
           <Icon name="settings" />
         </button>
 
         <div style={{position:'relative'}}>
           <button className="btn ghost-btn" title="More tools"
-            style={{color: ui.overflowOpen ? 'var(--accent)' : undefined}}
-            onClick={() => setUi(u => ({...u, overflowOpen: !u.overflowOpen}))}>
+            style={{color: overflowOpen ? 'var(--accent)' : undefined}}
+            onClick={() => setOverflowOpen((o) => !o)}>
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
               <circle cx="3" cy="7.5" r="1.3" fill="currentColor"/>
               <circle cx="7.5" cy="7.5" r="1.3" fill="currentColor"/>
               <circle cx="12" cy="7.5" r="1.3" fill="currentColor"/>
             </svg>
           </button>
-          {ui.overflowOpen && (
+          {overflowOpen && (
             <div style={{
               position:'absolute', right:0, top:'calc(100% + 6px)',
               background:'var(--bg-2)', border:'1px solid var(--border-2)',
@@ -418,17 +283,17 @@ export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
               boxShadow:'0 12px 32px rgba(0,0,0,0.5)',
               overflow:'hidden',
             }}
-              onMouseLeave={() => setUi(u => ({...u, overflowOpen: false}))}>
+              onMouseLeave={() => setOverflowOpen(false)}>
               {([
-                { label:'What-if Compare',       icon:'graph',    action: (u: UiState) => ({...u, comingSoon: 'whatif' as const,    overflowOpen: false}) },
-                { label:'Multi-seed Synthesis',  icon:'bolt',     action: (u: UiState) => ({...u, comingSoon: 'multiseed' as const, overflowOpen: false}) },
-                { label:'Data Sources',          icon:'search',   action: (u: UiState) => ({...u, dataSourcesOpen: true,            overflowOpen: false}) },
-                { label:'Portfolio Stress Test', icon:'doc',      action: (u: UiState) => ({...u, comingSoon: 'stress' as const,    overflowOpen: false}) },
-                { label:'Advisory (v6.0)',       icon:'brief',    action: (u: UiState) => ({...u, advisoryOpen: true,               overflowOpen: false}) },
-                { label:'Customize Brackets',    icon:'settings', action: (u: UiState) => ({...u, comingSoon: 'brackets' as const,  overflowOpen: false}) },
-                { label:'Cycle History',         icon:'replay',   action: (u: UiState) => ({...u, historyOpen: true,                overflowOpen: false}) },
+                { label:'What-if Compare',       icon:'graph',    open: { kind: 'comingSoon', feature: 'whatif' } },
+                { label:'Multi-seed Synthesis',  icon:'bolt',     open: { kind: 'comingSoon', feature: 'multiseed' } },
+                { label:'Data Sources',          icon:'search',   open: { kind: 'dataSources' } },
+                { label:'Portfolio Stress Test', icon:'doc',      open: { kind: 'comingSoon', feature: 'stress' } },
+                { label:'Advisory (v6.0)',       icon:'brief',    open: { kind: 'advisory' } },
+                { label:'Customize Brackets',    icon:'settings', open: { kind: 'comingSoon', feature: 'brackets' } },
+                { label:'Cycle History',         icon:'replay',   open: { kind: 'cycles' } },
               ] as const).map(item => (
-                <button key={item.label} onClick={() => setUi(item.action)}
+                <button key={item.label} onClick={() => { setModal(item.open); setOverflowOpen(false); }}
                   style={{
                     display:'flex', alignItems:'center', gap:10,
                     width:'100%', padding:'9px 14px',
@@ -451,7 +316,7 @@ export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
       <RunErrorBanner />
 
       {/* Signal Wire ticker — live data_source_audit slice (docs/DECISIONS.md#kr-41-1-02) */}
-      <SignalWire onInspect={() => setUi((u) => ({ ...u, dataSourcesOpen: true }))} />
+      <SignalWire onInspect={() => setModal({ kind: 'dataSources' })} />
 
       {/* Governor paused/crisis warning — dismissible banner, NOT a takeover.
           The backend governor throttles + resumes on its own; no resume button. */}
@@ -491,9 +356,7 @@ export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
               <span className="label">{agents.length} AGENTS · R{round}</span>
             </div>
             <div className="panel-body">
-              <BracketList summaries={summaries} onClick={(s) => {
-                setUi(u => ({...u, bracketDeepDive: s}));
-              }} />
+              <BracketList summaries={summaries} onClick={(s) => setModal({ kind: 'bracket', bracket: s })} />
             </div>
           </div>
 
@@ -544,13 +407,13 @@ export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
               edges={edgePairs}
               layout={layout}
               direction="a"
-              highlightId={ui.tooltip?.agent.id}
+              highlightId={tooltip?.agent.id}
               onAgentHover={onAgentHover}
               onAgentClick={onAgentClick}
             />
             <ConsensusRing agents={agents} />
             <Legend />
-            <Tooltip info={ui.tooltip} />
+            <Tooltip info={tooltip} />
 
             {!hintsDismissed && (
               <div className="first-hint">
@@ -563,7 +426,7 @@ export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
               <IdleState
                 seed={seed}
                 numRounds={numRounds}
-                onShowHistory={() => setUi((u) => ({ ...u, historyOpen: true }))}
+                onShowHistory={() => setModal({ kind: 'cycles' })}
               />
             )}
             {lifecycle === 'seeding' && <SeedingState seed={seed} elapsedSeconds={elapsedSeconds} />}
@@ -604,62 +467,9 @@ export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
         </div>
       </div>
 
-      {/* W4 real-wired modal mounts (Plan 41.6-04 task 2). All stub overlays
-          replaced — InterviewPanel and BracketDeepDive now mount real components. */}
-      {ui.interviewAgentId && (
-        <InterviewPanel agentId={ui.interviewAgentId} onClose={() => setUi((u) => ({ ...u, interviewAgentId: null }))} />
-      )}
-      {ui.bracketDeepDive && (
-        <BracketDeepDive
-          bracket={ui.bracketDeepDive}
-          agents={agents.filter((a) => a.bracket === ui.bracketDeepDive.bracket)}
-          onAgentInterview={(a) => setUi((u) => ({ ...u, bracketDeepDive: null, interviewAgentId: a.id }))}
-          onClose={() => setUi((u) => ({ ...u, bracketDeepDive: null }))}
-        />
-      )}
-      {ui.shockOpen && (
-        <ShockDrawer onClose={() => setUi((u) => ({ ...u, shockOpen: false }))} />
-      )}
+      <ModalHost modal={modal} onOpen={setModal} onClose={closeModal} />
       {/* Replay is driven by the frame (mode), so the bar survives a reload. */}
       {lifecycle === 'replay' && <ReplayBar />}
-      {ui.reportOpen && (
-        <ReportModal
-          cycleId={ui.reportCycleId}
-          onClose={() =>
-            setUi((u) => ({ ...u, reportOpen: false, reportCycleId: null }))
-          }
-        />
-      )}
-      {ui.advisoryOpen && (
-        <AdvisoryPanel onClose={() => setUi((u) => ({ ...u, advisoryOpen: false }))} />
-      )}
-      {ui.dataSourcesOpen && (
-        <DataSourcesTakeover
-          onClose={() => setUi((u) => ({ ...u, dataSourcesOpen: false }))}
-        />
-      )}
-      {ui.historyOpen && (
-        <CycleBrowser
-          onClose={() => setUi((u) => ({ ...u, historyOpen: false }))}
-          onOpenReport={(c) =>
-            setUi((u) => ({
-              ...u,
-              historyOpen: false,
-              reportOpen: true,
-              reportCycleId: c.cycle_id,
-            }))
-          }
-        />
-      )}
-      {ui.settingsOpen && (
-        <Settings onClose={() => setUi((u) => ({ ...u, settingsOpen: false }))} />
-      )}
-      {ui.comingSoon && (
-        <ComingSoonModal
-          feature={ui.comingSoon}
-          onClose={() => setUi((u) => ({ ...u, comingSoon: null }))}
-        />
-      )}
 
       {/* Pre-run cost confirmation modal (cloud/mixed mode only). */}
       {runConfirmModal}

@@ -21,6 +21,10 @@ const FILES: readonly string[] = walk(SRC)
 
 const read = (file: string): string => readFileSync(join(SRC, file), 'utf8');
 const isSource = (file: string): boolean => /\.(ts|tsx|css)$/.test(file) && !file.startsWith('__tests__/');
+// Source text without comments, so prose such as "any bracket" never matches.
+const code = (file: string): string =>
+  read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const EXPLICIT_ANY = /:\s*any\b|\bas\s+any\b|<any>|\bany\[\]|\|\s*any\b|\bany\s*\|/;
 
 // File names and mentions (v2.tsx, app_v2, interview_v2, components/v2),
 // identifiers (InterviewV2, AdvisoryV2, ReportModalV2), class prefixes (rv2-,
@@ -35,6 +39,11 @@ describe('frontend structure', () => {
 
   it('has no prototype v2 file names, identifiers or class prefixes', () => {
     const offenders = FILES.filter((file) => isSource(file) && (V2_NAME.test(file) || V2_NAME.test(read(file))));
+    expect(offenders).toEqual([]);
+  });
+
+  it('has no explicit any outside tests', () => {
+    const offenders = FILES.filter((file) => /\.tsx?$/.test(file) && isSource(file) && EXPLICIT_ANY.test(code(file)));
     expect(offenders).toEqual([]);
   });
 });
