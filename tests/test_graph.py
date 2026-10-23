@@ -75,7 +75,7 @@ def test_init_stores_driver_and_database(mock_driver: MagicMock) -> None:
 
 async def test_ensure_schema_runs_all_statements(mock_driver: MagicMock) -> None:
     """ensure_schema runs all SCHEMA_STATEMENTS then calls seed_agents."""
-    from alphaswarm.graph import SCHEMA_STATEMENTS, GraphStateManager
+    from alphaswarm.graph.manager import SCHEMA_STATEMENTS, GraphStateManager
 
     session = mock_driver.session.return_value
     session.execute_read.return_value = 0  # no duplicate decision ids
@@ -147,7 +147,7 @@ def sample_seed_event_for_graph() -> SeedEvent:
 
 def test_schema_statements_includes_entity_constraint() -> None:
     """SCHEMA_STATEMENTS contains Entity name+type uniqueness constraint."""
-    from alphaswarm.graph import SCHEMA_STATEMENTS
+    from alphaswarm.graph.manager import SCHEMA_STATEMENTS
 
     entity_constraints = [s for s in SCHEMA_STATEMENTS if "entity_name_type_unique" in s]
     assert len(entity_constraints) == 1, "Expected exactly one entity uniqueness constraint"
@@ -326,7 +326,7 @@ async def test_remove_legacy_properties_runs_the_cleanup_write(mock_driver: Magi
 
 
 async def test_legacy_property_cleanup_tx_runs_each_statement() -> None:
-    from alphaswarm.graph import LEGACY_PROPERTY_CLEANUP, GraphStateManager
+    from alphaswarm.graph.manager import LEGACY_PROPERTY_CLEANUP, GraphStateManager
 
     tx = AsyncMock()
     await GraphStateManager._legacy_property_cleanup_tx(tx)
@@ -537,7 +537,7 @@ async def test_write_shock_event_wraps_driver_errors(mock_driver: MagicMock) -> 
 
 def test_schema_includes_shock_id_unique_constraint() -> None:
     """SCHEMA_STATEMENTS contains a uniqueness constraint on (:ShockEvent).shock_id."""
-    from alphaswarm.graph import SCHEMA_STATEMENTS
+    from alphaswarm.graph.manager import SCHEMA_STATEMENTS
 
     pattern = r"CREATE CONSTRAINT shock_id_unique.*FOR \(se:ShockEvent\).*REQUIRE se\.shock_id IS UNIQUE"
     matches = [s for s in SCHEMA_STATEMENTS if re.search(pattern, s)]
@@ -603,7 +603,7 @@ def test_map_graph_error(exc_factory: str, write: bool, expected: str) -> None:
     from neo4j.exceptions import AuthError as Neo4jAuthError
     from neo4j.exceptions import ClientError, ServiceUnavailable, SessionExpired
 
-    from alphaswarm.graph import _map_graph_error
+    from alphaswarm.graph.manager import _map_graph_error
 
     original = {
         "service_unavailable": ServiceUnavailable("Couldn't connect to 127.0.0.1:7688"),
@@ -742,7 +742,7 @@ async def test_read_cycle_entities_tx_reads_name_and_type() -> None:
 
 
 def test_schema_has_cycle_status_index() -> None:
-    from alphaswarm.graph import SCHEMA_STATEMENTS
+    from alphaswarm.graph.manager import SCHEMA_STATEMENTS
 
     assert "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)" in SCHEMA_STATEMENTS
 
@@ -997,7 +997,7 @@ def test_decode_modifiers_drops_bad_json_and_unknown_brackets(
     raw: object,
     expected: dict[BracketType, str] | None,
 ) -> None:
-    from alphaswarm.graph import _decode_modifiers, _encode_modifiers
+    from alphaswarm.graph.manager import _decode_modifiers, _encode_modifiers
 
     assert _decode_modifiers(raw) == expected
     modifiers = {BracketType.QUANTS: "a", BracketType.DEGENS: "b"}
@@ -1011,7 +1011,7 @@ def test_decode_modifiers_drops_bad_json_and_unknown_brackets(
 
 def test_schema_drops_run_before_the_decision_id_constraint() -> None:
     """A uniqueness constraint cannot coexist with the legacy plain index."""
-    from alphaswarm.graph import SCHEMA_STATEMENTS
+    from alphaswarm.graph.manager import SCHEMA_STATEMENTS
 
     drop = SCHEMA_STATEMENTS.index("DROP INDEX decision_id_idx IF EXISTS")
     create = next(i for i, s in enumerate(SCHEMA_STATEMENTS) if "decision_id_unique" in s)
@@ -1021,7 +1021,7 @@ def test_schema_drops_run_before_the_decision_id_constraint() -> None:
 
 def test_schema_statements_keep_the_plain_index_while_duplicates_exist() -> None:
     """Duplicate decision ids swap the constraint for the plain index; nothing else changes."""
-    from alphaswarm.graph import SCHEMA_STATEMENTS, schema_statements
+    from alphaswarm.graph.manager import SCHEMA_STATEMENTS, schema_statements
 
     assert schema_statements(0) == SCHEMA_STATEMENTS
     guarded = schema_statements(3)
@@ -1035,7 +1035,7 @@ def test_schema_statements_keep_the_plain_index_while_duplicates_exist() -> None
 
 async def test_ensure_schema_skips_the_constraint_over_duplicate_decision_ids(mock_driver: MagicMock) -> None:
     """Existing duplicates never fail startup: warn with the count, keep the plain index."""
-    from alphaswarm.graph import GraphStateManager, schema_statements
+    from alphaswarm.graph.manager import GraphStateManager, schema_statements
 
     session = mock_driver.session.return_value
     session.execute_read.return_value = 2

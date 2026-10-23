@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from alphaswarm.graph import GraphStateManager, _majority
+from alphaswarm.graph.manager import GraphStateManager, _majority
 
 
 def _row(agent_id: str, bracket: str, pre: str, post: str) -> dict[str, object]:

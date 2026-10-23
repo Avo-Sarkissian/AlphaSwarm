@@ -155,3 +155,13 @@ async def test_every_facade_method_maps_a_driver_outage(method: str) -> None:
     with pytest.raises(Neo4jUnavailableError) as exc_info:
         await OUTAGE_CALLS[method](gm)
     assert exc_info.value.op
+
+
+def test_graph_is_a_package_with_a_manager_module() -> None:
+    import alphaswarm.graph as graph
+    from alphaswarm.graph import manager
+
+    assert hasattr(graph, "__path__"), "alphaswarm.graph must be a package"
+    assert not (SRC / "graph.py").exists()
+    assert graph.GraphStateManager is manager.GraphStateManager
+    assert not [name for name in graph.__all__ if name.startswith("_")]

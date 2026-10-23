@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from alphaswarm import graph
+from alphaswarm.graph.manager import _EFFECTIVE_STATUS
 from tests.support.scripts import load_script
 
 
@@ -10,5 +10,5 @@ def test_compare_cycles_lists_complete_cycles_by_the_shared_status_rule() -> Non
     """A second rule (metrics stamped) would list failed cycles the app hides (docs/DECISIONS.md#adr-cycle-metrics)."""
     query = load_script("compare_cycles").CYCLES_QUERY
 
-    assert f"WHERE {graph._EFFECTIVE_STATUS} = 'complete'" in query
-    assert "metrics_recorded_at" not in query.replace(graph._EFFECTIVE_STATUS, "")
+    assert f"WHERE {_EFFECTIVE_STATUS} = 'complete'" in query
+    assert "metrics_recorded_at" not in query.replace(_EFFECTIVE_STATUS, "")
