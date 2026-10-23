@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import uuid
-from collections.abc import Awaitable, Callable, Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, TypeVar, cast, get_args
@@ -22,7 +23,7 @@ from alphaswarm.errors import (
     Neo4jWriteError,
 )
 from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
-from alphaswarm.types import SignalType
+from alphaswarm.types import BracketType, SignalType
 
 if TYPE_CHECKING:
     from neo4j import AsyncDriver, AsyncManagedTransaction
@@ -35,6 +36,18 @@ if TYPE_CHECKING:
 log = structlog.get_logger(component="graph")
 
 T = TypeVar("T")
+
+
+def _encode_modifiers(modifiers: Mapping[BracketType, str] | None) -> str | None:
+    """Canonical JSON of the per-cycle focus lines keyed by bracket value; None stays None."""
+    if modifiers is None:
+        return None
+    return json.dumps(
+        {bracket.value: text for bracket, text in modifiers.items()},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+
 
 # neo4j 5.x raises a pool-acquisition timeout as a code-less ClientError
 # (6.0 plans to make it a DriverError).
@@ -678,13 +691,18 @@ class GraphStateManager:
         seed_event: SeedEvent,
         *,
         num_rounds: int,
+        modifiers: Mapping[BracketType, str] | None = None,
+        prompt_template_hash: str | None = None,
     ) -> str:
         """Atomically create the Cycle (with num_rounds) and its seed entities.
 
         Cycle, Entity and MENTIONS are written in one transaction so a failure
         cannot leave an orphan Cycle. `num_rounds` is stamped here so running
         and failed cycles carry it too; report queries resolve the final round
-        from it (docs/DECISIONS.md#adr-num-rounds).
+        from it (docs/DECISIONS.md#adr-num-rounds). The cycle's generated
+        persona modifiers (canonical JSON, absent when None) and the
+        prompt-template hash are stored on the same node so a past run's
+        prompts can be rebuilt (docs/DECISIONS.md#adr-neo4j-schema).
 
         Returns:
             cycle_id: The UUID4 string for the created Cycle.
@@ -708,6 +726,8 @@ class GraphStateManager:
             seed_event.overall_sentiment,
             entity_params,
             num_rounds,
+            _encode_modifiers(modifiers),
+            prompt_template_hash,
             op="create_cycle_with_seed_event",
         )
         self._log.info(
@@ -716,6 +736,7 @@ class GraphStateManager:
             entity_count=len(entity_params),
             overall_sentiment=seed_event.overall_sentiment,
             num_rounds=num_rounds,
+            has_modifiers=modifiers is not None,
         )
         return cycle_id
 
@@ -727,8 +748,10 @@ class GraphStateManager:
         overall_sentiment: float,
         entities: list[dict[str, Any]],
         num_rounds: int,
+        modifiers_json: str | None,
+        prompt_template_hash: str | None,
     ) -> None:
-        """Single transaction: Cycle (num_rounds, status 'running') then UNWIND Entity + MENTIONS."""
+        """One transaction: Cycle (metadata, status 'running'), then UNWIND Entity + MENTIONS."""
         await tx.run(
             """
             CREATE (c:Cycle {
@@ -737,6 +760,8 @@ class GraphStateManager:
                 overall_sentiment: $overall_sentiment,
                 created_at: datetime(),
                 num_rounds: $num_rounds,
+                modifiers_json: $modifiers_json,
+                prompt_template_hash: $prompt_template_hash,
                 status: 'running'
             })
             """,
@@ -744,6 +769,8 @@ class GraphStateManager:
             seed_rumor=seed_rumor,
             overall_sentiment=overall_sentiment,
             num_rounds=num_rounds,
+            modifiers_json=modifiers_json,
+            prompt_template_hash=prompt_template_hash,
         )
         # Create Entity nodes + MENTIONS relationships (only if entities exist)
         if entities:

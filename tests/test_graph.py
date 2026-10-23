@@ -216,6 +216,8 @@ async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
         0.6,
         [],
         3,
+        None,
+        None,
     )
 
     # Only 1 tx.run call (Cycle creation, no Entity UNWIND)
@@ -747,7 +749,7 @@ async def test_new_cycle_is_created_running() -> None:
 
     tx = MagicMock()
     tx.run = AsyncMock()
-    await GraphStateManager._create_cycle_with_entities_tx(tx, "c1", "rumor", 0.4, [], 3)
+    await GraphStateManager._create_cycle_with_entities_tx(tx, "c1", "rumor", 0.4, [], 3, None, None)
     assert "status: 'running'" in tx.run.await_args_list[0].args[0]
 
 

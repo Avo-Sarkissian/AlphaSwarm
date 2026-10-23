@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import unicodedata
+from collections.abc import Sequence
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
@@ -1185,6 +1188,29 @@ def generate_personas(
                 )
             )
     return personas
+
+
+def compute_prompt_template_hash(brackets: Sequence[BracketConfig]) -> str:
+    """sha256 over every static piece of the persona system prompt.
+
+    Covers the JSON output instructions and, per bracket in the given order, its
+    display name, template and static modifiers. Stored on the Cycle so a past
+    run's prompt set can be identified (docs/DECISIONS.md#adr-neo4j-schema).
+    """
+    payload = {
+        "json_output_instructions": JSON_OUTPUT_INSTRUCTIONS,
+        "brackets": [
+            {
+                "bracket": b.bracket_type.value,
+                "display_name": b.display_name,
+                "template": b.system_prompt_template,
+                "static_modifiers": BRACKET_MODIFIERS.get(b.bracket_type, []),
+            }
+            for b in brackets
+        ],
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def persona_to_worker_config(persona: AgentPersona) -> WorkerPersonaConfig:

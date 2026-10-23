@@ -25,7 +25,12 @@ from typing import TYPE_CHECKING, Final
 import structlog
 
 from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS, dispatch_wave
-from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
+from alphaswarm.config import (
+    compute_prompt_template_hash,
+    generate_modifiers,
+    generate_personas,
+    persona_to_worker_config,
+)
 from alphaswarm.context_formatter import format_market_context
 from alphaswarm.episodes import EpisodeRecord, compute_flip_type, match_entities, new_decision_ids
 from alphaswarm.errors import RoundFailedError, run_error_from_exception
@@ -1042,6 +1047,7 @@ async def _run_simulation(
         orch,
         graph_manager,
         modifier_generator=generate_modifiers,
+        prompt_template_hash=compute_prompt_template_hash(brackets),
     )
     tracker.cycle_id = cycle_id
     if state_store is not None:
