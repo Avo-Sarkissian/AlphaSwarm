@@ -1,6 +1,6 @@
 """Seed injection pipeline for AlphaSwarm.
 
-Orchestrates: prepare orchestrator provider -> parse seed rumor ->
+Orchestrates: prepare orchestrator provider -> parse seed rumor -> generate persona modifiers ->
 persist to Neo4j -> teardown provider.
 Called by CLI inject subcommand. Self-contained model lifecycle per D-07.
 """
@@ -52,8 +52,9 @@ async def inject_seed(
 ) -> tuple[str, ParsedSeedResult, ParsedModifiersResult | None]:
     """End-to-end seed injection pipeline. Returns (cycle_id, parsed_result, modifier_result).
 
-    When modifier_generator is provided (Phase 13), calls it after seed parsing
-    completes but before the orchestrator provider is torn down (D-06: same session).
+    When modifier_generator is provided (Phase 13), calls it after seed parsing and
+    BEFORE the Cycle is persisted, in the same orchestrator session
+    (docs/DECISIONS.md#p13-d-06), so a failure leaves no orphan Cycle.
     modifier_result is None when no callback is provided.
 
     Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence.
@@ -86,20 +87,22 @@ async def inject_seed(
                 raw_preview=raw_content[:300],
             )
 
-        # 4. Persist to Neo4j atomically (addresses review concern #2: no orphan Cycles)
-        cycle_id = await graph_manager.create_cycle_with_seed_event(
-            rumor,
-            parsed_result.seed_event,
-            num_rounds=settings.num_rounds,
-        )
-
-        # 5. Phase 13: Generate modifiers while orchestrator is still loaded (D-06)
+        # 4. Generate modifiers while the orchestrator is still loaded, BEFORE
+        #    persisting: a failed call must leave no orphan Cycle
+        #    (docs/DECISIONS.md#p13-d-06).
         modifier_result: ParsedModifiersResult | None = None
         if modifier_generator is not None:
             modifier_result = await modifier_generator(
                 parsed_result.seed_event,
                 orchestrator,
             )
+
+        # 5. Persist Cycle + Entities atomically; the Cycle starts as "running".
+        cycle_id = await graph_manager.create_cycle_with_seed_event(
+            rumor,
+            parsed_result.seed_event,
+            num_rounds=settings.num_rounds,
+        )
 
         logger.info(
             "seed_injection_complete",
