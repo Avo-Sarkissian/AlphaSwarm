@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from alphaswarm.config import compute_prompt_template_hash
 from alphaswarm.inference.types import ProviderRole
+from alphaswarm.personas import compute_prompt_template_hash
 from alphaswarm.simulation import RoundCompleteEvent
 from alphaswarm.types import AgentPersona, BracketConfig, BracketType
 from tests.engine.scenario import (

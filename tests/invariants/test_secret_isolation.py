@@ -29,7 +29,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import structlog
 
-from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig
+from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
 from alphaswarm.logging import _redact_mapping
 
 # ---------------------------------------------------------------------------
@@ -48,7 +48,8 @@ def _make_settings_test_app() -> Any:
     from fastapi import FastAPI
 
     from alphaswarm.app import create_app_state
-    from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+    from alphaswarm.personas import generate_personas, load_bracket_configs
+    from alphaswarm.settings import AppSettings
     from alphaswarm.web.connection_manager import ConnectionManager
     from alphaswarm.web.replay_manager import ReplayManager
     from alphaswarm.web.routes.settings import router as settings_router
@@ -257,7 +258,7 @@ def test_masked_config_contains_no_sentinel() -> None:
     Defense-in-depth: already covered by test_inference_config.py unit tests,
     but asserted here as the invariant for this surface.
     """
-    from alphaswarm.config import masked_config
+    from alphaswarm.inference.config import masked_config
 
     result = masked_config(_SENTINEL_INFERENCE_CFG)
     serialized = json.dumps(result)

@@ -268,7 +268,7 @@ settings. `.env.example` / README gain a short provider note.
 **Modified**
 - `worker.py`, `seed.py`, `advisory/engine.py`, `report.py`, `interview.py`
   (depend on `InferenceProvider`)
-- `config.py` (`InferenceConfig`, `ProviderType`, `RoleConfig`, loader)
+- `inference/config.py` (`InferenceConfig`, `ProviderType`, `RoleConfig`, loader)
 - `governor.py` (implement `ConcurrencyController`; likely rename to `MemoryGovernor` alias)
 - `batch_dispatcher.py` (controller protocol; `BudgetExceededError` in never-catch tuple)
 - `errors.py` (`InferenceError` base, `BudgetExceededError`)

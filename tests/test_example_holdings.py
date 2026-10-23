@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from alphaswarm.config import PROJECT_ROOT
 from alphaswarm.holdings.loader import HoldingsLoader
+from alphaswarm.settings import PROJECT_ROOT
 
 FICTIONAL_TICKERS = {"ZZZT", "QQQX", "XQZW", "ZQXY", "QZZX"}
 

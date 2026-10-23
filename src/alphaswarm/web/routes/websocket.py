@@ -19,7 +19,7 @@ import structlog
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
-from alphaswarm.config import DEFAULT_ALLOWED_ORIGINS
+from alphaswarm.settings import DEFAULT_ALLOWED_ORIGINS
 from alphaswarm.web.origin_guard import is_allowed
 
 log = structlog.get_logger(component="web.ws_state")

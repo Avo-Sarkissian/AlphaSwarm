@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.graph import BracketRoundRow, RationaleRoundRow
+from alphaswarm.personas import DEFAULT_BRACKETS
 from alphaswarm.state import BracketSummary, RationaleEntry
 from alphaswarm.types import SignalType
 from alphaswarm.web.replay_manager import _bracket_summaries_from_rows, _rationale_entries_from_rows

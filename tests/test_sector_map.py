@@ -23,7 +23,7 @@ from alphaswarm.advisory.sector_map import (
     UNKNOWN_SECTOR,
     load_sector_map,
 )
-from alphaswarm.config import PROJECT_ROOT, AppSettings
+from alphaswarm.settings import PROJECT_ROOT, AppSettings
 
 FICTIONAL = {"ZZZT", "QQQX", "XQZW", "ZQXY", "QZZX"}
 ENTRY: dict[str, Any] = {

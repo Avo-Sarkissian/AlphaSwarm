@@ -178,7 +178,7 @@ class SimulationManager:
         import asyncio as _asyncio
         import contextlib as _ctx
 
-        from alphaswarm.config import load_inference_config
+        from alphaswarm.inference.config import load_inference_config
         from alphaswarm.inference.factory import build_controller, build_providers, inference_mode
         from alphaswarm.simulation import run_simulation
 

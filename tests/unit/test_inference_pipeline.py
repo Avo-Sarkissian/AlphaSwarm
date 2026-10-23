@@ -12,14 +12,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
-from alphaswarm.types import AgentDecision, SignalType
-from alphaswarm.worker import PEER_CONTEXT_GUARD, WorkerPersonaConfig, agent_worker
+from alphaswarm.settings import GovernorSettings
+from alphaswarm.types import AgentDecision, SignalType, WorkerPersonaConfig
+from alphaswarm.worker import PEER_CONTEXT_GUARD, agent_worker
 
 
 def _worker_provider(client: OllamaClient) -> OllamaProvider:

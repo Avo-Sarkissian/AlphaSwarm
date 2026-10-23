@@ -20,8 +20,8 @@ import pytest
 import alphaswarm.data_audit as data_audit_module
 import alphaswarm.errors as errors_module
 import alphaswarm.state as state_module
-from alphaswarm.config import DEFAULT_BRACKETS
 from alphaswarm.errors import RoundFailedError, run_error_from_exception
+from alphaswarm.personas import DEFAULT_BRACKETS
 from alphaswarm.state import (
     AgentState,
     BracketSummary,

@@ -6,12 +6,12 @@ import json
 
 import pytest
 
-from alphaswarm.config import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.errors import InferenceError
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.types import InferenceMessage, ProviderRole
 from alphaswarm.interview import _strip_json_instructions
 from alphaswarm.parsing import parse_agent_decision
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.types import AgentDecision, AgentPersona, SignalType
 from alphaswarm.worker import DECISION_JSON_SCHEMA
 from tests.inference.fakes import (

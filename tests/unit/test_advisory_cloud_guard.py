@@ -15,14 +15,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import FastAPI
 
-from alphaswarm.config import (
-    AppSettings,
-    InferenceConfig,
-    OllamaSettings,
-    ProviderType,
-    RoleConfig,
-)
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
+from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
+from alphaswarm.settings import AppSettings, OllamaSettings
 from alphaswarm.web.routes import advisory as advisory_route
 
 

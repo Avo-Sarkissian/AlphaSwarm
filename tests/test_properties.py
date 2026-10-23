@@ -9,9 +9,9 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from alphaswarm.config import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.episodes import compute_flip_type
 from alphaswarm.parsing import parse_agent_decision
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.types import AgentDecision, FlipType, SignalType
 
 PERSONAS = generate_personas(list(DEFAULT_BRACKETS))

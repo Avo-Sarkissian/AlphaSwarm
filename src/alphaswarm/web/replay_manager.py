@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.config import DEFAULT_BRACKETS
+from alphaswarm.personas import DEFAULT_BRACKETS
 from alphaswarm.state import BracketSummary, RationaleEntry, ReplayStore
 from alphaswarm.types import SignalType
 from alphaswarm.web.broadcaster import snapshot_to_json

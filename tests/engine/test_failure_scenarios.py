@@ -16,9 +16,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from structlog.testing import capture_logs
 
-from alphaswarm.config import AppSettings
 from alphaswarm.errors import BudgetExceededError, Neo4jUnavailableError, RoundFailedError
 from alphaswarm.inference.types import ProviderRole
+from alphaswarm.settings import AppSettings
 from alphaswarm.simulation import SimulationResult, run_simulation
 from alphaswarm.state import StateStore
 from alphaswarm.types import (

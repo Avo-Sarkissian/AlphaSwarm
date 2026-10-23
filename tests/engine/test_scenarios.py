@@ -7,9 +7,9 @@ import re
 from collections.abc import Callable, Sequence
 from unittest.mock import MagicMock
 
-from alphaswarm.config import AppSettings, SimulationSettings
 from alphaswarm.episodes import EntityMatch, EpisodeRecord, compute_flip_type
 from alphaswarm.graph import PersistRoundResult
+from alphaswarm.settings import AppSettings, SimulationSettings
 from alphaswarm.types import AgentDecision, AgentPersona, SignalType, SimulationPhase
 from alphaswarm.worker import PEER_FENCE_CLOSE, PEER_FENCE_OPEN
 from tests.engine.scenario import (

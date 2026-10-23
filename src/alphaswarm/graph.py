@@ -14,7 +14,6 @@ from neo4j import unit_of_work
 from neo4j.exceptions import AuthError as Neo4jAuthError
 from neo4j.exceptions import DriverError, Neo4jError
 
-from alphaswarm.config import DEFAULT_BRACKETS, generate_personas, load_bracket_configs
 from alphaswarm.episodes import EntityRef
 from alphaswarm.errors import (
     AgentNotFoundError,
@@ -24,6 +23,7 @@ from alphaswarm.errors import (
     Neo4jWriteError,
 )
 from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas, load_bracket_configs
 from alphaswarm.types import BracketType, SignalType
 
 if TYPE_CHECKING:

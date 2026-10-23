@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.config import AppSettings
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.logging import configure_logging, get_logger
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
+from alphaswarm.settings import AppSettings
 from alphaswarm.state import StateStore
 from alphaswarm.types import AgentPersona
 

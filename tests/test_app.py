@@ -6,8 +6,9 @@ import pytest
 import structlog
 
 from alphaswarm.app import create_app_state
-from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
 from alphaswarm.governor import ResourceGovernor
+from alphaswarm.personas import generate_personas, load_bracket_configs
+from alphaswarm.settings import AppSettings
 from tests.conftest import clear_alphaswarm_env
 
 
@@ -121,7 +122,7 @@ def test_create_app_state_without_ollama(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_create_app_state_passes_neo4j_timeouts() -> None:
     from unittest.mock import patch
 
-    from alphaswarm.config import Neo4jSettings
+    from alphaswarm.settings import Neo4jSettings
 
     settings = AppSettings(  # type: ignore[call-arg]
         _env_file=None,

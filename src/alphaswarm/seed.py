@@ -12,13 +12,14 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.config import compute_prompt_template_hash, load_bracket_configs
-from alphaswarm.parsing import parse_seed_event
+from alphaswarm.parsing import parse_modifier_response, parse_seed_event
+from alphaswarm.personas import compute_prompt_template_hash, load_bracket_configs
+from alphaswarm.prompts.modifiers import MODIFIER_GENERATION_PROMPT, build_modifier_user_message
 
 if TYPE_CHECKING:
-    from alphaswarm.config import AppSettings
     from alphaswarm.graph import GraphStateManager
     from alphaswarm.inference.provider import InferenceProvider
+    from alphaswarm.settings import AppSettings
     from alphaswarm.types import ParsedModifiersResult, ParsedSeedResult, SeedEvent
 
 logger = structlog.get_logger(component="seed")
@@ -133,3 +134,51 @@ async def inject_seed(
         modifier_parse_tier=modifier_result.parse_tier if modifier_result else None,
     )
     return cycle_id, parsed_result, modifier_result
+
+
+async def generate_modifiers(
+    seed_event: SeedEvent,
+    orchestrator: InferenceProvider,
+) -> ParsedModifiersResult:
+    """Generate entity-aware bracket modifiers via orchestrator LLM (D-04, D-05, D-06).
+
+    Makes a single JSON-mode chat call to the orchestrator (which must already
+    be loaded) and parses the response with 3-tier fallback.
+
+    Args:
+        seed_event: Parsed seed event with entities and raw_rumor.
+        orchestrator: Active InferenceProvider for the orchestrator role.
+            The model must already be loaded (prepare() must have been called).
+
+    Returns:
+        ParsedModifiersResult with modifiers dict and parse_tier.
+    """
+    user_message = build_modifier_user_message(seed_event)
+
+    logger.info("modifier_generation_start", entity_count=len(seed_event.entities))
+
+    inference_result = await orchestrator.chat(
+        messages=[
+            {"role": "system", "content": MODIFIER_GENERATION_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
+        json_mode=True,
+    )
+
+    raw_content = inference_result.content
+    result = parse_modifier_response(raw_content)
+
+    if result.parse_tier == 3:
+        logger.warning(
+            "modifier_generation_fallback",
+            parse_tier=3,
+            raw_preview=raw_content[:300],
+        )
+    else:
+        logger.info(
+            "modifier_generation_complete",
+            parse_tier=result.parse_tier,
+            modifier_count=len(result.modifiers),
+        )
+
+    return result

@@ -16,10 +16,9 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError
-from alphaswarm.inference.concurrency import ConcurrencyController
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReader, MemoryReading
+from alphaswarm.settings import GovernorSettings
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -140,17 +139,6 @@ class TokenPool:
         self._current_limit = size
         for _ in range(size):
             self._pool.put_nowait(True)
-
-
-# ---------------------------------------------------------------------------
-# ResourceGovernorProtocol — backward-compat alias for ConcurrencyController
-# ---------------------------------------------------------------------------
-
-# The canonical protocol now lives in alphaswarm.inference.concurrency so the
-# factory layer can return either ResourceGovernor (local) or a future cloud
-# RateLimitController behind the same type.  The alias is kept here so any
-# existing internal references continue to resolve without churn.
-ResourceGovernorProtocol = ConcurrencyController
 
 
 # ---------------------------------------------------------------------------

@@ -90,7 +90,7 @@ async def test_cycle_id_stored(monkeypatch: pytest.MonkeyPatch) -> None:
         worker=SimpleNamespace(aclose=AsyncMock()),
         budget_meter=object(),
     )
-    monkeypatch.setattr("alphaswarm.config.load_inference_config", lambda *a, **kw: SimpleNamespace())
+    monkeypatch.setattr("alphaswarm.inference.config.load_inference_config", lambda *a, **kw: SimpleNamespace())
     monkeypatch.setattr("alphaswarm.inference.factory.build_providers", lambda *a, **kw: fake_built)
     monkeypatch.setattr("alphaswarm.inference.factory.build_controller", lambda *a, **kw: MagicMock())
     monkeypatch.setattr("alphaswarm.inference.factory.inference_mode", lambda *a, **kw: "local")

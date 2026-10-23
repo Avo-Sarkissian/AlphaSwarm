@@ -38,7 +38,8 @@ def _make_test_app_with_fake_graph(fake_edges: list[dict[str, Any]]) -> FastAPI:
     from contextlib import asynccontextmanager
 
     from alphaswarm.app import create_app_state
-    from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+    from alphaswarm.personas import generate_personas, load_bracket_configs
+    from alphaswarm.settings import AppSettings
     from alphaswarm.web.routes.edges import router as edges_router
 
     class _FakeGraphManager:

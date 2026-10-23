@@ -10,7 +10,7 @@ from types import ModuleType
 
 import pytest
 
-from alphaswarm.config import DEFAULT_BRACKETS
+from alphaswarm.personas import DEFAULT_BRACKETS
 from alphaswarm.types import BracketType
 from tests.support.scripts import load_script
 

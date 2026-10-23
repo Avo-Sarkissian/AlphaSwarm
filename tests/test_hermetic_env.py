@@ -15,14 +15,14 @@ from pathlib import Path
 
 import pytest
 
-from alphaswarm.config import (
-    AppSettings,
+from alphaswarm.inference.config import (
     InferenceConfig,
     ProviderType,
     RoleConfig,
     load_inference_config,
     save_inference_config,
 )
+from alphaswarm.settings import AppSettings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

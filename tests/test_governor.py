@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.governor import GovernorState, ResourceGovernor, TokenPool
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReader, MemoryReading, PressureLevel
+from alphaswarm.settings import GovernorSettings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -665,11 +665,11 @@ class TestGovernorMonitoring:
 
 
 # ---------------------------------------------------------------------------
-# ResourceGovernorProtocol compliance
+# ResourceGovernor controller surface
 # ---------------------------------------------------------------------------
 
 
-class TestResourceGovernorProtocol:
+class TestResourceGovernorSurface:
     """Test that ResourceGovernor satisfies extended protocol."""
 
     def test_has_release_with_success_kwarg(self) -> None:

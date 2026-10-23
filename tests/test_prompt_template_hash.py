@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from alphaswarm.config import compute_prompt_template_hash, load_bracket_configs
+from alphaswarm.personas import compute_prompt_template_hash, load_bracket_configs
 
 
 def test_hash_is_stable_sha256_hex() -> None:

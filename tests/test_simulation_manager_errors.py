@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig
 from alphaswarm.errors import (
     INFERENCE_CONFIG_INCOMPLETE_MESSAGE,
     INFERENCE_CONFIG_INVALID_MESSAGE,
@@ -23,6 +22,7 @@ from alphaswarm.errors import (
     RoundFailedError,
     run_error_from_exception,
 )
+from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
 from alphaswarm.state import StateStore
 from alphaswarm.types import SimulationPhase
 from alphaswarm.web import simulation_manager as manager_module
@@ -69,9 +69,9 @@ def _patched_run(
     built.orchestrator.aclose = AsyncMock()
     built.worker.aclose = AsyncMock(side_effect=aclose_error)
     load_patch = (
-        patch("alphaswarm.config.load_inference_config", return_value=MagicMock())
+        patch("alphaswarm.inference.config.load_inference_config", return_value=MagicMock())
         if load is None
-        else patch("alphaswarm.config.load_inference_config", side_effect=load)
+        else patch("alphaswarm.inference.config.load_inference_config", side_effect=load)
     )
     run_mock = AsyncMock(side_effect=run)
     with (
@@ -280,7 +280,7 @@ async def test_cloud_role_without_api_key_points_at_settings(
     )
     run_mock = AsyncMock()
     with (
-        patch("alphaswarm.config.load_inference_config", return_value=cfg),
+        patch("alphaswarm.inference.config.load_inference_config", return_value=cfg),
         patch("alphaswarm.simulation.run_simulation", new=run_mock),
     ):
         await sm.start(SEED)

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from alphaswarm.config import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.errors import AgentNotFoundError
 from alphaswarm.graph import GraphStateManager
+from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.types import BracketType, SignalType
 from tests.support.mini_cycle import cypher, dec, write_mini_cycle
 

@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING, Final
 
 import structlog
 
-from alphaswarm.config import InferenceConfig, load_inference_config
 from alphaswarm.errors import INFERENCE_CONFIG_INVALID_MESSAGE, InferenceConfigError
+from alphaswarm.inference.config import InferenceConfig, load_inference_config
 from alphaswarm.web.errors import ApiError
 
 if TYPE_CHECKING:

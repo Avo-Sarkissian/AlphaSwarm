@@ -1,8 +1,8 @@
 """Structural test: ResourceGovernor satisfies ConcurrencyController protocol."""
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.concurrency import ConcurrencyController
+from alphaswarm.settings import GovernorSettings
 
 
 class TestConcurrencyControllerProtocol:

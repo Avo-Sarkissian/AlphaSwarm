@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from alphaswarm.config import DEFAULT_BRACKETS, generate_personas, load_bracket_configs
 from alphaswarm.graph import GraphStateManager
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas, load_bracket_configs
 from alphaswarm.state import StateStore
 from alphaswarm.types import SignalType
 from alphaswarm.web.connection_manager import ConnectionManager

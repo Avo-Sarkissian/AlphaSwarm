@@ -362,7 +362,7 @@ def _make_seed_event() -> SeedEvent:
 
 async def test_generate_modifiers_calls_provider_chat() -> None:
     """generate_modifiers calls provider.chat() exactly once."""
-    from alphaswarm.config import generate_modifiers
+    from alphaswarm.seed import generate_modifiers
 
     provider = FakeInferenceProvider(
         ProviderRole.ORCHESTRATOR,
@@ -377,7 +377,7 @@ async def test_generate_modifiers_calls_provider_chat() -> None:
 
 async def test_generate_modifiers_uses_json_mode() -> None:
     """generate_modifiers passes json_mode=True to provider.chat()."""
-    from alphaswarm.config import generate_modifiers
+    from alphaswarm.seed import generate_modifiers
 
     provider = FakeInferenceProvider(
         ProviderRole.ORCHESTRATOR,
@@ -392,7 +392,7 @@ async def test_generate_modifiers_uses_json_mode() -> None:
 
 async def test_generate_modifiers_returns_parsed_modifiers_result() -> None:
     """generate_modifiers returns ParsedModifiersResult with all 10 brackets."""
-    from alphaswarm.config import generate_modifiers
+    from alphaswarm.seed import generate_modifiers
 
     provider = FakeInferenceProvider(
         ProviderRole.ORCHESTRATOR,
@@ -410,7 +410,7 @@ async def test_generate_modifiers_returns_parsed_modifiers_result() -> None:
 
 async def test_generate_modifiers_chat_messages_shape() -> None:
     """generate_modifiers sends [system, user] messages."""
-    from alphaswarm.config import generate_modifiers
+    from alphaswarm.seed import generate_modifiers
 
     provider = FakeInferenceProvider(
         ProviderRole.ORCHESTRATOR,
@@ -438,8 +438,7 @@ async def test_inject_seed_passes_provider_to_modifier_generator(
     mock_graph_manager: AsyncMock,
 ) -> None:
     """When modifier_generator is provided, inject_seed passes provider through to it."""
-    from alphaswarm.config import generate_modifiers
-    from alphaswarm.seed import inject_seed
+    from alphaswarm.seed import generate_modifiers, inject_seed
 
     provider = _make_seed_and_modifier_provider()
 

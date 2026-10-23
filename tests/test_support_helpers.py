@@ -7,9 +7,9 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
-from alphaswarm.config import GovernorSettings
 from alphaswarm.inference.concurrency import ConcurrencyController
 from alphaswarm.memory_monitor import MemoryReader, PressureLevel
+from alphaswarm.settings import GovernorSettings
 from tests.support.aio import eventually
 from tests.support.controllers import ImmediateController
 from tests.support.log_capture import RenderedLog

@@ -15,8 +15,9 @@ import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from alphaswarm.config import DEFAULT_BRACKETS, SimulationSettings, generate_personas
 from alphaswarm.inference.types import ProviderRole
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
+from alphaswarm.settings import SimulationSettings
 from alphaswarm.simulation import (
     _build_diverse_peer_contexts,
     _peer_and_provenance_metrics,

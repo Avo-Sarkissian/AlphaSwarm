@@ -21,12 +21,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from alphaswarm.config import (
-    InferenceConfig,
-    ProviderType,
-    RoleConfig,
-)
 from alphaswarm.errors import AuthError
+from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 
 # ---------------------------------------------------------------------------
@@ -37,7 +33,8 @@ from alphaswarm.inference.types import InferenceResult, ProviderRole
 def _make_settings_test_app() -> FastAPI:
     """Build an isolated FastAPI test app with the settings router registered."""
     from alphaswarm.app import create_app_state
-    from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+    from alphaswarm.personas import generate_personas, load_bracket_configs
+    from alphaswarm.settings import AppSettings
     from alphaswarm.web.connection_manager import ConnectionManager
     from alphaswarm.web.errors import install_error_handlers
     from alphaswarm.web.replay_manager import ReplayManager

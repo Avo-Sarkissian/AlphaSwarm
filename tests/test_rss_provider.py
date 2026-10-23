@@ -23,8 +23,8 @@ from typing import Any
 import httpx
 import pytest
 
-from alphaswarm.config import HEADLINE_MAX_LEN
 from alphaswarm.ingestion import NewsProvider, NewsSlice, RSSNewsProvider
+from alphaswarm.security.sanitize import HEADLINE_MAX_LEN
 
 # --------- Canned RSS XML fixture builders ---------
 

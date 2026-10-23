@@ -204,7 +204,7 @@ def pilot_report(
 def _open_reader() -> tuple[Read, Callable[[], None]]:
     from neo4j import GraphDatabase
 
-    from alphaswarm.config import AppSettings
+    from alphaswarm.settings import AppSettings
 
     settings = AppSettings()
     driver = GraphDatabase.driver(

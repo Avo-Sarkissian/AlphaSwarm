@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from alphaswarm.config import DEFAULT_BRACKETS, InferenceConfig
+from alphaswarm.inference.config import InferenceConfig
+from alphaswarm.personas import DEFAULT_BRACKETS
 
 ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
@@ -114,7 +115,7 @@ def test_env_example_never_sends_test_runs_to_the_dev_password() -> None:
 def test_env_example_lists_every_path_setting_and_the_advisory_retention() -> None:
     """The Paths block shows every path setting with its default, and the retention
     count the docs tell the owner to raise is listed too."""
-    from alphaswarm.config import AppSettings
+    from alphaswarm.settings import AppSettings
 
     text = (ROOT / ".env.example").read_text(encoding="utf-8")
     path_fields = {name: field for name, field in AppSettings.model_fields.items() if field.annotation is Path}

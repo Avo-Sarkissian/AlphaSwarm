@@ -10,7 +10,7 @@ Behavior contract (Phase 40 D-03, D-08, D-09, Pitfall 5):
   empty "Market context:\\n" system message to prompts.
 - Decimal fields render via Decimal.__str__ (financial precision guard).
 - Headlines are third-party text: each one is passed through
-  config.sanitize_headline() before rendering (F3), so a published title can
+  security.sanitize.sanitize_headline() before rendering (F3), so a published title can
   never forge block structure. Headlines that sanitize to "" are dropped, and
   the "Recent headlines:" label is only emitted when at least one survives.
 
@@ -34,8 +34,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from alphaswarm.config import sanitize_headline
 from alphaswarm.ingestion.types import ContextPacket
+from alphaswarm.security.sanitize import sanitize_headline
 
 # Headlines rendered per entity (docs/DECISIONS.md#p40-d-09). Point-in-time fixtures
 # store no more than this, so every stored headline reaches the prompt.

@@ -25,18 +25,22 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `app.py`: `AppState`, a container for the settings, StateStore, ResourceGovernor, Ollama client and model manager, GraphStateManager, and the market and news providers, plus `create_app_state()`.
   - `web/app.py`: the lifespan. It builds AppState, the Simulation, Replay, and Connection managers and the `PostRunPipeline`, loads the holdings into `PortfolioCache`, and starts the broadcaster.
 - **Domain and config**
-  - `types.py`: enums, BracketConfig, AgentPersona, SeedEvent, AgentDecision.
-  - `config.py`: settings, inference-config persistence, origin constants, prompt templates, sanitizers, `DEFAULT_BRACKETS`, `generate_personas`, `generate_modifiers`.
+  - `types.py`: enums, BracketConfig, AgentPersona, WorkerPersonaConfig, SeedEvent, AgentDecision.
+  - `settings.py`: `AppSettings` and its nested models (`OllamaSettings`, `Neo4jSettings`, `GovernorSettings`, `SimulationSettings`), `PROJECT_ROOT`, origin defaults.
+  - `inference/config.py`: `InferenceConfig` persistence in `.secrets/inference.json` (owner-only files) and key masking.
+  - `personas.py`: `DEFAULT_BRACKETS`, the static modifiers, `generate_personas`, the prompt-template hash, `persona_to_worker_config`.
+  - `prompts/`: the decision JSON instructions and the modifier-generation prompt (rendered from the bracket registry).
+  - `security/sanitize.py`: sanitizers for entity names, headlines, rationales and peer rationales.
   - `errors.py`: exception types.
 - **Engine**
-  - `seed.py`: `inject_seed`. The orchestrator parses the seed and generates the persona modifiers and is then released; only after that does one atomic write create the Cycle (status `running`) and its Entities, so a seeding failure, teardown included, leaves no Cycle.
+  - `seed.py`: `inject_seed`. The orchestrator parses the seed and generates the persona modifiers and is then released; only after that does one atomic write create the Cycle (status `running`) and its Entities, so a seeding failure, teardown included, leaves no Cycle. `generate_modifiers` lives here too.
   - `simulation.py`: `run_simulation`, `run_round1`, the round-abort check, peer selection, the control holdout and own-prior lines, shifts, bracket summaries, and the terminal `Cycle.status` write.
   - `metrics.py`: pure measurement functions; `split_flips` splits a round's flips between the control holdout and the treated readers.
   - `batch_dispatcher.py`: `dispatch_wave`, a TaskGroup of 100 jittered inferences.
   - `worker.py`: `AgentWorker`, the decision JSON schema, and the fence for untrusted market data.
   - `parsing.py`: 3-tier parsers.
   - `episodes.py`: `EpisodeRecord`, `compute_flip_type`, `EntityRef`/`EntityMatch`, `match_entities`, `new_decision_ids`.
-  - `context_formatter.py`, `utils.py`.
+  - `context_formatter.py`.
 - **Concurrency**
   - `governor.py`: ResourceGovernor / TokenPool state machine.
   - `memory_monitor.py`: psutil plus macOS sysctl memory pressure.

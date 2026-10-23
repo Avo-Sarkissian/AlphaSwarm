@@ -95,7 +95,7 @@ def test_persona_same_bracket_different_modifiers(all_personas: list[AgentPerson
 
 def test_persona_deterministic_generation() -> None:
     """Round-robin assignment is deterministic: generating twice yields identical prompts."""
-    from alphaswarm.config import generate_personas, load_bracket_configs
+    from alphaswarm.personas import generate_personas, load_bracket_configs
 
     brackets = load_bracket_configs()
     run1 = generate_personas(brackets)
@@ -113,7 +113,7 @@ def test_persona_word_count_under_350(all_personas: list[AgentPersona]) -> None:
 
 def test_bracket_modifiers_completeness() -> None:
     """BRACKET_MODIFIERS has an entry for every BracketType (10 entries)."""
-    from alphaswarm.config import BRACKET_MODIFIERS
+    from alphaswarm.personas import BRACKET_MODIFIERS
 
     assert len(BRACKET_MODIFIERS) == 10
     for bt in BracketType:
@@ -122,7 +122,7 @@ def test_bracket_modifiers_completeness() -> None:
 
 def test_bracket_modifiers_count_range() -> None:
     """Each bracket has 3-5 modifiers."""
-    from alphaswarm.config import BRACKET_MODIFIERS
+    from alphaswarm.personas import BRACKET_MODIFIERS
 
     for bt, mods in BRACKET_MODIFIERS.items():
         assert 3 <= len(mods) <= 5, f"{bt.value} has {len(mods)} modifiers, expected 3-5"
@@ -130,7 +130,7 @@ def test_bracket_modifiers_count_range() -> None:
 
 def test_persona_first_modifier_assignment() -> None:
     """Each bracket's first persona contains the first modifier from BRACKET_MODIFIERS."""
-    from alphaswarm.config import BRACKET_MODIFIERS, generate_personas, load_bracket_configs
+    from alphaswarm.personas import BRACKET_MODIFIERS, generate_personas, load_bracket_configs
 
     personas = generate_personas(load_bracket_configs())
     # Group by bracket
@@ -150,7 +150,7 @@ def test_persona_first_modifier_assignment() -> None:
 
 def test_generate_personas_with_modifiers_count() -> None:
     """generate_personas with modifiers kwarg still produces exactly 100 personas."""
-    from alphaswarm.config import generate_personas, load_bracket_configs
+    from alphaswarm.personas import generate_personas, load_bracket_configs
     from alphaswarm.types import BracketType
 
     brackets = load_bracket_configs()
@@ -163,7 +163,7 @@ def test_generate_personas_with_modifiers_content() -> None:
     """When modifiers provided, the generated focus line is LAYERED ON TOP of
     the static round-robin modifier (v2 behavior: replacement collapsed
     intra-bracket variance — every agent in a bracket became identical)."""
-    from alphaswarm.config import BRACKET_MODIFIERS, generate_personas, load_bracket_configs
+    from alphaswarm.personas import BRACKET_MODIFIERS, generate_personas, load_bracket_configs
     from alphaswarm.types import BracketType
 
     brackets = load_bracket_configs()
@@ -179,7 +179,7 @@ def test_generate_personas_with_modifiers_content() -> None:
 def test_generate_personas_with_modifiers_same_bracket_same_modifier() -> None:
     """All agents in a bracket share one entity-aware FOCUS line (layered on
     their distinct static modifiers — v2 behavior)."""
-    from alphaswarm.config import generate_personas, load_bracket_configs
+    from alphaswarm.personas import generate_personas, load_bracket_configs
     from alphaswarm.types import BracketType
 
     brackets = load_bracket_configs()
@@ -196,7 +196,7 @@ def test_generate_personas_with_modifiers_same_bracket_same_modifier() -> None:
 
 def test_generate_personas_backward_compatible() -> None:
     """generate_personas() without modifiers kwarg matches original output exactly."""
-    from alphaswarm.config import generate_personas, load_bracket_configs
+    from alphaswarm.personas import generate_personas, load_bracket_configs
 
     brackets = load_bracket_configs()
     original = generate_personas(brackets)
@@ -208,7 +208,7 @@ def test_generate_personas_backward_compatible() -> None:
 
 def test_generate_personas_partial_modifiers() -> None:
     """Partial modifiers dict: provided brackets get generated modifier, missing get static round-robin."""
-    from alphaswarm.config import BRACKET_MODIFIERS, generate_personas, load_bracket_configs
+    from alphaswarm.personas import BRACKET_MODIFIERS, generate_personas, load_bracket_configs
     from alphaswarm.types import BracketType
 
     brackets = load_bracket_configs()

@@ -17,6 +17,8 @@ import re
 import structlog
 from pydantic import ValidationError
 
+from alphaswarm.personas import BRACKET_MODIFIERS
+from alphaswarm.prompts.modifiers import truncate_modifier
 from alphaswarm.types import (
     AgentDecision,
     BracketType,
@@ -291,8 +293,6 @@ def parse_modifier_response(raw: str) -> ParsedModifiersResult:
     Missing or invalid keys trigger per-bracket fallback from static BRACKET_MODIFIERS (D-08).
     All dict keys are lowercased before validation (Pitfall 5: case insensitivity).
     """
-    # Local import to avoid circular dependency (config.py imports from types.py)
-    from alphaswarm.config import BRACKET_MODIFIERS, _truncate_modifier
 
     def _validate_and_fill(data: object) -> dict[BracketType, str] | None:
         if not isinstance(data, dict):
@@ -303,7 +303,7 @@ def parse_modifier_response(raw: str) -> ParsedModifiersResult:
         for bt in BracketType:
             val = normalized.get(bt.value)
             if isinstance(val, str) and val.strip():
-                result[bt] = _truncate_modifier(val.strip())
+                result[bt] = truncate_modifier(val.strip())
             else:
                 # Per-bracket fallback to static (D-08)
                 static_mods = BRACKET_MODIFIERS.get(bt, [])

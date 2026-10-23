@@ -16,8 +16,8 @@ import argparse
 
 from neo4j import GraphDatabase
 
-from alphaswarm.config import AppSettings
 from alphaswarm.graph import _EFFECTIVE_STATUS
+from alphaswarm.settings import AppSettings
 
 # The cycles the app lists: the same completeness rule as the replay picker and the
 # report default, so a failed or cancelled cycle that carries metrics stays out
