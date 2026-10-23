@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, cast, get_args
+from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, TypeVar, cast, get_args
 
 import structlog
-from neo4j.exceptions import Neo4jError
+from neo4j import unit_of_work
+from neo4j.exceptions import AuthError as Neo4jAuthError
+from neo4j.exceptions import DriverError, Neo4jError
 
 from alphaswarm.config import DEFAULT_BRACKETS
-from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
+from alphaswarm.errors import (
+    GraphError,
+    Neo4jConnectionError,
+    Neo4jQueryError,
+    Neo4jUnavailableError,
+    Neo4jWriteError,
+)
 from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
 from alphaswarm.types import SignalType
 
@@ -23,6 +31,30 @@ if TYPE_CHECKING:
     from alphaswarm.types import AgentDecision, AgentPersona, SeedEvent
 
 log = structlog.get_logger(component="graph")
+
+T = TypeVar("T")
+
+# neo4j 5.x raises a pool-acquisition timeout as a code-less ClientError
+# (6.0 plans to make it a DriverError).
+_POOL_ACQUISITION_TIMEOUT_MARKER: Final = "failed to obtain a connection from the pool"
+
+
+def _map_graph_error(exc: Exception, *, op: str, write: bool) -> GraphError:
+    """Map a neo4j driver/server error onto the GraphError family.
+
+    ServiceUnavailable and SessionExpired subclass DriverError, not
+    Neo4jError; a wrong password is neo4j's AuthError (a ClientError); a
+    pool-acquisition timeout is a code-less ClientError. All three mean the
+    database is unreachable (docs/DECISIONS.md#p4-d-07).
+    """
+    unavailable = isinstance(exc, (DriverError, Neo4jAuthError)) or (
+        isinstance(exc, Neo4jError) and exc.code is None and _POOL_ACQUISITION_TIMEOUT_MARKER in str(exc)
+    )
+    if unavailable:
+        return Neo4jUnavailableError(f"Neo4j is unavailable ({op})", exc, op=op)
+    if write:
+        return Neo4jWriteError(f"Neo4j write failed ({op})", exc, op=op)
+    return Neo4jQueryError(f"Neo4j query failed ({op})", exc, op=op)
 
 
 # ---------------------------------------------------------------------------
@@ -301,19 +333,51 @@ class GraphStateManager:
         driver: AsyncDriver,
         personas: list[AgentPersona],
         database: str = "neo4j",
+        *,
+        query_timeout_s: float | None = None,
     ) -> None:
         self._driver = driver
         self._personas = personas
         self._database = database
+        self._query_timeout_s = query_timeout_s
         self._log = structlog.get_logger(component="graph")
 
-    async def verify_connectivity(self) -> None:
-        """Check that Neo4j is reachable and accepts the configured credential.
+    def _unit(self, fn: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+        """Attach the server-side transaction timeout, when one is configured."""
+        if self._query_timeout_s is None:
+            return fn
+        return unit_of_work(timeout=self._query_timeout_s)(fn)
 
-        Raises the driver's own errors (ServiceUnavailable, AuthError, ...); the
-        web lifespan turns them into a not-ready flag instead of crashing.
+    async def _read(self, fn: Callable[..., Awaitable[T]], *args: Any, op: str) -> T:
+        """Run *fn* in a managed read transaction on a fresh session.
+
+        The only place (with _write and ensure_schema's DDL) that opens a
+        session; driver errors leave as GraphError (docs/DECISIONS.md#p4-d-07).
         """
-        await self._driver.verify_connectivity()
+        try:
+            async with self._driver.session(database=self._database) as session:
+                return await session.execute_read(self._unit(fn), *args)
+        except (DriverError, Neo4jError) as exc:
+            raise _map_graph_error(exc, op=op, write=False) from exc
+
+    async def _write(self, fn: Callable[..., Awaitable[T]], *args: Any, op: str) -> T:
+        """Run *fn* in a managed write transaction on a fresh session."""
+        try:
+            async with self._driver.session(database=self._database) as session:
+                return await session.execute_write(self._unit(fn), *args)
+        except (DriverError, Neo4jError) as exc:
+            raise _map_graph_error(exc, op=op, write=True) from exc
+
+    async def verify_connectivity(self) -> None:
+        """Fail fast when the database is unreachable (docs/DECISIONS.md#p4-d-05).
+
+        Raises only GraphError subclasses (Neo4jUnavailableError for driver and
+        auth errors); the web lifespan turns them into a not-ready flag.
+        """
+        try:
+            await self._driver.verify_connectivity()
+        except (DriverError, Neo4jError) as exc:
+            raise _map_graph_error(exc, op="verify_connectivity", write=False) from exc
 
     async def ensure_schema(self) -> None:
         """Apply idempotent schema constraints and indexes, then seed agents.
@@ -321,9 +385,12 @@ class GraphStateManager:
         Per D-05: open one session, execute each statement sequentially,
         then seed all agent nodes.
         """
-        async with self._driver.session(database=self._database) as session:
-            for stmt in SCHEMA_STATEMENTS:
-                await session.run(stmt)
+        try:
+            async with self._driver.session(database=self._database) as session:
+                for stmt in SCHEMA_STATEMENTS:
+                    await session.run(stmt)
+        except (DriverError, Neo4jError) as exc:
+            raise _map_graph_error(exc, op="ensure_schema", write=True) from exc
 
         self._log.info("schema_applied", statement_count=len(SCHEMA_STATEMENTS))
         await self.seed_agents(self._personas)
@@ -352,12 +419,8 @@ class GraphStateManager:
         ]
         current_ids = [a.id for a in agents]
 
-        async with self._driver.session(database=self._database) as session:
-            await session.execute_write(self._seed_agents_tx, agent_params)
-            pruned = await session.execute_write(
-                self._prune_stale_agents_tx,
-                current_ids,
-            )
+        await self._write(self._seed_agents_tx, agent_params, op="seed_agents")
+        pruned = await self._write(self._prune_stale_agents_tx, current_ids, op="prune_stale_agents")
 
         if pruned:
             self._log.info("stale_agents_pruned", count=pruned)

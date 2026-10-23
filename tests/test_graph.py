@@ -1102,16 +1102,6 @@ async def test_verify_connectivity_delegates_to_the_driver(mock_driver: MagicMoc
     mock_driver.verify_connectivity.assert_awaited_once()
 
 
-async def test_verify_connectivity_propagates_driver_errors(mock_driver: MagicMock) -> None:
-    from neo4j.exceptions import ServiceUnavailable
-
-    from alphaswarm.graph import GraphStateManager
-
-    mock_driver.verify_connectivity = AsyncMock(side_effect=ServiceUnavailable("down"))
-    with pytest.raises(ServiceUnavailable):
-        await GraphStateManager(driver=mock_driver, personas=[]).verify_connectivity()
-
-
 async def test_write_decisions_raises_when_rows_are_dropped(
     mock_driver: MagicMock,
     sample_agent_decisions: list[tuple[str, AgentDecision]],
@@ -1183,3 +1173,124 @@ async def test_create_cycle_rejects_non_positive_num_rounds() -> None:
             SeedEvent(raw_rumor="rumor", entities=[], overall_sentiment=0.0),
             num_rounds=0,
         )
+
+
+# ---------------------------------------------------------------------------
+# Error mapping, _read/_write helpers, query timeouts (docs/DECISIONS.md#p4-d-07)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("exc_factory", "write", "expected"),
+    [
+        ("service_unavailable", False, "Neo4jUnavailableError"),
+        ("session_expired", True, "Neo4jUnavailableError"),
+        ("auth", False, "Neo4jUnavailableError"),
+        ("pool_timeout", True, "Neo4jUnavailableError"),
+        ("syntax", False, "Neo4jQueryError"),
+        ("syntax", True, "Neo4jWriteError"),
+    ],
+)
+def test_map_graph_error(exc_factory: str, write: bool, expected: str) -> None:
+    from neo4j.exceptions import AuthError as Neo4jAuthError
+    from neo4j.exceptions import ClientError, ServiceUnavailable, SessionExpired
+
+    from alphaswarm.graph import _map_graph_error
+
+    original = {
+        "service_unavailable": ServiceUnavailable("Couldn't connect to 127.0.0.1:7688"),
+        "session_expired": SessionExpired("session expired"),
+        "auth": Neo4jAuthError("The client is unauthorized due to authentication failure."),
+        "pool_timeout": ClientError("failed to obtain a connection from the pool within 10.0s (timeout)"),
+        "syntax": ClientError("Invalid input 'MATC'"),
+    }[exc_factory]
+    mapped = _map_graph_error(original, op="probe", write=write)
+    assert type(mapped).__name__ == expected
+    assert mapped.op == "probe"
+    assert mapped.original_error is original
+
+
+async def test_read_maps_driver_errors(mock_driver: MagicMock) -> None:
+    from neo4j.exceptions import ServiceUnavailable
+
+    from alphaswarm.errors import Neo4jUnavailableError
+    from alphaswarm.graph import GraphStateManager
+
+    original = ServiceUnavailable("down")
+    mock_driver.session.return_value.execute_read = AsyncMock(side_effect=original)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    with pytest.raises(Neo4jUnavailableError) as exc_info:
+        await gsm._read(AsyncMock(), "c1", op="probe_read")
+    assert exc_info.value.op == "probe_read"
+    assert exc_info.value.__cause__ is original
+
+
+async def test_write_maps_server_errors(mock_driver: MagicMock) -> None:
+    from neo4j.exceptions import Neo4jError
+
+    from alphaswarm.errors import Neo4jWriteError
+    from alphaswarm.graph import GraphStateManager
+
+    mock_driver.session.return_value.execute_write = AsyncMock(side_effect=Neo4jError("boom"))
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    with pytest.raises(Neo4jWriteError):
+        await gsm._write(AsyncMock(), op="probe_write")
+
+
+async def test_helpers_apply_the_query_timeout(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value=7)
+    gsm = GraphStateManager(driver=mock_driver, personas=[], query_timeout_s=2.5)
+
+    async def _tx(tx: object, value: int) -> int:
+        return value
+
+    assert await gsm._read(_tx, 1, op="probe") == 7
+    passed_fn = session.execute_read.await_args.args[0]
+    assert passed_fn.timeout == 2.5
+    assert session.execute_read.await_args.args[1:] == (1,)
+
+
+async def test_no_timeout_passes_the_function_through(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_write = AsyncMock(return_value=None)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    async def _tx(tx: object) -> None:
+        return None
+
+    await gsm._write(_tx, op="probe")
+    assert session.execute_write.await_args.args[0] is _tx
+
+
+async def test_verify_connectivity_maps_to_unavailable(mock_driver: MagicMock) -> None:
+    from neo4j.exceptions import ServiceUnavailable
+
+    from alphaswarm.errors import Neo4jUnavailableError
+    from alphaswarm.graph import GraphStateManager
+
+    original = ServiceUnavailable("down")
+    mock_driver.verify_connectivity = AsyncMock(side_effect=original)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    with pytest.raises(Neo4jUnavailableError) as exc_info:
+        await gsm.verify_connectivity()
+    assert exc_info.value.op == "verify_connectivity"
+    assert exc_info.value.original_error is original
+
+
+async def test_ensure_schema_maps_driver_errors(mock_driver: MagicMock) -> None:
+    from neo4j.exceptions import ServiceUnavailable
+
+    from alphaswarm.errors import Neo4jUnavailableError
+    from alphaswarm.graph import GraphStateManager
+
+    mock_driver.session.return_value.run = AsyncMock(side_effect=ServiceUnavailable("down"))
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    with pytest.raises(Neo4jUnavailableError) as exc_info:
+        await gsm.ensure_schema()
+    assert exc_info.value.op == "ensure_schema"

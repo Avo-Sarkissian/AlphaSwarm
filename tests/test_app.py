@@ -116,3 +116,24 @@ def test_create_app_state_without_ollama(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert app.ollama_client is None
     assert app.model_manager is None
+
+
+def test_create_app_state_passes_neo4j_timeouts() -> None:
+    from unittest.mock import patch
+
+    from alphaswarm.config import Neo4jSettings
+
+    settings = AppSettings(  # type: ignore[call-arg]
+        _env_file=None,
+        neo4j=Neo4jSettings(
+            password="test-only-not-a-secret",
+            query_timeout_s=12.0,
+            connection_acquisition_timeout=4.0,
+        ),
+    )
+    with patch("neo4j.AsyncGraphDatabase.driver") as driver_factory:
+        app_state = create_app_state(settings, [], with_neo4j=True)
+
+    assert driver_factory.call_args.kwargs["connection_acquisition_timeout"] == 4.0
+    assert app_state.graph_manager is not None
+    assert app_state.graph_manager._query_timeout_s == 12.0
