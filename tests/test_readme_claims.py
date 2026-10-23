@@ -33,6 +33,10 @@ FORBIDDEN_README_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"(?i)post reads", "READ_POST edges are no longer written"),
     (r"(?i)force graph", "the graph uses a deterministic layout (DECISIONS.md#kr-41-1-01)"),
     (
+        r"(?i)space-insensitive",
+        "holdings CSV header names ignore case and surrounding spaces only (holdings/loader.py)",
+    ),
+    (
         r"(?i)no data leaves|never leaves? (your|the) machine",
         "cloud roles send prompts off-machine; the advisory sends tickers after the opt-in",
     ),
@@ -47,6 +51,17 @@ def _lines() -> list[str]:
 def test_readme_has_no_false_claim(pattern: str, reason: str) -> None:
     hits = [n for n, line in enumerate(_lines(), start=1) if re.search(pattern, line)]
     assert hits == [], f"README.md lines {hits}: {reason}"
+
+
+def test_readme_says_to_restart_after_appending_to_dotenv() -> None:
+    """create_app() reads .env once, at startup: a running server keeps the old values."""
+    lines = _lines()
+    for n, line in enumerate(lines):
+        if re.search(r">>\s*\.env\b", line):
+            following = "\n".join(lines[n : n + 8])
+            assert re.search(r"(?i)\brestart (?:it|the (?:server|backend))\b", following), (
+                f"README.md line {n + 1} appends to .env but does not say to restart the server"
+            )
 
 
 def test_readme_names_every_v2_bracket() -> None:

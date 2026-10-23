@@ -328,6 +328,31 @@ ALPHASWARM_GOVERNOR__MEMORY_THROTTLE_PERCENT=80.0 # begin throttling
 ALPHASWARM_GOVERNOR__MEMORY_PAUSE_PERCENT=90.0    # pause inference queue
 ```
 
+### Try the advisory with example holdings (optional)
+
+The advisory cross-references the swarm's consensus with a portfolio after each
+run started from the web UI. It needs a holdings CSV; without one the advisory is
+skipped and the report still runs. To try it with fictional positions:
+
+```bash
+echo 'ALPHASWARM_HOLDINGS_CSV_PATH=examples/holdings.example.csv' >> .env
+```
+
+Settings in `.env` are read when the server starts, so restart it after adding
+the line. Relative paths resolve against the repository root; after that, the
+CSV itself is re-read whenever it changes, with no restart.
+
+The file has four columns: `account,symbol,shares,cost_basis_per_share` (one row
+per lot; `account` is a free-text label such as `brokerage`). Header names ignore
+case and surrounding spaces. Symbols are trimmed and upper-cased. A file that is
+not UTF-8 text (in Excel, save as *CSV UTF-8*), or a row with an empty symbol or
+a negative, NaN or infinite number, makes the whole file invalid: the advisory is
+skipped (and `/api/holdings` answers 503 `holdings_unavailable`) until the file
+is fixed; the server log gives the reason (and the row number for a bad row),
+never the row's contents. Holdings never reach the swarm's agent prompts, Neo4j,
+WebSocket frames or logs. With a cloud or remote orchestrator the advisory also
+needs **Allow cloud advisory** in Settings → Model (see Cloud inference above).
+
 ---
 
 ## What's Shipped

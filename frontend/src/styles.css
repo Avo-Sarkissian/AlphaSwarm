@@ -2491,3 +2491,13 @@ body { background: var(--bg); }
 .ob-health-fix { display: block; margin-top: 2px; padding: 4px 8px; background: var(--bg-3); border: 1px solid var(--border-2); border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text); }
 /* Re-check sits at the end of the status row, sized to it. */
 .ob-recheck { margin-left: auto; height: 24px; padding: 0 8px; }
+/* Not-investment-advice banner: always visible under the advisory header. */
+.adv-disclaimer {
+  flex-shrink: 0;
+  padding: 8px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-3);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
