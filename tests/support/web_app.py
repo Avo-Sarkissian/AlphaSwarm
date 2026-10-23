@@ -42,6 +42,7 @@ class FakeCycleGraph:
         signals: Mapping[str, Mapping[tuple[str, int], object]] | None = None,
         contexts: Mapping[tuple[str, str], object] | None = None,
         cycles: Sequence[Mapping[str, object]] = (),
+        decisions: Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None = None,
     ) -> None:
         self.statuses: dict[str, str] = dict(statuses or {})
         self.latest = latest
@@ -52,6 +53,8 @@ class FakeCycleGraph:
         self.context_calls: list[tuple[str, str]] = []
         self.cycles: list[dict[str, object]] = [dict(c) for c in cycles]
         self.cycle_calls: list[tuple[int, datetime | None]] = []
+        self.decisions = {key: [dict(r) for r in rows] for key, rows in (decisions or {}).items()}
+        self.decision_calls: list[tuple[str, str]] = []
 
     async def read_cycle_status(self, cycle_id: str) -> str | None:
         self.status_calls.append(cycle_id)
@@ -102,6 +105,10 @@ class FakeCycleGraph:
         """The stored context for (cycle, agent); None for an unknown agent."""
         self.context_calls.append((cycle_id, agent_id))
         return self.contexts.get((cycle_id, agent_id))
+
+    async def read_agent_decisions(self, cycle_id: str, agent_id: str) -> list[dict[str, object]]:
+        self.decision_calls.append((cycle_id, agent_id))
+        return list(self.decisions.get((cycle_id, agent_id), []))
 
     async def close(self) -> None:
         return None
