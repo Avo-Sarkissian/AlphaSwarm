@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 from jinja2 import Environment
 
-from alphaswarm.report import TEMPLATE_DIR, ReportAssembler, ToolObservation
+from alphaswarm.report import TEMPLATE_DIR, ReportAssembler
 from tests.support.golden import assert_golden
 
 if TYPE_CHECKING:
@@ -24,7 +24,7 @@ pytestmark = pytest.mark.neo4j
 
 Source = Callable[["GraphStateManager", str], Awaitable[object]]
 
-# Template file -> the read that feeds it (same pairing as web/routes/report.py).
+# Template file -> the read that feeds it (same pairing as report.SECTION_TEMPLATES).
 SOURCES: dict[str, Source] = {
     "01_consensus_summary.j2": lambda gm, cid: gm.read_consensus_summary(cid),
     "02_round_timeline.j2": lambda gm, cid: gm.read_round_timeline(cid),
@@ -132,35 +132,18 @@ async def test_fixed_template_golden(
     assert_golden(f"report/{template.removesuffix('.j2')}.md", md)
 
 
-TOOL_READERS: tuple[tuple[str, str], ...] = (
-    ("bracket_summary", "read_consensus_summary"),
-    ("round_timeline", "read_round_timeline"),
-    ("bracket_narratives", "read_bracket_narratives"),
-    ("key_dissenters", "read_key_dissenters"),
-    ("influence_leaders", "read_influence_leaders"),
-    ("signal_flip_analysis", "read_signal_flips"),
-    ("entity_impact", "read_entity_impact"),
-    ("shock_impact", "read_shock_impact"),
-)
-
-
-async def test_assembled_report_has_no_empty_section(
+async def test_rendered_report_has_no_empty_section(
     seeded_cycle: SeededCycle,
     graph_manager_test: GraphStateManager,
 ) -> None:
-    observations = [
-        ToolObservation(
-            tool_name=tool,
-            tool_input={"cycle_id": seeded_cycle.cycle_id},
-            result=await getattr(graph_manager_test, reader)(seeded_cycle.cycle_id),
-        )
-        for tool, reader in TOOL_READERS
-    ]
+    from alphaswarm.report import collect_report_data, render_report
 
-    md = ReportAssembler().assemble(observations, seeded_cycle.cycle_id)
-
+    data = await collect_report_data(graph_manager_test, seeded_cycle.cycle_id, seeded_cycle.num_rounds)
+    md = render_report(data, None)
     sections = re.split(r"^## ", md, flags=re.MULTILINE)[1:]
-    assert len(sections) == len(TOOL_READERS)
+    # Executive summary + templates 01-07 + the shock section when the cycle has a shock.
+    expected = 8 + (1 if data.shock is not None else 0)
+    assert len(sections) == expected
     for section in sections:
         heading, _, body = section.partition("\n")
         assert body.strip(), f"empty report section: {heading}"

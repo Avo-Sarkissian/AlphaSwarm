@@ -538,37 +538,6 @@ async def _handle_inject(rumor: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _collect_shock_observation(
-    gm: object,
-    cycle_id: str,
-) -> object:
-    """Pre-seed shock_impact ToolObservation when a ShockEvent exists for cycle_id.
-
-    Called by _handle_report before the ReACT engine so the shock impact data
-    is available in the conversation context from the first token. Returns
-    None when no ShockEvent is recorded for the cycle (non-shock simulation).
-
-    Args:
-        gm: GraphStateManager instance.
-        cycle_id: The simulation cycle ID.
-
-    Returns:
-        ToolObservation with tool_name='shock_impact' or None.
-    """
-    from alphaswarm.report import ToolObservation
-
-    shock_event = await gm.read_shock_event(cycle_id)  # type: ignore[union-attr]
-    if shock_event is None:
-        return None
-
-    shock_impact = await gm.read_shock_impact(cycle_id)  # type: ignore[union-attr]
-    return ToolObservation(
-        tool_name="shock_impact",
-        tool_input={"cycle_id": cycle_id},
-        result=shock_impact,
-    )
-
-
 async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     """Async handler for the report subcommand.
 
@@ -577,20 +546,18 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     2. Resolve cycle_id (default: the most recent complete cycle)
     3. Print model lifecycle warning
     4. Load orchestrator model
-    5. Build tool registry -> run ReACT engine -> collect observations
-    6. Assemble report -> write to disk
+    5. generate_report: collect the data, one narrative call, render, write the
+       markdown plus its sections sidecar to the reports directory
+    6. With --output, also write a copy of the markdown there
     7. Unload orchestrator model + close graph manager (finally)
     """
     from pathlib import Path
 
     from alphaswarm.app import create_app_state
+    from alphaswarm.fsutil import atomic_write_text
     from alphaswarm.inference.config import load_inference_config
     from alphaswarm.inference.factory import build_providers
-    from alphaswarm.report import (
-        ReportAssembler,
-        ReportEngine,
-        write_report,
-    )
+    from alphaswarm.report import generate_report
 
     settings = AppSettings()
     brackets = load_bracket_configs()
@@ -627,45 +594,17 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
         # Prepare (load) orchestrator model (per D-12, follows seed.py pattern)
         await orch_provider.prepare()
 
-        # Build tool registry: map 7 tool names -> bound graph_manager methods
-        gm = app.graph_manager
-        tools: dict[str, object] = {
-            "bracket_summary": lambda **kw: gm.read_consensus_summary(kw.get("cycle_id", cycle_id)),
-            "round_timeline": lambda **kw: gm.read_round_timeline(kw.get("cycle_id", cycle_id)),
-            "bracket_narratives": lambda **kw: gm.read_bracket_narratives(kw.get("cycle_id", cycle_id)),
-            "key_dissenters": lambda **kw: gm.read_key_dissenters(kw.get("cycle_id", cycle_id)),
-            "influence_leaders": lambda **kw: gm.read_influence_leaders(kw.get("cycle_id", cycle_id)),
-            "signal_flip_analysis": lambda **kw: gm.read_signal_flips(kw.get("cycle_id", cycle_id)),
-            "entity_impact": lambda **kw: gm.read_entity_impact(kw.get("cycle_id", cycle_id)),
-        }
-
-        # Phase 27: Pre-seed shock_impact observation when a ShockEvent exists
-        from alphaswarm.report import ToolObservation as _ToolObservation
-
-        shock_obs: _ToolObservation | None = await _collect_shock_observation(gm, cycle_id)  # type: ignore[arg-type]
-        pre_seeded = [shock_obs] if shock_obs is not None else []
-
-        # Run ReACT engine
-        engine = ReportEngine(
+        default_dir = settings.resolve_path(settings.reports_dir)
+        result = await generate_report(
+            gm=app.graph_manager,
             provider=orch_provider,
-            tools=tools,  # type: ignore[arg-type]
-            pre_seeded_observations=pre_seeded or None,
+            cycle_id=cycle_id,
+            reports_dir=default_dir,
         )
-        observations = await engine.run(cycle_id)
-
-        # Assemble markdown report
-        assembler = ReportAssembler()
-        content = assembler.assemble(observations, cycle_id)
-
-        # Determine output path
-        output_path = (
-            Path(output)
-            if output is not None
-            else settings.resolve_path(settings.reports_dir) / f"{cycle_id}_report.md"
-        )
-
-        # Write the report (docs/DECISIONS.md#p15-d-10)
-        await write_report(output_path, content)
+        output_path = result.path
+        if output is not None:
+            output_path = Path(output).expanduser()
+            await asyncio.to_thread(atomic_write_text, output_path, result.content, mode=0o644)
 
         print(f"Report generated: {output_path}")
 

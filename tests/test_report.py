@@ -1,201 +1,47 @@
-"""Unit tests for ReportEngine, parser, and graph query tools."""
+"""Unit tests for the report section templates, filters and renderer."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 import pytest
 
-from alphaswarm.inference.types import InferenceResult, ProviderRole
-from alphaswarm.report import MAX_ITERATIONS, REACT_SYSTEM_PROMPT, _parse_action_input
-from tests.inference.fakes import FakeInferenceProvider
+from alphaswarm.report import ReportAssembler
 
-# Canonical report tool registry keys (cli.py:_handle_report and
-# web/routes/report.py build the same set).
-_REPORT_TOOL_REGISTRY_KEYS = {
-    "bracket_summary",
-    "round_timeline",
-    "bracket_narratives",
-    "key_dissenters",
-    "influence_leaders",
-    "signal_flip_analysis",
-    "entity_impact",
-}
-
-
-def test_react_prompt_tool_names_match_registry() -> None:
-    """F-06: every tool the ReAct prompt advertises must exist in the dispatch
-    registry, else the model emits ACTION names that always hit 'Unknown tool'
-    and the corresponding report sections silently never run."""
-    import re
-
-    advertised = set(re.findall(r"^- (\w+):", REACT_SYSTEM_PROMPT, flags=re.MULTILINE))
-    advertised.discard("FINAL_ANSWER")
-    assert advertised == _REPORT_TOOL_REGISTRY_KEYS
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_provider(content: str | list[str]) -> FakeInferenceProvider:
-    """Create a FakeInferenceProvider scripted with one or more responses."""
-    if isinstance(content, str):
-        scripted = [InferenceResult(content=content, model="test")]
-    else:
-        scripted = [InferenceResult(content=c, model="test") for c in content]
-    return FakeInferenceProvider(
-        role=ProviderRole.ORCHESTRATOR,
-        model="test",
-        scripted=scripted,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Task 15-01-01: TestParseActionInput
-# ---------------------------------------------------------------------------
-
-
-class TestParseActionInput:
-    def test_basic_extraction(self) -> None:
-        """Standard ACTION/INPUT block returns correct tuple."""
-        content = 'THOUGHT: I need consensus data.\nACTION: bracket_summary\nINPUT: {"cycle_id": "abc123"}'
-        action, input_json = _parse_action_input(content)
-        assert action == "bracket_summary"
-        assert input_json == '{"cycle_id": "abc123"}'
-
-    def test_no_action_returns_none(self) -> None:
-        """Prose with no ACTION: returns (None, None)."""
-        content = "I think the market is bullish based on strong fundamentals."
-        action, input_json = _parse_action_input(content)
-        assert action is None
-        assert input_json is None
-
-    def test_action_without_input_defaults_empty_json(self) -> None:
-        """ACTION present, no INPUT line returns (action, '{}')."""
-        content = "THOUGHT: Done.\nACTION: FINAL_ANSWER"
-        action, input_json = _parse_action_input(content)
-        assert action == "FINAL_ANSWER"
-        assert input_json == "{}"
-
-    def test_thought_before_action_parsed_correctly(self) -> None:
-        """THOUGHT text before ACTION block still extracts correctly."""
-        content = (
-            "THOUGHT: I need to look at bracket breakdowns.\n"
-            "Some additional reasoning here.\n"
-            "ACTION: bracket_narratives\n"
-            'INPUT: {"cycle_id": "xyz"}'
-        )
-        action, input_json = _parse_action_input(content)
-        assert action == "bracket_narratives"
-        assert input_json == '{"cycle_id": "xyz"}'
-
-
-# ---------------------------------------------------------------------------
-# Task 15-01-02: TestReportEngine (stubs filled in Task 15-01-02)
-# ---------------------------------------------------------------------------
-
-
-class TestReportEngine:
-    async def test_terminates_on_final_answer(self) -> None:
-        """Engine terminates immediately when LLM outputs FINAL_ANSWER."""
-        from alphaswarm.report import ReportEngine
-
-        mock_tool = AsyncMock(
-            return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
-        )
-        provider = _make_provider("THOUGHT: Done\nACTION: FINAL_ANSWER\nINPUT: {}")
-
-        engine = ReportEngine(
-            provider=provider,
-            tools={"bracket_summary": mock_tool},
-        )
-        result = await engine.run("cycle1")
-
-        # FINAL_ANSWER produces no observation
-        assert result == []
-        # Provider called once
-        assert len(provider.calls) == 1
-
-    async def test_hard_cap_termination(self) -> None:
-        """Engine exits at MAX_ITERATIONS when no FINAL_ANSWER."""
-        from alphaswarm.report import ReportEngine
-
-        mock_tool = AsyncMock(
-            return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
-        )
-
-        # Return incrementing inputs to avoid duplicate detection
-        scripted = [
-            InferenceResult(
-                content=f'ACTION: bracket_summary\nINPUT: {{"cycle_id": "abc", "n": {i}}}',
-                model="test",
-            )
-            for i in range(MAX_ITERATIONS + 5)
-        ]
-        provider = FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR,
-            model="test",
-            scripted=scripted,
-        )
-
-        engine = ReportEngine(
-            provider=provider,
-            tools={"bracket_summary": mock_tool},
-        )
-        result = await engine.run("cycle1")
-
-        assert len(result) == MAX_ITERATIONS
-        assert len(provider.calls) == MAX_ITERATIONS
-
-    async def test_duplicate_call_terminates(self) -> None:
-        """Engine exits on duplicate (tool, input) pair after 1 successful call."""
-        from alphaswarm.report import ReportEngine
-
-        mock_tool = AsyncMock(
-            return_value={"buy_count": 50, "sell_count": 30, "hold_count": 20, "total": 100},
-        )
-
-        # Scripted with the same response twice to trigger duplicate detection
-        scripted = [
-            InferenceResult(
-                content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}',
-                model="test",
-            ),
-            InferenceResult(
-                content='ACTION: bracket_summary\nINPUT: {"cycle_id": "abc"}',
-                model="test",
-            ),
-        ]
-        provider = FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR,
-            model="test",
-            scripted=scripted,
-        )
-
-        engine = ReportEngine(
-            provider=provider,
-            tools={"bracket_summary": mock_tool},
-        )
-        result = await engine.run("cycle1")
-
-        # First call succeeds, second is duplicate -> exit
-        assert len(result) == 1
-        # First call dispatched, second detected as duplicate
-        assert len(provider.calls) == 2
-
-
-# ---------------------------------------------------------------------------
-# Task Plan 02: TestReportAssembler (stubs — filled in Plan 02)
-# ---------------------------------------------------------------------------
+# Report read rows (GraphStateManager shapes) for the single-template render tests.
+_CONSENSUS_ROW: dict = {"buy_count": 50, "sell_count": 30, "hold_count": 17, "parse_error_count": 3, "total": 100}
+_TIMELINE_ROWS: list[dict] = [
+    {"round_num": 1, "buy_count": 45, "sell_count": 35, "hold_count": 18, "parse_error_count": 2, "total": 100},
+    {"round_num": 2, "buy_count": 48, "sell_count": 32, "hold_count": 17, "parse_error_count": 3, "total": 100},
+    {"round_num": 3, "buy_count": 50, "sell_count": 30, "hold_count": 17, "parse_error_count": 3, "total": 100},
+]
+_BRACKET_ROWS: list[dict] = [
+    {
+        "bracket": "quants",
+        "display_name": "Quants",
+        "buy_count": 8,
+        "sell_count": 1,
+        "hold_count": 1,
+        "total": 10,
+        "avg_confidence": 0.85,
+        "avg_sentiment": 0.72,
+        "majority": "BUY",
+    },
+    {
+        "bracket": "degens",
+        "display_name": "Degens",
+        "buy_count": 0,
+        "sell_count": 0,
+        "hold_count": 0,
+        "total": 0,
+        "avg_confidence": 0.0,
+        "avg_sentiment": 0.0,
+        "majority": None,
+    },
+]
 
 
 class TestReportAssembler:
     def test_renders_section(self) -> None:
         """ReportAssembler.render_section returns markdown with section heading and data values."""
-        from alphaswarm.report import ReportAssembler
-
         assembler = ReportAssembler()
         data = {
             "buy_count": 50,
@@ -213,249 +59,6 @@ class TestReportAssembler:
         assert "Consensus Summary" in result
         assert "50" in result
         assert "30" in result
-
-    async def test_async_file_write(self, tmp_path: pytest.TempdirFactory) -> None:
-        """write_report creates the file with the exact content, written off the event loop."""
-        from alphaswarm.report import write_report
-
-        report_path = tmp_path / "test_report.md"  # type: ignore[operator]
-        await write_report(report_path, "# Report Content")
-
-        assert report_path.exists()
-        assert report_path.read_text() == "# Report Content"
-
-
-# ---------------------------------------------------------------------------
-# Phase 24: HTML Report Tests
-# ---------------------------------------------------------------------------
-
-# Shared test data for HTML tests
-
-_CONSENSUS_OBS = None  # defined below after import guard
-_TIMELINE_OBS = None
-_BRACKET_OBS = None
-_DISSENTERS_OBS = None
-_FULL_MARKET_ROW: dict = {
-    "ticker": "XQZW",
-    "company_name": "Apple Inc.",
-    "last_close": 189.50,
-    "majority_signal": "BUY",
-    "majority_pct": 0.65,
-    "consensus_score": 0.72,
-    "pe_ratio": 28.5,
-}
-
-from alphaswarm.report import ReportAssembler, ToolObservation  # noqa: E402
-
-_CONSENSUS_OBS = ToolObservation(
-    tool_name="bracket_summary",
-    tool_input={"cycle_id": "test-html"},
-    result={"buy_count": 50, "sell_count": 30, "hold_count": 17, "parse_error_count": 3, "total": 100},
-)
-_TIMELINE_OBS = ToolObservation(
-    tool_name="round_timeline",
-    tool_input={"cycle_id": "test-html"},
-    result=[
-        {"round_num": 1, "buy_count": 45, "sell_count": 35, "hold_count": 18, "parse_error_count": 2, "total": 100},
-        {"round_num": 2, "buy_count": 48, "sell_count": 32, "hold_count": 17, "parse_error_count": 3, "total": 100},
-        {"round_num": 3, "buy_count": 50, "sell_count": 30, "hold_count": 17, "parse_error_count": 3, "total": 100},
-    ],
-)
-_BRACKET_OBS = ToolObservation(
-    tool_name="bracket_narratives",
-    tool_input={"cycle_id": "test-html"},
-    result=[
-        {
-            "bracket": "quants",
-            "display_name": "Quants",
-            "buy_count": 8,
-            "sell_count": 1,
-            "hold_count": 1,
-            "total": 10,
-            "avg_confidence": 0.85,
-            "avg_sentiment": 0.72,
-            "majority": "BUY",
-        },
-        {
-            "bracket": "degens",
-            "display_name": "Degens",
-            "buy_count": 0,
-            "sell_count": 0,
-            "hold_count": 0,
-            "total": 0,
-            "avg_confidence": 0.0,
-            "avg_sentiment": 0.0,
-            "majority": None,
-        },
-    ],
-)
-_DISSENTERS_OBS = ToolObservation(
-    tool_name="key_dissenters",
-    tool_input={"cycle_id": "test-html"},
-    result=[
-        {"agent_id": "a1", "name": "Quants 1", "bracket": "quants", "signal": "SELL", "bracket_majority": "BUY"},
-    ],
-)
-
-
-class TestMarkdownAssembler:
-    """assemble() produces a valid markdown report with the expected sections.
-
-    The HTML report path was removed (v4.0 → v6.0 migration): reports are now
-    markdown that the frontend renders via marked.js. These tests target the
-    surviving `ReportAssembler.assemble()` method (docs/DECISIONS.md#sweep-b-1).
-    """
-
-    def test_produces_markdown_document(self) -> None:
-        assembler = ReportAssembler()
-        md = assembler.assemble([_CONSENSUS_OBS], "test-cycle")
-        # Header is always emitted, even with no observations
-        assert md.startswith("# Post-Simulation Analysis Report")
-        # Section heading from 01_consensus_summary.j2
-        assert "## Consensus Summary" in md
-
-    def test_contains_cycle_id(self) -> None:
-        assembler = ReportAssembler()
-        md = assembler.assemble([_CONSENSUS_OBS], "abc-123")
-        assert "abc-123" in md
-
-    def test_contains_page_title(self) -> None:
-        assembler = ReportAssembler()
-        md = assembler.assemble([], "test-cycle")
-        assert "# Post-Simulation Analysis Report" in md
-
-    def test_contains_consensus_counts(self) -> None:
-        assembler = ReportAssembler()
-        md = assembler.assemble([_CONSENSUS_OBS], "test-cycle")
-        # Buy/sell/hold counts from _CONSENSUS_OBS render into the table
-        assert "50" in md  # buy_count
-        assert "30" in md  # sell_count
-        assert "17" in md  # hold_count
-
-    def test_contains_timeline_table(self) -> None:
-        assembler = ReportAssembler()
-        md = assembler.assemble([_TIMELINE_OBS], "test-cycle")
-        assert "## Round Timeline" in md
-        # 3 rounds × BUY/SELL/HOLD header columns
-        assert "| Round |" in md
-        assert "BUY" in md
-
-    def test_contains_bracket_table(self) -> None:
-        assembler = ReportAssembler()
-        md = assembler.assemble([_BRACKET_OBS], "test-cycle")
-        assert "## Bracket Narratives" in md
-        assert "Quants" in md
-
-    def test_contains_dissenters_table(self) -> None:
-        assembler = ReportAssembler()
-        md = assembler.assemble([_DISSENTERS_OBS], "test-cycle")
-        assert "## Key Dissenters" in md
-        # Dissenter row data
-        assert "a1" in md
-
-    def test_empty_observations_produces_header_only(self) -> None:
-        assembler = ReportAssembler()
-        md = assembler.assemble([], "test-cycle")
-        # Header still present, but no section headings since no observations
-        assert md.startswith("# Post-Simulation Analysis Report")
-        assert "## Consensus Summary" not in md
-        assert "## Round Timeline" not in md
-
-
-class TestMarkdownStructure:
-    """Markdown report sections are well-formed and appear in canonical order."""
-
-    def test_all_sections_render_in_canonical_order(self) -> None:
-        """When all four observations present, sections appear in SECTION_ORDER."""
-        assembler = ReportAssembler()
-        md = assembler.assemble(
-            [_DISSENTERS_OBS, _BRACKET_OBS, _TIMELINE_OBS, _CONSENSUS_OBS],
-            "test-cycle",
-        )
-        # SECTION_ORDER is consensus → timeline → bracket_narratives → dissenters
-        consensus_pos = md.index("## Consensus Summary")
-        timeline_pos = md.index("## Round Timeline")
-        bracket_pos = md.index("## Bracket Narratives")
-        dissenters_pos = md.index("## Key Dissenters")
-        assert consensus_pos < timeline_pos < bracket_pos < dissenters_pos
-
-    def test_no_html_tags_in_output(self) -> None:
-        """Markdown output must NOT contain HTML markup — the frontend renders
-        via marked.js with HTML escaping enabled; raw HTML in the source would
-        either render as plain text or be sanitized away."""
-        assembler = ReportAssembler()
-        md = assembler.assemble(
-            [_CONSENSUS_OBS, _TIMELINE_OBS, _BRACKET_OBS, _DISSENTERS_OBS],
-            "test-cycle",
-        )
-        # Common HTML structural tags must not appear in markdown source
-        assert "<!DOCTYPE" not in md
-        assert "<html" not in md
-        assert "<body" not in md
-        assert "<svg" not in md
-        assert "<script" not in md
-
-
-class TestMarkdownFileSize:
-    """Generated markdown stays small enough to round-trip through file I/O
-    and the frontend renderer without pagination."""
-
-    def test_full_report_under_100kb(self) -> None:
-        all_obs = [_CONSENSUS_OBS, _TIMELINE_OBS, _BRACKET_OBS, _DISSENTERS_OBS]
-        assembler = ReportAssembler()
-        md = assembler.assemble(all_obs, "test-cycle")
-        size_bytes = len(md.encode("utf-8"))
-        # Markdown reports are ~1-10 KB in practice; 100 KB is the soft cap
-        # below which the frontend renderer is verified not to choke.
-        assert size_bytes < 100_000, f"Markdown size {size_bytes} exceeds 100KB"
-
-
-# ---------------------------------------------------------------------------
-# Phase 27: Shock impact report section (Plan 02)
-# ---------------------------------------------------------------------------
-
-
-def test_tool_to_template_contains_shock_impact() -> None:
-    """Phase 27 SHOCK-05 — TOOL_TO_TEMPLATE['shock_impact'] == '11_shock_impact.j2'."""
-    from alphaswarm.report import TOOL_TO_TEMPLATE
-
-    assert TOOL_TO_TEMPLATE.get("shock_impact") == "11_shock_impact.j2"
-
-
-def test_section_order_ends_with_shock_impact() -> None:
-    """Phase 27 SHOCK-05 — 'shock_impact' is the last section; every section has a template."""
-    from alphaswarm.report import SECTION_ORDER, TEMPLATE_DIR, TOOL_TO_TEMPLATE
-
-    assert SECTION_ORDER[-1] == "shock_impact"
-    assert "portfolio_impact" not in SECTION_ORDER
-    for tool_name in SECTION_ORDER:
-        assert (TEMPLATE_DIR / TOOL_TO_TEMPLATE[tool_name]).is_file(), tool_name
-
-
-def test_assemble_includes_shock_section_when_observation_present() -> None:
-    """Phase 27 SHOCK-05 — assemble() includes Shock Impact Analysis when observation present."""
-    from alphaswarm.report import ReportAssembler, ToolObservation
-
-    shock_obs = ToolObservation(
-        tool_name="shock_impact",
-        tool_input={"cycle_id": "test-cycle"},
-        result=_SHOCK_IMPACT_DATA | {"shock_text": "Fed raises rates by 75bps"},
-    )
-    assembler = ReportAssembler()
-    result = assembler.assemble([shock_obs], "test-cycle")
-
-    assert "Shock Impact Analysis" in result
-    assert "Fed raises rates by 75bps" in result
-
-
-def test_assemble_skips_shock_section_when_no_observation() -> None:
-    """Phase 27 SHOCK-05 — assemble() does not include shock section when observation absent."""
-    from alphaswarm.report import ReportAssembler
-
-    assembler = ReportAssembler()
-    result = assembler.assemble([], "test-cycle")
-
-    assert "Shock Impact Analysis" not in result
 
 
 # Shared fixture data for template rendering tests
@@ -581,7 +184,7 @@ class TestReportFilters:
 def test_consensus_template_has_parse_error_row_and_shares_sum_to_100() -> None:
     md = ReportAssembler().render_section(
         "01_consensus_summary.j2",
-        data=_CONSENSUS_OBS.result,
+        data=_CONSENSUS_ROW,
         cycle_id="test-cycle",
     )
     assert "| PARSE_ERROR | 3 | 3.0% |" in md
@@ -592,7 +195,7 @@ def test_consensus_template_has_parse_error_row_and_shares_sum_to_100() -> None:
 def test_round_timeline_template_has_parse_error_column() -> None:
     md = ReportAssembler().render_section(
         "02_round_timeline.j2",
-        data=_TIMELINE_OBS.result,
+        data=_TIMELINE_ROWS,
         cycle_id="test-cycle",
     )
     assert "| Round | BUY | SELL | HOLD | PARSE_ERROR | Total |" in md
@@ -602,7 +205,7 @@ def test_round_timeline_template_has_parse_error_column() -> None:
 def test_bracket_template_shows_display_name_total_and_dash_for_no_majority() -> None:
     md = ReportAssembler().render_section(
         "03_bracket_narratives.j2",
-        data=_BRACKET_OBS.result,
+        data=_BRACKET_ROWS,
         cycle_id="c",
     )
     assert "| Quants | 8 | 1 | 1 | 10 | BUY | 0.85 | 0.72 |" in md
@@ -680,34 +283,3 @@ def test_strict_undefined_raises_on_missing_row_key() -> None:
     }  # entity_type missing
     with pytest.raises(UndefinedError, match="entity_type"):
         ReportAssembler().render_section("07_entity_impact.j2", data=[row], cycle_id="c")
-
-
-def test_react_prompt_says_final_round_not_round_3() -> None:
-    assert "Round 3" not in REACT_SYSTEM_PROMPT
-    assert "rounds 1-3" not in REACT_SYSTEM_PROMPT
-    assert "final round" in REACT_SYSTEM_PROMPT
-
-
-def test_social_post_reach_section_is_gone() -> None:
-    import inspect
-
-    from alphaswarm import cli
-    from alphaswarm.graph import GraphStateManager
-    from alphaswarm.report import SECTION_ORDER, TEMPLATE_DIR, TOOL_TO_TEMPLATE
-    from alphaswarm.web.routes import report as report_route
-
-    assert "social_post_reach" not in TOOL_TO_TEMPLATE
-    assert "social_post_reach" not in SECTION_ORDER
-    assert "social_post_reach" not in REACT_SYSTEM_PROMPT
-    assert not (TEMPLATE_DIR / "08_social_post_reach.j2").exists()
-    assert not hasattr(GraphStateManager, "read_social_post_reach")
-    assert "social_post_reach" not in inspect.getsource(cli._handle_report)
-    assert "social_post_reach" not in inspect.getsource(report_route._run_report_generation)
-
-
-def test_react_prompt_lists_seven_tools() -> None:
-    import re
-
-    advertised = set(re.findall(r"^- (\w+):", REACT_SYSTEM_PROMPT, flags=re.MULTILINE))
-    advertised.discard("FINAL_ANSWER")
-    assert len(advertised) == 7

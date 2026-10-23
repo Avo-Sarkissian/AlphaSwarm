@@ -708,7 +708,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 |---|---|---|---|
 | <a id="p36-d-01"></a>`D-01` | POST /api/report/{cycle_id}/generate returns 202 and runs a background task for any complete cycle while no simulation runs. Revised 2026-10: the phase == COMPLETE gate is gone. | revised | web/routes/report.py:59,109; tests/test_report_routes.py |
 | <a id="p36-d-02"></a>`D-02` | 409 if a report task is already running (single orchestrator user). | active | web/app.py:178; web/guards.py:require_orchestrator_free; tests/test_report_routes.py |
-| <a id="p36-d-03"></a>`D-03` | Web report path mirrors the CLI sequence and file locations. | active | web/routes/report.py:188,228; tests/test_web_report.py:44 |
+| <a id="p36-d-03"></a>`D-03` | Web report path mirrors the CLI sequence and file locations. | active | web/routes/report.py:_run_report_generation; tests/test_report_routes.py:test_generation_writes_the_report_between_prepare_and_teardown |
 | <a id="p36-d-05"></a>`D-05` | GET /api/report/{cycle_id} reads the markdown file; the filesystem is the source of truth: 404 = no report, 409 report_generation_in_progress while that cycle's job runs, 500 after a recorded failure. Revised 2026-10 (404 also meant "still generating"). | revised | web/routes/report.py:51,71 |
 
 ### Phase 37: Isolation foundation + provider scaffolding
@@ -948,9 +948,9 @@ code. Their status is in BACKLOG.md.
 |---|---|---|
 | <a id="t-35-1-01"></a>T-35.1-01 | Cypher injection through shock text. All user input goes through parameters, never f-strings | graph.py:2008 |
 | <a id="t-36-01"></a>T-36-01 | Path traversal through cycle_id. Since 2026-10 the `CycleId` path type and `CYCLE_ID_PATTERN` (`web/params.py`) validate it for report, advisory, replay, edges and interview, and malformed ids get 422 `validation_error` (was the `_CYCLE_ID_RE` regex guard) | web/params.py; tests/test_web_params.py |
-| <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:4,94,100,130; tests/test_web_report.py:21 |
+| <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:4,94,100,130; tests/test_report_routes.py:test_get_report_uses_async_filesystem |
 | <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:100; web/routes/advisory.py:5,268; web/routes/report.py:7,89,105,159,161,222,235,249; tests/test_web.py:71; tests/test_report_routes.py:87,286 |
-| <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Fixed 2026-10: both writes go through `fsutil.atomic_write_text` (temp file, fsync, `os.replace`, owner-only) | fsutil.py; report.py:write_report; web/routes/advisory.py:8 |
+| <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Fixed 2026-10: both writes go through `fsutil.atomic_write_text` (temp file, fsync, `os.replace`, owner-only) | fsutil.py; report.py:write_report_files; web/routes/advisory.py:8 |
 | <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,89; simulation.py:_TICKER_RE; tests/test_rss_provider.py:142,164,549 |
 | <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/unit/test_holdings_route.py:14,215,259 |
 | <a id="t-41-6-13"></a>T-41.6-13 | XSS through interview responses. Rendered as plain text, not markdown | fe/components/interview_v2.tsx:21 |
