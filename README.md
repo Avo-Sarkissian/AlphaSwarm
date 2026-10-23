@@ -2,6 +2,9 @@
 
 **Multi-agent financial simulation engine that runs 100 AI personas through a multi-round consensus cascade (3 rounds by default). Local-first: inference runs on your own hardware, with optional cloud providers.**
 
+[![CI](https://github.com/Avo-Sarkissian/AlphaSwarm/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Avo-Sarkissian/AlphaSwarm/actions/workflows/ci.yml)
+[![Coverage gate](https://img.shields.io/badge/coverage-%E2%89%A585%25%20gated-brightgreen)](.github/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/Avo-Sarkissian/AlphaSwarm)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Ollama](https://img.shields.io/badge/inference-Ollama-orange.svg)](https://ollama.com/)
 [![Neo4j](https://img.shields.io/badge/graph-Neo4j-brightgreen.svg)](https://neo4j.com/)
