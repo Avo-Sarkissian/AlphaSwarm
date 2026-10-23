@@ -180,6 +180,7 @@ source_modules = [
     "alphaswarm.seed",
     "alphaswarm.simulation",
     "alphaswarm.state",
+    "alphaswarm.telemetry",
     "alphaswarm.types",
     "alphaswarm.worker",
     "alphaswarm.web",
