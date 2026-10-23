@@ -88,3 +88,51 @@ def test_row_typeddict_keys_match_contract(name: str) -> None:
     row_type = getattr(graph, name)
     assert set(row_type.__required_keys__) == EXPECTED_KEYS[name]
     assert not row_type.__optional_keys__
+
+
+ROWS_MODULE_NAMES = (
+    "AgentDecisionRow",
+    "BracketNarrativeRow",
+    "BracketRoundRow",
+    "CompletedCycleRow",
+    "ConsensusSummaryRow",
+    "EntityImpactRow",
+    "InfluenceEdgeRow",
+    "InfluenceLeaderRow",
+    "KeyDissenterRow",
+    "PersistRoundResult",
+    "RationaleRoundRow",
+    "RoundTimelineRow",
+    "SignalFlipRow",
+)
+
+
+@pytest.mark.parametrize("name", ROWS_MODULE_NAMES)
+def test_row_types_are_defined_in_graph_rows(name: str) -> None:
+    from alphaswarm.graph import rows
+
+    assert getattr(graph, name) is getattr(rows, name)
+    assert getattr(rows, name).__module__ == "alphaswarm.graph.rows"
+
+
+def test_cycle_status_and_tx_runner_live_in_graph_rows() -> None:
+    from typing import get_args
+
+    from alphaswarm.graph import rows
+
+    assert get_args(rows.CycleStatus) == ("running", "complete", "failed", "cancelled")
+    assert graph.CycleStatus is rows.CycleStatus
+    assert rows.TxRunner.__module__ == "alphaswarm.graph.rows"
+
+
+def test_agent_interview_rows_keys() -> None:
+    from alphaswarm.graph import AgentInterviewRows
+
+    assert set(AgentInterviewRows.__required_keys__) == {
+        "agent_id",
+        "name",
+        "bracket",
+        "modifiers",
+        "narrative",
+        "decisions",
+    }

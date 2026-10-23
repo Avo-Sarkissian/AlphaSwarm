@@ -6,7 +6,6 @@ import contextlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,7 +14,9 @@ from fastapi.testclient import TestClient
 
 import alphaswarm.web.routes.interview as interview_module
 from alphaswarm.errors import INFERENCE_CONFIG_INCOMPLETE_MESSAGE
+from alphaswarm.graph import AgentInterviewRows
 from alphaswarm.web.routes.interview import router as interview_router
+from tests.support.interview_fakes import interview_rows
 from tests.support.web_app import (
     CYCLE_A,
     CYCLE_B,
@@ -28,9 +29,9 @@ from tests.support.web_app import (
 AGENT = "quants_01"
 
 
-def _context() -> object:
-    """A stored interview context; the route only checks that it names the agent."""
-    return SimpleNamespace(agent_name="Quants 01")
+def _context() -> AgentInterviewRows:
+    """The graph rows for AGENT; the route builds the real interview context from them."""
+    return interview_rows(AGENT)
 
 
 async def _context_unchanged(graph: object, provider: object, context: object, *, cycle_id: str) -> object:

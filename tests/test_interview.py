@@ -7,52 +7,29 @@ from __future__ import annotations
 
 import pytest
 
+from alphaswarm.graph import AgentInterviewRows
 from alphaswarm.interview import InterviewContext
 from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
+from tests.support.interview_fakes import decision_row
 
 # ---------------------------------------------------------------------------
 # Data types tests
 # ---------------------------------------------------------------------------
 
 
-class TestRoundDecision:
-    def test_frozen_dataclass_fields(self) -> None:
-        from alphaswarm.interview import RoundDecision
-
-        rd = RoundDecision(
-            round_num=1,
-            signal="buy",
-            confidence=0.85,
-            sentiment=0.6,
-            rationale="Strong fundamentals",
-        )
-        assert rd.round_num == 1
-        assert rd.signal == "buy"
-        assert rd.confidence == 0.85
-        assert rd.sentiment == 0.6
-        assert rd.rationale == "Strong fundamentals"
-
-    def test_frozen_immutability(self) -> None:
-        from alphaswarm.interview import RoundDecision
-
-        rd = RoundDecision(round_num=1, signal="buy", confidence=0.85, sentiment=0.6, rationale="x")
-        with pytest.raises(AttributeError):
-            rd.signal = "sell"  # type: ignore[misc]
-
-
 class TestInterviewContext:
     def test_frozen_dataclass_fields(self) -> None:
-        from alphaswarm.interview import InterviewContext, RoundDecision
+        from alphaswarm.interview import InterviewContext
 
         decisions = [
-            RoundDecision(
+            decision_row(
                 round_num=1,
                 signal="buy",
                 confidence=0.8,
                 sentiment=0.5,
                 rationale="r1",
             ),
-            RoundDecision(
+            decision_row(
                 round_num=2,
                 signal="hold",
                 confidence=0.6,
@@ -114,7 +91,7 @@ class TestStripJsonInstructions:
 
 def _make_context() -> InterviewContext:
     """Helper to create a sample InterviewContext for engine tests."""
-    from alphaswarm.interview import InterviewContext, RoundDecision
+    from alphaswarm.interview import InterviewContext
 
     return InterviewContext(
         agent_id="quants_01",
@@ -123,21 +100,21 @@ def _make_context() -> InterviewContext:
         interview_system_prompt="You are a quantitative analyst in the Quants bracket.",
         decision_narrative="Agent went from BUY to HOLD to SELL across 3 rounds.",
         decisions=[
-            RoundDecision(
+            decision_row(
                 round_num=1,
                 signal="buy",
                 confidence=0.85,
                 sentiment=0.6,
                 rationale="Strong fundamentals",
             ),
-            RoundDecision(
+            decision_row(
                 round_num=2,
                 signal="hold",
                 confidence=0.6,
                 sentiment=0.2,
                 rationale="Mixed signals",
             ),
-            RoundDecision(
+            decision_row(
                 round_num=3,
                 signal="sell",
                 confidence=0.7,
@@ -319,14 +296,6 @@ def test_context_block_omits_empty_narrative() -> None:
     assert "Round-by-Round Decisions:" in block
 
 
-def test_round_decision_cited_agents_defaults_to_empty() -> None:
-    from alphaswarm.interview import RoundDecision
-
-    decision = RoundDecision(round_num=1, signal="buy", confidence=0.5, sentiment=0.0, rationale="r")
-
-    assert decision.cited_agents == ()
-
-
 class TestLazyNarrative:
     """Narrative generated once, on the first interview of (cycle, agent)."""
 
@@ -344,7 +313,6 @@ class TestLazyNarrative:
 
     @staticmethod
     def _context(narrative: str = "") -> InterviewContext:
-        from alphaswarm.interview import RoundDecision
 
         return InterviewContext(
             agent_id="quants_01",
@@ -353,8 +321,8 @@ class TestLazyNarrative:
             interview_system_prompt="You are a quantitative analyst.",
             decision_narrative=narrative,
             decisions=[
-                RoundDecision(round_num=1, signal="buy", confidence=0.8, sentiment=0.5, rationale="r1"),
-                RoundDecision(
+                decision_row(round_num=1, signal="buy", confidence=0.8, sentiment=0.5, rationale="r1"),
+                decision_row(
                     round_num=2,
                     signal="sell",
                     confidence=0.6,
@@ -458,3 +426,84 @@ class TestLazyNarrative:
         assert "this agent's 2-round decision arc" in user
         assert "Round 2: SELL (confidence: 0.60, sentiment: -0.20) flip: buy_to_sell" in user
         assert "  Cited: sell_side_01" in user
+
+
+class TestInterviewAssembly:
+    """Interview context is assembled from graph rows in alphaswarm.interview."""
+
+    @staticmethod
+    def _rows(agent_id: str = "quants_01", **overrides: object) -> AgentInterviewRows:
+        rows = AgentInterviewRows(
+            agent_id=agent_id,
+            name="Quants 1",
+            bracket="quants",
+            modifiers=None,
+            narrative="",
+            decisions=[
+                decision_row(
+                    round_num=1,
+                    signal="buy",
+                    confidence=0.8,
+                    sentiment=0.5,
+                    rationale="ZZZT Holdings deal looks likely",
+                ),
+                decision_row(
+                    round_num=2,
+                    signal="hold",
+                    confidence=0.6,
+                    sentiment=0.1,
+                    rationale="Waiting on QQQX Robotics terms",
+                    cited_agents=["sell_side_01"],
+                ),
+            ],
+        )
+        rows.update(overrides)  # type: ignore[typeddict-item]
+        return rows
+
+    def test_build_interview_context_legacy_cycle_has_no_focus_line(self) -> None:
+        from alphaswarm.interview import build_interview_context, interview_persona
+
+        rows = self._rows()
+        ctx = build_interview_context(rows, interview_persona(rows, "c1"))
+
+        assert "This cycle you are focused" not in ctx.interview_system_prompt
+        assert JSON_OUTPUT_INSTRUCTIONS not in ctx.interview_system_prompt
+        assert ctx.decision_narrative == ""
+        assert [(d["round_num"], d["signal"], d["cited_agents"]) for d in ctx.decisions] == [
+            (1, "buy", []),
+            (2, "hold", ["sell_side_01"]),
+        ]
+
+    def test_interview_persona_uses_the_cycles_modifiers(self) -> None:
+        from alphaswarm.interview import interview_persona
+        from alphaswarm.types import BracketType
+
+        rows = self._rows(modifiers={BracketType.QUANTS: "fictional catalyst watcher"})
+
+        persona = interview_persona(rows, "c1")
+
+        assert "This cycle you are focused as a fictional catalyst watcher." in persona.system_prompt
+
+    def test_interview_persona_off_roster_raises(self) -> None:
+        from alphaswarm.errors import AgentNotFoundError
+        from alphaswarm.interview import interview_persona
+
+        with pytest.raises(AgentNotFoundError):
+            interview_persona(self._rows(agent_id="zz_legacy_01"), "c1")
+
+    async def test_load_interview_context_unknown_agent_raises(self) -> None:
+        from unittest.mock import AsyncMock
+
+        from alphaswarm.errors import AgentNotFoundError
+        from alphaswarm.interview import load_interview_context
+
+        graph = AsyncMock()
+        graph.read_agent_interview_rows = AsyncMock(side_effect=AgentNotFoundError("nobody_99", "c1"))
+        with pytest.raises(AgentNotFoundError):
+            await load_interview_context(graph, "nobody_99", "c1")
+        graph.read_agent_interview_rows.assert_awaited_once_with("nobody_99", "c1")
+
+    def test_round_decision_is_gone(self) -> None:
+        import alphaswarm.interview as interview
+
+        assert not hasattr(interview, "RoundDecision")

@@ -129,7 +129,7 @@ jobs:
             echo "## Backend (neo4j-test)"
             echo
             uv run coverage report --format=markdown \
-              --include='src/alphaswarm/graph.py,src/alphaswarm/report.py' || echo "no coverage data"
+              --include='src/alphaswarm/graph/*.py,src/alphaswarm/report.py' || echo "no coverage data"
             echo
             echo "### xfail / xpass"
             echo '```'

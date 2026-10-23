@@ -20,6 +20,7 @@ from typing import Any
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from tests.inference.fakes import FakeInferenceProvider
+from tests.support.interview_fakes import decision_row
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -177,7 +178,7 @@ class TestInterviewEngineAcceptsProvider:
     """InterviewEngine must accept `provider: InferenceProvider` instead of ollama_client."""
 
     def _make_context(self) -> Any:
-        from alphaswarm.interview import InterviewContext, RoundDecision
+        from alphaswarm.interview import InterviewContext
 
         return InterviewContext(
             agent_id="quants_01",
@@ -186,7 +187,7 @@ class TestInterviewEngineAcceptsProvider:
             interview_system_prompt="You are a quantitative analyst.",
             decision_narrative="Agent went bullish then cautious.",
             decisions=[
-                RoundDecision(
+                decision_row(
                     round_num=1,
                     signal="buy",
                     confidence=0.85,

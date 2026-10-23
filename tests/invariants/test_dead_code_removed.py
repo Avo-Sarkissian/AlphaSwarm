@@ -21,7 +21,9 @@ def test_dead_graph_methods_are_gone() -> None:
     import alphaswarm.graph as graph
 
     assert not hasattr(graph, "PeerDecision"), "alphaswarm.graph.PeerDecision is back"
-    assert hasattr(graph, "RankedPost"), "RankedPost is still used by peer formatting"
+    from alphaswarm import peers
+
+    assert hasattr(peers, "RankedPost"), "RankedPost is still used by peer formatting"
     dead = ("create_cycle", "read_ranked_posts", "write_read_post_edges", "read_peer_decisions")
     for name in dead:
         assert not hasattr(graph.GraphStateManager, name), f"GraphStateManager.{name} is back"

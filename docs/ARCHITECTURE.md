@@ -54,7 +54,8 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `ollama_models.py`: model load and unload.
   - `inference/`: provider protocol and types; the `ollama_provider`, `openai_provider`, and `anthropic_provider` adapters; `schema` (structured-output translation per vendor); `structured` (`chat_structured`: every orchestrator reply, decoded against its output model with tier-2 extraction and one validated retry); `budget`; `factory` (`build_providers`, `build_controller`, `inference_mode`).
 - **Persistence**
-  - `graph.py`: GraphStateManager. It covers schema, writes, influence edges, cycle status, and the report, replay, and interview queries.
+  - `graph/`: the GraphStateManager facade (`manager.py`: driver, `_read`/`_write`, error mapping, one-line delegations) over `schema_writes.py` (schema, writes, influence edges, cycle status), `analytics.py` (report, shock and influence-edge reads), `replay_interview.py` (replay, cycle lookups, agent decisions, interview rows) and `rows.py` (typed rows).
+  - `influence.py`: pure influence weights and shock aggregation.
   - `fsutil.py`: `atomic_write_text`, the all-or-nothing writer for report and advisory files.
 - **Ingestion**
   - `ingestion/`: MarketDataProvider and NewsProvider protocols with fakes, the yfinance and RSS providers, and frozen pydantic slices. Providers never raise.
@@ -118,7 +119,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - On the frontend, `useWebSocket` feeds `adapter/frame.ts`, which updates the React contexts (`FrameProviders`: Connection, FrameMeta, Telemetry, Agents, Rationales; plus Edges), which render the SVG graph.
    - Edges come over REST through one cached loader keyed by the frame's cycle_id, round and edges_version (EdgesContext). Report, advisory, replay and settings also come over REST.
 9. **Replay.** ReplayManager loads a cycle's signals from Neo4j into a ReplayStore, and the broadcaster switches its snapshot source. No inference runs, and the live phase is left alone.
-10. **Interview.** `POST /api/interview/{agent_id}` takes the request's `cycle_id` or the latest complete cycle, reads the agent's context with `read_agent_interview_context`, and runs InterviewEngine on the worker provider, the only one an interview builds (`InferenceRuntime.open_role`). The persona is rebuilt with the cycle's stored modifiers; on the first interview of (cycle, agent) the decision narrative is generated and stored on the final-round Decision.
+10. **Interview.** `POST /api/interview/{agent_id}` takes the request's `cycle_id` or the latest complete cycle, builds the agent's context with `interview.load_interview_context` (graph rows from `read_agent_interview_rows`), and runs InterviewEngine on the worker provider, the only one an interview builds (`InferenceRuntime.open_role`). The persona is rebuilt with the cycle's stored modifiers; on the first interview of (cycle, agent) the decision narrative is generated and stored on the final-round Decision.
 
 ## Neo4j graph model
 
@@ -139,7 +140,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 ```
 
 Signals are stored lowercase (`SignalType.value`). Schema statements (constraints
-and indexes) live in `graph.py` `SCHEMA_STATEMENTS` and are applied by
+and indexes) live in `graph/schema_writes.py` `SCHEMA_STATEMENTS` and are applied by
 `ensure_schema()`. That function also seeds the Agent nodes, drops the retired indexes
 (it deletes no data: the old Agent narrative property stays until the owner runs
 `remove_legacy_properties()` after a backup, `docs/RUNBOOK.md` §3), and skips the `decision_id_unique` constraint while

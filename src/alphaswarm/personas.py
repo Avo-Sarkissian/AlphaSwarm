@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
+from typing import Final
 
 from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.types import AgentPersona, BracketConfig, BracketType, WorkerPersonaConfig
@@ -387,6 +389,20 @@ DEFAULT_BRACKETS: list[BracketConfig] = [
         ),
     ),
 ]
+
+# Display names and config order per bracket key, shared by report reads and
+# shock aggregation so they match the live frame (docs/DECISIONS.md#adr-swarm-composition-v2).
+BRACKET_DISPLAY_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {b.bracket_type.value: b.display_name for b in DEFAULT_BRACKETS}
+)
+_BRACKET_ORDER: Final[Mapping[str, int]] = MappingProxyType(
+    {b.bracket_type.value: i for i, b in enumerate(DEFAULT_BRACKETS)}
+)
+
+
+def bracket_sort_key(bracket: str) -> tuple[int, str]:
+    """Config order first; unknown (legacy) brackets last, alphabetically."""
+    return (_BRACKET_ORDER.get(bracket, len(_BRACKET_ORDER)), bracket)
 
 
 def load_bracket_configs() -> list[BracketConfig]:

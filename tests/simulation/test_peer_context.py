@@ -24,8 +24,7 @@ def test_sanitize_rationale_in_security_sanitize() -> None:
 
 def test_format_peer_context_structure() -> None:
     """format_peer_context with 5 RankedPost objects returns structured string."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     posts = [
         RankedPost(
@@ -56,8 +55,7 @@ def test_format_peer_context_structure() -> None:
 
 def test_format_peer_context_truncates_rationale() -> None:
     """Content exceeding budget is truncated (no '...' -- budget truncation)."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     long_content = "A" * 5000
     posts = [
@@ -89,8 +87,7 @@ def test_format_peer_context_empty_peers() -> None:
 
 def test_format_peer_context_prompt_guard() -> None:
     """Returned string contains the prompt guard text."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     posts = [
         RankedPost(
@@ -111,8 +108,7 @@ def test_format_peer_context_prompt_guard() -> None:
 
 def test_format_peer_context_budget_enforced() -> None:
     """Total output length <= 4000 chars when 10 posts each have 500-char content."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     posts = [
         RankedPost(
@@ -138,8 +134,7 @@ def test_format_peer_context_budget_enforced() -> None:
 
 def test_format_peer_context_word_boundary_truncation() -> None:
     """Truncation happens at word boundary, not mid-word."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     # Create content with known words, large enough to force truncation
     words = ["alpha", "beta", "gamma", "delta", "epsilon"]
@@ -179,8 +174,7 @@ def test_format_peer_context_word_boundary_truncation() -> None:
 
 def test_format_peer_context_single_post_exceeds_budget() -> None:
     """A single post with 5000-char content is truncated but still present."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     posts = [
         RankedPost(
@@ -212,8 +206,7 @@ def test_format_peer_context_empty_posts_returns_empty() -> None:
 
 def test_format_peer_context_prompt_guard_preserved() -> None:
     """Output ends with the prompt guard line."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     posts = [
         RankedPost(
@@ -247,8 +240,7 @@ def test_format_peer_context_prompt_guard_preserved() -> None:
 
 def test_format_peer_context_header_format() -> None:
     """Output starts with 'Peer Decisions (Round N):'."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     posts = [
         RankedPost(
@@ -269,8 +261,7 @@ def test_format_peer_context_header_format() -> None:
 
 def test_format_peer_context_line_format() -> None:
     """Each post line matches the expected format."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     posts = [
         RankedPost(
@@ -291,8 +282,7 @@ def test_format_peer_context_line_format() -> None:
 
 def test_format_peer_context_skip_empty_content() -> None:
     """Posts with empty content are skipped."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     posts = [
         RankedPost(
@@ -325,8 +315,7 @@ def test_format_peer_context_skip_empty_content() -> None:
 
 def test_format_peer_context_returns_rendered_ids() -> None:
     """The formatter reports exactly the peers whose lines it rendered (exposure)."""
-    from alphaswarm.graph import RankedPost
-    from alphaswarm.peers import format_peer_context
+    from alphaswarm.peers import RankedPost, format_peer_context
 
     def post(agent_id: str, bracket: str, content: str) -> RankedPost:
         return RankedPost(

@@ -9,8 +9,7 @@ import re
 import sys
 import unicodedata
 
-from alphaswarm.graph import RankedPost
-from alphaswarm.peers import format_peer_context
+from alphaswarm.peers import RankedPost, format_peer_context
 from alphaswarm.security.sanitize import sanitize_peer_rationale
 from tests.inference.fakes import PEER_LINE_RE
 

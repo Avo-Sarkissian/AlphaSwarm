@@ -20,7 +20,6 @@ from alphaswarm.security.sanitize import sanitize_peer_rationale, sanitize_ratio
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
-    from alphaswarm.graph import RankedPost
     from alphaswarm.settings import SimulationSettings
     from alphaswarm.types import AgentDecision, AgentPersona
 
@@ -34,6 +33,20 @@ class PeerContextsResult:
 
     contexts: tuple[str | None, ...]  # None when no peer line was rendered
     exposures: tuple[tuple[str, ...], ...]  # rendered peer ids in display order; () when none
+
+
+@dataclasses.dataclass(frozen=True)
+class RankedPost:
+    """One peer line candidate: a previous-round decision chosen for a reader's feed."""
+
+    post_id: str
+    agent_id: str
+    bracket: str
+    signal: str
+    confidence: float
+    content: str
+    influence_weight: float
+    round_num: int
 
 
 def peer_rng(run_seed: str, reader_id: str, round_num: int) -> random.Random:
@@ -240,7 +253,6 @@ def build_peer_contexts(
     lines were rendered, in display order (``()`` when none). Peers cut by the
     character budget are not exposure.
     """
-    from alphaswarm.graph import RankedPost
 
     persona_lookup = {p.id: p for p in personas}
     prev_dict: dict[str, AgentDecision] = {aid: dec for aid, dec in prev_decisions}

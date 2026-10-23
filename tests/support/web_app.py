@@ -19,6 +19,7 @@ from fastapi import APIRouter, FastAPI
 
 from alphaswarm.app import AppState
 from alphaswarm.errors import AgentNotFoundError
+from alphaswarm.graph import AgentInterviewRows
 from alphaswarm.services.advisory import AdvisoryService
 from alphaswarm.services.jobs import JobRunner
 from alphaswarm.services.report import ReportService
@@ -42,7 +43,7 @@ class FakeCycleGraph:
         latest: str | None = None,
         error: BaseException | None = None,
         signals: Mapping[str, Mapping[tuple[str, int], object]] | None = None,
-        contexts: Mapping[tuple[str, str], object] | None = None,
+        contexts: Mapping[tuple[str, str], AgentInterviewRows] | None = None,
         cycles: Sequence[Mapping[str, object]] = (),
         decisions: Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None = None,
     ) -> None:
@@ -106,13 +107,13 @@ class FakeCycleGraph:
             rows = [r for r in rows if datetime.fromisoformat(str(r["created_at"])) < cursor]
         return rows[:limit]
 
-    async def read_agent_interview_context(self, agent_id: str, cycle_id: str) -> object:
-        """The stored context for (cycle, agent); AgentNotFoundError for an unknown agent."""
+    async def read_agent_interview_rows(self, agent_id: str, cycle_id: str) -> AgentInterviewRows:
+        """The stored rows for (cycle, agent); AgentNotFoundError for an unknown agent."""
         self.context_calls.append((cycle_id, agent_id))
-        context = self.contexts.get((cycle_id, agent_id))
-        if context is None:
+        rows = self.contexts.get((cycle_id, agent_id))
+        if rows is None:
             raise AgentNotFoundError(agent_id, cycle_id)
-        return context
+        return rows
 
     async def read_agent_decisions(self, cycle_id: str, agent_id: str) -> list[dict[str, object]]:
         self.decision_calls.append((cycle_id, agent_id))

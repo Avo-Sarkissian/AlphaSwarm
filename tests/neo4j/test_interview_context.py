@@ -6,6 +6,7 @@ import pytest
 
 from alphaswarm.errors import AgentNotFoundError
 from alphaswarm.graph import GraphStateManager
+from alphaswarm.interview import load_interview_context
 from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.types import BracketType, SignalType
 from tests.support.mini_cycle import cypher, dec, write_mini_cycle
@@ -92,13 +93,13 @@ async def test_interview_prompt_contains_the_cycles_focus_line(
         modifiers={BracketType.QUANTS: "fictional catalyst watcher"},
     )
 
-    ctx = await graph_manager_test.read_agent_interview_context("quants_01", cycle_id)
+    ctx = await load_interview_context(graph_manager_test, "quants_01", cycle_id)
 
     assert "This cycle you are focused as a fictional catalyst watcher." in (ctx.interview_system_prompt)
     assert JSON_OUTPUT_INSTRUCTIONS not in ctx.interview_system_prompt
-    assert [(d.round_num, d.signal, d.cited_agents) for d in ctx.decisions] == [
-        (1, "buy", ()),
-        (2, "hold", ("sell_side_01",)),
+    assert [(d["round_num"], d["signal"], d["cited_agents"]) for d in ctx.decisions] == [
+        (1, "buy", []),
+        (2, "hold", ["sell_side_01"]),
     ]
 
 
@@ -111,7 +112,7 @@ async def test_interview_context_for_legacy_cycle_without_modifiers(
         "MATCH (a:Agent {id: 'quants_01'}) SET a.decision_narrative = 'another cycle text'",
     )
     try:
-        ctx = await graph_manager_test.read_agent_interview_context("quants_01", cycle_id)
+        ctx = await load_interview_context(graph_manager_test, "quants_01", cycle_id)
     finally:
         await cypher(
             graph_manager_test,
@@ -129,8 +130,8 @@ async def test_interview_narrative_comes_from_this_cycles_final_decision(
     cycle_b = await _two_rounds(graph_manager_test, "quants_01")
     await graph_manager_test.write_decision_narrative(cycle_a, "quants_01", "Arc for cycle A.")
 
-    ctx_a = await graph_manager_test.read_agent_interview_context("quants_01", cycle_a)
-    ctx_b = await graph_manager_test.read_agent_interview_context("quants_01", cycle_b)
+    ctx_a = await load_interview_context(graph_manager_test, "quants_01", cycle_a)
+    ctx_b = await load_interview_context(graph_manager_test, "quants_01", cycle_b)
 
     assert ctx_a.decision_narrative == "Arc for cycle A."
     assert ctx_b.decision_narrative == ""
@@ -140,7 +141,7 @@ async def test_unknown_agent_raises_agent_not_found(graph_manager_test: GraphSta
     cycle_id = await _two_rounds(graph_manager_test, "quants_01")
 
     with pytest.raises(AgentNotFoundError):
-        await graph_manager_test.read_agent_interview_context("nobody_99", cycle_id)
+        await load_interview_context(graph_manager_test, "nobody_99", cycle_id)
 
 
 async def test_agent_outside_the_roster_raises_agent_not_found(
@@ -153,6 +154,6 @@ async def test_agent_outside_the_roster_raises_agent_not_found(
     )
     try:
         with pytest.raises(AgentNotFoundError):
-            await graph_manager_test.read_agent_interview_context("zz_legacy_01", cycle_id)
+            await load_interview_context(graph_manager_test, "zz_legacy_01", cycle_id)
     finally:
         await cypher(graph_manager_test, "MATCH (a:Agent {id: 'zz_legacy_01'}) DETACH DELETE a")

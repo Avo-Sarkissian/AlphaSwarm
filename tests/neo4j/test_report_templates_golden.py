@@ -50,7 +50,7 @@ def _table_rows(markdown: str) -> list[list[str]]:
 
 
 def test_every_template_has_a_row_source() -> None:
-    assert {path.name for path in TEMPLATE_DIR.glob("*.j2")} == set(SOURCES)
+    assert {path.name for path in TEMPLATE_DIR.glob("*.j2") if not path.name.startswith("_")} == set(SOURCES)
 
 
 @pytest.mark.parametrize("template", sorted(SOURCES))

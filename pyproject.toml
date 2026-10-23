@@ -134,6 +134,11 @@ source_modules = [
     "alphaswarm.fsutil",
     "alphaswarm.governor",
     "alphaswarm.graph",
+    "alphaswarm.graph.analytics",
+    "alphaswarm.graph.manager",
+    "alphaswarm.graph.replay_interview",
+    "alphaswarm.graph.rows",
+    "alphaswarm.graph.schema_writes",
     "alphaswarm.inference",
     "alphaswarm.inference.anthropic_provider",
     "alphaswarm.inference.budget",
@@ -146,6 +151,7 @@ source_modules = [
     "alphaswarm.inference.schema",
     "alphaswarm.inference.structured",
     "alphaswarm.inference.types",
+    "alphaswarm.influence",
     "alphaswarm.ingestion",
     "alphaswarm.ingestion.fixture",
     "alphaswarm.ingestion.providers",
@@ -241,4 +247,14 @@ forbidden_modules = [
     "alphaswarm.inference.ollama_provider",
     "alphaswarm.ollama_client",
     "alphaswarm.ollama_models",
+]
+
+[[tool.importlinter.contracts]]
+name = "Layers: web > services > report, interview and engine > graph (the graph never imports upward)"
+type = "layers"
+layers = [
+    "alphaswarm.web",
+    "alphaswarm.services",
+    "alphaswarm.report : alphaswarm.interview : alphaswarm.simulation : alphaswarm.rounds : alphaswarm.peers",
+    "alphaswarm.graph",
 ]

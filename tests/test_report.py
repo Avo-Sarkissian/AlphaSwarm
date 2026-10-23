@@ -80,7 +80,6 @@ _SHOCK_IMPACT_DATA: dict = {
             "pre_buy_pct": 100.0,
             "post_buy_pct": 0.0,
             "delta_buy_pct": -100.0,
-            "dominant_arrow": "▼",
             "agents": [
                 {"agent_id": "a01", "pre_signal": "BUY", "post_signal": "SELL"},
                 {"agent_id": "a02", "pre_signal": "BUY", "post_signal": "SELL"},
@@ -96,7 +95,6 @@ _SHOCK_IMPACT_DATA: dict = {
             "pre_buy_pct": 0.0,
             "post_buy_pct": 50.0,
             "delta_buy_pct": 50.0,
-            "dominant_arrow": "▲",
             "agents": [],
         },
     ],

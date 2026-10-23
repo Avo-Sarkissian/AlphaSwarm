@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from alphaswarm.errors import AgentNotFoundError
 from alphaswarm.inference.types import ProviderRole
-from alphaswarm.interview import InterviewEngine, ensure_decision_narrative
+from alphaswarm.interview import InterviewEngine, ensure_decision_narrative, load_interview_context
 from alphaswarm.web.deps import get_runtime
 from alphaswarm.web.errors import ApiError
 from alphaswarm.web.guards import require_complete_cycle, require_graph
@@ -111,7 +111,7 @@ async def interview_agent(
             provider: InferenceProvider | None = None
             try:
                 try:
-                    context = await graph.read_agent_interview_context(agent_id, cycle_id)
+                    context = await load_interview_context(graph, agent_id, cycle_id)
                 except AgentNotFoundError as exc:
                     raise ApiError(
                         404,
