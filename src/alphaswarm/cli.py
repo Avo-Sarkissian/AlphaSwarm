@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
+import dataclasses
 import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -21,18 +21,21 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from alphaswarm import __version__
-from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
+from alphaswarm.fsutil import atomic_write_text
 from alphaswarm.ingestion.fixture import load_context_fixture
+from alphaswarm.logging import configure_logging
 from alphaswarm.personas import generate_personas, load_bracket_configs
+from alphaswarm.readiness import NEO4J_FIX
+from alphaswarm.services.runtime import close_operation, open_runtime, open_simulation
 from alphaswarm.settings import AppSettings
+from alphaswarm.simulation import run_simulation
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
-    from alphaswarm.app import AppState
-    from alphaswarm.inference.concurrency import ConcurrencyController
-    from alphaswarm.inference.provider import InferenceProvider
+    from alphaswarm.graph import GraphStateManager
     from alphaswarm.ingestion.types import ContextPacket
     from alphaswarm.rounds import RoundCompleteEvent, ShiftMetrics
+    from alphaswarm.services.runtime import Runtime
     from alphaswarm.simulation import SimulationResult
     from alphaswarm.state import BracketSummary
     from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, ParsedSeedResult
@@ -332,86 +335,57 @@ def _make_round_complete_handler(
 
 
 # ---------------------------------------------------------------------------
-# Async pipeline (owns schema, multi-round simulation, final summary, cleanup)
+# Subcommand handlers: each one enters the shared runtime (open_runtime)
 # ---------------------------------------------------------------------------
+
+
+def _require_graph(runtime: Runtime) -> GraphStateManager:
+    """The graph manager, or an error message and exit code 1 when Neo4j is unreachable."""
+    graph = runtime.app_state.graph_manager
+    if graph is None or not runtime.neo4j_ready:
+        print(
+            f"Error: Neo4j is not reachable. {NEO4J_FIX}; if it runs, check ALPHASWARM_NEO4J__PASSWORD in .env.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    return graph
 
 
 async def _run_pipeline(
     rumor: str,
     settings: AppSettings,
-    app: AppState,
-    personas: list[AgentPersona],
-    brackets: list[BracketConfig],
     *,
-    orchestrator_provider: InferenceProvider,
-    worker_provider: InferenceProvider,
-    controller: ConcurrencyController,
     context_fixture: ContextPacket | None = None,
     market_context: bool = True,
 ) -> None:
-    """Async pipeline: schema -> multi-round simulation -> final summary.
+    """Full simulation from the CLI through the shared runtime (docs/DECISIONS.md#p7-d-17).
 
-    Runs the full multi-round simulation (docs/DECISIONS.md#p7-d-17); reports print DURING
-    the simulation via the on_round_complete callback (docs/DECISIONS.md#p7-d-14).
-    Addresses Gemini/Codex review: truly progressive output, not buffered.
-
-    Providers and the controller are required: ``_handle_run`` builds them from
-    .secrets/inference.json with ``build_providers`` / ``build_controller``
-    (docs/DECISIONS.md#adr-round-runner).
+    Reports print as each round completes (docs/DECISIONS.md#p7-d-14). The market
+    and news providers come from build_runtime, as on the web
+    (docs/DECISIONS.md#p40-d-10); a context fixture or ``market_context=False``
+    keeps them out of the run, so nothing is fetched
+    (docs/DECISIONS.md#adr-eval-harness).
     """
-    import contextlib
-
-    from alphaswarm.simulation import SimulationDeps, run_simulation
-
-    assert app.graph_manager is not None
-
-    try:
-        await app.graph_manager.ensure_schema()
-
+    async with open_runtime(settings) as runtime:
+        _require_graph(runtime)
+        personas = list(runtime.app_state.personas)
+        brackets = load_bracket_configs()
+        cfg = await runtime.inference.config()
+        print(
+            f"Inference mode: {await runtime.inference.mode()} "
+            f"(orchestrator={cfg.orchestrator.model}, worker={cfg.worker.model})"
+        )
         print(f"Starting {settings.num_rounds}-round simulation...")
-
-        # Create callback for progressive per-round output
         handler = _make_round_complete_handler(personas, brackets)
-
-        # Phase 40 D-11: CLI users get the same grounded context as web users.
-        # Stateless construction — no async init needed.
-        live = context_fixture is None and market_context
-        market_provider = YFinanceMarketDataProvider() if live else None
-        news_provider = RSSNewsProvider() if live else None
-
-        deps = SimulationDeps(
-            settings=settings,
-            graph=app.graph_manager,
-            controller=controller,
-            orchestrator=orchestrator_provider,
-            worker=worker_provider,
-            state=app.state_store,
-            market=market_provider,
-            news=news_provider,
-            context_fixture=context_fixture,
-        )
-        result = await run_simulation(
-            rumor=rumor,
-            deps=deps,
-            personas=personas,
-            brackets=brackets,
-            on_round_complete=handler,
-        )
-
-        # Final summary (only this prints AFTER run_simulation returns)
+        async with open_simulation(
+            runtime.inference,
+            runtime.app_state,
+            state=runtime.app_state.state_store,
+        ) as deps:
+            if context_fixture is not None or not market_context:
+                deps = dataclasses.replace(deps, market=None, news=None, context_fixture=context_fixture)
+            result = await run_simulation(rumor, deps, personas, brackets, on_round_complete=handler)
         _print_simulation_summary(result, personas, brackets, num_rounds=settings.num_rounds)
-
-    finally:
-        # Close the providers (httpx/anthropic clients); OllamaProvider.aclose is a no-op.
-        for _provider in (orchestrator_provider, worker_provider):
-            with contextlib.suppress(Exception):
-                await _provider.aclose()
-        await app.graph_manager.close()
-
-
-# ---------------------------------------------------------------------------
-# Synchronous CLI handler (creates AppState BEFORE event loop)
-# ---------------------------------------------------------------------------
 
 
 def _handle_run(
@@ -420,201 +394,73 @@ def _handle_run(
     context_fixture: ContextPacket | None = None,
     market_context: bool = True,
 ) -> None:
-    """Synchronous CLI handler: builds AppState, providers and controller, then asyncio.run().
-
-    These objects are built before the event loop exists, loop-bound ones
-    included: the StateStore and governor locks, queue and event, the cloud
-    rate limiter's semaphore, and the Neo4j async driver. That works because
-    asyncio primitives attach to a loop on first use (Python 3.10+) and the
-    driver opens no connection until it is used, and both first uses happen
-    inside asyncio.run(). Neo4j is first contacted there, by ensure_schema() in
-    _run_pipeline.
-    """
-    from alphaswarm.app import create_app_state
-    from alphaswarm.inference.config import load_inference_config
-    from alphaswarm.inference.factory import build_controller, build_providers, inference_mode
-
-    settings = AppSettings()
-    brackets = load_bracket_configs()
-    personas = generate_personas(brackets)
-    app = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
-
-    assert app.ollama_client is not None
-    assert app.model_manager is not None
-    assert app.graph_manager is not None
-
-    # Honor .secrets/inference.json so `run` uses the configured backend —
-    # local Ollama by default, or a cloud provider (e.g. NVIDIA NIM) when set.
-    # Without this, `run` silently ignored the cloud config and fell back to
-    # local Ollama aliases. Mirrors the web simulation_manager and the
-    # inject/report subcommands.
-    cfg = load_inference_config(settings)
-    built = build_providers(
-        cfg,
-        ollama_client=app.ollama_client,
-        ollama_model_manager=app.model_manager,
-    )
-    controller = build_controller(cfg, settings.governor, state_store=app.state_store)
-    print(f"Inference mode: {inference_mode(cfg)} (orchestrator={cfg.orchestrator.model}, worker={cfg.worker.model})")
-
-    # NOW start the event loop with the async pipeline
+    """Synchronous entry for ``alphaswarm run``: the runtime is built inside the loop."""
     asyncio.run(
-        _run_pipeline(
-            rumor,
-            settings,
-            app,
-            personas,
-            brackets,
-            orchestrator_provider=built.orchestrator,
-            worker_provider=built.worker,
-            controller=controller,
-            context_fixture=context_fixture,
-            market_context=market_context,
-        )
+        _run_pipeline(rumor, AppSettings(), context_fixture=context_fixture, market_context=market_context),
     )
-
-
-# ---------------------------------------------------------------------------
-# Inject handler (existing, unchanged)
-# ---------------------------------------------------------------------------
 
 
 async def _handle_inject(rumor: str) -> None:
-    """Run seed injection pipeline and print summary.
+    """Parse and persist a seed rumor, then print the summary (schema applied by open_runtime).
 
-    Lifecycle:
-    1. Create AppState with Ollama + Neo4j
-    2. ensure_schema() for idempotent schema setup
-    3. inject_seed() for orchestrator parse + atomic persist
-    4. Print structured summary
-    5. Mark the seed-only Cycle failed: no run follows, so it must not stay
-       ``running`` (docs/DECISIONS.md#adr-cycle-metrics)
-    6. Close Neo4j driver in finally block
+    No run follows an inject, so the seed-only Cycle is marked failed: it must
+    not stay ``running`` (docs/DECISIONS.md#adr-cycle-metrics).
     """
-    from alphaswarm.app import create_app_state
-    from alphaswarm.inference.config import load_inference_config
-    from alphaswarm.inference.factory import build_providers
     from alphaswarm.seed import inject_seed
 
     settings = AppSettings()
-    brackets = load_bracket_configs()
-    personas = generate_personas(brackets)
-    app = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
-
-    assert app.ollama_client is not None
-    assert app.model_manager is not None
-    assert app.graph_manager is not None
-
-    cfg = await asyncio.to_thread(load_inference_config, settings)
-    built = build_providers(
-        cfg,
-        ollama_client=app.ollama_client,
-        ollama_model_manager=app.model_manager,
-    )
-    orchestrator_provider = built.orchestrator
-
-    try:
-        # Ensure schema is applied (explicit in inject path)
-        await app.graph_manager.ensure_schema()
-
-        cycle_id, parsed_result, _modifier_result = await inject_seed(
-            rumor=rumor,
-            settings=settings,
-            orchestrator=orchestrator_provider,
-            graph_manager=app.graph_manager,
-        )
+    async with open_runtime(settings) as runtime:
+        graph = _require_graph(runtime)
+        built = await runtime.inference.open_operation("inject")
+        try:
+            cycle_id, parsed_result, _modifier_result = await inject_seed(
+                rumor=rumor,
+                settings=settings,
+                orchestrator=built.orchestrator,
+                graph_manager=graph,
+            )
+        finally:
+            # inject_seed tears the model down itself (docs/DECISIONS.md#p5-d-07).
+            await close_operation(built, teardown=False)
         _print_injection_summary(cycle_id, parsed_result)
         # The status the back-fill gives a legacy seed-only cycle.
-        await app.graph_manager.set_cycle_status(cycle_id, "failed")
-    finally:
-        # Close Neo4j driver and cloud provider if any
-        with contextlib.suppress(Exception):
-            await orchestrator_provider.aclose()
-        await app.graph_manager.close()
-
-
-# ---------------------------------------------------------------------------
-# Report handler (Phase 15, D-04, D-10, D-12)
-# ---------------------------------------------------------------------------
+        await graph.set_cycle_status(cycle_id, "failed")
 
 
 async def _handle_report(cycle_id: str | None, output: str | None) -> None:
-    """Async handler for the report subcommand.
+    """``alphaswarm report``: one ReportService run; default = the latest complete cycle.
 
-    Lifecycle (per D-12: caller manages model lifecycle):
-    1. Create AppState with Ollama + Neo4j
-    2. Resolve cycle_id (default: the most recent complete cycle)
-    3. Print model lifecycle warning
-    4. Load orchestrator model
-    5. generate_report: collect the data, one narrative call, render, write the
-       markdown plus its sections sidecar to the reports directory
-    6. With --output, also write a copy of the markdown there
-    7. Unload orchestrator model + close graph manager (finally)
+    The service prepares and tears down the orchestrator around the one
+    narrative call (docs/DECISIONS.md#p15-d-12) and writes the markdown plus
+    its sections sidecar to the reports directory; ``--output`` also writes a
+    copy of the markdown there.
     """
-    from pathlib import Path
-
-    from alphaswarm.app import create_app_state
-    from alphaswarm.fsutil import atomic_write_text
-    from alphaswarm.inference.config import load_inference_config
-    from alphaswarm.inference.factory import build_providers
-    from alphaswarm.report import generate_report
+    from alphaswarm.services.report import ReportService
 
     settings = AppSettings()
-    brackets = load_bracket_configs()
-    personas = generate_personas(brackets)
-    app = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
-
-    assert app.ollama_client is not None
-    assert app.model_manager is not None
-    assert app.graph_manager is not None
-
-    # Build orchestrator provider via factory so cloud configs are honoured.
-    cfg = await asyncio.to_thread(load_inference_config, settings)
-    built = build_providers(
-        cfg,
-        ollama_client=app.ollama_client,
-        ollama_model_manager=app.model_manager,
-    )
-    orch_provider = built.orchestrator
-
-    try:
-        # Resolve cycle_id: default to the most recent complete cycle
-        # (docs/DECISIONS.md#adr-cycle-metrics).
+    async with open_runtime(settings) as runtime:
+        graph = _require_graph(runtime)
         if cycle_id is None:
-            cycle_id = await app.graph_manager.read_latest_cycle_id()
+            cycle_id = await graph.read_latest_cycle_id()
             if cycle_id is None:
                 print("Error: No complete simulation cycles found in the database.", file=sys.stderr)
-                sys.exit(1)
-
+                raise SystemExit(1)
         print(
             "WARNING: Report generation uses the orchestrator model. "
             "Do not run concurrently with simulations or interviews."
         )
-
-        # Prepare (load) orchestrator model (per D-12, follows seed.py pattern)
-        await orch_provider.prepare()
-
-        default_dir = settings.resolve_path(settings.reports_dir)
-        result = await generate_report(
-            gm=app.graph_manager,
-            provider=orch_provider,
-            cycle_id=cycle_id,
-            reports_dir=default_dir,
+        service = ReportService(
+            graph=graph,
+            inference=runtime.inference,
+            jobs=runtime.jobs,
+            reports_dir=settings.resolve_path(settings.reports_dir),
         )
-        output_path = result.path
-        if output is not None:
-            output_path = Path(output).expanduser()
-            await asyncio.to_thread(atomic_write_text, output_path, result.content, mode=0o644)
-
-        print(f"Report generated: {output_path}")
-
-    finally:
-        # Teardown + aclose orchestrator provider + close graph manager (follows seed.py pattern)
-        with contextlib.suppress(Exception):
-            await orch_provider.teardown()
-            await orch_provider.aclose()
-        if app.graph_manager is not None:
-            await app.graph_manager.close()
+        result = await service.generate(cycle_id)
+    output_path = result.path
+    if output is not None:
+        output_path = Path(output).expanduser()
+        await asyncio.to_thread(atomic_write_text, output_path, result.content, mode=0o644)
+    print(f"Report generated: {output_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -623,24 +469,28 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
 
 def _handle_web(host: str, port: int) -> None:
-    """Start Uvicorn web server. Synchronous — Uvicorn manages the event loop.
+    """Start the web server: the single documented launcher (docs/DECISIONS.md#adr-web-lifespan).
 
-    Per D-13: uvicorn.run() is a blocking synchronous call that creates and owns
-    the asyncio event loop internally. Do NOT wrap with asyncio.run().
-    All stateful objects are created inside the FastAPI lifespan context (D-04).
-    Logging is configured before uvicorn starts and uvicorn gets log_config=None,
-    so its records go through the redacting structlog bridge instead of uvicorn's
-    own handlers (docs/DECISIONS.md#adr-security-2026-08).
+    uvicorn imports ``alphaswarm.web.app:create_app`` and calls it in its own
+    event loop (factory mode), so nothing is built at import time; ``workers=1``
+    because every piece of state lives in one process. ``start`` calls this same
+    function. Logging is configured before uvicorn starts and uvicorn gets
+    ``log_config=None``, so even its first lines go through the redacting
+    structlog bridge; the lifespan's ``open_runtime`` configures it again
+    (idempotent) (docs/DECISIONS.md#adr-security-2026-08).
     """
     import uvicorn
 
-    from alphaswarm.logging import configure_logging
-    from alphaswarm.settings import AppSettings
-    from alphaswarm.web import create_app
-
     settings = AppSettings()
     configure_logging(log_level=settings.log_level, json_output=not settings.debug)
-    uvicorn.run(create_app(settings), host=host, port=port, log_config=None)
+    uvicorn.run(
+        "alphaswarm.web.app:create_app",
+        factory=True,
+        host=host,
+        port=port,
+        workers=1,
+        log_config=None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -698,7 +548,7 @@ def main() -> None:
         "--output",
         type=str,
         default=None,
-        help="Override output file path",
+        help="Also write the markdown to this path",
     )
 
     web_parser = subparsers.add_parser("web", help="Start web UI server")

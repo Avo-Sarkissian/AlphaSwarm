@@ -88,13 +88,8 @@ async def health(request: Request) -> HealthResponse:
             mode = inference_mode(cfg)
     except Exception:
         log.debug("health_check_inference_mode_fallback")
-    spent: float | None = None
-    try:
-        meter = getattr(app_state, "budget_meter", None)
-        if meter is not None:
-            spent = float(meter.spent())
-    except Exception:
-        log.debug("health_check_spent_usd_fallback")
+    meter = app_state.budget_meter
+    spent: float | None = float(meter.spent()) if meter is not None else None
 
     components = {**await _components(request, cfg), "inference_config": config_status}
     degraded = any(c.required and not c.ok for c in components.values())

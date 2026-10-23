@@ -27,17 +27,6 @@ _STORED = InferenceConfig(
 )
 
 
-@pytest.fixture(autouse=True)
-def _keep_logging_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stop create_app_state() from reconfiguring structlog for the session.
-
-    Logger proxies cached earlier in the run hold the processor list that was
-    configured then; a new configuration would leave later capture_logs tests
-    blind to their events.
-    """
-    monkeypatch.setattr("alphaswarm.app.configure_logging", lambda **_: None)
-
-
 def _app(tmp_path: Path) -> FastAPI:
     settings = route_test_settings(tmp_path)
     save_inference_config(_STORED, settings.inference_config_path)

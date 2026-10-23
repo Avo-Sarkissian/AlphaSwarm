@@ -38,6 +38,7 @@ def _make_interview_test_app() -> FastAPI:
     from alphaswarm.web.replay_manager import ReplayManager
     from alphaswarm.web.routes.interview import router as interview_router
     from alphaswarm.web.simulation_manager import SimulationManager
+    from tests.support.web_app import runtime_for
 
     @asynccontextmanager
     async def _interview_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -57,6 +58,7 @@ def _make_interview_test_app() -> FastAPI:
         connection_manager = ConnectionManager()
 
         app.state.app_state = app_state
+        app.state.runtime = runtime_for(app_state)
         app.state.sim_manager = sim_manager
         app.state.replay_manager = replay_manager
         app.state.connection_manager = connection_manager
@@ -556,11 +558,11 @@ def test_failed_session_setup_closes_the_built_worker(close_error: Exception | N
     The narrative write fails here; the worker is closed (a failing close is
     only logged), the original error still propagates and no session remains.
     """
-    from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from alphaswarm.errors import Neo4jWriteError
     from alphaswarm.interview import InterviewContext, RoundDecision
+    from alphaswarm.services.runtime import InferenceRuntime
 
     app = _make_interview_test_app()
     worker = MagicMock()
@@ -581,10 +583,7 @@ def test_failed_session_setup_closes_the_built_worker(close_error: Exception | N
         _mock_complete_app_state(app)
 
         with (
-            patch(
-                "alphaswarm.web.routes.interview.build_providers",
-                return_value=SimpleNamespace(orchestrator=MagicMock(), worker=worker),
-            ),
+            patch.object(InferenceRuntime, "open_role", AsyncMock(return_value=worker)),
             patch(
                 "alphaswarm.web.routes.interview.ensure_decision_narrative",
                 new=AsyncMock(side_effect=Neo4jWriteError("narrative write failed", op="write_decision_narrative")),

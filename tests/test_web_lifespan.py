@@ -12,9 +12,11 @@ Extend this file in place; do not add a second one.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
+import logging
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -30,21 +32,21 @@ from pydantic import BaseModel
 from uvicorn.importer import import_from_string
 
 import alphaswarm.manifest as manifest
+import alphaswarm.services.runtime as runtime_module
 import alphaswarm.settings as settings_module
 import alphaswarm.web.app as web_app
-from alphaswarm.app import AppState, create_app_state
 from alphaswarm.errors import Neo4jUnavailableError, Neo4jWriteError
 from alphaswarm.graph import GraphStateManager
-from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
+from alphaswarm.logging import BRIDGE_HANDLER_NAME, configure_logging, reset_stdlib_bridge
+from alphaswarm.services.runtime import Runtime
 from alphaswarm.settings import AppSettings
-from alphaswarm.types import AgentPersona
 from alphaswarm.web.simulation_manager import SimulationManager
-from tests.support.web_app import route_test_settings
+from tests.support.web_app import offline_runtime, route_test_settings
 
 
 @pytest.fixture(autouse=True)
 def _reset_structlog() -> Iterator[None]:
-    """create_app_state() configures structlog globally; undo it after each test."""
+    """open_runtime() configures structlog globally; undo it after each test."""
     yield
     structlog.reset_defaults()
     structlog.contextvars.clear_contextvars()
@@ -65,8 +67,9 @@ class LifespanProbe:
     app: FastAPI
     settings: AppSettings
     graph: MagicMock
+    runtime: Runtime
     received_settings: list[AppSettings] = field(default_factory=list)
-    events: list[tuple[str, bool]] = field(default_factory=list)
+    events: list[str] = field(default_factory=list)
 
 
 @pytest.fixture
@@ -77,37 +80,59 @@ def lifespan_settings(tmp_path: Path) -> AppSettings:
 
 @pytest.fixture
 def probe(lifespan_settings: AppSettings, monkeypatch: pytest.MonkeyPatch) -> LifespanProbe:
-    graph = create_autospec(GraphStateManager, instance=True)
-    received: list[AppSettings] = []
+    """The production open_runtime as the runtime factory, offline.
 
-    def fake_create_app_state(
-        settings: AppSettings,
-        personas: list[AgentPersona],
-        *,
-        with_ollama: bool = False,
-        with_neo4j: bool = False,
-    ) -> AppState:
+    Only build_runtime (no Ollama, no driver: an autospec graph instead) and
+    configure_logging are replaced inside alphaswarm.services.runtime, so the
+    schema, readiness and teardown assertions test production code.
+    """
+    graph = create_autospec(GraphStateManager, instance=True)
+    runtime = offline_runtime(lifespan_settings, graph=graph)
+    received: list[AppSettings] = []
+    events: list[str] = []
+
+    def fake_build_runtime(settings: AppSettings, **_: object) -> Runtime:
         received.append(settings)
-        state = create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
-        state.graph_manager = graph
-        return state
+        events.append("runtime_open")
+        return runtime
+
+    original_jobs_shutdown = runtime.jobs.shutdown
+
+    async def recording_jobs_shutdown() -> None:
+        events.append("jobs_shutdown")
+        await original_jobs_shutdown()
+
+    object.__setattr__(runtime.jobs, "shutdown", recording_jobs_shutdown)
+    monkeypatch.setattr(runtime_module, "build_runtime", fake_build_runtime)
+    monkeypatch.setattr(runtime_module, "configure_logging", lambda **_: None)
 
     def forbidden_settings(*args: Any, **kwargs: Any) -> AppSettings:
         raise AssertionError("create_app(settings) must not construct AppSettings() again")
 
-    monkeypatch.setattr(web_app, "create_app_state", fake_create_app_state)
     monkeypatch.setattr(web_app, "AppSettings", forbidden_settings)
-    app = web_app.create_app(lifespan_settings)
-    result = LifespanProbe(app=app, settings=lifespan_settings, graph=graph, received_settings=received)
+    app = web_app.create_app(lifespan_settings, runtime_factory=runtime_module.open_runtime)
+    result = LifespanProbe(
+        app=app,
+        settings=lifespan_settings,
+        graph=graph,
+        runtime=runtime,
+        received_settings=received,
+        events=events,
+    )
 
     original_shutdown = SimulationManager.shutdown
 
+    def _broadcaster_done() -> bool | None:
+        # None when startup failed before the broadcaster existed.
+        task = getattr(app.state, "broadcaster_task", None)
+        return task.done() if task is not None else None
+
     async def recording_shutdown(self: SimulationManager) -> None:
-        result.events.append(("sim_shutdown", app.state.broadcaster_task.done()))
+        events.append(f"sim_shutdown:broadcaster_done={_broadcaster_done()}")
         await original_shutdown(self)
 
     async def recording_close() -> None:
-        result.events.append(("graph_close", app.state.broadcaster_task.done()))
+        events.append(f"graph_close:broadcaster_done={_broadcaster_done()}")
 
     monkeypatch.setattr(SimulationManager, "shutdown", recording_shutdown)
     graph.close.side_effect = recording_close
@@ -156,21 +181,12 @@ async def test_lifespan_keeps_serving_when_neo4j_is_unavailable(probe: LifespanP
         assert response.status_code == 200
 
 
-async def test_lifespan_without_a_graph_manager_is_not_ready(
-    probe: LifespanProbe, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def no_graph(
-        settings: AppSettings,
-        personas: list[AgentPersona],
-        *,
-        with_ollama: bool = False,
-        with_neo4j: bool = False,
-    ) -> AppState:
-        return create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
-
-    monkeypatch.setattr(web_app, "create_app_state", no_graph)
+async def test_lifespan_without_a_graph_manager_is_not_ready(probe: LifespanProbe) -> None:
+    probe.runtime.app_state.graph_manager = None
     async with probe.app.router.lifespan_context(probe.app):
         assert probe.app.state.neo4j_ready is False
+        assert probe.app.state.report_service is None
+        assert probe.app.state.advisory_service is None
     probe.graph.close.assert_not_awaited()
 
 
@@ -182,6 +198,20 @@ async def test_lifespan_uses_given_settings_and_applies_schema(probe: LifespanPr
         probe.graph.verify_connectivity.assert_awaited_once()
         probe.graph.ensure_schema.assert_awaited_once()
         assert probe.app.state.neo4j_ready is True
+
+
+async def test_lifespan_installs_the_redacting_log_bridge(
+    probe: LifespanProbe,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """open_runtime configures logging for the lifespan (docs/DECISIONS.md#adr-security-2026-08)."""
+    monkeypatch.setattr(runtime_module, "configure_logging", configure_logging)
+    reset_stdlib_bridge()
+    try:
+        async with probe.app.router.lifespan_context(probe.app):
+            assert BRIDGE_HANDLER_NAME in [h.get_name() for h in logging.getLogger().handlers]
+    finally:
+        reset_stdlib_bridge()
 
 
 async def test_health_is_served_and_the_broadcaster_runs(probe: LifespanProbe) -> None:
@@ -199,7 +229,12 @@ async def test_shutdown_stops_broadcaster_before_simulation_and_graph(
 ) -> None:
     async with probe.app.router.lifespan_context(probe.app):
         pass
-    assert probe.events == [("sim_shutdown", True), ("graph_close", True)]
+    assert probe.events == [
+        "runtime_open",
+        "sim_shutdown:broadcaster_done=True",
+        "jobs_shutdown",
+        "graph_close:broadcaster_done=True",
+    ]
     assert probe.app.state.broadcaster_task.cancelled()
 
 
@@ -229,81 +264,20 @@ def test_importing_the_module_builds_no_app(monkeypatch: pytest.MonkeyPatch) -> 
     assert "app" not in vars(fresh)
 
 
-def test_the_uvicorn_target_builds_the_app_on_first_access(
+def test_the_uvicorn_factory_target_builds_the_app_with_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`uvicorn alphaswarm.web.app:app` still resolves, to an app whose settings are
-    read at that moment: here, inside the hermetic test environment."""
-    module_globals = vars(web_app)
-    monkeypatch.delitem(module_globals, "app", raising=False)
+    """`uvicorn --factory alphaswarm.web.app:create_app` builds an app whose settings
+    are read at that moment: here, inside the hermetic test environment. The
+    module has no import-time ``app`` attribute any more."""
     monkeypatch.setenv("ALPHASWARM_LOG_LEVEL", "DEBUG")
-    try:
-        built = import_from_string("alphaswarm.web.app:app")
-        assert isinstance(built, FastAPI)
-        assert built.state.settings.log_level == "DEBUG"
-        hermetic_csv = Path(os.environ["ALPHASWARM_HOLDINGS_CSV_PATH"])
-        assert built.state.settings.holdings_csv_path == hermetic_csv
-        assert import_from_string("alphaswarm.web.app:app") is built
-    finally:
-        module_globals.pop("app", None)  # leave the module as a fresh import left it
-
-
-class _RecordingLog:
-    """Stand-in for alphaswarm.web.app's module logger; records (event, kwargs)."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-
-    def __getattr__(self, _level: str) -> Callable[..., None]:
-        def _log(event: str, **kw: Any) -> None:
-            self.calls.append((event, kw))
-
-        return _log
-
-
-@pytest.mark.parametrize(
-    ("error", "expected_fix"),
-    [
-        (
-            Neo4jUnavailableError(
-                "Neo4j is unavailable (verify_connectivity)",
-                ServiceUnavailable("connection refused"),
-                op="verify_connectivity",
-            ),
-            NEO4J_FIX,
-        ),
-        (
-            Neo4jUnavailableError(
-                "Neo4j is unavailable (verify_connectivity)",
-                Neo4jAuthError("unauthorized"),
-                op="verify_connectivity",
-            ),
-            NEO4J_AUTH_FIX,
-        ),
-    ],
-    ids=["neo4j-down", "wrong-password"],
-)
-async def test_the_startup_warning_names_the_fix(
-    monkeypatch: pytest.MonkeyPatch, error: Exception, expected_fix: str
-) -> None:
-    """One neo4j_unavailable_at_startup warning, with the fix /api/health shows.
-
-    Calls the lifespan helper directly with self-contained fakes, so it does not
-    depend on how the other tests in this file build the app.
-    """
-    log = _RecordingLog()
-    monkeypatch.setattr(web_app, "log", log)
-    gm = MagicMock()
-    gm.verify_connectivity = AsyncMock(side_effect=error)
-    gm.ensure_schema = AsyncMock()
-
-    assert await web_app._prepare_neo4j(gm) is False
-
-    gm.ensure_schema.assert_not_awaited()
-    warnings = [kw for event, kw in log.calls if event == "neo4j_unavailable_at_startup"]
-    assert len(warnings) == 1
-    assert warnings[0]["error_type"] == type(error).__name__
-    assert warnings[0]["fix"] == expected_fix
+    factory = import_from_string("alphaswarm.web.app:create_app")
+    built = factory()
+    assert isinstance(built, FastAPI)
+    assert built.state.settings.log_level == "DEBUG"
+    hermetic_csv = Path(os.environ["ALPHASWARM_HOLDINGS_CSV_PATH"])
+    assert built.state.settings.holdings_csv_path == hermetic_csv
+    assert "app" not in vars(web_app)
 
 
 async def test_lifespan_pins_the_git_revision_it_started_from(
@@ -324,7 +298,7 @@ async def test_lifespan_wires_post_run_and_holdings(probe: LifespanProbe) -> Non
     async with app.router.lifespan_context(app):
         assert isinstance(app.state.portfolio_cache, PortfolioCache)
         assert not hasattr(app.state.app_state, "portfolio_snapshot")
-        from alphaswarm.web.post_run import PostRunPipeline
+        from alphaswarm.services.post_run import PostRunPipeline
 
         assert isinstance(app.state.post_run_pipeline, PostRunPipeline)
         assert app.state.sim_manager._on_complete == app.state.post_run_pipeline.on_complete
@@ -387,3 +361,68 @@ async def test_lifespan_keeps_serving_when_the_schema_write_fails(probe: Lifespa
         assert probe.app.state.neo4j_ready is False
         response = await _get_health(probe.app)
         assert response.status_code == 200
+
+
+async def test_runtime_and_services_are_wired(probe: LifespanProbe) -> None:
+    from alphaswarm.services.advisory import AdvisoryService
+    from alphaswarm.services.post_run import PostRunPipeline
+    from alphaswarm.services.report import ReportService
+
+    async with probe.app.router.lifespan_context(probe.app):
+        state = probe.app.state
+        assert state.app_state is state.runtime.app_state
+        assert isinstance(state.report_service, ReportService)
+        assert isinstance(state.advisory_service, AdvisoryService)
+        assert isinstance(state.post_run_pipeline, PostRunPipeline)
+        assert state.sim_manager._on_complete == state.post_run_pipeline.on_complete
+        assert state.sim_manager._orchestrator_busy == state.runtime.jobs.is_busy
+        assert state.sim_manager._inference is state.runtime.inference
+        assert not hasattr(state, "market_provider")
+
+
+async def test_shutdown_order_with_running_job(probe: LifespanProbe) -> None:
+    async with probe.app.router.lifespan_context(probe.app):
+        task = probe.app.state.runtime.jobs.start("report", "c1", asyncio.Event().wait)
+    assert task.cancelled()
+    assert probe.app.state.runtime.jobs.status("report").state == "failed"
+    assert probe.events.index("sim_shutdown:broadcaster_done=True") < probe.events.index("jobs_shutdown")
+
+
+async def test_shutdown_closes_interview_providers(probe: LifespanProbe) -> None:
+    provider = MagicMock()
+    provider.aclose = AsyncMock()
+    async with probe.app.router.lifespan_context(probe.app):
+        probe.app.state.interview_sessions[("c1", "quants_01")] = {
+            "engine": None,
+            "lock": asyncio.Lock(),
+            "provider": provider,
+        }
+    provider.aclose.assert_awaited_once()
+    assert probe.app.state.interview_sessions == {}
+
+
+async def test_startup_failure_still_closes_the_runtime(
+    probe: LifespanProbe,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _broken(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("broadcaster failed to start")
+
+    monkeypatch.setattr(web_app, "start_broadcaster", _broken)
+    with pytest.raises(RuntimeError, match="broadcaster failed"):
+        async with probe.app.router.lifespan_context(probe.app):
+            pass
+    assert probe.events[0] == "runtime_open"
+    assert "jobs_shutdown" in probe.events
+    probe.graph.close.assert_awaited_once()
+
+
+def test_module_has_no_import_time_app() -> None:
+    assert not hasattr(web_app, "app")
+    assert not hasattr(web_app, "WebPostRunJobs")
+
+
+def test_default_runtime_factory_is_open_runtime(lifespan_settings: AppSettings) -> None:
+    from alphaswarm.services.runtime import open_runtime
+
+    assert web_app.create_app(lifespan_settings).state.runtime_factory is open_runtime

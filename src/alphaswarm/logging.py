@@ -242,7 +242,7 @@ BRIDGE_HANDLER_NAME: Final = "alphaswarm-structlog-bridge"
 # log every request (hundreds per simulation), neo4j logs schema notifications.
 _QUIET_STDLIB_LOGGERS: Final = ("httpx", "httpcore", "neo4j")
 # The loggers uvicorn's default LOGGING_CONFIG gives their own handlers (with
-# propagation off) on a direct `uvicorn alphaswarm.web.app:app` launch.
+# propagation off) on a direct `uvicorn --factory alphaswarm.web.app:create_app` launch.
 _UVICORN_LOGGERS: Final = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 
@@ -355,7 +355,7 @@ def _adopt_uvicorn_loggers() -> None:
     """Send uvicorn's own records through the bridge as well.
 
     `alphaswarm web` passes log_config=None, so uvicorn adds no handlers. A direct
-    `uvicorn alphaswarm.web.app:app` launch applies uvicorn's default log_config
+    `uvicorn --factory alphaswarm.web.app:create_app` launch applies uvicorn's default log_config
     first: its handlers print unredacted text, ASGI tracebacks included, and
     propagation is off. A logger with its own handlers loses them and propagates to
     the root bridge (docs/DECISIONS.md#adr-security-2026-08). A logger with no

@@ -16,21 +16,17 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import alphaswarm.web.routes.advisory as advisory_module
-import alphaswarm.web.routes.report as report_module
-from alphaswarm.app import create_app_state
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
 from alphaswarm.inference.factory import BuiltProviders
 from alphaswarm.inference.types import ProviderRole
-from alphaswarm.personas import generate_personas, load_bracket_configs
+from alphaswarm.services.advisory import AdvisoryService
+from alphaswarm.services.post_run import PostRunPipeline, ServicePostRunJobs
+from alphaswarm.services.report import ReportService
 from alphaswarm.settings import AppSettings
-from alphaswarm.web.app import WebPostRunJobs
-from alphaswarm.web.post_run import PostRunPipeline
 from alphaswarm.web.routes.advisory import router as advisory_router
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.web_app import (
@@ -38,7 +34,9 @@ from tests.support.web_app import (
     FakeCycleGraph,
     StaticPortfolioCache,
     make_route_app,
+    offline_runtime,
     route_test_settings,
+    runtime_for,
 )
 
 
@@ -66,6 +64,7 @@ def _cloud_settings(tmp_path: Path, *, opt_in: bool) -> AppSettings:
 
 
 class _FakeReport:
+    total_holdings = 1
     affected_holdings = 0
 
     def model_dump_json(self, *, indent: int) -> str:
@@ -94,8 +93,8 @@ def ledger(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     async def _synthesize(**_kwargs: Any) -> _FakeReport:
         return _FakeReport()
 
-    monkeypatch.setattr(advisory_module, "build_providers", _build)
-    monkeypatch.setattr(advisory_module, "synthesize", _synthesize)
+    monkeypatch.setattr("alphaswarm.inference.factory.build_providers", _build)
+    monkeypatch.setattr("alphaswarm.services.advisory.synthesize", _synthesize)
     return state
 
 
@@ -103,31 +102,37 @@ def ledger(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 def report_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     calls: list[str] = []
 
-    async def _report(app_state: Any, cycle_id: str) -> None:
+    async def _generate(self: ReportService, cycle_id: str) -> None:
         calls.append(cycle_id)
 
-    monkeypatch.setattr(report_module, "_run_report_generation", _report)
+    monkeypatch.setattr(ReportService, "generate", _generate)
     return calls
 
 
-def _pipeline_app(settings: AppSettings) -> FastAPI:
-    app = FastAPI()
-    app_state = create_app_state(
-        settings,
-        generate_personas(load_bracket_configs()),
-        with_ollama=False,
-        with_neo4j=False,
+def _pipeline(settings: AppSettings) -> PostRunPipeline:
+    """The production post-run jobs over real services; only the providers are fakes."""
+    app_state = offline_runtime(settings, graph=MagicMock()).app_state
+    app_state.ollama_client = MagicMock(base_url="http://127.0.0.1:11434")
+    app_state.model_manager = MagicMock()
+    runtime = runtime_for(app_state)
+    graph: Any = app_state.graph_manager
+    advisory_dir = settings.resolve_path(settings.advisory_dir)
+    advisory_dir.mkdir(parents=True, exist_ok=True)
+    report = ReportService(
+        graph=graph,
+        inference=runtime.inference,
+        jobs=runtime.jobs,
+        reports_dir=settings.resolve_path(settings.reports_dir),
     )
-    app_state.graph_manager = MagicMock()  # type: ignore[assignment]
-    app_state.ollama_client = MagicMock()  # type: ignore[assignment]
-    app_state.model_manager = MagicMock()  # type: ignore[assignment]
-    app.state.app_state = app_state
-    app.state.portfolio_cache = StaticPortfolioCache(_portfolio())
-    app.state.report_task = None
-    app.state.advisory_task = None
-    app.state.report_generation_error = {}
-    app.state.advisory_generation_error = {}
-    return app
+    portfolio = StaticPortfolioCache(_portfolio())
+    advisory = AdvisoryService(
+        graph=graph,
+        inference=runtime.inference,
+        jobs=runtime.jobs,
+        advisory_dir=advisory_dir,
+        portfolio=portfolio.get,  # type: ignore[arg-type]
+    )
+    return PostRunPipeline(jobs=ServicePostRunJobs(report=report, advisory=advisory))
 
 
 def test_post_without_opt_in_never_builds_a_provider(
@@ -171,8 +176,7 @@ async def test_pipeline_without_opt_in_never_builds_a_provider(
     ledger: dict[str, Any],
     report_calls: list[str],
 ) -> None:
-    app = _pipeline_app(_cloud_settings(tmp_path, opt_in=False))
-    outcome = await PostRunPipeline(jobs=WebPostRunJobs(app)).on_complete(CYCLE_A)
+    outcome = await _pipeline(_cloud_settings(tmp_path, opt_in=False)).on_complete(CYCLE_A)
     assert (outcome.advisory, outcome.report) == ("skipped_cloud_advisory_disabled", "ran")
     assert report_calls == [CYCLE_A]
     assert ledger["builds"] == 0
@@ -185,8 +189,7 @@ async def test_pipeline_with_opt_in_builds_the_provider_once(
     report_calls: list[str],
 ) -> None:
     """Positive control: after the opt-in the same path does reach the provider."""
-    app = _pipeline_app(_cloud_settings(tmp_path, opt_in=True))
-    outcome = await PostRunPipeline(jobs=WebPostRunJobs(app)).on_complete(CYCLE_A)
+    outcome = await _pipeline(_cloud_settings(tmp_path, opt_in=True)).on_complete(CYCLE_A)
     assert (outcome.advisory, outcome.report) == ("ran", "ran")
     assert ledger["builds"] == 1
     assert report_calls == [CYCLE_A]

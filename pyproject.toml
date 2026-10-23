@@ -109,15 +109,8 @@ python_version = "3.11"
 strict = true
 mypy_path = "src"
 
-# Modules that still carry strict-mode errors. Delete an entry here and in ALLOWED_OVERRIDES
-# (tests/invariants/test_mypy_overrides.py) when its module reaches zero; never add one.
-[[tool.mypy.overrides]]
-module = [
-    "alphaswarm.cli",
-    "alphaswarm.web.simulation_manager",
-]
-ignore_errors = true
-
+# No module is exempt from strict mode; never add an ignore_errors override
+# (tests/invariants/test_mypy_overrides.py).
 # yfinance ships no py.typed marker; its imports are typed as Any.
 [[tool.mypy.overrides]]
 module = ["yfinance"]
@@ -127,7 +120,7 @@ ignore_missing_imports = true
 root_package = "alphaswarm"
 
 [[tool.importlinter.contracts]]
-name = "Holdings isolation — only advisory and web.routes.holdings may import alphaswarm.holdings"
+name = "Holdings isolation — only advisory, services.advisory and web.routes.holdings may import alphaswarm.holdings"
 type = "forbidden"
 source_modules = [
     "alphaswarm.app",
@@ -171,6 +164,12 @@ source_modules = [
     "alphaswarm.report",
     "alphaswarm.security",
     "alphaswarm.security.hashing",
+    "alphaswarm.services",
+    "alphaswarm.services.advisory",
+    "alphaswarm.services.jobs",
+    "alphaswarm.services.post_run",
+    "alphaswarm.services.report",
+    "alphaswarm.services.runtime",
     "alphaswarm.seed",
     "alphaswarm.simulation",
     "alphaswarm.state",
@@ -181,11 +180,11 @@ source_modules = [
     "alphaswarm.web.broadcaster",
     "alphaswarm.web.wire",
     "alphaswarm.web.connection_manager",
+    "alphaswarm.web.deps",
     "alphaswarm.web.errors",
     "alphaswarm.web.guards",
     "alphaswarm.web.origin_guard",
     "alphaswarm.web.params",
-    "alphaswarm.web.post_run",
     "alphaswarm.web.replay_manager",
     "alphaswarm.web.simulation_manager",
     "alphaswarm.web.routes",
@@ -217,13 +216,16 @@ forbidden_modules = ["alphaswarm.holdings"]
 ignore_imports = [
     "alphaswarm.web.routes.holdings -> alphaswarm.holdings",
     "alphaswarm.web.routes.holdings -> alphaswarm.holdings.loader",
-    # Phase 41 D-20 (advisory wiring): the advisory route is in source_modules
-    # (so the FastAPI layer keeps its forbidden-import coverage), but it must
-    # be able to import the whitelisted alphaswarm.advisory package AND type-
-    # annotate PortfolioSnapshot via a TYPE_CHECKING import. Both are allowed
-    # because alphaswarm.advisory is itself on the D-04 whitelist.
+    # The advisory route is in source_modules (so the FastAPI layer keeps its
+    # forbidden-import coverage) and imports the whitelisted alphaswarm.advisory
+    # package for AdvisoryReport; it reaches holdings only through AdvisoryService
+    # (docs/DECISIONS.md#adr-holdings-isolation).
     "alphaswarm.web.routes.advisory -> alphaswarm.advisory",
-    "alphaswarm.web.routes.advisory -> alphaswarm.holdings.types",
+    # The advisory service is the third sanctioned holdings consumer. It may import
+    # the advisory package and the holdings TYPES only, never the loader
+    # (docs/DECISIONS.md#adr-holdings-isolation).
+    "alphaswarm.services.advisory -> alphaswarm.advisory",
+    "alphaswarm.services.advisory -> alphaswarm.holdings.types",
 ]
 
 [[tool.importlinter.contracts]]

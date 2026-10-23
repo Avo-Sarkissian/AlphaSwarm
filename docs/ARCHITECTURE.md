@@ -21,9 +21,10 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 ## Modules (`src/alphaswarm/`)
 
 - **Entry points and composition**
-  - `__main__.py`, `cli.py`: subcommands `inject | run | report | web`. `run` takes `--context-fixture PATH` (a point-in-time ContextPacket replaces the live fetch) or `--no-market-context` (no market block); either way no yfinance or RSS provider is built.
+  - `__main__.py`, `cli.py`: subcommands `inject | run | report | web`. `run` takes `--context-fixture PATH` (a point-in-time ContextPacket replaces the live fetch) or `--no-market-context` (no market block); either way the run gets no yfinance or RSS provider, so nothing is fetched. Every subcommand enters `services.runtime.open_runtime`; `report` runs `ReportService`, and `web` starts uvicorn in factory mode (`alphaswarm.web.app:create_app`, one worker).
   - `app.py`: `AppState`, a container for the settings, StateStore, ResourceGovernor, Ollama client and model manager, GraphStateManager, and the market and news providers, plus `create_app_state()`.
-  - `web/app.py`: the lifespan. It builds AppState, the Simulation, Replay, and Connection managers and the `PostRunPipeline`, loads the holdings into `PortfolioCache`, and starts the broadcaster.
+  - `services/`: `runtime` (`InferenceRuntime`, `Runtime`, `build_runtime`, `open_runtime`, `open_simulation`), `jobs` (`JobRunner`: one orchestrator job at a time, per-cycle failure codes), `report` (`ReportService`), `advisory` (`AdvisoryService`, the only service that touches holdings) and `post_run` (`PostRunPipeline` and `ServicePostRunJobs`, which runs it over the services).
+  - `web/app.py`: `create_app(settings, *, runtime_factory)` and the lifespan. The lifespan enters the runtime (`open_runtime` by default), loads the holdings into `PortfolioCache`, and `wire_web_state` builds the report and advisory services, the `PostRunPipeline` over them, the Simulation, Replay, and Connection managers and the broadcaster, with every teardown on one `AsyncExitStack`. `web/deps.py` holds typed accessors for those `app.state` slots.
 - **Domain and config**
   - `types.py`: enums, BracketConfig, AgentPersona, WorkerPersonaConfig, SeedEvent, AgentDecision.
   - `settings.py`: `AppSettings` and its nested models (`OllamaSettings`, `Neo4jSettings`, `GovernorSettings`, `SimulationSettings`), `PROJECT_ROOT`, origin defaults.
@@ -61,7 +62,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `report.py` + `templates/report/*.j2`: data collection, one grounded narrative call (`chat_structured`), rendering and sections.
   - `interview.py`: a multi-turn engine keeping up to 12 user/assistant pairs; older pairs are folded six at a time into a summary.
   - `advisory/`: synthesis, prompt, sector map, types.
-  - `holdings/`: CSV loader and types. Only `advisory` and `web.routes.{holdings,advisory}` may import it; import-linter enforces this.
+  - `holdings/`: CSV loader and types. Only `advisory`, `services.advisory` (types only) and `web.routes.holdings` may import it; import-linter enforces this.
 - **State and observability**
   - `state.py`: StateStore, ReplayStore, snapshot dataclasses, and the `StateSink` protocol: the StateStore methods the engine (`run_simulation`, `run_round`, `dispatch_wave`, `AgentWorker`) writes through. `StateStore` satisfies it; web-only calls such as `set_last_error` stay off it ([adr-round-runner](DECISIONS.md#adr-round-runner)).
   - `data_audit.py`.
@@ -69,7 +70,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `logging.py`: structlog plus the fail-closed PII redaction processor.
   - `security/hashing.py`.
 - **Web**
-  - `web/`: `simulation_manager`, `replay_manager`, `post_run` (PostRunPipeline), `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `wire` (the versioned `StateFrame` and its mapper), `connection_manager`, and `origin_guard` (the single Origin policy for HTTP and the WebSocket; `web/app.py` also installs `TrustedHostMiddleware`).
+  - `web/`: `simulation_manager`, `replay_manager`, `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `wire` (the versioned `StateFrame` and its mapper), `connection_manager`, and `origin_guard` (the single Origin policy for HTTP and the WebSocket; `web/app.py` also installs `TrustedHostMiddleware`).
   - `web/routes/`: health (component readiness: the Neo4j, Ollama and alias probes are cached 5 s, the stored inference config is read on every request; plus `/api/health/live`), simulation (start/stop/shock), edges, replay, interview, holdings, report, advisory, settings, websocket, agents (per-agent decision history).
 - **Evaluation**
   - `evaluation.py`: eval records, outcome labels and forecast scoring (pure; `docs/DECISIONS.md#adr-eval-harness`).
@@ -78,11 +79,11 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 
 ## Data flow: seed → rounds → graph → web → UI
 
-1. **Start.** `POST /api/simulate/start {seed}` reaches `SimulationManager.start`, which refuses with 409 while a replay is active or post-run jobs hold the orchestrator (`post_run_jobs_in_progress`), then takes the lock, clears interview sessions and the previous run's `StateStore.last_error`, and calls `_run`. `_run` loads the InferenceConfig (or the local defaults) and builds:
+1. **Start.** `POST /api/simulate/start {seed}` reaches `SimulationManager.start`, which refuses with 409 while a replay is active or post-run jobs hold the orchestrator (`post_run_jobs_in_progress`), then takes the lock, clears interview sessions and the previous run's `StateStore.last_error`, and calls `_run`. `_run` opens `services.runtime.open_simulation` on the shared `InferenceRuntime`, which loads the InferenceConfig (or the local defaults; cached until the file changes) and builds:
    - providers with `build_providers`: Ollama, or budget-wrapped cloud providers;
    - a controller with `build_controller`: ResourceGovernor locally, RateLimitController for cloud.
 
-   Then it calls `run_simulation`.
+   It records the run's budget meter and inference mode on `AppState` (read by `/api/health`), then calls `run_simulation`; the providers are closed afterwards.
 2. **Seed.** `inject_seed` runs these steps:
    - `orchestrator.prepare`, then one `chat_structured` call that decodes the reply as `SeedLLMOutput` (a reply that never validates leaves an empty SeedEvent, tier 3);
    - `generate_modifiers`, a second `chat_structured` call (`ModifiersLLMOutput`; the static modifiers when it never validates);
@@ -117,7 +118,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - On the frontend, `useWebSocket` feeds `adapter/frame.ts`, which updates the React contexts (`FrameProviders`: Connection, FrameMeta, Telemetry, Agents, Rationales; plus Edges), which render the SVG graph.
    - Edges come over REST through one cached loader keyed by the frame's cycle_id, round and edges_version (EdgesContext). Report, advisory, replay and settings also come over REST.
 9. **Replay.** ReplayManager loads a cycle's signals from Neo4j into a ReplayStore, and the broadcaster switches its snapshot source. No inference runs, and the live phase is left alone.
-10. **Interview.** `POST /api/interview/{agent_id}` takes the request's `cycle_id` or the latest complete cycle, reads the agent's context with `read_agent_interview_context`, and runs InterviewEngine on the worker provider. The persona is rebuilt with the cycle's stored modifiers; on the first interview of (cycle, agent) the decision narrative is generated and stored on the final-round Decision.
+10. **Interview.** `POST /api/interview/{agent_id}` takes the request's `cycle_id` or the latest complete cycle, reads the agent's context with `read_agent_interview_context`, and runs InterviewEngine on the worker provider, the only one an interview builds (`InferenceRuntime.open_role`). The persona is rebuilt with the cycle's stored modifiers; on the first interview of (cycle, agent) the decision narrative is generated and stored on the final-round Decision.
 
 ## Neo4j graph model
 

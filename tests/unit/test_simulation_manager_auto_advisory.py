@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -17,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from alphaswarm.web.simulation_manager import SimulationManager
+from tests.support.web_app import route_test_settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -70,7 +72,7 @@ def _build_manager(
 # ---------------------------------------------------------------------------
 
 
-async def test_cycle_id_stored(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_cycle_id_stored(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """AUTO-01: _run() must store result.cycle_id on self._last_cycle_id."""
     fake_result = SimpleNamespace(cycle_id="abc123")
 
@@ -96,6 +98,8 @@ async def test_cycle_id_stored(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("alphaswarm.inference.factory.inference_mode", lambda *a, **kw: "local")
 
     manager = _build_manager()
+    # The InferenceRuntime resolves the stored config's path from real settings.
+    manager._app_state.settings = route_test_settings(tmp_path)
     # _run() does not need the lock to be held — acquire just so release inside
     # _on_task_done won't error if called; here we call _run() directly.
     await manager._run("seed-text")

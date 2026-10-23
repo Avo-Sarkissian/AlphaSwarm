@@ -15,16 +15,11 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from tests.inference.fakes import FakeInferenceProvider
-from tests.support.web_app import route_test_settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -270,81 +265,3 @@ class TestInterviewEngineAcceptsProvider:
 
         # 13 ask responses + 1 summary = 14
         assert len(fake_provider.calls) == 14
-
-
-# ---------------------------------------------------------------------------
-# RED-4: _run_advisory_synthesis uses build_providers
-# ---------------------------------------------------------------------------
-
-
-class TestAdvisoryRouteBuildsProvider:
-    """_run_advisory_synthesis must use build_providers and call provider.prepare/teardown."""
-
-    async def test_run_advisory_calls_provider_prepare_and_teardown(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """_run_advisory_synthesis must call provider.prepare() and provider.teardown()
-        via the build_providers seam (honours InferenceConfig, not hardcoded Ollama)."""
-        from unittest.mock import patch
-
-        import alphaswarm.web.routes.advisory as advisory_module
-
-        prepare_called: list[bool] = []
-        teardown_called: list[bool] = []
-
-        class _FakeProvider:
-            role = ProviderRole.ORCHESTRATOR
-            model = "orch"
-
-            async def prepare(self) -> None:
-                prepare_called.append(True)
-
-            async def teardown(self) -> None:
-                teardown_called.append(True)
-
-            async def aclose(self) -> None:
-                pass
-
-            async def chat(self, messages: Any, **kwargs: Any) -> InferenceResult:
-                return _make_result(_valid_advisory_json())
-
-        from alphaswarm.inference.budget import BudgetMeter
-        from alphaswarm.inference.factory import BuiltProviders
-
-        fake_provider = _FakeProvider()
-        fake_built = BuiltProviders(
-            orchestrator=fake_provider,  # type: ignore[arg-type]
-            worker=fake_provider,  # type: ignore[arg-type]
-            budget_meter=BudgetMeter(None, {}),
-        )
-
-        from datetime import UTC, datetime
-        from decimal import Decimal
-        from types import SimpleNamespace
-
-        from alphaswarm.holdings.types import Holding, PortfolioSnapshot
-
-        portfolio = PortfolioSnapshot(
-            holdings=(Holding(ticker="ZZZT", qty=Decimal("10"), cost_basis=Decimal("100")),),
-            as_of=datetime.now(UTC),
-            account_number_hash="deadbeef",
-        )
-
-        app_state = SimpleNamespace(
-            settings=route_test_settings(tmp_path),
-            graph_manager=_FakeGraphManager(),
-            ollama_client=MagicMock(),
-            model_manager=AsyncMock(),
-        )
-
-        with (
-            patch.object(advisory_module, "build_providers", return_value=fake_built),
-            patch.object(advisory_module, "load_inference_config", return_value=MagicMock()),
-        ):
-            await advisory_module._run_advisory_synthesis(app_state, "c1", portfolio)  # type: ignore[arg-type]
-
-        assert prepare_called == [True], "provider.prepare() not called"
-        assert teardown_called == [True], "provider.teardown() not called in finally"
-        assert (tmp_path / "advisory" / "c1_advisory.json").is_file()

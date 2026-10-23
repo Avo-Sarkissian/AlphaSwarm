@@ -192,3 +192,32 @@ def test_cloud_worker_without_api_key_is_422_pointing_at_settings(tmp_path: Path
         }
         assert app.state.interview_sessions == {}
     engine_cls.assert_not_called()
+
+
+def test_interview_builds_only_the_worker_provider(
+    tmp_path: Path,
+    engine_cls: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from alphaswarm.inference.types import ProviderRole
+    from alphaswarm.services.runtime import InferenceRuntime
+
+    roles: list[tuple[ProviderRole, str]] = []
+    real_open_role = InferenceRuntime.open_role
+
+    async def _spy(self: InferenceRuntime, role: ProviderRole, name: str) -> object:
+        roles.append((role, name))
+        return await real_open_role(self, role, name)  # type: ignore[arg-type]
+
+    async def _forbidden(self: InferenceRuntime, name: str) -> object:
+        raise AssertionError("an interview must not build an orchestrator")
+
+    monkeypatch.setattr(InferenceRuntime, "open_role", _spy)
+    monkeypatch.setattr(InferenceRuntime, "open_operation", _forbidden)
+    graph = FakeCycleGraph({CYCLE_A: "complete"}, latest=CYCLE_A, contexts={(CYCLE_A, AGENT): _context()})
+    app = _app(tmp_path, graph)
+    with TestClient(app) as client:
+        assert client.post(f"/api/interview/{AGENT}", json={"message": "Why?"}).status_code == 200
+        provider = app.state.interview_sessions[(CYCLE_A, AGENT)]["provider"]
+    assert roles == [(ProviderRole.WORKER, "interview")]
+    assert provider.role is ProviderRole.WORKER

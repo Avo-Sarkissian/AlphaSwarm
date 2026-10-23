@@ -42,7 +42,6 @@ REVIEW MEDIUM (Codex): canary searches for ALL sentinel representations
 
 from __future__ import annotations
 
-import asyncio
 import re
 from pathlib import Path
 from typing import Any
@@ -56,7 +55,7 @@ from alphaswarm.advisory import synthesize
 from alphaswarm.holdings.types import PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.factory import BuiltProviders
-from tests.support.web_app import CYCLE_A, FakeCycleGraph, make_route_app, route_test_settings
+from tests.support.web_app import CYCLE_A, FakeCycleGraph, block_service_jobs, make_route_app, route_test_settings
 
 from .conftest import (
     SENTINEL_ACCT,
@@ -265,11 +264,15 @@ def _fresh_advisory_loggers(monkeypatch: pytest.MonkeyPatch) -> None:
     when an earlier test cached them under another structlog configuration."""
     import alphaswarm.advisory.engine as engine_module
     import alphaswarm.inference.structured as structured_module
+    import alphaswarm.services.advisory as advisory_service
+    import alphaswarm.services.jobs as jobs_module
     import alphaswarm.web.routes.advisory as advisory_route
 
     monkeypatch.setattr(engine_module, "log", structlog.get_logger(component="advisory"))
     monkeypatch.setattr(structured_module, "log", structlog.get_logger(component="inference.structured"))
     monkeypatch.setattr(advisory_route, "log", structlog.get_logger(component="web.advisory"))
+    monkeypatch.setattr(advisory_service, "log", structlog.get_logger(component="services.advisory"))
+    monkeypatch.setattr(jobs_module, "log", structlog.get_logger(component="services.jobs"))
 
 
 async def test_invalid_first_response_leaks_nothing(
@@ -314,16 +317,12 @@ def test_invalid_twice_leaks_nothing_to_logs_or_http(
     import alphaswarm.web.routes.advisory as advisory_route
 
     _fresh_advisory_loggers(monkeypatch)
-    # make_route_app's lifespan builds AppState, which reconfigures logging; keep the
-    # canary's capture configuration for the whole test.
-    monkeypatch.setattr("alphaswarm.app.configure_logging", lambda **_kwargs: None)
     provider = CanarySequenceProvider(
         prompt_sink=capture_jinja_renders,
         contents=[canary_invalid_advisory_json(), canary_invalid_advisory_json()],
     )
     monkeypatch.setattr(
-        advisory_route,
-        "build_providers",
+        "alphaswarm.inference.factory.build_providers",
         lambda *_a, **_k: BuiltProviders(
             orchestrator=provider,  # type: ignore[arg-type]
             worker=provider,  # type: ignore[arg-type]
@@ -354,7 +353,7 @@ def test_invalid_twice_leaks_nothing_to_logs_or_http(
                 break
             response = client.get(f"/api/advisory/{CYCLE_A}")
     assert response.status_code == 500
-    assert response.json()["detail"]["message"] == "Advisory generation failed (StructuredOutputError)"
+    assert response.json()["detail"]["message"] == "Advisory generation failed; see the server log"
     log_output = capture_logs.getvalue()
     assert "advisory_generation_failed" in log_output  # positive control
     for sentinel in all_sentinel_representations():
@@ -374,10 +373,7 @@ def test_holdings_never_land_on_app_state(
     (docs/DECISIONS.md#adr-holdings-isolation)."""
     import alphaswarm.web.routes.advisory as advisory_route
 
-    async def _blocked(*_args: Any) -> None:
-        await asyncio.Event().wait()
-
-    monkeypatch.setattr(advisory_route, "_run_advisory_synthesis", _blocked)
+    block_service_jobs(monkeypatch)
     app = make_route_app(
         advisory_route.router,
         settings=route_test_settings(tmp_path),
@@ -402,3 +398,60 @@ def test_no_source_assigns_a_portfolio_snapshot_attribute() -> None:
         if re.search(r"\bportfolio_snapshot\b", line)
     ]
     assert hits == [], f"portfolio_snapshot reappeared at {hits}"
+
+
+async def test_advisory_service_logs_carry_no_sentinels(
+    sentinel_portfolio: PortfolioSnapshot,
+    capture_logs: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The service layer adds logging and a file write around synthesize(): its logs stay clean."""
+    from typing import cast
+
+    import alphaswarm.services.advisory as advisory_service
+    from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
+    from alphaswarm.services.advisory import AdvisoryService
+    from alphaswarm.services.jobs import JobRunner
+    from alphaswarm.services.runtime import InferenceRuntime
+    from alphaswarm.state import StateStore
+
+    _fresh_advisory_loggers(monkeypatch)
+    monkeypatch.setattr(advisory_service, "log", structlog.get_logger(component="services.advisory"))
+    prompts: list[str] = []
+    provider = CanaryFakeOllamaClient(prompt_sink=prompts, canned_content=canary_valid_advisory_json())
+
+    class _LocalOllama:
+        base_url = "http://127.0.0.1:11434"
+
+        async def is_remote_model(self, model: str) -> bool:
+            return False
+
+    class _Inference:
+        ollama_client = _LocalOllama()
+
+        async def config(self) -> InferenceConfig:
+            return InferenceConfig(
+                orchestrator=RoleConfig(provider=ProviderType.OLLAMA, model="o"),
+                worker=RoleConfig(provider=ProviderType.OLLAMA, model="w"),
+            )
+
+        async def open_operation(self, name: str) -> BuiltProviders:
+            return BuiltProviders(orchestrator=provider, worker=provider, budget_meter=BudgetMeter(None, {}))  # type: ignore[arg-type]
+
+    async def _portfolio() -> PortfolioSnapshot:
+        return sentinel_portfolio
+
+    service = AdvisoryService(
+        graph=CanaryFakeGraphManager(neo4j_sink=[]),  # type: ignore[arg-type]
+        inference=cast(InferenceRuntime, _Inference()),
+        jobs=JobRunner(StateStore()),
+        advisory_dir=tmp_path,
+        portfolio=_portfolio,
+    )
+    assert await service.gate("canary_cycle") == "run"
+    await service.generate("canary_cycle")
+    log_output = capture_logs.getvalue()
+    assert "advisory_written" in log_output  # positive control: the service logs were captured
+    for sentinel in all_sentinel_representations():
+        assert sentinel not in log_output, f"{sentinel!r} leaked into service logs"

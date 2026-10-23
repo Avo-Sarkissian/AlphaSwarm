@@ -29,7 +29,7 @@ from alphaswarm.inference.config import (
     masked_config,
     save_inference_config,
 )
-from alphaswarm.inference.factory import _build_single_provider, inference_mode
+from alphaswarm.inference.factory import build_role_provider, inference_mode
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.web.errors import ApiError, validation_fields
 from alphaswarm.web.guards import STORED_CONFIG_INVALID_MESSAGE, load_inference_config_or_422
@@ -458,12 +458,9 @@ async def test_connection(
         provider_role = ProviderRole.ORCHESTRATOR if body.role == "orchestrator" else ProviderRole.WORKER
         meter = BudgetMeter(cap_usd=None, pricing=dict(DEFAULT_PRICING))
 
-        provider = _build_single_provider(
+        provider = build_role_provider(
+            cfg,
             provider_role,
-            role_cfg.provider,
-            role_cfg.model,
-            role_cfg.api_key,
-            role_cfg.base_url,
             ollama_client=app_state.ollama_client,
             ollama_model_manager=app_state.model_manager,
             meter=meter,

@@ -13,6 +13,7 @@ Public surface:
     effective_ollama_host — the host ollama.AsyncClient resolves for a base_url
     BuiltProviders  — frozen dataclass holding the two providers + shared meter
     build_providers — construct providers from cfg, wrapping cloud ones in budget guard
+    build_role_provider — construct one role's provider only (e.g. the interview worker)
     build_controller — select ResourceGovernor (local) or RateLimitController (cloud)
 """
 
@@ -267,6 +268,37 @@ def _build_single_provider(
     return cast(InferenceProvider, BudgetTrackingProvider(inner, meter))
 
 
+def build_role_provider(
+    cfg: InferenceConfig,
+    role: ProviderRole,
+    *,
+    ollama_client: Any,
+    ollama_model_manager: Any,
+    meter: BudgetMeter | None = None,
+) -> InferenceProvider:
+    """Build the provider for one role only (interviews and connection tests need a single role).
+
+    ``meter=None`` creates a fresh meter with the config's spend cap and merged
+    pricing. The role's retry budget comes from its provider's limits (the
+    ProviderLimits default of 3 when none are configured). Raises ValueError for
+    a cloud role missing its key or base URL.
+    """
+    role_cfg = cfg.orchestrator if role == ProviderRole.ORCHESTRATOR else cfg.worker
+    if meter is None:
+        meter = BudgetMeter(cfg.spend_cap_usd, {**DEFAULT_PRICING, **cfg.pricing_overrides})
+    return _build_single_provider(
+        role,
+        role_cfg.provider,
+        role_cfg.model,
+        role_cfg.api_key,
+        role_cfg.base_url,
+        ollama_client=ollama_client,
+        ollama_model_manager=ollama_model_manager,
+        meter=meter,
+        max_retries=cfg.limits.get(role_cfg.provider, ProviderLimits()).max_retries,
+    )
+
+
 # ---------------------------------------------------------------------------
 # build_providers
 # ---------------------------------------------------------------------------
@@ -310,36 +342,20 @@ def build_providers(
     # Build ONE shared pricing table and meter for the whole run
     merged_pricing = {**DEFAULT_PRICING, **cfg.pricing_overrides}
     meter = BudgetMeter(cfg.spend_cap_usd, merged_pricing)
-
-    # Resolve per-role retry budget from the provider's limits (falls back to the
-    # ProviderLimits default of 3 when no limits are configured for that backend).
-    orch_retries = cfg.limits.get(cfg.orchestrator.provider, ProviderLimits()).max_retries
-    worker_retries = cfg.limits.get(cfg.worker.provider, ProviderLimits()).max_retries
-
-    orchestrator = _build_single_provider(
+    orchestrator = build_role_provider(
+        cfg,
         ProviderRole.ORCHESTRATOR,
-        cfg.orchestrator.provider,
-        cfg.orchestrator.model,
-        cfg.orchestrator.api_key,
-        cfg.orchestrator.base_url,
         ollama_client=ollama_client,
         ollama_model_manager=ollama_model_manager,
         meter=meter,
-        max_retries=orch_retries,
     )
-
-    worker = _build_single_provider(
+    worker = build_role_provider(
+        cfg,
         ProviderRole.WORKER,
-        cfg.worker.provider,
-        cfg.worker.model,
-        cfg.worker.api_key,
-        cfg.worker.base_url,
         ollama_client=ollama_client,
         ollama_model_manager=ollama_model_manager,
         meter=meter,
-        max_retries=worker_retries,
     )
-
     return BuiltProviders(orchestrator=orchestrator, worker=worker, budget_meter=meter)
 
 

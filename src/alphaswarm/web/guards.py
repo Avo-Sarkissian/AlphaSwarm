@@ -1,9 +1,9 @@
-"""Guards shared by the job routes (report, advisory, interview).
+"""Guards shared by the job routes (report, advisory, interview) and Settings.
 
-They turn a missing graph, cycle state and orchestrator contention into
+They turn a missing graph, cycle state and an unreadable inference config into
 ApiErrors with stable codes, so every route reports the same condition the same
-way (docs/DECISIONS.md#adr-background-tasks). The jobs themselves share the
-sanitized inference-config failure (job_config_error).
+way (docs/DECISIONS.md#adr-background-tasks). Orchestrator contention is the
+JobRunner's (services.jobs.JobInProgressError, web.deps.job_conflict).
 """
 
 from __future__ import annotations
@@ -11,19 +11,13 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Final
 
-import structlog
-
-from alphaswarm.errors import INFERENCE_CONFIG_INVALID_MESSAGE, InferenceConfigError
 from alphaswarm.inference.config import InferenceConfig, load_inference_config
 from alphaswarm.web.errors import ApiError
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
     from alphaswarm.graph import GraphStateManager
-    from alphaswarm.state import JobKind
     from alphaswarm.web.simulation_manager import SimulationManager
-
-log = structlog.get_logger(component="web.guards")
 
 
 def require_graph(app_state: AppState) -> GraphStateManager:
@@ -32,36 +26,6 @@ def require_graph(app_state: AppState) -> GraphStateManager:
     if graph is None:
         raise ApiError(503, "graph_unavailable", "Neo4j is not configured for this server")
     return graph
-
-
-def running_job_cycle(app_state: AppState, kind: JobKind) -> str | None:
-    """Cycle id of the running *kind* job, or None when that job is not running."""
-    jobs = app_state.state_store.job_statuses()
-    status = jobs.advisory if kind == "advisory" else jobs.report
-    return status.cycle_id if status.state == "running" else None
-
-
-def orchestrator_job_running(app_state: AppState) -> bool:
-    """True while a report or advisory job holds the orchestrator."""
-    jobs = app_state.state_store.job_statuses()
-    return jobs.advisory.state == "running" or jobs.report.state == "running"
-
-
-def require_orchestrator_free(app_state: AppState) -> None:
-    """409 while either orchestrator job runs (report/advisory never overlap)."""
-    jobs = app_state.state_store.job_statuses()
-    if jobs.report.state == "running":
-        raise ApiError(
-            409,
-            "report_generation_in_progress",
-            "A report generation is already running; retry when it completes",
-        )
-    if jobs.advisory.state == "running":
-        raise ApiError(
-            409,
-            "advisory_generation_in_progress",
-            "An advisory generation is already running; retry when it completes",
-        )
 
 
 def require_no_simulation(sim_manager: SimulationManager) -> None:
@@ -121,20 +85,3 @@ async def load_inference_config_or_422(app_state: AppState) -> InferenceConfig:
         return await asyncio.to_thread(load_inference_config, app_state.settings)
     except (ValueError, OSError) as exc:
         raise ApiError(422, "inference_config_invalid", STORED_CONFIG_INVALID_MESSAGE) from exc
-
-
-def job_config_error(exc: Exception, *, job: JobKind, cycle_id: str) -> InferenceConfigError:
-    """Log a report or advisory job's inference-config failure; return the error to raise.
-
-    The ValueError/OSError text can quote the file path and raw config values,
-    API keys included, so only its type is logged. The job raises the returned
-    fixed error ``from None``, so the traceback its done-callback logs never
-    renders that text (docs/DECISIONS.md#adr-local-first-inference).
-    """
-    log.error(
-        "job_inference_config_invalid",
-        job=job,
-        cycle_id=cycle_id,
-        error_type=type(exc).__name__,
-    )
-    return InferenceConfigError(INFERENCE_CONFIG_INVALID_MESSAGE)

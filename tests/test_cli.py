@@ -5,12 +5,10 @@ from __future__ import annotations
 import argparse
 from collections.abc import Coroutine
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from alphaswarm.inference.types import ProviderRole
-from alphaswarm.settings import AppSettings
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -22,7 +20,6 @@ from alphaswarm.types import (
     SeedEvent,
     SignalType,
 )
-from tests.inference.fakes import FakeInferenceProvider
 
 
 @pytest.fixture()
@@ -195,32 +192,6 @@ def test_main_inject_failure_prints_error_to_stderr(
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
     assert "Error:" in captured.err
-
-
-async def test_handle_inject_marks_the_seed_only_cycle_failed(
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-    fallback_parsed_result: ParsedSeedResult,
-) -> None:
-    """No run ever follows inject, so its cycle must not read as running (docs/DECISIONS.md#adr-cycle-metrics)."""
-    from alphaswarm.cli import _handle_inject
-
-    graph = AsyncMock()
-    app = MagicMock(graph_manager=graph)
-    built = MagicMock()
-    built.orchestrator.aclose = AsyncMock()
-    inject = AsyncMock(return_value=("c-seed-only", fallback_parsed_result, None))
-    monkeypatch.setattr("alphaswarm.app.create_app_state", MagicMock(return_value=app))
-    monkeypatch.setattr("alphaswarm.inference.config.load_inference_config", MagicMock())
-    monkeypatch.setattr("alphaswarm.inference.factory.build_providers", MagicMock(return_value=built))
-    monkeypatch.setattr("alphaswarm.seed.inject_seed", inject)
-
-    await _handle_inject("ZZZT Holdings is in late-stage talks to acquire QQQX Robotics.")
-
-    assert inject.await_args.kwargs["orchestrator"] is built.orchestrator
-    graph.set_cycle_status.assert_awaited_once_with("c-seed-only", "failed")
-    graph.close.assert_awaited_once()
-    assert "c-seed-only" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -837,48 +808,6 @@ async def test_round_complete_handler_round1_no_shift(
     assert "Signal Transitions" not in captured.out
 
 
-def _empty_simulation_result() -> Any:
-    from alphaswarm.simulation import SimulationResult
-    from alphaswarm.types import ParsedSeedResult, SeedEvent
-
-    seed = SeedEvent(raw_rumor="test rumor", entities=[], overall_sentiment=0.0)
-    return SimulationResult(
-        cycle_id="test-cycle",
-        parsed_result=ParsedSeedResult(seed_event=seed, parse_tier=1),
-        rounds=(),
-    )
-
-
-def _pipeline_app() -> MagicMock:
-    app = MagicMock()
-    app.graph_manager = AsyncMock()
-    return app
-
-
-def _fake_provider(role: ProviderRole) -> FakeInferenceProvider:
-    return FakeInferenceProvider(role, f"fake-{role.value}", scripted=[])
-
-
-async def test_run_pipeline_calls_run_simulation_with_callback() -> None:
-    """_run_pipeline passes an on_round_complete handler (docs/DECISIONS.md#p7-d-14)."""
-    mock_sim = AsyncMock(return_value=_empty_simulation_result())
-    with patch("alphaswarm.simulation.run_simulation", mock_sim):
-        from alphaswarm.cli import _run_pipeline
-
-        await _run_pipeline(
-            "test rumor",
-            AppSettings(_env_file=None),  # type: ignore[call-arg]
-            _pipeline_app(),
-            _TEST_PERSONAS,
-            _TEST_BRACKETS,
-            orchestrator_provider=_fake_provider(ProviderRole.ORCHESTRATOR),
-            worker_provider=_fake_provider(ProviderRole.WORKER),
-            controller=MagicMock(),
-        )
-
-    assert callable(mock_sim.call_args.kwargs["on_round_complete"])
-
-
 # ---------------------------------------------------------------------------
 # Phase 15 Plan 02: Report subcommand
 # ---------------------------------------------------------------------------
@@ -900,88 +829,6 @@ def test_report_subcommand_registered() -> None:
     # Verify default behavior when --cycle is omitted
     args_no_cycle = parser.parse_args(["report"])
     assert args_no_cycle.cycle is None
-
-
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Phase 40 Plan 03 Task 2: CLI provider construction (D-11)
-# ---------------------------------------------------------------------------
-
-
-async def test_run_pipeline_constructs_providers() -> None:
-    """The CLI builds SimulationDeps with real yfinance and RSS providers
-    (docs/DECISIONS.md#adr-market-context)."""
-    from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
-
-    orchestrator = _fake_provider(ProviderRole.ORCHESTRATOR)
-    worker = _fake_provider(ProviderRole.WORKER)
-    controller = MagicMock()
-    mock_sim = AsyncMock(return_value=_empty_simulation_result())
-    with patch("alphaswarm.simulation.run_simulation", mock_sim):
-        from alphaswarm.cli import _run_pipeline
-
-        await _run_pipeline(
-            "test rumor",
-            AppSettings(_env_file=None),  # type: ignore[call-arg]
-            _pipeline_app(),
-            _TEST_PERSONAS,
-            _TEST_BRACKETS,
-            orchestrator_provider=orchestrator,
-            worker_provider=worker,
-            controller=controller,
-        )
-
-    deps = mock_sim.call_args.kwargs["deps"]
-    assert isinstance(deps.market, YFinanceMarketDataProvider)
-    assert isinstance(deps.news, RSSNewsProvider)
-    assert (deps.orchestrator, deps.worker, deps.controller) == (orchestrator, worker, controller)
-
-
-@pytest.mark.parametrize("mode", ["context_fixture", "no_market_context"])
-async def test_run_pipeline_point_in_time_runs_build_no_live_providers(mode: str) -> None:
-    """A fixture or --no-market-context run builds no YFinance/RSS provider, and the
-    fixture is what reaches run_simulation (docs/DECISIONS.md#adr-eval-harness)."""
-    from datetime import UTC, datetime
-    from decimal import Decimal
-
-    from alphaswarm.ingestion.fixture import build_fixture_packet
-
-    packet = build_fixture_packet(
-        event_id="evt-001",
-        as_of=datetime(2026, 2, 3, 14, 0, tzinfo=UTC),
-        ticker="ZZZT",
-        close=Decimal("123.45"),
-        volume=1_000_000,
-    )
-    run_kwargs: dict[str, Any] = {"context_fixture": packet} if mode == "context_fixture" else {"market_context": False}
-    mock_sim = AsyncMock(return_value=_empty_simulation_result())
-
-    with (
-        patch("alphaswarm.simulation.run_simulation", mock_sim),
-        patch("alphaswarm.cli.YFinanceMarketDataProvider") as market_cls,
-        patch("alphaswarm.cli.RSSNewsProvider") as news_cls,
-    ):
-        from alphaswarm.cli import _run_pipeline
-
-        await _run_pipeline(
-            "test rumor",
-            AppSettings(_env_file=None),  # type: ignore[call-arg]
-            _pipeline_app(),
-            _TEST_PERSONAS,
-            _TEST_BRACKETS,
-            orchestrator_provider=_fake_provider(ProviderRole.ORCHESTRATOR),
-            worker_provider=_fake_provider(ProviderRole.WORKER),
-            controller=MagicMock(),
-            **run_kwargs,
-        )
-
-    market_cls.assert_not_called()
-    news_cls.assert_not_called()
-    deps = mock_sim.call_args.kwargs["deps"]
-    assert (deps.market, deps.news) == (None, None)
-    assert deps.context_fixture is (packet if mode == "context_fixture" else None)
 
 
 def test_shift_analysis_uses_actual_agent_count(capsys: pytest.CaptureFixture[str]) -> None:

@@ -1,4 +1,5 @@
-"""`alphaswarm web` configures logging first and lets uvicorn use it (docs/DECISIONS.md#adr-security-2026-08)."""
+"""`alphaswarm web` configures logging first, then starts uvicorn in factory mode
+(docs/DECISIONS.md#adr-security-2026-08, docs/DECISIONS.md#adr-web-lifespan)."""
 
 from __future__ import annotations
 
@@ -8,7 +9,6 @@ from typing import Any
 
 import pytest
 import structlog
-from fastapi import FastAPI
 
 from alphaswarm.logging import BRIDGE_HANDLER_NAME
 
@@ -35,7 +35,8 @@ def test_handle_web_bridges_uvicorn_logging(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(uvicorn, "run", _fake_run)
     cli._handle_web("127.0.0.1", 8123)
-    assert isinstance(calls["app"], FastAPI)
+    assert calls["app"] == "alphaswarm.web.app:create_app"
+    assert calls["factory"] is True and calls["workers"] == 1
     assert calls["log_config"] is None
     assert (calls["host"], calls["port"]) == ("127.0.0.1", 8123)
     assert BRIDGE_HANDLER_NAME in [h.get_name() for h in logging.getLogger().handlers]

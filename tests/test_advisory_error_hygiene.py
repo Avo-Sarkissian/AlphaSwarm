@@ -13,23 +13,23 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
 from pydantic import ValidationError
 
-import alphaswarm.web.post_run as post_run_module
-import alphaswarm.web.routes.advisory as advisory_module
+import alphaswarm.services.advisory as advisory_module
+import alphaswarm.services.jobs as jobs_module
+import alphaswarm.services.post_run as post_run_module
 from alphaswarm.advisory import AdvisoryReport, synthesize
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.factory import BuiltProviders
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.logging import validation_error_summary
-from alphaswarm.web.post_run import AdvisoryGate, PostRunPipeline
+from alphaswarm.services.advisory import AdvisoryService
+from alphaswarm.services.post_run import AdvisoryGate, PostRunPipeline
 from tests.inference.fakes import FakeInferenceProvider
-from tests.support.web_app import CYCLE_A, route_test_settings
+from tests.support.web_app import CYCLE_A, advisory_service_for, route_test_settings
 
 # Three failures: confidence > 1, an unparsable exposure, and an invented top-level key.
 _INVALID = json.dumps(
@@ -186,16 +186,11 @@ async def test_retry_prompt_names_locations_not_values() -> None:
         assert value not in retry
 
 
-async def test_route_failure_log_has_no_exception_text(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    recorder = _RecordingLog()
-    monkeypatch.setattr(advisory_module, "log", recorder)
+def _validation_failing_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AdvisoryService:
+    """An offline AdvisoryService whose synthesis raises the fictional ValidationError."""
     provider = FakeInferenceProvider(role=ProviderRole.ORCHESTRATOR, model="fake", scripted=[])
     monkeypatch.setattr(
-        advisory_module,
-        "build_providers",
+        "alphaswarm.inference.factory.build_providers",
         lambda *_a, **_k: BuiltProviders(
             orchestrator=provider,  # type: ignore[arg-type]
             worker=provider,  # type: ignore[arg-type]
@@ -210,17 +205,18 @@ async def test_route_failure_log_has_no_exception_text(
         raise _validation_error()
 
     monkeypatch.setattr(advisory_module, "synthesize", _synthesize)
-    app_state = SimpleNamespace(
-        settings=route_test_settings(tmp_path),
-        graph_manager=object(),
-        ollama_client=MagicMock(
-            base_url="http://127.0.0.1:11434",
-            is_remote_model=AsyncMock(return_value=False),
-        ),
-        model_manager=object(),
-    )
+    return advisory_service_for(route_test_settings(tmp_path), portfolio=SimpleNamespace(holdings=("fictional",)))
+
+
+async def test_service_failure_log_has_no_exception_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = _RecordingLog()
+    monkeypatch.setattr(advisory_module, "log", recorder)
+    service = _validation_failing_service(tmp_path, monkeypatch)
     with pytest.raises(ValidationError):
-        await advisory_module._run_advisory_synthesis(app_state, CYCLE_A, object())  # type: ignore[arg-type]
+        await service.generate(CYCLE_A)
     failed = recorder.kwargs_for("advisory_generation_failed")
     assert "error" not in failed
     assert "exc_info" not in failed
@@ -238,22 +234,23 @@ async def _failed_task(exc: BaseException) -> asyncio.Task[None]:
     return task
 
 
-async def test_done_callback_logs_a_validation_error_without_traceback(
+async def test_job_runner_logs_a_validation_error_without_traceback(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recorder = _RecordingLog()
-    monkeypatch.setattr(advisory_module, "log", recorder)
-    app = FastAPI()
+    monkeypatch.setattr(jobs_module, "log", recorder)
+    service = _validation_failing_service(tmp_path, monkeypatch)
 
-    advisory_module._on_advisory_task_done(await _failed_task(_validation_error()), "cycle-1", app)
+    with pytest.raises(ValidationError):
+        await service.start(CYCLE_A)
 
-    recorded = recorder.kwargs_for("advisory_task_exception_recorded")
+    recorded = recorder.kwargs_for("job_failed")
     assert "exc_info" not in recorded
     assert recorded["exc_type"] == "ValidationError"
     assert recorded["error_count"] == 3
     _assert_no_values(recorded)
-    error = app.state.advisory_generation_error["cycle-1"]
-    assert error["message"] == "Advisory generation failed (ValidationError)"
+    assert service.jobs.error_for("advisory", CYCLE_A) == "advisory_generation_failed"
 
 
 class _FailingAdvisoryJobs:

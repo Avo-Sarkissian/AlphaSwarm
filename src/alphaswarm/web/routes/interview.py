@@ -15,15 +15,15 @@ import structlog
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from alphaswarm.errors import INFERENCE_CONFIG_INCOMPLETE_MESSAGE, AgentNotFoundError
-from alphaswarm.inference.factory import build_providers
+from alphaswarm.errors import AgentNotFoundError
+from alphaswarm.inference.types import ProviderRole
 from alphaswarm.interview import InterviewEngine, ensure_decision_narrative
+from alphaswarm.web.deps import get_runtime
 from alphaswarm.web.errors import ApiError
-from alphaswarm.web.guards import load_inference_config_or_422, require_complete_cycle, require_graph
+from alphaswarm.web.guards import require_complete_cycle, require_graph
 from alphaswarm.web.params import CYCLE_ID_PATTERN
 
 if TYPE_CHECKING:
-    from alphaswarm.inference.factory import BuiltProviders
     from alphaswarm.inference.provider import InferenceProvider
 
 log = structlog.get_logger(component="web.interview")
@@ -108,7 +108,7 @@ async def interview_agent(
     async with entry["lock"]:
         engine = entry.get("engine")
         if engine is None:
-            built: BuiltProviders | None = None
+            provider: InferenceProvider | None = None
             try:
                 try:
                     context = await graph.read_agent_interview_context(agent_id, cycle_id)
@@ -118,32 +118,24 @@ async def interview_agent(
                         "agent_not_found",
                         f"No interview context for agent {agent_id}",
                     ) from exc
-                cfg = await load_inference_config_or_422(app_state)
-                try:
-                    built = build_providers(
-                        cfg,
-                        ollama_client=app_state.ollama_client,
-                        ollama_model_manager=app_state.model_manager,
-                    )
-                except ValueError as exc:
-                    # The file loads, but a cloud role lacks its API key or base
-                    # URL, so the fix is in Settings (docs/DECISIONS.md#adr-local-first-inference).
-                    raise ApiError(422, "inference_config_invalid", INFERENCE_CONFIG_INCOMPLETE_MESSAGE) from exc
+                # Interviews talk to the worker only: no orchestrator client is built.
+                # A bad config raises InferenceConfigError (422 inference_config_invalid).
+                provider = await get_runtime(request).inference.open_role(ProviderRole.WORKER, "interview")
                 # First interview of (cycle, agent) generates and stores the
                 # narrative once (docs/DECISIONS.md#p11-d-11).
-                context = await ensure_decision_narrative(graph, built.worker, context, cycle_id=cycle_id)
-                engine = InterviewEngine(context=context, provider=built.worker)
+                context = await ensure_decision_narrative(graph, provider, context, cycle_id=cycle_id)
+                engine = InterviewEngine(context=context, provider=provider)
                 entry["engine"] = engine
-                # Kept so the sim-start cleanup can aclose() cloud clients.
-                entry["provider"] = built.worker
+                # Kept so session cleanup (sim start, shutdown) can aclose() cloud clients.
+                entry["provider"] = provider
                 log.info("interview_session_created", agent_id=agent_id, cycle_id=cycle_id)
             except BaseException:
                 if sessions.get(key) is entry:
                     sessions.pop(key, None)
                 # A worker built for this session but never stored on it would
                 # leak its cloud client: the sim-start cleanup cannot reach it.
-                if built is not None and entry.get("provider") is not built.worker:
-                    await _close_unowned_provider(built.worker, agent_id=agent_id, cycle_id=cycle_id)
+                if provider is not None and entry.get("provider") is not provider:
+                    await _close_unowned_provider(provider, agent_id=agent_id, cycle_id=cycle_id)
                 raise
         response_text = await engine.ask(body.message)
 

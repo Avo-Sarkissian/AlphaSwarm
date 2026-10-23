@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from neo4j.exceptions import DriverError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from alphaswarm.errors import Neo4jUnavailableError
+from alphaswarm.errors import InferenceConfigError, Neo4jUnavailableError
 from alphaswarm.readiness import NEO4J_FIX
 from alphaswarm.web.replay_manager import (
     NoReplayActiveError,
@@ -52,6 +52,7 @@ DOMAIN_ERROR_STATUS: dict[type[Exception], tuple[int, str]] = {
     ReplayAlreadyActiveError: (409, "replay_already_active"),
     SimulationActiveError: (409, "simulation_in_progress"),
     NoReplayActiveError: (409, "no_replay_active"),
+    InferenceConfigError: (422, "inference_config_invalid"),
 }
 
 

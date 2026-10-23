@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.graph import GraphStateManager
-from alphaswarm.logging import configure_logging, get_logger
+from alphaswarm.logging import get_logger
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
 from alphaswarm.settings import AppSettings
@@ -17,6 +17,7 @@ from alphaswarm.state import StateStore
 from alphaswarm.types import AgentPersona
 
 if TYPE_CHECKING:
+    from alphaswarm.inference.budget import BudgetMeter
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
 
 
@@ -39,6 +40,10 @@ class AppState:
     graph_manager: GraphStateManager | None = None  # Wired in Phase 4, None if offline
     market_provider: MarketDataProvider | None = None  # Phase 40 D-10
     news_provider: NewsProvider | None = None  # Phase 40 D-10
+    # Declared telemetry fields; set by SimulationManager for /api/health.
+    # Never holds portfolio data (docs/DECISIONS.md#adr-holdings-isolation).
+    budget_meter: BudgetMeter | None = None
+    inference_mode: Literal["local", "cloud", "mixed"] = "local"
 
 
 def create_app_state(
@@ -50,7 +55,7 @@ def create_app_state(
 ) -> AppState:
     """Factory to create AppState with proper initialization order.
 
-    1. Configure logging first (so all subsequent logs are structured)
+    1. Logging is configured once by services.runtime.open_runtime, not here.
     2. Create logger
     3. Create stubs (governor, state_store)
     4. Optionally create OllamaClient and OllamaModelManager
@@ -67,10 +72,6 @@ def create_app_state(
                     connectivity is checked by the caller (web lifespan or CLI)
                     inside the event loop.
     """
-    configure_logging(
-        log_level=settings.log_level,
-        json_output=not settings.debug,
-    )
     logger = get_logger(component="app")
     state_store = StateStore()
     # Idle frames carry the configured depth too, not only frames of a run
