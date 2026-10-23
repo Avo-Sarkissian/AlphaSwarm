@@ -173,3 +173,11 @@ def test_ranked_post_lives_with_peer_formatting() -> None:
 
     assert peers.RankedPost.__module__ == "alphaswarm.peers"
     assert not hasattr(graph, "RankedPost")
+
+
+def test_pure_math_is_not_in_the_graph() -> None:
+    from alphaswarm.graph import manager
+
+    assert not hasattr(manager.GraphStateManager, "_aggregate_shock_impact")
+    for name in ("_majority", "_bracket_sort_key", "_BRACKET_DISPLAY_NAMES", "_BRACKET_ORDER"):
+        assert not hasattr(manager, name), name

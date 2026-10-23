@@ -8,6 +8,7 @@ from alphaswarm.graph.manager import GraphStateManager
 from alphaswarm.graph.rows import (
     AgentDecisionRow,
     BracketNarrativeRow,
+    BracketPivotRow,
     BracketRoundRow,
     CompletedCycleRow,
     ConsensusSummaryRow,
@@ -17,6 +18,7 @@ from alphaswarm.graph.rows import (
     InfluenceLeaderRow,
     KeyDissenterRow,
     PersistRoundResult,
+    PivotAgentRow,
     RationaleRoundRow,
     RoundTimelineRow,
     ShockImpactRow,
@@ -26,6 +28,7 @@ from alphaswarm.graph.rows import (
 __all__ = [
     "AgentDecisionRow",
     "BracketNarrativeRow",
+    "BracketPivotRow",
     "BracketRoundRow",
     "CompletedCycleRow",
     "ConsensusSummaryRow",
@@ -36,6 +39,7 @@ __all__ = [
     "InfluenceLeaderRow",
     "KeyDissenterRow",
     "PersistRoundResult",
+    "PivotAgentRow",
     "RationaleRoundRow",
     "RoundTimelineRow",
     "ShockImpactRow",

@@ -13,6 +13,29 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypedDict, TypeVar
 
+from alphaswarm.influence import BracketPivotRow, PivotAgentRow, ShockImpactRow
+
+__all__ = [
+    "AgentDecisionRow",
+    "BracketNarrativeRow",
+    "BracketPivotRow",
+    "BracketRoundRow",
+    "CompletedCycleRow",
+    "ConsensusSummaryRow",
+    "CycleStatus",
+    "EntityImpactRow",
+    "InfluenceEdgeRow",
+    "InfluenceLeaderRow",
+    "KeyDissenterRow",
+    "PersistRoundResult",
+    "PivotAgentRow",
+    "RationaleRoundRow",
+    "RoundTimelineRow",
+    "ShockImpactRow",
+    "SignalFlipRow",
+    "TxRunner",
+]
+
 T = TypeVar("T")
 
 CycleStatus = Literal["running", "complete", "failed", "cancelled"]
@@ -106,20 +129,6 @@ class EntityImpactRow(TypedDict):
     buy_mentions: int
     sell_mentions: int
     hold_mentions: int
-
-
-class ShockImpactRow(TypedDict):
-    """bracket_pivots entries: bracket, display_name, comparable, pivots,
-    pre_dominant, post_dominant, pre_buy_pct, post_buy_pct, delta_buy_pct,
-    dominant_arrow, agents (list of {agent_id, pre_signal, post_signal})."""
-
-    shock_text: str
-    injected_before_round: int
-    pre_dominant: str | None
-    post_dominant: str | None
-    pivot_count: int
-    pivot_rate: float
-    bracket_pivots: list[dict[str, object]]
 
 
 class InfluenceEdgeRow(TypedDict):

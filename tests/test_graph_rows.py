@@ -103,7 +103,6 @@ ROWS_MODULE_NAMES = (
     "PersistRoundResult",
     "RationaleRoundRow",
     "RoundTimelineRow",
-    "ShockImpactRow",
     "SignalFlipRow",
 )
 

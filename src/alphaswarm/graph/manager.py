@@ -38,8 +38,14 @@ from alphaswarm.graph.rows import (
     ShockImpactRow,
     SignalFlipRow,
 )
+from alphaswarm.influence import ShockComparisonRow, aggregate_shock_impact, citation_weights
 from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
-from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas, load_bracket_configs
+from alphaswarm.personas import (
+    BRACKET_DISPLAY_NAMES,
+    bracket_sort_key,
+    generate_personas,
+    load_bracket_configs,
+)
 from alphaswarm.types import BracketType, SignalType
 
 if TYPE_CHECKING:
@@ -250,28 +256,6 @@ WHERE EXISTS { MATCH (:Cycle {cycle_id: $cycle_id})-[:MENTIONS]->(e) }
 CREATE (d)-[:REFERENCES {match_type: m.match_type}]->(e)
 RETURN count(*) AS n
 """
-
-# Bracket display names and order come from config so report rows match the
-# live frame (rounds.compute_bracket_summaries) — docs/DECISIONS.md#adr-swarm-composition-v2.
-_BRACKET_DISPLAY_NAMES: Final[dict[str, str]] = {b.bracket_type.value: b.display_name for b in DEFAULT_BRACKETS}
-_BRACKET_ORDER: Final[dict[str, int]] = {b.bracket_type.value: i for i, b in enumerate(DEFAULT_BRACKETS)}
-
-
-def _bracket_sort_key(bracket: str) -> tuple[int, str]:
-    """Config order first; unknown (legacy) brackets last, alphabetically."""
-    return (_BRACKET_ORDER.get(bracket, len(_BRACKET_ORDER)), bracket)
-
-
-def _majority(signals: Sequence[str]) -> str | None:
-    """Most common of BUY/SELL/HOLD; ties BUY > SELL > HOLD; None when empty."""
-    counts = {sig: 0 for sig in ("BUY", "SELL", "HOLD")}
-    for signal in signals:
-        if signal in counts:
-            counts[signal] += 1
-    if not any(counts.values()):
-        return None
-    best = max(counts.values())
-    return next(sig for sig in ("BUY", "SELL", "HOLD") if counts[sig] == best)
 
 
 def _iso(value: object) -> str:
@@ -995,8 +979,6 @@ class GraphStateManager:
                 Empty dict if no citations found. Plan 02 depends on this return type
                 for downstream peer selection.
         """
-        from collections import Counter
-
         if total_agents <= 0:
             # A round in which every agent failed has no denominator
             # (docs/DECISIONS.md#p8-d-01); write nothing.
@@ -1020,8 +1002,7 @@ class GraphStateManager:
 
         # Per-target citation frequency from deduplicated pairs; weight =
         # citations / active agents (docs/DECISIONS.md#p8-d-01).
-        target_counts: Counter[str] = Counter(p["target_id"] for p in pairs)
-        weights: dict[str, float] = {agent_id: count / total_agents for agent_id, count in target_counts.items()}
+        weights = citation_weights((p["target_id"] for p in pairs), total_agents)
         edges = [
             {
                 "source_id": p["source_id"],
@@ -1436,7 +1417,7 @@ class GraphStateManager:
         rows = [
             BracketNarrativeRow(
                 bracket=str(r["bracket"]),
-                display_name=_BRACKET_DISPLAY_NAMES.get(str(r["bracket"]), str(r["bracket"])),
+                display_name=BRACKET_DISPLAY_NAMES.get(str(r["bracket"]), str(r["bracket"])),
                 buy_count=int(r["buy_count"]),
                 sell_count=int(r["sell_count"]),
                 hold_count=int(r["hold_count"]),
@@ -1447,7 +1428,7 @@ class GraphStateManager:
             )
             async for r in result
         ]
-        return sorted(rows, key=lambda row: _bracket_sort_key(row["bracket"]))
+        return sorted(rows, key=lambda row: bracket_sort_key(row["bracket"]))
 
     async def read_key_dissenters(self, cycle_id: str) -> list[KeyDissenterRow]:
         """Agents whose final-round signal differs from their bracket's majority.
@@ -1793,67 +1774,18 @@ class GraphStateManager:
             """,
             cycle_id=cycle_id,
         )
-        rows = [dict(r) async for r in result]
-        return GraphStateManager._aggregate_shock_impact(rows)
-
-    @staticmethod
-    def _aggregate_shock_impact(rows: list[dict[str, Any]]) -> ShockImpactRow:
-        """Pure aggregation of per-agent (pre, post) rows into a ShockImpactRow."""
-        if not rows:
-            return ShockImpactRow(
-                shock_text="",
-                injected_before_round=0,
-                pre_dominant=None,
-                post_dominant=None,
-                pivot_count=0,
-                pivot_rate=0.0,
-                bracket_pivots=[],
+        rows = [
+            ShockComparisonRow(
+                agent_id=str(r["agent_id"]),
+                bracket=str(r["bracket"]),
+                pre_signal=str(r["pre_signal"]),
+                post_signal=str(r["post_signal"]),
+                shock_round=int(r["shock_round"]),
+                shock_text=str(r["shock_text"]),
             )
-        by_bracket: dict[str, list[dict[str, Any]]] = {}
-        for row in rows:
-            by_bracket.setdefault(str(row["bracket"]), []).append(row)
-        bracket_pivots: list[dict[str, object]] = []
-        for bracket in sorted(by_bracket, key=_bracket_sort_key):
-            members = by_bracket[bracket]
-            pre = [str(r["pre_signal"]) for r in members]
-            post = [str(r["post_signal"]) for r in members]
-            pivoted = [r for r in members if r["pre_signal"] != r["post_signal"]]
-            pre_buy_pct = pre.count("BUY") / len(members) * 100
-            post_buy_pct = post.count("BUY") / len(members) * 100
-            delta = post_buy_pct - pre_buy_pct
-            bracket_pivots.append(
-                {
-                    "bracket": bracket,
-                    "display_name": _BRACKET_DISPLAY_NAMES.get(bracket, bracket),
-                    "comparable": len(members),
-                    "pivots": len(pivoted),
-                    "pre_dominant": _majority(pre),
-                    "post_dominant": _majority(post),
-                    "pre_buy_pct": pre_buy_pct,
-                    "post_buy_pct": post_buy_pct,
-                    "delta_buy_pct": delta,
-                    # The arrow glyph stays in the row until the templates own presentation.
-                    "dominant_arrow": "▲" if delta > 0 else "▼" if delta < 0 else "·",
-                    "agents": [
-                        {
-                            "agent_id": str(r["agent_id"]),
-                            "pre_signal": str(r["pre_signal"]),
-                            "post_signal": str(r["post_signal"]),
-                        }
-                        for r in pivoted
-                    ],
-                }
-            )
-        pivot_count = sum(1 for r in rows if r["pre_signal"] != r["post_signal"])
-        return ShockImpactRow(
-            shock_text=str(rows[0]["shock_text"]),
-            injected_before_round=int(rows[0]["shock_round"]),
-            pre_dominant=_majority([str(r["pre_signal"]) for r in rows]),
-            post_dominant=_majority([str(r["post_signal"]) for r in rows]),
-            pivot_count=pivot_count,
-            pivot_rate=pivot_count / len(rows),
-            bracket_pivots=bracket_pivots,
-        )
+            async for r in result
+        ]
+        return aggregate_shock_impact(rows)
 
     # ------------------------------------------------------------------
     # Shock event writer (B1 wiring fix — see docs/DECISIONS.md#b1)

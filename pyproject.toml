@@ -148,6 +148,7 @@ source_modules = [
     "alphaswarm.inference.schema",
     "alphaswarm.inference.structured",
     "alphaswarm.inference.types",
+    "alphaswarm.influence",
     "alphaswarm.ingestion",
     "alphaswarm.ingestion.fixture",
     "alphaswarm.ingestion.providers",
