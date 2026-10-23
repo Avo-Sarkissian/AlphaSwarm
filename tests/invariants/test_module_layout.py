@@ -38,6 +38,14 @@ MOVED: dict[str, tuple[str, ...]] = {
         "persona_to_worker_config",
         "compute_prompt_template_hash",
     ),
+    "alphaswarm.peers": (
+        "PeerContextsResult",
+        "build_peer_contexts",
+        "compute_exposure_metrics",
+        "format_peer_context",
+        "peer_rng",
+        "select_diverse_peers",
+    ),
     "alphaswarm.prompts.decision": ("JSON_OUTPUT_INSTRUCTIONS",),
     "alphaswarm.prompts.modifiers": (
         "MODIFIER_GENERATION_PROMPT",
@@ -89,3 +97,10 @@ def test_inference_config_path_default_matches() -> None:
     from alphaswarm.settings import AppSettings
 
     assert AppSettings.model_fields["inference_config_path"].default == INFERENCE_CONFIG_PATH
+
+
+def test_peer_helpers_left_simulation() -> None:
+    import alphaswarm.simulation as simulation
+
+    for name in ("select_diverse_peers", "peer_rng", "_format_peer_context", "_build_diverse_peer_contexts"):
+        assert not hasattr(simulation, name), name

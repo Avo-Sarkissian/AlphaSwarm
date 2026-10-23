@@ -57,7 +57,7 @@ DECISION_JSON_SCHEMA: dict = {  # type: ignore[type-arg]
 #
 # peer_context is our own agents' model output, which an RSS headline can steer in
 # Round 1, so it gets the same treatment: sanitized line by line in
-# simulation._format_peer_context, fenced in the user message below, and announced
+# peers.format_peer_context, fenced in the user message below, and announced
 # by the fixed PEER_CONTEXT_GUARD (docs/DECISIONS.md#adr-security-2026-08).
 UNTRUSTED_DATA_OPEN = "<untrusted_market_data>"
 UNTRUSTED_DATA_CLOSE = "</untrusted_market_data>"

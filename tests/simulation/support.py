@@ -103,7 +103,7 @@ def _default_decisions(count: int) -> list[AgentDecision]:
     """Return a list of BUY AgentDecision for testing.
 
     Includes a non-empty rationale so peer-context builders emit real peer
-    lines: _format_peer_context now returns "" when every selected peer has
+    lines: format_peer_context now returns "" when every selected peer has
     empty content (F-19), so empty-rationale decisions would yield no peer
     context at all.
     """

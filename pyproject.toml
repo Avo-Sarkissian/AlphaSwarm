@@ -206,6 +206,7 @@ source_modules = [
     "alphaswarm.prompts.decision",
     "alphaswarm.prompts.modifiers",
     "alphaswarm.security.sanitize",
+    "alphaswarm.peers",
 ]
 forbidden_modules = ["alphaswarm.holdings"]
 # D-04 whitelist: alphaswarm.web.routes.holdings is the ONE permitted importer.

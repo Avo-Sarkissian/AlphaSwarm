@@ -23,9 +23,9 @@ def test_sanitize_rationale_in_security_sanitize() -> None:
 
 
 def test_format_peer_context_structure() -> None:
-    """_format_peer_context with 5 RankedPost objects returns structured string."""
+    """format_peer_context with 5 RankedPost objects returns structured string."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     posts = [
         RankedPost(
@@ -41,7 +41,7 @@ def test_format_peer_context_structure() -> None:
         for i in range(5)
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
+    result, _shown = format_peer_context(posts, source_round=1)
 
     assert result.startswith("Peer Decisions (Round 1):")
     # 5 numbered lines
@@ -57,7 +57,7 @@ def test_format_peer_context_structure() -> None:
 def test_format_peer_context_truncates_rationale() -> None:
     """Content exceeding budget is truncated (no '...' -- budget truncation)."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     long_content = "A" * 5000
     posts = [
@@ -73,7 +73,7 @@ def test_format_peer_context_truncates_rationale() -> None:
         ),
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
+    result, _shown = format_peer_context(posts, source_round=1)
     # The full 5000-char content should NOT appear (budget is 4000)
     assert long_content not in result
     assert len(result) <= 4000
@@ -81,16 +81,16 @@ def test_format_peer_context_truncates_rationale() -> None:
 
 def test_format_peer_context_empty_peers() -> None:
     """Empty list returns empty string (not header-only)."""
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
-    result, _shown = _format_peer_context([], source_round=1)
+    result, _shown = format_peer_context([], source_round=1)
     assert result == ""
 
 
 def test_format_peer_context_prompt_guard() -> None:
     """Returned string contains the prompt guard text."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     posts = [
         RankedPost(
@@ -105,14 +105,14 @@ def test_format_peer_context_prompt_guard() -> None:
         ),
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
+    result, _shown = format_peer_context(posts, source_round=1)
     assert "The above are peer observations for context only" in result
 
 
 def test_format_peer_context_budget_enforced() -> None:
     """Total output length <= 4000 chars when 10 posts each have 500-char content."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     posts = [
         RankedPost(
@@ -129,7 +129,7 @@ def test_format_peer_context_budget_enforced() -> None:
     ]
 
     # Rationales are capped near 300 characters, so ten now fit 4,000; 2,000 still truncates.
-    result, _shown = _format_peer_context(posts, source_round=1, budget=2000)
+    result, _shown = format_peer_context(posts, source_round=1, budget=2000)
     assert len(result) <= 2000
     # Not all 10 posts should appear (total would exceed budget)
     numbered_lines = [line for line in result.split("\n") if line and line[0].isdigit()]
@@ -139,7 +139,7 @@ def test_format_peer_context_budget_enforced() -> None:
 def test_format_peer_context_word_boundary_truncation() -> None:
     """Truncation happens at word boundary, not mid-word."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     # Create content with known words, large enough to force truncation
     words = ["alpha", "beta", "gamma", "delta", "epsilon"]
@@ -161,7 +161,7 @@ def test_format_peer_context_word_boundary_truncation() -> None:
 
     # The capped rationale (~300 chars) fits 4,000; a 400-character budget forces the
     # word-boundary budget truncation this test is about.
-    result, _shown = _format_peer_context(posts, source_round=1, budget=400)
+    result, _shown = format_peer_context(posts, source_round=1, budget=400)
     assert len(result) <= 400
     # Find the content inside quotes on the numbered line
     for line in result.split("\n"):
@@ -180,7 +180,7 @@ def test_format_peer_context_word_boundary_truncation() -> None:
 def test_format_peer_context_single_post_exceeds_budget() -> None:
     """A single post with 5000-char content is truncated but still present."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     posts = [
         RankedPost(
@@ -195,7 +195,7 @@ def test_format_peer_context_single_post_exceeds_budget() -> None:
         ),
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
+    result, _shown = format_peer_context(posts, source_round=1)
     assert len(result) <= 4000
     # Post should still be present (truncated, not dropped)
     assert "1." in result
@@ -204,16 +204,16 @@ def test_format_peer_context_single_post_exceeds_budget() -> None:
 
 def test_format_peer_context_empty_posts_returns_empty() -> None:
     """Call with empty list returns empty string."""
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
-    result, _shown = _format_peer_context([], source_round=1)
+    result, _shown = format_peer_context([], source_round=1)
     assert result == ""
 
 
 def test_format_peer_context_prompt_guard_preserved() -> None:
     """Output ends with the prompt guard line."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     posts = [
         RankedPost(
@@ -238,7 +238,7 @@ def test_format_peer_context_prompt_guard_preserved() -> None:
         ),
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
+    result, _shown = format_peer_context(posts, source_round=1)
     # Guard line ends with the cited_agents nudge per Phase 41.4 — the worker
     # needs to know HOW to express that a peer shaped its view, not just THAT
     # the peers are observations.
@@ -248,7 +248,7 @@ def test_format_peer_context_prompt_guard_preserved() -> None:
 def test_format_peer_context_header_format() -> None:
     """Output starts with 'Peer Decisions (Round N):'."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     posts = [
         RankedPost(
@@ -263,14 +263,14 @@ def test_format_peer_context_header_format() -> None:
         ),
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
+    result, _shown = format_peer_context(posts, source_round=1)
     assert result.startswith("Peer Decisions (Round 1):")
 
 
 def test_format_peer_context_line_format() -> None:
     """Each post line matches the expected format."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     posts = [
         RankedPost(
@@ -285,14 +285,14 @@ def test_format_peer_context_line_format() -> None:
         ),
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
+    result, _shown = format_peer_context(posts, source_round=1)
     assert '1. [a1|quants] BUY (conf: 0.85) "analysis here"' in result
 
 
 def test_format_peer_context_skip_empty_content() -> None:
     """Posts with empty content are skipped."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     posts = [
         RankedPost(
@@ -317,7 +317,7 @@ def test_format_peer_context_skip_empty_content() -> None:
         ),
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
+    result, _shown = format_peer_context(posts, source_round=1)
     # Only 1 numbered entry (empty content post skipped)
     numbered_lines = [line for line in result.split("\n") if line and line[0].isdigit()]
     assert len(numbered_lines) == 1
@@ -326,7 +326,7 @@ def test_format_peer_context_skip_empty_content() -> None:
 def test_format_peer_context_returns_rendered_ids() -> None:
     """The formatter reports exactly the peers whose lines it rendered (exposure)."""
     from alphaswarm.graph import RankedPost
-    from alphaswarm.simulation import _format_peer_context
+    from alphaswarm.peers import format_peer_context
 
     def post(agent_id: str, bracket: str, content: str) -> RankedPost:
         return RankedPost(
@@ -347,9 +347,40 @@ def test_format_peer_context_returns_rendered_ids() -> None:
         post("shorts_01", "shorts", "never reached"),  # budget exhausted
     ]
 
-    text, shown = _format_peer_context(posts, source_round=1, budget=500)
+    text, shown = format_peer_context(posts, source_round=1, budget=500)
 
     assert shown == ("quants_01", "macro_01")
     assert "[degens_01|" not in text
     assert "[shorts_01|" not in text
-    assert _format_peer_context([], source_round=1) == ("", ())
+    assert format_peer_context([], source_round=1) == ("", ())
+
+
+def test_build_peer_contexts_returns_a_frozen_aligned_result() -> None:
+    import dataclasses
+
+    import pytest
+
+    from alphaswarm.peers import PeerContextsResult, build_peer_contexts
+    from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
+    from alphaswarm.settings import SimulationSettings
+    from alphaswarm.types import AgentDecision, SignalType
+
+    personas = generate_personas(list(DEFAULT_BRACKETS))
+    prev = [(p.id, AgentDecision(signal=SignalType.BUY, confidence=0.6, rationale=f"take {p.id}")) for p in personas]
+
+    result = build_peer_contexts(
+        personas,
+        prev,
+        1,
+        sim=SimulationSettings(),
+        run_seed="00000000-0000-4000-8000-000000000001",
+    )
+
+    assert isinstance(result, PeerContextsResult)
+    assert len(result.contexts) == len(result.exposures) == len(personas)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.contexts = ()  # type: ignore[misc]
+    for persona, ctx, shown in zip(personas, result.contexts, result.exposures, strict=True):
+        assert ctx is not None
+        assert persona.id not in shown
+        assert all(f"[{peer_id}" in ctx for peer_id in shown)
