@@ -12,11 +12,11 @@ Usage:
 from __future__ import annotations
 
 import json
-import re
 
 import structlog
 from pydantic import ValidationError
 
+from alphaswarm.inference.structured import json_object_candidates, strip_code_fences
 from alphaswarm.personas import BRACKET_MODIFIERS
 from alphaswarm.prompts.modifiers import truncate_modifier
 from alphaswarm.types import (
@@ -30,71 +30,6 @@ from alphaswarm.types import (
 )
 
 logger = structlog.get_logger(component="parsing")
-
-# Strip markdown code fences (```json ... ``` or ``` ... ```)
-_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
-
-# Extract a JSON object from text. Uses greedy match to capture nested structures.
-_JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
-
-
-def _json_block_candidates(text: str) -> list[str]:
-    """Return candidate JSON-object substrings from `text`, best-first.
-
-    First candidate: the first balanced {...} object found by brace-depth
-    scanning from the first '{'. The greedy regex spans first '{' to LAST '}',
-    so two adjacent JSON objects or a stray trailing brace would force tier-3
-    even when a valid object exists. The depth scan is string-aware (braces
-    inside JSON string values are ignored, honoring backslash escapes), so a
-    rationale value containing '}' plus any later '}' no longer truncates the
-    candidate mid-string and silently drops the agent's vote (F-09).
-
-    Second candidate: the legacy greedy first-{..last-} span, kept as a
-    fallback so prior behavior is preserved when the balanced scan candidate
-    fails to parse.
-    """
-    candidates: list[str] = []
-    start = text.find("{")
-    if start == -1:
-        return candidates
-    depth = 0
-    in_string = False
-    escape = False
-    for i in range(start, len(text)):
-        ch = text[i]
-        if in_string:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_string = False
-            continue
-        if ch == '"':
-            in_string = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                candidates.append(text[start : i + 1])
-                break
-    greedy = _JSON_BLOCK_RE.search(text)
-    if greedy is not None and greedy.group() not in candidates:
-        candidates.append(greedy.group())
-    return candidates
-
-
-def _strip_code_fences(text: str) -> str:
-    """Remove markdown code fences, returning the inner content.
-
-    If no code fences found, returns the original text unchanged.
-    Addresses review concern: LLMs sometimes wrap JSON in markdown blocks.
-    """
-    match = _CODE_FENCE_RE.search(text)
-    if match:
-        return match.group(1).strip()
-    return text
 
 
 def _engine_fields(decision: AgentDecision) -> AgentDecision:
@@ -133,7 +68,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
         pass
 
     # Tier 2: Strip code fences, then regex extraction
-    cleaned = _strip_code_fences(raw)
+    cleaned = strip_code_fences(raw)
 
     # Try direct parse on cleaned text (code fence removal may yield pure JSON)
     try:
@@ -148,7 +83,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
         pass
 
     # Brace extraction on cleaned text (balanced scan first, greedy fallback)
-    for candidate in _json_block_candidates(cleaned):
+    for candidate in json_object_candidates(cleaned):
         try:
             result = AgentDecision.model_validate_json(candidate)
             logger.debug(
@@ -162,7 +97,7 @@ def parse_agent_decision(raw: str) -> AgentDecision:
 
     # Also try extraction on original text (in case code fence stripping lost context)
     if cleaned != raw:
-        for candidate in _json_block_candidates(raw):
+        for candidate in json_object_candidates(raw):
             try:
                 result = AgentDecision.model_validate_json(candidate)
                 logger.debug(
@@ -245,7 +180,7 @@ def parse_seed_event(raw: str, original_rumor: str) -> ParsedSeedResult:
         return ParsedSeedResult(seed_event=result, parse_tier=1)
 
     # Tier 2: Strip code fences, then regex extraction
-    cleaned = _strip_code_fences(raw)
+    cleaned = strip_code_fences(raw)
     # Try cleaned text directly
     result = _try_parse_seed_json(cleaned, original_rumor)
     if result is not None:
@@ -253,7 +188,7 @@ def parse_seed_event(raw: str, original_rumor: str) -> ParsedSeedResult:
         return ParsedSeedResult(seed_event=result, parse_tier=2)
 
     # Brace extraction on cleaned text (balanced scan first, greedy fallback)
-    for candidate in _json_block_candidates(cleaned):
+    for candidate in json_object_candidates(cleaned):
         result = _try_parse_seed_json(candidate, original_rumor)
         if result is not None:
             logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
@@ -261,7 +196,7 @@ def parse_seed_event(raw: str, original_rumor: str) -> ParsedSeedResult:
 
     # Extraction on original text if different
     if cleaned != raw:
-        for candidate in _json_block_candidates(raw):
+        for candidate in json_object_candidates(raw):
             result = _try_parse_seed_json(candidate, original_rumor)
             if result is not None:
                 logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
@@ -326,7 +261,7 @@ def parse_modifier_response(raw: str) -> ParsedModifiersResult:
         pass
 
     # Tier 2: Strip code fences, then regex extraction
-    cleaned = _strip_code_fences(raw)
+    cleaned = strip_code_fences(raw)
     for text in (cleaned, raw) if cleaned != raw else (cleaned,):
         try:
             data = json.loads(text)
@@ -336,7 +271,7 @@ def parse_modifier_response(raw: str) -> ParsedModifiersResult:
                 return ParsedModifiersResult(modifiers=modifiers, parse_tier=2)
         except (json.JSONDecodeError, ValueError):
             pass
-        for candidate in _json_block_candidates(text):
+        for candidate in json_object_candidates(text):
             try:
                 data = json.loads(candidate)
                 modifiers = _validate_and_fill(data)

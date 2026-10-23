@@ -151,6 +151,7 @@ source_modules = [
     "alphaswarm.inference.provider",
     "alphaswarm.inference.rate_limit",
     "alphaswarm.inference.schema",
+    "alphaswarm.inference.structured",
     "alphaswarm.inference.types",
     "alphaswarm.ingestion",
     "alphaswarm.ingestion.fixture",

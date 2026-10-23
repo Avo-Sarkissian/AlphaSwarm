@@ -6,6 +6,7 @@ returns plain Python dicts (JSON-serialisable).  Input dicts are never mutated.
 Consumers:
     OpenAI adapter  — to_openai_response_format / to_openai_json_object
     Anthropic adapter — to_anthropic_tool / extract_anthropic_tool_json
+    chat_structured   — to_portable_schema
 """
 
 from __future__ import annotations
@@ -229,3 +230,44 @@ def _block_type(block: Any) -> str:
     if isinstance(block, dict):
         return str(block.get("type", "<unknown>"))
     return str(getattr(block, "type", "<unknown>"))
+
+
+def to_portable_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of a pydantic JSON schema that every provider accepts.
+
+    Inlines local ``#/$defs/<Name>`` references, drops ``$defs`` and the
+    cosmetic ``title`` keyword (a *property* named ``title`` is kept). The
+    input is never mutated. ``chat_structured`` applies it before
+    ``response_schema`` reaches a provider (docs/DECISIONS.md#adr-structured-output).
+
+    Raises:
+        ValueError: on a non-local or recursive ``$ref``.
+    """
+    defs: dict[str, Any] = schema.get("$defs", {})
+
+    def _node(node: Any, seen: tuple[str, ...]) -> Any:
+        if isinstance(node, list):
+            return [_node(item, seen) for item in node]
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str):
+            if not ref.startswith("#/$defs/"):
+                raise ValueError(f"unsupported schema reference: {ref}")
+            name = ref.removeprefix("#/$defs/")
+            if name in seen:
+                raise ValueError(f"recursive schema reference: {name}")
+            siblings = {key: value for key, value in node.items() if key != "$ref"}
+            return _node({**defs[name], **siblings}, (*seen, name))
+        out: dict[str, Any] = {}
+        for key, value in node.items():
+            if key in ("$defs", "title"):
+                continue
+            if key == "properties" and isinstance(value, dict):
+                out[key] = {prop: _node(sub, seen) for prop, sub in value.items()}
+            else:
+                out[key] = _node(value, seen)
+        return out
+
+    result: dict[str, Any] = _node(schema, ())
+    return result

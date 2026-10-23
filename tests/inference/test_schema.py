@@ -338,3 +338,45 @@ class TestExtractAnthropicToolJson:
         ]
         result = extract_anthropic_tool_json(blocks)
         assert json.loads(result) == first_payload
+
+
+class TestToPortableSchema:
+    """to_portable_schema inlines $refs and drops cosmetic keys (docs/DECISIONS.md#adr-structured-output)."""
+
+    def test_inlines_refs_drops_defs_and_titles_keeps_a_property_named_title(self) -> None:
+        import copy
+
+        from pydantic import BaseModel
+
+        from alphaswarm.inference.schema import to_portable_schema
+
+        class Leaf(BaseModel):
+            title: str
+            score: float
+
+        class Root(BaseModel):
+            name: str
+            leaves: list[Leaf]
+
+        original = Root.model_json_schema()
+        snapshot = copy.deepcopy(original)
+        portable = to_portable_schema(original)
+
+        assert original == snapshot  # never mutated
+        assert "$defs" not in portable and "title" not in portable
+        leaf = portable["properties"]["leaves"]["items"]
+        assert "$ref" not in leaf
+        assert set(leaf["properties"]) == {"title", "score"}  # the property survives
+        assert "title" not in leaf["properties"]["score"]
+
+    def test_recursive_reference_is_rejected(self) -> None:
+        import pytest
+
+        from alphaswarm.inference.schema import to_portable_schema
+
+        schema = {
+            "$defs": {"Node": {"type": "object", "properties": {"next": {"$ref": "#/$defs/Node"}}}},
+            "$ref": "#/$defs/Node",
+        }
+        with pytest.raises(ValueError, match="recursive schema reference: Node"):
+            to_portable_schema(schema)
