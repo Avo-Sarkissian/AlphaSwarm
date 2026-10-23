@@ -11,16 +11,20 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 import structlog
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from alphaswarm.parsing import parse_modifier_response, parse_seed_event
+from alphaswarm.errors import StructuredOutputError
+from alphaswarm.inference.structured import chat_structured
+from alphaswarm.parsing import parse_modifier_response
 from alphaswarm.personas import compute_prompt_template_hash, load_bracket_configs
 from alphaswarm.prompts.modifiers import MODIFIER_GENERATION_PROMPT, build_modifier_user_message
+from alphaswarm.types import ParsedSeedResult, SeedEntity, SeedEvent, normalize_signed_unit
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.settings import AppSettings
-    from alphaswarm.types import ParsedModifiersResult, ParsedSeedResult, SeedEvent
+    from alphaswarm.types import ParsedModifiersResult
 
 logger = structlog.get_logger(component="seed")
 
@@ -42,6 +46,46 @@ ORCHESTRATOR_SYSTEM_PROMPT = (
     "\n"
     'Respond with JSON: {"entities": [...], "overall_sentiment": float}'
 )
+
+
+class SeedLLMOutput(BaseModel):
+    """The orchestrator's seed reply.
+
+    Lenient on purpose: extra keys are ignored, an entity that fails validation
+    is dropped instead of failing the reply, and numbers are clamped by the
+    ``SeedEntity`` validators (docs/DECISIONS.md#adr-structured-output).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    entities: list[SeedEntity]
+    overall_sentiment: float
+
+    @field_validator("entities", mode="before")
+    @classmethod
+    def _drop_invalid_entities(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value  # null or a non-list fails validation and triggers the retry
+        kept: list[SeedEntity] = []
+        for item in value:
+            try:
+                kept.append(SeedEntity.model_validate(item))
+            except ValidationError:
+                continue
+        return kept
+
+    @field_validator("overall_sentiment", mode="before")
+    @classmethod
+    def _clamp_sentiment(cls, value: object) -> object:
+        return normalize_signed_unit(value)
+
+    def to_seed_event(self, raw_rumor: str) -> SeedEvent:
+        """Domain event; ``raw_rumor`` always comes from the caller, never the model."""
+        return SeedEvent(
+            raw_rumor=raw_rumor,
+            entities=list(self.entities),
+            overall_sentiment=self.overall_sentiment,
+        )
 
 
 async def inject_seed(
@@ -74,27 +118,28 @@ async def inject_seed(
     # 1. Load orchestrator model (per D-07)
     await orchestrator.prepare()
     try:
-        # 2. Chat with json_mode=True, think=False (think=True added ~265s/call
-        # with marginal quality gain on this workload; see
-        # docs/DECISIONS.md#adr-think-off for revisit triggers and how to flip back).
-        inference_result = await orchestrator.chat(
-            messages=[
-                {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT},
-                {"role": "user", "content": rumor},
-            ],
-            json_mode=True,
-        )
-
-        # 3. Parse with 3-tier fallback (per D-06), returns ParsedSeedResult
-        raw_content = inference_result.content
-        parsed_result = parse_seed_event(raw_content, rumor)
-
-        # Log warning on fallback (addresses review concern #1: silent parse failure)
-        if parsed_result.parse_tier == 3:
-            logger.warning(
-                "seed_parse_used_fallback",
+        # 2-3. One schema-constrained call with parse fallbacks and one retry
+        # (docs/DECISIONS.md#adr-structured-output); think=False stays inside the
+        # Ollama adapter (docs/DECISIONS.md#adr-think-off).
+        try:
+            structured = await chat_structured(
+                orchestrator,
+                [
+                    {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT},
+                    {"role": "user", "content": rumor},
+                ],
+                SeedLLMOutput,
+            )
+        except StructuredOutputError:
+            logger.warning("seed_parse_used_fallback", parse_tier=3)
+            parsed_result = ParsedSeedResult(
+                seed_event=SeedEvent(raw_rumor=rumor, entities=[], overall_sentiment=0.0),
                 parse_tier=3,
-                raw_preview=raw_content[:300],
+            )
+        else:
+            parsed_result = ParsedSeedResult(
+                seed_event=structured.value.to_seed_event(rumor),
+                parse_tier=structured.parse_tier,
             )
 
         # 4. Generate modifiers while the orchestrator is still loaded, BEFORE

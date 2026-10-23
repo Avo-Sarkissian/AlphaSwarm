@@ -25,9 +25,6 @@ from alphaswarm.types import (
     BracketType,
     ErrorKind,
     ParsedModifiersResult,
-    ParsedSeedResult,
-    SeedEntity,
-    SeedEvent,
     SignalType,
 )
 
@@ -119,93 +116,6 @@ def parse_agent_decision(raw: str) -> AgentDecision:
         confidence=0.0,
         rationale=f"Parse failed: {raw[:200]}",
         error_kind="parse",
-        parse_tier=3,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Seed event parsing (Phase 5)
-# ---------------------------------------------------------------------------
-
-
-def _try_parse_seed_json(text: str, original_rumor: str) -> SeedEvent | None:
-    """Attempt to parse text as JSON into SeedEvent. Returns None on any failure."""
-    try:
-        data = json.loads(text)
-    except (json.JSONDecodeError, ValueError):
-        return None
-
-    if not isinstance(data, dict):
-        return None
-
-    try:
-        # Parse entities individually, skip invalid ones
-        raw_entities = data.get("entities", [])
-        if not isinstance(raw_entities, list):
-            return None
-        entities: list[SeedEntity] = []
-        for e in raw_entities:
-            try:
-                entities.append(SeedEntity.model_validate(e))
-            except (ValidationError, TypeError):
-                continue
-
-        overall_sentiment = float(data.get("overall_sentiment", 0.0))
-        return SeedEvent(
-            raw_rumor=original_rumor,
-            entities=entities,
-            overall_sentiment=overall_sentiment,
-        )
-    except (ValidationError, TypeError, ValueError, KeyError):
-        return None
-
-
-def parse_seed_event(raw: str, original_rumor: str) -> ParsedSeedResult:
-    """Parse orchestrator output into SeedEvent with 3-tier fallback.
-
-    Returns ParsedSeedResult with parse_tier metadata so callers can
-    distinguish genuine empty extraction (tier 1/2) from parse failure (tier 3).
-
-    Args:
-        raw: Raw string from orchestrator LLM response (message.content).
-        original_rumor: The original rumor text, injected as raw_rumor.
-
-    Returns:
-        ParsedSeedResult -- always returns, never raises.
-    """
-    # Tier 1: Direct JSON parse
-    result = _try_parse_seed_json(raw, original_rumor)
-    if result is not None:
-        logger.debug("seed_parse_succeeded", parse_tier=1, entity_count=len(result.entities))
-        return ParsedSeedResult(seed_event=result, parse_tier=1)
-
-    # Tier 2: Strip code fences, then regex extraction
-    cleaned = strip_code_fences(raw)
-    # Try cleaned text directly
-    result = _try_parse_seed_json(cleaned, original_rumor)
-    if result is not None:
-        logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
-        return ParsedSeedResult(seed_event=result, parse_tier=2)
-
-    # Brace extraction on cleaned text (balanced scan first, greedy fallback)
-    for candidate in json_object_candidates(cleaned):
-        result = _try_parse_seed_json(candidate, original_rumor)
-        if result is not None:
-            logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
-            return ParsedSeedResult(seed_event=result, parse_tier=2)
-
-    # Extraction on original text if different
-    if cleaned != raw:
-        for candidate in json_object_candidates(raw):
-            result = _try_parse_seed_json(candidate, original_rumor)
-            if result is not None:
-                logger.debug("seed_parse_succeeded", parse_tier=2, entity_count=len(result.entities))
-                return ParsedSeedResult(seed_event=result, parse_tier=2)
-
-    # Tier 3: Fallback
-    logger.debug("seed_parse_failed_all_tiers", parse_tier=3, raw_preview=raw[:500])
-    return ParsedSeedResult(
-        seed_event=SeedEvent(raw_rumor=original_rumor, entities=[], overall_sentiment=0.0),
         parse_tier=3,
     )
 

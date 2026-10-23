@@ -194,7 +194,7 @@ class SeedEvent(BaseModel, frozen=True):
 
 @dataclasses.dataclass(frozen=True)
 class ParsedSeedResult:
-    """Result of parse_seed_event() with parse-tier observability.
+    """Result of seed extraction (seed.inject_seed) with parse-tier observability.
 
     Addresses review concern: Tier-3 fallback returning empty SeedEvent was
     indistinguishable from genuine "no entities found". parse_tier makes the
