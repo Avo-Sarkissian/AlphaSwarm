@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import re
+from collections.abc import Sequence
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,13 +15,23 @@ from neo4j.exceptions import ServiceUnavailable
 
 from alphaswarm.errors import Neo4jUnavailableError
 from alphaswarm.readiness import (
+    EXPECTED_OLLAMA_ENV,
+    LAUNCHCTL_FIX,
+    MLX_FIX,
     NEO4J_AUTH_FIX,
     NEO4J_FIX,
     OLLAMA_FIX,
+    CommandResult,
+    CommandRunner,
     ComponentStatus,
+    check_docker,
+    check_launchctl_env,
+    check_mlx,
     check_neo4j,
     check_ollama,
+    run_command,
 )
+from alphaswarm.settings import PROJECT_ROOT
 
 
 class _Graph:
@@ -160,3 +173,151 @@ async def test_ollama_down_or_slow(behaviour: str) -> None:
 async def test_not_required_when_no_role_is_local() -> None:
     ollama, aliases = await check_ollama(_Ollama(behaviour="down"), [], required=False)  # type: ignore[arg-type]
     assert (ollama.required, aliases.required) == (False, False)
+
+
+# ---------------------------------------------------------------------------
+# Host probes for the doctor: MLX, launchctl, Docker (all commands faked)
+# ---------------------------------------------------------------------------
+
+
+def _runner(
+    *,
+    server_env: dict[str, str] | None = None,
+    launchctl: dict[str, str] | None = None,
+    docker: CommandResult | None = None,
+) -> CommandRunner:
+    async def run(argv: Sequence[str]) -> CommandResult:
+        cmd = tuple(argv)
+        if cmd[0] == "pgrep":
+            return CommandResult(0, "4242\n") if server_env is not None else CommandResult(1, "")
+        if cmd[0] == "ps":
+            env = " ".join(f"{k}={v}" for k, v in (server_env or {}).items())
+            return CommandResult(
+                0,
+                "  PID   TT  STAT      TIME COMMAND\n"
+                f" 4242   ??  S      0:01.00 /Applications/Ollama.app/ollama serve {env} "
+                "HOME=/Users/someone SECRET_TOKEN=do-not-print\n",
+            )
+        if cmd[:2] == ("launchctl", "getenv"):
+            return CommandResult(0, (launchctl or {}).get(cmd[2], "") + "\n")
+        if cmd[0] == "docker":
+            return docker if docker is not None else CommandResult(1, "")
+        raise AssertionError(f"unexpected command {cmd}")
+
+    return run
+
+
+async def test_mlx_ok_when_the_running_server_has_it(tmp_path: Path) -> None:
+    status = await check_mlx(
+        required=True,
+        run=_runner(server_env={"OLLAMA_USE_MLX": "1"}),
+        server_log=tmp_path / "missing.log",
+    )
+    assert status.ok and status.required
+    assert "SECRET_TOKEN" not in (status.detail or "") and "HOME" not in (status.detail or "")
+
+
+async def test_mlx_fails_when_the_running_server_lacks_it(tmp_path: Path) -> None:
+    """With OLLAMA_USE_MLX unset, the doctor reports the llama.cpp fallback."""
+    status = await check_mlx(
+        required=True,
+        run=_runner(server_env={"OLLAMA_NUM_PARALLEL": "4"}),
+        server_log=tmp_path / "missing.log",
+    )
+    assert (status.ok, status.fix) == (False, MLX_FIX)
+    assert "OLLAMA_USE_MLX is unset" in (status.detail or "")
+
+
+async def test_mlx_falls_back_to_the_server_log(tmp_path: Path) -> None:
+    log = tmp_path / "server.log"
+    log.write_text('time=... level=INFO msg="MLX engine initialized"\n', encoding="utf-8")
+    status = await check_mlx(required=False, run=_runner(server_env=None), server_log=log)
+    assert status.ok and not status.required
+
+
+async def test_mlx_unknown_without_env_or_log(tmp_path: Path) -> None:
+    status = await check_mlx(required=True, run=_runner(server_env=None), server_log=tmp_path / "no.log")
+    assert status.ok is False
+
+
+async def test_launchctl_ok_when_values_match_and_agent_exists(tmp_path: Path) -> None:
+    agent = tmp_path / "com.alphaswarm.ollama-env.plist"
+    agent.write_text("<plist/>", encoding="utf-8")
+    status = await check_launchctl_env(
+        run=_runner(launchctl=dict(EXPECTED_OLLAMA_ENV)), launch_agent=agent, platform="darwin"
+    )
+    assert status.ok and status.required is False
+
+
+async def test_launchctl_reports_lost_env_and_missing_agent(tmp_path: Path) -> None:
+    status = await check_launchctl_env(
+        run=_runner(launchctl={"OLLAMA_NUM_PARALLEL": "16"}),
+        launch_agent=tmp_path / "absent.plist",
+        platform="darwin",
+    )
+    assert (status.ok, status.fix) == (False, LAUNCHCTL_FIX)
+    detail = status.detail or ""
+    assert "OLLAMA_USE_MLX unset (expected 1)" in detail
+    assert "OLLAMA_NUM_PARALLEL '16' (expected 4)" in detail
+    assert "lost on reboot" in detail
+
+
+async def test_launchctl_is_skipped_off_macos() -> None:
+    """A Linux host never calls launchctl."""
+
+    async def _no_run(argv: Sequence[str]) -> CommandResult:
+        raise AssertionError("launchctl called off macOS")
+
+    status = await check_launchctl_env(run=_no_run, platform="linux")
+    assert status.ok and status.detail == "not macOS: skipped"
+
+
+@pytest.mark.parametrize(
+    ("result", "ok", "fragment"),
+    [
+        (CommandResult(0, "healthy\n"), True, "healthy"),
+        (CommandResult(0, "unhealthy\n"), False, "is unhealthy"),
+        (CommandResult(1, ""), False, "not found"),
+        (CommandResult(127, ""), False, "docker CLI not found"),
+        (CommandResult(124, ""), False, "did not answer"),
+    ],
+)
+async def test_docker_status(result: CommandResult, ok: bool, fragment: str) -> None:
+    status = await check_docker(run=_runner(docker=result))
+    assert status.ok is ok and status.required is False
+    assert fragment in (status.detail or "")
+
+
+async def test_docker_finds_a_hand_made_container_named_neo4j() -> None:
+    """The Compose name is tried first, then a container created with docker run."""
+    seen: list[str] = []
+
+    async def run(argv: Sequence[str]) -> CommandResult:
+        seen.append(argv[-1])
+        return CommandResult(0, "running\n") if argv[-1] == "neo4j" else CommandResult(1, "")
+
+    status = await check_docker(run=run)
+    assert seen == ["alphaswarm-neo4j", "neo4j"]
+    assert (status.ok, status.detail) == (True, "neo4j running")
+
+
+async def test_run_command_reports_a_missing_binary() -> None:
+    assert (await run_command(("alphaswarm-no-such-binary-xyz",))).returncode == 127
+
+
+def _script_values() -> dict[str, str]:
+    shared = PROJECT_ROOT / "scripts" / "ollama.env"
+    if shared.is_file():
+        pairs = (
+            line.split("=", 1)
+            for line in shared.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#") and "=" in line
+        )
+        return {k.strip(): v.strip() for k, v in pairs}
+    text = (PROJECT_ROOT / "scripts" / "configure_ollama_app_env.sh").read_text(encoding="utf-8")
+    return dict(re.findall(r'^\s*"(OLLAMA_[A-Z_]+) ([^"]+)"', text, flags=re.MULTILINE))
+
+
+def test_expected_env_matches_the_setup_scripts() -> None:
+    """The doctor and the setup scripts must agree on every value."""
+    assert _script_values() == dict(EXPECTED_OLLAMA_ENV)
