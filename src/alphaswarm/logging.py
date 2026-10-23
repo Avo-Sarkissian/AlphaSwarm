@@ -278,10 +278,14 @@ def _pre_chain(json_output: bool) -> list[structlog.types.Processor]:
     # Tracebacks never include local variables: frames hold API keys, prompts and
     # portfolio objects (docs/DECISIONS.md#adr-holdings-isolation). structlog's stock
     # dict_tracebacks and its default (Rich) console formatter both use
-    # show_locals=True, so neither is used. In JSON mode the traceback becomes a
-    # structured "exception" list BEFORE redaction, so the redactor also walks it.
+    # show_locals=True, so neither is used. The traceback is rendered BEFORE
+    # redaction in both modes, so the redactor also scrubs its text: JSON mode makes
+    # a structured "exception" list, console mode (ALPHASWARM_DEBUG=true) a plain
+    # string that ConsoleRenderer prints as it is.
     if json_output:
         chain.append(structlog.processors.ExceptionRenderer(ExceptionDictTransformer(show_locals=False)))
+    else:
+        chain.append(structlog.processors.format_exc_info)
     chain.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer (Pitfall 1)
     return chain
 

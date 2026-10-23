@@ -70,3 +70,18 @@ def test_scrub_runs_in_the_configured_chain(capsys: pytest.CaptureFixture[str]) 
     out = capsys.readouterr().out
     assert "sk-test-ABCDEFGHIJKLMNOP1234" not in out
     assert "[REDACTED_SECRET]" in out
+
+
+@pytest.mark.parametrize("json_output", [True, False], ids=["json", "console"])
+def test_exception_text_is_scrubbed_in_both_modes(json_output: bool, capsys: pytest.CaptureFixture[str]) -> None:
+    """The traceback is rendered before the redactor in console mode too
+    (ALPHASWARM_DEBUG=true), so a key quoted in an exception message is scrubbed."""
+    configure_logging(log_level="INFO", json_output=json_output)
+    try:
+        raise RuntimeError("401 for sk-test-ABCDEFGHIJKLMNOP1234")
+    except RuntimeError:
+        structlog.get_logger(component="test").exception("upstream_error")
+    out = capsys.readouterr().out
+    assert "sk-test-ABCDEFGHIJKLMNOP1234" not in out
+    assert "RuntimeError" in out
+    assert "401 for [REDACTED_SECRET]" in out

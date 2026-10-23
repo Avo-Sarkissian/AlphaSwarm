@@ -151,6 +151,17 @@ def test_console_mode_bridges_too() -> None:
     assert FAKE_KEY not in buffer.getvalue()
 
 
+def test_console_mode_scrubs_bridged_exception_text() -> None:
+    buffer = io.StringIO()
+    configure_logging(log_level="INFO", json_output=False, stream=buffer)
+    try:
+        raise RuntimeError(f"upstream rejected {FAKE_KEY}")
+    except RuntimeError:
+        logging.getLogger("uvicorn.error").exception("Exception in ASGI application")
+    assert "RuntimeError: upstream rejected [REDACTED_SECRET]" in buffer.getvalue()
+    assert FAKE_KEY not in buffer.getvalue()
+
+
 def test_configuring_twice_installs_one_bridge_handler() -> None:
     configure_logging(log_level="INFO", json_output=True, stream=io.StringIO())
     configure_logging(log_level="INFO", json_output=True, stream=io.StringIO())

@@ -335,7 +335,7 @@ Contents
 - **Decision:** Portfolio data never enters swarm prompts, Neo4j, WebSocket frames, or logs. It reaches only the post-simulation advisory call. Enforcement:
   1. An import-linter `forbidden` contract allows only `alphaswarm.advisory` and `alphaswarm.web.routes.holdings` to import `alphaswarm.holdings` (`pyproject.toml [tool.importlinter]`; [p37-d-04](#p37-d-04)).
   2. A four-surface sentinel canary runs the real `synthesize()` (`tests/invariants/test_holdings_isolation.py`).
-  3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)). Tracebacks are rendered without local variables in both modes (JSON: `ExceptionDictTransformer(show_locals=False)` before the redactor; console: `plain_traceback`), so frames never leak keys or portfolio objects (2026-10).
+  3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)). Tracebacks are rendered without local variables in both modes (JSON: `ExceptionDictTransformer(show_locals=False)`; console: structlog's plain-text `format_exc_info`), so frames never leak keys or portfolio objects, and both render before the redactor, so it also scrubs the traceback text (2026-10).
   4. Holdings are loaded into memory at lifespan startup (`PortfolioCache`, re-read when the CSV changes) and never persisted ([p39-d-07](#p39-d-07)).
   5. The owner's curated sector map lives in the gitignored `data/sector_map.local.json`; the repository ships only the fictional `examples/sector_map.example.json`. `scripts/ticker_scan.py` (count-only) checks that `src/`, `tests/` and `frontend/src/` name none of the owner's tickers (2026-10).
 - **Rationale:** Uncontaminated consensus, plus privacy for real brokerage data.
