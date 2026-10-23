@@ -33,14 +33,14 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `security/sanitize.py`: sanitizers for entity names, headlines, rationales and peer rationales.
   - `errors.py`: exception types.
 - **Engine**
-  - `seed.py`: `inject_seed`. The orchestrator parses the seed and generates the persona modifiers and is then released; only after that does one atomic write create the Cycle (status `running`) and its Entities, so a seeding failure, teardown included, leaves no Cycle. `generate_modifiers` lives here too.
+  - `seed.py`: `inject_seed`. The orchestrator parses the seed (`SeedLLMOutput`) and generates the persona modifiers (`ModifiersLLMOutput`), both through `chat_structured`, and is then released; only after that does one atomic write create the Cycle (status `running`) and its Entities, so a seeding failure, teardown included, leaves no Cycle. `generate_modifiers` lives here too.
   - `simulation.py`: `run_simulation`, a loop over `settings.num_rounds`: seeding, the Round 1 market context, phase transitions, one worker load and one governor session for every round, the cycle metrics and status ([adr-round-runner](DECISIONS.md#adr-round-runner)).
   - `rounds.py`: `run_round` (shock-gate side effects, peers, dispatch, round-abort check, `persist_round`, influence edges, bracket summaries, callback), `SimulationDeps`, `RoundContext`, `RoundOutcome`, shift metrics.
   - `peers.py`: seeded stratified peer selection, peer-context rendering and exposures, the seeded control holdout and the own-prior lines.
   - `metrics.py`: pure measurement functions; `split_flips` splits a round's flips between the control holdout and the treated readers.
   - `batch_dispatcher.py`: `dispatch_wave`, a TaskGroup of 100 jittered inferences.
   - `worker.py`: `AgentWorker`, the decision JSON schema, and the fence for untrusted market data.
-  - `parsing.py`: 3-tier parsers.
+  - `parsing.py`: `parse_agent_decision`, the worker decisions' 3-tier parser; it stamps each decision's `parse_tier`.
   - `episodes.py`: `EpisodeRecord`, `compute_flip_type`, `EntityRef`/`EntityMatch`, `match_entities`, `new_decision_ids`.
   - `context_formatter.py`.
 - **Concurrency**
@@ -51,14 +51,14 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 - **Inference**
   - `ollama_client.py`: backoff, plus the rule that `num_ctx` is never sent per request.
   - `ollama_models.py`: model load and unload.
-  - `inference/`: provider protocol and types; the `ollama_provider`, `openai_provider`, and `anthropic_provider` adapters; `schema` (structured-output translation per vendor); `budget`; `factory` (`build_providers`, `build_controller`, `inference_mode`).
+  - `inference/`: provider protocol and types; the `ollama_provider`, `openai_provider`, and `anthropic_provider` adapters; `schema` (structured-output translation per vendor); `structured` (`chat_structured`: every orchestrator reply, decoded against its output model with tier-2 extraction and one validated retry); `budget`; `factory` (`build_providers`, `build_controller`, `inference_mode`).
 - **Persistence**
   - `graph.py`: GraphStateManager. It covers schema, writes, influence edges, cycle status, and the report, replay, and interview queries.
   - `fsutil.py`: `atomic_write_text`, the all-or-nothing writer for report and advisory files.
 - **Ingestion**
   - `ingestion/`: MarketDataProvider and NewsProvider protocols with fakes, the yfinance and RSS providers, and frozen pydantic slices. Providers never raise.
 - **Post-run features**
-  - `report.py` + `templates/report/*.j2`: the ReAct engine and the Jinja assembler.
+  - `report.py` + `templates/report/*.j2`: data collection, one grounded narrative call (`chat_structured`), rendering and sections.
   - `interview.py`: a multi-turn engine keeping up to 12 user/assistant pairs; older pairs are folded six at a time into a summary.
   - `advisory/`: synthesis, prompt, sector map, types.
   - `holdings/`: CSV loader and types. Only `advisory` and `web.routes.{holdings,advisory}` may import it; import-linter enforces this.
@@ -84,17 +84,16 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 
    Then it calls `run_simulation`.
 2. **Seed.** `inject_seed` runs these steps:
-   - `orchestrator.prepare`, then a JSON-mode chat;
-   - `parse_seed_event`;
-   - `generate_modifiers`;
+   - `orchestrator.prepare`, then one `chat_structured` call that decodes the reply as `SeedLLMOutput` (a reply that never validates leaves an empty SeedEvent, tier 3);
+   - `generate_modifiers`, a second `chat_structured` call (`ModifiersLLMOutput`; the static modifiers when it never validates);
    - `orchestrator.teardown`;
    - `create_cycle_with_seed_event`, which writes Cycle (status `running`), Entity, and MENTIONS in one transaction.
 
    Then `generate_personas` builds 100 prompts. Each one is a bracket template plus a round-robin modifier, a per-cycle focus line, and the JSON instructions.
 3. **Market context (Round 1 only).** Ticker-shaped entities go to `asyncio.gather(yfinance.get_prices, rss.get_headlines)`. The results become a ContextPacket, which `format_market_context` turns into one block, fenced as untrusted data inside the user message. A point-in-time run (`run --context-fixture`) skips the fetch: its fixture packet goes straight to `format_market_context`, and supplied providers are never called.
-4. **Round 1.** `run_simulation` loads the worker once here; it stays loaded until the last round ends. `dispatch_wave` runs 100 tasks. Each one waits out its jitter, calls `controller.acquire`, then `AgentWorker.infer` (schema-constrained decode, per-bracket temperature), then `parse_agent_decision`. Results stream into the StateStore as they finish. Then:
+4. **Round 1.** `run_simulation` loads the worker once here; it stays loaded until the last round ends. `dispatch_wave` runs 100 tasks. Each one waits out its jitter, calls `controller.acquire`, then `AgentWorker.infer` (schema-constrained decode, per-bracket temperature), then `parse_agent_decision`, which records the decision's `parse_tier` (the round metrics count them as `r{n}_parse_tier1..3`). Results stream into the StateStore as they finish. Then:
    - the round-abort check (`RoundFailedError` when more than `round_abort_failure_percent` of agents failed);
-   - `persist_round`: Decisions (with `error_kind`), CITED, RationaleEpisodes and REFERENCES in one transaction;
+   - `persist_round`: Decisions (with `error_kind` and `parse_tier`), CITED, RationaleEpisodes and REFERENCES in one transaction;
    - bracket summaries.
 5. **Rounds 2..N.** Every round, the first included, is one `run_round` call. After each later round has started, `run_simulation` consumes a shock queued while the shock window was open; `run_round` persists it, appends every applied shock to all later rounds' user message (oldest first) and records it on the StateStore. Peer contexts are built in memory from the previous round's decisions, per reader, by `build_peer_contexts` (`peers.py`):
    - each candidate's weight is base reach plus global citation share, plus `SimulationSettings.personal_boost` (0.3) if the reader cited that agent last round;
@@ -112,7 +111,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - The phase becomes COMPLETE.
 
    If anything in steps 1-6 fails instead (an invalid inference config, a hard stop, `RoundFailedError`, a Neo4j error), `SimulationManager._run` publishes a UI-safe `RunError` as `StateStore.last_error`, logs the exception once with its traceback, and resets the phase to IDLE. A cancelled run sets no error.
-7. **Post-run pipeline.** `PostRunPipeline` runs the advisory when holdings are loaded (`PortfolioCache`) and allowed, writing `advisory/{id}_advisory.json`, then always the report (`reports/{id}_report.md`: the ReAct loop, up to 10 orchestrator calls over 7 graph tools, rendered through Jinja). Both write atomically; job status is in the StateStore.
+7. **Post-run pipeline.** `PostRunPipeline` runs the advisory when holdings are loaded (`PortfolioCache`) and allowed, writing `advisory/{id}_advisory.json`, then always the report (`reports/{id}_report.md` plus a `{id}_report.json` sections sidecar: the report reads run concurrently, one grounded orchestrator call writes the narrative through `chat_structured`, and Jinja renders the tables). Both write atomically; job status is in the StateStore.
 8. **Live UI.**
    - The broadcaster sends a versioned `StateFrame` over `/ws/state`: `schema_version`, `mode`, `cycle_id`, `num_rounds`, `edges_version`, `jobs`, `last_error`, the shock fields, agent states, rationale entries with `seq`/`ts`, bracket summaries, the data-source audit, and governor metrics with the live host memory.
    - On the frontend, `useWebSocket` feeds `adapter/frame.ts`, which updates the React contexts (`FrameProviders`: Connection, FrameMeta, Telemetry, Agents, Rationales; plus Edges), which render the SVG graph.
@@ -128,7 +127,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
          modifiers_json, prompt_template_hash, <metrics>, metrics_recorded_at})
     -[:MENTIONS {relevance, sentiment}]->(:Entity {name, type})
 (:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment,
-                              rationale, control, error_kind, narrative})
+                              rationale, control, error_kind, parse_tier, narrative})
 (:Decision)-[:CITED]->(:Agent)
 (:Decision)-[:HAS_EPISODE]->(:RationaleEpisode {peer_context_received, flip_type, round, cycle_id})
 (:Decision)-[:REFERENCES {match_type: "token"}]->(:Entity)      # cycle's own (name, type)

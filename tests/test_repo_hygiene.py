@@ -150,6 +150,26 @@ def test_decision_code_references_resolve() -> None:
     assert stale == []
 
 
+# A backticked name that looks like code: snake_case or an inner capital (`parse_agent_decision`, `StateStore`).
+_BACKTICKED_NAME = re.compile(r"`([A-Za-z_]\w*)(?:\(\))?`")
+
+
+def test_architecture_names_only_code_that_exists() -> None:
+    """Every code-like name ARCHITECTURE.md puts in backticks still exists in the code.
+
+    The haystack is the tracked source of src/, frontend/src/, scripts/ and eval/
+    plus their file paths, so module and script names count too.
+    """
+    files = _tracked("src", "frontend/src", "scripts", "eval")
+    corpus = "\n".join([*files, *(_read(rel) for rel in files if rel.endswith((".py", ".ts", ".tsx", ".j2")))])
+    names = {
+        name
+        for name in _BACKTICKED_NAME.findall(_read("docs/ARCHITECTURE.md"))
+        if "_" in name or any(char.isupper() for char in name[1:])
+    }
+    assert sorted(name for name in names if not re.search(rf"\b{re.escape(name)}\b", corpus)) == []
+
+
 # --------- iCloud duplicates (T12.8) ---------
 
 DUPLICATE_GLOB = "* [2-9].py"
