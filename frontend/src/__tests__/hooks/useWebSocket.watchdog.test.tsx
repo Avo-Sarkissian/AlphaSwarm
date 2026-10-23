@@ -50,8 +50,8 @@ describe('useWebSocket frame watchdog', () => {
     act(() => {
       vi.advanceTimersByTime(FRAME_RECONNECT_MS - FRAME_STALE_MS);
     });
-    expect(FakeWebSocket.instances[0]!.closeCalls).toBe(1);
-    expect(FakeWebSocket.instances[0]!.onclose).toBeNull();
+    expect(FakeWebSocket.instances[0]?.closeCalls).toBe(1);
+    expect(FakeWebSocket.instances[0]?.onclose).toBeNull();
     expect(FakeWebSocket.instances).toHaveLength(2);
     expect(result.current).toMatchObject({ status: 'closed', connected: false });
 

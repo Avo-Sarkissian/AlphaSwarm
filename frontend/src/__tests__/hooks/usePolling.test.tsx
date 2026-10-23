@@ -14,7 +14,9 @@ describe('usePolling', () => {
     };
     const { result, rerender } = renderHook(
       ({ k }: { k: string }) => {
-        const r = usePolling<string>({ key: k, fetchFn: fetchers[k]!, intervalMs: 60_000 });
+        const fetchFn = fetchers[k];
+        if (!fetchFn) throw new Error(`no fetcher for ${k}`);
+        const r = usePolling<string>({ key: k, fetchFn, intervalMs: 60_000 });
         seen.push([k, r.data]);
         return r;
       },

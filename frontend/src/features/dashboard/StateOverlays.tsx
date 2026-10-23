@@ -1,13 +1,8 @@
-// v2 states — idle and seeding.
+// Idle and seeding overlays.
 // Idle and seeding are overlays inside the dashboard canvas (.canvas-wrap);
 // the shell stays visible around them. A lost or stalled WebSocket shows the
 // global ConnectionBanner instead of a takeover, and a governor pause shows a
 // dismissible banner.
-//
-// Lifted from AlphaSwarm-2/src/states.jsx (W2 Plan 41.6-02 task 2) and
-// converted to ES modules (docs/DECISIONS.md#p41-6-d-03). Sourced design's
-// BRACKETS reference is replaced with the import from '../data'
-// (docs/DECISIONS.md#p41-6-d-14).
 import { Icon } from '../../components/Icon';
 import { BRACKETS } from '../../data';
 import { fetchHealth } from '../../api/health';

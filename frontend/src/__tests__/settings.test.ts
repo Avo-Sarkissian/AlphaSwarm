@@ -15,6 +15,7 @@ import {
   testConnection,
   getEstimate,
 } from '../api/settings';
+import { at } from './helpers/at';
 
 // ── mock helpers ──────────────────────────────────────────────────────────
 
@@ -135,7 +136,7 @@ describe('putSettings()', () => {
     });
 
     expect(captured).toHaveLength(1);
-    const body = JSON.parse(captured[0].body as string) as Record<
+    const body = JSON.parse(at(captured, 0).body as string) as Record<
       string,
       unknown
     >;
@@ -173,7 +174,7 @@ describe('putSettings()', () => {
       },
     });
 
-    const body = JSON.parse(captured[0].body as string) as Record<
+    const body = JSON.parse(at(captured, 0).body as string) as Record<
       string,
       unknown
     >;
@@ -220,7 +221,7 @@ describe('testConnection()', () => {
 
     const result = await testConnection('orchestrator');
     expect(result.ok).toBe(true);
-    const body = JSON.parse(captured[0].body as string) as Record<
+    const body = JSON.parse(at(captured, 0).body as string) as Record<
       string,
       unknown
     >;

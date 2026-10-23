@@ -64,6 +64,6 @@ describe('AdvisoryPanel backend stats', () => {
     expect(screen.getByText('dominant of 1 conviction items')).toBeTruthy();
     const tags = screen.getAllByText('PLACEHOLDER');
     expect(tags).toHaveLength(1);
-    expect(tags[0].closest('.adv-qh-row')?.textContent).toContain('QQQX');
+    expect(tags[0]?.closest('.adv-qh-row')?.textContent).toContain('QQQX');
   });
 });

@@ -18,20 +18,20 @@ const byId = Object.fromEntries(frame.agents.map((a) => [a.id, a]));
 
 describe('adaptSnapshot agent signals', () => {
   it('keeps a null signal as pending, never hold', () => {
-    expect(byId.sell_side_03.signal).toBeNull();
-    expect(byId.sell_side_03.thinking).toBe(true);
+    expect(byId.sell_side_03?.signal).toBeNull();
+    expect(byId.sell_side_03?.thinking).toBe(true);
   });
 
   it('treats a missing or unknown signal as pending', () => {
-    expect(byId.narrators_01.signal).toBeNull();
-    expect(byId.algos_01.signal).toBeNull();
+    expect(byId.narrators_01?.signal).toBeNull();
+    expect(byId.algos_01?.signal).toBeNull();
   });
 
   it('keeps decided and failed signals, lower-cased', () => {
-    expect(byId.quants_01.signal).toBe('buy');
-    expect(byId.macro_02.signal).toBe('sell');
-    expect(byId.degens_07.signal).toBe('parse_error');
-    expect(byId.degens_07.thinking).toBe(false);
+    expect(byId.quants_01?.signal).toBe('buy');
+    expect(byId.macro_02?.signal).toBe('sell');
+    expect(byId.degens_07?.signal).toBe('parse_error');
+    expect(byId.degens_07?.thinking).toBe(false);
   });
 
   it('keeps the roster order of the wire', () => {

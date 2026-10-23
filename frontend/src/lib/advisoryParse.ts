@@ -12,7 +12,7 @@ export interface ParsedOutlook {
 export function parseOutlook(md: string): ParsedOutlook {
   if (!md) return { headline: null, summary: '' };
   const headingMatch = md.match(/^\s*#{1,2}\s+(.+?)\s*$/m);
-  const headline = headingMatch ? headingMatch[1].trim() : null;
+  const headline = headingMatch?.[1]?.trim() ?? null;
   return { headline, summary: md };
 }
 

@@ -82,7 +82,7 @@ describe('privacyFactsFromSettings + privacyLines', () => {
     expect(roleLine('worker', facts.worker)).toBe(
       'Prompts for the worker role are sent to an OpenAI-compatible API (openrouter.ai).',
     );
-    expect(privacyLines(facts)[1].offMachine).toBe(true);
+    expect(privacyLines(facts)[1]?.offMachine).toBe(true);
     expect(advisoryLine(facts)).toBe(
       'The advisory runs on local Ollama; your holdings never leave this machine.',
     );
@@ -94,7 +94,7 @@ describe('privacyFactsFromSettings + privacyLines', () => {
     expect(line).toContain('The advisory is off');
     expect(line).toContain('Anthropic (api.anthropic.com)');
     expect(line).not.toContain('never leave this machine');
-    expect(privacyLines(facts)[2].offMachine).toBe(false);
+    expect(privacyLines(facts)[2]?.offMachine).toBe(false);
   });
 
   it('a cloud orchestrator with the opt-in says exactly what is sent', () => {
@@ -213,7 +213,7 @@ describe('off-machine Ollama roles', () => {
     expect(roleLine('worker', facts.worker)).toBe(
       'Prompts for the worker role are sent to a remote Ollama server (192.0.2.10:11434).',
     );
-    expect(privacyLines(facts)[1].offMachine).toBe(true);
+    expect(privacyLines(facts)[1]?.offMachine).toBe(true);
     expect(dataSourcesNote(facts)).not.toContain('this machine');
   });
 
@@ -222,7 +222,7 @@ describe('off-machine Ollama roles', () => {
     expect(advisoryLine(facts)).toBe(
       'The advisory is off: the orchestrator runs on a remote Ollama server (192.0.2.10:11434) and cloud advisory is not enabled in Settings.',
     );
-    expect(privacyLines(facts)[2].offMachine).toBe(false);
+    expect(privacyLines(facts)[2]?.offMachine).toBe(false);
   });
 });
 
@@ -237,7 +237,7 @@ describe('an opt-in left on with a local-looking orchestrator', () => {
     expect(line).not.toContain('never leave this machine');
     expect(line).toContain('Cloud advisory is on');
     expect(line).toContain('never quantities or cost basis');
-    expect(privacyLines(facts)[2].offMachine).toBe(true);
+    expect(privacyLines(facts)[2]?.offMachine).toBe(true);
   });
 
   it('the opt-in help says the checks are skipped, not that the advisory is', () => {
@@ -252,7 +252,7 @@ describe('an opt-in left on with a local-looking orchestrator', () => {
     expect(advisoryLine(off)).toBe(
       'The advisory runs on local Ollama; your holdings never leave this machine.',
     );
-    expect(privacyLines(off)[2].offMachine).toBe(false);
+    expect(privacyLines(off)[2]?.offMachine).toBe(false);
   });
 });
 

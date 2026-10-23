@@ -2,7 +2,7 @@
 // Structural invariants for frontend/src. Every allow-list in this file may
 // only shrink; when a list reaches zero entries, delete it and its exemption.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, posix, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -25,6 +25,17 @@ const isSource = (file: string): boolean => /\.(ts|tsx|css)$/.test(file) && !fil
 const code = (file: string): string =>
   read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 const EXPLICIT_ANY = /:\s*any\b|\bas\s+any\b|<any>|\bany\[\]|\|\s*any\b|\bany\s*\|/;
+
+const TSCONFIG = join(SRC, '..', 'tsconfig.app.json');
+const stripJsonComments = (text: string): string =>
+  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+const MAX_MODULE_LINES = 600;
+const IMPORT_SPEC = /\b(?:from|import)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g;
+
+function importsOf(file: string): string[] {
+  return [...read(file).matchAll(IMPORT_SPEC)].map((m) => posix.normalize(posix.join(posix.dirname(file), m[1] ?? '')));
+}
 
 // File names and mentions (v2.tsx, app_v2, interview_v2, components/v2),
 // identifiers (InterviewV2, AdvisoryV2, ReportModalV2), class prefixes (rv2-,
@@ -67,5 +78,37 @@ describe('frontend structure', () => {
     const count = FILES.filter((file) => file.endsWith('.tsx') && isSource(file))
       .reduce((sum, file) => sum + (read(file).match(/style=\{\{/g)?.length ?? 0), 0);
     expect(count).toBeLessThanOrEqual(INLINE_STYLE_BUDGET);
+  });
+
+  it('compiles with the strict flags and without a JavaScript allowance', () => {
+    const cfg = JSON.parse(stripJsonComments(readFileSync(TSCONFIG, 'utf8'))) as {
+      compilerOptions: Record<string, unknown>;
+      include: string[];
+    };
+    expect(cfg.compilerOptions['noUncheckedIndexedAccess']).toBe(true);
+    expect(cfg.compilerOptions).not.toHaveProperty('allowJs');
+    expect(cfg.compilerOptions).not.toHaveProperty('paths');
+    expect(cfg.include.filter((glob) => glob.includes('.js'))).toEqual([]);
+  });
+
+  it('has no non-null assertion on an index access', () => {
+    expect(FILES.filter((file) => /\.tsx?$/.test(file) && /\][!](?!=)/.test(code(file)))).toEqual([]);
+  });
+
+  it('keeps features independent of each other and of app/', () => {
+    const offenders = FILES.filter((file) => file.startsWith('features/') && /\.tsx?$/.test(file)).flatMap((file) => {
+      const feature = file.split('/')[1];
+      return importsOf(file)
+        .filter((target) => target.startsWith('app/') || (target.startsWith('features/') && target.split('/')[1] !== feature))
+        .map((target) => `${file} -> ${target}`);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it('keeps every app and feature module under the size cap', () => {
+    const offenders = FILES.filter(
+      (file) => /^(app|features)\/.*\.tsx?$/.test(file) && read(file).split('\n').length > MAX_MODULE_LINES,
+    );
+    expect(offenders).toEqual([]);
   });
 });

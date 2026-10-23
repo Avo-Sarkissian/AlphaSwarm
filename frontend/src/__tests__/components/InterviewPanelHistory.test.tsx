@@ -7,6 +7,7 @@ import type { AgentView, RationaleView } from '../../types';
 import wsSnapshot from '../fixtures/ws_snapshot.json';
 import { ensureResizeObserver, requestedUrls, stubFetch } from '../helpers/fetchStub';
 import { renderShell } from '../helpers/renderShell';
+import { at } from '../helpers/at';
 
 const CYCLE = '00000000-0000-4000-8000-0000000000a1';
 const REPLAYED = '00000000-0000-4000-8000-0000000000b2';
@@ -83,7 +84,7 @@ describe('dashboard interview flag', () => {
     const node = container.querySelector('circle.node');
     expect(node).not.toBeNull();
     fireEvent.click(node!);
-    fireEvent.click(screen.getAllByText('quants_01', { selector: '.rationale-agent' })[0]!);
+    fireEvent.click(at(screen.getAllByText('quants_01', { selector: '.rationale-agent' }), 0));
     await waitFor(() => expect(document.querySelectorAll('.itv-takeover')).toHaveLength(1));
   });
 });
