@@ -65,6 +65,7 @@ from __future__ import annotations
 
 import asyncio
 import calendar
+import contextlib
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -190,15 +191,13 @@ class RSSNewsProvider:
         sink = self._audit_sink
         if sink is None:
             return
-        try:
+        with contextlib.suppress(Exception):  # observability must never break the fetch
             sink.record_data_source(  # type: ignore[attr-defined]
                 source="rss",
                 query=query,
                 result=result,
                 used=used,
             )
-        except Exception:  # noqa: BLE001 — observability MUST NOT break fetch
-            pass
 
     async def get_headlines(self, entities: list[str], *, max_age_hours: int = 72) -> dict[str, NewsSlice]:
         if not entities:  # Pitfall 9 — empty input guard

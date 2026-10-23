@@ -197,10 +197,9 @@ async def test_sequential_model_flow() -> None:
             # Unload request
             if model in loaded_models:
                 loaded_models.remove(model)
-        elif messages:
+        elif messages and model not in loaded_models:
             # Load/inference request
-            if model not in loaded_models:
-                loaded_models.append(model)
+            loaded_models.append(model)
 
         response = MagicMock()
         response.message.content = '{"signal": "buy", "confidence": 0.8}'

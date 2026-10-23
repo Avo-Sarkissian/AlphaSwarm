@@ -19,6 +19,7 @@ from alphaswarm.types import SignalType
 if TYPE_CHECKING:
     from neo4j import AsyncDriver, AsyncManagedTransaction
 
+    from alphaswarm.state import AgentState
     from alphaswarm.types import AgentDecision, AgentPersona, SeedEvent
 
 log = structlog.get_logger(component="graph")
@@ -577,7 +578,7 @@ class GraphStateManager:
                 "cited_agents": list(decision.cited_agents),
                 "control": agent_id in control_set,
             }
-            for did, (agent_id, decision) in zip(ids, agent_decisions)
+            for did, (agent_id, decision) in zip(ids, agent_decisions, strict=True)
         ]
         try:
             async with self._driver.session(database=self._database) as session:
@@ -690,7 +691,7 @@ class GraphStateManager:
         """
         posts: list[dict] = []  # type: ignore[type-arg]
         post_ids: list[str] = []
-        for did, (agent_id, decision) in zip(decision_ids, agent_decisions):
+        for did, (agent_id, decision) in zip(decision_ids, agent_decisions, strict=True):
             if decision.signal == SignalType.PARSE_ERROR:
                 continue
             pid = str(uuid.uuid4())

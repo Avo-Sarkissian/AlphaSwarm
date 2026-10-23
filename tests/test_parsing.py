@@ -9,9 +9,12 @@ Tests verify:
 
 from __future__ import annotations
 
-import pytest
+import json as json_mod
 
-from alphaswarm.types import AgentDecision, SignalType
+import pytest
+from pydantic import ValidationError
+
+from alphaswarm.types import AgentDecision, BracketType, SignalType
 
 # --- AgentDecision model tests (no parsing module needed) ---
 
@@ -40,9 +43,9 @@ def test_agent_decision_defaults() -> None:
 
 def test_agent_decision_validation_bounds() -> None:
     """AgentDecision rejects out-of-bounds confidence and sentiment."""
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         AgentDecision(signal=SignalType.BUY, confidence=1.5)
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         AgentDecision(signal=SignalType.BUY, confidence=0.5, sentiment=2.0)
 
 
@@ -316,10 +319,6 @@ def test_seed_parse_adversarial_out_of_range_overall_sentiment() -> None:
 
 
 # --- Phase 13: parse_modifier_response tests ---
-
-import json as json_mod
-
-from alphaswarm.types import BracketType
 
 
 def _make_full_modifier_json() -> str:

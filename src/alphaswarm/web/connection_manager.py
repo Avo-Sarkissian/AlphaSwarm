@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import TYPE_CHECKING
 
 import structlog
@@ -41,10 +42,8 @@ class ConnectionManager:
         task = self._tasks.pop(ws, None)
         if task is not None:
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
         self._clients.pop(ws, None)
         log.info("client_disconnected", client_count=len(self._clients))
 
@@ -85,10 +84,8 @@ class ConnectionManager:
             try:
                 queue.put_nowait(message)
             except asyncio.QueueFull:
-                try:
+                with contextlib.suppress(asyncio.QueueEmpty):
                     queue.get_nowait()  # Drop oldest
-                except asyncio.QueueEmpty:
-                    pass
                 queue.put_nowait(message)
 
     @property

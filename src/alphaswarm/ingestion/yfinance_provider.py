@@ -51,6 +51,7 @@ are NOT intended to be chained.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -153,15 +154,13 @@ class YFinanceMarketDataProvider:
         sink = self._audit_sink
         if sink is None:
             return
-        try:
+        with contextlib.suppress(Exception):  # observability must never break the fetch
             sink.record_data_source(  # type: ignore[attr-defined]
                 source="yfinance",
                 query=query,
                 result=result,
                 used=used,
             )
-        except Exception:  # noqa: BLE001 — observability MUST NOT break fetch
-            pass
 
     async def _fetch_batch_shared(self, tickers: list[str]) -> dict[str, MarketSlice]:
         if not tickers:  # Pitfall 9 — empty input must not call gather

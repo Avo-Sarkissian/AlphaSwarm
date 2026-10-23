@@ -267,7 +267,7 @@ async def test_complete_reasoning_arc(
                 round_num=round_num,
                 cycle_id=cycle_id,
             )
-            for did, (aid, dec) in zip(ids, decisions)
+            for did, (aid, dec) in zip(ids, decisions, strict=True)
         ]
         await graph_manager_test.write_rationale_episodes(records)
 

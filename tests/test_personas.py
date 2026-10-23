@@ -100,7 +100,7 @@ def test_persona_deterministic_generation() -> None:
     brackets = load_bracket_configs()
     run1 = generate_personas(brackets)
     run2 = generate_personas(brackets)
-    for p1, p2 in zip(run1, run2):
+    for p1, p2 in zip(run1, run2, strict=True):
         assert p1.system_prompt == p2.system_prompt, f"{p1.id} prompt differs between generations"
 
 
@@ -202,7 +202,7 @@ def test_generate_personas_backward_compatible() -> None:
     original = generate_personas(brackets)
     with_none = generate_personas(brackets, modifiers=None)
     assert len(original) == len(with_none)
-    for p1, p2 in zip(original, with_none):
+    for p1, p2 in zip(original, with_none, strict=True):
         assert p1.system_prompt == p2.system_prompt, f"{p1.id} prompt differs"
 
 

@@ -316,9 +316,11 @@ class TestMemoryMonitor:
         mock_proc.returncode = None  # still running when cancelled
         mock_proc.communicate.side_effect = asyncio.CancelledError()
         mock_proc.kill = MagicMock()
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            with pytest.raises(asyncio.CancelledError):
-                await monitor.read_macos_pressure()
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await monitor.read_macos_pressure()
         mock_proc.kill.assert_called_once()
 
     async def test_read_macos_pressure_green_on_unknown_value(self, settings: GovernorSettings) -> None:

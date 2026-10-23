@@ -178,7 +178,7 @@ def test_processor_scrubs_ssn_pattern_in_free_text_key() -> None:
     assert "[REDACTED_SSN]" in result["summary"]
 
 
-def test_processor_does_NOT_scrub_currency_in_non_free_text_key() -> None:
+def test_processor_does_not_scrub_currency_in_non_free_text_key() -> None:
     """REVIEW MEDIUM (Codex) — scrubbing every string clobbers ordinary market prices.
 
     A MarketSlice diagnostic event might log {'ticker': 'AAPL', 'price_display': '$185.50'};

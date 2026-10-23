@@ -13,6 +13,7 @@ node to already exist in Neo4j.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -109,10 +110,8 @@ class WriteBuffer:
         try:
             self._queue.put_nowait(record)
         except asyncio.QueueFull:
-            try:
+            with contextlib.suppress(asyncio.QueueEmpty):
                 self._queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
             self._queue.put_nowait(record)
             self._log.warning(
                 "write_buffer.drop_oldest",
