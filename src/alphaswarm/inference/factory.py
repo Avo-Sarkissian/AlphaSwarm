@@ -231,7 +231,13 @@ def _build_single_provider(
     preserving prior behavior; the Anthropic path is unaffected).
     """
     if provider_type == ProviderType.OLLAMA:
-        return OllamaProvider(role, model, ollama_client, ollama_model_manager)
+        return OllamaProvider(
+            role,
+            model,
+            ollama_client,
+            ollama_model_manager,
+            clean_state_on_prepare=role == ProviderRole.WORKER,
+        )
 
     # Cloud path — validate credentials first for a clear error message
     _validate_cloud_role(provider_type, model, api_key, base_url)

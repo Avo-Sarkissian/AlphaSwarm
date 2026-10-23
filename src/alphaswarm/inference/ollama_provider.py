@@ -44,6 +44,9 @@ class OllamaProvider:
         model_manager: ``OllamaModelManager`` used to load/unload the model.
         keep_alive: Keep-alive duration forwarded verbatim to each
             ``OllamaClient.chat()`` call.  Defaults to ``"5m"``.
+        clean_state_on_prepare: When True, ``prepare()`` unloads resident
+            AlphaSwarm models before loading this one.  ``build_providers``
+            sets it for the worker only.  Defaults to ``False``.
 
     Satisfies:
         ``InferenceProvider`` (structural Protocol — no inheritance required).
@@ -57,12 +60,17 @@ class OllamaProvider:
         model_manager: OllamaModelManager | None = None,
         *,
         keep_alive: str = "5m",
+        clean_state_on_prepare: bool = False,
     ) -> None:
         self.role: ProviderRole = role
         self.model: str = model_tag
         self._client: OllamaClient = client
         self._model_manager: OllamaModelManager | None = model_manager
         self._keep_alive: str = keep_alive
+        # Only the worker cleans: rounds start with no AlphaSwarm model resident, but an
+        # orchestrator job (report, advisory) must never evict a worker an interview is
+        # using (docs/DECISIONS.md#adr-round-runner).
+        self.clean_state_on_prepare: bool = clean_state_on_prepare
 
     # ------------------------------------------------------------------
     # InferenceProvider — protocol surface
@@ -73,14 +81,18 @@ class OllamaProvider:
         return True
 
     async def prepare(self) -> None:
-        """Load the model into Ollama memory via the model manager.
+        """Load the model, first unloading resident AlphaSwarm models when this provider
+        was built with ``clean_state_on_prepare=True`` (the worker;
+        docs/DECISIONS.md#adr-round-runner).
 
-        When ``model_manager`` is ``None``, this is a safe no-op: model
-        lifecycle is the caller's responsibility.
+        When ``model_manager`` is ``None`` this is a safe no-op: the model lifecycle is
+        the caller's responsibility.
         """
         if self._model_manager is None:
             logger.debug("prepare_skipped_no_manager", model=self.model)
             return
+        if self.clean_state_on_prepare:
+            await self._model_manager.ensure_clean_state()
         await self._model_manager.load_model(self.model)
 
     async def teardown(self) -> None:
