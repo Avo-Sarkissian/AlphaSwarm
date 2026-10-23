@@ -19,7 +19,6 @@ export interface UseWebSocketResult {
   connected: boolean;
   status: ConnectionStatus;
   lastFrame: StateFrame | null;
-  lastRaw: unknown;
 }
 
 // Connect to /ws/state and retry forever with backoff (1 s, 2 s, 4 s, then 5 s).
@@ -32,7 +31,6 @@ export function useWebSocket(path: string = '/ws/state'): UseWebSocketResult {
   const [connected, setConnected] = useState<boolean>(false);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [lastFrame, setLastFrame] = useState<StateFrame | null>(null);
-  const [lastRaw, setLastRaw] = useState<unknown>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const openWsRef = useRef<WebSocket | null>(null);
@@ -40,6 +38,7 @@ export function useWebSocket(path: string = '/ws/state'): UseWebSocketResult {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef<boolean>(false);
   const lastFrameAtRef = useRef<number>(0);
+  const lastDataRef = useRef<string | null>(null);
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -84,10 +83,15 @@ export function useWebSocket(path: string = '/ws/state'): UseWebSocketResult {
         if (cancelledRef.current) return;
         lastFrameAtRef.current = Date.now();
         setStatus('open');
+        const data = String(ev.data);
+        // A byte-identical frame (a keepalive with nothing new) still feeds the
+        // watchdog above but costs no parse and no render
+        // (docs/DECISIONS.md#adr-ws-broadcaster).
+        if (data === lastDataRef.current) return;
         try {
-          const raw = JSON.parse(String(ev.data));
-          setLastRaw(raw);
-          setLastFrame(adaptSnapshot(raw));
+          const raw: unknown = JSON.parse(data);
+          lastDataRef.current = data;
+          setLastFrame((prev) => adaptSnapshot(raw, prev));
         } catch {
           // malformed frame: wait for the next one
         }
@@ -147,5 +151,5 @@ export function useWebSocket(path: string = '/ws/state'): UseWebSocketResult {
     };
   }, [path]);
 
-  return { connected, status, lastFrame, lastRaw };
+  return { connected, status, lastFrame };
 }
