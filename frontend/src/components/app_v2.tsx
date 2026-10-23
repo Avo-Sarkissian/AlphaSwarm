@@ -37,6 +37,7 @@ import { useEdgesCtx } from '../context/EdgesContext';
 import { simStop } from '../api/simulation';
 import { useAwaitRunFrame } from '../hooks/useAwaitRunFrame';
 import { useRunGate } from '../hooks/useRunGate';
+import { useSampleHistory } from '../hooks/useSampleHistory';
 import { replayStart } from '../api/replay';
 import { bracketSpec } from '../data';
 import { rankInfluencers } from '../lib/influence';
@@ -245,6 +246,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
   );
   const phase = tel.phase;
   const tps = tel.telemetry.tps;
+  const tpsHistory = useSampleHistory(tps, tel.ts);
   const memMb = tel.telemetry.memMb;
   const slotsUsed = tel.telemetry.slotsUsed;
   const slotsMax = tel.telemetry.slotsMax;
@@ -605,6 +607,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
           <KpiStrip
             agents={agents}
             tps={tps}
+            tpsHistory={tpsHistory}
             mem={Math.round(memMb)}
             slots={slotsUsed}
             slotsMax={slotsMax}

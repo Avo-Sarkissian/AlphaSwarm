@@ -3,6 +3,7 @@
 // to native ES modules per D-03 (panel components were attached as globals
 // before the conversion).
 
+import { sparkBars } from '../lib/spark';
 import { consensusLeader, tallySignals } from '../lib/tally';
 
 export function BracketList({ summaries, onClick }) {
@@ -75,7 +76,7 @@ export function RationaleFeed({ rationales, onAgentClick, onCiteClick }) {
   );
 }
 
-export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round, numRounds }) {
+export function KpiStrip({ agents, tps, tpsHistory = /** @type {number[]} */ ([]), mem, slots, slotsMax, elapsed, round, numRounds }) {
   // Pending (null) and failed (parse_error) agents are never HOLD; the share is
   // over decided agents only (docs/DECISIONS.md#adr-streaming-state).
   const tally = tallySignals(agents);
@@ -103,11 +104,10 @@ export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round, nu
       <div className="kpi">
         <span className="kpi-label">Tokens / sec</span>
         <span className="kpi-value">{tps.toFixed(1)}<small>tps</small></span>
-        <div className="spark">
-          {Array.from({length: 22}).map((_, i) => {
-            const h = 6 + ((i*13 + Math.floor(tps))%16);
-            return <span key={i} style={{ height: h }} className={i>17?'hi':''} />;
-          })}
+        <div className="spark" title={`Tokens/s over the last ${tpsHistory.length} frames`}>
+          {sparkBars(tpsHistory).map((h, i, bars) => (
+            <span key={i} style={{ height: h }} className={i === bars.length - 1 ? 'hi' : ''} />
+          ))}
         </div>
       </div>
       <div className="kpi">
