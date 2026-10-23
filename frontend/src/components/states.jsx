@@ -8,9 +8,9 @@
 // converted to ES modules (docs/DECISIONS.md#p41-6-d-03). Sourced design's
 // BRACKETS reference is replaced with the import from '../data'
 // (docs/DECISIONS.md#p41-6-d-14).
-import { useEffect, useState } from 'react';
 import { Icon } from './icons';
 import { BRACKETS } from '../data';
+import { formatDuration } from '../lib/format';
 
 // ─── IDLE ─────────────────────────────────────────────────────────────
 // Overlay inside the dashboard canvas while idle: the topbar (seed, Run,
@@ -68,43 +68,26 @@ function SystemCheck({ label, value, ok }) {
 }
 
 // ─── SEEDING ──────────────────────────────────────────────────────────
-// Overlay inside the dashboard canvas while seeding; the spawn timer is cosmetic
-// until it is replaced with honest phase text.
-export function SeedingState({ seed }) {
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    const iv = setInterval(() => setN(x => (x >= 100 ? 100 : x + 3)), 80);
-    return () => clearInterval(iv);
-  }, []);
+// While the phase is SEEDING the orchestrator parses the seed into entities
+// and persona modifiers, then market prices and headlines are fetched. There
+// is no per-agent progress at this stage, so none is shown.
+export function SeedingState({ seed, elapsedSeconds = 0 }) {
   return (
     <div className="state-overlay">
       <div className="state-center seeding-center">
-        <div className="state-kicker label" style={{color: 'var(--accent)'}}>
-          SEEDING · {String(n).padStart(3,'0')}/100
+        <div className="state-kicker label" style={{ color: 'var(--accent)' }}>
+          SEEDING · {formatDuration(elapsedSeconds)}
         </div>
-        <div className="state-headline">Spawning agents…</div>
+        <div className="state-headline">Preparing the swarm…</div>
+        <div className="state-sub">
+          The orchestrator is parsing the seed into entities and persona modifiers; market prices
+          and headlines are fetched next. Round 1 starts when both are done.
+        </div>
         {seed && (
           <div className="state-sub mono" style={{ fontSize: 11, opacity: 0.8 }}>
             seed: "{seed}"
           </div>
         )}
-        <div className="seeding-bar">
-          <div className="seeding-bar-fill" style={{width: `${n}%`}} />
-        </div>
-        <div className="seeding-stream mono">
-          {BRACKETS.flatMap(b => {
-            const arr = [];
-            const prefix = { Institutions:'I', 'Sell-Side':'S', 'Event-Driven':'E', Quants:'Q', Degens:'D', Narrators:'N', Algos:'A', Macro:'M', Shorts:'X', Allocators:'L' }[b.display];
-            for (let i = 1; i <= b.count; i++) arr.push(`${prefix}-${String(i).padStart(2,'0')}`);
-            return arr;
-          }).slice(0, n).reverse().slice(0, 14).map((id, i) => (
-            <div key={id} className="seeding-line" style={{opacity: 1 - i*0.08}}>
-              <span style={{color: 'var(--buy)'}}>+ spawn </span>
-              <span style={{color: 'var(--accent)'}}>{id}</span>
-              <span style={{color: 'var(--text-3)'}}> · persona loaded · context primed</span>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );

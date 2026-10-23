@@ -594,26 +594,6 @@ body { background: var(--bg); }
 
 /* SEEDING */
 .seeding-center {}
-.seeding-bar {
-  width: 100%; height: 4px; background: var(--bg-3); border-radius: 2px;
-  overflow: hidden; margin-bottom: 18px;
-}
-.seeding-bar-fill {
-  height: 100%; background: var(--accent);
-  box-shadow: 0 0 8px var(--accent);
-  transition: width 0.1s linear;
-}
-.seeding-stream {
-  font-size: 11px; line-height: 1.7;
-  border: 1px solid var(--border);
-  background: var(--bg-2);
-  padding: 12px 14px;
-  border-radius: 2px;
-  max-height: 280px; overflow: hidden;
-  mask-image: linear-gradient(180deg, black 50%, transparent 100%);
-  -webkit-mask-image: linear-gradient(180deg, black 50%, transparent 100%);
-}
-.seeding-line { white-space: nowrap; }
 
 /* NEW W2-only classes (used by ported components but absent from both
    AlphaSwarm-2/styles.css AND the archive). Defined here so the inventory

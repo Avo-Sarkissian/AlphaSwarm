@@ -108,7 +108,7 @@ describe('dashboard lifecycle', () => {
 
   it('shows the seeding overlay, the SEEDING label and Stop while seeding', () => {
     renderAt(<DashboardShell />, 'seeding');
-    expect(screen.queryByText('Spawning agents…')).not.toBeNull();
+    expect(screen.queryByText('Preparing the swarm…')).not.toBeNull();
     expect(screen.queryByText('SEEDING')).not.toBeNull();
     expect(screen.queryByRole('button', { name: /stop/i })).not.toBeNull();
   });
@@ -116,7 +116,7 @@ describe('dashboard lifecycle', () => {
   it('shows the graph without overlays during a live round', () => {
     renderAt(<DashboardShell />, 'live');
     expect(screen.queryByText('Swarm is dormant.')).toBeNull();
-    expect(screen.queryByText('Spawning agents…')).toBeNull();
+    expect(screen.queryByText('Preparing the swarm…')).toBeNull();
     expect(screen.queryByText('ROUND 2/3')).not.toBeNull();
   });
 

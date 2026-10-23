@@ -607,7 +607,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
                 onShowHistory={() => setUi((u) => ({ ...u, historyOpen: true }))}
               />
             )}
-            {lifecycle === 'seeding' && <SeedingState seed={seed} />}
+            {lifecycle === 'seeding' && <SeedingState seed={seed} elapsedSeconds={elapsedSeconds} />}
           </div>
 
           <KpiStrip
