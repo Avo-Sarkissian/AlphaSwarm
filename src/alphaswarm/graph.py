@@ -275,6 +275,8 @@ CYCLE_STATUS_BACKFILL: Final = (
 # read_completed_cycles never disagree about a cycle (docs/DECISIONS.md#adr-cycle-metrics).
 _CYCLE_STATUS_QUERY: Final = f"MATCH (c:Cycle {{cycle_id: $cycle_id}}) RETURN {_EFFECTIVE_STATUS} AS status"
 _CYCLE_STATUSES: Final[frozenset[str]] = frozenset(get_args(CycleStatus))
+# read_latest_cycle_id's default; typed so the literal is not widened to str.
+_COMPLETE_ONLY: Final[tuple[CycleStatus, ...]] = ("complete",)
 
 # persist_round's four statements, run in one transaction (docs/DECISIONS.md#p4-d-08).
 _PERSIST_DECISIONS: Final = """
@@ -1778,7 +1780,7 @@ class GraphStateManager:
     async def read_latest_cycle_id(
         self,
         *,
-        statuses: Collection[CycleStatus] = ("complete",),
+        statuses: Collection[CycleStatus] = _COMPLETE_ONLY,
     ) -> str | None:
         """Most recent cycle whose (effective) status is in *statuses*, or None.
 
