@@ -196,6 +196,7 @@
         "r3_seconds",
         "r3_total_load_ms",
         "r3_truncations",
+        "seed_seconds",
         "total_seconds",
         "worker_model",
         "worker_provider"

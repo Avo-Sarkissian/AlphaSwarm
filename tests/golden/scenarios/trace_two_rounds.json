@@ -136,6 +136,7 @@
         "r3_flips",
         "r3_parse_errors",
         "r3_seconds",
+        "seed_seconds",
         "total_seconds",
         "worker_model",
         "worker_provider"
