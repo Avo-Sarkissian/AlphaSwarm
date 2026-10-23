@@ -1,8 +1,15 @@
 [
   {
+    "agent_count": 100,
     "created_at": "<TS>",
     "cycle_id": "<UUID:1>",
+    "final_buy": 31,
+    "final_hold": 32,
+    "final_sell": 31,
     "round_count": 3,
-    "seed_rumor": "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
+    "seed_rumor": "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.",
+    "status": "complete",
+    "total_flips": 18,
+    "total_seconds": 60.0
   }
 ]

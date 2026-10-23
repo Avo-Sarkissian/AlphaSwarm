@@ -418,7 +418,10 @@ async def test_completed_cycles_rows_are_typed(graph_manager_test: GraphStateMan
     rows = await graph_manager_test.read_completed_cycles(limit=100)
 
     row = next(r for r in rows if r["cycle_id"] == cycle_id)
-    assert set(row) == {"cycle_id", "created_at", "seed_rumor", "round_count"}
+    assert set(row) == {
+        "cycle_id", "created_at", "seed_rumor", "round_count", "status", "final_buy",
+        "final_sell", "final_hold", "total_flips", "total_seconds", "agent_count",
+    }
     assert row["round_count"] == 2
     assert isinstance(row["created_at"], str)
     datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
