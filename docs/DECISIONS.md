@@ -82,15 +82,15 @@ Contents
 - **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`config.py:48-49`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`).
 - **Rationale:** A per-request `num_ctx` makes Ollama silently reload the model.
 - **Caveats:**
-  - `OllamaSettings.worker_model` and `orchestrator_model` are only displayed in the CLI banner (`cli.py:64-65`). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
+  - `OllamaSettings.worker_model` and `orchestrator_model` are only displayed in the CLI banner (`cli.py:70-71`). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
   - `OllamaSettings.num_parallel` and `max_loaded_models` are never read, so they are dead config. The real values are Ollama server environment variables (see RUNBOOK).
 
 ### <a id="adr-think-off"></a>Orchestrator reasoning ("think") is off everywhere
-- **Decision:** Every local inference call passes `think=False`. It is hardcoded in `OllamaProvider.chat` (`inference/ollama_provider.py:153`), so it covers worker and orchestrator alike: seed, modifiers, rounds, narratives, advisory, report, and interview. No call site sets it individually.
+- **Decision:** Every local inference call passes `think=False`. It is hardcoded in `OllamaProvider.chat` (`inference/ollama_provider.py:150`), so it covers worker and orchestrator alike: seed, modifiers, rounds, narratives, advisory, report, and interview. No call site sets it individually.
 - **Rationale:** The 2026-05-06 probe on qwen3.6:27b measured 274.6 s per call with thinking against 9.5 s without. Both produced valid JSON, and neither output was clearly better. With 11.3 t/s MLX decode, thinking also pushed advisory past the 600 s timeout (quick task 260611-rlx).
 - **Where:**
-  - Enforced: `inference/ollama_provider.py:153` (documented at `:12` and `:118`).
-  - Rationale comments only: `seed.py:68-70`, `tests/test_seed_pipeline.py:89-94`, `modelfiles/Modelfile.orchestrator:16-17`.
+  - Enforced: `inference/ollama_provider.py:150` (documented at `:12` and `:117`).
+  - Rationale comments only: `seed.py:66-68`, `tests/test_seed_pipeline.py:87-92`, `modelfiles/Modelfile.orchestrator:16-17`.
 - **Revisit:**
   - Triggers: complaints about consensus quality, or missed divergence flags.
   - How to test: `InferenceProvider.chat` has no `think` parameter today (`inference/provider.py:60`), so an A/B run needs a small change first, for example an optional `think` argument on `OllamaProvider.chat` used by one call site. No model reload is needed.
@@ -284,7 +284,7 @@ Contents
 - **Rationale:** The simulation must never block on a slow client (CLAUDE.md hard constraint 4). An explicit, versioned frame turns a renamed internal field into a failing test instead of a silently broken UI, and gives the UI the cycle identity it needs to fetch the right cycle's edges.
 
 ### <a id="adr-replaystore-separate"></a>ReplayStore is separate from StateStore
-- **Decision:** Replay builds its own `ReplayStore` (`state.py:323`) inside `ReplayManager`. While replay is active, the broadcaster reads it instead of live state. Replay and live simulation exclude each other (B4). Replay never writes the live StateStore phase: start and stop leave IDLE or COMPLETE as they were, so a replay cannot block a report or a new run ([p34-d-10](#p34-d-10), 2026-10).
+- **Decision:** Replay builds its own `ReplayStore` (`state.py:474`) inside `ReplayManager`. While replay is active, the broadcaster reads it instead of live state. Replay and live simulation exclude each other (B4). Replay never writes the live StateStore phase: start and stop leave IDLE or COMPLETE as they were, so a replay cannot block a report or a new run ([p34-d-10](#p34-d-10), 2026-10).
 - **Rationale:** Reusing StateStore would corrupt the live run. The rationale drain was destructive at the time, and the elapsed timer would restart.
 - **Read model (2026-10):** Replay shows every configured bracket in config order, with its display name. Bracket rows count BUY/SELL/HOLD only: `total` and the averages exclude PARSE_ERROR, so a replayed round matches the live frame's `compute_bracket_summaries`. The report's consensus summary, by contrast, gives PARSE_ERROR its own row ([adr-report-react](#adr-report-react)). Rationales come from `Decision.rationale` ([adr-neo4j-schema](#adr-neo4j-schema)).
 
@@ -292,7 +292,7 @@ Contents
 - **Decision:**
   - Decisions are nodes ([p4-d-01](#p4-d-01)).
   - Citations are `(Decision)-[:CITED]->(Agent)`.
-  - INFLUENCED_BY is **Agent→Agent** with `{weight, cycle_id, round}`, created per round with CREATE, so readers must filter by round (`graph.py:1074-1100`).
+  - INFLUENCED_BY is **Agent→Agent** with `{weight, cycle_id, round}`, created per round with CREATE, so readers must filter by round (`graph.py:1081-1109`).
   - This supersedes Phase 4's planned Decision→Decision INFLUENCED_BY edge.
   - Writes are UNWIND batches. Sessions are opened per method. 100 shared Agent nodes.
   - The `neo4j` driver is pinned below 6.0.
@@ -434,7 +434,7 @@ Contents
 | Decision (when) | Rationale | What happened |
 |---|---|---|
 | <a id="hist-pygal-html-report"></a>pygal SVG charts over Plotly; HTML report with portfolio overlay (Phase 24, 2026-04-09) | Kept HTML reports under 1 MB versus over 15 MB with Plotly | **Lost.** Commit `f5330a6` (2026-04-11, mislabelled `test(27-01)`) deleted `charts.py`, `portfolio.py`, `report.html.j2`, and their tests during a worktree merge. Reports are markdown only; SWEEP B-1 later rewrote the orphaned tests. |
-| <a id="hist-governor-suspend"></a>Governor `suspend()`/`resume()` around the shock window, with the memory-pressure guard at the callee (governor) to avoid a TOCTOU race; nested try/finally in `_collect_inter_round_shock` (Phase 26) | Prevented false THROTTLED states while the TUI waited for shock text | **Lost/obsolete.** The same `f5330a6` removed suspend/resume. The web shock path (Phase 35.1) never pauses: a queued shock is consumed by `consume_shock()` before Rounds 2 and 3 (`simulation.py:1144-1160, 1301-1318`). |
+| <a id="hist-governor-suspend"></a>Governor `suspend()`/`resume()` around the shock window, with the memory-pressure guard at the callee (governor) to avoid a TOCTOU race; nested try/finally in `_collect_inter_round_shock` (Phase 26) | Prevented false THROTTLED states while the TUI waited for shock text | **Lost/obsolete.** The same `f5330a6` removed suspend/resume. The web shock path (Phase 35.1) never pauses: a queued shock is consumed by `consume_shock()` before Rounds 2 and 3 (`simulation.py:1112-1160, 1301-1318`). |
 | <a id="hist-shock-max-len"></a>`SHOCK_TEXT_MAX_LEN = 4096` caps shock text (STATE.md) | Bounds prompt growth across 100 agents | **Replaced:** ShockText (web/params.py) bounds shock text to 10-1000 characters; shocks posted after the last gated round has started get 409 shock_window_closed, and applied shocks are carried into every later round. |
 | <a id="hist-v3-ticker-pipeline"></a>v3.0 SEC-validated ticker extraction, yfinance + Alpha Vantage pipeline with a disk cache, bracket-tailored enrichment, TickerDecision output (Phases 16-23, 2026-04-05..08) | First attempt at grounding in real data | **Lost.** Commit `7226d2e` (2026-04-09, mislabelled `feat(24-01)`) deleted `enrichment.py`, `market_data.py`, `ticker_validator.py`, and their tests: about 4.4k lines of source and tests. Most of the commit's 25.6k deleted lines (about 20.6k) were v3.0 planning docs. v6.0 Phases 37-40 rebuilt grounding as `alphaswarm.ingestion`. |
 | <a id="hist-miro"></a>Miro API v2 live visualization; batcher stubbed (Phase 8 D-09/D-10) | Planned spatial visualization | **Dropped** for the web graph. `miro.py` was deleted in `76b7537` (2026-06-11). |
@@ -458,29 +458,29 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p3-d-01"></a>`D-01` | After a pressure crisis clears, restore slots gradually (+2 per check) instead of snapping back; avoids re-triggering pressure. | active | config.py:94; governor.py:545,557 |
-| <a id="p3-d-02"></a>`D-02` | Scale above baseline (up to max_parallel) only after consecutive calm memory checks. | active | config.py:94; tests/test_governor.py:377,382 |
-| <a id="p3-d-03"></a>`D-03` | After crisis recovery reset to baseline, not the pre-incident slot count. | active | governor.py:503,524,528; tests/test_governor.py:278 |
-| <a id="p3-d-04"></a>`D-04` | If >=20% of a dispatch wave fails, shrink the governor (per-wave failure scope). | active | config.py:94; governor.py:278; tests/test_governor.py:497,505 |
-| <a id="p3-d-05"></a>`D-05` | Shrink by a fixed step (2) per trigger, never below 1 slot; gradual degradation, not halving. | active | config.py:94; governor.py:278,290; tests/test_governor.py:497,519 |
-| <a id="p3-d-07"></a>`D-07` | Abort with GovernorCrisisError after a sustained crisis (default 5 min) with no successful inference. | active | config.py:94; governor.py:503,507; tests/test_governor.py:445,453 |
-| <a id="p3-d-08"></a>`D-08` | Any successful inference resets the crisis timeout clock, even at 1 slot. | active | governor.py:227; tests/test_governor.py:445,476 |
-| <a id="p3-d-09"></a>`D-09` | Governor reports via structlog AND StateStore metrics (GovernorMetrics) so the UI can show telemetry. | active | governor.py:408; state.py:22 |
-| <a id="p3-d-11"></a>`D-11` | Metrics emitted to StateStore on state change. Later (8521e91, Jun 2026) also emitted every check for the live UI. | partial | governor.py:408; state.py:22 |
+| <a id="p3-d-01"></a>`D-01` | After a pressure crisis clears, restore slots gradually (+2 per check) instead of snapping back; avoids re-triggering pressure. | active | config.py:99; governor.py:540,552 |
+| <a id="p3-d-02"></a>`D-02` | Scale above baseline (up to max_parallel) only after consecutive calm memory checks. | active | config.py:94; tests/test_governor.py:360,365 |
+| <a id="p3-d-03"></a>`D-03` | After crisis recovery reset to baseline, not the pre-incident slot count. | active | governor.py:498,519,523; tests/test_governor.py:277 |
+| <a id="p3-d-04"></a>`D-04` | If >=20% of a dispatch wave fails, shrink the governor (per-wave failure scope). | active | config.py:94; governor.py:276; tests/test_governor.py:480,488 |
+| <a id="p3-d-05"></a>`D-05` | Shrink by a fixed step (2) per trigger, never below 1 slot; gradual degradation, not halving. | active | config.py:94; governor.py:276,288; tests/test_governor.py:480,502 |
+| <a id="p3-d-07"></a>`D-07` | Abort with GovernorCrisisError after a sustained crisis (default 5 min) with no successful inference. | active | config.py:99; governor.py:498,502; tests/test_governor.py:428,436 |
+| <a id="p3-d-08"></a>`D-08` | Any successful inference resets the crisis timeout clock, even at 1 slot. | active | governor.py:226; tests/test_governor.py:428,459 |
+| <a id="p3-d-09"></a>`D-09` | Governor reports via structlog AND StateStore metrics (GovernorMetrics) so the UI can show telemetry. | active | governor.py:403; state.py:25 |
+| <a id="p3-d-11"></a>`D-11` | Metrics emitted to StateStore on state change. Later (8521e91, Jun 2026) also emitted every check for the live UI. | partial | governor.py:403; state.py:25 |
 | <a id="p3-d-12"></a>`D-12` | Dual-signal memory sensing: psutil percent plus macOS kernel pressure. Implemented with sysctl kern.memorystatus_vm_pressure_level (not the memory_pressure CLI); unknown values map to GREEN, read failures are fail-stale since F-17. | partial | memory_monitor.py:39 |
-| <a id="p3-d-13"></a>`D-13` | Kernel pressure YELLOW/RED is the master signal: halt the queue and drop to 1 slot. | active | governor.py:433; tests/test_governor.py:269 |
-| <a id="p3-d-14"></a>`D-14` | Random jitter (0.5-1.5s) before each agent dispatch, applied in batch_dispatcher, not inside the worker; spreads load spikes. Both bounds accept 0.0 (2026-10) so deterministic tests can turn jitter off ([adr-engine-scenario-harness](#adr-engine-scenario-harness)); the defaults are unchanged. | active | batch_dispatcher.py:52; config.py:94,102 |
+| <a id="p3-d-13"></a>`D-13` | Kernel pressure YELLOW/RED is the master signal: halt the queue and drop to 1 slot. | active | governor.py:428; tests/test_governor.py:268 |
+| <a id="p3-d-14"></a>`D-14` | Random jitter (0.5-1.5s) before each agent dispatch, applied in batch_dispatcher, not inside the worker; spreads load spikes. Both bounds accept 0.0 (2026-10) so deterministic tests can turn jitter off ([adr-engine-scenario-harness](#adr-engine-scenario-harness)); the defaults are unchanged. | active | batch_dispatcher.py:52; config.py:99,107 |
 
 ### Phase 4: Neo4j graph state
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p4-d-01"></a>`D-01` | A Decision is a node (Agent-[:MADE]->Decision-[:FOR]->Cycle) holding signal/confidence/sentiment/rationale, not a relationship. | active | graph.py:389 |
-| <a id="p4-d-03"></a>`D-03` | cited_agents stored as explicit (Decision)-[:CITED]->(Agent) edges (raw LLM output), separate from computed INFLUENCED_BY. | active | graph.py:389 |
+| <a id="p4-d-01"></a>`D-01` | A Decision is a node (Agent-[:MADE]->Decision-[:FOR]->Cycle) holding signal/confidence/sentiment/rationale, not a relationship. | active | graph.py:384 |
+| <a id="p4-d-03"></a>`D-03` | cited_agents stored as explicit (Decision)-[:CITED]->(Agent) edges (raw LLM output), separate from computed INFLUENCED_BY. | active | graph.py:384 |
 | <a id="p4-d-05"></a>`D-05` | Schema applied idempotently at startup via ensure_schema() (CREATE ... IF NOT EXISTS). Since 2026-10 a web server whose Neo4j was down or rejected the password at startup still starts; once the database answers, the first `/api/health` probe applies the schema (no restart for a database that was only stopped). | active | graph.py:99; web/app.py (`_prepare_neo4j`); web/routes/health.py; readiness.py |
 | <a id="p4-d-06"></a>`D-06` | All 100 Agent nodes seeded eagerly in ensure_schema() from persona config. | active | graph.py:112 |
 | <a id="p4-d-07"></a>`D-07` | Session-per-method: each GraphStateManager method opens its own short-lived async session; callers never manage sessions. | active | graph.py:82 |
-| <a id="p4-d-08"></a>`D-08` | Keep the GraphStateManager API minimal and batch writes via UNWIND (one transaction per round, not per agent). | active | graph.py:82,389 |
+| <a id="p4-d-08"></a>`D-08` | Keep the GraphStateManager API minimal and batch writes via UNWIND (one transaction per round, not per agent). | active | graph.py:82,384 |
 | <a id="p4-d-09"></a>`D-09` | Pre-dynamic-topology peer ranking by static influence_weight_base (read_peer_decisions). Deleted with the dead _dispatch_round path in 2026-10. | superseded | — |
 | <a id="p4-d-10"></a>`D-10` | cycle_id is a uuid4. | active | graph.py:188 |
 
@@ -488,39 +488,39 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p5-d-06"></a>`D-06` | Seed parsing uses parse_seed_event() with the same 3-tier fallback as agent decisions (JSON -> extraction -> error). | active | seed.py:80 |
-| <a id="p5-d-07"></a>`D-07` | Seed injection owns its orchestrator lifecycle (prepare -> extract -> always tear down in finally). | active | seed.py:5,65,116 |
+| <a id="p5-d-06"></a>`D-06` | Seed parsing uses parse_seed_event() with the same 3-tier fallback as agent decisions (JSON -> extraction -> error). | active | seed.py:78 |
+| <a id="p5-d-07"></a>`D-07` | Seed injection owns its orchestrator lifecycle (prepare -> extract -> always tear down in finally). | active | seed.py:5,63,115 |
 
 ### Phase 7: Rounds 2-3: peer influence and consensus
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p7-d-03"></a>`D-03` | Peer context carries a header naming the source round. | active | simulation.py:376 |
-| <a id="p7-d-04"></a>`D-04` | Single run_simulation() orchestrates all rounds, reusing run_round1() for Round 1. | active | simulation.py:933 |
-| <a id="p7-d-05"></a>`D-05` | Worker reloaded once after run_round1() (which unloads in its finally) and kept warm for later rounds. | active | simulation.py:957,1129 |
-| <a id="p7-d-06"></a>`D-06` | run_round1 owns its governor monitoring session; run_simulation starts a fresh one for Rounds 2-3. | active | simulation.py:951,958,1132 |
+| <a id="p7-d-03"></a>`D-03` | Peer context carries a header naming the source round. | active | simulation.py:353 |
+| <a id="p7-d-04"></a>`D-04` | Single run_simulation() orchestrates all rounds, reusing run_round1() for Round 1. | active | simulation.py:899 |
+| <a id="p7-d-05"></a>`D-05` | Worker reloaded once after run_round1() (which unloads in its finally) and kept warm for later rounds. | active | simulation.py:923,1095 |
+| <a id="p7-d-06"></a>`D-06` | run_round1 owns its governor monitoring session; run_simulation starts a fresh one for Rounds 2-3. | active | simulation.py:917,924,1098 |
 | <a id="p7-d-07"></a>`D-07` | Phase machine IDLE -> SEEDING -> ROUND_1..N -> FINALIZING -> COMPLETE. FINALIZING covers narratives (while eager) and metrics. StateStore.set_phase drives the UI. | active | simulation.py (run_simulation); types.py (SimulationPhase) |
-| <a id="p7-d-08"></a>`D-08` | SimulationResult is one frozen container for all rounds plus shift metrics. | active | simulation.py:292 |
-| <a id="p7-d-09"></a>`D-09` | Round N reads peer context from round N-1, personalised per agent (self excluded). | active | simulation.py:758,1135,1293 |
-| <a id="p7-d-10"></a>`D-10` | Peer contexts are built per agent BEFORE dispatch and passed into dispatch_wave. | active | simulation.py:758,846 |
-| <a id="p7-d-11"></a>`D-11` | Track signal flips between rounds with a transition breakdown. | active | simulation.py:509,531 |
-| <a id="p7-d-12"></a>`D-12` | Track per-bracket average confidence delta between rounds. | active | simulation.py:509,537 |
-| <a id="p7-d-13"></a>`D-13` | Shift metrics computed in memory from round results; no Neo4j query. | active | simulation.py:509,511,1261,1421 |
-| <a id="p7-d-14"></a>`D-14` | CLI prints each round's report as it completes via an on_round_complete callback. | active | cli.py:491; tests/test_cli.py:882 |
-| <a id="p7-d-17"></a>`D-17` | The `run` CLI subcommand runs the full multi-round simulation. | active | cli.py:490; tests/test_cli.py:882 |
+| <a id="p7-d-08"></a>`D-08` | SimulationResult is one frozen container for all rounds plus shift metrics. | active | simulation.py:274 |
+| <a id="p7-d-09"></a>`D-09` | Round N reads peer context from round N-1, personalised per agent (self excluded). | active | simulation.py:726,1101,1272 |
+| <a id="p7-d-10"></a>`D-10` | Peer contexts are built per agent BEFORE dispatch and passed into dispatch_wave. | active | simulation.py:726,812 |
+| <a id="p7-d-11"></a>`D-11` | Track signal flips between rounds with a transition breakdown. | active | simulation.py:483,501 |
+| <a id="p7-d-12"></a>`D-12` | Track per-bracket average confidence delta between rounds. | active | simulation.py:483,507 |
+| <a id="p7-d-13"></a>`D-13` | Shift metrics computed in memory from round results; no Neo4j query. | active | simulation.py:483,484,1236,1408 |
+| <a id="p7-d-14"></a>`D-14` | CLI prints each round's report as it completes via an on_round_complete callback. | active | cli.py:484; tests/test_cli.py:930 |
+| <a id="p7-d-17"></a>`D-17` | The `run` CLI subcommand runs the full multi-round simulation. | active | cli.py:483; tests/test_cli.py:930 |
 
 ### Phase 8: Dynamic influence topology
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p8-d-01"></a>`D-01` | INFLUENCED_BY weight = citations received / active agents (simple, interpretable). | active | graph.py:980,1013 |
-| <a id="p8-d-02"></a>`D-02` | Compute influence edges after each round so topology shapes the next round. R1 computation since removed (SWEEP B-5); R3 computation added (260512-jqn ITEM 2). | partial | graph.py:980,1059; simulation.py:954 |
-| <a id="p8-d-03"></a>`D-03` | Every citation pair produces an edge; no threshold. Edge weight is the target's citation share. | active | graph.py:980 |
-| <a id="p8-d-04"></a>`D-04` | Weights are cumulative across rounds (round <= up_to_round). | active | graph.py:980,984,1058; simulation.py:961,1242,1400 |
+| <a id="p8-d-01"></a>`D-01` | INFLUENCED_BY weight = citations received / active agents (simple, interpretable). | active | graph.py:983,1020 |
+| <a id="p8-d-02"></a>`D-02` | Compute influence edges after each round so topology shapes the next round. R1 computation since removed (SWEEP B-5); R3 computation added (260512-jqn ITEM 2). | partial | graph.py:983,1066; simulation.py:920 |
+| <a id="p8-d-03"></a>`D-03` | Every citation pair produces an edge; no threshold. Edge weight is the target's citation share. | active | graph.py:983 |
+| <a id="p8-d-04"></a>`D-04` | Weights are cumulative across rounds (round <= up_to_round). | active | graph.py:983,989,1065; simulation.py:927,1218,1389 |
 | <a id="p8-d-05"></a>`D-05` | Cold start: when no citations exist, fall back to static influence_weight_base. The explicit fallback (sequential `read_peer_decisions` reads) was deleted with `_dispatch_round` in 2026-10. The production path (`_build_diverse_peer_contexts`) always adds base reach to citation share, so with zero citations it samples by base reach alone ([adr-diverse-peer-context](#adr-diverse-peer-context)); no static ordering remains. | superseded | simulation.py (`_build_diverse_peer_contexts`) |
 | <a id="p8-d-06"></a>`D-06` | Bracket-diverse peer selection: top-1 from the top N brackets, then fill by weight. Superseded by seeded stratified sampling with a per-bracket cap ([adr-diverse-peer-context](#adr-diverse-peer-context)). | superseded | simulation.py (select_diverse_peers) |
-| <a id="p8-d-07"></a>`D-07` | Bracket aggregation computed in memory from the round's decisions. | active | simulation.py:107; state.py:35 |
-| <a id="p8-d-08"></a>`D-08` | BracketSummary frozen dataclass promoted into the simulation layer and carried on SimulationResult; CLI and UI share it. | active | cli.py:240,294,417; simulation.py:107,287,304,305,306,955,963,1105,1253,1410; state.py:35 |
+| <a id="p8-d-07"></a>`D-07` | Bracket aggregation computed in memory from the round's decisions. | active | simulation.py:107; state.py:38 |
+| <a id="p8-d-08"></a>`D-08` | BracketSummary frozen dataclass promoted into the simulation layer and carried on SimulationResult; CLI and UI share it. | active | cli.py:229,283,407; simulation.py:107,269,286,287,288,921,929,1073,1228,1399; state.py:38 |
 
 ### Phase 9: TUI core dashboard (retired UI; StateStore contracts survive)
 
@@ -536,56 +536,56 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p10-d-02"></a>`D-02` | Rationale feed fed by top-influence agents after each round. Superseded by per-agent streaming push_rationale + 50-entry sliding window (260512-jqn ITEM 4). The end-of-round calls were removed then, and `_push_top_rationales` itself was deleted in 2026-10. | superseded | batch_dispatcher.py (`_safe_agent_inference`) |
 | <a id="p10-d-03"></a>`D-03` | Rationale feed entries truncated to ~50 chars by the producer (sanitize_rationale(max_len=50)). | active | batch_dispatcher.py (`_safe_agent_inference`, the producer); state.py (`RationaleEntry`) |
 | <a id="p10-d-04"></a>`D-04` | Feed shows newest first. | active | state.py:53 |
-| <a id="p10-d-05"></a>`D-05` | TPS computed from Ollama eval_count/eval_duration and accumulated in StateStore.update_tps. | active | state.py:216; worker.py:200 |
-| <a id="p10-d-08"></a>`D-08` | StateStore.set_bracket_summaries after each round; all 10 brackets always shown. | active | state.py:229 |
+| <a id="p10-d-05"></a>`D-05` | TPS computed from Ollama eval_count/eval_duration and accumulated in StateStore.update_tps. | active | state.py:214; worker.py:196 |
+| <a id="p10-d-08"></a>`D-08` | StateStore.set_bracket_summaries after each round; all 10 brackets always shown. | active | state.py:227 |
 
 ### Phase 11: Live graph memory
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p11-d-01"></a>`D-01` | WriteBuffer queues per-agent episodes and flushes in one UNWIND batch per round. | active | simulation.py:1068; write_buffer.py:1 |
+| <a id="p11-d-01"></a>`D-01` | WriteBuffer queues per-agent episodes and flushes in one UNWIND batch per round. | active | simulation.py:1037; write_buffer.py:1 |
 | <a id="p11-d-02"></a>`D-02` | WriteBuffer is separate from GraphStateManager (queueing vs Cypher). | active | write_buffer.py:1 |
 | <a id="p11-d-04"></a>`D-04` | RationaleEpisode linked 1:1 via (Decision)-[:HAS_EPISODE]->(RationaleEpisode). | active | graph.py:803 |
 | <a id="p11-d-06"></a>`D-06` | flip_type enum stored on each episode (NONE for round 1). | active | types.py:75 |
 | <a id="p11-d-07"></a>`D-07` | Episode properties: rationale, timestamp, peer_context_received, flip_type, round, cycle_id. | active | graph.py:803 |
-| <a id="p11-d-08"></a>`D-08` | Decision-[:REFERENCES]->Entity via case-insensitive substring match; no NLP dependency. The match is on the name only, so a REFERENCES edge can also reach a same-name entity of another type or cycle, and a seed that lists an entity twice writes duplicate MENTIONS and REFERENCES edges. Report entity impact therefore joins through the cycle's own `MENTIONS` and counts each (entity, decision) pair once (2026-10). | active | graph.py:872; tests/neo4j/test_graph_integration.py (test_references_edges_case_insensitive); tests/neo4j/test_report_reads.py (test_entity_impact_counts_each_decision_once_for_the_cycles_own_entities) |
-| <a id="p11-d-09"></a>`D-09` | REFERENCES written in the same post-round flush; entity names loaded once per cycle. | active | graph.py:872,919; simulation.py:1068 |
-| <a id="p11-d-10"></a>`D-10` | Post-simulation decision_narrative per agent written to Agent nodes (used by interviews/advisory). | active | graph.py:938; simulation.py:1441,1531,1544; tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc, test_write_decision_narratives_integration) |
-| <a id="p11-d-11"></a>`D-11` | Narratives generated eagerly as 100 worker calls after the last round. Lazy generation is an open backlog idea. | active | simulation.py:1441,1531,1544 |
+| <a id="p11-d-08"></a>`D-08` | Decision-[:REFERENCES]->Entity via case-insensitive substring match; no NLP dependency. The match is on the name only, so a REFERENCES edge can also reach a same-name entity of another type or cycle, and a seed that lists an entity twice writes duplicate MENTIONS and REFERENCES edges. Report entity impact therefore joins through the cycle's own `MENTIONS` and counts each (entity, decision) pair once (2026-10). | active | graph.py:875; tests/neo4j/test_graph_integration.py (test_references_edges_case_insensitive); tests/neo4j/test_report_reads.py (test_entity_impact_counts_each_decision_once_for_the_cycles_own_entities) |
+| <a id="p11-d-09"></a>`D-09` | REFERENCES written in the same post-round flush; entity names loaded once per cycle. | active | graph.py:875,922; simulation.py:1037 |
+| <a id="p11-d-10"></a>`D-10` | Post-simulation decision_narrative per agent written to Agent nodes (used by interviews/advisory). | active | graph.py:941; simulation.py:1427,1519,1531; tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc, test_write_decision_narratives_integration) |
+| <a id="p11-d-11"></a>`D-11` | Narratives generated eagerly as 100 worker calls after the last round. Lazy generation is an open backlog idea. | active | simulation.py:1427,1519,1531 |
 
 ### Phase 12: Richer agent interactions (posts)
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p12-d-04"></a>`D-04` | Peer context budget: 4000 chars, K posts, greedy fill, last post truncated at a word boundary. | active | simulation.py:372 |
-| <a id="p12-d-05"></a>`D-05` | Unified peer-context block format (now `[agent_id|bracket] SIGNAL (conf)` lines so agents can cite IDs). | active | simulation.py:372 |
-| <a id="p12-d-06"></a>`D-06` | _format_peer_context accepts post objects and applies the budget. | active | simulation.py:372 |
-| <a id="p12-d-12"></a>`D-12` | Per-round write order: decisions -> posts -> (formerly READ_POST edges) -> next dispatch. READ_POST edges no longer written since Jun 2026. | partial | simulation.py:1212 |
-| <a id="p12-d-13"></a>`D-13` | Round 1 has no peer context; posts written after R1 so R2 can read them. | active | simulation.py:1090 |
+| <a id="p12-d-04"></a>`D-04` | Peer context budget: 4000 chars, K posts, greedy fill, last post truncated at a word boundary. | active | simulation.py:349 |
+| <a id="p12-d-05"></a>`D-05` | Unified peer-context block format (now `[agent_id|bracket] SIGNAL (conf)` lines so agents can cite IDs). | active | simulation.py:349 |
+| <a id="p12-d-06"></a>`D-06` | _format_peer_context accepts post objects and applies the budget. | active | simulation.py:349 |
+| <a id="p12-d-12"></a>`D-12` | Per-round write order: decisions -> posts -> (formerly READ_POST edges) -> next dispatch. READ_POST edges no longer written since Jun 2026. | partial | simulation.py:1186 |
+| <a id="p12-d-13"></a>`D-13` | Round 1 has no peer context; posts written after R1 so R2 can read them. | active | simulation.py:1058 |
 
 ### Phase 13: Dynamic persona generation (modifiers)
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p13-d-01"></a>`D-01` | Orchestrator generates one entity-aware modifier per bracket from the seed. | active | simulation.py:997 |
-| <a id="p13-d-02"></a>`D-02` | Generated modifier replaced the static one for all agents in a bracket. Superseded: static round-robin modifier always applies; generated text is layered on as a 'this cycle' focus line (config.py:1102-1109). | superseded | config.py:1090,1109; simulation.py:997 |
-| <a id="p13-d-04"></a>`D-04` | Modifier prompt inputs: all extracted entities plus the raw rumor. | active | config.py:578,613,638 |
-| <a id="p13-d-05"></a>`D-05` | Output is a flat JSON dict keyed by bracket value; exactly 10 keys for a full parse. | active | config.py:578,638; parsing.py:269 |
-| <a id="p13-d-06"></a>`D-06` | Modifier generation runs in the same orchestrator session as seed parsing (no reload). | active | config.py:578,638; seed.py:58,97; simulation.py:986 |
-| <a id="p13-d-07"></a>`D-07` | Total parse failure falls back to static modifiers with a warning. | active | parsing.py:269,336 |
-| <a id="p13-d-08"></a>`D-08` | Partial failure falls back per bracket. | active | parsing.py:269,278,295 |
+| <a id="p13-d-01"></a>`D-01` | Orchestrator generates one entity-aware modifier per bracket from the seed. | active | simulation.py:963 |
+| <a id="p13-d-02"></a>`D-02` | Generated modifier replaced the static one for all agents in a bracket. Superseded: static round-robin modifier always applies; generated text is layered on as a 'this cycle' focus line (config.py:1102-1109). | superseded | config.py:1072,1091; simulation.py:963 |
+| <a id="p13-d-04"></a>`D-04` | Modifier prompt inputs: all extracted entities plus the raw rumor. | active | config.py:567,602,624 |
+| <a id="p13-d-05"></a>`D-05` | Output is a flat JSON dict keyed by bracket value; exactly 10 keys for a full parse. | active | config.py:567,624; parsing.py:268 |
+| <a id="p13-d-06"></a>`D-06` | Modifier generation runs in the same orchestrator session as seed parsing (no reload). | active | config.py:567,624; seed.py:56,95; simulation.py:952 |
+| <a id="p13-d-07"></a>`D-07` | Total parse failure falls back to static modifiers with a warning. | active | parsing.py:268,335 |
+| <a id="p13-d-08"></a>`D-08` | Partial failure falls back per bracket. | active | parsing.py:268,277,294 |
 | <a id="p13-d-09"></a>`D-09` | ParsedModifiersResult carries parse_tier for observability. | active | types.py:131 |
-| <a id="p13-d-10"></a>`D-10` | Sanitise entity names at injection time; stored SeedEntity names stay untouched. | active | config.py:617 |
-| <a id="p13-d-11"></a>`D-11` | Sanitisation: truncate to 100 chars, strip control/format characters, keep normal punctuation. | active | config.py:490,495 |
-| <a id="p13-d-12"></a>`D-12` | sanitize_entity_name() helper; raw rumor goes in a clearly labelled block. | active | config.py:490,495,617 |
+| <a id="p13-d-10"></a>`D-10` | Sanitise entity names at injection time; stored SeedEntity names stay untouched. | active | config.py:603 |
+| <a id="p13-d-11"></a>`D-11` | Sanitisation: truncate to 100 chars, strip control/format characters, keep normal punctuation. | active | config.py:484,489 |
+| <a id="p13-d-12"></a>`D-12` | sanitize_entity_name() helper; raw rumor goes in a clearly labelled block. | active | config.py:484,489,603 |
 
 ### Phase 14: Agent interviews
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p14-d-04"></a>`D-04` | Interview system prompt = persona + decision narrative + per-round decisions (hybrid context). | active | graph.py:1160 |
+| <a id="p14-d-04"></a>`D-04` | Interview system prompt = persona + decision narrative + per-round decisions (hybrid context). | active | graph.py:1176 |
 | <a id="p14-d-05"></a>`D-05` | Strip JSON output instructions from the persona for conversational answers. | active | interview.py:59 |
-| <a id="p14-d-06"></a>`D-06` | Context reconstructed from Neo4j at session start (read_agent_interview_context); persona from memory. | active | graph.py:1160,1186 |
+| <a id="p14-d-06"></a>`D-06` | Context reconstructed from Neo4j at session start (read_agent_interview_context); persona from memory. | active | graph.py:1176,1202 |
 | <a id="p14-d-08"></a>`D-08` | 10-turn sliding window. | active | interview.py:72 |
 | <a id="p14-d-09"></a>`D-09` | Dropped turns summarised into a prepended system message. | active | interview.py:73 |
 | <a id="p14-d-10"></a>`D-10` | Summary produced by the same worker model. | active | interview.py:74 |
@@ -595,15 +595,15 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p15-d-01"></a>`D-01` | ReAct uses literal ACTION:/INPUT: lines parsed by regex, not native tool calling (Ollama tool calling was unreliable for Qwen). | active | report.py:56,83,163 |
-| <a id="p15-d-02"></a>`D-02` | FINAL_ANSWER is a reserved tool that ends the loop. | active | report.py:116,169 |
-| <a id="p15-d-03"></a>`D-03` | Hard iteration cap plus duplicate (tool, input) detection. | active | report.py:117,118,174 |
-| <a id="p15-d-04"></a>`D-04` | CLI `report` subcommand. The web route and auto-chain after advisory were added later. | partial | cli.py:662 |
+| <a id="p15-d-01"></a>`D-01` | ReAct uses literal ACTION:/INPUT: lines parsed by regex, not native tool calling (Ollama tool calling was unreliable for Qwen). | active | report.py:58,85,165 |
+| <a id="p15-d-02"></a>`D-02` | FINAL_ANSWER is a reserved tool that ends the loop. | active | report.py:118,171 |
+| <a id="p15-d-03"></a>`D-03` | Hard iteration cap plus duplicate (tool, input) detection. | active | report.py:119,120,176 |
+| <a id="p15-d-04"></a>`D-04` | CLI `report` subcommand. The web route and auto-chain after advisory were added later. | partial | cli.py:652 |
 | <a id="p15-d-05"></a>`D-05` | Sentinel file .alphaswarm/last_report.json for TUI polling. Had no reader once the TUI was retired; the `write_sentinel` writer was deleted in 2026-10. | superseded | — |
-| <a id="p15-d-07"></a>`D-07` | Fixed report section order. | active | report.py:244 |
-| <a id="p15-d-10"></a>`D-10` | Reports written to ./reports/{cycle_id}_report.md. | active | cli.py:662,794; report.py:335 |
+| <a id="p15-d-07"></a>`D-07` | Fixed report section order. | active | report.py:246 |
+| <a id="p15-d-10"></a>`D-10` | Reports written to ./reports/{cycle_id}_report.md. | active | cli.py:652,794; report.py:337 |
 | <a id="p15-d-11"></a>`D-11` | Async file write via aiofiles. Revised: `write_report` writes atomically off the event loop, `asyncio.to_thread(atomic_write_text, ...)` (temp file + fsync + os.replace, BACKLOG 1.11), and report.py no longer uses aiofiles. | revised | report.py (`write_report`) |
-| <a id="p15-d-12"></a>`D-12` | Report engine does not manage model lifecycle; the caller does. | active | cli.py:662,700,752; report.py:120 |
+| <a id="p15-d-12"></a>`D-12` | Report engine does not manage model lifecycle; the caller does. | active | cli.py:652,690,743; report.py:122 |
 
 ### Phase 26: Shock injection core
 
@@ -615,8 +615,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p28-d-07"></a>`D-07` | Per-round replay data (brackets, rationales) loaded on demand. | active | graph.py:2102,2155 |
-| <a id="p28-d-08"></a>`D-08` | read_full_cycle_signals() loads all rounds' signals in one query up front. | active | graph.py:1988 |
+| <a id="p28-d-07"></a>`D-07` | Per-round replay data (brackets, rationales) loaded on demand. | active | graph.py:2150,2205 |
+| <a id="p28-d-08"></a>`D-08` | read_full_cycle_signals() loads all rounds' signals in one query up front. | active | graph.py:2032 |
 
 ### Phase 29: FastAPI skeleton and event-loop foundation
 
@@ -633,14 +633,14 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p30-d-05"></a>`D-05` | Wire format was json.dumps(dataclasses.asdict(snapshot)) with no separate pydantic wire model. Superseded by the versioned `StateFrame` built by `web/wire.py:build_frame` ([adr-ws-broadcaster](#adr-ws-broadcaster)). | superseded | web/wire.py; web/broadcaster.py |
 | <a id="p30-d-06"></a>`D-06` | snapshot_to_json() helper encapsulates the frame pipeline (snapshot → `build_frame` → JSON). | active | web/broadcaster.py (`snapshot_to_json`) |
 | <a id="p30-d-07"></a>`D-07` | Broadcaster is an always-on lifespan task ticking at 200 ms (5 Hz). | active | web/broadcaster.py:66,96 |
-| <a id="p30-d-08"></a>`D-08` | /ws/state registered without a prefix. | active | web/app.py:217 |
+| <a id="p30-d-08"></a>`D-08` | /ws/state registered without a prefix. | active | web/app.py:216 |
 | <a id="p30-d-10"></a>`D-10` | WebSocket is unauthenticated (local only). Since Aug 2026 the handshake Origin is validated against an allow-list. | partial | web/routes/websocket.py:7 |
 
 ### Phase 31: SPA + agent graph + edges endpoint
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p31-d-02"></a>`D-02` | FastAPI serves frontend/dist at / when it exists (single server in production). dist/ is gitignored, so it must be built locally. | active | web/app.py:219 |
+| <a id="p31-d-02"></a>`D-02` | FastAPI serves frontend/dist at / when it exists (single server in production). dist/ is gitignored, so it must be built locally. | active | web/app.py:218 |
 | <a id="p31-d-11"></a>`D-11` | GET /api/edges/{cycle_id}?round=N returns INFLUENCED_BY edges for that round. | active | web/routes/edges.py:1 |
 | <a id="p31-d-13"></a>`D-13` | Edges response: {edges: [{source_id, target_id, weight}]}. | active | web/routes/edges.py:26 |
 
@@ -648,55 +648,55 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p32-d-12"></a>`D-12` | GET /api/replay/cycles is a real Neo4j query (completion now keyed on Cycle.metrics_recorded_at). | active | web/routes/replay.py:63 |
+| <a id="p32-d-12"></a>`D-12` | GET /api/replay/cycles is a real Neo4j query (completion now keyed on Cycle.metrics_recorded_at). | active | web/routes/replay.py:64 |
 
 ### Phase 34: Replay mode (web)
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p34-d-07"></a>`D-07` | ReplayManager holds the ReplayStore, cycle_id and round; created in the lifespan. | active | web/replay_manager.py:1; tests/test_web.py:1265 |
-| <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, builds ReplayStore, sets round 1, broadcasts. | active | web/replay_manager.py:115; web/routes/replay.py:38,103 |
-| <a id="p34-d-09"></a>`D-09` | replay_advance increments the round (capped at the cycle's real depth since F-12) and broadcasts. | active | web/replay_manager.py:185; web/routes/replay.py:46,175 |
-| <a id="p34-d-10"></a>`D-10` | POST /api/replay/stop ends the replay (ReplayManager inactive again) and never writes the live StateStore phase, which stays IDLE or COMPLETE. Revised 2026-10 (start set the live phase to REPLAY and stop set it to IDLE). | revised | web/replay_manager.py:249; web/routes/replay.py:54,130 |
+| <a id="p34-d-07"></a>`D-07` | ReplayManager holds the ReplayStore, cycle_id and round; created in the lifespan. | active | web/replay_manager.py:1; tests/test_web.py:1270 |
+| <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, builds ReplayStore, sets round 1, broadcasts. | active | web/replay_manager.py:125; web/routes/replay.py:38,101 |
+| <a id="p34-d-09"></a>`D-09` | replay_advance increments the round (capped at the cycle's real depth since F-12) and broadcasts. | active | web/replay_manager.py:193; web/routes/replay.py:46,175 |
+| <a id="p34-d-10"></a>`D-10` | POST /api/replay/stop ends the replay (ReplayManager inactive again) and never writes the live StateStore phase, which stays IDLE or COMPLETE. Revised 2026-10 (start set the live phase to REPLAY and stop set it to IDLE). | revised | web/replay_manager.py:267; web/routes/replay.py:54,128 |
 | <a id="p34-d-11"></a>`D-11` | Broadcaster reads the replay snapshot instead of live state while replay is active. | active | web/broadcaster.py (`snapshot_to_json`); tests/test_broadcaster_frames.py |
 
 ### Phase 35: Agent interviews (web)
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p35-d-06"></a>`D-06` | One InterviewEngine per (cycle_id, agent_id) in app.state.interview_sessions; cleared on sim start (no TTL). Revised 2026-10 (was per agent_id). | revised | web/app.py:178; web/routes/interview.py:5 |
+| <a id="p35-d-06"></a>`D-06` | One InterviewEngine per (cycle_id, agent_id) in app.state.interview_sessions; cleared on sim start (no TTL). Revised 2026-10 (was per agent_id). | revised | web/app.py:176; web/routes/interview.py:5 |
 | <a id="p35-d-08"></a>`D-08` | Single POST /api/interview/{agent_id} endpoint; engine created lazily on first call. | active | web/routes/interview.py:39 |
 
 ### Phase 36: Report viewer (web)
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p36-d-01"></a>`D-01` | POST /api/report/{cycle_id}/generate returns 202 and runs a background task for any complete cycle while no simulation runs. Revised 2026-10: the phase == COMPLETE gate is gone. | revised | web/routes/report.py:58,110; tests/test_report_routes.py |
-| <a id="p36-d-02"></a>`D-02` | 409 if a report task is already running (single orchestrator user). | active | web/app.py:180; web/guards.py:require_orchestrator_free; tests/test_report_routes.py |
-| <a id="p36-d-03"></a>`D-03` | Web report path mirrors the CLI sequence and file locations. | active | web/routes/report.py:187,227; tests/test_web_report.py:40 |
-| <a id="p36-d-05"></a>`D-05` | GET /api/report/{cycle_id} reads the markdown file; the filesystem is the source of truth: 404 = no report, 409 report_generation_in_progress while that cycle's job runs, 500 after a recorded failure. Revised 2026-10 (404 also meant "still generating"). | revised | web/routes/report.py:50,70 |
+| <a id="p36-d-01"></a>`D-01` | POST /api/report/{cycle_id}/generate returns 202 and runs a background task for any complete cycle while no simulation runs. Revised 2026-10: the phase == COMPLETE gate is gone. | revised | web/routes/report.py:59,109; tests/test_report_routes.py |
+| <a id="p36-d-02"></a>`D-02` | 409 if a report task is already running (single orchestrator user). | active | web/app.py:178; web/guards.py:require_orchestrator_free; tests/test_report_routes.py |
+| <a id="p36-d-03"></a>`D-03` | Web report path mirrors the CLI sequence and file locations. | active | web/routes/report.py:188,228; tests/test_web_report.py:38 |
+| <a id="p36-d-05"></a>`D-05` | GET /api/report/{cycle_id} reads the markdown file; the filesystem is the source of truth: 404 = no report, 409 report_generation_in_progress while that cycle's job runs, 500 after a recorded failure. Revised 2026-10 (404 also meant "still generating"). | revised | web/routes/report.py:51,71 |
 
 ### Phase 37: Isolation foundation + provider scaffolding
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p37-d-02"></a>`D-02` | Holdings-isolation import contract enforced by a pre-commit hook and (via the pytest invariant test) CI. | active | .pre-commit-config.yaml:5 |
+| <a id="p37-d-02"></a>`D-02` | Holdings-isolation import contract enforced by a pre-commit hook and (via the pytest invariant test) CI. | active | .pre-commit-config.yaml:17 |
 | <a id="p37-d-03"></a>`D-03` | Permanent test runs lint-imports against a synthetic violation to prove the contract bites. | active | tests/invariants/test_importlinter_contract.py:1 |
-| <a id="p37-d-04"></a>`D-04` | Whitelist-only: only alphaswarm.advisory and alphaswarm.web.routes.holdings may import alphaswarm.holdings. | active | pyproject.toml:130,141; web/routes/holdings.py:13,120; tests/unit/test_holdings_route.py:322,334; tests/invariants/test_importlinter_contract.py:109,112; tests/invariants/test_importlinter_coverage.py:10,11,27,107,110,117,121 |
-| <a id="p37-d-05"></a>`D-05` | PII redaction: key-first detection plus value-pattern backstop. | active | logging.py:48,206,208; tests/test_pii_redaction.py:3,31 |
-| <a id="p37-d-06"></a>`D-06` | account_* values become sha256 first-8 hashes; other sensitive values become [REDACTED]. | active | logging.py:48,206,210; security/hashing.py:4; tests/test_pii_redaction.py:3,31 |
-| <a id="p37-d-07"></a>`D-07` | Redaction fails closed: on processor error, drop the event and emit a marker with no user data. | active | logging.py:5,191,206,212; tests/test_pii_redaction.py:3,206 |
-| <a id="p37-d-08"></a>`D-08` | Redaction verified by Hypothesis property tests plus tabular cases. | active | tests/test_pii_redaction.py:3,294,373 |
+| <a id="p37-d-04"></a>`D-04` | Whitelist-only: only alphaswarm.advisory and alphaswarm.web.routes.holdings may import alphaswarm.holdings. | active | pyproject.toml:141,152; web/routes/holdings.py:13,120; tests/unit/test_holdings_route.py:324,337; tests/invariants/test_importlinter_contract.py:105,108; tests/invariants/test_importlinter_coverage.py:10,11,24,108,111,118,122 |
+| <a id="p37-d-05"></a>`D-05` | PII redaction: key-first detection plus value-pattern backstop. | active | logging.py:49,197,199; tests/test_pii_redaction.py:3,31 |
+| <a id="p37-d-06"></a>`D-06` | account_* values become sha256 first-8 hashes; other sensitive values become [REDACTED]. | active | logging.py:49,197,201; security/hashing.py:4; tests/test_pii_redaction.py:3,31 |
+| <a id="p37-d-07"></a>`D-07` | Redaction fails closed: on processor error, drop the event and emit a marker with no user data. | active | logging.py:5,184,197,203; tests/test_pii_redaction.py:3,196 |
+| <a id="p37-d-08"></a>`D-08` | Redaction verified by Hypothesis property tests plus tabular cases. | active | tests/test_pii_redaction.py:3,284,363 |
 | <a id="p37-d-09"></a>`D-09` | pytest-socket --disable-socket globally. | active | tests/test_network_gate.py:21 |
 | <a id="p37-d-10"></a>`D-10` | No loopback exemption; integration tests opt in explicitly. | active | tests/test_network_gate.py:28 |
 | <a id="p37-d-12"></a>`D-12` | tests/integration/ auto-applied enable_socket; one-off opt-in via marker. | superseded (2026-10: marker-based gating, [adr-test-network-gate](#adr-test-network-gate); the path hook is deleted) | tests/test_network_gate.py:43 |
 | <a id="p37-d-13"></a>`D-13` | ASCII sentinel holdings (SNTL_CANARY_*) make leaks greppable. | active | tests/invariants/conftest.py:3,29,60 |
 | <a id="p37-d-14"></a>`D-14` | Canary runs a pipeline with a sentinel portfolio and asserts no sentinel appears anywhere. | active | tests/invariants/conftest.py:60; tests/invariants/test_holdings_isolation.py:1 |
-| <a id="p37-d-15"></a>`D-15` | Leak detection across four surfaces: logs, Neo4j, WebSocket frames, worker prompts. | active | tests/invariants/conftest.py:4; tests/invariants/test_holdings_isolation.py:1,101 |
-| <a id="p37-d-16"></a>`D-16` | tests/invariants/ holds architectural invariant tests. | active | tests/invariants/__init__.py:3; tests/invariants/test_holdings_isolation.py:1,65 |
+| <a id="p37-d-15"></a>`D-15` | Leak detection across four surfaces: logs, Neo4j, WebSocket frames, worker prompts. | active | tests/invariants/conftest.py:4; tests/invariants/test_holdings_isolation.py:1,100 |
+| <a id="p37-d-16"></a>`D-16` | tests/invariants/ holds architectural invariant tests. | active | tests/invariants/__init__.py:3; tests/invariants/test_holdings_isolation.py:1,64 |
 | <a id="p37-d-17"></a>`D-17` | Exactly two provider protocols: MarketDataProvider and NewsProvider. | active | ingestion/providers.py:3 |
 | <a id="p37-d-18"></a>`D-18` | Batch-first async signatures (list[str] -> dict[str, Slice]). | active | ingestion/providers.py:4 |
-| <a id="p37-d-19"></a>`D-19` | Providers never raise for fetch failures; they return slices with staleness='fetch_failed'. | active | ingestion/providers.py:5,15,39,91,95,116; ingestion/rss_provider.py:9,30,129,165,178; ingestion/yfinance_provider.py:8,122; tests/integration/test_yfinance_provider_live.py:56,63,69,74; tests/test_providers.py:118,126,145; tests/test_rss_provider.py:234,403,442,607,624; tests/test_yfinance_provider.py:273,295 |
+| <a id="p37-d-19"></a>`D-19` | Providers never raise for fetch failures; they return slices with staleness='fetch_failed'. | active | ingestion/providers.py:5,15,39,85,89,110; ingestion/rss_provider.py:9,30,125,161,174; ingestion/yfinance_provider.py:8,120; tests/integration/test_yfinance_provider_live.py:50,57,63,68; tests/test_providers.py:109,117,136; tests/test_rss_provider.py:214,361,396,549,566; tests/test_yfinance_provider.py:265,285 |
 | <a id="p37-d-20"></a>`D-20` | Fake providers ship next to the protocols so consumers are test-first. | active | ingestion/providers.py:6 |
 
 ### Phase 38: Market data + news providers
@@ -704,58 +704,58 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p38-d-01"></a>`D-01` | News via RSS only (no API key, no rate limits). | active | ingestion/rss_provider.py:3,56 |
-| <a id="p38-d-02"></a>`D-02` | Ticker-shaped entities -> Yahoo Finance RSS; everything else -> Google News RSS (quoted). | active | ingestion/rss_provider.py:4,56; tests/test_rss_provider.py:142 |
-| <a id="p38-d-03"></a>`D-03` | Headline filter: case-insensitive substring match on the entity. | active | ingestion/rss_provider.py:5; tests/test_rss_provider.py:256,315 |
+| <a id="p38-d-02"></a>`D-02` | Ticker-shaped entities -> Yahoo Finance RSS; everything else -> Google News RSS (quoted). | active | ingestion/rss_provider.py:4,57; tests/test_rss_provider.py:134 |
+| <a id="p38-d-03"></a>`D-03` | Headline filter: case-insensitive substring match on the entity. | active | ingestion/rss_provider.py:5; tests/test_rss_provider.py:230,285 |
 | <a id="p38-d-04"></a>`D-04` | feedparser + httpx. | active | ingestion/rss_provider.py:6 |
-| <a id="p38-d-05"></a>`D-05` | yfinance per ticker via asyncio.to_thread + gather for error isolation. | active | ingestion/yfinance_provider.py:3; tests/integration/test_yfinance_provider_live.py:95 |
-| <a id="p38-d-06"></a>`D-06` | fast_info for price/volume; info for fundamentals. | active | ingestion/yfinance_provider.py:4; tests/integration/test_yfinance_provider_live.py:111 |
+| <a id="p38-d-05"></a>`D-05` | yfinance per ticker via asyncio.to_thread + gather for error isolation. | active | ingestion/yfinance_provider.py:3; tests/integration/test_yfinance_provider_live.py:89 |
+| <a id="p38-d-06"></a>`D-06` | fast_info for price/volume; info for fundamentals. | active | ingestion/yfinance_provider.py:4; tests/integration/test_yfinance_provider_live.py:105 |
 | <a id="p38-d-07"></a>`D-07` | No semaphore: providers run once per simulation, not per agent. | active | ingestion/yfinance_provider.py:5 |
 | <a id="p38-d-09"></a>`D-09` | staleness='fresh' on success, 'fetch_failed' on any exception; no time-window logic. | active | ingestion/rss_provider.py:7; ingestion/yfinance_provider.py:6 |
-| <a id="p38-d-10"></a>`D-10` | No caching; every call fetches fresh. | active | ingestion/rss_provider.py:8,174; ingestion/yfinance_provider.py:7 |
+| <a id="p38-d-10"></a>`D-10` | No caching; every call fetches fresh. | active | ingestion/rss_provider.py:8,170; ingestion/yfinance_provider.py:7 |
 
 ### Phase 39: Holdings loader
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p39-d-01"></a>`D-01` | Holdings source is a 4-column CSV (account, symbol, shares, cost_basis_per_share). | active | holdings/loader.py:9 |
-| <a id="p39-d-02"></a>`D-02` | Holding.cost_basis is total position cost (shares x per-share basis). | active | holdings/loader.py:10,151; tests/test_holdings_loader.py:79 |
+| <a id="p39-d-02"></a>`D-02` | Holding.cost_basis is total position cost (shares x per-share basis). | active | holdings/loader.py:10,145; tests/test_holdings_loader.py:79 |
 | <a id="p39-d-03"></a>`D-03` | Multiple accounts merge into one PortfolioSnapshot. | active | holdings/loader.py:11; tests/test_holdings_loader.py:132,152,171 |
 | <a id="p39-d-04"></a>`D-04` | All positions included (no money-market filtering). | active | holdings/loader.py:12; tests/test_holdings_loader.py:132,136,141 |
-| <a id="p39-d-05"></a>`D-05` | Path from ALPHASWARM_HOLDINGS_CSV_PATH, default Schwab/holdings.csv, resolved against the repo root. | active | config.py:478; web/app.py:220 |
-| <a id="p39-d-06"></a>`D-06` | GET /api/holdings returns account hash, as_of, holdings with Decimals as strings. | active | web/routes/holdings.py:17,54,67; tests/unit/test_holdings_route.py:13,85,90,137 |
-| <a id="p39-d-07"></a>`D-07` | Holdings load at lifespan startup into PortfolioCache on app.state and reload when the CSV's mtime changes; never assigned onto AppState. Revised 2026-10 (was loaded once, with a lazy reload in the advisory route). | revised | web/app.py:218; web/routes/holdings.py:18,120 |
-| <a id="p39-d-08"></a>`D-08` | Missing/malformed CSV -> snapshot None -> structured 503; never crashes the WS loop. | active | holdings/loader.py:54; web/app.py:131,138; web/routes/holdings.py:21,82,136,146; tests/unit/test_holdings_route.py:14,215,220; tests/test_holdings_loader.py:280 |
+| <a id="p39-d-05"></a>`D-05` | Path from ALPHASWARM_HOLDINGS_CSV_PATH, default Schwab/holdings.csv, resolved against the repo root. | active | config.py:472; web/app.py:219 |
+| <a id="p39-d-06"></a>`D-06` | GET /api/holdings returns account hash, as_of, holdings with Decimals as strings. | active | web/routes/holdings.py:17,54,67; tests/unit/test_holdings_route.py:17,89,94,141 |
+| <a id="p39-d-07"></a>`D-07` | Holdings load at lifespan startup into PortfolioCache on app.state and reload when the CSV's mtime changes; never assigned onto AppState. Revised 2026-10 (was loaded once, with a lazy reload in the advisory route). | revised | web/app.py:221; web/routes/holdings.py:18,120 |
+| <a id="p39-d-08"></a>`D-08` | Missing/malformed CSV -> snapshot None -> structured 503; never crashes the WS loop. | active | holdings/loader.py:52; web/app.py:130,137; web/routes/holdings.py:21,82,136,146; tests/unit/test_holdings_route.py:18,217,222; tests/test_holdings_loader.py:277 |
 
 ### Phase 40: Simulation context wiring
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p40-d-01"></a>`D-01` | ContextPacket assembled inside run_simulation after seed extraction when both providers are present. | active | simulation.py:941,953,1002 |
-| <a id="p40-d-02"></a>`D-02` | No providers -> log context_assembly_skipped and continue rumor-only. | active | simulation.py:941,1002 |
-| <a id="p40-d-03"></a>`D-03` | Partial fetch failures kept in the packet; formatter silently skips fetch_failed slices. | active | context_formatter.py:6; simulation.py:941,1002; tests/test_context_formatter.py:6 |
-| <a id="p40-d-04"></a>`D-04` | Market context is its own system message after the persona and before peer context/user message. | active | simulation.py:603; worker.py:153; tests/test_worker.py:223,252 |
-| <a id="p40-d-06"></a>`D-06` | Market context goes to Round 1 only. | active | simulation.py:603,941,948,1004; tests/test_simulation.py:2966,2981 |
-| <a id="p40-d-07"></a>`D-07` | One formatted block shared by all 100 agents (no per-bracket filtering). | active | batch_dispatcher.py:174; tests/test_batch_dispatcher.py:673,681,715 |
-| <a id="p40-d-08"></a>`D-08` | Per entity: price, fundamentals, top headlines; fetch_failed entities omitted. | active | context_formatter.py:6,106; tests/test_context_formatter.py:4,75,103 |
-| <a id="p40-d-09"></a>`D-09` | Cap headlines at 5 per entity (`HEADLINES_PER_ENTITY`, which also caps point-in-time fixtures). | active | context_formatter.py:6,41; eval/build_fixtures.py:44; tests/test_context_formatter.py:5,112 |
-| <a id="p40-d-10"></a>`D-10` | yfinance + RSS providers built once in the FastAPI lifespan and stored on app/AppState. | active | app.py:43,44,127,128; web/app.py:141; tests/test_web.py:72,238 |
-| <a id="p40-d-11"></a>`D-11` | CLI `run` builds the same providers inline so CLI and web runs get identical context. | active | cli.py:519; tests/test_cli.py:1015,1021 |
+| <a id="p40-d-01"></a>`D-01` | ContextPacket assembled inside run_simulation after seed extraction when both providers are present. | active | simulation.py:907,919,968 |
+| <a id="p40-d-02"></a>`D-02` | No providers -> log context_assembly_skipped and continue rumor-only. | active | simulation.py:907,968 |
+| <a id="p40-d-03"></a>`D-03` | Partial fetch failures kept in the packet; formatter silently skips fetch_failed slices. | active | context_formatter.py:6; simulation.py:907,968; tests/test_context_formatter.py:6 |
+| <a id="p40-d-04"></a>`D-04` | Market context is its own system message after the persona and before peer context/user message. | active | simulation.py:573; worker.py:155; tests/test_worker.py:219,248 |
+| <a id="p40-d-06"></a>`D-06` | Market context goes to Round 1 only. | active | simulation.py:573,907,914,970; tests/test_simulation.py:3069,3084 |
+| <a id="p40-d-07"></a>`D-07` | One formatted block shared by all 100 agents (no per-bracket filtering). | active | batch_dispatcher.py:176; tests/test_batch_dispatcher.py:685,693,727 |
+| <a id="p40-d-08"></a>`D-08` | Per entity: price, fundamentals, top headlines; fetch_failed entities omitted. | active | context_formatter.py:6,99; tests/test_context_formatter.py:4,75,103 |
+| <a id="p40-d-09"></a>`D-09` | Cap headlines at 5 per entity (`HEADLINES_PER_ENTITY`, which also caps point-in-time fixtures). | active | context_formatter.py:6,40; eval/build_fixtures.py:44; tests/test_context_formatter.py:5,112 |
+| <a id="p40-d-10"></a>`D-10` | yfinance + RSS providers built once in the FastAPI lifespan and stored on app/AppState. | active | app.py:40,41,129,130; web/app.py:140; tests/test_web.py:74,241 |
+| <a id="p40-d-11"></a>`D-11` | CLI `run` builds the same providers inline so CLI and web runs get identical context. | active | cli.py:512; tests/test_cli.py:1061,1066 |
 
 ### Phase 41: Advisory pipeline
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p41-d-03"></a>`D-03` | Original: the orchestrator decides which holdings are affected and omits the rest. Superseded by one item per holding with server-side HOLD padding (260512-jqn ITEM 6, SWEEP B-7). | superseded | tests/unit/test_advisory.py:227 |
-| <a id="p41-d-04"></a>`D-04` | Prefetch all swarm data from Neo4j in parallel (asyncio.gather) before the single LLM call. | active | advisory/engine.py:111 |
+| <a id="p41-d-03"></a>`D-03` | Original: the orchestrator decides which holdings are affected and omits the rest. Superseded by one item per holding with server-side HOLD padding (260512-jqn ITEM 6, SWEEP B-7). | superseded | tests/unit/test_advisory.py:228 |
+| <a id="p41-d-04"></a>`D-04` | Prefetch all swarm data from Neo4j in parallel (asyncio.gather) before the single LLM call. | active | advisory/engine.py:109 |
 | <a id="p41-d-05"></a>`D-05` | One orchestrator call with swarm data plus the held tickers; this is the only place holdings enter a prompt. The prompt gets one entry per ticker with sector tags, never quantities, cost basis or account data; the engine adds the cost-basis exposure afterwards. Revised 2026-10 (the prompt carried each holding's ticker, quantity and cost basis). | revised | advisory/engine.py (`_ticker_entries`); tests/invariants/test_holdings_isolation.py (rendered-prompt canary) |
-| <a id="p41-d-06"></a>`D-06` | AdvisoryItem schema (ticker, consensus_signal, confidence, rationale_summary, position_exposure). | active | advisory/prompt.py:84; advisory/types.py:17 |
-| <a id="p41-d-07"></a>`D-07` | Rank by confidence x (exposure / total cost basis); denominator must be positive (F-29). | active | advisory/engine.py:142,262 |
-| <a id="p41-d-08"></a>`D-08` | Route owns orchestrator load/unload in try/finally; advisory never runs concurrently with report generation (bidirectional 409). | active | advisory/engine.py:6; web/app.py:105; web/routes/advisory.py:106,323 |
-| <a id="p41-d-09"></a>`D-09` | POST /api/advisory/{cycle_id} returns 202 and spawns a background task. | active | web/routes/advisory.py:87,99 |
-| <a id="p41-d-10"></a>`D-10` | GET reads advisory/{cycle_id}_advisory.json: 200 ready, 409 advisory_generation_in_progress while generating, 500 recorded failure or refusal, 404 absent. Revised 2026-10 (404 meant "still generating"). | revised | web/routes/advisory.py:193 |
-| <a id="p41-d-12"></a>`D-12` | Cycle ids use the shared CycleId uuid4 type (web/params.py); malformed ids return 422 validation_error. Revised 2026-10 (was a regex guard shared with the report route, 400 invalid_cycle_id). | revised | web/params.py; web/routes/advisory.py:162,193 |
-| <a id="p41-d-13"></a>`D-13` | Done-callback records failures in app.state.advisory_generation_error so polling can stop. | active | web/app.py:105; web/routes/advisory.py:191,260 |
-| <a id="p41-d-20"></a>`D-20` | The isolation canary calls the real synthesize() (load-bearing since Phase 41). | active | pyproject.toml:137; tests/invariants/conftest.py:162; tests/invariants/test_holdings_isolation.py:7,74 |
+| <a id="p41-d-06"></a>`D-06` | AdvisoryItem schema (ticker, consensus_signal, confidence, rationale_summary, position_exposure). | active | advisory/prompt.py:88; advisory/types.py:18 |
+| <a id="p41-d-07"></a>`D-07` | Rank by confidence x (exposure / total cost basis); denominator must be positive (F-29). | active | advisory/engine.py:138,255 |
+| <a id="p41-d-08"></a>`D-08` | Route owns orchestrator load/unload in try/finally; advisory never runs concurrently with report generation (bidirectional 409). | active | advisory/engine.py:6; web/app.py:104; web/routes/advisory.py:105,334 |
+| <a id="p41-d-09"></a>`D-09` | POST /api/advisory/{cycle_id} returns 202 and spawns a background task. | active | web/routes/advisory.py:86,98 |
+| <a id="p41-d-10"></a>`D-10` | GET reads advisory/{cycle_id}_advisory.json: 200 ready, 409 advisory_generation_in_progress while generating, 500 recorded failure or refusal, 404 absent. Revised 2026-10 (404 meant "still generating"). | revised | web/routes/advisory.py:196 |
+| <a id="p41-d-12"></a>`D-12` | Cycle ids use the shared CycleId uuid4 type (web/params.py); malformed ids return 422 validation_error. Revised 2026-10 (was a regex guard shared with the report route, 400 invalid_cycle_id). | revised | web/params.py; web/routes/advisory.py:161,196 |
+| <a id="p41-d-13"></a>`D-13` | Done-callback records failures in app.state.advisory_generation_error so polling can stop. | active | web/app.py:104; web/routes/advisory.py:194,268 |
+| <a id="p41-d-20"></a>`D-20` | The isolation canary calls the real synthesize() (load-bearing since Phase 41). | active | pyproject.toml:148; tests/invariants/conftest.py:162; tests/invariants/test_holdings_isolation.py:7,73 |
 
 ### Phase 41.2: Audit fix: report/advisory data plane and UI contracts
 
@@ -771,18 +771,18 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 |---|---|---|---|
 | <a id="p41-6-d-03"></a>`D-03` | Convert the CDN-globals JSX design export to native ES modules. | active | fe/components/app_v2.tsx:4; fe/components/history.tsx:4; fe/components/icons.jsx:3; fe/components/panels.jsx:3; fe/components/settings.tsx:3; fe/components/states.jsx:8; fe/components/tweaks.jsx:3; fe/components/v2.tsx:5; fe/components/viz.jsx:3 |
 | <a id="p41-6-d-07"></a>`D-07` | App shell = split context providers (Connection, Telemetry, Agents, Rationales, Edges, FrameMeta); bracket bars derive from agents, BracketContext removed (Oct 2026). | revised | fe/App.tsx:1; fe/components/app_v2.tsx:4 |
-| <a id="p41-6-d-08"></a>`D-08` | AdvisoryV2: derive what the backend supports, stub the rest (stubs tracked as KRs). | active | fe/components/modals.jsx:9; fe/components/v2.tsx:17,745,816,844,1055; fe/lib/advisoryParse.ts:2,24,51 |
-| <a id="p41-6-d-09"></a>`D-09` | Render portfolio_outlook markdown via renderMarkdown(). | active | fe/components/v2.tsx:18,745,985; fe/lib/advisoryParse.ts:2,11; fe/lib/markdown.ts:3 |
-| <a id="p41-6-d-10"></a>`D-10` | AdvisoryV2 keeps four tabs; Holdings and Overview share items[]. | active | fe/components/v2.tsx:18,745,1023 |
+| <a id="p41-6-d-08"></a>`D-08` | AdvisoryV2: derive what the backend supports, stub the rest (stubs tracked as KRs). | active | fe/components/modals.jsx:9; fe/components/v2.tsx:17,748,820,848,1061; fe/lib/advisoryParse.ts:2,24,51 |
+| <a id="p41-6-d-09"></a>`D-09` | Render portfolio_outlook markdown via renderMarkdown(). | active | fe/components/v2.tsx:18,748,991; fe/lib/advisoryParse.ts:2,11; fe/lib/markdown.ts:3 |
+| <a id="p41-6-d-10"></a>`D-10` | AdvisoryV2 keeps four tabs; Holdings and Overview share items[]. | active | fe/components/v2.tsx:18,748,1029 |
 | <a id="p41-6-d-11"></a>`D-11` | interview_v2 is the canonical interview surface (real /api/interview). | active | fe/components/interview_v2.tsx:2; fe/components/modals.jsx:7 |
-| <a id="p41-6-d-12"></a>`D-12` | Onboarding first-run flow gated by a localStorage flag and /api/health components (lists what is down with its fix; Re-check; Skip to dashboard). | active | fe/App.tsx:2,22; fe/components/onboarding.tsx:1,137 |
+| <a id="p41-6-d-12"></a>`D-12` | Onboarding first-run flow gated by a localStorage flag and /api/health components (lists what is down with its fix; Re-check; Skip to dashboard). | active | fe/App.tsx:2,22; fe/components/onboarding.tsx:1,138 |
 | <a id="p41-6-d-13"></a>`D-13` | bracket_deep full-screen view filtered from AgentsContext. | active | fe/components/bracket_deep.tsx:2,10,60 |
 | <a id="p41-6-d-14"></a>`D-14` | Design data file is reference only; keep just the BRACKETS constant. | active | fe/components/app_v2.tsx:4; fe/components/states.jsx:9; fe/data.ts:1 |
-| <a id="p41-6-d-19"></a>`D-19` | usePolling surfaces timeout as an Error so modals can show it. | active | fe/components/v2.tsx:798; fe/hooks/usePolling.ts:92 |
+| <a id="p41-6-d-19"></a>`D-19` | usePolling surfaces timeout as an Error so modals can show it. | active | fe/components/v2.tsx:802; fe/hooks/usePolling.ts:92 |
 | <a id="p41-6-d-20"></a>`D-20` | ReportModal: canonical markdown first; rich subsections only when a matching H2 heading parses. | active | fe/components/ReportModal.tsx:3,266; fe/components/modals.jsx:8; fe/components/v2.tsx:24,1240; fe/lib/advisoryParse.ts:3; fe/lib/markdown.ts:3 |
 | <a id="p41-6-d-21"></a>`D-21` | CycleHistory Compare button renders only when comparison data exists (currently never). | active | fe/components/history.tsx:1,12,103,168,177,290,318 |
-| <a id="p41-6-d-22"></a>`D-22` | Advisory stat relabelled HOLDINGS AFFECTED, read from affected/total counts. | active | fe/components/modals.jsx:9; fe/components/v2.tsx:18,746,870,997 |
-| <a id="p41-6-d-23"></a>`D-23` | UI tweaks persist to localStorage; backend-owned settings (model, provider, keys) live on the backend only. | active | fe/api/settings.ts:4; fe/components/settings.tsx:6; fe/components/settings_inference.tsx:3; fe/lib/settingsState.ts:5 |
+| <a id="p41-6-d-22"></a>`D-22` | Advisory stat relabelled HOLDINGS AFFECTED, read from affected/total counts. | active | fe/components/modals.jsx:9; fe/components/v2.tsx:18,749,874,1003 |
+| <a id="p41-6-d-23"></a>`D-23` | UI tweaks persist to localStorage; backend-owned settings (model, provider, keys) live on the backend only. | active | fe/api/settings.ts:4; fe/components/settings.tsx:5; fe/components/settings_inference.tsx:3; fe/lib/settingsState.ts:5 |
 
 ### Phase 999.3: Live memory telemetry
 
@@ -801,7 +801,7 @@ Status checked against current code.
 
 | ID | Accepted gap | Status (2026-10) | Referenced from |
 |---|---|---|---|
-| <a id="kr-41-1-01"></a>KR-41.1-01 | Agent graph uses the design's deterministic SVG layout, with no d3-force physics | active (deliberate design) | CLAUDE.md:20; fe/components/viz.jsx:4 |
+| <a id="kr-41-1-01"></a>KR-41.1-01 | Agent graph uses the design's deterministic SVG layout, with no d3-force physics | active (deliberate design) | CLAUDE.md:22; fe/components/viz.jsx:4 |
 | <a id="kr-41-1-02"></a>KR-41.1-02 | Signal Wire and Data Sources render static mocks (no backend) | partial: Signal Wire is live via `data_source_audit` (260512-jqn ITEM 5) with a DEV-only mock fallback; Data Sources is still mock in DEV and a placeholder in prod | fe/components/states.jsx:19; fe/mocks/index.ts:5; fe/mocks/sources.ts:1; fe/mocks/wire.ts:1 |
 | <a id="kr-41-1-03"></a>KR-41.1-03 | Per-agent `flipped`, `roundLastSpoke`, `thinking` stubbed | partial: `thinking` is derived from `signal===null`; `flipped` and `roundLastSpoke` are still 0/null (frame.ts:180-181) | fe/adapter/frame.ts:180,181; fe/types.ts:25,26 |
 | <a id="kr-41-1-04"></a>KR-41.1-04 | Memory shown as percent, not MB; GB literals in MemoryPaused are design copy | active | fe/adapter/frame.ts:154; fe/components/states.jsx:114,140; fe/types.ts:44 |
@@ -812,20 +812,20 @@ Status checked against current code.
 | <a id="kr-41-1-09"></a>KR-41.1-09 | Top Influencers ranked by confidence during live view | **closed** (2026-10): ranked by citations received (CITED BY, `rankInfluencers`) for the round on screen from round 2's edges on; an empty-state line before that, no confidence fallback | fe/lib/influence.ts; fe/components/app_v2.tsx |
 | <a id="kr-41-1-10"></a>KR-41.1-10 | Rationale `citations`/`sources` stubbed `[]` (RationaleEntry has no `cited_agents`) | open | fe/adapter/frame.ts:234,235; fe/components/app_v2.tsx:314; fe/types.ts:59,60 |
 | <a id="kr-41-1-11"></a>KR-41.1-11 | Interview is non-streaming (single POST) | open | fe/api/interview.ts:2; fe/components/interview_v2.tsx:2,9 |
-| <a id="kr-41-6-01"></a>KR-41.6-01 | AdvisoryV2 shares/basis/last/sentiment shown as "—" (not on AdvisoryItem) | open (holdings API has qty/cost_basis, so a client-side join could fill two of them) | fe/components/v2.tsx:844,1055,1065,1217; fe/lib/advisoryParse.ts:9 |
+| <a id="kr-41-6-01"></a>KR-41.6-01 | AdvisoryV2 shares/basis/last/sentiment shown as "—" (not on AdvisoryItem) | open (holdings API has qty/cost_basis, so a client-side join could fill two of them) | fe/components/v2.tsx:848,1061,1071,1217; fe/lib/advisoryParse.ts:9 |
 | <a id="kr-41-6-02"></a>KR-41.6-02 | `new_features.jsx` (What-If Compare, Watch Mode, Multi-seed, Seed Suggestions) deferred; overflow items say "Coming in v6.x" | open (no code reference) | — |
 | <a id="kr-41-6-03"></a>KR-41.6-03 | InterviewV2 PERSONA filler removed; live response is canonical | closed (by design) | fe/components/interview_v2.tsx:2,6,173,230,333 |
 | <a id="kr-41-6-04"></a>KR-41.6-04 | Onboarding Ollama check is coarse (`/api/health` aggregate) | closed (Oct 2026: onboarding lists each /api/health component that is down with its fix) | fe/components/onboarding.tsx:1; fe/lib/health.ts |
-| <a id="kr-41-6-05"></a>KR-41.6-05 | AdvisoryV2 Risk tab is placeholder copy | open | fe/components/v2.tsx:1118 |
+| <a id="kr-41-6-05"></a>KR-41.6-05 | AdvisoryV2 Risk tab is placeholder copy | open | fe/components/v2.tsx:1124 |
 | <a id="kr-41-6-06"></a>KR-41.6-06 | Backend-touching settings read-only ("Coming in v6.x") | partial: inference provider/model/key/limits are now editable (`settings_inference.tsx` → `/api/settings`); memory threshold, slots, and agent count are still read-only | fe/components/settings.tsx:12,177,183,189,301 |
 | <a id="kr-41-6-07"></a>KR-41.6-07 | CycleHistory Compare hidden (no comparison endpoint) | open | fe/components/history.tsx:14,104,168 |
 | <a id="kr-41-6-08"></a>KR-41.6-08 | ModelStatus chip hardcoded `qwen3:8b` | **closed**: the chip shows live inference mode and spend from `/api/health` (v2.tsx:347-387). The comments at v2.tsx:14-16 and app_v2.tsx:4 are stale | fe/components/app_v2.tsx:4; fe/components/v2.tsx:15 |
 | <a id="kr-41-6-09"></a>KR-41.6-09 | InterviewV2 stats panel partial (peer reads, shock impact, data sources have no source) | open | fe/components/interview_v2.tsx:2,16,280 |
-| <a id="kr-41-6-10"></a>KR-41.6-10 | AdvisoryV2 "agents" count is a regex heuristic over rationale text, strictly intersected with live IDs | active (heuristic) | fe/components/v2.tsx:19,842; fe/lib/advisoryParse.ts:51,66 |
+| <a id="kr-41-6-10"></a>KR-41.6-10 | AdvisoryV2 "agents" count is a regex heuristic over rationale text, strictly intersected with live IDs | active (heuristic) | fe/components/v2.tsx:19,846; fe/lib/advisoryParse.ts:51,66 |
 | <a id="kr-41-6-11"></a>KR-41.6-11 | IdleState SystemCheck rows are static copy | open | fe/components/states.jsx:18 |
-| <a id="kr-41-6-12"></a>KR-41.6-12 | ReportModal rich sections render only when an explicit `## Section` heading parses; otherwise omitted | active (policy) | fe/components/ReportModal.tsx:6,275; fe/components/v2.tsx:849; fe/lib/advisoryParse.ts:9 |
+| <a id="kr-41-6-12"></a>KR-41.6-12 | ReportModal rich sections render only when an explicit `## Section` heading parses; otherwise omitted | active (policy) | fe/components/ReportModal.tsx:6,275; fe/components/v2.tsx:853; fe/lib/advisoryParse.ts:9 |
 | <a id="kr-41-6-13"></a>KR-41.6-13 | BracketDeepDive influence counts only after the cycle ("—" live) | **closed** (2026-10): counts come from the shared EdgesContext for the round on screen, live from round 2's edges on; "—" only before they exist | fe/hooks/useCycleEdges.ts; fe/components/bracket_deep.tsx |
-| <a id="kr-41-6-14"></a>KR-41.6-14 | Mocks loaded only through DEV-only dynamic import; production grep gate keeps them out of `dist` | active (policy) | fe/components/app_v2.tsx:504; fe/components/v2.tsx:11,44,84,114,185,402,411,454; fe/hooks/useDataSourceAudit.ts:8 |
+| <a id="kr-41-6-14"></a>KR-41.6-14 | Mocks loaded only through DEV-only dynamic import; production grep gate keeps them out of `dist` | active (policy) | fe/components/app_v2.tsx:504; fe/components/v2.tsx:11,45,85,115,186,403,412,455; fe/hooks/useDataSourceAudit.ts:8 |
 
 ---
 
@@ -839,35 +839,35 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-01"></a>F-01 | `read_key_dissenters` compared lowercase signals to uppercase majority, so every agent was flagged a dissenter | 6ced8a8 | (Cypher fix, no comment) |
 | <a id="f-02"></a>F-02 | `read_signal_flips` filtered `'NONE'` instead of `'none'` and read a non-existent `round_num` | 6ced8a8 | — |
 | <a id="f-03"></a>F-03 | Shock-impact aggregation used uppercase keys, so every value was zero and HOLD | 6ced8a8 | — |
-| <a id="f-04"></a>F-04 | `TokenPool.grow()` ignored crisis debt, so concurrency exceeded the limit right after recovery | 78744f6 | governor.py:90; tests/test_governor.py:74 |
+| <a id="f-04"></a>F-04 | `TokenPool.grow()` ignored crisis debt, so concurrency exceeded the limit right after recovery | 78744f6 | governor.py:90; tests/test_governor.py:73 |
 | <a id="f-05"></a>F-05 | Anthropic provider defaulted to max_tokens=1024, truncating orchestrator output (now 8192 orchestrator / 2048 worker) | c99d00b | inference/factory.py:130 |
 | <a id="f-06"></a>F-06 | ReAct prompt tool names did not match the registry, so the consensus and flip sections were always missing | 90dd0f9 | tests/test_report.py:28 |
-| <a id="f-07"></a>F-07 | Advisory read the wrong entity-impact keys, so relevance ranking was dead; added `resolve_ticker` | 3d65f99 | advisory/engine.py:151; advisory/sector_map.py:86; tests/unit/test_advisory.py:615,619,632 |
+| <a id="f-07"></a>F-07 | Advisory read the wrong entity-impact keys, so relevance ranking was dead; added `resolve_ticker` | 3d65f99 | advisory/engine.py:147; advisory/sector_map.py:187; tests/unit/test_advisory.py:619,623,636 |
 | <a id="f-08"></a>F-08 | Round 2 equal weights meant every reader got the same peers; fixed with a stable per-reader jitter. The jitter is gone: seeded per-reader sampling ([adr-diverse-peer-context](#adr-diverse-peer-context)) disperses readers by construction | 7ae6a69 | simulation.py (peer_rng); tests/test_peer_selection.py (test_equal_weights_disperse_across_readers) |
-| <a id="f-09"></a>F-09 | JSON brace scanner ignored strings, so `}` in a rationale dropped the vote | 9748dd5 | parsing.py:49; tests/test_parsing.py:96 |
+| <a id="f-09"></a>F-09 | JSON brace scanner ignored strings, so `}` in a rationale dropped the vote | 9748dd5 | parsing.py:48; tests/test_parsing.py:98 |
 | <a id="f-10"></a>F-10 | OpenAI strict schema kept min/max, got a 400, and silently fell back to json_object | c99d00b | inference/schema.py:25; tests/inference/test_schema.py:150 |
-| <a id="f-11"></a>F-11 | Failed cloud calls leaked TPM reservation (follow-up in 9312419: refund only on failure) | c99d00b, 9312419 | inference/rate_limit.py:299; tests/inference/test_rate_limit.py:276 |
-| <a id="f-12"></a>F-12 | Replay advanced 2-round cycles to an empty round 3 | 66d680f | web/replay_manager.py:167 |
-| <a id="f-13"></a>F-13 | Settings PUT carried the old vendor's API key to a new provider | 66d680f, 9312419 | web/routes/settings.py:250; tests/test_web_settings.py:103 |
-| <a id="f-14"></a>F-14 | Blank account cells crashed the holdings loader outside the 503 path | 902d7b5 | holdings/loader.py:172 |
-| <a id="f-15"></a>F-15 | Interview window trim lost a turn when summarization failed | 902d7b5 | interview.py:157 |
+| <a id="f-11"></a>F-11 | Failed cloud calls leaked TPM reservation (follow-up in 9312419: refund only on failure) | c99d00b, 9312419 | inference/rate_limit.py:297; tests/inference/test_rate_limit.py:276 |
+| <a id="f-12"></a>F-12 | Replay advanced 2-round cycles to an empty round 3 | 66d680f | web/replay_manager.py:177 |
+| <a id="f-13"></a>F-13 | Settings PUT carried the old vendor's API key to a new provider | 66d680f, 9312419 | web/routes/settings.py:248; tests/test_web_settings.py:103 |
+| <a id="f-14"></a>F-14 | Blank account cells crashed the holdings loader outside the 503 path | 902d7b5 | holdings/loader.py:166 |
+| <a id="f-15"></a>F-15 | Interview window trim lost a turn when summarization failed | 902d7b5 | interview.py:152 |
 | <a id="f-16"></a>F-16 | `usePolling` stacked overlapping requests | df2f26a | fe/hooks/usePolling.ts:58 |
-| <a id="f-17"></a>F-17 | A sysctl read failure returned GREEN and cleared a crisis; now fail-stale with a timeout | c567a2f | memory_monitor.py:121; tests/test_memory_monitor.py:273,286 |
+| <a id="f-17"></a>F-17 | A sysctl read failure returned GREEN and cleared a crisis; now fail-stale with a timeout | c567a2f | memory_monitor.py:121; tests/test_memory_monitor.py:268,279 |
 | <a id="f-18"></a>F-18 | An unpriced model cost $0 under a spend cap; now priced at a conservative ceiling | f11aeee, cd5d35d | inference/budget.py:96,153,177; tests/inference/test_budget.py:89,96 |
-| <a id="f-19"></a>F-19 | Empty peer set still injected a "peers exist" block | 7ae6a69 | simulation.py:420; tests/test_simulation.py:155 |
-| <a id="f-20"></a>F-20 | Influence weights normalized by a count that included PARSE_ERROR agents | 7ae6a69 | simulation.py:1245 |
-| <a id="f-21"></a>F-21 | Any monitor-loop exception silently killed throttling | 78744f6 | governor.py:346,360 |
+| <a id="f-19"></a>F-19 | Empty peer set still injected a "peers exist" block | 7ae6a69 | simulation.py:397; tests/test_simulation.py:162 |
+| <a id="f-20"></a>F-20 | Influence weights normalized by a count that included PARSE_ERROR agents | 7ae6a69 | simulation.py:1221 |
+| <a id="f-21"></a>F-21 | Any monitor-loop exception silently killed throttling | 78744f6 | governor.py:344,358 |
 | <a id="f-22"></a>F-22 | Anthropic missing-tool ValueError escaped the provider error contract | c99d00b | inference/anthropic_provider.py:242 |
-| <a id="f-23"></a>F-23 | Retry-After HTTP-date ignored; now a shared clamped parser | c99d00b, 9312419 | inference/anthropic_provider.py:273; inference/openai_provider.py:317 |
-| <a id="f-24"></a>F-24 | Broadcaster crashed every tick during replay start-up (`has_store` gate) | 66d680f | web/broadcaster.py:44,46; web/replay_manager.py:134 |
-| <a id="f-25"></a>F-25 | Inference config save was not atomic (now temp file + `os.replace`) | 902d7b5 | config.py:335 |
-| <a id="f-26"></a>F-26 | `/replay/start` skipped the cycle_id guard | 66d680f | web/routes/replay.py:114 |
+| <a id="f-23"></a>F-23 | Retry-After HTTP-date ignored; now a shared clamped parser | c99d00b, 9312419 | inference/anthropic_provider.py:269; inference/openai_provider.py:307 |
+| <a id="f-24"></a>F-24 | Broadcaster crashed every tick during replay start-up (`has_store` gate) | 66d680f | web/broadcaster.py:44,46; web/replay_manager.py:144 |
+| <a id="f-25"></a>F-25 | Inference config save was not atomic (now temp file + `os.replace`) | 902d7b5 | config.py:327 |
+| <a id="f-26"></a>F-26 | `/replay/start` skipped the cycle_id guard | 66d680f | web/routes/replay.py:112 |
 | <a id="f-27"></a>F-27 | A binary WS frame dropped the connection | 66d680f | web/routes/websocket.py:133 |
-| <a id="f-28"></a>F-28 | Sector seed-match used bare substrings (false positives) | 35471d4 | advisory/engine.py:64 |
-| <a id="f-29"></a>F-29 | A negative aggregate cost basis inverted the ranking | 35471d4 | advisory/engine.py:145 |
-| <a id="f-30"></a>F-30 | Inconsistent ticker casing across items | 35471d4 | advisory/engine.py:225 |
+| <a id="f-28"></a>F-28 | Sector seed-match used bare substrings (false positives) | 35471d4 | advisory/engine.py:65 |
+| <a id="f-29"></a>F-29 | A negative aggregate cost basis inverted the ranking | 35471d4 | advisory/engine.py:141 |
+| <a id="f-30"></a>F-30 | Inconsistent ticker casing across items | 35471d4 | advisory/engine.py:218 |
 | <a id="f-31"></a>F-31 | Inverted governor thresholds passed validation | 902d7b5 | config.py:105 |
-| <a id="f-32"></a>F-32 | A failed unload aborted `ensure_clean_state`, risking the two-model invariant | 66d680f | ollama_models.py:118,171 |
+| <a id="f-32"></a>F-32 | A failed unload aborted `ensure_clean_state`, risking the two-model invariant | 66d680f | ollama_models.py:118,175 |
 | <a id="f-33"></a>F-33 | Double-click could start two simulations | df2f26a | fe/hooks/useRunGate.tsx:51 |
 | <a id="f-34"></a>F-34 | `parseInfluences` produced duplicate React keys | df2f26a | fe/__tests__/advisoryParse.test.ts:81; fe/lib/advisoryParse.ts:175 |
 | <a id="f-35"></a>F-35 | Top Influencers showed "0" filler rows | df2f26a | fe/lib/influence.ts:5 |
@@ -885,12 +885,12 @@ subjects, for example "remove hardcoded Neo4j password default (F1)". See
 
 | ID | Bug and fix | Referenced from |
 |---|---|---|
-| <a id="b1"></a>B1 | Shock injection was dead in the web UI: `consume_shock()` had no caller and there was no `write_shock_event`. Fixed in Phase 35.1: shock consumed before Rounds 2 and 3 and persisted as ShockEvent. Since 2026-10 shocks carry forward: every applied shock is appended to all later rounds' user message, oldest first (a Round 2 shock is still in Round 3), and recorded on the StateStore (`applied_shocks`). A shock posted once the last gated round has started gets 409 `shock_window_closed` instead of being accepted and never read | graph.py:2140; simulation.py:1411 (`run_simulation` shock gates); web/simulation_manager.py (`inject_shock`); tests/test_graph.py:1547; tests/test_simulation.py:129,2602,2666; tests/test_shock_window.py; tests/engine/test_scenarios.py:138 |
-| <a id="b4"></a>B4 | Replay could run on top of a live sim. Fixed with mutual exclusion: route returns 409 and `SimulationManager.start` raises `ReplayActiveError` | web/app.py:111; web/routes/replay.py:109,124; web/simulation_manager.py:123,130; tests/test_web.py:57,1427,1433,1454 |
-| <a id="b7"></a>B7 | ConnectionManager leaked dead clients. The writer `finally` now removes its own entries | web/connection_manager.py:54,73; tests/test_web.py:1427,1473 |
-| <a id="b8"></a>B8 | `_on_task_done` race with `start()`. Phase reset now happens synchronously inside `_run` before the lock is released | web/simulation_manager.py:151,215,241; tests/test_web.py:1159,1427,1495,1560 |
-| <a id="b9"></a>B9 | ReplayManager `advance`/`stop` mutated state without the lock. Both are now serialized | web/replay_manager.py:187,236; tests/test_web.py:1427,1567,1600,1603 |
-| <a id="b10"></a>B10 | Duplicate `set_phase(COMPLETE)`. Only `simulation.py` sets it now. The comments cite `simulation.py:1109`; the real line is ~1507 | web/simulation_manager.py:157,212; tests/test_web.py:1427,1607,1649 |
+| <a id="b1"></a>B1 | Shock injection was dead in the web UI: `consume_shock()` had no caller and there was no `write_shock_event`. Fixed in Phase 35.1: shock consumed before Rounds 2 and 3 and persisted as ShockEvent. Since 2026-10 shocks carry forward: every applied shock is appended to all later rounds' user message, oldest first (a Round 2 shock is still in Round 3), and recorded on the StateStore (`applied_shocks`). A shock posted once the last gated round has started gets 409 `shock_window_closed` instead of being accepted and never read | graph.py:2190; simulation.py:1400 (`run_simulation` shock gates); web/simulation_manager.py (`inject_shock`); tests/test_graph.py:1547; tests/test_simulation.py:137,2704,2768; tests/test_shock_window.py; tests/engine/test_scenarios.py:135 |
+| <a id="b4"></a>B4 | Replay could run on top of a live sim. Fixed with mutual exclusion: route returns 409 and `SimulationManager.start` raises `ReplayActiveError` | web/app.py:110; web/routes/replay.py:107,122; web/simulation_manager.py:120,131; tests/test_web.py:57,1440,1446,1467 |
+| <a id="b7"></a>B7 | ConnectionManager leaked dead clients. The writer `finally` now removes its own entries | web/connection_manager.py:53,72; tests/test_web.py:1440,1486 |
+| <a id="b8"></a>B8 | `_on_task_done` race with `start()`. Phase reset now happens synchronously inside `_run` before the lock is released | web/simulation_manager.py:147,210,236; tests/test_web.py:1164,1440,1508,1573 |
+| <a id="b9"></a>B9 | ReplayManager `advance`/`stop` mutated state without the lock. Both are now serialized | web/replay_manager.py:195,248; tests/test_web.py:1440,1580,1613,1616 |
+| <a id="b10"></a>B10 | Duplicate `set_phase(COMPLETE)`. Only `simulation.py` sets it now. The comments cite `simulation.py:1109`; the real line is ~1507 | web/simulation_manager.py:153,207; tests/test_web.py:1440,1620,1662 |
 
 The other BUGFIX-CONTEXT items (B2, B3, B5, B6, B11-B20) are not referenced in
 code. Their status is in BACKLOG.md.
@@ -899,11 +899,11 @@ code. Their status is in BACKLOG.md.
 
 | ID | Item and resolution | Referenced from |
 |---|---|---|
-| <a id="sweep-b-1"></a>SWEEP B-1 | 19 `test_report.py` failures against the removed `assemble_html()`. Tests rewritten against `ReportAssembler.assemble()` (markdown) | tests/test_report.py:385 |
+| <a id="sweep-b-1"></a>SWEEP B-1 | 19 `test_report.py` failures against the removed `assemble_html()`. Tests rewritten against `ReportAssembler.assemble()` (markdown) | tests/test_report.py:406 |
 | <a id="sweep-b-5"></a>SWEEP B-5 | Round 1 can never produce citations, so its influence-edge computation was dead work. Removed | simulation.py (`run_simulation`: the comment after the Round 1 write, and the docstring lifecycle) |
 | <a id="sweep-b-7"></a>SWEEP B-7 | Advisory prompt over-emitted boilerplate HOLD items. Non-top holdings are no longer sent to the LLM and are padded server-side as HOLD@0.30 | advisory/engine.py (`synthesize`); advisory/prompt.py (`build_advisory_prompt`); tests/test_advisory_synthesize.py (`test_prompt_instructs_conviction_items_only`); tests/unit/test_advisory.py |
-| <a id="sweep-b-8"></a>SWEEP B-8 | Unknown tickers had `macro_beta=0`, so they could never rank. Default raised to 0.5 | advisory/sector_map.py:74; tests/test_advisory_synthesize.py:47,130 |
-| <a id="sweep-3-3"></a>SWEEP §3.3 | Structural peer-context bias: every agent saw the same authority top-10. Fixed by [adr-diverse-peer-context](#adr-diverse-peer-context) | simulation.py:166,188,438,763,1162 |
+| <a id="sweep-b-8"></a>SWEEP B-8 | Unknown tickers had `macro_beta=0`, so they could never rank. Default raised to 0.5 | advisory/sector_map.py:175; tests/test_advisory_synthesize.py:75,164 |
+| <a id="sweep-3-3"></a>SWEEP §3.3 | Structural peer-context bias: every agent saw the same authority top-10. Fixed by [adr-diverse-peer-context](#adr-diverse-peer-context) | simulation.py:166,188,415,731,1132 |
 
 ---
 
@@ -911,15 +911,15 @@ code. Their status is in BACKLOG.md.
 
 | ID | Threat and mitigation | Referenced from |
 |---|---|---|
-| <a id="t-35-1-01"></a>T-35.1-01 | Cypher injection through shock text. All user input goes through parameters, never f-strings | graph.py:1964 |
+| <a id="t-35-1-01"></a>T-35.1-01 | Cypher injection through shock text. All user input goes through parameters, never f-strings | graph.py:2008 |
 | <a id="t-36-01"></a>T-36-01 | Path traversal through cycle_id. Since 2026-10 the `CycleId` path type and `CYCLE_ID_PATTERN` (`web/params.py`) validate it for report, advisory, replay, edges and interview, and malformed ids get 422 `validation_error` (was the `_CYCLE_ID_RE` regex guard) | web/params.py; tests/test_web_params.py |
-| <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:4,95,101,131; tests/test_web_report.py:11,175 |
-| <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:101; web/routes/advisory.py:5,260; web/routes/report.py:7,90,106,159,161,220,233,247; tests/test_web.py:69; tests/test_web_report.py:5,43,64,157,438 |
+| <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:4,94,100,130; tests/test_web_report.py:11,177 |
+| <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:100; web/routes/advisory.py:5,268; web/routes/report.py:7,89,105,159,161,222,235,249; tests/test_web.py:71; tests/test_web_report.py:5,42,63,159,438 |
 | <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Fixed 2026-10: both writes go through `fsutil.atomic_write_text` (temp file, fsync, `os.replace`, owner-only) | fsutil.py; report.py:write_report; web/routes/advisory.py:8 |
-| <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,89; simulation.py:56; tests/test_rss_provider.py:142,164,549 |
-| <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/unit/test_holdings_route.py:14,215,259 |
+| <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,90; simulation.py:61; tests/test_rss_provider.py:134,152,493 |
+| <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/unit/test_holdings_route.py:18,217,259 |
 | <a id="t-41-6-13"></a>T-41.6-13 | XSS through interview responses. Rendered as plain text, not markdown | fe/components/interview_v2.tsx:20 |
-| <a id="t-260512-jqn-03"></a>T-260512-jqn-03 | Data-source audit buffer leaking raw bodies or env vars. Only bounded summary fields are recorded | data_audit.py:14,83; tests/test_data_audit.py:68 |
+| <a id="t-260512-jqn-03"></a>T-260512-jqn-03 | Data-source audit buffer leaking raw bodies or env vars. Only bounded summary fields are recorded | data_audit.py:14,84; tests/test_data_audit.py:69 |
 | <a id="t-260512-jqn-09"></a>T-260512-jqn-09 | Audit buffer mistaken for a compliance trail. It is a bounded in-memory UX ring buffer only | data_audit.py:10 |
 
 ---
@@ -934,23 +934,23 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-infra-03"></a>INFRA-03 | Sequential model loading (orchestrator unloads before worker loads) | ollama_models.py:3; tests/test_models.py:1 |
 | <a id="req-infra-04"></a>INFRA-04 | Async Ollama wrapper; `num_ctx` only in Modelfiles | tests/test_ollama_client.py:1 |
 | <a id="req-infra-05"></a>INFRA-05 | Cycle-scoped indexes for fast peer reads | tests/neo4j/test_graph_integration.py (test_ensure_schema_idempotent) |
-| <a id="req-infra-07"></a>INFRA-07 | TaskGroup for all batch processing; no bare create_task | batch_dispatcher.py:4,155 |
+| <a id="req-infra-07"></a>INFRA-07 | TaskGroup for all batch processing; no bare create_task | batch_dispatcher.py:4,157 |
 | <a id="req-infra-08"></a>INFRA-08 | Pydantic parsing with multi-tier fallback | parsing.py:3; tests/test_parsing.py:1 |
 | <a id="req-tui-03"></a>TUI-03 / TUI-04 / TUI-05 | Rationale stream / telemetry (RAM, TPS, slots) / bracket panel. The contracts survive in StateStore after the TUI was removed | No live references since 2026-10: the code cites [p10-d-02](#p10-d-02) (rationale stream), [p10-d-05](#p10-d-05) (TPS) and [p10-d-08](#p10-d-08) (bracket summaries) instead, in state.py, batch_dispatcher.py, worker.py and simulation.py |
 | <a id="req-graph-03"></a>GRAPH-03 | Decision→Entity REFERENCES edges | tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc) |
-| <a id="req-int-01"></a>INT-01 | Interview context reconstructed from Neo4j | graph.py:1160 |
-| <a id="req-report-02"></a>REPORT-02 | Cypher report tools (bracket, influence, entity, flips, posts) | graph.py:1260,1300,1339,1379,1434,1483,1529,1576 |
+| <a id="req-int-01"></a>INT-01 | Interview context reconstructed from Neo4j | graph.py:1176 |
+| <a id="req-report-02"></a>REPORT-02 | Cypher report tools (bracket, influence, entity, flips, posts) | graph.py:1276,1320,1359,1399,1454,1507,1553,1601 |
 | <a id="req-social-01"></a>SOCIAL-01 / SOCIAL-02 | Rationale posts as Post nodes / top-K posts in peer context (SOCIAL-02 ranking superseded, see [§2](#hist-read-post)) | SOCIAL-01: graph.py (`write_posts`). SOCIAL-02: its ranking read (`read_ranked_posts`) and READ_POST writer (`write_read_post_edges`) were deleted in 2026-10 |
-| <a id="req-replay-01"></a>REPLAY-01 | Replay from Neo4j without re-inference | graph.py:1988,2102,2155; tests/test_graph.py:1555,1580,1602,1625 |
-| <a id="req-vis-03"></a>VIS-03 | Edges endpoint for the web graph (Phase 31 ID) | tests/test_web.py:841 |
-| <a id="req-shock"></a>SHOCK-04 / SHOCK-05 | Phase 27-internal IDs (never added to REQUIREMENTS.md). SHOCK-04: `read_shock_event` / `read_shock_impact` (bracket deltas, pivot count, comparable agents) plus the old TUI bracket-panel delta mode. SHOCK-05: shock-impact report section (`11_shock_impact.j2`, `TOOL_TO_TEMPLATE['shock_impact']`, CLI pre-seeding of the `shock_impact` observation) | SHOCK-04: graph.py:1655; tests/test_graph.py:1438,1459,1473,1514. SHOCK-05: tests/test_cli.py:957,994; tests/test_report.py:498,505,514,542,586,600 |
-| <a id="req-be"></a>BE-01 / 03 / 04 / 08 / 09 / 10 | v5.0 web-backend IDs (definitions recovered from `git show 343669f^:.planning/...`). BE-01: FastAPI app whose lifespan owns the event loop, plus `/api/health`. BE-03: per-client WebSocket queue with drop-oldest and writer-task cleanup (ConnectionManager). BE-04: `/ws/state` 5 Hz snapshot stream (Phase 30). BE-08: `GET /api/replay/cycles` (real Neo4j query). BE-09: `POST /api/replay/start/{cycle_id}`. BE-10: `POST /api/replay/advance` (BE-09/10 began as Phase 32 stubs and were filled in by Phase 34) | BE-01: tests/test_web.py:99,223. BE-03: tests/test_web.py:281,310,341. BE-04: tests/test_web.py:438,821. BE-08..10: tests/test_web.py:1207 |
+| <a id="req-replay-01"></a>REPLAY-01 | Replay from Neo4j without re-inference | graph.py:2032,2150,2205; tests/test_graph.py:1555,1580,1602,1625 |
+| <a id="req-vis-03"></a>VIS-03 | Edges endpoint for the web graph (Phase 31 ID) | tests/test_web.py:845 |
+| <a id="req-shock"></a>SHOCK-04 / SHOCK-05 | Phase 27-internal IDs (never added to REQUIREMENTS.md). SHOCK-04: `read_shock_event` / `read_shock_impact` (bracket deltas, pivot count, comparable agents) plus the old TUI bracket-panel delta mode. SHOCK-05: shock-impact report section (`11_shock_impact.j2`, `TOOL_TO_TEMPLATE['shock_impact']`, CLI pre-seeding of the `shock_impact` observation) | SHOCK-04: graph.py:1683; tests/test_graph.py:1438,1459,1473,1514. SHOCK-05: tests/test_cli.py:1006,1043; tests/test_report.py:517,522,533,562,612,633 |
+| <a id="req-be"></a>BE-01 / 03 / 04 / 08 / 09 / 10 | v5.0 web-backend IDs (definitions recovered from `git show 343669f^:.planning/...`). BE-01: FastAPI app whose lifespan owns the event loop, plus `/api/health`. BE-03: per-client WebSocket queue with drop-oldest and writer-task cleanup (ConnectionManager). BE-04: `/ws/state` 5 Hz snapshot stream (Phase 30). BE-08: `GET /api/replay/cycles` (real Neo4j query). BE-09: `POST /api/replay/start/{cycle_id}`. BE-10: `POST /api/replay/advance` (BE-09/10 began as Phase 32 stubs and were filled in by Phase 34) | BE-01: tests/test_web.py:102,226. BE-03: tests/test_web.py:284,313,344. BE-04: tests/test_web.py:444,826. BE-08..10: tests/test_web.py:1212 |
 | <a id="req-isol"></a>ISOL-01..07 | v6.0 isolation: stdlib holdings types (01), frozen ingestion models (02), import contract (03), PII redaction (04), provider protocols (05), socket gate (06), four-surface canary (07) | see the `ISOL-` lines in `holdings/`, `ingestion/`, `logging.py`, `tests/invariants/`, `tests/test_network_gate.py` |
 | <a id="req-ingest"></a>INGEST-01 / 02 | yfinance provider / RSS provider | ingestion/__init__.py:9; ingestion/yfinance_provider.py:1; ingestion/rss_provider.py:1; tests/... |
-| <a id="req-hold"></a>HOLD-01..04 | CSV loader (01), account number hashed with `sha256_first8` (02/04), `GET /api/holdings` (03) | config.py:452; holdings/loader.py:1,13,75,167; holdings/types.py:33; security/hashing.py:5; web/routes/holdings.py:1; tests/... |
-| <a id="req-advis"></a>ADVIS-01 / 02 | `synthesize()` ranked items / `POST /api/advisory` with serialization | advisory/__init__.py:1; advisory/engine.py:1; advisory/types.py:1; web/routes/advisory.py:1,99; tests/unit/... |
-| <a id="req-sim-04"></a>SIM-04 | `run_simulation` takes optional providers; backward compatible without them | tests/test_simulation.py:3269 |
-| <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:27,53; web/wire.py:167; tests/test_web.py:464,471,496,527,556; docs/design/inference-providers.md:142 |
+| <a id="req-hold"></a>HOLD-01..04 | CSV loader (01), account number hashed with `sha256_first8` (02/04), `GET /api/holdings` (03) | config.py:446; holdings/loader.py:1,13,73,161; holdings/types.py:33; security/hashing.py:5; web/routes/holdings.py:1; tests/... |
+| <a id="req-advis"></a>ADVIS-01 / 02 | `synthesize()` ranked items / `POST /api/advisory` with serialization | advisory/__init__.py:1; advisory/engine.py:1; advisory/types.py:1; web/routes/advisory.py:1,98; tests/unit/... |
+| <a id="req-sim-04"></a>SIM-04 | `run_simulation` takes optional providers; backward compatible without them | tests/test_simulation.py:3384 |
+| <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:27,53; web/wire.py:165; tests/test_web.py:467,474,499,530,559; docs/design/inference-providers.md:142 |
 | <a id="req-auto"></a>AUTO-01..05 | Run the post-run jobs on completion (capture cycle_id, schedule from the done-callback). Revised 2026-10: PostRunPipeline calls the advisory and report jobs directly instead of an in-process POST, and the report runs in every case | tests/unit/test_simulation_manager_auto_advisory.py; tests/test_post_run_pipeline.py; tests/test_web_post_run_wiring.py |
 
 ---
@@ -959,10 +959,10 @@ implemented. MEM-01 is also cited in the superpowers spec.
 
 | ID | What it did | Referenced from |
 |---|---|---|
-| <a id="quick-260416-m8x"></a>260416-m8x | Tier-1 web fixes B4, B7, B8, B9, B10 | tests/test_web.py:1426 |
-| <a id="quick-260507-19f"></a>260507-19f | Removed the UI POST trigger for advisory. Synthesis is auto-fired by the backend on completion; the frontend only polls GET | fe/api/advisory.ts:2; fe/components/v2.tsx:22,797 |
+| <a id="quick-260416-m8x"></a>260416-m8x | Tier-1 web fixes B4, B7, B8, B9, B10 | tests/test_web.py:1439 |
+| <a id="quick-260507-19f"></a>260507-19f | Removed the UI POST trigger for advisory. Synthesis is auto-fired by the backend on completion; the frontend only polls GET | fe/api/advisory.ts:2; fe/components/v2.tsx:22,801 |
 | <a id="quick-260512-jqn"></a>260512-jqn | Six post-run follow-ups. ITEM 1: CSS for InterviewV2/Onboarding/BracketDeepDive takeovers. ITEM 2: Round 3 INFLUENCED_BY edges, so `/api/edges?round=3` works. ITEM 3: governor slots on the wire (closes KR-41.1-05). ITEM 4: rationale sliding window + per-agent streaming `push_rationale`. ITEM 5: live data-source audit feeding the Signal Wire. ITEM 6: advisory one-item-per-holding + sector enrichment | 48 refs across frame.ts, v2.tsx, RationalesContext.tsx, useDataSourceAudit.ts, styles.css, types.ts, advisory/engine.py, advisory/sector_map.py, batch_dispatcher.py, data_audit.py, ingestion/*_provider.py, simulation.py, state.py, web/app.py, web/broadcaster.py, and tests |
-| <a id="quick-260611-rlx"></a>260611-rlx | `think=False` in advisory synthesis; report auto-chained after advisory succeeds | tests/unit/test_advisory_route.py:219 |
+| <a id="quick-260611-rlx"></a>260611-rlx | `think=False` in advisory synthesis; report auto-chained after advisory succeeds | tests/unit/test_advisory_route.py:224 |
 
 ---
 
