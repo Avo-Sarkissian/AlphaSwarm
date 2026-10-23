@@ -9,7 +9,6 @@
 //   • useAgents() → agents (replaces source's design-mock agent builder)
 //   • bracketTallies(agents) → live bracket bars (lib/tally.ts)
 //   • useRationales() → rationale feed (replaces source's static fixture)
-//   • useConnection() → reconnectFailed gate for ErrorState
 //   • useRunGate() (cost gate, then simStart) and simStop() → RunControls;
 //     useAwaitRunFrame holds Run on "Starting…" until the run reaches the frame
 //   • Lifecycle (lib/lifecycle.ts, from the frame): the shell and topbar always
@@ -29,7 +28,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Icon } from './icons';
 import { Viz } from './viz';
 import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
-import { IdleState, SeedingState, ErrorState } from './states';
+import { IdleState, SeedingState } from './states';
 import { TweaksPanelLoader } from './TweaksPanelLoader';
 import { useAgents } from '../context/AgentsContext';
 import { useTelemetry } from '../context/TelemetryContext';
@@ -236,7 +235,7 @@ export function App() {
   // Live data via 6-context tree (W1 Plan 01 wiring).
   const { agents } = useAgents();
   const { rationales } = useRationales();
-  const { reconnectFailed, connected } = useConnection();
+  const { connected } = useConnection();
   const tel = useTelemetry();
   const meta = useFrameMeta();
   const lifecycle = lifecycleOf(meta);
@@ -388,11 +387,6 @@ export function App() {
       setActionError(formatApiError(err));
     }
   };
-
-  // Only a dead WebSocket replaces the dashboard; every other lifecycle renders the shell (overlays below).
-  if (reconnectFailed) {
-    return <ErrorState onRetry={() => window.location.reload()} />;
-  }
 
   return (
     <div className="app" data-dir="a" data-density="comfortable" data-screen-label="01 Dashboard">

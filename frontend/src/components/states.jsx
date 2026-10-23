@@ -1,8 +1,8 @@
-// v2 states — idle, seeding, memory-paused, error.
+// v2 states — idle, seeding, memory-paused.
 // Idle and seeding are overlays inside the dashboard canvas (.canvas-wrap);
-// the shell stays visible around them. ErrorState replaces the dashboard when
-// the WebSocket gives up. MemoryPausedState is not mounted (a governor pause
-// shows a dismissible banner instead).
+// the shell stays visible around them. A lost or stalled WebSocket shows the
+// global ConnectionBanner instead of a takeover. MemoryPausedState is not
+// mounted (a governor pause shows a dismissible banner instead).
 //
 // Lifted from AlphaSwarm-2/src/states.jsx (W2 Plan 41.6-02 task 2) and
 // converted to ES modules per D-03. Sourced design's BRACKETS reference is
@@ -146,47 +146,6 @@ export function MemoryPausedState({ pct, onResume }) {
           <button className="btn primary" onClick={onResume}>Resume inference</button>
           <button className="btn ghost">Lower slots to 6</button>
           <button className="btn ghost">Adjust threshold</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── ERROR ────────────────────────────────────────────────────────────
-// KR-41.1-08: structured event log lines are design copy (no backend
-// structured error stream yet). Trigger comes from useConnection().reconnectFailed
-// in app_v2.tsx.
-export function ErrorState({ onRetry }) {
-  return (
-    <div className="state-overlay dim">
-      <div className="state-center error-center">
-        <div className="error-glyph">
-          <svg viewBox="0 0 48 48" width="56" height="56" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M24 6 L42 38 H6 Z"/>
-            <path d="M24 18 V26 M24 30 V32"/>
-          </svg>
-        </div>
-        <div className="state-kicker label" style={{color: 'var(--sell)'}}>
-          RUNTIME ERROR · ollama-rpc
-        </div>
-        <div className="state-headline">Lost connection to Ollama.</div>
-        <div className="state-sub">
-          Agent <span className="mono" style={{color:'var(--accent)'}}>M-06</span> returned a malformed response
-          on round 2. The swarm has been paused to preserve state.
-        </div>
-        <div className="error-log mono">
-          {/* KR-41.1-08: rows below are design copy — backend has no structured error stream. */}
-          <div><span className="log-time">09:42:18.203</span> <span style={{color:'var(--sell)'}}>ERROR</span> M-06 parse_error: expected JSON, got plaintext</div>
-          <div><span className="log-time">09:42:18.204</span> <span style={{color:'var(--accent)'}}>WARN</span>  retry 1/3 · backoff 250ms</div>
-          <div><span className="log-time">09:42:18.461</span> <span style={{color:'var(--sell)'}}>ERROR</span> M-06 parse_error: expected JSON, got plaintext</div>
-          <div><span className="log-time">09:42:18.462</span> <span style={{color:'var(--accent)'}}>WARN</span>  retry 2/3 · backoff 500ms</div>
-          <div><span className="log-time">09:42:18.968</span> <span style={{color:'var(--sell)'}}>ERROR</span> ollama_rpc: ECONNRESET</div>
-          <div><span className="log-time">09:42:18.969</span> <span style={{color:'var(--text-3)'}}>INFO</span>  swarm.pause(preserve=true)</div>
-        </div>
-        <div className="state-actions">
-          <button className="btn primary" onClick={onRetry}>Retry from checkpoint</button>
-          <button className="btn ghost">Quarantine M-06</button>
-          <button className="btn ghost">Open ollama logs</button>
         </div>
       </div>
     </div>

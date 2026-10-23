@@ -547,7 +547,7 @@ body { background: var(--bg); }
    ═════════════════════════════════════════════════════════════════════════ */
 
 /* v2 STATES — used by frontend/src/components/states.jsx (IdleState,
-   SeedingState, MemoryPausedState, ErrorState). Lifted verbatim from
+   SeedingState, MemoryPausedState). Lifted verbatim from
    frontend-react-archive/src/styles.css:719-857. */
 .state-overlay {
   position: absolute; inset: 0;
@@ -691,20 +691,6 @@ body { background: var(--bg); }
   border-top: 5px solid var(--sell);
 }
 .mempaused-legend { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--text-2); }
-
-/* ERROR */
-.error-center {}
-.error-glyph { color: var(--sell); margin-bottom: 18px; }
-.error-log {
-  font-size: 11px; line-height: 1.7;
-  background: #08090b;
-  border: 1px solid var(--border);
-  padding: 12px 14px;
-  border-radius: 2px;
-  color: var(--text-2);
-}
-.error-log .log-time { color: var(--text-3); margin-right: 8px; }
-.log-time { color: var(--text-3); margin-right: 8px; }
 
 .seg-wrap { flex-wrap: wrap; }
 
@@ -2500,4 +2486,21 @@ body { background: var(--bg); }
   color: var(--text-2);
   font-size: 12px;
   line-height: 1.5;
+}
+
+/* Connection watchdog banner (live channel stalled or reconnecting) */
+.connection-banner {
+  position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 1000;
+  padding: 6px 14px; border-radius: 4px;
+  background: color-mix(in srgb, var(--sell) 14%, var(--bg-2));
+  border: 1px solid color-mix(in srgb, var(--sell) 45%, transparent);
+  color: var(--text); font-family: var(--font-mono, monospace); font-size: 11px; letter-spacing: 0.04em;
+}
+.connection-banner[data-status="stale"] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-2));
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.awaiting-frame {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-2); font-family: var(--font-mono, monospace); font-size: 12px; letter-spacing: 0.08em;
 }
