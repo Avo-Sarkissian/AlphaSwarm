@@ -1,12 +1,7 @@
 // src/components/ReportModal.tsx
-// Real-wired Report modal — Phase 41.2 D-04 wiring (POST/GET /api/report/{cycle_id})
-// + Phase 41.6 D-20: lifted rich layout from AlphaSwarm-2 ReportModalV2.
-//
-// codex HIGH-4 policy: canonical markdown FIRST; rich subsections heading-gated;
-//   missing sections OMITTED (not '—' placeholders). KR-41.6-12 documents this
-//   policy. Charts (ConvergenceFlow, InfluenceChart) require structured data —
-//   never infer from loose prose.
-// gemini #G1: section parsers from lib/advisoryParse.ts, NOT inline.
+// Report modal wired to POST/GET /api/report/{cycle_id}. Canonical markdown
+// renders first; charts come from the backend's structured sections and
+// markdown is never parsed.
 //
 // Trigger semantics: POST /api/report/{cycle_id}/generate starts the report job
 // (202 on accept, 409 report_generation_in_progress when one already runs). The
@@ -23,14 +18,7 @@ import { ApiError } from '../api/client';
 import { errorMessage, parseErrorEnvelope } from '../lib/apiError';
 import { shouldKeepPolling } from '../lib/reportPolling';
 import { renderMarkdown } from '../lib/markdown';
-import {
-  parseConvergence,
-  parseMoments,
-  parseInfluences,
-  parseDissent,
-  parseFollowups,
-} from '../lib/advisoryParse';
-import { ConvergenceFlow, InfluenceChart, Moment, Followup } from './v2';
+import { ConvergenceFlow, InfluenceChart } from './v2';
 
 // Local extension over ReportContent — the backend always sets `cycle_id`,
 // `content`, `generated_at`; we additionally tolerate a `report_markdown`
@@ -151,18 +139,9 @@ export function ReportModal({
   const canonicalMd = report?.content ?? report?.report_markdown ?? '';
   const canonicalHtml = useMemo(() => renderMarkdown(canonicalMd), [canonicalMd]);
 
-  // Heading-gated subsection parses (codex HIGH-4): each returns null when its
-  // heading is absent. Render ONLY when non-null.
-  const convergence = useMemo(() => parseConvergence(canonicalMd), [canonicalMd]);
-  const moments = useMemo(() => parseMoments(canonicalMd), [canonicalMd]);
-  const dissent = useMemo(() => parseDissent(canonicalMd), [canonicalMd]);
-  const influences = useMemo(() => parseInfluences(canonicalMd), [canonicalMd]);
-  const followups = useMemo(() => parseFollowups(canonicalMd), [canonicalMd]);
-
-  const dissentHtml = useMemo(
-    () => (dissent ? renderMarkdown(dissent) : ''),
-    [dissent],
-  );
+  // Structured sections from the backend; null for legacy reports. The
+  // markdown already contains the narrative, so only the charts are added.
+  const sections = report?.sections ?? null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -216,10 +195,9 @@ export function ReportModal({
                 Reports generate automatically after every completed run (after the
                 advisory when holdings are loaded).
                 If auto-generation has not started yet — or you want a fresh pass —
-                use the manual button below as a fallback / regenerate path. Total
-                wall-clock on M1 Max is ~5–10 min for the canonical markdown pass
-                plus subsection synthesis. Leave this modal open and the report will
-                appear here automatically when ready.
+                use the manual button below as a fallback / regenerate path.
+                Generation is one orchestrator call after the model loads. Leave this
+                modal open and the report appears here when ready.
               </div>
               <button
                 className="btn"
@@ -238,9 +216,8 @@ export function ReportModal({
                 Generating report…
               </div>
               <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
-                The ReACT agent + assembler is synthesizing the canonical markdown,
-                then the heading-gated subsections (Convergence, Moments, Dissent,
-                Influences, Followups). Modal will refresh automatically when ready.
+                Collecting the simulation data and writing the narrative (one
+                orchestrator call). The modal refreshes automatically when ready.
               </div>
             </div>
           )}
@@ -263,7 +240,7 @@ export function ReportModal({
                 </div>
               </div>
 
-              {/* Canonical markdown body — D-20 codex HIGH-4: ALWAYS renders FIRST */}
+              {/* Canonical markdown body: always renders first */}
               {canonicalHtml && (
                 <div
                   className="report-markdown report-canonical"
@@ -272,55 +249,23 @@ export function ReportModal({
                 />
               )}
 
-              {/* Heading-gated rich subsections (KR-41.6-12).
-                  OMITTED entirely when the matching ## H2 heading is absent. */}
-              {convergence && (
-                <section className="rv2-section">
+              {sections && sections.convergence.length > 0 && (
+                <section className="rv2-section" data-testid="report-convergence-chart">
                   <div className="rv2-section-head">
                     <h2>Convergence</h2>
                     <div className="label">ROUND-BY-ROUND SIGNAL DISTRIBUTION</div>
                   </div>
-                  <ConvergenceFlow data={convergence} />
+                  <ConvergenceFlow rows={sections.convergence} />
                 </section>
               )}
 
-              {moments && (
-                <section className="rv2-section">
-                  <div className="rv2-section-head">
-                    <h2>Key moments</h2>
-                  </div>
-                  <Moment moments={moments} />
-                </section>
-              )}
-
-              {dissent && (
-                <section className="rv2-section">
-                  <div className="rv2-section-head">
-                    <h2>Dissent</h2>
-                  </div>
-                  <div
-                    className="report-dissent"
-                    dangerouslySetInnerHTML={{ __html: dissentHtml }}
-                  />
-                </section>
-              )}
-
-              {influences && (
-                <section className="rv2-section">
+              {sections && sections.influence.length > 0 && (
+                <section className="rv2-section" data-testid="report-influence-chart">
                   <div className="rv2-section-head">
                     <h2>Influence topology</h2>
-                    <div className="label">PERSISTED TO NEO4J</div>
+                    <div className="label">MOST-CITED AGENTS · FINAL ROUND</div>
                   </div>
-                  <InfluenceChart data={influences} />
-                </section>
-              )}
-
-              {followups && (
-                <section className="rv2-section">
-                  <div className="rv2-section-head">
-                    <h2>Recommended follow-ups</h2>
-                  </div>
-                  <Followup items={followups} />
+                  <InfluenceChart rows={sections.influence} />
                 </section>
               )}
             </>
