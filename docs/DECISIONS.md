@@ -252,7 +252,9 @@ Contents
   - Ollama: `prompt_eval_count` / `eval_count` / `prompt_eval_duration` / `eval_duration` / `load_duration`; `done_reason` `stop`/`length`, anything else `other`. `prompt_eval_count` counts only tokens actually prefilled, so a reused KV prefix lowers it.
   - OpenAI-compatible: `usage.prompt_tokens` (cache included), `prompt_tokens_details.cached_tokens`, `finish_reason` (`tool_calls` → `tool_use`). No timings.
   - Anthropic: prompt tokens = `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` (the API's `input_tokens` is the uncached remainder); `stop_reason` `end_turn`/`stop_sequence` → `stop`, `max_tokens` → `length`, `refusal` → `content_filter`. No timings. The budget meter therefore prices cache reads at the full input rate (an overestimate, the safe direction for a spend cap).
-- **Where:** `inference/types.py`, the three adapters in `inference/`.
+- **Per call:** every provider's `chat` goes through `inference/call_log.py:logged_call`, which logs one `inference_call` line with role, model, prompt/completion/cached tokens, prefill/decode/load ms, finish reason and latency; a failure logs `finish_reason=error` with the exception class only. `cycle_id`, `round` and `agent_id` come from structlog contextvars. Prompt and reply text are never logged, which keeps advisory calls free of holdings.
+- **Per round:** `RoundTelemetry` writes `r{n}_latency_p50_ms`/`p95_ms`, mean prompt/completion tokens, mean prefill/decode ms, total load ms, cold loads (load ≥ 500 ms), truncations (`finish_reason` `length`; such a parse failure is `error_kind="truncated"`) and context warnings (prompt ≥ 90% of `OllamaSettings.worker_num_ctx`, local workers only). The governor adds time-in-state and peak memory; `seed_seconds` and `total_seconds` share one run clock (`metrics_version` 2).
+- **Where:** `inference/types.py`, the three adapters in `inference/`, `inference/call_log.py`, `telemetry.py`, `governor.py`.
 
 ### <a id="adr-governor"></a>Memory-aware ResourceGovernor
 - **Decision:**
