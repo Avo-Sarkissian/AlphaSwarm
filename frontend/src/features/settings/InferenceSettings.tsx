@@ -22,7 +22,7 @@ import {
   type ProviderPreset,
   type RoleView,
   type SettingsView,
-} from '../api/settings';
+} from '../../api/settings';
 import {
   applyPreset,
   extractErrorDetail,
@@ -32,8 +32,8 @@ import {
   providerLabel,
   roleViewToForm,
   type RoleFormState,
-} from '../lib/settingsForm';
-import { advisoryOptInHelp, isOffMachine, roleFactsOf } from '../lib/privacyCopy';
+} from '../../lib/settingsForm';
+import { advisoryOptInHelp, isOffMachine, roleFactsOf } from '../../lib/privacyCopy';
 
 // ── sub-component: per-role form ──────────────────────────────────────────
 

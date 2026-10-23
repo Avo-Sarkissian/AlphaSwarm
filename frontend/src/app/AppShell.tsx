@@ -1,36 +1,13 @@
-// Main dashboard shell — Quant Terminal direction.
-//
-// Lifted from AlphaSwarm-2/src/app_v2.jsx (W2 Plan 41.6-02 task 3) and
-// rewired to live data per D-03 / D-07 / D-14 / KR-41.6-08.
-//
-// Wiring map:
-//   • useTelemetry() → tps / memMb / slotsUsed / slotsMax / elapsedSeconds /
-//     governorState / phase (replaces source's setInterval mock telemetry clock)
-//   • useAgents() → agents (replaces source's design-mock agent builder)
-//   • bracketTallies(agents) → live bracket bars (lib/tally.ts)
-//   • useRationales() → rationale feed (replaces source's static fixture)
-//   • useRunGate() (cost gate, then simStart) and simStop() → RunControls;
-//     useAwaitRunFrame holds Run on "Starting…" until the run reaches the frame
-//   • Lifecycle (lib/lifecycle.ts, from the frame): the shell and topbar always
-//     render; IdleState / SeedingState are overlays inside .canvas-wrap; the
-//     ReplayBar mounts while mode === 'replay'; RunControls picks Run/Stop.
-//     Governor paused/crisis renders as a dismissible banner over the dashboard
-//     (the backend governor resumes on its own — no takeover, no simStart).
-//
-// Modal mounts (Interview, Report, Shock, Replay, AdvisoryV2,
-// SignalWire ticker, DataSources takeover, BracketDeepDive) are stubbed for
-// W2; W3 Plan 03 + W4 Plan 04 wire them.
-//
-// ModelStatus chip (./v2.tsx): inference mode and spend from /api/health next
-// to live run telemetry; it shows no model name (docs/DECISIONS.md#kr-41-6-08).
+// Dashboard shell: topbar, banners, the dashboard grid, the replay bar and the
+// single overlay slot (docs/DECISIONS.md#adr-frontend-quant-terminal).
 import { useEffect, useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { Icon } from './icons';
-import { Viz } from './viz';
-import type { VizLayout } from './vizLayout';
+import { Icon } from '../components/Icon';
+import { Viz } from '../features/dashboard/Viz';
+import type { VizLayout } from '../features/dashboard/vizLayout';
 import type { AgentView } from '../types';
-import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
-import { IdleState, SeedingState } from './states';
+import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from '../features/dashboard/panels';
+import { IdleState, SeedingState } from '../features/dashboard/StateOverlays';
 import { useAgents } from '../context/AgentsContext';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useRationales } from '../context/RationalesContext';
@@ -47,19 +24,16 @@ import { signalClass, signalLabel } from '../lib/signals';
 import { bracketTallies } from '../lib/tally';
 import { phaseLabelFor } from '../lib/phase';
 import { useRound, useRounds } from '../hooks/useRounds';
-// Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
-// ShockDrawer.tsx, ReplayBar.tsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
-import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from './v2';
-import { ShockDrawer } from './ShockDrawer';
-import { ReplayBar } from './ReplayBar';
-import { ReportModal } from './ReportModal';
-import { CycleHistory } from './history';
-import { Settings } from './settings';
-// Plan 41.6-04 task 2 (W4): real ported components replace W2/W3 stub overlays.
-import { InterviewV2 } from './interview_v2';
-import { BracketDeepDive } from './bracket_deep';
-import { InlineError } from './InlineError';
-import { RunErrorBanner } from './RunErrorBanner';
+import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from '../components/v2';
+import { ShockDrawer } from '../features/dashboard/ShockDrawer';
+import { ReplayBar } from '../features/dashboard/ReplayBar';
+import { ReportModal } from '../features/report/ReportModal';
+import { CycleBrowser } from '../features/cycles/CycleBrowser';
+import { Settings } from '../features/settings/Settings';
+import { InterviewPanel } from '../features/interview/InterviewPanel';
+import { BracketDeepDive } from '../features/dashboard/BracketDeepDive';
+import { InlineError } from '../components/InlineError';
+import { RunErrorBanner } from '../features/dashboard/RunErrorBanner';
 import { RunControls } from './RunControls';
 import { useFrameMeta } from '../context/FrameMetaContext';
 import { formatApiError } from '../lib/apiError';
@@ -219,7 +193,7 @@ interface UiState {
   shockOpen: boolean;
   interviewAgentId: string | null;
   reportOpen: boolean;
-  reportCycleId: string | null; // cycle picked in CycleHistory (null = current)
+  reportCycleId: string | null; // cycle picked in CycleBrowser (null = current)
   advisoryOpen: boolean;
   dataSourcesOpen: boolean;
   settingsOpen: boolean;
@@ -231,7 +205,7 @@ interface UiState {
   comingSoon: 'whatif' | 'multiseed' | 'stress' | 'brackets' | null;
 }
 
-export function App({ initialSeed = '' }: { initialSeed?: string }) {
+export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
   // Live data via 6-context tree (W1 Plan 01 wiring).
   const { agents } = useAgents();
   const { rationales } = useRationales();
@@ -628,9 +602,9 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
       </div>
 
       {/* W4 real-wired modal mounts (Plan 41.6-04 task 2). All stub overlays
-          replaced — InterviewV2 and BracketDeepDive now mount real components. */}
+          replaced — InterviewPanel and BracketDeepDive now mount real components. */}
       {ui.interviewAgentId && (
-        <InterviewV2 agentId={ui.interviewAgentId} onClose={() => setUi((u) => ({ ...u, interviewAgentId: null }))} />
+        <InterviewPanel agentId={ui.interviewAgentId} onClose={() => setUi((u) => ({ ...u, interviewAgentId: null }))} />
       )}
       {ui.bracketDeepDive && (
         <BracketDeepDive
@@ -662,7 +636,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
         />
       )}
       {ui.historyOpen && (
-        <CycleHistory
+        <CycleBrowser
           onClose={() => setUi((u) => ({ ...u, historyOpen: false }))}
           onOpenReport={(c) =>
             setUi((u) => ({

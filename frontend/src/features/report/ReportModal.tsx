@@ -8,17 +8,17 @@
 // modal polls GET only while the backend answers 409 report_generation_in_progress;
 // every other error ends the poll and its envelope message is shown.
 import { useState, useMemo, useEffect } from 'react';
-import { Icon } from './icons';
-import { useFrameMeta } from '../context/FrameMetaContext';
-import { useLatestCompletedCycle } from '../hooks/useLatestCompletedCycle';
-import { defaultCycleId } from '../lib/defaultCycle';
-import { usePolling } from '../hooks/usePolling';
-import { reportFetch, reportGenerate, reportPoll, type ReportContent } from '../api/report';
-import { ApiError } from '../api/client';
-import { errorMessage, parseErrorEnvelope } from '../lib/apiError';
-import { shouldKeepPolling } from '../lib/reportPolling';
-import { renderMarkdown } from '../lib/markdown';
-import { ConvergenceFlow, InfluenceChart } from './v2';
+import { Icon } from '../../components/Icon';
+import { useFrameMeta } from '../../context/FrameMetaContext';
+import { useLatestCompletedCycle } from '../../hooks/useLatestCompletedCycle';
+import { defaultCycleId } from '../../lib/defaultCycle';
+import { usePolling } from '../../hooks/usePolling';
+import { reportFetch, reportGenerate, reportPoll, type ReportContent } from '../../api/report';
+import { ApiError } from '../../api/client';
+import { errorMessage, parseErrorEnvelope } from '../../lib/apiError';
+import { shouldKeepPolling } from '../../lib/reportPolling';
+import { renderMarkdown } from '../../lib/markdown';
+import { ConvergenceFlow, InfluenceChart } from '../../components/v2';
 
 // Local extension over ReportContent — the backend always sets `cycle_id`,
 // `content`, `generated_at`; we additionally tolerate a `report_markdown`
@@ -36,7 +36,7 @@ export function ReportModal({
   cycleId: cycleIdProp,
   onClose,
 }: {
-  /** Explicit cycle to report on (e.g. picked in CycleHistory). Defaults to defaultCycleId(). */
+  /** Explicit cycle to report on (e.g. picked in CycleBrowser). Defaults to defaultCycleId(). */
   cycleId?: string | null;
   onClose: () => void;
 }) {
@@ -145,9 +145,9 @@ export function ReportModal({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-big report-v2" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head rv2-head">
-          <div className="rv2-head-left">
+      <div className="modal modal-big report-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head rpt-head">
+          <div className="rpt-head-left">
             <Icon name="doc" size={14} />
             <span
               style={{
@@ -161,14 +161,14 @@ export function ReportModal({
               REPORT · {cycleId ?? 'no cycle'}
             </span>
           </div>
-          <div className="rv2-head-right">
+          <div className="rpt-head-right">
             <button className="btn ghost" onClick={onClose}>
               <Icon name="close" /> Close
             </button>
           </div>
         </div>
 
-        <div className="modal-body no-pad report rv2-scroll">
+        <div className="modal-body no-pad report rpt-scroll">
           {findingCycle && (
             <div className="report-hero" style={{ padding: 24 }}>
               <div className="label">Finding the latest completed cycle…</div>
@@ -233,8 +233,8 @@ export function ReportModal({
               {/* Hero — minimal, derived from backend metadata only. The
                   AlphaSwarm-2 design's hero filler text is not preserved per
                   Pitfall #3; this hero shows the live cycle id + generated_at. */}
-              <div className="rv2-hero" style={{ padding: 24 }}>
-                <div className="rv2-kicker label">
+              <div className="rpt-hero" style={{ padding: 24 }}>
+                <div className="rpt-kicker label">
                   CYCLE {report.cycle_id}
                   {report.generated_at && ` · ${report.generated_at}`}
                 </div>
@@ -250,8 +250,8 @@ export function ReportModal({
               )}
 
               {sections && sections.convergence.length > 0 && (
-                <section className="rv2-section" data-testid="report-convergence-chart">
-                  <div className="rv2-section-head">
+                <section className="rpt-section" data-testid="report-convergence-chart">
+                  <div className="rpt-section-head">
                     <h2>Convergence</h2>
                     <div className="label">ROUND-BY-ROUND SIGNAL DISTRIBUTION</div>
                   </div>
@@ -260,8 +260,8 @@ export function ReportModal({
               )}
 
               {sections && sections.influence.length > 0 && (
-                <section className="rv2-section" data-testid="report-influence-chart">
-                  <div className="rv2-section-head">
+                <section className="rpt-section" data-testid="report-influence-chart">
+                  <div className="rpt-section-head">
                     <h2>Influence topology</h2>
                     <div className="label">MOST-CITED AGENTS · FINAL ROUND</div>
                   </div>

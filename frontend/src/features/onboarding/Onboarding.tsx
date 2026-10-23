@@ -11,15 +11,15 @@
 // (codex LOW-9 — never write localStorage during render).
 
 import { useEffect, useState } from 'react';
-import { Icon } from './icons';
-import { InlineError } from './InlineError';
-import { fetchHealth } from '../api/health';
-import { roundsFor } from '../hooks/useRounds';
-import { useRunGate } from '../hooks/useRunGate';
-import { ONBOARDING_PRIVACY_LINE } from '../lib/privacyCopy';
-import { formatApiError } from '../lib/apiError';
-import { parseHealth, type HealthSummary } from '../lib/health';
-import { SEED_MAX_LENGTH, seedProblem } from '../lib/seed';
+import { Icon } from '../../components/Icon';
+import { InlineError } from '../../components/InlineError';
+import { fetchHealth } from '../../api/health';
+import { roundsFor } from '../../hooks/useRounds';
+import { useRunGate } from '../../hooks/useRunGate';
+import { ONBOARDING_PRIVACY_LINE } from '../../lib/privacyCopy';
+import { formatApiError } from '../../lib/apiError';
+import { parseHealth, type HealthSummary } from '../../lib/health';
+import { SEED_MAX_LENGTH, seedProblem } from '../../lib/seed';
 
 interface OnboardingProps {
   onComplete: (seed: string) => void;

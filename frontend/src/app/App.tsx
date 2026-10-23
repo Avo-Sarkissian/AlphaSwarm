@@ -6,15 +6,15 @@
 // useWebSocket() runs ABOVE the gate so the WS
 // connection is open for the entire session, even while Onboarding renders.
 import { useState } from 'react';
-import { useWebSocket } from './hooks/useWebSocket';
-import type { ConnectionStatus } from './hooks/useWebSocket';
-import { ConnectionProvider } from './context/ConnectionContext';
-import { EdgesProvider } from './context/EdgesContext';
-import { FrameProviders } from './context/FrameProviders';
-import { App as DashboardShell } from './components/app_v2';
-import { ConnectionBanner } from './components/ConnectionBanner';
-import { Onboarding } from './components/onboarding';
-import { safeStorage } from './lib/safeStorage';
+import { useWebSocket } from '../hooks/useWebSocket';
+import type { ConnectionStatus } from '../hooks/useWebSocket';
+import { ConnectionProvider } from '../context/ConnectionContext';
+import { EdgesProvider } from '../context/EdgesContext';
+import { FrameProviders } from '../context/FrameProviders';
+import { AppShell } from './AppShell';
+import { ConnectionBanner } from './ConnectionBanner';
+import { Onboarding } from '../features/onboarding/Onboarding';
+import { safeStorage } from '../lib/safeStorage';
 
 const ONBOARDING_FLAG = 'as_onboarding_v1_complete';
 
@@ -66,7 +66,7 @@ export function App() {
     <FrameProviders frame={lastFrame} connected={connected} status={status}>
       <ConnectionBanner status={status} />
       <EdgesProvider>
-        <DashboardShell initialSeed={initialSeed} />
+        <AppShell initialSeed={initialSeed} />
       </EdgesProvider>
     </FrameProviders>
   );

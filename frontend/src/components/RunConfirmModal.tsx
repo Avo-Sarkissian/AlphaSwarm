@@ -13,7 +13,7 @@
 // Estimate-unavailable UX: when estimate is null we show
 // "estimate unavailable — run anyway?" so the user can still cancel a cloud run
 // they did not intend to start. See useRunGate for full rationale.
-import { Icon } from './icons';
+import { Icon } from './Icon';
 import { RunEstimate } from '../api/settings';
 
 export interface RunConfirmModalProps {

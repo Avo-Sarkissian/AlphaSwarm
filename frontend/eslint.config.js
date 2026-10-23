@@ -40,7 +40,7 @@ export default tseslint.config(
   },
   {
     // The untyped app shell keeps its `any`s until it is typed.
-    files: ['src/components/app_v2.tsx'],
+    files: ['src/app/AppShell.tsx'],
     rules: { '@typescript-eslint/no-explicit-any': 'warn' },
   },
   // Placebo controls are deleted, not disabled: every <button> needs a handler.

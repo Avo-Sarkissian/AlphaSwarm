@@ -1,5 +1,5 @@
 // src/lib/advisoryParse.ts
-// Pure parsers + regex for the AdvisoryV2 view: the outlook headline (D-09) and
+// Pure parsers + regex for the advisory panel: the outlook headline (D-09) and
 // the agent-citation count. Per-item risk/upside/stats come from the backend
 // (see lib/advisoryView.ts), never from the outlook prose.
 
@@ -36,7 +36,7 @@ export function countAgentCitations(text: string): number {
 // intersection variant takes the regex hits AND keeps only IDs present in the
 // current agents list.
 //
-// Usage in AdvisoryV2:
+// Usage in the advisory panel:
 //   const { agents } = useAgents();
 //   const liveIds = useMemo(() => new Set(agents.map(a => a.id)), [agents]);
 //   const agentsCount = countAgentCitationsAgainst(item.rationale_summary, liveIds);

@@ -3,13 +3,13 @@
 // GET /api/replay/cycles; cycles recorded before metrics existed show "—"
 // and are left out of the averages.
 import { useMemo, useState } from 'react';
-import { Icon } from './icons';
-import { InlineError } from './InlineError';
-import { replayStart, type CycleItem } from '../api/replay';
-import { useCyclePages } from '../hooks/useCyclePages';
-import { consensusOf, isSameLocalDay, parseIsoInstant, summarizeCycles } from '../lib/cycles';
-import { formatApiError } from '../lib/apiError';
-import { formatDuration } from '../lib/format';
+import { Icon } from '../../components/Icon';
+import { InlineError } from '../../components/InlineError';
+import { replayStart, type CycleItem } from '../../api/replay';
+import { useCyclePages } from '../../hooks/useCyclePages';
+import { consensusOf, isSameLocalDay, parseIsoInstant, summarizeCycles } from '../../lib/cycles';
+import { formatApiError } from '../../lib/apiError';
+import { formatDuration } from '../../lib/format';
 
 function formatCycleDate(iso: string): string {
   const d = parseIsoInstant(iso);
@@ -17,7 +17,7 @@ function formatCycleDate(iso: string): string {
   return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-export function CycleHistory({
+export function CycleBrowser({
   onClose,
   onOpenReport,
 }: {

@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BracketDeepDive } from '../../components/bracket_deep';
+import { BracketDeepDive } from '../../features/dashboard/BracketDeepDive';
 import { makeAgent } from '../helpers/agents';
 
 const h = vi.hoisted(() => ({

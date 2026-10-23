@@ -4,7 +4,7 @@
 // module-wide, so these tests run in order: a first open, then a reopen.
 import { act, cleanup, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ReportModal } from '../../components/ReportModal';
+import { ReportModal } from '../../features/report/ReportModal';
 import { AdvisoryV2 } from '../../components/v2';
 import { renderAt } from '../helpers/lifecycleFrames';
 

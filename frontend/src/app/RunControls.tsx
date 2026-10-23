@@ -1,6 +1,6 @@
 // Topbar Run/Stop control. Which one shows, and whether Run is enabled, comes
 // from the frame (lifecycle, post-run jobs) and the seed; see lib/lifecycle.ts.
-import { Icon } from './icons';
+import { Icon } from '../components/Icon';
 import { useConnection } from '../context/ConnectionContext';
 import { useFrameMeta } from '../context/FrameMetaContext';
 import { lifecycleOf, runControlState } from '../lib/lifecycle';

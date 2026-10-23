@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App as DashboardShell } from '../../components/app_v2';
-import { InterviewV2 } from '../../components/interview_v2';
+import { AppShell as DashboardShell } from '../../app/AppShell';
+import { InterviewPanel } from '../../features/interview/InterviewPanel';
 import type { AgentView, RationaleView } from '../../types';
 import wsSnapshot from '../fixtures/ws_snapshot.json';
 import { ensureResizeObserver, requestedUrls, stubFetch } from '../helpers/fetchStub';
@@ -28,10 +28,10 @@ const COMPLETE = { phase: 'complete', mode: 'live' as const, roundNum: 3, numRou
 beforeEach(() => ensureResizeObserver());
 afterEach(() => vi.unstubAllGlobals());
 
-describe('InterviewV2', () => {
+describe('InterviewPanel', () => {
   it("shows each round's own stored signal and confidence", async () => {
     stubFetch(routes());
-    renderShell(<InterviewV2 agentId="quants_01" onClose={() => {}} />, {
+    renderShell(<InterviewPanel agentId="quants_01" onClose={() => {}} />, {
       raw: wsSnapshot,
       frame: { ...COMPLETE, agents: [AGENT('sell', 0.7)] },
     });
@@ -41,14 +41,14 @@ describe('InterviewV2', () => {
     expect(screen.getByText(/Final round \(R3\) close: SELL, confidence 70%/)).toBeTruthy();
 
     fireEvent.click(screen.getByText('Rationale log'));
-    const blocks = [...document.querySelectorAll('.iv2-round-block')];
+    const blocks = [...document.querySelectorAll('.itv-round-block')];
     expect(blocks.map((b) => b.querySelector('.rationale-signal')?.textContent)).toEqual(['BUY', 'SELL', 'SELL']);
     expect(blocks[1]?.textContent).toContain('Financing risk on QQQX');
   });
 
   it('marks the round in progress as live instead of reusing the current signal everywhere', async () => {
     stubFetch(routes(DECISIONS.slice(0, 2)));
-    renderShell(<InterviewV2 agentId="quants_01" onClose={() => {}} />, {
+    renderShell(<InterviewPanel agentId="quants_01" onClose={() => {}} />, {
       raw: wsSnapshot,
       frame: { phase: 'round_3', mode: 'live', roundNum: 3, numRounds: 3, cycleId: CYCLE, agents: [AGENT('hold', 0.55)] },
     });
@@ -58,7 +58,7 @@ describe('InterviewV2', () => {
 
   it('asks about the cycle on screen, including a replayed one', async () => {
     const mock = stubFetch(routes());
-    renderShell(<InterviewV2 agentId="quants_01" onClose={() => {}} />, {
+    renderShell(<InterviewPanel agentId="quants_01" onClose={() => {}} />, {
       raw: wsSnapshot,
       frame: { phase: 'replay', mode: 'replay', roundNum: 2, numRounds: 3, cycleId: REPLAYED, agents: [AGENT('sell', 0.6)] },
     });
@@ -84,6 +84,6 @@ describe('dashboard interview flag', () => {
     expect(node).not.toBeNull();
     fireEvent.click(node!);
     fireEvent.click(screen.getAllByText('quants_01', { selector: '.rationale-agent' })[0]!);
-    await waitFor(() => expect(document.querySelectorAll('.iv2-takeover')).toHaveLength(1));
+    await waitFor(() => expect(document.querySelectorAll('.itv-takeover')).toHaveLength(1));
   });
 });

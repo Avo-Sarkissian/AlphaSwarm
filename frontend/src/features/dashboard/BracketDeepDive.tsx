@@ -7,18 +7,18 @@
 //     Direction semantics per codex MEDIUM-7: source_id = citing, target_id = cited.
 //   - Before round 2's edges exist (R1, seeding, idle) both counts render '—'.
 //   - Source's CDN-globals export DELETED — module export only (no global pollution).
-//   - agents prop is pre-filtered by caller (app_v2.tsx) per D-13:
+//   - agents prop is pre-filtered by the caller (AppShell) per D-13:
 //       useAgents().agents.filter(a => a.bracket === bracket.bracket)
 //     So the inner `members` filter is now a no-op — kept defensive in case caller
 //     forgets to filter.
 
 import { useState, useMemo } from 'react';
-import { Icon } from './icons';
-import { useEdgesCtx } from '../context/EdgesContext';
-import { bracketSpec } from '../data';
-import { signalClass, signalColor, signalLabel } from '../lib/signals';
-import { consensusLeader, tallySignals } from '../lib/tally';
-import type { AgentView } from '../types';
+import { Icon } from '../../components/Icon';
+import { useEdgesCtx } from '../../context/EdgesContext';
+import { bracketSpec } from '../../data';
+import { signalClass, signalColor, signalLabel } from '../../lib/signals';
+import { consensusLeader, tallySignals } from '../../lib/tally';
+import type { AgentView } from '../../types';
 
 interface BracketDescriptor {
   bracket: string;

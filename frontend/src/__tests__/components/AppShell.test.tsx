@@ -5,7 +5,7 @@
 import type { ReactNode } from 'react';
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { App as DashboardShell } from '../../components/app_v2';
+import { AppShell as DashboardShell } from '../../app/AppShell';
 import { makeAgent } from '../helpers/agents';
 import { stubFetchRoutes } from '../helpers/fetchRoutes';
 import { renderAt, rerenderAt } from '../helpers/lifecycleFrames';
@@ -43,11 +43,11 @@ vi.mock('../../components/v2', () => ({
   DataSourcesTakeover: () => null,
   AdvisoryV2: () => null,
 }));
-vi.mock('../../components/viz', async () => {
+vi.mock('../../features/dashboard/Viz', async () => {
   const { createElement } = await import('react');
   return { Viz: () => createElement('svg', { 'data-testid': 'viz' }) };
 });
-vi.mock('../../components/settings', async () => {
+vi.mock('../../features/settings/Settings', async () => {
   const { createElement } = await import('react');
   return {
     Settings: () => createElement('div', { role: 'dialog', 'aria-label': 'Settings dialog' }),

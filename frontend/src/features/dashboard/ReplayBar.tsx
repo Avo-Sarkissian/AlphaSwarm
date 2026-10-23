@@ -1,11 +1,11 @@
 // Replay bar: shown whenever the frame's mode is 'replay'; steps or exits the replay.
 import { useState } from 'react';
-import { Icon } from './icons';
-import { InlineError } from './InlineError';
-import { replayAdvance, replayStop } from '../api/replay';
-import { useFrameMeta } from '../context/FrameMetaContext';
-import { useRounds } from '../hooks/useRounds';
-import { formatApiError } from '../lib/apiError';
+import { Icon } from '../../components/Icon';
+import { InlineError } from '../../components/InlineError';
+import { replayAdvance, replayStop } from '../../api/replay';
+import { useFrameMeta } from '../../context/FrameMetaContext';
+import { useRounds } from '../../hooks/useRounds';
+import { formatApiError } from '../../lib/apiError';
 
 // ─── ReplayBar ───────────────────────────────────────────────────────────
 // Driven entirely by the frame (mode === 'replay' decides whether the app

@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CycleItem } from '../../api/replay';
-import { CycleHistory } from '../../components/history';
+import { CycleBrowser } from '../../features/cycles/CycleBrowser';
 import { jsonResponse, stubFetch } from '../helpers/fetchStub';
 
 const RUMOR = 'ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.';
@@ -44,10 +44,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('CycleHistory', () => {
+describe('CycleBrowser', () => {
   it('shows consensus, flips and duration from the stored metrics, and dashes when not recorded', async () => {
     stubFetch([{ path: '/api/replay/cycles', body: { cycles: [TODAY, YESTERDAY], next_before: null } }]);
-    render(<CycleHistory onClose={() => {}} onOpenReport={() => {}} />);
+    render(<CycleBrowser onClose={() => {}} onOpenReport={() => {}} />);
     await screen.findByText('c-with-metrics');
 
     const row = rowOf('c-with-metrics');
@@ -61,7 +61,7 @@ describe('CycleHistory', () => {
 
   it('has no Starred filter, selection checkboxes, Compare or shocks column', async () => {
     stubFetch([{ path: '/api/replay/cycles', body: { cycles: [TODAY], next_before: null } }]);
-    const { container } = render(<CycleHistory onClose={() => {}} onOpenReport={() => {}} />);
+    const { container } = render(<CycleBrowser onClose={() => {}} onOpenReport={() => {}} />);
     await screen.findByText('c-with-metrics');
     expect(screen.queryByText('Starred')).toBeNull();
     expect(screen.queryByText(/compare/i)).toBeNull();
@@ -71,7 +71,7 @@ describe('CycleHistory', () => {
 
   it('filters Today by the local calendar day', async () => {
     stubFetch([{ path: '/api/replay/cycles', body: { cycles: [TODAY, YESTERDAY], next_before: null } }]);
-    render(<CycleHistory onClose={() => {}} onOpenReport={() => {}} />);
+    render(<CycleBrowser onClose={() => {}} onOpenReport={() => {}} />);
     await screen.findByText('c-with-metrics');
     fireEvent.click(screen.getByText('Today'));
     expect(screen.queryByText('c-with-metrics')).not.toBeNull();
@@ -90,7 +90,7 @@ describe('CycleHistory', () => {
         return jsonResponse(pages[url]);
       }),
     );
-    render(<CycleHistory onClose={() => {}} onOpenReport={() => {}} />);
+    render(<CycleBrowser onClose={() => {}} onOpenReport={() => {}} />);
     fireEvent.click(await screen.findByText('Load older cycles'));
     await waitFor(() => expect(screen.queryByText('c-older')).not.toBeNull());
     expect(screen.queryByText('Load older cycles')).toBeNull();

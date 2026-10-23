@@ -2,7 +2,7 @@
 // The cycle browser is the only cycle list: it opens reports and starts replays.
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CycleHistory } from '../../components/history';
+import { CycleBrowser } from '../../features/cycles/CycleBrowser';
 import { renderWithFrame } from '../helpers/renderWithFrame';
 
 const CYCLE = {
@@ -49,7 +49,7 @@ describe('cycle browser replay action', () => {
   it('starts the replay for the row and closes', async () => {
     const calls = stubBackend(200);
     const onClose = vi.fn();
-    renderWithFrame(<CycleHistory onClose={onClose} onOpenReport={vi.fn()} />);
+    renderWithFrame(<CycleBrowser onClose={onClose} onOpenReport={vi.fn()} />);
     fireEvent.click(await screen.findByTitle('Replay this cycle'));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(calls).toContainEqual({ url: `/api/replay/start/${CYCLE.cycle_id}`, method: 'POST' });
@@ -58,7 +58,7 @@ describe('cycle browser replay action', () => {
   it('shows the backend message and stays open when the replay is refused', async () => {
     stubBackend(409);
     const onClose = vi.fn();
-    renderWithFrame(<CycleHistory onClose={onClose} onOpenReport={vi.fn()} />);
+    renderWithFrame(<CycleBrowser onClose={onClose} onOpenReport={vi.fn()} />);
     fireEvent.click(await screen.findByTitle('Replay this cycle'));
     expect(await screen.findByText(/A replay session is already active/)).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();
@@ -68,7 +68,7 @@ describe('cycle browser replay action', () => {
   it('still opens the report for the row', async () => {
     stubBackend(200);
     const onOpenReport = vi.fn();
-    renderWithFrame(<CycleHistory onClose={vi.fn()} onOpenReport={onOpenReport} />);
+    renderWithFrame(<CycleBrowser onClose={vi.fn()} onOpenReport={onOpenReport} />);
     fireEvent.click(await screen.findByTitle('Open report'));
     expect(onOpenReport).toHaveBeenCalledWith(expect.objectContaining({ cycle_id: CYCLE.cycle_id }));
   });

@@ -22,7 +22,7 @@
 //     backend's structured report sections; markdown is never parsed.
 import { useState, useMemo } from 'react';
 import { getHealth } from '../api/settings';
-import { Icon } from './icons';
+import { Icon } from './Icon';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useConnection } from '../context/ConnectionContext';
 import { useAgents } from '../context/AgentsContext';
@@ -346,7 +346,7 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
                   <span className="label">FED TO AGENTS</span>
                 </div>
                 {recent.map((r, i) => (
-                  <div key={`${r.ts}-${i}`} className="ds-recent-row-v2">
+                  <div key={`${r.ts}-${i}`} className="ds-recent-row-item">
                     <span className="mono">{new Date(r.ts * 1000).toLocaleTimeString()}</span>
                     <span className="mono ds-q-text">{r.query}</span>
                     <span className="mono ds-r-text">{r.result}</span>

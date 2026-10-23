@@ -1,10 +1,10 @@
 // Shock injection drawer: queue one market shock for the next gated round.
 import { useState } from 'react';
-import { Icon } from './icons';
-import { simShock } from '../api/simulation';
-import { useConnection } from '../context/ConnectionContext';
-import { formatApiError } from '../lib/apiError';
-import { SHOCK_MAX_CHARS, SHOCK_MIN_CHARS, shockLengthError, shockTargetRound } from '../lib/shock';
+import { Icon } from '../../components/Icon';
+import { simShock } from '../../api/simulation';
+import { useConnection } from '../../context/ConnectionContext';
+import { formatApiError } from '../../lib/apiError';
+import { SHOCK_MAX_CHARS, SHOCK_MIN_CHARS, shockLengthError, shockTargetRound } from '../../lib/shock';
 
 // POST /api/simulate/shock { shock_text }. Open only while a later gated
 // round is left; length limits mirror the backend ShockText (lib/shock.ts).

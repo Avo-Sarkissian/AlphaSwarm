@@ -1,9 +1,8 @@
-// Interview V2 — full-screen takeover with signal trajectory, citation map,
+// Interview panel — full-screen takeover with signal trajectory, citation map,
 // rationale log. Real-wired per docs/DECISIONS.md#p41-6-d-11,
 // docs/DECISIONS.md#kr-41-6-03 and docs/DECISIONS.md#kr-41-1-11.
 //
-// Source: AlphaSwarm-2/src/interview_v2.jsx (338 LOC, CDN-globals format).
-// Conversion notes:
+// Notes:
 //   - PERSONA dict (filler) DELETED (docs/DECISIONS.md#kr-41-6-03).
 //   - Source's setTimeout + keyword-matching response picker REPLACED with
 //     await askAgent() — single POST /api/interview/{agent_id} → response in one
@@ -19,35 +18,35 @@
 //
 // Note: response is rendered as plain text, NOT through markdown
 // (docs/DECISIONS.md#t-41-6-13). If markdown render is added later, gate it
-// behind the same DOMPurify chain as AdvisoryV2/ReportModal.
+// behind the same DOMPurify chain as the advisory panel and ReportModal.
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Icon } from './icons';
-import { InlineError } from './InlineError';
-import { askAgent } from '../api/interview';
-import { useAgents } from '../context/AgentsContext';
-import { useEdgesCtx } from '../context/EdgesContext';
-import { useFrameMeta } from '../context/FrameMetaContext';
-import { useAgentDecisions } from '../hooks/useAgentDecisions';
-import { useLatestCompletedCycle } from '../hooks/useLatestCompletedCycle';
-import { useRounds } from '../hooks/useRounds';
-import { didFlip, mergeTrajectory, openingLine, resolveInterviewCycle, type TrajectoryPoint } from '../lib/interview';
-import { signalClass, signalColor, signalLabel } from '../lib/signals';
-import type { AgentView } from '../types';
+import { Icon } from '../../components/Icon';
+import { InlineError } from '../../components/InlineError';
+import { askAgent } from '../../api/interview';
+import { useAgents } from '../../context/AgentsContext';
+import { useEdgesCtx } from '../../context/EdgesContext';
+import { useFrameMeta } from '../../context/FrameMetaContext';
+import { useAgentDecisions } from '../../hooks/useAgentDecisions';
+import { useLatestCompletedCycle } from '../../hooks/useLatestCompletedCycle';
+import { useRounds } from '../../hooks/useRounds';
+import { didFlip, mergeTrajectory, openingLine, resolveInterviewCycle, type TrajectoryPoint } from '../../lib/interview';
+import { signalClass, signalColor, signalLabel } from '../../lib/signals';
+import type { AgentView } from '../../types';
 
 function SignalTrajectory({ points }: { points: TrajectoryPoint[] }) {
   const last = points.length - 1;
   return (
-    <div className="iv2-trajectory">
+    <div className="itv-trajectory">
       <div className="label" style={{ marginBottom: 10 }}>SIGNAL TRAJECTORY</div>
-      <div className="iv2-traj-track">
+      <div className="itv-traj-track">
         {points.map((p, i) => {
           const color = p.signal ? signalColor(p.signal) : 'var(--bg-3)';
           return (
-            <div key={p.round} className="iv2-traj-col" data-source={p.source}>
-              <div className="iv2-traj-bar-wrap">
+            <div key={p.round} className="itv-traj-col" data-source={p.source}>
+              <div className="itv-traj-bar-wrap">
                 <div
-                  className="iv2-traj-bar"
+                  className="itv-traj-bar"
                   style={{
                     height: p.confidence !== null ? `${p.confidence * 100}%` : '0%',
                     background: color,
@@ -55,11 +54,11 @@ function SignalTrajectory({ points }: { points: TrajectoryPoint[] }) {
                   }}
                 />
               </div>
-              <div className="iv2-traj-signal" style={{ color: p.signal ? color : 'var(--text-3)' }}>
+              <div className="itv-traj-signal" style={{ color: p.signal ? color : 'var(--text-3)' }}>
                 {p.signal ? signalLabel(p.signal) : '—'}
               </div>
-              <div className="iv2-traj-label label">R{p.round}{p.source === 'live' ? ' · live' : ''}</div>
-              <div className="iv2-traj-conf mono">{p.confidence !== null ? `${Math.round(p.confidence * 100)}%` : '—'}</div>
+              <div className="itv-traj-label label">R{p.round}{p.source === 'live' ? ' · live' : ''}</div>
+              <div className="itv-traj-conf mono">{p.confidence !== null ? `${Math.round(p.confidence * 100)}%` : '—'}</div>
             </div>
           );
         })}
@@ -84,7 +83,7 @@ function CitationGraph({ agent, cited, citedBy }: CitationGraphProps) {
   const byPos = citedByTop.map((_, i) => ({ x: 162, y: 18 + i * 34 }));
 
   return (
-    <div className="iv2-citations">
+    <div className="itv-citations">
       <div className="label" style={{ marginBottom: 10 }}>CITATION NETWORK</div>
       <svg viewBox="0 0 200 160" width="100%" style={{ display: 'block' }}>
         {citedPos.map((p, i) => (
@@ -131,9 +130,9 @@ function CitationGraph({ agent, cited, citedBy }: CitationGraphProps) {
           {agent.id}
         </text>
       </svg>
-      <div className="iv2-cite-legend">
-        <div><span className="iv2-cite-dot cited" /> cites {cited.length}</div>
-        <div><span className="iv2-cite-dot citedby" /> cited by {citedBy.length}</div>
+      <div className="itv-cite-legend">
+        <div><span className="itv-cite-dot cited" /> cites {cited.length}</div>
+        <div><span className="itv-cite-dot citedby" /> cited by {citedBy.length}</div>
       </div>
     </div>
   );
@@ -149,12 +148,12 @@ function nowTs(): string {
   return new Date().toISOString().slice(11, 19);
 }
 
-interface InterviewV2Props {
+interface InterviewPanelProps {
   agentId: string;
   onClose: () => void;
 }
 
-export function InterviewV2({ agentId, onClose }: InterviewV2Props) {
+export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
   // Look the agent up live on every frame instead of freezing the clicked object.
   const { agents } = useAgents();
   const agent = useMemo(() => agents.find((a) => a.id === agentId) ?? null, [agents, agentId]);
@@ -232,19 +231,19 @@ export function InterviewV2({ agentId, onClose }: InterviewV2Props) {
   ];
 
   return (
-    <div className="iv2-takeover">
+    <div className="itv-takeover">
       {/* header */}
-      <div className="iv2-head">
-        <div className="iv2-head-left">
+      <div className="itv-head">
+        <div className="itv-head-left">
           <button className="btn ghost-btn" onClick={onClose}>
             <Icon name="close" />
           </button>
-          <div className="iv2-agent-id">
-            <div className="iv2-id-pill" style={{ background: headSignal ? signalColor(headSignal) : 'var(--bg-3)' }}>
+          <div className="itv-agent-id">
+            <div className="itv-id-pill" style={{ background: headSignal ? signalColor(headSignal) : 'var(--bg-3)' }}>
               {agentId}
             </div>
             <div>
-              <div className="iv2-bracket">{agent?.bracketDisplay ?? agentId}</div>
+              <div className="itv-bracket">{agent?.bracketDisplay ?? agentId}</div>
               <div className="label">{flipped ? 'FLIPPED' : 'HELD SIGNAL'}</div>
             </div>
           </div>
@@ -255,46 +254,46 @@ export function InterviewV2({ agentId, onClose }: InterviewV2Props) {
             {signalLabel(headSignal)} {Math.round((agent?.confidence ?? 0) * 100)}%
           </div>
         </div>
-        <div className="iv2-head-right">
+        <div className="itv-head-right">
           <span className="label" style={{ color: 'var(--accent)', fontSize: 11 }}>
             INTERVIEW · LIVE BACKEND
           </span>
         </div>
       </div>
 
-      <div className="iv2-body">
+      <div className="itv-body">
         {/* LEFT — context rail */}
-        <div className="iv2-left">
+        <div className="itv-left">
           <SignalTrajectory points={points} />
-          <div className="iv2-divider" />
+          <div className="itv-divider" />
           {agent !== null && (
             <>
               <CitationGraph agent={agent} cited={cited} citedBy={citedBy} />
-              <div className="iv2-divider" />
+              <div className="itv-divider" />
             </>
           )}
-          <div className="iv2-stats">
+          <div className="itv-stats">
             <div className="label" style={{ marginBottom: 8 }}>CYCLE STATS</div>
             {([
               ['Cites', String(cited.length)],
               ['Cited by', String(citedBy.length)],
             ] as const).map(([k, v]) => (
-              <div key={k} className="iv2-stat-row">
-                <span className="iv2-stat-k label">{k}</span>
-                <span className="iv2-stat-v mono">{v}</span>
+              <div key={k} className="itv-stat-row">
+                <span className="itv-stat-k label">{k}</span>
+                <span className="itv-stat-v mono">{v}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* CENTER — chat */}
-        <div className="iv2-center">
-          <div className="iv2-tabs">
-            <button className="iv2-tab" data-active={tab === 'chat'} onClick={() => setTab('chat')}>
+        <div className="itv-center">
+          <div className="itv-tabs">
+            <button className="itv-tab" data-active={tab === 'chat'} onClick={() => setTab('chat')}>
               Interview
             </button>
             <button
-              className="iv2-tab"
+              className="itv-tab"
               data-active={tab === 'rationale'}
               onClick={() => setTab('rationale')}
             >
@@ -304,35 +303,35 @@ export function InterviewV2({ agentId, onClose }: InterviewV2Props) {
 
           {tab === 'chat' && (
             <>
-              <div className="iv2-log" ref={logRef}>
+              <div className="itv-log" ref={logRef}>
                 {[opening, ...messages].map((m, i) => (
-                  <div key={i} className={`iv2-msg iv2-msg-${m.role}`}>
-                    <div className="iv2-msg-meta">
-                      <span className="iv2-msg-who">{m.role === 'user' ? 'YOU' : agentId}</span>
-                      <span className="iv2-msg-ts mono">{m.ts}</span>
+                  <div key={i} className={`itv-msg itv-msg-${m.role}`}>
+                    <div className="itv-msg-meta">
+                      <span className="itv-msg-who">{m.role === 'user' ? 'YOU' : agentId}</span>
+                      <span className="itv-msg-ts mono">{m.ts}</span>
                     </div>
-                    <div className="iv2-bubble" data-role={m.role}>
+                    <div className="itv-bubble" data-role={m.role}>
                       {m.text}
                     </div>
                   </div>
                 ))}
                 {busy && (
-                  <div className="iv2-msg iv2-msg-agent">
-                    <div className="iv2-msg-meta">
-                      <span className="iv2-msg-who">{agentId}</span>
+                  <div className="itv-msg itv-msg-agent">
+                    <div className="itv-msg-meta">
+                      <span className="itv-msg-who">{agentId}</span>
                     </div>
-                    <div className="iv2-bubble iv2-typing" data-role="agent">
+                    <div className="itv-bubble itv-typing" data-role="agent">
                       <span /><span /><span />
                     </div>
                   </div>
                 )}
               </div>
               {/* generic suggested prompts (no PERSONA per KR-41.6-03) */}
-              <div className="iv2-prompts">
+              <div className="itv-prompts">
                 {prompts.map((p, i) => (
                   <button
                     key={i}
-                    className="iv2-prompt"
+                    className="itv-prompt"
                     onClick={() => void handleSend(p)}
                     disabled={busy}
                   >
@@ -340,7 +339,7 @@ export function InterviewV2({ agentId, onClose }: InterviewV2Props) {
                   </button>
                 ))}
               </div>
-              <div className="iv2-input-row">
+              <div className="itv-input-row">
                 <div className="seed-input" style={{ flex: 1, height: 38 }}>
                   <span className="prefix">›</span>
                   <input
@@ -362,12 +361,12 @@ export function InterviewV2({ agentId, onClose }: InterviewV2Props) {
           )}
 
           {tab === 'rationale' && (
-            <div className="iv2-rationale-log">
+            <div className="itv-rationale-log">
               {historyError && <InlineError error={historyError} />}
               {points.map((p, i) => (
-                <div key={p.round} className="iv2-round-block">
-                  <div className="iv2-round-head">
-                    <span className="iv2-round-num">Round {p.round}</span>
+                <div key={p.round} className="itv-round-block">
+                  <div className="itv-round-head">
+                    <span className="itv-round-num">Round {p.round}</span>
                     <span
                       className={p.signal ? `rationale-signal ${signalClass(p.signal)}` : 'rationale-signal'}
                       style={p.signal ? undefined : { color: 'var(--text-3)' }}
@@ -375,7 +374,7 @@ export function InterviewV2({ agentId, onClose }: InterviewV2Props) {
                       {p.signal ? signalLabel(p.signal) : '—'}
                     </span>
                   </div>
-                  <div className="iv2-round-text" style={p.rationale ? undefined : { color: 'var(--text-3)' }}>
+                  <div className="itv-round-text" style={p.rationale ? undefined : { color: 'var(--text-3)' }}>
                     {p.rationale ??
                       (p.source === 'live'
                         ? 'Decided this round; the rationale is stored when the round ends.'
@@ -383,7 +382,7 @@ export function InterviewV2({ agentId, onClose }: InterviewV2Props) {
                           ? 'Loading…'
                           : 'No decision recorded for this round.')}
                   </div>
-                  {i < points.length - 1 && <div className="iv2-round-connector" />}
+                  {i < points.length - 1 && <div className="itv-round-connector" />}
                 </div>
               ))}
             </div>

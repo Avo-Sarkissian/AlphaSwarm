@@ -8,12 +8,12 @@
 // converted to ES modules (docs/DECISIONS.md#p41-6-d-03). Sourced design's
 // BRACKETS reference is replaced with the import from '../data'
 // (docs/DECISIONS.md#p41-6-d-14).
-import { Icon } from './icons';
-import { BRACKETS } from '../data';
-import { fetchHealth } from '../api/health';
-import { usePolling } from '../hooks/usePolling';
-import { formatDuration } from '../lib/format';
-import { systemChecks, type SystemCheckRow } from '../lib/systemChecks';
+import { Icon } from '../../components/Icon';
+import { BRACKETS } from '../../data';
+import { fetchHealth } from '../../api/health';
+import { usePolling } from '../../hooks/usePolling';
+import { formatDuration } from '../../lib/format';
+import { systemChecks, type SystemCheckRow } from '../../lib/systemChecks';
 
 export interface IdleStateProps {
   seed: string;

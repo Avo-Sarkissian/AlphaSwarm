@@ -6,7 +6,7 @@ import {
   layoutRadial,
   ringRadius,
   type LayoutAgent,
-} from '../../components/vizLayout';
+} from '../../features/dashboard/vizLayout';
 
 const AGENTS: LayoutAgent[] = [
   { id: 'quants_01', bracket: 'quants', index: 0 },

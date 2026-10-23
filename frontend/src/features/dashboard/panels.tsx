@@ -3,10 +3,10 @@
 // to native ES modules per D-03 (panel components were attached as globals
 // before the conversion).
 
-import { sparkBars } from '../lib/spark';
-import { consensusLeader, tallySignals } from '../lib/tally';
-import type { FeedRow } from '../lib/rationaleFeed';
-import type { AgentView } from '../types';
+import { sparkBars } from '../../lib/spark';
+import { consensusLeader, tallySignals } from '../../lib/tally';
+import type { FeedRow } from '../../lib/rationaleFeed';
+import type { AgentView } from '../../types';
 
 /** One row of the Brackets panel (wire field names, one bracket). */
 export interface BracketRow {

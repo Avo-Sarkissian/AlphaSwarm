@@ -13,18 +13,18 @@
 //   • Paths and addresses the backend reads from its environment, which this
 //     page cannot see, show their default and name the variable that changes it.
 import { useEffect, useId, useState } from 'react';
-import { getHealth } from '../api/settings';
-import { useTelemetry } from '../context/TelemetryContext';
-import { usePrivacyFacts } from '../hooks/usePrivacyFacts';
+import { getHealth } from '../../api/settings';
+import { useTelemetry } from '../../context/TelemetryContext';
+import { usePrivacyFacts } from '../../hooks/usePrivacyFacts';
 import {
   MARKET_DATA_LINE,
   cloudRolesSummary,
   modeLabel,
   privacyLines,
   privacyMode,
-} from '../lib/privacyCopy';
-import type { TelemetrySlice } from '../types';
-import { InferenceSettings } from './settings_inference';
+} from '../../lib/privacyCopy';
+import type { TelemetrySlice } from '../../types';
+import { InferenceSettings } from './InferenceSettings';
 
 // Until the memory governor first reports, the frame carries an idle placeholder
 // with 0 slots (docs/DECISIONS.md#p999-3-d-01). Nothing reports in cloud mode,

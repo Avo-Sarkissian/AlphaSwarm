@@ -2,7 +2,7 @@
 // backend-templated and never contains paths or keys (alphaswarm.errors.RunError); the backend
 // clears it when the next run starts. Dismiss hides this error only.
 import { useState } from 'react';
-import { useConnection } from '../context/ConnectionContext';
+import { useConnection } from '../../context/ConnectionContext';
 
 export function RunErrorBanner() {
   const { lastFrame } = useConnection();

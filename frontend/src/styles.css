@@ -595,8 +595,7 @@ body { background: var(--bg); }
 .bracket-chip { /* used by panels.jsx BracketList; styled inline via background prop */
   width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0;
 }
-.model-status { /* used by app_v2.tsx ModelStatusStub; rendering driven by inline style */ }
-.signal-wire-stub { /* used by app_v2.tsx SignalWire stub; rendering driven by inline style */ }
+.model-status { /* used by ModelStatus; rendering driven by inline style */ }
 
 /* ===== W2 hotfix: missing visual classes ported from frontend-react-archive ===== */
 /* Lifted to fix dashboard rendering — without these, SignalWire renders as a tall
@@ -1058,7 +1057,7 @@ body { background: var(--bg); }
   font-family: var(--font-mono); font-size: 11px;
 }
 .ds-recent-head,
-.ds-recent-row-v2 {
+.ds-recent-row-item {
   display: contents;
 }
 .ds-recent-table > * > * { padding: 6px 0; border-bottom: 1px solid var(--border); }
@@ -1095,10 +1094,8 @@ body { background: var(--bg); }
 
 
 /* ============================================================
-   InterviewV2 — full-screen agent takeover (ITEM 1, 260512-jqn)
-   Class targets enumerated from frontend/src/components/interview_v2.tsx
-   (W4 component). CSS lands ahead of the W4 port so the modal
-   renders correctly the moment the component is added.
+   InterviewPanel — full-screen agent takeover (ITEM 1, 260512-jqn)
+   Class targets from features/interview/InterviewPanel.tsx.
    ============================================================ */
 .iv-takeover {
   position: fixed; inset: 0; z-index: 200;
@@ -1292,7 +1289,7 @@ body { background: var(--bg); }
   font-size: 12px; line-height: 1.5;
 }
 
-/* Generic agent-* classes used inside InterviewV2 (avatar/header decorations). */
+/* Generic agent-* classes used inside InterviewPanel (avatar/header decorations). */
 .agent-info { display: flex; align-items: center; gap: 10px; }
 .agent-name { font-family: var(--font-mono); color: var(--text); font-size: 14px; }
 .agent-bracket { color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -1526,19 +1523,19 @@ body { background: var(--bg); }
 /* ============================================================
    FIX: actual class prefixes used by W4 components
    The original ITEM 1 commit guessed at `iv-*` / `bdd-*` / partial `ob-*`
-   but the ported components actually use `iv2-*`, `bd-*`, and a richer
+   but the ported components actually use `itv-*`, `bd-*`, and a richer
    `ob-*` set. Without these rules the modals render unstyled.
    Verifier-flagged gap 1 of quick task 260512-jqn.
    ============================================================ */
 
-/* ===== InterviewV2 (iv2-*) — full-screen agent takeover ===== */
-.iv2-takeover {
+/* ===== InterviewPanel (itv-*) — full-screen agent takeover ===== */
+.itv-takeover {
   position: fixed; inset: 0; z-index: 200;
   background: var(--bg);
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-.iv2-head {
+.itv-head {
   display: flex; align-items: center; justify-content: space-between;
   gap: 18px;
   padding: 12px 22px;
@@ -1546,157 +1543,157 @@ body { background: var(--bg); }
   background: var(--bg-2);
   flex-shrink: 0;
 }
-.iv2-head-left  { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.iv2-head-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.iv2-id-pill {
+.itv-head-left  { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.itv-head-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.itv-id-pill {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 4px 10px; border-radius: 12px;
   background: var(--bg-3); border: 1px solid var(--border);
   font-family: var(--font-mono);
 }
-.iv2-agent-id { color: var(--text); font-size: 12.5px; font-weight: 600; }
-.iv2-bracket  { color: var(--text-3); font-size: 10.5px; letter-spacing: 0.08em; }
+.itv-agent-id { color: var(--text); font-size: 12.5px; font-weight: 600; }
+.itv-bracket  { color: var(--text-3); font-size: 10.5px; letter-spacing: 0.08em; }
 
-.iv2-body {
+.itv-body {
   flex: 1; overflow: hidden;
   display: grid; grid-template-columns: 280px 1fr 320px;
   gap: 1px; background: var(--border);
 }
-.iv2-left {
+.itv-left {
   background: var(--bg);
   overflow: auto; padding: 18px 16px;
   display: flex; flex-direction: column; gap: 18px;
 }
-.iv2-center {
+.itv-center {
   background: var(--bg);
   overflow: hidden;
   display: flex; flex-direction: column;
 }
-.iv2-log {
+.itv-log {
   flex: 1; overflow: auto;
   padding: 18px 22px;
   display: flex; flex-direction: column; gap: 14px;
 }
-.iv2-msg {
+.itv-msg {
   display: flex; flex-direction: column; gap: 4px; max-width: 80%;
 }
-.iv2-msg.iv2-msg-agent { align-self: flex-start; }
-.iv2-msg:not(.iv2-msg-agent) { align-self: flex-end; }
-.iv2-msg-meta {
+.itv-msg.itv-msg-agent { align-self: flex-start; }
+.itv-msg:not(.itv-msg-agent) { align-self: flex-end; }
+.itv-msg-meta {
   display: flex; align-items: center; gap: 6px;
   color: var(--text-3); font-size: 10.5px; letter-spacing: 0.06em;
 }
-.iv2-msg-who { color: var(--text-2); font-weight: 600; }
-.iv2-msg-ts  { color: var(--text-3); font-family: var(--font-mono); font-size: 10px; }
-.iv2-bubble {
+.itv-msg-who { color: var(--text-2); font-weight: 600; }
+.itv-msg-ts  { color: var(--text-3); font-family: var(--font-mono); font-size: 10px; }
+.itv-bubble {
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 8px; padding: 10px 14px;
   color: var(--text); font-size: 13px; line-height: 1.55;
 }
-.iv2-msg-agent .iv2-bubble {
+.itv-msg-agent .itv-bubble {
   background: color-mix(in srgb, var(--accent) 8%, var(--bg-2));
   border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
 }
-.iv2-prompts {
+.itv-prompts {
   display: flex; flex-wrap: wrap; gap: 6px;
   padding: 10px 22px;
   border-top: 1px solid var(--border);
 }
-.iv2-prompt {
+.itv-prompt {
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 12px; padding: 4px 10px;
   color: var(--text-2); font-size: 11px; cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.iv2-prompt:hover {
+.itv-prompt:hover {
   color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
 }
-.iv2-input-row {
+.itv-input-row {
   display: flex; gap: 8px; align-items: center;
   padding: 10px 22px 14px;
   border-top: 1px solid var(--border);
   background: var(--bg-2);
 }
-.iv2-input-row input {
+.itv-input-row input {
   flex: 1; background: var(--bg); border: 1px solid var(--border);
   border-radius: 4px; padding: 8px 12px;
   color: var(--text); font-family: inherit; font-size: 12.5px;
 }
-.iv2-input-row input:focus {
+.itv-input-row input:focus {
   outline: none; border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
 /* Right rail (CYCLE STATS / TABS / RATIONALE LOG) */
-.iv2-tabs {
+.itv-tabs {
   display: flex; gap: 4px; padding: 12px 16px 0;
   background: var(--bg);
 }
-.iv2-tab {
+.itv-tab {
   background: transparent; border: 1px solid transparent;
   color: var(--text-2); padding: 5px 12px; border-radius: 4px;
   font-family: inherit; font-size: 11.5px; cursor: pointer;
 }
-.iv2-tab:hover { color: var(--text); background: var(--bg-3); }
-.iv2-tab[data-active="true"] {
+.itv-tab:hover { color: var(--text); background: var(--bg-3); }
+.itv-tab[data-active="true"] {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
-.iv2-rationale-log {
+.itv-rationale-log {
   flex: 1; overflow: auto;
   padding: 14px 16px;
   display: flex; flex-direction: column; gap: 12px;
   background: var(--bg);
 }
-.iv2-round-block {
+.itv-round-block {
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 5px; padding: 12px 14px;
   display: flex; flex-direction: column; gap: 6px;
 }
-.iv2-round-head { display: flex; justify-content: space-between; align-items: center; }
-.iv2-round-num  { color: var(--accent); font-size: 10.5px; letter-spacing: 0.14em; font-weight: 600; }
-.iv2-round-text { color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
-.iv2-round-connector {
+.itv-round-head { display: flex; justify-content: space-between; align-items: center; }
+.itv-round-num  { color: var(--accent); font-size: 10.5px; letter-spacing: 0.14em; font-weight: 600; }
+.itv-round-text { color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+.itv-round-connector {
   width: 1px; height: 12px; background: var(--border); margin: 0 auto;
 }
-.iv2-stats {
+.itv-stats {
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 5px; padding: 12px 14px;
   display: flex; flex-direction: column; gap: 8px;
 }
-.iv2-stat-row {
+.itv-stat-row {
   display: flex; justify-content: space-between; align-items: center;
 }
-.iv2-stat-k { color: var(--text-3); font-size: 11px; letter-spacing: 0.06em; }
-.iv2-stat-v { color: var(--text); font-family: var(--font-mono); font-size: 12px; }
-.iv2-divider { height: 1px; background: var(--border); margin: 4px 0; }
-.iv2-trajectory {
+.itv-stat-k { color: var(--text-3); font-size: 11px; letter-spacing: 0.06em; }
+.itv-stat-v { color: var(--text); font-family: var(--font-mono); font-size: 12px; }
+.itv-divider { height: 1px; background: var(--border); margin: 4px 0; }
+.itv-trajectory {
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 5px; padding: 12px 14px;
 }
-.iv2-traj-track {
+.itv-traj-track {
   display: grid; grid-template-columns: repeat(3, 1fr);
   gap: 10px; margin-top: 8px;
 }
-.iv2-traj-col {
+.itv-traj-col {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
 }
-.iv2-traj-bar-wrap {
+.itv-traj-bar-wrap {
   width: 100%; height: 30px;
   background: var(--bg); border-radius: 2px; overflow: hidden;
   display: flex; align-items: flex-end;
 }
-.iv2-traj-bar { width: 100%; background: var(--accent); transition: height 0.3s; }
-.iv2-traj-signal {
+.itv-traj-bar { width: 100%; background: var(--accent); transition: height 0.3s; }
+.itv-traj-signal {
   color: var(--text-2); font-size: 10.5px; font-family: var(--font-mono);
 }
 
-.iv2-citations { display: flex; flex-direction: column; gap: 4px; }
-.iv2-cite-legend {
+.itv-citations { display: flex; flex-direction: column; gap: 4px; }
+.itv-cite-legend {
   display: flex; align-items: center; gap: 6px;
   color: var(--text-3); font-size: 10.5px; letter-spacing: 0.04em;
 }
-.iv2-cite-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.itv-cite-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 
 /* ===== BracketDeepDive (bd-*) — bracket-level deep dive takeover ===== */
 .bd-takeover {
@@ -2008,8 +2005,8 @@ body { background: var(--bg); }
 .ob-next { /* uses .btn primary style */ }
 
 /* ============================================================
-   CycleHistory (ch-*) — full-screen takeover from idle/topbar
-   Same family fix as adv-/ds-/iv2-/bd-/ob-. The component was ported
+   CycleBrowser (ch-*) — full-screen takeover from idle/topbar
+   Same family fix as adv-/ds-/itv-/bd-/ob-. The component was ported
    in W3 (commit 270cd2a area) with 19 invented class names and zero
    CSS to back them. Without these rules the modal renders as an
    unstyled inline block below the IdleState overlay — invisible.
@@ -2108,7 +2105,7 @@ body { background: var(--bg); }
 
 /* ============================================================
    Settings (st-*) — full-screen settings takeover
-   Same family fix as adv-/ds-/iv2-/bd-/ob-/ch-. Component ports
+   Same family fix as adv-/ds-/itv-/bd-/ob-/ch-. Component ports
    used invented class names with no CSS — Settings rendered as an
    unstyled inline block at the bottom of the page.
    ============================================================ */

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { ConnectionBanner } from '../../components/ConnectionBanner';
+import { ConnectionBanner } from '../../app/ConnectionBanner';
 
 describe('ConnectionBanner', () => {
   it.each(['open', 'connecting'] as const)('renders nothing while %s', (status) => {

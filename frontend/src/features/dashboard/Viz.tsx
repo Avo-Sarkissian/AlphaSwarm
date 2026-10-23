@@ -2,9 +2,9 @@
 // (docs/DECISIONS.md#kr-41-1-01). Edges are [citing, cited] pairs.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { BRACKETS } from '../data';
-import { signalColor } from '../lib/signals';
-import type { AgentView } from '../types';
+import { BRACKETS } from '../../data';
+import { signalColor } from '../../lib/signals';
+import type { AgentView } from '../../types';
 import {
   clusterRadius,
   layoutForce,
