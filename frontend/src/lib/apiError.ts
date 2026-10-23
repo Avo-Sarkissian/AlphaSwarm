@@ -51,9 +51,13 @@ export function fieldErrors(body: unknown): FieldError[] {
 }
 
 // The text to show for a failed request: the envelope's message, else the HTTP
-// status; for anything that is not an ApiError, its own message.
+// status; for anything that is not an ApiError, its own message. A timeout or
+// network failure (status 0, no body) carries readable text in Error.message
+// (src/api/client.ts request()).
 export function errorMessage(e: unknown): string {
-  if (e instanceof ApiError) return parseErrorEnvelope(e.body).message ?? `HTTP ${e.status}`;
+  if (e instanceof ApiError) {
+    return parseErrorEnvelope(e.body).message ?? (e.status === 0 ? e.message : `HTTP ${e.status}`);
+  }
   return e instanceof Error ? e.message : String(e);
 }
 

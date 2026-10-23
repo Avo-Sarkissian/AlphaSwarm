@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, DEFAULT_TIMEOUT_MS, request } from '../../api/client';
 import { askAgent } from '../../api/interview';
 import { putSettings, testConnection } from '../../api/settings';
-import { formatApiError, isBackendUnreachable } from '../../lib/apiError';
+import { errorMessage, formatApiError, isBackendUnreachable } from '../../lib/apiError';
 import { stubFetch } from '../helpers/fetchStub';
 
 afterEach(() => {
@@ -98,6 +98,22 @@ describe('formatApiError on transport failures', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     const err = await request('/api/thing').catch((e: unknown) => e);
     expect(formatApiError(err)).toBe('Cannot reach the backend. Is it running on port 8000?');
+  });
+});
+
+describe('errorMessage on transport failures', () => {
+  it('shows the readable timeout text instead of "HTTP 0"', async () => {
+    vi.useFakeTimers();
+    hangingFetch();
+    const pending = request('/api/report/c1').catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(DEFAULT_TIMEOUT_MS);
+    expect(errorMessage(await pending)).toBe('No response from /api/report/c1 after 30 s');
+  });
+
+  it('shows the reachability hint when the backend is down', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    const err = await request('/api/report/c1').catch((e: unknown) => e);
+    expect(errorMessage(err)).toBe('Cannot reach the backend. Is it running on port 8000?');
   });
 });
 
