@@ -70,9 +70,9 @@ function SystemCheck({ label, value, state, fix }) {
 }
 
 // ─── SEEDING ──────────────────────────────────────────────────────────
-// While the phase is SEEDING the orchestrator parses the seed into entities
-// and persona modifiers, then market prices and headlines are fetched. There
-// is no per-agent progress at this stage, so none is shown.
+// While the phase is SEEDING the orchestrator parses the seed into entities and persona
+// modifiers, market prices and headlines are fetched, and then a local worker model loads
+// (often the longest step). There is no per-agent progress here, so none is shown.
 export function SeedingState({ seed, elapsedSeconds = 0 }) {
   return (
     <div className="state-overlay">
@@ -82,8 +82,9 @@ export function SeedingState({ seed, elapsedSeconds = 0 }) {
         </div>
         <div className="state-headline">Preparing the swarm…</div>
         <div className="state-sub">
-          The orchestrator is parsing the seed into entities and persona modifiers; market prices
-          and headlines are fetched next. Round 1 starts when both are done.
+          The orchestrator parses the seed into entities and persona modifiers, market prices
+          and headlines are fetched, and then the worker model loads if it runs locally. Round 1
+          starts when the worker is ready.
         </div>
         {seed && (
           <div className="state-sub mono" style={{ fontSize: 11, opacity: 0.8 }}>

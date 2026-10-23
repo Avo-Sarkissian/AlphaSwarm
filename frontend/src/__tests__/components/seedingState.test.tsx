@@ -17,7 +17,17 @@ describe('SeedingState', () => {
     const text = document.body.textContent ?? '';
     expect(text).toContain('1:05');
     expect(text).toContain(SEED);
-    expect(text).toMatch(/parsing the seed/i);
+    expect(text).toMatch(/parses the seed/i);
     expect(text).not.toMatch(/\/100|spawn|persona loaded|context primed/i);
+  });
+
+  it('names the worker model load that ends the phase', () => {
+    // The worker loads once, before Round 1, while the phase is still SEEDING
+    // (docs/DECISIONS.md#adr-round-runner): often the longest wait of the phase.
+    render(<SeedingState seed={SEED} elapsedSeconds={240} />);
+    const text = document.body.textContent ?? '';
+    expect(text).toMatch(/worker model loads/i);
+    expect(text).toMatch(/Round 1 starts when the worker is ready/i);
+    expect(text).not.toMatch(/orchestrator is parsing/i);
   });
 });
