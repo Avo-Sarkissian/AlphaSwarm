@@ -253,9 +253,9 @@ def test_processor_runs_before_renderer_in_configured_chain(
 
     captured = capsys.readouterr()
     # Negative assertion (the canary invariant):
-    assert SENTINEL_TICKER not in captured.out
+    assert SENTINEL_TICKER not in captured.err
     # Positive assertion (Pitfall 6 — prove capture actually captures):
-    assert "[REDACTED]" in captured.out
+    assert "[REDACTED]" in captured.err
 
 
 def test_nested_sentinel_is_redacted_through_configured_chain(
@@ -267,8 +267,8 @@ def test_nested_sentinel_is_redacted_through_configured_chain(
     logger.info("nested_event", payload={"portfolio": [SENTINEL_TICKER]})
 
     captured = capsys.readouterr()
-    assert SENTINEL_TICKER not in captured.out
-    assert "[REDACTED]" in captured.out
+    assert SENTINEL_TICKER not in captured.err
+    assert "[REDACTED]" in captured.err
 
 
 def test_account_number_rendered_as_acct_hash(capsys: pytest.CaptureFixture[str]) -> None:
@@ -277,8 +277,8 @@ def test_account_number_rendered_as_acct_hash(capsys: pytest.CaptureFixture[str]
     logger.info("account_event", account_number="1234567890")
 
     captured = capsys.readouterr()
-    assert "1234567890" not in captured.out
-    assert re.search(r"acct:[0-9a-f]{8}", captured.out) is not None
+    assert "1234567890" not in captured.err
+    assert re.search(r"acct:[0-9a-f]{8}", captured.err) is not None
 
 
 # --------- Hypothesis fuzz (D-08) over NESTED variant-case payloads ---------

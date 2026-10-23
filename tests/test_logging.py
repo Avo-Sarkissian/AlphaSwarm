@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 
 import pytest
@@ -26,7 +28,7 @@ def test_json_output(capsys: pytest.CaptureFixture[str]) -> None:
     logger.info("test event", key="value")
 
     captured = capsys.readouterr()
-    parsed = json.loads(captured.out.strip())
+    parsed = json.loads(captured.err.strip())
 
     assert parsed["event"] == "test event"
     assert parsed["key"] == "value"
@@ -43,8 +45,8 @@ def test_console_output(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     # Console output should NOT be valid JSON
     with pytest.raises(json.JSONDecodeError):
-        json.loads(captured.out.strip())
-    assert "test console event" in captured.out
+        json.loads(captured.err.strip())
+    assert "test console event" in captured.err
 
 
 def test_correlation_binding(capsys: pytest.CaptureFixture[str]) -> None:
@@ -60,7 +62,7 @@ def test_correlation_binding(capsys: pytest.CaptureFixture[str]) -> None:
     logger.info("agent processing")
 
     captured = capsys.readouterr()
-    parsed = json.loads(captured.out.strip())
+    parsed = json.loads(captured.err.strip())
 
     assert parsed["agent_id"] == "quant_03"
     assert parsed["bracket"] == "quants"
@@ -78,8 +80,8 @@ def test_log_level_filtering(capsys: pytest.CaptureFixture[str]) -> None:
     logger.warning("should appear")
 
     captured = capsys.readouterr()
-    assert "should not appear" not in captured.out
-    assert "should appear" in captured.out
+    assert "should not appear" not in captured.err
+    assert "should appear" in captured.err
 
 
 def test_context_packet_fields_not_in_pii_redaction_set() -> None:
@@ -132,7 +134,7 @@ def test_json_exception_has_structured_traceback_without_locals(
     except ValueError:
         logger.exception("task_failed")
 
-    line = capsys.readouterr().out.strip()
+    line = capsys.readouterr().err.strip()
     parsed = json.loads(line)
     assert "exc_info" not in parsed
     stack = parsed["exception"]
@@ -156,7 +158,7 @@ def test_json_exception_from_an_explicit_exc_info_keeps_the_cause_chain(
     except RuntimeError as outer:
         logger.error("simulation_failed", exc_info=outer)
 
-    parsed = json.loads(capsys.readouterr().out.strip())
+    parsed = json.loads(capsys.readouterr().err.strip())
     assert [entry["exc_type"] for entry in parsed["exception"]] == ["RuntimeError", "ValueError"]
 
 
@@ -178,7 +180,7 @@ def test_json_exception_raised_from_none_drops_the_suppressed_context(
     except InferenceConfigError as wrapped:
         logger.error("simulation_run_failed", exc_info=wrapped)
 
-    line = capsys.readouterr().out.strip()
+    line = capsys.readouterr().err.strip()
     parsed = json.loads(line)
     assert [entry["exc_type"] for entry in parsed["exception"]] == ["InferenceConfigError"]
     assert "CONTEXT-CANARY" not in line
@@ -192,6 +194,26 @@ def test_console_exception_never_prints_locals(capsys: pytest.CaptureFixture[str
     except ValueError:
         logger.exception("task_failed")
 
-    out = capsys.readouterr().out
+    out = capsys.readouterr().err
     assert "ValueError" in out
     assert "LOCAL-CANARY" not in out
+
+
+def test_logs_go_to_stderr_not_stdout(capsys: pytest.CaptureFixture[str]) -> None:
+    """Logs never interleave with command output on stdout."""
+    configure_logging(log_level="INFO", json_output=True)
+    get_logger(component="test").info("stderr_event", key="value")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert json.loads(captured.err.strip())["event"] == "stderr_event"
+
+
+def test_logs_follow_a_redirected_stderr() -> None:
+    """The stream is resolved per write, so a redirect after first use is honoured."""
+    configure_logging(log_level="INFO", json_output=True)
+    logger = get_logger(component="test")
+    logger.info("warm_up")  # creates and caches the bound logger before the redirect
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        logger.info("redirected_event")
+    assert json.loads(buf.getvalue().strip())["event"] == "redirected_event"

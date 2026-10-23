@@ -1,9 +1,15 @@
-"""ReplayManager: stateful wrapper for replay lifecycle (D-07)."""
+"""ReplayManager: one replay session at a time over a ReplayStore.
+
+A round is read from Neo4j first and then shown in one synchronous step, so the
+5 Hz broadcaster never streams a half-loaded round
+(docs/DECISIONS.md#adr-replaystore-separate).
+"""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
@@ -11,13 +17,11 @@ import structlog
 from alphaswarm.personas import DEFAULT_BRACKETS
 from alphaswarm.state import BracketSummary, RationaleEntry, ReplayStore
 from alphaswarm.types import SignalType
-from alphaswarm.web.broadcaster import snapshot_to_json
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
     from alphaswarm.graph import BracketRoundRow, GraphStateManager, RationaleRoundRow
     from alphaswarm.state import AgentState
-    from alphaswarm.web.connection_manager import ConnectionManager
 
 log = structlog.get_logger(component="web.replay_manager")
 
@@ -101,11 +105,34 @@ def _rationale_entries_from_rows(rows: Sequence[RationaleRoundRow]) -> tuple[Rat
     )
 
 
-class ReplayManager:
-    """Thin wrapper enforcing single-replay concurrency via asyncio.Lock.
+@dataclass(frozen=True)
+class _RoundRows:
+    """One replay round's panels, read before anything on screen changes."""
 
-    Created inside FastAPI lifespan. Holds the active ReplayStore,
-    cycle_id, and round_num for the duration of a replay session.
+    bracket_summaries: tuple[BracketSummary, ...]
+    rationale_entries: tuple[RationaleEntry, ...]
+
+
+async def _load_round(graph_manager: GraphStateManager, cycle_id: str, round_num: int) -> _RoundRows:
+    """Read round *round_num* of *cycle_id*. Raises on a failed read and changes nothing.
+
+    The reads run one after the other: a TaskGroup would wrap a
+    Neo4jUnavailableError in an ExceptionGroup, so the API's 503 mapping would
+    no longer apply.
+    """
+    brackets = await graph_manager.read_bracket_narratives_for_round(cycle_id, round_num)
+    rationales = await graph_manager.read_rationale_entries_for_round(cycle_id, round_num)
+    return _RoundRows(
+        bracket_summaries=_bracket_summaries_from_rows(brackets),
+        rationale_entries=_rationale_entries_from_rows(rationales),
+    )
+
+
+class ReplayManager:
+    """One replay session at a time, serialised by an asyncio.Lock.
+
+    Created in the FastAPI lifespan (docs/DECISIONS.md#p34-d-07). Holds the
+    active ReplayStore, its cycle id and the round on screen.
     """
 
     def __init__(self, app_state: AppState) -> None:
@@ -115,10 +142,9 @@ class ReplayManager:
         self._cycle_id: str | None = None
         self._round_num: int = 0
         self._max_rounds: int = 3
-        self._seed_rumor: str = ""
         self._starting: bool = False
-        # Set by app.py lifespan after SimulationManager exists (constructed
-        # later). Lets start() re-check for a live simulation under our lock.
+        # Set by the lifespan once SimulationManager exists, so start() can
+        # re-check for a live run under its own lock.
         self._sim_running_check: Callable[[], bool] | None = None
 
     def set_sim_running_check(self, check: Callable[[], bool]) -> None:
@@ -141,7 +167,7 @@ class ReplayManager:
         Distinct from is_active, which is True during the _starting window
         (before _store is committed). The broadcaster must gate on this, not
         is_active, or it calls store.snapshot() while _store is still None and
-        raises NoReplayActiveError on every tick during replay start-up (F-24).
+        raises NoReplayActiveError on every tick during replay start-up (docs/DECISIONS.md#f-24).
         """
         return self._store is not None
 
@@ -162,26 +188,26 @@ class ReplayManager:
         """Active cycle ID, or None when inactive."""
         return self._cycle_id
 
-    @property
-    def seed_rumor(self) -> str:
-        """Seed rumor for the active replay."""
-        return self._seed_rumor
+    @staticmethod
+    def _show(store: ReplayStore, round_num: int, rows: _RoundRows) -> None:
+        """Switch *store* to a fully read round. Synchronous, so no frame interleaves."""
+        store.set_round(round_num)
+        store.set_bracket_summaries(rows.bracket_summaries)
+        store.set_rationale_entries(rows.rationale_entries)
 
     async def start(
         self,
         cycle_id: str,
         signals: dict[tuple[str, int], AgentState],
-        connection_manager: ConnectionManager,
         graph_manager: GraphStateManager,
     ) -> None:
-        """Start replay: construct ReplayStore, load round 1, broadcast (D-08).
+        """Start a replay of *cycle_id* on round 1 (docs/DECISIONS.md#p34-d-08).
 
-        Commit discipline: self._store/_cycle_id/_round_num are assigned ONLY
-        after every awaited Neo4j load succeeds. A failure mid-start therefore
-        leaves the manager fully inactive (no phantom replay that the
-        broadcaster would stream as a half-built snapshot). During the awaited
-        loads, _starting keeps is_active True so a live simulation cannot
-        start concurrently (TOCTOU closure, mirrored by the sim check below).
+        Round 1 is read before anything is committed, so a failed read leaves
+        the manager inactive. While the read is pending, ``_starting`` keeps
+        ``is_active`` true so a live simulation cannot start
+        (docs/DECISIONS.md#b4). The broadcaster shows the store on its next
+        tick; the live phase is left alone (docs/DECISIONS.md#adr-replaystore-separate).
         """
         async with self._lock:
             if self.is_active:
@@ -190,89 +216,46 @@ class ReplayManager:
                 raise SimulationActiveError("Cannot start replay while a simulation is running")
             self._starting = True
             try:
-                num_rounds = max((rnd for (_, rnd) in signals), default=1)
-                store = ReplayStore(cycle_id, signals, num_rounds=num_rounds)
-                store.set_round(1)
-                # Load bracket summaries and rationale entries for round 1
-                store.set_bracket_summaries(
-                    _bracket_summaries_from_rows(
-                        await graph_manager.read_bracket_narratives_for_round(cycle_id, 1),
-                    )
-                )
-                store.set_rationale_entries(
-                    _rationale_entries_from_rows(
-                        await graph_manager.read_rationale_entries_for_round(cycle_id, 1),
-                    )
-                )
-                # All loads succeeded — commit replay state atomically.
+                rows = await _load_round(graph_manager, cycle_id, 1)
+                # Signals are keyed (agent_id, round); a 2-round cycle never
+                # advances to an empty round 3 (docs/DECISIONS.md#f-12).
+                max_rounds = max((rnd for (_, rnd) in signals), default=1)
+                store = ReplayStore(cycle_id, signals, num_rounds=max_rounds)
+                self._show(store, 1, rows)
                 self._store = store
                 self._cycle_id = cycle_id
                 self._round_num = 1
-                # Cap advance() at the cycle's actual round depth so a 2-round
-                # cycle never advances to an empty round 3 (F-12). signals keys
-                # are (agent_id, round_num).
-                self._max_rounds = num_rounds
+                self._max_rounds = max_rounds
             finally:
                 self._starting = False
-            # The live phase is left alone: ReplayStore.snapshot() reports REPLAY and the
-            # broadcaster serves it while a store is committed
-            # (docs/DECISIONS.md#adr-replaystore-separate).
-            # Broadcast round-1 snapshot immediately
-            # Same StateFrame as every broadcaster tick.
-            connection_manager.broadcast(snapshot_to_json(self._app_state.state_store, self))
-            log.info("replay_started", cycle_id=cycle_id, round_num=1)
+        log.info("replay_started", cycle_id=cycle_id, round_num=1)
 
-    async def advance(
-        self,
-        connection_manager: ConnectionManager,
-        graph_manager: GraphStateManager,
-    ) -> int:
-        """Advance to next round (max 3), broadcast new snapshot (D-09).
+    async def advance(self, graph_manager: GraphStateManager) -> int:
+        """Show the next round and return its number (docs/DECISIONS.md#p34-d-09).
 
-        B9: body is serialized behind self._lock to match start() and
-        prevent concurrent mutation of _store / _round_num / _cycle_id.
-        None of the awaited callees re-enter self._lock, so this is
-        deadlock-safe.
+        The next round is read first and committed in one synchronous step, so
+        frames never mix two rounds and a failed read leaves the current round
+        on screen; calling advance again retries the same round. Serialised with
+        start() and stop() by the lock (docs/DECISIONS.md#b9).
         """
         async with self._lock:
-            if not self.is_active or self._store is None:
+            store, cycle_id = self._store, self._cycle_id
+            if store is None or cycle_id is None:
                 raise NoReplayActiveError("No replay active")
             if self._round_num >= self._max_rounds:
-                return self._round_num  # Already at the cycle's last round
-            self._round_num += 1
-            self._store.set_round(self._round_num)
-            # Load bracket summaries and rationale entries for new round
-            assert self._cycle_id is not None
-            self._store.set_bracket_summaries(
-                _bracket_summaries_from_rows(
-                    await graph_manager.read_bracket_narratives_for_round(
-                        self._cycle_id,
-                        self._round_num,
-                    ),
-                )
-            )
-            self._store.set_rationale_entries(
-                _rationale_entries_from_rows(
-                    await graph_manager.read_rationale_entries_for_round(
-                        self._cycle_id,
-                        self._round_num,
-                    ),
-                )
-            )
-            connection_manager.broadcast(snapshot_to_json(self._app_state.state_store, self))
-            log.info("replay_advanced", cycle_id=self._cycle_id, round_num=self._round_num)
-            return self._round_num
+                return self._round_num
+            next_round = self._round_num + 1
+            rows = await _load_round(graph_manager, cycle_id, next_round)
+            self._show(store, next_round, rows)
+            self._round_num = next_round
+        log.info("replay_advanced", cycle_id=cycle_id, round_num=next_round)
+        return next_round
 
     async def stop(self) -> None:
-        """Stop replay; the live phase (IDLE or COMPLETE) is untouched (docs/DECISIONS.md#p34-d-10).
-
-        B9: body is serialized behind self._lock to match start() and
-        prevent races between concurrent stop() and advance() calls.
-        """
+        """End the replay; the live phase is untouched (docs/DECISIONS.md#p34-d-10)."""
         async with self._lock:
             self._store = None
             self._cycle_id = None
             self._round_num = 0
             self._max_rounds = 3
-            self._seed_rumor = ""
-            log.info("replay_stopped")
+        log.info("replay_stopped")

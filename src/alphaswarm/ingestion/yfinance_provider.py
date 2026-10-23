@@ -1,51 +1,16 @@
-"""INGEST-01: Real YFinanceMarketDataProvider — wraps yfinance fast_info + info.
+"""YFinanceMarketDataProvider: price, volume and fundamentals from yfinance.
 
-D-05: per-ticker asyncio.to_thread + asyncio.gather for error isolation.
-D-06: fast_info for price/volume, info for fundamentals (pe_ratio, eps, market_cap).
-D-07: no semaphore cap (providers called once per simulation run, not per agent).
-D-09: staleness='fresh' on success; 'fetch_failed' on any exception (no time window).
-D-10: no caching — each call is a fresh scrape.
-D-19: NEVER raises — every failure mode returns _fetch_failed_market_slice(ticker, 'yfinance').
-
-Ticker input contract (Codex review): ticker strings are passed through to
-yf.Ticker(t) AS-IS. This provider does NOT sanitize whitespace, case, or
-exotic symbols (BRK.B, ^GSPC, BTC-USD). Upstream callers (Phase 40 entity
-extraction) are responsible for normalization. Inputs like " msft " will
-produce fetch_failed slices; this is intentional.
-
-Pitfall 1 (HIGH): fast_info.last_price raises KeyError('currentTradingPeriod') on
-delisted/unknown tickers. The entire _fetch_one_sync body is wrapped in ONE broad
-try/except so this KeyError becomes a fetch_failed slice rather than escaping.
-
-Pitfall 5: Decimal(str(float)) — never Decimal(float). Binary float rounding on
-money is a known precision bug.
-
-NaN/Inf guard (Gemini review MEDIUM): yfinance returns float('nan') for
-trailingPE on pre-earnings companies and occasionally for other ratio fields.
-Decimal(str(float('nan'))) produces Decimal('NaN') — a special value that
-is NOT None — which would break Phase 40 advisory synthesis equality checks.
-_decimal_or_none MUST check math.isnan(value) / math.isinf(value) and return
-None in that case.
-
-Pitfall 6: yf.Ticker(t).info does sync HTTP internally. MUST run inside
-asyncio.to_thread, never at async function top level.
-
-Note on Protocol method sharing (Research Open Question 1 + 38-REVIEWS
-Codex MEDIUM):
-All three methods (get_prices, get_fundamentals, get_volume) return the same
-MarketSlice shape and delegate to _fetch_batch_shared. yfinance returns price,
-volume, AND fundamentals in one Ticker() scrape; splitting into 3 separate
-scrapes would triple the network cost for no benefit. Callers that only need
-price can still call get_prices — they just get a complete slice including
-fundamentals they may ignore.
-
-PHASE 40 CALL PATTERN (IMPORTANT — Codex review): Phase 40 must call EXACTLY
-ONE of the three methods per simulation run (recommended: get_prices, since
-it returns the full market slice shape expected by ContextPacket.market).
-Calling all three in sequence would hit yfinance three times for the same
-data — wasted network cost, identical payload. The three methods are kept
-only for NewsProvider Protocol conformance and future caller clarity; they
-are NOT intended to be chained.
+Invariants:
+- Never raises: any failure for a ticker, including yfinance's own errors on
+  delisted or unknown symbols, becomes a ``fetch_failed`` MarketSlice
+  (docs/DECISIONS.md#adr-provider-never-raise).
+- One ``yf.Ticker`` scrape per ticker, run in ``asyncio.to_thread`` and gathered
+  per ticker so one bad symbol cannot fail the batch. No cache, no semaphore
+  (called once per run, not per agent).
+- Money values use ``Decimal(str(x))``; NaN and infinities become ``None``.
+- Tickers pass through unchanged; callers normalise them.
+- ``get_prices``, ``get_fundamentals`` and ``get_volume`` return the same full
+  slice from one scrape; callers use exactly one of them per run.
 """
 
 from __future__ import annotations

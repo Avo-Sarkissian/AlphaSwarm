@@ -178,14 +178,14 @@ def test_structlog_events_honour_the_stream() -> None:
     assert (line["event"], line["items"]) == ("bridge_ready", 2)
 
 
-def test_default_stream_follows_the_current_stdout() -> None:
-    """Without stream=, nothing keeps the stdout that was current at configure time:
+def test_default_stream_follows_the_current_stderr() -> None:
+    """Without stream=, nothing keeps the stderr that was current at configure time:
     pytest's capsys closes its stream after a test, and a kept reference would make
     every later log line raise "I/O operation on closed file"."""
     first, second = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(first):
+    with contextlib.redirect_stderr(first):
         configure_logging(log_level="INFO", json_output=True)
-    with contextlib.redirect_stdout(second):
+    with contextlib.redirect_stderr(second):
         logging.getLogger("uvicorn.error").info("stdlib line")
         structlog.get_logger(component="test").info("structlog_line")
     assert first.getvalue() == ""

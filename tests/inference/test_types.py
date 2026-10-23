@@ -1,4 +1,4 @@
-"""Unit tests for alphaswarm.inference.types (Task 1 — TDD RED → GREEN)."""
+"""Unit tests for alphaswarm.inference.types."""
 
 from __future__ import annotations
 

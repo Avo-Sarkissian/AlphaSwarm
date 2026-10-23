@@ -1,64 +1,18 @@
-"""INGEST-02: Real RSSNewsProvider — httpx async fetch + feedparser parse.
+"""RSSNewsProvider: headlines from Yahoo Finance RSS (tickers) and Google News RSS.
 
-D-01: RSS-only news provider — no API key, no rate limits.
-D-02: Dual-source routing — ticker regex -> Yahoo Finance RSS; else Google News RSS.
-D-03: Case-insensitive substring match for entity filter.
-D-04: feedparser + httpx.
-D-09: staleness='fresh' on success (including empty entries); 'fetch_failed' on exception.
-D-10: no caching.
-D-19: NEVER raises — every failure mode returns _fetch_failed_news_slice(entity, 'rss').
-
-Pitfall 2 (HIGH): passing a URL directly to feedparser uses its sync
-internal fetcher which trips bozo=True with URLError in this environment.
-ALWAYS fetch bytes with httpx.AsyncClient first, then pass response.text
-to feedparser.parse().
-
-Pitfall 3 + 38-REVIEWS consensus #1 (HIGH): entry.published_parsed is
-a time.struct_time that is UTC-intended per the RSS/Atom spec. Convert
-to epoch seconds with calendar.timegm(published_parsed) — NEVER the
-local-time-based stdlib converter, which would misinterpret the struct
-as local time. On a machine in America/Los_Angeles that would shift
-every published timestamp by 7-8 hours, causing max_age_hours filtering
-to drop entries that are actually fresh (or keep entries that are
-actually stale).
-
-Pitfall 4: Yahoo Finance RSS returns HTTP 429 without an explicit User-Agent.
-Always set User-Agent: Mozilla/5.0 AlphaSwarm/6.0 on every fetch.
-
-38-REVIEWS consensus #2 (MEDIUM): httpx.AsyncClient MUST be constructed
-with an explicit timeout. Without it, a slow upstream can hang a fetch
-indefinitely *without raising* — the D-19 try/except would never trigger
-and the simulation assembly (Phase 40) would block. Pass
-timeout=_REQUEST_TIMEOUT_S to the constructor; keep per-request timeout=
-as defense-in-depth.
-
-F3 (MEDIUM — indirect prompt injection): feed <title> text is authored by
-whoever gets a headline published, and it ends up verbatim in the prompt of
-all 100 agents. Every title is normalized through security.sanitize.sanitize_headline()
-at ingestion (control/format characters, fence and block-delimiter forging,
-per-headline length); titles that sanitize to nothing are dropped. The
-prompt-side half of the mitigation lives in context_formatter.py (rendering)
-and worker.py (untrusted-data fence + user role).
-
-T-38-01 (HIGH — URL injection): entity strings come from the seed rumor
-(untrusted input). Mitigations:
-  - Ticker path: regex ^[A-Z]{1,5}$ guarantees only ticker-safe chars reach
-    the Yahoo URL; anything else routes through Google News where...
-  - Google News path: urllib.parse.quote_plus(entity) percent-encodes every
-    reserved character before string interpolation.
-Both mitigations are asserted by unit tests.
-
-International ticker routing (Gemini MEDIUM review — intentional scope):
-The _TICKER_RE pattern ^[A-Z]{1,5}$ is tuned for US-listed symbols (ZZZT,
-MSFT, GOOG). International tickers with exchange suffixes — e.g.,
-VOD.L (Vodafone on LSE), SHOP.TO (Shopify on TSX), 7203.T (Toyota on TSE)
-— do NOT match this regex and therefore route to Google News RSS rather
-than Yahoo Finance RSS. This is intentional (docs/DECISIONS.md#p38-d-01,
-#p38-d-02): Google News has global publisher coverage and
-reliably surfaces headlines for international symbols via full-text
-search. If broader Yahoo-RSS international-ticker coverage becomes a
-requirement in a later phase, the regex can be relaxed to
-^[A-Z]{1,5}(\\.[A-Z]{1,2})?$ — but that is out of scope for Phase 38.
+Invariants:
+- Never raises: any failure for an entity becomes a ``fetch_failed`` NewsSlice
+  (docs/DECISIONS.md#adr-provider-never-raise).
+- Routing: entities matching ``^[A-Z]{1,5}$`` go to Yahoo Finance RSS; everything
+  else, exchange-suffixed tickers included, goes to Google News with the entity
+  URL-encoded (docs/DECISIONS.md#p38-d-02).
+- Bytes are fetched with ``httpx.AsyncClient`` (explicit timeout; a User-Agent,
+  without which Yahoo answers 429) and parsed with ``feedparser``, which never
+  fetches URLs itself. No cache.
+- Entries are kept when the raw title contains the entity, case-insensitively.
+- ``published_parsed`` is UTC and is converted with ``calendar.timegm``.
+- Every title passes ``sanitize_headline`` before it can reach an agent prompt;
+  titles that sanitise to nothing are dropped (docs/DECISIONS.md#adr-security-2026-08).
 """
 
 from __future__ import annotations

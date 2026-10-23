@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,7 +25,7 @@ async def test_replay_start_and_stop_leave_the_live_phase_alone() -> None:
     await store.set_phase(SimulationPhase.COMPLETE)
     replay = ReplayManager(SimpleNamespace(state_store=store))  # type: ignore[arg-type]
     graph = FakeCycleGraph(signals=_SIGNALS)
-    await replay.start(CYCLE_A, await graph.read_full_cycle_signals(CYCLE_A), MagicMock(), graph)  # type: ignore[arg-type]
+    await replay.start(CYCLE_A, await graph.read_full_cycle_signals(CYCLE_A), graph)  # type: ignore[arg-type]
     assert store.snapshot().phase is SimulationPhase.COMPLETE
     assert json.loads(snapshot_to_json(store, replay))["phase"] == "replay"
     await replay.stop()

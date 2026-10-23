@@ -1,13 +1,6 @@
-"""RED tests for Task 5B: advisory/interview engines accept InferenceProvider.
+"""Advisory synthesis and the interview engine run on the InferenceProvider protocol.
 
-All tests here are RED until:
-  - advisory/engine.py synthesize() accepts `provider: InferenceProvider` instead of
-    `ollama_client` + `orchestrator_model`.
-  - interview.py InterviewEngine.__init__ accepts `provider: InferenceProvider` instead of
-    `ollama_client` + `model`.
-  - Each routes file builds an OllamaProvider and passes it to the engine.
-
-pytest-socket --disable-socket is active project-wide; these tests use pure Fakes.
+Pure fakes, no sockets.
 """
 
 from __future__ import annotations
@@ -72,7 +65,7 @@ class _FakeGraphManager:
 
 
 # ---------------------------------------------------------------------------
-# RED-1: Advisory engine accepts InferenceProvider
+# Advisory synthesis runs on an InferenceProvider
 # ---------------------------------------------------------------------------
 
 
@@ -80,7 +73,7 @@ class TestAdvisoryEngineAcceptsProvider:
     """synthesize() must accept `provider: InferenceProvider` and route chat through it."""
 
     async def test_synthesize_accepts_provider_kwarg(self) -> None:
-        """synthesize() must accept `provider` kwarg (InferenceProvider) — RED until migrated."""
+        """synthesize() must accept `provider` kwarg (InferenceProvider)."""
         from alphaswarm.advisory import synthesize
 
         fake_provider = FakeInferenceProvider(
@@ -101,7 +94,7 @@ class TestAdvisoryEngineAcceptsProvider:
         assert report.cycle_id == "c1"
 
     async def test_synthesize_routes_through_provider_chat(self) -> None:
-        """synthesize() must call provider.chat() (not OllamaClient) — RED until migrated."""
+        """synthesize() must call provider.chat() (not OllamaClient)."""
         from alphaswarm.advisory import synthesize
 
         fake_provider = FakeInferenceProvider(
@@ -122,7 +115,7 @@ class TestAdvisoryEngineAcceptsProvider:
         assert len(fake_provider.calls) == 1
 
     async def test_synthesize_passes_json_mode_to_provider(self) -> None:
-        """synthesize() must pass json_mode=True (was format='json') — RED until migrated."""
+        """synthesize() must pass json_mode=True (was format='json')."""
         from alphaswarm.advisory import synthesize
 
         fake_provider = FakeInferenceProvider(
@@ -144,7 +137,7 @@ class TestAdvisoryEngineAcceptsProvider:
         assert call.get("json_mode") is True or call.get("response_schema") is not None
 
     async def test_synthesize_retry_uses_provider(self) -> None:
-        """Retry on ValidationError must also use provider.chat() — RED until migrated."""
+        """Retry on ValidationError must also use provider.chat()."""
         from alphaswarm.advisory import synthesize
 
         malformed = '{"cycle_id": "c1", "oops": true}'
@@ -170,7 +163,7 @@ class TestAdvisoryEngineAcceptsProvider:
 
 
 # ---------------------------------------------------------------------------
-# RED-3: InterviewEngine accepts InferenceProvider
+# The interview engine runs on an InferenceProvider
 # ---------------------------------------------------------------------------
 
 
@@ -198,7 +191,7 @@ class TestInterviewEngineAcceptsProvider:
         )
 
     def test_interview_engine_init_with_provider(self) -> None:
-        """InterviewEngine(context=..., provider=...) must work — RED until migrated."""
+        """InterviewEngine(context=..., provider=...) must work."""
         from alphaswarm.interview import InterviewEngine
 
         fake_provider = FakeInferenceProvider(
@@ -213,7 +206,7 @@ class TestInterviewEngineAcceptsProvider:
         assert engine is not None
 
     async def test_interview_engine_routes_through_provider(self) -> None:
-        """InterviewEngine.ask() must call provider.chat() — RED until migrated."""
+        """InterviewEngine.ask() must call provider.chat()."""
         from alphaswarm.interview import InterviewEngine
 
         fake_provider = FakeInferenceProvider(
@@ -230,7 +223,7 @@ class TestInterviewEngineAcceptsProvider:
         assert len(fake_provider.calls) == 1
 
     async def test_interview_engine_plain_chat_no_schema(self) -> None:
-        """InterviewEngine uses plain chat (no json_mode, no schema) — RED until migrated."""
+        """InterviewEngine uses plain chat (no json_mode, no schema)."""
         from alphaswarm.interview import InterviewEngine
 
         fake_provider = FakeInferenceProvider(
@@ -248,7 +241,7 @@ class TestInterviewEngineAcceptsProvider:
         assert call.get("response_schema") is None
 
     async def test_interview_engine_sliding_window_uses_provider(self) -> None:
-        """Window trim summary generation must also use provider.chat() — RED until migrated."""
+        """Window trim summary generation must also use provider.chat()."""
         from alphaswarm.interview import InterviewEngine
 
         # 13 ask responses + 1 summary = 14

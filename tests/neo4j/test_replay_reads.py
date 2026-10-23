@@ -10,7 +10,6 @@ from alphaswarm.graph import GraphStateManager
 from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas, load_bracket_configs
 from alphaswarm.state import StateStore
 from alphaswarm.types import SignalType
-from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.replay_manager import ReplayManager
 from tests.support.mini_cycle import cypher, dec, write_mini_cycle
 from tests.support.seed_builder import SeededCycle
@@ -83,7 +82,7 @@ async def test_replay_of_seeded_cycle_shows_every_bracket(
     manager = ReplayManager(SimpleNamespace(state_store=StateStore()))  # type: ignore[arg-type]
     signals = await graph_manager_test.read_full_cycle_signals(seeded_cycle.cycle_id)
 
-    await manager.start(seeded_cycle.cycle_id, signals, ConnectionManager(), graph_manager_test)
+    await manager.start(seeded_cycle.cycle_id, signals, graph_manager_test)
 
     summaries = manager.store.snapshot().bracket_summaries
     assert [s.display_name for s in summaries] == [b.display_name for b in DEFAULT_BRACKETS]

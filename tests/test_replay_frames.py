@@ -5,11 +5,10 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
 
 from alphaswarm.state import AgentState, JobStatus, StateStore
 from alphaswarm.types import SignalType
-from alphaswarm.web.connection_manager import ConnectionManager
+from alphaswarm.web.broadcaster import snapshot_to_json
 from alphaswarm.web.replay_manager import ReplayManager, _rationale_entries_from_rows
 
 CYCLE = "00000000-0000-4000-8000-0000000000c3"
@@ -51,11 +50,10 @@ def test_rationale_rows_are_numbered_per_round_without_wall_clock() -> None:
     ]
 
 
-async def test_replay_start_and_advance_broadcast_versioned_frames() -> None:
+async def test_replay_start_and_advance_serve_versioned_frames() -> None:
     live = StateStore()
     live.set_job_status("report", JobStatus("running", CYCLE))
     manager = ReplayManager(SimpleNamespace(state_store=live))  # type: ignore[arg-type]
-    cm = MagicMock(spec=ConnectionManager)
     graph = _ReplayGraph(
         {
             1: [_row("quants_01", "buy", 1), _row("degens_02", "sell", 1)],
@@ -63,8 +61,8 @@ async def test_replay_start_and_advance_broadcast_versioned_frames() -> None:
         }
     )
 
-    await manager.start(CYCLE, SIGNALS, cm, graph)  # type: ignore[arg-type]
-    first = json.loads(cm.broadcast.call_args.args[0])
+    await manager.start(CYCLE, SIGNALS, graph)  # type: ignore[arg-type]
+    first = json.loads(snapshot_to_json(live, manager))
     assert (first["schema_version"], first["mode"], first["phase"]) == (1, "replay", "replay")
     assert (first["cycle_id"], first["num_rounds"], first["round_num"], first["edges_version"]) == (
         CYCLE,
@@ -78,8 +76,8 @@ async def test_replay_start_and_advance_broadcast_versioned_frames() -> None:
     ]
     assert first["jobs"]["report"] == {"state": "running", "cycle_id": CYCLE, "error_code": None}
 
-    assert await manager.advance(cm, graph) == 2  # type: ignore[arg-type]
-    second = json.loads(cm.broadcast.call_args.args[0])
+    assert await manager.advance(graph) == 2  # type: ignore[arg-type]
+    second = json.loads(snapshot_to_json(live, manager))
     assert (second["round_num"], second["edges_version"]) == (2, 1)
     assert [(e["seq"], e["agent_id"]) for e in second["rationale_entries"]] == [(1, "macro_03")]
     assert second["agent_states"] == {"quants_01": {"signal": "sell", "confidence": 0.6}}

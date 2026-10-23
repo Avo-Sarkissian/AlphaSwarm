@@ -1,36 +1,19 @@
-"""HOLD-03: GET /api/holdings — REST surface for the eager-loaded PortfolioSnapshot.
+"""GET /api/holdings: the cached PortfolioSnapshot as JSON.
 
-This is the ONE and ONLY web route module permitted by the importlinter contract
-(`pyproject.toml` [tool.importlinter]) to import `alphaswarm.holdings`. The
-whitelist entry lives in `tests/invariants/test_importlinter_coverage.py`
-(`_KNOWN_NON_SOURCE`). Adding this module to `pyproject.toml` `source_modules`
-would break `test_source_modules_does_not_list_whitelisted_packages`.
+Invariants:
+- One of the few modules allowed to import ``alphaswarm.holdings``; import-linter
+  enforces the boundary, and this module is deliberately absent from the holdings
+  contract's ``source_modules`` (docs/DECISIONS.md#adr-holdings-isolation).
+  ``PortfolioCache`` lives here so ``alphaswarm.web.app`` can build it without
+  importing ``alphaswarm.holdings`` itself.
+- The route reads ``app.state.portfolio_cache`` (a ``PortfolioCache`` that reloads
+  when the CSV's modification time changes, in a worker thread); it never parses
+  the CSV per request on the event loop.
+- Decimal fields are serialised as strings, because float would drop precision.
 
-`PortfolioCache` and its synchronous `load_portfolio_snapshot` helper live here
-specifically so that `alphaswarm.web.app` — which IS in `source_modules` and
-therefore cannot import `alphaswarm.holdings.*` — can build the cache at
-lifespan startup; the cache runs the helper via `asyncio.to_thread`. This is
-the D-04 whitelist indirection architecture.
-
-Decisions implemented:
-- D-06: response shape = account_number_hash + as_of (ISO-8601) + holdings list;
-        Decimal fields serialized as strings to avoid float precision loss.
-- D-07 (revised): the handler reads app.state.portfolio_cache, which reloads the
-        CSV when its mtime changes; no parse happens unless the file changed.
-- D-08: PortfolioCache.get() returns None (file missing or malformed) → 503 with a
-        FastAPI-wrapped generic body `{"detail": {"error": "holdings_unavailable",
-        "message": "..."}}`. The raw exception and filesystem path are logged
-        server-side by `load_portfolio_snapshot` — the client sees only
-        "holdings_unavailable" inside the `detail` dict (T-39-06 from Plan 01
-        threat model).
-
-Review closures:
-- Codex HIGH (import boundary): `web/app.py` imports `PortfolioCache`
-  from THIS module, not from `alphaswarm.holdings.*`. `uv run lint-imports` is
-  an explicit verify-before-code gate in Task 3.
-- Codex MEDIUM (503 body FastAPI wrapping): `HTTPException(detail={...})`
-  serializes as `{"detail": {...}}`. Task 4 integration tests assert
-  `r.json()["detail"]["error"]` to match this shape. No `JSONResponse` switch.
+Failure contract: no snapshot (missing or invalid CSV) → 503
+``{"detail": {"error": "holdings_unavailable", ...}}``. File paths and raw
+exceptions are logged server-side only, never returned.
 """
 
 from __future__ import annotations

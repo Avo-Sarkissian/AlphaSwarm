@@ -44,7 +44,7 @@ import logging
 import re
 import sys
 from collections.abc import Mapping, MutableMapping
-from typing import Any, Final, Protocol, TextIO
+from typing import Any, Final, Protocol, TextIO, cast
 
 import structlog
 from pydantic import ValidationError
@@ -252,19 +252,20 @@ class _Writable(Protocol):
     def flush(self) -> None: ...
 
 
-class _CurrentStdout:
-    """Writes to whatever sys.stdout is at write time.
+class _StderrWriter:
+    """File-like target that writes to whatever ``sys.stderr`` is at call time.
 
-    The default stream is resolved late, as structlog's PrintLoggerFactory() does,
-    so a stdout that is swapped out and closed later (pytest's capsys,
-    contextlib.redirect_stdout) is never kept by the bridge handler.
+    structlog's PrintLogger keeps the file object it is given; passing
+    ``sys.stderr`` itself would pin the stream that existed when logging was
+    configured, so redirection and test capture (pytest's capsys closes its
+    stream after each test) would stop working.
     """
 
     def write(self, text: str, /) -> int:
-        return sys.stdout.write(text)
+        return sys.stderr.write(text)
 
     def flush(self) -> None:
-        sys.stdout.flush()
+        sys.stderr.flush()
 
 
 def _pre_chain(json_output: bool) -> list[structlog.types.Processor]:
@@ -287,7 +288,7 @@ def _pre_chain(json_output: bool) -> list[structlog.types.Processor]:
         chain.append(structlog.processors.ExceptionRenderer(ExceptionDictTransformer(show_locals=False)))
     else:
         chain.append(structlog.processors.format_exc_info)
-    chain.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer (Pitfall 1)
+    chain.append(pii_redaction_processor)  # must run before the renderer (docs/DECISIONS.md#adr-holdings-isolation)
     return chain
 
 
@@ -308,7 +309,7 @@ def configure_logging(
     Args:
         log_level: Python log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL).
         json_output: If True, output JSON lines. If False, use console output.
-        stream: Where lines go. Default: sys.stdout as it is when each line is
+        stream: Where lines go. Default: sys.stderr as it is when each line is
             written (never a stream captured at configure time).
 
     stdlib records (uvicorn, httpx, provider SDKs) get the same processors, so they
@@ -323,11 +324,13 @@ def configure_logging(
         logger_factory=(
             structlog.PrintLoggerFactory(file=stream)
             if stream is not None
-            else structlog.PrintLoggerFactory()  # resolves sys.stdout per logger, as before
+            # stdout belongs to command output (tables, report paths, help);
+            # logs go to stderr (docs/DECISIONS.md#adr-cli-ux).
+            else structlog.PrintLoggerFactory(file=cast("TextIO", _StderrWriter()))
         ),
         cache_logger_on_first_use=True,
     )
-    _install_stdlib_bridge(level, json_output, stream if stream is not None else _CurrentStdout())
+    _install_stdlib_bridge(level, json_output, stream if stream is not None else _StderrWriter())
 
 
 def _install_stdlib_bridge(level: int, json_output: bool, stream: _Writable) -> None:

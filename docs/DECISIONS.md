@@ -83,7 +83,7 @@ Contents
 - **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`).
 - **Rationale:** A per-request `num_ctx` makes Ollama silently reload the model.
 - **Caveats:**
-  - `OllamaSettings.worker_model` and `orchestrator_model` are only displayed in the CLI banner (`cli.py:_print_banner`). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
+  - `OllamaSettings.worker_model` and `orchestrator_model` are no longer read anywhere (the CLI banner that displayed them was removed; see [adr-cli-ux](#adr-cli-ux)). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
   - `OllamaSettings.num_parallel` and `max_loaded_models` are never read, so they are dead config. The real values are Ollama server environment variables (see RUNBOOK).
 
 ### <a id="adr-think-off"></a>Orchestrator reasoning ("think") is off everywhere
@@ -406,6 +406,14 @@ Contents
   - Cycle ids are validated by the `CycleId` uuid4 path type (`web/params.py`); malformed ids return 422 `validation_error` (T-36-01). Every error uses the envelope from `web/errors.py`.
   - The report modal polls only on 409 `report_generation_in_progress`; `usePolling` keeps at most one request in flight (F-16) and surfaces timeouts ([p41-6-d-19](#p41-6-d-19)).
 
+### <a id="adr-cli-ux"></a>CLI: stdout for output, stderr for logs, fixed exit codes
+- **Decision:**
+  - structlog writes to the `sys.stderr` current at each write; stdout carries only command output (tables, report paths, help).
+  - Every subcommand runs through `cli._run_command`. Exit codes: `0` success, `1` runtime failure, `2` usage or configuration error (argparse errors, `pydantic.ValidationError` from settings, `InferenceConfigError`), `130` interrupted (Ctrl-C). Tracebacks print only with `-v/--verbose`, accepted before or after the subcommand. Bare `alphaswarm` prints help and exits 0. A handler that raises `SystemExit` on purpose (after printing its own message) keeps its exit code.
+  - `alphaswarm report` takes the cycle id positionally (as the README documents) or with `--cycle`; two different ids are a usage error.
+- **Rationale:** JSON log lines interleaved with the CLI's tables on stdout, so piping a command captured both. Every failure, Ctrl-C included, exited 1 without a traceback, and bare `alphaswarm` printed a banner. The documented `report <cycle_id>` did not parse.
+- **Not chosen:** logging from the runner. It would run before logging is configured for configuration errors and land on stdout; the code that failed logs its own error.
+
 ### <a id="adr-web-lifespan"></a>Web process shape
 - **Decision:**
   - Uvicorn owns the event loop. `services.runtime.open_runtime` is the one composition root for the CLI and the lifespan: it configures logging, builds AppState, the InferenceRuntime and the JobRunner, applies the Neo4j schema and tears everything down through one `AsyncExitStack` ([p29-d-04](#p29-d-04)).
@@ -697,8 +705,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p34-d-07"></a>`D-07` | ReplayManager holds the ReplayStore, cycle_id and round; created in the lifespan. | active | web/replay_manager.py:1; tests/test_web.py:1209 |
-| <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, builds ReplayStore, sets round 1, broadcasts. | active | web/replay_manager.py:167; web/routes/replay.py:51,99 |
-| <a id="p34-d-09"></a>`D-09` | replay_advance increments the round (capped at the cycle's real depth since F-12) and broadcasts. | active | web/replay_manager.py:218; web/routes/replay.py:59,124 |
+| <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, reads round 1 and only then commits the ReplayStore; the 5 Hz broadcaster shows it on its next tick; the immediate broadcast was removed. | partial | web/replay_manager.py; web/routes/replay.py |
+| <a id="p34-d-09"></a>`D-09` | replay_advance reads the next round first and commits it in one synchronous step (capped at the cycle's real depth since F-12); no immediate broadcast. | partial | web/replay_manager.py; web/routes/replay.py |
 | <a id="p34-d-10"></a>`D-10` | POST /api/replay/stop ends the replay (ReplayManager inactive again) and never writes the live StateStore phase, which stays IDLE or COMPLETE. Revised 2026-10 (start set the live phase to REPLAY and stop set it to IDLE). | revised | web/replay_manager.py:249; web/routes/replay.py:66,136 |
 | <a id="p34-d-11"></a>`D-11` | Broadcaster reads the replay snapshot instead of live state while replay is active. | active | web/broadcaster.py (`snapshot_to_json`); tests/test_broadcaster_frames.py |
 

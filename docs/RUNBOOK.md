@@ -260,6 +260,17 @@ uv run ruff check src tests && uv run ruff format --check src tests
 | Cloud run: many PARSE_ERRORs or 429s | Provider rate limit | Lower `requests_per_min`, set `max_in_flight: 1`, raise `max_retries` (see §4 cloud) |
 | `GovernorCrisisError` | Sustained macOS memory pressure (5 min with no successful inference) | Close memory-heavy apps. Check that `ollama ps` shows only 2 models. Lower `ALPHASWARM_GOVERNOR__BASELINE_PARALLEL` |
 
+### CLI exit codes
+
+| Code | Meaning | What to do |
+|---|---|---|
+| 0 | Success (bare `alphaswarm` prints help and exits 0) | — |
+| 1 | Runtime failure (Neo4j down, inference error, …) | Re-run with `-v` for the traceback; check that Neo4j is up (§3) and the Ollama env (§1) |
+| 2 | Usage or configuration error | Fix the arguments, `.env` value or `.secrets/inference.json` named in the message |
+| 130 | Interrupted with Ctrl-C | — |
+
+Logs go to stderr, so `alphaswarm report <cycle_id> > report.txt` captures only the report output; add `2> run.log` to keep the logs.
+
 ## 7. Tests and quality gates
 
 **Suites**
