@@ -29,13 +29,13 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `config.py`: settings, inference-config persistence, origin constants, prompt templates, sanitizers, `DEFAULT_BRACKETS`, `generate_personas`, `generate_modifiers`.
   - `errors.py`: exception types.
 - **Engine**
-  - `seed.py`: `inject_seed`. The orchestrator parses the seed, then one atomic write creates the Cycle and its Entities, then persona modifiers are generated.
-  - `simulation.py`: `run_simulation`, `run_round1`, peer selection, the control holdout and own-prior lines, shifts, bracket summaries, narratives.
+  - `seed.py`: `inject_seed`. The orchestrator parses the seed and generates the persona modifiers, then one atomic write creates the Cycle (status `running`) and its Entities, so a seeding failure leaves no Cycle.
+  - `simulation.py`: `run_simulation`, `run_round1`, the round-abort check, peer selection, the control holdout and own-prior lines, shifts, bracket summaries, narratives, and the terminal `Cycle.status` write.
   - `metrics.py`: pure measurement functions; `split_flips` splits a round's flips between the control holdout and the treated readers.
   - `batch_dispatcher.py`: `dispatch_wave`, a TaskGroup of 100 jittered inferences.
   - `worker.py`: `AgentWorker`, the decision JSON schema, and the fence for untrusted market data.
   - `parsing.py`: 3-tier parsers.
-  - `write_buffer.py`: `EpisodeRecord`, `compute_flip_type`.
+  - `episodes.py`: `EpisodeRecord`, `compute_flip_type`, `EntityRef`/`EntityMatch`, `match_entities`, `new_decision_ids`.
   - `context_formatter.py`, `utils.py`.
 - **Concurrency**
   - `governor.py`: ResourceGovernor / TokenPool state machine.
@@ -80,15 +80,14 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 2. **Seed.** `inject_seed` runs these steps:
    - `orchestrator.prepare`, then a JSON-mode chat;
    - `parse_seed_event`;
-   - `create_cycle_with_seed_event`, which writes Cycle, Entity, and MENTIONS;
-   - `generate_modifiers`.
+   - `generate_modifiers`;
+   - `create_cycle_with_seed_event`, which writes Cycle (status `running`), Entity, and MENTIONS in one transaction.
 
    Then `generate_personas` builds 100 prompts. Each one is a bracket template plus a round-robin modifier, a per-cycle focus line, and the JSON instructions.
 3. **Market context (Round 1 only).** Ticker-shaped entities go to `asyncio.gather(yfinance.get_prices, rss.get_headlines)`. The results become a ContextPacket, which `format_market_context` turns into one block, fenced as untrusted data inside the user message. A point-in-time run (`run --context-fixture`) skips the fetch: its fixture packet goes straight to `format_market_context`, and supplied providers are never called.
 4. **Round 1.** `dispatch_wave` runs 100 tasks. Each one waits out its jitter, calls `controller.acquire`, then `AgentWorker.infer` (schema-constrained decode, per-bracket temperature), then `parse_agent_decision`. Results stream into the StateStore as they finish. Then:
    - the round-abort check (`RoundFailedError` when more than `round_abort_failure_percent` of agents failed);
-   - `write_decisions` (plus CITED edges);
-   - RationaleEpisode and REFERENCES records;
+   - `persist_round`: Decisions (with `error_kind`), CITED, RationaleEpisodes and REFERENCES in one transaction;
    - bracket summaries.
 5. **Rounds 2..N.** Before each later round, a shock queued while the shock window was open is consumed; every applied shock is appended to all later rounds' user message (oldest first) and recorded on the StateStore. Peer contexts are built in memory, per reader, by `_build_diverse_peer_contexts`:
    - each candidate's weight is base reach plus global citation share, plus `SimulationSettings.personal_boost` (0.3) if the reader cited that agent last round;
@@ -102,6 +101,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - The phase becomes FINALIZING.
    - `_generate_decision_narratives`: 100 worker calls.
    - `write_cycle_metrics`.
+   - `Cycle.status = complete` (or `failed` / `cancelled` from the `run_simulation` wrapper on error; the web manager then publishes `StateStore.last_error`).
    - The phase becomes COMPLETE.
 
    If anything in steps 1-6 fails instead (an invalid inference config, a hard stop, `RoundFailedError`, a Neo4j error), `SimulationManager._run` publishes a UI-safe `RunError` as `StateStore.last_error`, logs the exception once with its traceback, and resets the phase to IDLE. A cancelled run sets no error.
@@ -117,9 +117,9 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 
 ```
 (:Agent {id, name, bracket, risk_profile, temperature, influence_weight_base, decision_narrative})
-(:Cycle {cycle_id, seed_rumor, overall_sentiment, created_at, num_rounds, <metrics>, metrics_recorded_at})
+(:Cycle {cycle_id, seed_rumor, overall_sentiment, created_at, num_rounds, status, error_code, <metrics>, metrics_recorded_at})
     -[:MENTIONS {relevance, sentiment}]->(:Entity {name, type})
-(:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment, rationale, control})-[:FOR]->(:Cycle)
+(:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment, rationale, control, error_kind})-[:FOR]->(:Cycle)
 (:Decision)-[:CITED]->(:Agent)
 (:Decision)-[:HAS_EPISODE]->(:RationaleEpisode {rationale, peer_context_received, flip_type, round, cycle_id})
 (:Decision)-[:REFERENCES]->(:Entity)
