@@ -887,7 +887,7 @@ async def test_persist_round_tx_counts_dropped_citations() -> None:
                 "cycle_id": "c1",
             }
         ],
-        [{"decision_id": "d1", "entity_name": "ZZZT Holdings", "match_type": "substring"}],
+        [{"decision_id": "d1", "entity_name": "ZZZT Holdings", "entity_type": "company", "match_type": "token"}],
     )
     assert summary == PersistRoundResult(
         decision_ids=("d1",),
@@ -945,7 +945,9 @@ async def test_persist_round_sends_one_write_with_all_rows(mock_driver: MagicMoc
     assert decision_rows[0]["control"] is False
     assert cited_rows == [{"decision_id": "d1", "cited_id": "degens_01"}]
     assert episode_rows[0]["round_num"] == 1
-    assert reference_rows == [{"decision_id": "d1", "entity_name": "ZZZT Holdings", "match_type": "substring"}]
+    assert reference_rows == [
+        {"decision_id": "d1", "entity_name": "ZZZT Holdings", "entity_type": "company", "match_type": "substring"}
+    ]
 
 
 async def test_persist_round_marks_only_control_ids_as_control(mock_driver: MagicMock) -> None:

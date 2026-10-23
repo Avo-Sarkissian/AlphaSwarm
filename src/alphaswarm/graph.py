@@ -324,11 +324,15 @@ CREATE (d)-[:HAS_EPISODE]->(re)
 RETURN count(re) AS n
 """
 
-# Name-only MATCH keeps the baseline semantics (docs/DECISIONS.md#p11-d-08).
+# REFERENCES link a decision only to its own cycle's (name, type) entity, through
+# MENTIONS; names are matched on whole tokens in episodes.match_entities. EXISTS
+# (not a MENTIONS path) so a seed that lists an entity twice still yields one
+# edge per match (docs/DECISIONS.md#p11-d-08).
 _PERSIST_REFERENCES: Final = """
 UNWIND $matches AS m
 MATCH (d:Decision {decision_id: m.decision_id})
-MATCH (e:Entity {name: m.entity_name})
+MATCH (e:Entity {name: m.entity_name, type: m.entity_type})
+WHERE EXISTS { MATCH (:Cycle {cycle_id: $cycle_id})-[:MENTIONS]->(e) }
 CREATE (d)-[:REFERENCES {match_type: m.match_type}]->(e)
 RETURN count(*) AS n
 """
@@ -811,7 +815,12 @@ class GraphStateManager:
             for e in episodes
         ]
         reference_rows = [
-            {"decision_id": m.decision_id, "entity_name": m.entity_name, "match_type": m.match_type}
+            {
+                "decision_id": m.decision_id,
+                "entity_name": m.entity_name,
+                "entity_type": m.entity_type,
+                "match_type": m.match_type,
+            }
             for m in entity_matches
         ]
         summary, dropped = await self._write(
@@ -888,7 +897,7 @@ class GraphStateManager:
 
         references_written = 0
         if references:
-            result = await tx.run(_PERSIST_REFERENCES, matches=references)
+            result = await tx.run(_PERSIST_REFERENCES, matches=references, cycle_id=cycle_id)
             record = await result.single()
             references_written = int(record["n"]) if record else 0
 

@@ -7,12 +7,17 @@ pieces remain (docs/DECISIONS.md#p11-d-01).
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+import structlog
+
 from alphaswarm.types import FlipType, SignalType
+
+log = structlog.get_logger(component="episodes")
 
 
 @dataclass(frozen=True)
@@ -67,17 +72,47 @@ def match_entities(
     records: Sequence[EpisodeRecord],
     entities: Sequence[EntityRef],
 ) -> list[EntityMatch]:
-    """Case-insensitive substring match of entity names in each rationale.
+    """Link decisions to the cycle's entities by whole-token, case-insensitive match.
 
-    Order: records first, then entities (docs/DECISIONS.md#p11-d-08). Empty
-    names never match.
+    "AI" matches "AI demand" but not "said"; "Meta" does not match "metadata";
+    regex metacharacters in names ("C++", "S&P 500") match literally. A name the
+    cycle lists under more than one entity type is ambiguous and skipped rather
+    than guessed. Order: records first, then entities; blank names never match
+    (docs/DECISIONS.md#p11-d-08).
     """
+    groups: dict[str, list[EntityRef]] = {}
+    for ref in entities:
+        key = ref.name.strip().casefold()
+        if not key:
+            continue
+        bucket = groups.setdefault(key, [])
+        if ref not in bucket:
+            bucket.append(ref)
+    ambiguous = {key for key, refs in groups.items() if len({r.type for r in refs}) > 1}
+    if ambiguous:
+        log.warning(
+            "ambiguous_entities_skipped",
+            count=len(ambiguous),
+            names=",".join(sorted(ambiguous)),
+        )
+    patterns = [
+        (re.compile(rf"(?<!\w){re.escape(refs[0].name.strip())}(?!\w)", re.IGNORECASE), refs)
+        for key, refs in groups.items()
+        if key not in ambiguous
+    ]
     matches: list[EntityMatch] = []
     for record in records:
-        text = record.rationale.lower()
-        for entity in entities:
-            if entity.name and entity.name.lower() in text:
-                matches.append(EntityMatch(record.decision_id, entity.name, entity.type, "substring"))
+        for pattern, refs in patterns:
+            if pattern.search(record.rationale):
+                matches.extend(
+                    EntityMatch(
+                        decision_id=record.decision_id,
+                        entity_name=ref.name,
+                        entity_type=ref.type,
+                        match_type="token",
+                    )
+                    for ref in refs
+                )
     return matches
 
 
