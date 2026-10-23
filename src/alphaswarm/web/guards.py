@@ -105,7 +105,9 @@ async def load_inference_config_or_422(app_state: AppState) -> InferenceConfig:
 
     An unreadable file (OSError, e.g. no read permission) counts as invalid, so
     callers that gate on the config fail closed. The Settings routes use this
-    guard too, so the message names the file's setting rather than Settings.
+    guard too, so the message names the file's setting rather than Settings. It
+    says to move the file aside, not to delete it: the file holds the stored API
+    keys (docs/DECISIONS.md#adr-local-first-inference).
     """
     try:
         return await asyncio.to_thread(load_inference_config, app_state.settings)
@@ -114,8 +116,8 @@ async def load_inference_config_or_422(app_state: AppState) -> InferenceConfig:
             422,
             "inference_config_invalid",
             "The stored inference config is invalid, so Settings cannot open it. Fix or "
-            "delete the file named by ALPHASWARM_INFERENCE_CONFIG_PATH; without it the "
-            "local defaults apply.",
+            "move aside the file named by ALPHASWARM_INFERENCE_CONFIG_PATH (the health check "
+            "lists the rejected keys); without it the local defaults apply.",
         ) from exc
 
 
