@@ -455,7 +455,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
                     width:'100%', padding:'9px 14px',
                     background:'transparent', border:'none', borderBottom:'1px solid var(--border)',
                     color:'var(--text-2)', cursor:'pointer',
-                    fontFamily:"'JetBrains Mono', monospace", fontSize:11, letterSpacing:'0.04em',
+                    fontFamily: 'var(--font-mono)', fontSize:11, letterSpacing:'0.04em',
                     textAlign:'left', transition:'all .1s',
                   }}>
                   <span style={{color:'var(--text-3)', flexShrink:0}}><Icon name={item.icon} /></span>
@@ -523,7 +523,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
               <span className="panel-title">Top Influencers</span>
               <span className="label">CITED BY</span>
             </div>
-            <div className="panel-body" style={{fontFamily:'JetBrains Mono', fontSize:11}}>
+            <div className="panel-body" style={{fontFamily: 'var(--font-mono)', fontSize:11}}>
               {topInfluencers.length === 0 ? (
                 <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 10 }}>
                   {hasEdges

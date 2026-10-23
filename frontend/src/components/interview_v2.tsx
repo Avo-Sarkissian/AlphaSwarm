@@ -96,7 +96,7 @@ function CitationGraph({ agent, cited, citedBy }: CitationGraphProps) {
               markerEnd="url(#arrow)"
             />
             <rect x={p.x} y={p.y} width="36" height="14" rx="2" fill="var(--bg-3)" stroke="var(--border-2)" />
-            <text x={p.x + 18} y={p.y + 9.5} textAnchor="middle" fill="var(--text-2)" fontSize="7.5" fontFamily="JetBrains Mono">
+            <text x={p.x + 18} y={p.y + 9.5} textAnchor="middle" fill="var(--text-2)" fontSize="7.5" style={{ fontFamily: 'var(--font-mono)' }}>
               {citedTop[i]}
             </text>
           </g>
@@ -110,7 +110,7 @@ function CitationGraph({ agent, cited, citedBy }: CitationGraphProps) {
               markerEnd="url(#arrow2)"
             />
             <rect x={p.x} y={p.y} width="36" height="14" rx="2" fill="var(--bg-3)" stroke="var(--border-2)" />
-            <text x={p.x + 18} y={p.y + 9.5} textAnchor="middle" fill="var(--text-2)" fontSize="7.5" fontFamily="JetBrains Mono">
+            <text x={p.x + 18} y={p.y + 9.5} textAnchor="middle" fill="var(--text-2)" fontSize="7.5" style={{ fontFamily: 'var(--font-mono)' }}>
               {citedByTop[i]}
             </text>
           </g>
@@ -127,7 +127,7 @@ function CitationGraph({ agent, cited, citedBy }: CitationGraphProps) {
           cx={cx} cy={cy} r="10"
           fill={signalColor(agent.signal)}
         />
-        <text x={cx} y={cy + 3.5} textAnchor="middle" fill="#000" fontSize="6.5" fontWeight="700" fontFamily="JetBrains Mono">
+        <text x={cx} y={cy + 3.5} textAnchor="middle" fill="#000" fontSize="6.5" fontWeight="700" style={{ fontFamily: 'var(--font-mono)' }}>
           {agent.id}
         </text>
       </svg>

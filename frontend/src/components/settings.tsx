@@ -253,7 +253,7 @@ const VALUE_STYLE = {
   background: 'var(--bg-3)',
   border: '1px solid var(--border)',
   color: 'var(--text-3)',
-  fontFamily: "'JetBrains Mono', monospace",
+  fontFamily: 'var(--font-mono)',
   fontSize: 11,
   borderRadius: 3,
 } as const;
