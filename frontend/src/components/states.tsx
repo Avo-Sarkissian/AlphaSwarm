@@ -13,15 +13,25 @@ import { BRACKETS } from '../data';
 import { fetchHealth } from '../api/health';
 import { usePolling } from '../hooks/usePolling';
 import { formatDuration } from '../lib/format';
-import { systemChecks } from '../lib/systemChecks';
+import { systemChecks, type SystemCheckRow } from '../lib/systemChecks';
+
+export interface IdleStateProps {
+  seed: string;
+  numRounds: number;
+  onShowHistory?: () => void;
+}
+
+export interface SeedingStateProps {
+  seed: string;
+  elapsedSeconds?: number;
+}
 
 // ─── IDLE ─────────────────────────────────────────────────────────────
 // Overlay inside the dashboard canvas while idle: the topbar (seed, Run,
 // Settings, replay) stays usable above it. The seed is entered in
 // the topbar only. System-check rows come from /api/health components
 // (docs/DECISIONS.md#kr-41-6-11).
-/** @param {{ seed: string, numRounds: number, onShowHistory?: () => void }} props */
-export function IdleState({ seed, numRounds, onShowHistory }) {
+export function IdleState({ seed, numRounds, onShowHistory }: IdleStateProps) {
   const totalPersonas = BRACKETS.reduce((sum, b) => sum + b.count, 0);
   const { data: health, error } = usePolling({ key: 'health-idle', fetchFn: fetchHealth, intervalMs: 10_000 });
   const rows = systemChecks(health, error, { personas: totalPersonas, brackets: BRACKETS.length });
@@ -58,7 +68,7 @@ export function IdleState({ seed, numRounds, onShowHistory }) {
     </div>
   );
 }
-function SystemCheck({ label, value, state, fix }) {
+function SystemCheck({ label, value, state, fix }: SystemCheckRow) {
   return (
     <div className="syscheck" data-state={state}>
       <span className={`syscheck-dot ${state}`} />
@@ -73,7 +83,7 @@ function SystemCheck({ label, value, state, fix }) {
 // While the phase is SEEDING the orchestrator parses the seed into entities and persona
 // modifiers, market prices and headlines are fetched, and then a local worker model loads
 // (often the longest step). There is no per-agent progress here, so none is shown.
-export function SeedingState({ seed, elapsedSeconds = 0 }) {
+export function SeedingState({ seed, elapsedSeconds = 0 }: SeedingStateProps) {
   return (
     <div className="state-overlay">
       <div className="state-center seeding-center">
