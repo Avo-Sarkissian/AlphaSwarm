@@ -37,25 +37,28 @@ export function BracketList({ summaries, onClick }) {
   );
 }
 
-export function RationaleFeed({ rationales, onAgentClick, onCiteClick }) {
+export function RationaleFeed({ rows, onAgentClick, onCiteClick }) {
   // Highlight entity-style words
-  const render = (text) => {
-    return text.split(/(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)/g).map((frag, i) =>
-      /^(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)$/.test(frag)
-        ? <span key={i} className="highlight">{frag}</span>
-        : frag
+  const render = (text) =>
+    text.split(/(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)/g).map((frag, i) =>
+      /^(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)$/.test(frag) ? (
+        <span key={i} className="highlight">{frag}</span>
+      ) : (
+        frag
+      ),
     );
-  };
-  if (!rationales || rationales.length === 0) {
+  if (!rows || rows.length === 0) {
     return <div className="panel-empty">no rationales yet — agents thinking…</div>;
   }
   return (
     <div>
-      {rationales.map((r, i) => (
-        <div key={i} className="rationale-item">
+      {rows.map((r) => (
+        <div key={r.seq} className="rationale-item">
           <div className="rationale-head">
-            <span className="rationale-agent" onClick={() => onAgentClick && onAgentClick(r.agent)} style={{cursor:'pointer'}}>{r.agent}</span>
-            <span className="rationale-bracket">{r.bracket}</span>
+            <span className="rationale-agent" onClick={() => onAgentClick && onAgentClick(r.agentId)} style={{ cursor: 'pointer' }}>
+              {r.agentId}
+            </span>
+            <span className="rationale-bracket">{r.bracketDisplay}</span>
             <span className={`rationale-signal sig-${r.signal}`}>{r.signal.toUpperCase()}</span>
             <span className="rationale-round">R{r.round}</span>
           </div>
@@ -65,7 +68,9 @@ export function RationaleFeed({ rationales, onAgentClick, onCiteClick }) {
               <>
                 {' '}
                 {r.cites.map((c, j) => (
-                  <span key={j} className="cite" onClick={() => onCiteClick && onCiteClick(c)}>↳ {c}</span>
+                  <span key={j} className="cite" onClick={() => onCiteClick && onCiteClick(c)}>
+                    ↳ {c}
+                  </span>
                 ))}
               </>
             )}

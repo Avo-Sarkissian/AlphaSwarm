@@ -41,6 +41,7 @@ import { useSampleHistory } from '../hooks/useSampleHistory';
 import { replayStart } from '../api/replay';
 import { bracketSpec } from '../data';
 import { rankInfluencers } from '../lib/influence';
+import { buildFeed, indexAgents } from '../lib/rationaleFeed';
 import { signalClass, signalLabel } from '../lib/signals';
 import { bracketTallies } from '../lib/tally';
 import { phaseLabelFor } from '../lib/phase';
@@ -300,26 +301,11 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
       })),
     [agents],
   );
-  // RationaleFeed expects {agent, bracket, signal, round, text, cites}.
-  // RationaleView ships {agentId, signal, round, text, citations, sources, ts}.
-  // signal comes from the wire RationaleEntry itself — using the agent's
-  // CURRENT signal retagged old entries whenever the agent flipped.
-  // KR-41.1-10: citations are stubbed [] in the adapter; render shows no cites
-  // until backend RationaleEntry carries cited_agents.
-  const feedRationales = useMemo(
-    () => rationales.map(r => {
-      const a = agents.find(ag => ag.id === r.agentId);
-      return {
-        agent: r.agentId,
-        bracket: a?.bracketDisplay ?? '',
-        signal: r.signal,
-        round: r.round,
-        text: r.text,
-        cites: r.citations ?? [],
-      };
-    }),
-    [rationales, agents],
-  );
+  // Feed rows carry the per-entry wire signal, not the agent's current one, so
+  // a flip never retags old entries. Citations are stubbed [] in the adapter
+  // (docs/DECISIONS.md#kr-41-1-10).
+  const agentsById = useMemo(() => indexAgents(agents), [agents]);
+  const feedRows = useMemo(() => buildFeed(rationales, agentsById), [rationales, agentsById]);
 
   // Top Influencers: agents cited by the most distinct peers in the round on
   // screen (in-degree). Nothing to rank until round 2's edges exist.
@@ -636,7 +622,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
             </div>
             <div className="panel-body">
               <RationaleFeed
-                rationales={feedRationales}
+                rows={feedRows}
                 onAgentClick={onCiteClick}
                 onCiteClick={onCiteClick}
               />
