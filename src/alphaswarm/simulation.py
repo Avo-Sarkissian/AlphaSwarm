@@ -13,9 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import hashlib
-import math
-import random
 import re
 import time
 from collections.abc import Callable, Sequence
@@ -32,7 +29,7 @@ from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.manifest import current_git_revision
 from alphaswarm.metrics import split_flips
-from alphaswarm.peers import build_peer_contexts, compute_exposure_metrics
+from alphaswarm.peers import apply_holdout_and_priors, build_peer_contexts, compute_exposure_metrics, select_control_ids
 from alphaswarm.personas import compute_prompt_template_hash, generate_personas, persona_to_worker_config
 from alphaswarm.rounds import (
     OnRoundComplete,
@@ -44,7 +41,6 @@ from alphaswarm.rounds import (
     compute_bracket_summaries,
     compute_shifts,
 )
-from alphaswarm.security.sanitize import sanitize_rationale
 from alphaswarm.seed import generate_modifiers, inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
@@ -91,83 +87,6 @@ class Round1Result:
     decision_ids: list[str] = dataclasses.field(default_factory=list)
     modifier_result: ParsedModifiersResult | None = None
     citations_dropped: int = 0  # CITED targets that matched no Agent (r1_citations_dropped)
-
-
-CONTROL_SALT: Final = "control"
-_OWN_PRIOR_TRANSLATION: Final = str.maketrans({"<": None, ">": None, "[": "(", "]": ")", '"': "'"})
-
-
-def subset_size(count: int, fraction: float) -> int:
-    """Round-half-up share of a bracket; a bracket of two or more keeps one agent outside."""
-    if count < 2 or fraction <= 0.0:
-        return 0
-    return min(count - 1, math.floor(count * fraction + 0.5))
-
-
-def seeded_bracket_subset(
-    personas: Sequence[AgentPersona], *, fraction: float, run_seed: str, salt: str
-) -> frozenset[str]:
-    """A seeded sample of ``subset_size(count, fraction)`` agents from every bracket.
-
-    The draw depends only on ``(run_seed, salt, bracket)`` and the bracket's ids
-    (sorted), so it is the same in every round, every process and any roster
-    order (docs/DECISIONS.md#adr-diverse-peer-context).
-    """
-    by_bracket: dict[str, list[str]] = {}
-    for persona in personas:
-        by_bracket.setdefault(persona.bracket.value, []).append(persona.id)
-    chosen: set[str] = set()
-    for bracket, ids in by_bracket.items():
-        k = subset_size(len(ids), fraction)
-        if k == 0:
-            continue
-        digest = hashlib.blake2b(f"{run_seed}:{salt}:{bracket}".encode(), digest_size=8).digest()
-        chosen.update(random.Random(int.from_bytes(digest, "big")).sample(sorted(ids), k))
-    return frozenset(chosen)
-
-
-def select_control_ids(personas: Sequence[AgentPersona], *, fraction: float, run_seed: str) -> frozenset[str]:
-    """Readers held out from peer context for the whole run (``d.control``)."""
-    return seeded_bracket_subset(personas, fraction=fraction, run_seed=run_seed, salt=CONTROL_SALT)
-
-
-def own_prior_line(decision: AgentDecision | None, source_round: int) -> str | None:
-    """The reader's own previous decision as one sanitized line, or None.
-
-    None for a missing or PARSE_ERROR decision, so a failure never appears as a
-    position. The rationale is model output: control characters go, whitespace
-    collapses into one line and the text is cut at 300 characters ("..." marks a
-    cut). Then "<"/">" are dropped and "[" "]" become "(" ")", so no fence tag or
-    [agent_id] token can be forged, and double quotes become single quotes, so a
-    quoted field stays unambiguous (docs/DECISIONS.md#adr-diverse-peer-context).
-    """
-    if decision is None or decision.signal == SignalType.PARSE_ERROR:
-        return None
-    head = f"Your Round {source_round} position: {decision.signal.value.upper()} (conf {decision.confidence:.2f})"
-    rationale = sanitize_rationale(decision.rationale, max_len=300).translate(_OWN_PRIOR_TRANSLATION).strip()
-    return f"{head}: {rationale}" if rationale else head
-
-
-def apply_holdout_and_priors(
-    personas: Sequence[AgentPersona],
-    contexts: Sequence[str | None],
-    exposures: Sequence[tuple[str, ...]],
-    prev_decisions: Sequence[tuple[str, AgentDecision]],
-    source_round: int,
-    *,
-    sim: SimulationSettings,
-    control_ids: frozenset[str],
-) -> tuple[list[str | None], list[tuple[str, ...]], list[str | None]]:
-    """Blank the holdout's peer contexts and exposures, and build own-prior lines.
-
-    Control readers get no peers but keep their own prior, so their flips
-    measure everything except peer influence (docs/DECISIONS.md#adr-diverse-peer-context).
-    """
-    prev_by_id = dict(prev_decisions)
-    blanked = [None if p.id in control_ids else context for p, context in zip(personas, contexts, strict=True)]
-    shown = [() if p.id in control_ids else exposure for p, exposure in zip(personas, exposures, strict=True)]
-    priors = [own_prior_line(prev_by_id.get(p.id), source_round) if sim.own_prior_memory else None for p in personas]
-    return blanked, shown, priors
 
 
 @dataclasses.dataclass(frozen=True)

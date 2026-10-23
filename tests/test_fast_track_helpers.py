@@ -11,14 +11,9 @@ from collections import Counter
 import pytest
 
 from alphaswarm.metrics import split_flips
+from alphaswarm.peers import apply_holdout_and_priors, own_prior_line, select_control_ids, subset_size
 from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.settings import SimulationSettings
-from alphaswarm.simulation import (
-    apply_holdout_and_priors,
-    own_prior_line,
-    select_control_ids,
-    subset_size,
-)
 from alphaswarm.types import AgentDecision, SignalType
 
 PERSONAS = generate_personas(DEFAULT_BRACKETS)
