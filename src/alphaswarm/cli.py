@@ -497,7 +497,9 @@ async def _handle_inject(rumor: str) -> None:
     2. ensure_schema() for idempotent schema setup
     3. inject_seed() for orchestrator parse + atomic persist
     4. Print structured summary
-    5. Close Neo4j driver in finally block
+    5. Mark the seed-only Cycle failed: no run follows, so it must not stay
+       ``running`` (docs/DECISIONS.md#adr-cycle-metrics)
+    6. Close Neo4j driver in finally block
     """
     from alphaswarm.app import create_app_state
     from alphaswarm.config import load_inference_config
@@ -532,6 +534,8 @@ async def _handle_inject(rumor: str) -> None:
             graph_manager=app.graph_manager,
         )
         _print_injection_summary(cycle_id, parsed_result)
+        # The status the back-fill gives a legacy seed-only cycle.
+        await app.graph_manager.set_cycle_status(cycle_id, "failed")
     finally:
         # Close Neo4j driver and cloud provider if any
         with contextlib.suppress(Exception):
