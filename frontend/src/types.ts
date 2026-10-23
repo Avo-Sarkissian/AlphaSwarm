@@ -215,10 +215,3 @@ export interface WireStateFrame {
   applied_shocks: WireAppliedShock[];
   shock_window_open: boolean;
 }
-
-export interface CycleMeta {
-  cycle_id: string;
-  started_at?: string;
-  seed?: string;
-  final_consensus?: number | null;
-}
