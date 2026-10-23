@@ -39,6 +39,9 @@ const LINE_CAPS: Readonly<Record<string, number>> = {
   'features/dashboard/Dashboard.tsx': 350,
 };
 
+// Inline style objects in non-test .tsx files. Lower it when you convert
+// more; never raise it.
+const INLINE_STYLE_BUDGET = 151;
 describe('frontend structure', () => {
   it('has no JavaScript sources', () => {
     expect(FILES.filter((file) => /\.jsx?$/.test(file))).toEqual([]);
@@ -58,5 +61,11 @@ describe('frontend structure', () => {
     for (const [file, cap] of Object.entries(LINE_CAPS)) {
       expect(read(file).split('\n').length, file).toBeLessThanOrEqual(cap);
     }
+  });
+
+  it('stays within the inline-style budget', () => {
+    const count = FILES.filter((file) => file.endsWith('.tsx') && isSource(file))
+      .reduce((sum, file) => sum + (read(file).match(/style=\{\{/g)?.length ?? 0), 0);
+    expect(count).toBeLessThanOrEqual(INLINE_STYLE_BUDGET);
   });
 });

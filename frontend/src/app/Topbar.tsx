@@ -37,10 +37,8 @@ function OverflowMenu({ onOpen }: { onOpen: (modal: ActiveModal) => void }) {
     onOpen(modal);
   };
   return (
-    <div style={{ position: 'relative' }}>
-      <button className="btn ghost-btn" title="More tools"
-        style={{ color: open ? 'var(--accent)' : undefined }}
-        onClick={() => setOpen((o) => !o)}>
+    <div className="overflow-wrap">
+      <button className="btn ghost-btn" title="More tools" data-active={open} onClick={() => setOpen((o) => !o)}>
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
           <circle cx="3" cy="7.5" r="1.3" fill="currentColor"/>
           <circle cx="7.5" cy="7.5" r="1.3" fill="currentColor"/>
@@ -48,23 +46,10 @@ function OverflowMenu({ onOpen }: { onOpen: (modal: ActiveModal) => void }) {
         </svg>
       </button>
       {open && (
-        <div
-          style={{
-            position: 'absolute', right: 0, top: 'calc(100% + 6px)',
-            background: 'var(--bg-2)', border: '1px solid var(--border-2)',
-            borderRadius: 5, minWidth: 210, zIndex: 200,
-            boxShadow: '0 12px 32px rgba(0,0,0,0.5)', overflow: 'hidden',
-          }}
-          onMouseLeave={() => setOpen(false)}>
+        <div className="overflow-menu" onMouseLeave={() => setOpen(false)}>
           {OVERFLOW_ITEMS.map((item) => (
-            <button key={item.label} onClick={() => choose(item.modal)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 14px',
-                background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)',
-                color: 'var(--text-2)', cursor: 'pointer', fontFamily: 'var(--font-mono)',
-                fontSize: 11, letterSpacing: '0.04em', textAlign: 'left', transition: 'all .1s',
-              }}>
-              <span style={{ color: 'var(--text-3)', flexShrink: 0 }}><Icon name={item.icon} /></span>
+            <button key={item.label} className="overflow-item" onClick={() => choose(item.modal)}>
+              <span className="overflow-item-icon"><Icon name={item.icon} /></span>
               {item.label}
             </button>
           ))}
@@ -99,7 +84,7 @@ export function Topbar({
     <div className="topbar">
       <div className="brand">
         <BrandMark />
-        <div style={{display:'flex', flexDirection:'column'}}>
+        <div className="brand-text">
           <span className="brand-name">AlphaSwarm</span>
           <span className="brand-sub">Mission Control</span>
         </div>
@@ -110,7 +95,7 @@ export function Topbar({
         {phaseLabel}
       </div>
 
-      <div style={{flex:1, minWidth:200, position:'relative', display:'flex', alignItems:'center', gap:6}}>
+      <div className="seed-wrap">
         <div className="seed-input" style={{flex:1}}>
           <span className="prefix">SEED ⟶</span>
           <input

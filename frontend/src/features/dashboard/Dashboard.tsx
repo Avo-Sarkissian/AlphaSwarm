@@ -120,7 +120,7 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
           </div>
           <div className="panel-body" style={{fontFamily: 'var(--font-mono)', fontSize:11}}>
             {topInfluencers.length === 0 ? (
-              <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 10 }}>
+              <div className="panel-hint">
                 {hasEdges
                   ? 'no citations in this round'
                   : "influence appears once round 2's citations are written"}
@@ -172,7 +172,7 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
             <div className="first-hint">
               <span className="label" style={{color:'var(--accent)'}}>TIP</span>
               <span>Each node is one of 100 agents · color = signal · hover for detail · click to interview</span>
-              <button className="btn ghost" style={{height:22, padding:'0 8px'}} onClick={() => setHintsDismissed(true)}>Got it</button>
+              <button className="btn ghost compact" onClick={() => setHintsDismissed(true)}>Got it</button>
             </div>
           )}
           {lifecycle === 'idle' && (

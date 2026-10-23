@@ -83,31 +83,21 @@ export function AppShell({ initialSeed = '' }: { initialSeed?: string }) {
 
   // Dismissible banner, not a takeover: the backend governor throttles and
   // resumes on its own, so there is no resume button.
-  const governorBanner = governorPaused && !govBannerDismissed && (
-    <div
-      style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px',
-        background: 'color-mix(in srgb, var(--sell) 10%, var(--bg-2))',
-        borderBottom: '1px solid color-mix(in srgb, var(--sell) 35%, transparent)',
-      }}
-    >
-      <span className="label" style={{ color: 'var(--sell)' }}>
+  const governorBanner = governorPaused && !govBannerDismissed ? (
+    <div className="gov-banner">
+      <span className="label gov-banner-label">
         GOVERNOR {governorState?.toUpperCase()} · MEMORY {Math.round(memMb)}%
       </span>
-      <span style={{ color: 'var(--text-2)', fontSize: 11 }}>
+      <span className="gov-banner-text">
         Inference throttled under memory pressure — the governor resumes
         automatically once pressure clears. No action needed.
       </span>
-      <div style={{ flex: 1 }} />
-      <button
-        className="btn ghost"
-        style={{ height: 22, padding: '0 8px' }}
-        onClick={() => setGovBannerDismissed(true)}
-      >
+      <div className="sp" />
+      <button className="btn ghost compact" onClick={() => setGovBannerDismissed(true)}>
         Dismiss
       </button>
     </div>
-  );
+  ) : null;
 
   return (
     <div className="app" data-dir="a" data-density="comfortable" data-screen-label="01 Dashboard">
