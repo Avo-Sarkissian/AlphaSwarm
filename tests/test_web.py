@@ -523,22 +523,19 @@ def test_replay_mode_memory_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
     assert parsed["governor_metrics"]["memory_percent"] == 88.0
 
 
-def test_broadcaster_cancellation() -> None:
+async def test_broadcaster_cancellation() -> None:
     """start_broadcaster returns a cancellable asyncio.Task."""
     from alphaswarm.state import StateStore
     from alphaswarm.web.broadcaster import start_broadcaster
 
-    async def _run() -> None:
-        store = StateStore()
-        cm = ConnectionManager()
-        task = start_broadcaster(store, cm)
-        assert not task.done()
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
-        assert task.cancelled()
-
-    asyncio.get_event_loop().run_until_complete(_run())
+    store = StateStore()
+    cm = ConnectionManager()
+    task = start_broadcaster(store, cm)
+    assert not task.done()
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+    assert task.cancelled()
 
 
 def test_ws_state_receives_snapshot() -> None:

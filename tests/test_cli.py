@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Coroutine
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -159,8 +161,11 @@ def test_main_inject_calls_asyncio_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("sys.argv", ["alphaswarm", "inject", "NVIDIA announces breakthrough"])
 
+    def _close(coro: Coroutine[Any, Any, None]) -> None:
+        coro.close()  # the mocked asyncio.run never awaits it
+
     with patch("alphaswarm.cli.asyncio") as mock_asyncio:
-        mock_asyncio.run = MagicMock()
+        mock_asyncio.run = MagicMock(side_effect=_close)
         main()
 
     mock_asyncio.run.assert_called_once()
@@ -175,8 +180,12 @@ def test_main_inject_failure_prints_error_to_stderr(
 
     monkeypatch.setattr("sys.argv", ["alphaswarm", "inject", "bad rumor"])
 
+    def _close_then_fail(coro: Coroutine[Any, Any, None]) -> None:
+        coro.close()
+        raise Exception("Connection failed")
+
     with patch("alphaswarm.cli.asyncio") as mock_asyncio, patch("alphaswarm.cli.logger"):
-        mock_asyncio.run.side_effect = Exception("Connection failed")
+        mock_asyncio.run.side_effect = _close_then_fail
         with pytest.raises(SystemExit) as exc_info:
             main()
 

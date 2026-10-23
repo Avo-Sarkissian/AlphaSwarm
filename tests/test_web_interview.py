@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from alphaswarm.types import SimulationPhase
+from tests.support.aio import eventually
 from tests.support.web_app import CYCLE_A
 
 # ---------------------------------------------------------------------------
@@ -372,12 +373,12 @@ async def test_interview_concurrent_same_agent_serializes() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_interview_sessions_cleared_on_new_simulation() -> None:
+async def test_interview_sessions_cleared_on_new_simulation() -> None:
     """After populating interview_sessions, calling sim_manager.start() clears them."""
     from unittest.mock import AsyncMock, patch
 
     app = _make_interview_test_app()
-    with TestClient(app):
+    async with app.router.lifespan_context(app):
         # Pre-populate interview_sessions
         app.state.interview_sessions["agent_1"] = object()
         app.state.interview_sessions["agent_2"] = object()
@@ -385,7 +386,8 @@ def test_interview_sessions_cleared_on_new_simulation() -> None:
 
         # Patch _run so start() completes without real simulation
         with patch.object(app.state.sim_manager, "_run", AsyncMock(return_value=None)):
-            asyncio.get_event_loop().run_until_complete(app.state.sim_manager.start("new seed"))
+            await app.state.sim_manager.start("new seed")
+        await eventually(lambda: not app.state.sim_manager.is_running, what="patched run to finish")
 
         assert app.state.interview_sessions == {}
 
