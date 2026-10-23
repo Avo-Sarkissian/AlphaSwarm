@@ -143,6 +143,7 @@ source_modules = [
     "alphaswarm.inference.anthropic_provider",
     "alphaswarm.inference.budget",
     "alphaswarm.inference.call_log",
+    "alphaswarm.inference.caps",
     "alphaswarm.inference.concurrency",
     "alphaswarm.inference.factory",
     "alphaswarm.inference.ollama_provider",

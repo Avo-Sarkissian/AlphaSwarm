@@ -80,11 +80,17 @@ Contents
 - **Revisit when:** a new MoE beats 2361 t/s prefill on 64 GB. Gemma 4 26B MoE is untested.
 
 ### <a id="adr-model-aliases"></a>Code calls Modelfile aliases; `num_ctx` lives only in Modelfiles
-- **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`). Output caps are sent per request: OllamaProvider forwards max_tokens as options["num_predict"], a sampling option that does not reload the model; the Modelfile num_predict is only the fallback, so a base tag chosen in Settings is capped too (2026-10).
+- **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`). Output caps are sent per request: OllamaProvider forwards max_tokens as options["num_predict"], a sampling option that does not reload the model; the Modelfile num_predict is only the fallback, so a base tag chosen in Settings is capped too (2026-10). See [adr-output-caps](#adr-output-caps).
 - **Rationale:** A per-request `num_ctx` makes Ollama silently reload the model.
 - **Caveats:**
   - `OllamaSettings.worker_model` and `orchestrator_model` are no longer read anywhere (the CLI banner that displayed them was removed; see [adr-cli-ux](#adr-cli-ux)). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
   - `OllamaSettings.num_parallel` and `max_loaded_models` are never read, so they are dead config. The real values are Ollama server environment variables (see RUNBOOK).
+
+### <a id="adr-output-caps"></a>Explicit output caps at every call site
+- **Decision:** Every `chat`/`chat_structured` call passes `max_tokens`. The values live in `inference/caps.py` (worker decision 400, decision narrative 400, interview reply 600 and summary 300, seed 1024, modifiers 1024), except the report narrative (1200, `report.py`) and the advisory (3000, `advisory/engine.py`), which sit next to their prompts. Ollama receives the cap as `num_predict` on each request; the Modelfiles keep `num_predict` 400 (worker) and 4096 (orchestrator) as fallbacks. Anthropic defaults: 512 for the worker role, 8192 for the orchestrator.
+- **Rationale:** On MLX the worker prefills at about 2,361 t/s but decodes at about 56 t/s, so output length drives call time. The caps lived only in the worker Modelfile, so a base tag chosen in Settings, the orchestrator and every cloud worker ran uncapped (Anthropic defaulted to 2048).
+- **Where:** `inference/caps.py`, `inference/ollama_provider.py`, `inference/factory.py`, `worker.py`, `seed.py`, `interview.py`, `report.py`, `advisory/engine.py`, `modelfiles/`.
+- **Guard:** `tests/invariants/test_output_caps.py` fails for a call without a cap.
 
 ### <a id="adr-think-off"></a>Orchestrator reasoning ("think") is off everywhere
 - **Decision:** Every local inference call passes `think=False`. It is hardcoded in `OllamaProvider.chat` (`inference/ollama_provider.py:162`), so it covers worker and orchestrator alike: seed, modifiers, rounds, narratives, advisory, report, and interview. No call site sets it individually.
@@ -908,7 +914,7 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-02"></a>F-02 | `read_signal_flips` filtered `'NONE'` instead of `'none'` and read a non-existent `round_num` | 6ced8a8 | — |
 | <a id="f-03"></a>F-03 | Shock-impact aggregation used uppercase keys, so every value was zero and HOLD | 6ced8a8 | — |
 | <a id="f-04"></a>F-04 | `TokenPool.grow()` ignored crisis debt, so concurrency exceeded the limit right after recovery | 78744f6 | governor.py:90; tests/test_governor.py:73 |
-| <a id="f-05"></a>F-05 | Anthropic provider defaulted to max_tokens=1024, truncating orchestrator output (now 8192 orchestrator / 2048 worker) | c99d00b | inference/factory.py:130 |
+| <a id="f-05"></a>F-05 | Anthropic provider defaulted to max_tokens=1024, truncating orchestrator output (now 8192 orchestrator / 512 worker; [adr-output-caps](#adr-output-caps)) | c99d00b | inference/factory.py:130 |
 | <a id="f-06"></a>F-06 | ReAct prompt tool names did not match the registry, so the consensus and flip sections were always missing | 90dd0f9 | — (the ReAct loop and its registry were deleted in 2026-10; `SECTION_TEMPLATES` renders every section, [adr-report-react](#adr-report-react)) |
 | <a id="f-07"></a>F-07 | Advisory read the wrong entity-impact keys, so relevance ranking was dead; added `resolve_ticker` | 3d65f99 | advisory/engine.py:synthesize; advisory/sector_map.py:187; tests/unit/test_advisory.py:test_enrich_holdings_entity_impact_drives_ranking |
 | <a id="f-08"></a>F-08 | Round 2 equal weights meant every reader got the same peers; fixed with a stable per-reader jitter. The jitter is gone: seeded per-reader sampling ([adr-diverse-peer-context](#adr-diverse-peer-context)) disperses readers by construction | 7ae6a69 | peers.py (peer_rng); tests/test_peer_selection.py (test_equal_weights_disperse_across_readers) |

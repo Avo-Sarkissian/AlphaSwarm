@@ -10,6 +10,11 @@ import structlog
 from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS
 from alphaswarm.episodes import compute_flip_type
 from alphaswarm.errors import AgentNotFoundError
+from alphaswarm.inference.caps import (
+    DECISION_NARRATIVE_MAX_TOKENS,
+    INTERVIEW_REPLY_MAX_TOKENS,
+    INTERVIEW_SUMMARY_MAX_TOKENS,
+)
 from alphaswarm.inference.types import InferenceMessage
 from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
@@ -153,7 +158,7 @@ async def ensure_decision_narrative(
     if context.decision_narrative or not context.decisions:
         return context
     try:
-        result = await provider.chat(build_narrative_messages(context))
+        result = await provider.chat(build_narrative_messages(context), max_tokens=DECISION_NARRATIVE_MAX_TOKENS)
     except HARD_STOP_ERRORS:
         raise
     except Exception:  # an interview still works without a narrative
@@ -253,7 +258,7 @@ class InterviewEngine:
         the trim is retried on the next turn (hard-stop errors still propagate).
         """
         user_turn: InferenceMessage = {"role": "user", "content": user_message}
-        result = await self._provider.chat([*self._build_messages(), user_turn])
+        result = await self._provider.chat([*self._build_messages(), user_turn], max_tokens=INTERVIEW_REPLY_MAX_TOKENS)
         assistant_content = result.content or ""
         self._history.extend([user_turn, {"role": "assistant", "content": assistant_content}])
         try:
@@ -284,7 +289,7 @@ class InterviewEngine:
             *block,
             {"role": "user", "content": "Summarize the exchanges above in at most two sentences."},
         ]
-        summary_result = await self._provider.chat(summary_prompt)
+        summary_result = await self._provider.chat(summary_prompt, max_tokens=INTERVIEW_SUMMARY_MAX_TOKENS)
         new_summary = summary_result.content or ""
         # Cap the merged summary so it cannot grow without bound; keep the newest tail.
         merged = f"{self._summary} {new_summary}" if self._summary is not None else new_summary

@@ -17,6 +17,7 @@ from alphaswarm.inference import (
 )
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
 from alphaswarm.inference.budget import BudgetTrackingProvider
+from alphaswarm.inference.caps import ANTHROPIC_WORKER_DEFAULT_MAX_TOKENS
 from alphaswarm.inference.config import InferenceConfig, ProviderLimits, ProviderType, RoleConfig
 from alphaswarm.inference.factory import (
     BuiltProviders,
@@ -177,6 +178,10 @@ class TestBuildProvidersMixed:
 
     def test_meter_cap_matches_config(self) -> None:
         assert self.built.budget_meter._cap == self.cap
+
+    def test_anthropic_worker_default_cap(self) -> None:
+        inner = self.built.worker._inner  # type: ignore[union-attr]
+        assert inner._max_tokens_default == ANTHROPIC_WORKER_DEFAULT_MAX_TOKENS == 512
 
     def test_mode_is_mixed(self) -> None:
         assert inference_mode(self.cfg) == "mixed"

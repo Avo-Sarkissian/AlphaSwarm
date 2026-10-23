@@ -7,6 +7,7 @@ import typing
 import pytest
 
 from alphaswarm.governor import ResourceGovernor
+from alphaswarm.inference.caps import WORKER_DECISION_MAX_TOKENS
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.settings import GovernorSettings
 from alphaswarm.state import StateStore
@@ -664,3 +665,9 @@ async def test_reply_at_the_cap_that_parses_is_kept(sample_persona: WorkerPerson
     )
     decision = await AgentWorker(sample_persona, provider).infer(user_message="ZZZT")
     assert (decision.signal, decision.error_kind) == (SignalType.BUY, None)
+
+
+async def test_infer_caps_the_reply(sample_persona: WorkerPersonaConfig) -> None:
+    provider = _fake_provider()
+    await AgentWorker(sample_persona, provider).infer(user_message="ZZZT")
+    assert provider.calls[0]["max_tokens"] == WORKER_DECISION_MAX_TOKENS == 400

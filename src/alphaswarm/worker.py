@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from alphaswarm.inference.caps import WORKER_DECISION_MAX_TOKENS
 from alphaswarm.parsing import parse_agent_decision
 from alphaswarm.types import AgentDecision, WorkerPersonaConfig
 
@@ -218,6 +219,7 @@ class AgentWorker:
                 # Per-bracket sampling temperature (Degens 1.1 ... Algos 0.15).
                 # Without this, every agent ran at the Modelfile's temperature
                 # and the bracket temperature design was dead config.
+                max_tokens=WORKER_DECISION_MAX_TOKENS,
             )
         if self._telemetry is not None:
             self._telemetry.record(result, latency_ms=(time.perf_counter() - started) * 1000)
