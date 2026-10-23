@@ -21,9 +21,23 @@ import { InlineError } from './InlineError';
 // the selected preset / free-text input.
 
 export function ShockDrawer({ onClose }) {
+  const { phase } = useFrameMeta();
+  const { finalRound } = useRounds();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+
+  // Rounds 2..finalRound are gated, so a shock queued while seeding or during
+  // round k lands before round k + 1 and stays in every later round
+  // (docs/DECISIONS.md#b1). The round comes from the phase, as in the
+  // backend's shock window: round_num still holds the previous run's last
+  // round while seeding.
+  const phaseRound = /^round_(\d+)$/.exec(phase);
+  const landsBefore = phase === 'seeding' ? 2 : phaseRound ? Number(phaseRound[1]) + 1 : null;
+  const label =
+    landsBefore !== null && landsBefore <= finalRound
+      ? `Shock Injection · lands before round ${landsBefore} and stays active after`
+      : 'Shock Injection · window closed: no later round left to reach';
 
   const presets = [
     'DOJ files formal antitrust complaint',
@@ -52,9 +66,7 @@ export function ShockDrawer({ onClose }) {
     <div className="shock-drawer">
       <div className="hflex" style={{ marginBottom: 10 }}>
         <Icon name="bolt" size={14} />
-        <span className="label" style={{ color: 'var(--sell)' }}>
-          Shock Injection · between rounds 2 &amp; 3
-        </span>
+        <span className="label" style={{ color: 'var(--sell)' }}>{label}</span>
         <div className="sp" />
         <button className="btn ghost" onClick={onClose}>
           <Icon name="close" />
