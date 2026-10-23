@@ -7,6 +7,7 @@ import contextlib
 import os
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
@@ -15,7 +16,12 @@ from neo4j.exceptions import AuthError as Neo4jAuthError
 from starlette.staticfiles import StaticFiles
 
 from alphaswarm.app import create_app_state
-from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+from alphaswarm.config import (
+    AppSettings,
+    generate_personas,
+    legacy_origin_settings,
+    load_bracket_configs,
+)
 from alphaswarm.errors import GraphError
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.manifest import current_git_revision
@@ -279,6 +285,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("lifespan_stopped")
 
 
+def _warn_legacy_origin_settings(settings: AppSettings) -> None:
+    """Log once when a removed per-channel origin variable is still configured."""
+    env_file = settings.model_config.get("env_file")
+    env_path = Path(env_file) if isinstance(env_file, (str, Path)) else None
+    names = legacy_origin_settings(os.environ, env_path)
+    if names:
+        log.warning("legacy_origin_settings_ignored", names=names, use="ALPHASWARM_ALLOWED_ORIGINS")
+
+
 def create_app(settings: AppSettings | None = None) -> FastAPI:
     """Create and configure the AlphaSwarm FastAPI application.
 
@@ -296,7 +311,8 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     # in front of the whole app rejects non-GET requests carrying a foreign
     # Origin/Referer, covering all routers below plus any added later.
     # Header-less callers (curl, scripts/) are unaffected — see web/origin_guard.py.
-    install_origin_guard(app, resolved.http_allowed_origins)
+    install_origin_guard(app, resolved.allowed_origins)
+    _warn_legacy_origin_settings(resolved)
 
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")

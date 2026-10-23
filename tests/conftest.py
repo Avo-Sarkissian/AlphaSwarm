@@ -415,3 +415,16 @@ def instant_sleep(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 
     monkeypatch.setattr(asyncio, "sleep", _record)
     return delays
+
+
+@pytest.fixture()
+def web_test_settings(tmp_path: Path) -> AppSettings:
+    """Hermetic settings for tests that build the real create_app().
+
+    Output, input and config paths live under tmp_path, and trusted_hosts also
+    accepts "testserver", the Host that Starlette's TestClient sends by default.
+    """
+    from alphaswarm.config import DEFAULT_TRUSTED_HOSTS
+    from tests.support.web_app import route_test_settings
+
+    return route_test_settings(tmp_path, trusted_hosts=(*DEFAULT_TRUSTED_HOSTS, "testserver"))

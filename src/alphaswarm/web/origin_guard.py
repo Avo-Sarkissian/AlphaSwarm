@@ -1,38 +1,31 @@
-"""Origin/Referer allow-list guard for state-changing HTTP requests (CWE-352).
+"""One origin policy for the unauthenticated operator console (CWE-352).
 
-The API is an unauthenticated localhost operator console. Every mutating route
-(POST /api/simulate/start, POST /api/simulate/stop, POST /api/advisory/{id},
-POST /api/report/{id}/generate, POST /api/replay/*, PUT /api/settings, ...)
-therefore executes with the operator's full authority for anyone who can make
-the operator's browser issue the request. Body-less POSTs are the sharpest
-edge: a plain cross-site HTML form POST is a CORS *simple* request, so it is
-delivered without a preflight and the (absent) CORS response headers only hide
-the response body from the attacker — the side effect has already happened.
+The API and the /ws/state stream have no authentication; they bind to 127.0.0.1
+and rely on three layers (docs/DECISIONS.md#adr-security-2026-08):
 
-This module installs ONE ASGI middleware in front of the whole app so the
-guard cannot drift as routes are added.
+1. TrustedHostMiddleware (web/app.py) answers only the Host values in
+   AppSettings.trusted_hosts, which defeats DNS rebinding: a page that re-points
+   its own name at 127.0.0.1 still sends its own name as Host.
+2. OriginGuardMiddleware (this module) rejects state-changing HTTP requests whose
+   Origin (or, without Origin, Referer) is not in AppSettings.allowed_origins.
+3. web/routes/websocket.py applies the same is_allowed() check to the WebSocket
+   handshake.
 
-Policy
-------
-* Safe methods (GET/HEAD/OPTIONS) are never guarded — they change no state.
-* If an ``Origin`` header is present it MUST normalise to an allow-listed
-  origin, otherwise the request is rejected with 403. A literal ``null``
-  origin (sandboxed iframe, ``Referrer-Policy: no-referrer``) does not
-  normalise and is therefore rejected.
-* If ``Origin`` is absent, ``Referer`` is checked the same way (older browsers
-  omitted ``Origin`` on same-origin form posts).
-* If BOTH are absent the request is allowed. This is deliberate: browsers
-  always attach ``Origin`` to cross-origin POST/PUT/DELETE (per Fetch, the
-  header is set for every non-GET/HEAD request, including form submissions),
-  so a header-less request is not browser-driven. Non-browser callers — curl,
-  ``scripts/`` and the test suite's Starlette ``TestClient`` — send neither
-  header and must keep working. Rejecting header-less requests would break
-  those callers without closing any browser-reachable hole.
+Policy (is_allowed)
+-------------------
+* An absent header is allowed: browsers always send Origin on cross-origin
+  requests and on every WebSocket handshake, so a header-less request is not
+  browser-driven (curl, scripts/, the test client).
+* A present value must normalise to an allow-listed origin. A literal "null"
+  origin (sandboxed iframe, Referrer-Policy: no-referrer), an empty value and
+  anything without a scheme and host never match.
+* Safe HTTP methods (GET/HEAD/OPTIONS) are not origin-checked: they change no
+  state, and the Host check already stops rebinding reads.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Iterable, Sequence
 from urllib.parse import urlsplit
 
 import structlog
@@ -77,6 +70,35 @@ def normalize_origin(value: str) -> str | None:
     return f"{scheme}://{host}:{port}"
 
 
+def normalized_allowlist(origins: Iterable[str]) -> frozenset[str]:
+    """Normalise every allow-list entry; raise ValueError for one that has no origin.
+
+    Called when the app is built, so a typo such as "localhost:5173" (no scheme)
+    or "*" fails at startup instead of silently matching nothing.
+    """
+    allowed: set[str] = set()
+    for entry in origins:
+        normalized = normalize_origin(entry)
+        if normalized is None:
+            raise ValueError(f"allowed_origins entry {entry!r} is not an origin of the form scheme://host[:port]")
+        allowed.add(normalized)
+    return frozenset(allowed)
+
+
+def is_allowed(origin: str | None, allowed: Collection[str]) -> bool:
+    """The single origin policy for HTTP and WebSocket (see the module docstring).
+
+    *origin* is the raw header value, or None when the header is absent;
+    *allowed* may hold raw or normalised entries.
+    """
+    if origin is None:
+        return True
+    candidate = normalize_origin(origin)
+    if candidate is None:
+        return False
+    return candidate in {normalize_origin(entry) for entry in allowed}
+
+
 class OriginGuardMiddleware:
     """Reject state-changing HTTP requests from non-allow-listed origins.
 
@@ -86,11 +108,7 @@ class OriginGuardMiddleware:
 
     def __init__(self, app: ASGIApp, allowed_origins: Sequence[str]) -> None:
         self.app = app
-        self.allowed_origins: frozenset[str] = frozenset(
-            normalized
-            for normalized in (normalize_origin(origin) for origin in allowed_origins)
-            if normalized is not None
-        )
+        self.allowed_origins: frozenset[str] = normalized_allowlist(allowed_origins)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or scope.get("method", "GET") in SAFE_METHODS:
@@ -103,14 +121,7 @@ class OriginGuardMiddleware:
         if raw is None:
             source = "referer"
             raw = headers.get("referer")
-        if raw is None:
-            # No browser-supplied origin information at all: curl, scripts or
-            # TestClient. Allowed by
-            # policy (see module docstring).
-            await self.app(scope, receive, send)
-            return
-
-        if normalize_origin(raw) in self.allowed_origins:
+        if is_allowed(raw, self.allowed_origins):
             await self.app(scope, receive, send)
             return
 
@@ -119,7 +130,7 @@ class OriginGuardMiddleware:
             method=scope.get("method"),
             path=scope.get("path"),
             source=source,
-            value=raw[:_LOG_VALUE_LIMIT],
+            value=(raw or "")[:_LOG_VALUE_LIMIT],
         )
         response = JSONResponse(
             status_code=403,
@@ -128,8 +139,8 @@ class OriginGuardMiddleware:
                     "error": "origin_not_allowed",
                     "message": (
                         "Cross-origin state-changing requests are rejected. "
-                        "Set ALPHASWARM_HTTP_ALLOWED_ORIGINS if the UI is "
-                        "served from another origin."
+                        "Set ALPHASWARM_ALLOWED_ORIGINS if the UI is served "
+                        "from another origin."
                     ),
                 }
             },
@@ -138,5 +149,6 @@ class OriginGuardMiddleware:
 
 
 def install_origin_guard(app: FastAPI, allowed_origins: Sequence[str]) -> None:
-    """Install :class:`OriginGuardMiddleware` on *app* for every route it serves."""
+    """Install OriginGuardMiddleware on *app*; an invalid entry raises ValueError now."""
+    normalized_allowlist(allowed_origins)
     app.add_middleware(OriginGuardMiddleware, allowed_origins=tuple(allowed_origins))

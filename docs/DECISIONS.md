@@ -434,6 +434,7 @@ Contents
   - The `/ws/state` Origin is checked against an allow-list (close code 1008).
   - Every state-changing HTTP route has an Origin guard (`web/origin_guard.py`, CWE-352).
   - The API-key file and its directory are created owner-only (CWE-276).
+  - One origin list, `AppSettings.allowed_origins` (`ALPHASWARM_ALLOWED_ORIGINS`), serves the HTTP CSRF guard and the WebSocket handshake through `origin_guard.is_allowed`; the WebSocket no longer accepts an Origin derived from the request's own Host. `ALPHASWARM_WS_ALLOWED_ORIGINS` and `ALPHASWARM_HTTP_ALLOWED_ORIGINS` are no longer read; startup logs `legacy_origin_settings_ignored` when they are set (2026-10, SPEC T7.3, T11.8).
 - **Commits:** 53e5954, 72d55a9, 45c7827, 1e7a8ee, e353716, 820b8fe.
 
 ### <a id="adr-docs-sync"></a>Measured numbers have one home; the docs copy them by script
@@ -878,7 +879,7 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-24"></a>F-24 | Broadcaster crashed every tick during replay start-up (`has_store` gate) | 66d680f | web/broadcaster.py:44,46; web/replay_manager.py:144 |
 | <a id="f-25"></a>F-25 | Inference config save was not atomic (now temp file + `os.replace`) | 902d7b5 | config.py:327 |
 | <a id="f-26"></a>F-26 | `/replay/start` skipped the cycle_id guard | 66d680f | web/routes/replay.py:112 |
-| <a id="f-27"></a>F-27 | A binary WS frame dropped the connection | 66d680f | web/routes/websocket.py:133 |
+| <a id="f-27"></a>F-27 | A binary WS frame dropped the connection | 66d680f | web/routes/websocket.py:89 |
 | <a id="f-28"></a>F-28 | Sector seed-match used bare substrings (false positives) | 35471d4 | advisory/engine.py:65 |
 | <a id="f-29"></a>F-29 | A negative aggregate cost basis inverted the ranking | 35471d4 | advisory/engine.py:141 |
 | <a id="f-30"></a>F-30 | Inconsistent ticker casing across items | 35471d4 | advisory/engine.py:218 |
