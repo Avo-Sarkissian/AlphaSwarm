@@ -50,9 +50,7 @@ export function applyPreset(
     ...form,
     provider: preset.provider,
     base_url: preset.base_url ?? '',
-    model: form.model.trim() === '' && preset.models.length > 0
-      ? preset.models[0]!
-      : form.model,
+    model: form.model.trim() === '' ? (preset.models[0] ?? form.model) : form.model,
   };
 }
 

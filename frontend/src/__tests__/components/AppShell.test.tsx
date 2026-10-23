@@ -5,7 +5,7 @@
 import type { ReactNode } from 'react';
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { App as DashboardShell } from '../../components/app_v2';
+import { AppShell as DashboardShell } from '../../app/AppShell';
 import { makeAgent } from '../helpers/agents';
 import { stubFetchRoutes } from '../helpers/fetchRoutes';
 import { renderAt, rerenderAt } from '../helpers/lifecycleFrames';
@@ -37,17 +37,15 @@ vi.mock('../../context/EdgesContext', async () => {
 // The idle overlay polls /api/health; these tests do not cover it (idleState.test.tsx
 // does), and a pending check keeps unstubbed tests off the network.
 vi.mock('../../api/health', () => ({ fetchHealth: () => new Promise<never>(() => {}) }));
-vi.mock('../../components/v2', () => ({
-  SignalWire: () => null,
-  ModelStatus: () => null,
-  DataSourcesTakeover: () => null,
-  AdvisoryV2: () => null,
-}));
-vi.mock('../../components/viz', async () => {
+vi.mock('../../features/wire/SignalWire', () => ({ SignalWire: () => null }));
+vi.mock('../../features/wire/DataSourcesTakeover', () => ({ DataSourcesTakeover: () => null }));
+vi.mock('../../features/dashboard/ModelStatus', () => ({ ModelStatus: () => null }));
+vi.mock('../../features/advisory/AdvisoryPanel', () => ({ AdvisoryPanel: () => null }));
+vi.mock('../../features/dashboard/Viz', async () => {
   const { createElement } = await import('react');
   return { Viz: () => createElement('svg', { 'data-testid': 'viz' }) };
 });
-vi.mock('../../components/settings', async () => {
+vi.mock('../../features/settings/Settings', async () => {
   const { createElement } = await import('react');
   return {
     Settings: () => createElement('div', { role: 'dialog', 'aria-label': 'Settings dialog' }),

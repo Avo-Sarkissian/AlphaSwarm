@@ -65,7 +65,7 @@ export function isCloud(provider: ProviderType): boolean {
  */
 export function isCloudOllamaModel(model: string): boolean {
   const lastSegment = model.trim().toLowerCase().split('/').pop() ?? '';
-  const name = lastSegment.split('@')[0];
+  const name = lastSegment.split('@')[0] ?? '';
   return name.split(/[-:]/).includes('cloud');
 }
 

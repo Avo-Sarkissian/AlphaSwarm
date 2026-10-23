@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { RationaleFeed } from '../../components/panels';
+import { RationaleFeed } from '../../features/dashboard/panels';
+import type { FeedRow } from '../../lib/rationaleFeed';
 
-const rows = (items: Array<[number, string]>) =>
+const rows = (items: Array<[number, string]>): FeedRow[] =>
   items.map(([seq, text]) => ({ seq, agentId: 'quants_01', bracketDisplay: 'Quants', signal: 'buy', round: 2, text, cites: [] }));
 const noop = () => {};
 

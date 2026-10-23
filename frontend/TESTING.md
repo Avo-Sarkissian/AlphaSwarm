@@ -63,7 +63,7 @@ The CI `frontend` job runs `npm ci`, `npm audit --omit=dev --audit-level=high`, 
 
 The first lint run (October 2026) had 0 errors and 94 warnings: 72 jsx-a11y, 13 `no-explicit-any`
 in `components/app_v2.tsx`, 7 `react-hooks/set-state-in-effect`, 2 `react-hooks/refs`. New code
-should add none.
+should add none. The shell's `no-explicit-any` override is gone: the rule is an error everywhere.
 
 ## Dead-code and placebo gates
 
@@ -74,3 +74,17 @@ should add none.
 - `src/__tests__/helpers/renderShell.tsx`: `renderShell(ui, opts)` is `renderWithFrame` plus the real `EdgesProvider`; use it for the dashboard, the interview takeover and the bracket deep dive, which read `useEdgesCtx()`.
 - The frame watchdog is tested with the shared `FakeWebSocket` helper and fake timers (`hooks/useWebSocket.watchdog.test.tsx`).
 - Pure logic lives in `src/lib/` and is tested in node; component tests use `// @vitest-environment happy-dom` and `renderWithFrame`.
+
+## Structure invariants
+
+`src/__tests__/invariants/structure.test.ts` (node environment) reads the source tree and
+fails on: any `.js`/`.jsx` under `src/`, prototype `v2` names, explicit `any` outside
+tests, `]!` non-null assertions (tests use `at()` from `helpers/at.ts` or `?.` inside the
+assertion instead), a tsconfig without `noUncheckedIndexedAccess` (or with
+`allowJs`/`paths`), a feature importing another feature or `app/`, an `app/`/`features/`
+module over 600 lines, planning-process tags in `app/`/`features/` comments, and more
+inline `style={{…}}` objects than `INLINE_STYLE_BUDGET`. Lower the budget when you remove
+inline styles; never raise it.
+
+Component tests for the shell stub heavy children by module path (`vi.mock('../../features/…')`);
+`ModalHost.test.tsx` and `AppShellModals.test.tsx` are the reference for overlay behaviour.

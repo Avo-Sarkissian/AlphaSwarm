@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "project": ["src/**/*.{ts,tsx,jsx}"],
+  "project": ["src/**/*.{ts,tsx}"],
   "ignoreDependencies": ["d3-scale", "@types/d3-scale"],
   "ignoreExportsUsedInFile": true
 }

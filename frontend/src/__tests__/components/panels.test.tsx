@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ConsensusRing, KpiStrip } from '../../components/panels';
+import { ConsensusRing, KpiStrip } from '../../features/dashboard/panels';
 import { makeAgent } from '../helpers/agents';
 
 afterEach(cleanup);

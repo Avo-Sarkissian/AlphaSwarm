@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App as DashboardShell } from '../../components/app_v2';
+import { AppShell as DashboardShell } from '../../app/AppShell';
 import wsSnapshot from '../fixtures/ws_snapshot.json';
 import { ensureResizeObserver, stubFetch } from '../helpers/fetchStub';
 import { renderShell } from '../helpers/renderShell';

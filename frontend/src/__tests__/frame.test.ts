@@ -20,6 +20,7 @@ import {
   RATIONALE_KEYS,
   RUN_ERROR_KEYS,
 } from './helpers/wireKeys';
+import { at } from './helpers/at';
 
 const sorted = (keys: readonly string[]): string[] => [...keys].sort();
 const keysOf = (value: object): string[] => sorted(Object.keys(value));
@@ -52,9 +53,9 @@ describe('fixtures match the TypeScript wire mirror (types.ts)', () => {
 
   it('live frame carries one audit entry and one applied shock with the mirrored keys', () => {
     expect(live.data_source_audit).toHaveLength(1);
-    expect(keysOf(live.data_source_audit[0]!)).toEqual(sorted(AUDIT_KEYS));
+    expect(keysOf(at(live.data_source_audit, 0))).toEqual(sorted(AUDIT_KEYS));
     expect(live.applied_shocks).toHaveLength(1);
-    expect(keysOf(live.applied_shocks[0]!)).toEqual(sorted(APPLIED_SHOCK_KEYS));
+    expect(keysOf(at(live.applied_shocks, 0))).toEqual(sorted(APPLIED_SHOCK_KEYS));
   });
 
   it('failed-run frame carries a last_error with the mirrored keys', () => {
@@ -247,6 +248,6 @@ describe('adaptSnapshot — defensive mapping', () => {
     expect(frame.schemaVersion).toBe(2);
     expect(frame.cycleId).toBe('00000000-0000-4000-8000-000000000001');
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]![0])).toContain('schema_version 2');
+    expect(String(warn.mock.calls[0]?.[0])).toContain('schema_version 2');
   });
 });

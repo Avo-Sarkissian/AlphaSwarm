@@ -12,7 +12,7 @@
 // formatApiError) and every request ends in onSettled(ok) — success, failure
 // and cancel alike — so callers can reset their own state.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { RunConfirmModal } from '../components/run_confirm';
+import { RunConfirmModal } from '../components/RunConfirmModal';
 import { getEstimate, type RunEstimate } from '../api/settings';
 import { simStart } from '../api/simulation';
 import { formatApiError, isBackendUnreachable } from '../lib/apiError';

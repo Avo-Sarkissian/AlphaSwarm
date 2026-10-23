@@ -78,6 +78,25 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `ingestion/fixture.py`: point-in-time `ContextPacket` fixtures for `alphaswarm run --context-fixture`.
   - Repo-root `eval/`: the `build_fixtures`, `label_outcomes` and preliminary `pilot` scripts. They read `eval/events.jsonl` and `eval/headlines/`, and write the committed `eval/fixtures/` and the gitignored `eval/results/` (labels, pilot state).
 
+## Frontend layout (`frontend/src/`)
+
+- `app/`: `App.tsx` (WebSocket, onboarding gate, providers), `AppShell.tsx` (seed and
+  overlay state), `Topbar.tsx`, `ModalHost.tsx` (the one overlay slot: an `ActiveModal`
+  union, so opening an overlay replaces the current one), `ComingSoonModal.tsx`,
+  `RunControls.tsx`, `ConnectionBanner.tsx`.
+- `features/dashboard/`: `Dashboard.tsx`, `Viz.tsx` + `vizLayout.ts` (deterministic
+  layouts, no physics), `panels.tsx`, `StateOverlays.tsx`, `ModelStatus.tsx`,
+  `ShockDrawer.tsx`, `ReplayBar.tsx`, `BracketDeepDive.tsx`, `RunErrorBanner.tsx`,
+  `useDashboardData.ts`.
+- `features/wire/` (Signal Wire, Data Sources), `features/advisory/`, `features/report/`
+  (`ReportModal`, `ReportCharts`), `features/cycles/` (`CycleBrowser`, the one cycle list:
+  reports and replays), `features/interview/`, `features/settings/`, `features/onboarding/`.
+- Shared: `components/` (`Icon`, `InlineError`, `RunConfirmModal`), `hooks/`, `lib/`
+  (pure helpers), `context/`, `api/`, `adapter/`, `types.ts`, `data.ts`.
+- Rules, enforced by `src/__tests__/invariants/structure.test.ts`: TypeScript only, no
+  explicit `any`, `noUncheckedIndexedAccess`, features never import each other or `app/`,
+  modules stay under 600 lines, and the inline-style count never grows.
+
 ## Data flow: seed → rounds → graph → web → UI
 
 1. **Start.** `POST /api/simulate/start {seed}` reaches `SimulationManager.start`, which refuses with 409 while a replay is active or post-run jobs hold the orchestrator (`post_run_jobs_in_progress`), then takes the lock, clears interview sessions and the previous run's `StateStore.last_error`, and calls `_run`. `_run` opens `services.runtime.open_simulation` on the shared `InferenceRuntime`, which loads the InferenceConfig (or the local defaults; cached until the file changes) and builds:

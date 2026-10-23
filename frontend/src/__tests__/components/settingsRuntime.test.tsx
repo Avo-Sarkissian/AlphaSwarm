@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Settings } from '../../components/settings';
+import { Settings } from '../../features/settings/Settings';
 import wsSnapshot from '../fixtures/ws_snapshot.json';
 import { stubFetch } from '../helpers/fetchStub';
 import { renderWithFrame } from '../helpers/renderWithFrame';
