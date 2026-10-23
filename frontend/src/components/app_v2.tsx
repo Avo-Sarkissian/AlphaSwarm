@@ -39,7 +39,7 @@ import { simStop } from '../api/simulation';
 import { useAwaitRunFrame } from '../hooks/useAwaitRunFrame';
 import { useRunGate } from '../hooks/useRunGate';
 import { replayStart } from '../api/replay';
-import { normalizeBracketKey } from '../data';
+import { bracketSpec } from '../data';
 import { rankInfluencers } from '../lib/influence';
 import { signalClass, signalLabel } from '../lib/signals';
 import { bracketTallies } from '../lib/tally';
@@ -299,6 +299,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
     () =>
       bracketTallies(agents).map((b) => ({
         bracket: b.bracket,
+        color: bracketSpec(b.bracket)?.color ?? 'var(--accent)',
         display_name: b.display,
         total: b.total,
         buy_count: b.tally.buy,
@@ -673,7 +674,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
       {ui.bracketDeepDive && (
         <BracketDeepDive
           bracket={ui.bracketDeepDive}
-          agents={agents.filter((a) => normalizeBracketKey(a.bracket) === normalizeBracketKey(ui.bracketDeepDive.bracket))}
+          agents={agents.filter((a) => a.bracket === ui.bracketDeepDive.bracket)}
           onAgentInterview={(a) => setUi((u) => ({ ...u, bracketDeepDive: null, interviewV2Agent: a }))}
           onClose={() => setUi((u) => ({ ...u, bracketDeepDive: null }))}
         />

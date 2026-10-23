@@ -1,16 +1,17 @@
 // CONTRACT-shaped frontend types. Backend snapshot -> adapter -> StateFrame.
 
+/** Wire bracket keys (BracketType.value), in DEFAULT_BRACKETS order. */
 export type BracketKey =
-  | 'Institutions'
-  | 'SellSide'
-  | 'EventDriven'
-  | 'Quants'
-  | 'Degens'
-  | 'Narrators'
-  | 'Algos'
-  | 'Macro'
-  | 'Shorts'
-  | 'Allocators';
+  | 'institutions'
+  | 'sell_side'
+  | 'event_driven'
+  | 'quants'
+  | 'degens'
+  | 'narrators'
+  | 'algos'
+  | 'macro'
+  | 'shorts'
+  | 'allocators';
 
 // Agent discrete signal — backend emits lowercase 'buy'|'sell'|'hold'|
 // 'parse_error' on the wire; 'parse_error' gets a distinct muted treatment.
@@ -18,7 +19,7 @@ export type AgentSignal = 'buy' | 'sell' | 'hold' | 'parse_error';
 
 export interface AgentView {
   id: string;
-  bracket: BracketKey;
+  bracket: BracketKey | 'unknown';
   bracketDisplay: string; // human-readable bracket label (backend BracketSummary.display_name)
   signal: AgentSignal | null; // null = pending: no decision yet this round (never shown as HOLD)
   confidence: number;
@@ -28,7 +29,7 @@ export interface AgentView {
 }
 
 export interface BracketSummaryView {
-  bracket: BracketKey;
+  bracket: BracketKey | 'unknown';
   display: string; // BracketSummary.display_name
   buy: number; // BracketSummary.buy_count
   sell: number; // BracketSummary.sell_count

@@ -2,7 +2,6 @@ import type {
   AgentSignal,
   AgentView,
   AppliedShockView,
-  BracketKey,
   BracketSummaryView,
   DataSourceAuditView,
   FrameMode,
@@ -12,39 +11,11 @@ import type {
   StateFrame,
   TelemetrySlice,
 } from '../types';
-import { agentIdToBracket } from './agentId';
+import { bracketOf, bracketSpec, toBracketKey } from '../data';
 
 /** The StateFrame schema this bundle was built against (alphaswarm.web.wire.SCHEMA_VERSION). */
 export const SUPPORTED_SCHEMA_VERSION = 1;
 let warnedSchemaVersion: number | null = null;
-
-// Backend BracketType.value → human display label (matches state.py BracketSummary.display_name).
-const BRACKET_DISPLAY: Record<BracketKey, string> = {
-  Institutions: 'Institutions',
-  SellSide: 'Sell-Side',
-  EventDriven: 'Event-Driven',
-  Quants: 'Quants',
-  Degens: 'Degens',
-  Narrators: 'Narrators',
-  Algos: 'Algos',
-  Macro: 'Macro',
-  Shorts: 'Shorts',
-  Allocators: 'Allocators',
-};
-
-// Wire bracket value (snake_case) → frontend BracketKey (PascalCase).
-const WIRE_TO_KEY: Record<string, BracketKey> = {
-  institutions: 'Institutions',
-  sell_side: 'SellSide',
-  event_driven: 'EventDriven',
-  quants: 'Quants',
-  degens: 'Degens',
-  narrators: 'Narrators',
-  algos: 'Algos',
-  macro: 'Macro',
-  shorts: 'Shorts',
-  allocators: 'Allocators',
-};
 
 function normaliseSignal(raw: unknown): AgentSignal {
   if (typeof raw !== 'string') return 'hold';
@@ -167,14 +138,14 @@ export function adaptSnapshot(raw: unknown): StateFrame {
       const s = (rawState ?? {}) as Record<string, unknown>;
       const confidence =
         typeof s.confidence === 'number' ? s.confidence : 0;
-      const bracket = agentIdToBracket(id);
+      const bracket = bracketOf(id);
       // signal=null during dispatch means "no decision yet": pending, rendered
       // as a dim pulsing node and counted nowhere (lib/tally.ts).
       const signal = parseAgentSignal(s.signal);
       return {
         id,
         bracket,
-        bracketDisplay: BRACKET_DISPLAY[bracket] ?? bracket,
+        bracketDisplay: bracketSpec(bracket)?.display ?? 'Unknown',
         signal,
         confidence,
         flipped: 0, // KR-41.1-03
@@ -189,10 +160,7 @@ export function adaptSnapshot(raw: unknown): StateFrame {
     : [];
   const bracketSummaries: BracketSummaryView[] = bracketRaw.map((b) => {
     const bs = (b ?? {}) as Record<string, unknown>;
-    const bracket =
-      typeof bs.bracket === 'string'
-        ? (WIRE_TO_KEY[bs.bracket] ?? (bs.bracket as BracketKey))
-        : 'Quants';
+    const bracket = toBracketKey(bs.bracket);
     const buy = typeof bs.buy_count === 'number' ? bs.buy_count : 0;
     const sell = typeof bs.sell_count === 'number' ? bs.sell_count : 0;
     const hold = typeof bs.hold_count === 'number' ? bs.hold_count : 0;
@@ -203,7 +171,7 @@ export function adaptSnapshot(raw: unknown): StateFrame {
     const display =
       typeof bs.display_name === 'string'
         ? bs.display_name
-        : (BRACKET_DISPLAY[bracket] ?? bracket);
+        : (bracketSpec(bracket)?.display ?? 'Unknown');
     // consensusSignal kept numeric for back-compat — derive as avg_sentiment if present, else 0.
     const consensusSignal =
       typeof bs.avg_sentiment === 'number' ? bs.avg_sentiment : 0;

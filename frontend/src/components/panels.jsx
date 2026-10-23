@@ -21,7 +21,7 @@ export function BracketList({ summaries, onClick }) {
         const hp = s.hold_count / Math.max(1, s.total);
         return (
           <div key={s.bracket} className="bracket-row" onClick={() => onClick && onClick(s)}>
-            <span className="bracket-chip" style={{ background: 'var(--accent)' }} />
+            <span className="bracket-chip" style={{ background: s.color ?? 'var(--accent)' }} />
             <span className="bracket-name">{s.display_name}</span>
             <span className="bracket-count num">{s.total}</span>
             <div className="bracket-bar">

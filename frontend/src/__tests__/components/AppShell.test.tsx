@@ -90,7 +90,7 @@ describe('Brackets panel', () => {
     renderAt(<DashboardShell />, 'live', {
       agents: [makeAgent('sell_side_01', 'buy'), makeAgent('sell_side_02', null)],
     });
-    const row = screen.getByText('sell_side').closest('.bracket-row') as HTMLElement;
+    const row = screen.getByText('Sell-Side', { selector: '.bracket-name' }).closest('.bracket-row') as HTMLElement;
     expect(row.querySelector('.bracket-count')?.textContent).toBe('2');
     expect((row.querySelector('.b-buy') as HTMLElement).style.width).toBe('50%');
     expect((row.querySelector('.b-hold') as HTMLElement).style.width).toBe('0%');
