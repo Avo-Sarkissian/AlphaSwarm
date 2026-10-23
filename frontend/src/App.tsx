@@ -38,6 +38,7 @@ export function App() {
   if (!onboardingDone) {
     return (
       <Onboarding
+        numRounds={lastFrame?.numRounds ?? null}
         onComplete={(_seed: string) => {
           // simStart was already fired inside Onboarding's Run handler — do NOT
           // re-fire here. We only persist the gate flag and unmount Onboarding.
