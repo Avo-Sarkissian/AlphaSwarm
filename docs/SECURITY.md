@@ -4,7 +4,8 @@ AlphaSwarm is a single-user research application that runs on the operator's own
 machine. This page describes what it protects, how, where the code lives, what it does
 not protect, and how to report a problem. Design rationale is in
 [DECISIONS.md](DECISIONS.md) (`adr-security-2026-08`, `adr-holdings-isolation`,
-`adr-local-first-inference`); operations are in [RUNBOOK.md](RUNBOOK.md).
+`adr-advisory-pipeline`, `adr-local-first-inference`); operations are in
+[RUNBOOK.md](RUNBOOK.md).
 
 ## Scope
 
@@ -35,7 +36,7 @@ loopback Host headers and allow-listed browser origins.
 | Cross-site WebSocket hijacking | The same allow-list on the `/ws/state` handshake (close code 1008); the allowed origin is never derived from the request's own Host | `src/alphaswarm/web/routes/websocket.py` |
 | Holdings reaching the swarm, Neo4j or the live stream | An import-linter contract allows only the advisory code and the holdings/advisory routes to import the holdings package; a sentinel canary runs the real advisory and checks logs, Neo4j calls, frames and prompts, including the invalid-JSON failure path; the portfolio lives in `app.state.portfolio_cache`, never on the shared AppState | `pyproject.toml`, `tests/invariants/test_holdings_isolation.py`, `src/alphaswarm/web/routes/holdings.py` |
 | Holdings reaching a cloud LLM | With a cloud orchestrator the advisory runs only after "Allow cloud advisory" is enabled in Settings; otherwise the POST returns 409 `cloud_advisory_disabled` and the post-run pipeline skips it while the report still runs. The prompt carries held tickers only, never quantities or cost basis | `src/alphaswarm/inference/factory.py`, `src/alphaswarm/advisory/engine.py`, `tests/test_cloud_advisory_opt_in.py` |
-| Holdings in error messages | Logs and HTTP bodies carry exception classes and validation locations only, never the error text | `src/alphaswarm/advisory/engine.py`, `src/alphaswarm/web/routes/advisory.py`, `tests/test_advisory_error_hygiene.py` |
+| Holdings in error messages | HTTP bodies name the exception class only. A validation failure, whose text echoes the model's input, is logged as its error count, locations and types, never its text or traceback; the advisory job's own failure line names the class only. Other advisory exceptions keep their traceback in the done-callback and post-run logs (see Known limitations) | `src/alphaswarm/advisory/engine.py`, `src/alphaswarm/web/routes/advisory.py`, `tests/test_advisory_error_hygiene.py` |
 | Holdings in files | Advisory and report files are written atomically with mode 0600; only the newest `ALPHASWARM_ADVISORY_KEEP_LAST` advisories are kept | `src/alphaswarm/fsutil.py` |
 | Holdings in the repository | The curated sector map lives in the gitignored `data/sector_map.local.json` (a fictional example ships in `examples/sector_map.example.json`); test fixtures use reserved fictional tickers; `scripts/ticker_scan.py` and `scripts/privacy_scan.py` check files and history and print counts only | `src/alphaswarm/advisory/sector_map.py`, `tests/invariants/test_fictional_fixtures.py` |
 | Secrets in logs | A fail-closed structlog redactor removes holdings and credential keys and scrubs API-key shapes (`sk-…`, `nvapi-…`, `Bearer …`) from every string; stdlib logging (uvicorn, httpx, provider SDKs) goes through the same chain once logging is configured, which `./start` and `alphaswarm web` do before uvicorn starts (a direct `uvicorn` launch prints its first two startup lines in uvicorn's own format, before the app takes over uvicorn's loggers); tracebacks never include local variables, and their text is scrubbed in JSON and console output alike | `src/alphaswarm/logging.py`, `tests/test_logging_bridge.py`, `tests/invariants/test_secret_isolation.py` |
@@ -57,6 +58,9 @@ loopback Host headers and allow-listed browser origins.
   text much less effective; a model can still be influenced by it.
 - **Pattern-based log scrubbing.** Key-shaped strings are scrubbed by pattern; an
   unusual key format could pass.
+- **Advisory exception text.** An advisory failure other than a validation error is
+  logged with its traceback, message included, so it can be diagnosed. The redactor
+  removes key shapes and holdings-named fields from it, not arbitrary text.
 - **IPv6 host names.** Starlette's host check compares the text before the first `:`,
   so `http://[::1]:8000` is rejected; use `localhost` or `127.0.0.1` (the server binds
   `127.0.0.1` anyway).
@@ -81,8 +85,10 @@ This is a personal project maintained by one person; expect a reply within a wee
 
 Claude Security scans on 2026-08-01 and 2026-08-02 found the issues fixed in commits
 `53e5954`, `72d55a9`, `45c7827`, `1e7a8ee`, `e353716` and `820b8fe` (see
-`adr-security-2026-08` in [DECISIONS.md](DECISIONS.md)). The October 2026 hardening
-(TrustedHost, one origin list, the cloud-advisory opt-in, ticker-only advisory prompts,
-peer-rationale fencing, the logging bridge, owner-only advisory files and the
-sector-map move) is recorded there too. The scan reports are kept privately and are
-not published (gitignored, never committed).
+`adr-security-2026-08` in [DECISIONS.md](DECISIONS.md)). The October 2026 hardening is
+recorded in the same file: TrustedHost, the one origin list, peer-rationale fencing,
+the logging bridge and the run context under `adr-security-2026-08`; the cloud-advisory
+opt-in, ticker-only advisory prompts, advisory failure logging and owner-only advisory
+files under `adr-advisory-pipeline`; the API-key scrub, the validation-error rule and
+the sector-map move under `adr-holdings-isolation`. The scan reports are kept
+privately and are not published (gitignored, never committed).
