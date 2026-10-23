@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from alphaswarm.errors import Neo4jQueryError
 from alphaswarm.state import AgentState, StateStore
 from alphaswarm.types import SignalType
@@ -80,3 +82,60 @@ async def test_replay_api_takes_no_connection_manager() -> None:
     await manager.stop()
     assert not manager.is_active
     assert not hasattr(manager, "seed_rumor")
+
+
+def shown(manager: ReplayManager) -> tuple[int, int, int, set[int]]:
+    """(manager round, streamed round, quants buy_count, rationale rounds) as a frame shows them."""
+    snap = manager.store.snapshot()
+    quants_buy = next(b.buy_count for b in snap.bracket_summaries if b.bracket == "quants")
+    return manager.round_num, snap.round_num, quants_buy, {e.round_num for e in snap.rationale_entries}
+
+
+async def test_failed_advance_keeps_the_previous_round() -> None:
+    manager = new_manager()
+    graph = RoundGraph(fail_round=2)
+    await manager.start(CYCLE, SIGNALS, graph)  # type: ignore[arg-type]
+    with pytest.raises(Neo4jQueryError):
+        await manager.advance(graph)  # type: ignore[arg-type]
+    assert shown(manager) == (1, 1, 1, {1})
+
+
+async def test_pending_advance_never_shows_a_mixed_round() -> None:
+    manager = new_manager()
+    graph = RoundGraph(gate_round=2)
+    await manager.start(CYCLE, SIGNALS, graph)  # type: ignore[arg-type]
+    task = asyncio.create_task(manager.advance(graph))  # type: ignore[arg-type]
+    await graph.entered.wait()
+    assert shown(manager) == (1, 1, 1, {1})
+    graph.release.set()
+    assert await task == 2
+    assert shown(manager) == (2, 2, 2, {2})
+
+
+async def test_advance_retries_after_a_failure() -> None:
+    manager = new_manager()
+    graph = RoundGraph(fail_round=2)
+    await manager.start(CYCLE, SIGNALS, graph)  # type: ignore[arg-type]
+    with pytest.raises(Neo4jQueryError):
+        await manager.advance(graph)  # type: ignore[arg-type]
+    graph.fail_round = None
+    assert await manager.advance(graph) == 2  # type: ignore[arg-type]
+    assert shown(manager) == (2, 2, 2, {2})
+
+
+async def test_failed_start_leaves_no_replay() -> None:
+    manager = new_manager()
+    with pytest.raises(Neo4jQueryError):
+        await manager.start(CYCLE, SIGNALS, RoundGraph(fail_round=1))  # type: ignore[arg-type]
+    assert not manager.is_active
+    assert not manager.has_store
+
+
+async def test_advance_stops_at_the_cycle_depth() -> None:
+    two_rounds = {key: state for key, state in SIGNALS.items() if key[1] <= 2}
+    manager = new_manager()
+    graph = RoundGraph()
+    await manager.start(CYCLE, two_rounds, graph)  # type: ignore[arg-type]
+    assert await manager.advance(graph) == 2  # type: ignore[arg-type]
+    assert await manager.advance(graph) == 2  # type: ignore[arg-type]
+    assert ("brackets", 3) not in graph.reads
