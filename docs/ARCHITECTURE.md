@@ -29,7 +29,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `config.py`: settings, inference-config persistence, origin constants, prompt templates, sanitizers, `DEFAULT_BRACKETS`, `generate_personas`, `generate_modifiers`.
   - `errors.py`: exception types.
 - **Engine**
-  - `seed.py`: `inject_seed`. The orchestrator parses the seed and generates the persona modifiers, then one atomic write creates the Cycle (status `running`) and its Entities, so a seeding failure leaves no Cycle.
+  - `seed.py`: `inject_seed`. The orchestrator parses the seed and generates the persona modifiers and is then released; only after that does one atomic write create the Cycle (status `running`) and its Entities, so a seeding failure, teardown included, leaves no Cycle.
   - `simulation.py`: `run_simulation`, `run_round1`, the round-abort check, peer selection, the control holdout and own-prior lines, shifts, bracket summaries, narratives, and the terminal `Cycle.status` write.
   - `metrics.py`: pure measurement functions; `split_flips` splits a round's flips between the control holdout and the treated readers.
   - `batch_dispatcher.py`: `dispatch_wave`, a TaskGroup of 100 jittered inferences.
@@ -81,6 +81,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - `orchestrator.prepare`, then a JSON-mode chat;
    - `parse_seed_event`;
    - `generate_modifiers`;
+   - `orchestrator.teardown`;
    - `create_cycle_with_seed_event`, which writes Cycle (status `running`), Entity, and MENTIONS in one transaction.
 
    Then `generate_personas` builds 100 prompts. Each one is a bracket template plus a round-robin modifier, a per-cycle focus line, and the JSON instructions.

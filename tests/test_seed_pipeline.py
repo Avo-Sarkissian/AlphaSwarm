@@ -6,6 +6,7 @@ instead of OllamaClient + OllamaModelManager. FakeInferenceProvider is used here
 
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -342,3 +343,60 @@ async def test_modifiers_are_generated_before_the_cycle_is_written(
     assert order == ["modifiers", "create_cycle"]
     assert cycle_id == "test-cycle-id-123"
     assert modifier_result is not None
+
+
+async def test_the_cycle_is_written_after_the_orchestrator_is_released(
+    mock_settings: MagicMock,
+    fake_provider: FakeInferenceProvider,
+    mock_graph_manager: AsyncMock,
+) -> None:
+    """Nothing in inject_seed can fail between creating the Cycle and returning its id."""
+    from alphaswarm.seed import inject_seed
+
+    order: list[str] = []
+
+    async def _teardown() -> None:
+        order.append("teardown")
+
+    async def _create(*_: object, **__: object) -> str:
+        order.append("create_cycle")
+        return "test-cycle-id-123"
+
+    fake_provider.teardown = _teardown  # type: ignore[method-assign]
+    mock_graph_manager.create_cycle_with_seed_event.side_effect = _create
+    cycle_id, _, _ = await inject_seed(
+        rumor="ZZZT Holdings is in late-stage talks to acquire QQQX Robotics.",
+        settings=mock_settings,
+        orchestrator=fake_provider,
+        graph_manager=mock_graph_manager,
+    )
+    assert order == ["teardown", "create_cycle"]
+    assert cycle_id == "test-cycle-id-123"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("orchestrator unload failed"), asyncio.CancelledError()],
+    ids=["teardown_raises", "stop_during_teardown"],
+)
+async def test_an_interrupted_teardown_leaves_no_cycle(
+    mock_settings: MagicMock,
+    fake_provider: FakeInferenceProvider,
+    mock_graph_manager: AsyncMock,
+    error: BaseException,
+) -> None:
+    """A Cycle created before the teardown would stay running: run_simulation never learns its id."""
+    from alphaswarm.seed import inject_seed
+
+    async def _teardown() -> None:
+        raise error
+
+    fake_provider.teardown = _teardown  # type: ignore[method-assign]
+    with pytest.raises(type(error)):
+        await inject_seed(
+            rumor="ZZZT Holdings is in late-stage talks to acquire QQQX Robotics.",
+            settings=mock_settings,
+            orchestrator=fake_provider,
+            graph_manager=mock_graph_manager,
+        )
+    mock_graph_manager.create_cycle_with_seed_event.assert_not_awaited()

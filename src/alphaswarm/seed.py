@@ -57,7 +57,10 @@ async def inject_seed(
     (docs/DECISIONS.md#p13-d-06), so a failure leaves no orphan Cycle.
     modifier_result is None when no callback is provided.
 
-    Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence.
+    Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence,
+    after the orchestrator is released: nothing that can fail runs between
+    the write and the return, so the caller always learns the id of the
+    ``running`` Cycle it must later mark (docs/DECISIONS.md#adr-cycle-metrics).
     """
     logger.info("seed_injection_start", rumor_preview=rumor[:100])
 
@@ -96,24 +99,25 @@ async def inject_seed(
                 parsed_result.seed_event,
                 orchestrator,
             )
-
-        # 5. Persist Cycle + Entities atomically; the Cycle starts as "running".
-        cycle_id = await graph_manager.create_cycle_with_seed_event(
-            rumor,
-            parsed_result.seed_event,
-            num_rounds=settings.num_rounds,
-        )
-
-        logger.info(
-            "seed_injection_complete",
-            cycle_id=cycle_id,
-            entity_count=len(parsed_result.seed_event.entities),
-            overall_sentiment=parsed_result.seed_event.overall_sentiment,
-            parse_tier=parsed_result.parse_tier,
-            modifier_parse_tier=modifier_result.parse_tier if modifier_result else None,
-        )
-        return cycle_id, parsed_result, modifier_result
-
     finally:
-        # 6. Always unload orchestrator model (per D-07)
+        # 5. Always unload orchestrator model (per D-07)
         await orchestrator.teardown()
+
+    # 6. Persist Cycle + Entities atomically; the Cycle starts as "running". Last,
+    #    so a failed or cancelled teardown leaves no Cycle that no run will ever
+    #    mark failed or cancelled (docs/DECISIONS.md#adr-cycle-metrics).
+    cycle_id = await graph_manager.create_cycle_with_seed_event(
+        rumor,
+        parsed_result.seed_event,
+        num_rounds=settings.num_rounds,
+    )
+
+    logger.info(
+        "seed_injection_complete",
+        cycle_id=cycle_id,
+        entity_count=len(parsed_result.seed_event.entities),
+        overall_sentiment=parsed_result.seed_event.overall_sentiment,
+        parse_tier=parsed_result.parse_tier,
+        modifier_parse_tier=modifier_result.parse_tier if modifier_result else None,
+    )
+    return cycle_id, parsed_result, modifier_result
