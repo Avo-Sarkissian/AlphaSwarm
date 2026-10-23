@@ -59,8 +59,8 @@ async def inject_seed(
 
     Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence,
     after the orchestrator is released: nothing that can fail runs between
-    the write and the return, so the caller always learns the id of the
-    ``running`` Cycle it must later mark (docs/DECISIONS.md#adr-cycle-metrics).
+    the write and the return, so the caller learns the id of the ``running``
+    Cycle it must later mark (docs/DECISIONS.md#adr-cycle-metrics).
     """
     logger.info("seed_injection_start", rumor_preview=rumor[:100])
 
