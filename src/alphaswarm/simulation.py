@@ -28,7 +28,7 @@ from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS, dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
 from alphaswarm.context_formatter import format_market_context
 from alphaswarm.episodes import EpisodeRecord, compute_flip_type, match_entities, new_decision_ids
-from alphaswarm.errors import RoundFailedError
+from alphaswarm.errors import RoundFailedError, run_error_from_exception
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.types import ContextPacket
@@ -42,7 +42,8 @@ from alphaswarm.utils import sanitize_rationale
 if TYPE_CHECKING:
     from alphaswarm.config import AppSettings, BracketConfig, SimulationSettings
     from alphaswarm.episodes import EntityRef
-    from alphaswarm.graph import GraphStateManager, PersistRoundResult, RankedPost
+    from alphaswarm.errors import RunErrorCode
+    from alphaswarm.graph import CycleStatus, GraphStateManager, PersistRoundResult, RankedPost
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
@@ -927,6 +928,38 @@ async def run_round1(
     )
 
 
+@dataclasses.dataclass
+class _RunTracker:
+    """What the run_simulation wrapper needs to know about a run in flight."""
+
+    cycle_id: str | None = None
+
+
+async def _record_terminal_status(
+    graph_manager: GraphStateManager,
+    cycle_id: str | None,
+    status: CycleStatus,
+    error_code: RunErrorCode | None,
+) -> None:
+    """Best-effort terminal status write; never masks the error being raised.
+
+    docs/DECISIONS.md#adr-cycle-metrics: failed/cancelled are written from
+    the except path; a write failure is logged and the original exception
+    keeps propagating.
+    """
+    if cycle_id is None:
+        return  # the run failed before the Cycle existed
+    try:
+        await graph_manager.set_cycle_status(cycle_id, status, error_code=error_code)
+    except Exception:
+        logger.warning(
+            "cycle_status_write_failed",
+            cycle_id=cycle_id,
+            status=status,
+            exc_info=True,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Full 3-round simulation orchestrator (Phase 7)
 # ---------------------------------------------------------------------------
@@ -937,7 +970,7 @@ def _with_shocks(rumor: str, shocks: Sequence[str]) -> str:
     return rumor + "".join(f"\n\n[MARKET SHOCK]: {text}" for text in shocks)
 
 
-async def run_simulation(
+async def _run_simulation(
     rumor: str,
     settings: AppSettings,
     ollama_client: OllamaClient,
@@ -956,49 +989,9 @@ async def run_simulation(
     orchestrator_provider: InferenceProvider | None = None,
     worker_provider: InferenceProvider | None = None,
     context_fixture: ContextPacket | None = None,
+    tracker: _RunTracker,
 ) -> SimulationResult:
-    """Execute the full 3-round simulation pipeline (D-04).
-
-    Phase transitions (docs/DECISIONS.md#p7-d-07):
-    IDLE -> SEEDING -> ROUND_1 .. ROUND_N -> FINALIZING -> COMPLETE
-    Each transition is logged and, when state_store is given, set on it with
-    StateStore.set_phase, which drives the UI.
-
-    Progressive output (addresses Gemini/Codex review): fires on_round_complete
-    callback after each round finishes, enabling CLI to print reports in real time.
-
-    Phase 40 context assembly (D-01, D-02, D-03, D-06):
-    When both market_provider and news_provider are supplied, run_simulation
-    assembles a ContextPacket AFTER inject_seed and BEFORE run_round1, formats
-    it via `format_market_context`, and forwards the result to run_round1 as
-    `market_context=...`. If either provider is None, a structlog warning
-    (`context_assembly_skipped`) is emitted and run_round1 receives
-    `market_context=None` (backward compatible). Rounds 2-3 are NOT affected
-    (D-06 keeps market context Round 1 only).
-
-    A context_fixture (a point-in-time ContextPacket for evaluation runs,
-    docs/DECISIONS.md#adr-eval-harness) takes precedence over both providers:
-    it is formatted directly, the providers are never called, and
-    `context_fixture_used` is logged instead.
-
-    Lifecycle:
-    1. SEEDING: inject_seed parses the rumor and generates the persona modifiers
-       (docs/DECISIONS.md#p13-d-06). run_simulation always seeds; run_round1 never does
-    2. Phase 40 context assembly: asyncio.gather(get_prices + get_headlines)
-       -> format_market_context -> forward to run_round1 (docs/DECISIONS.md#p40-d-01)
-    3. run_round1() runs ROUND_1 on the seeded cycle and owns its own governor session
-       (docs/DECISIONS.md#p7-d-06). No influence edges after Round 1: its agents see no
-       peers, so they cite none (docs/DECISIONS.md#sweep-b-5)
-    4. Compute Round 1 bracket summaries (D-08)
-    5. Fire on_round_complete for Round 1 (shift=None, no prior round to compare)
-    6. ensure_clean_state + reload worker (D-05: one cold load for modularity)
-    7. Fresh governor monitoring session for Rounds 2-3 block (D-06)
-    8. Round 2: dispatch_wave with per-reader peer contexts built in memory from
-       Round 1 decisions -> write -> callback
-    9. Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2)
-    10. Round 3: dispatch_wave with peer contexts from Round 2 -> write -> callback
-    11. Return SimulationResult with all bracket summaries (D-08)
-    """
+    """Body of run_simulation; see the public wrapper below for the contract."""
     phase = SimulationPhase.IDLE
     logger.info("simulation_start", phase=phase.value)
     if state_store is not None:
@@ -1041,6 +1034,7 @@ async def run_simulation(
         graph_manager,
         modifier_generator=generate_modifiers,
     )
+    tracker.cycle_id = cycle_id
     if state_store is not None:
         # The frame's cycle id: the canvas fetches this cycle's edges, never the
         # previous run's (docs/DECISIONS.md#adr-ws-broadcaster).
@@ -1634,6 +1628,10 @@ async def run_simulation(
     except Exception:
         logger.warning("cycle_metrics_write_failed", cycle_id=cycle_id, exc_info=True)
 
+    # Rounds are persisted and metrics were attempted: the cycle is complete
+    # (docs/DECISIONS.md#adr-cycle-metrics). A failure here fails the run.
+    await graph_manager.set_cycle_status(cycle_id, "complete")
+
     phase = SimulationPhase.COMPLETE
     if state_store is not None:
         await state_store.set_phase(SimulationPhase.COMPLETE)
@@ -1657,6 +1655,79 @@ async def run_simulation(
         round2_summaries=round2_summaries,
         round3_summaries=round3_summaries,
     )
+
+
+async def run_simulation(
+    rumor: str,
+    settings: AppSettings,
+    ollama_client: OllamaClient,
+    model_manager: OllamaModelManager,
+    graph_manager: GraphStateManager,
+    governor: ConcurrencyController,
+    personas: list[AgentPersona],
+    brackets: list[BracketConfig],
+    *,
+    on_round_complete: OnRoundComplete = None,
+    state_store: StateStore | None = None,
+    generate_narratives: bool = True,
+    consume_shock: Callable[[], str | None] | None = None,
+    market_provider: MarketDataProvider | None = None,
+    news_provider: NewsProvider | None = None,
+    orchestrator_provider: InferenceProvider | None = None,
+    worker_provider: InferenceProvider | None = None,
+    context_fixture: ContextPacket | None = None,
+) -> SimulationResult:
+    """Run the full multi-round simulation (docs/DECISIONS.md#p7-d-04).
+
+    Phases (docs/DECISIONS.md#p7-d-07): IDLE -> SEEDING -> ROUND_1 .. ROUND_N -> FINALIZING -> COMPLETE,
+    mirrored to ``state_store`` when one is given.
+
+    Seeding parses the rumor and generates persona modifiers before the Cycle
+    is created. Round 1 receives the fenced market context when both
+    ``market_provider`` and ``news_provider`` are supplied
+    (docs/DECISIONS.md#adr-market-context); a ``context_fixture`` (a
+    point-in-time ContextPacket for evaluation runs,
+    docs/DECISIONS.md#adr-eval-harness) takes precedence over both providers.
+    Each later round builds per-reader peer contexts in memory from the
+    previous round (docs/DECISIONS.md#adr-diverse-peer-context). After
+    ``dispatch_wave`` a round is aborted with ``RoundFailedError`` when too
+    many agents failed; otherwise it is persisted in one ``persist_round``
+    transaction, influence edges are computed and ``on_round_complete`` fires.
+
+    Cycle status (docs/DECISIONS.md#adr-cycle-metrics): the Cycle is created
+    ``running``; ``complete`` is written after the last round and the metrics
+    attempt; ``failed`` (+ error_code) on any exception and ``cancelled`` on
+    cancellation are written here, then the exception propagates unchanged.
+    """
+    tracker = _RunTracker()
+    try:
+        return await _run_simulation(
+            rumor,
+            settings,
+            ollama_client,
+            model_manager,
+            graph_manager,
+            governor,
+            personas,
+            brackets,
+            on_round_complete=on_round_complete,
+            state_store=state_store,
+            generate_narratives=generate_narratives,
+            consume_shock=consume_shock,
+            market_provider=market_provider,
+            news_provider=news_provider,
+            orchestrator_provider=orchestrator_provider,
+            worker_provider=worker_provider,
+            context_fixture=context_fixture,
+            tracker=tracker,
+        )
+    except asyncio.CancelledError:
+        await _record_terminal_status(graph_manager, tracker.cycle_id, "cancelled", None)
+        raise
+    except Exception as exc:
+        code = run_error_from_exception(exc, round_num=None).code
+        await _record_terminal_status(graph_manager, tracker.cycle_id, "failed", code)
+        raise
 
 
 # ---------------------------------------------------------------------------
