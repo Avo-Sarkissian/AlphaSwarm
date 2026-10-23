@@ -19,7 +19,7 @@ from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
 from alphaswarm.types import AgentDecision, SignalType
-from alphaswarm.worker import WorkerPersonaConfig, agent_worker
+from alphaswarm.worker import PEER_CONTEXT_GUARD, WorkerPersonaConfig, agent_worker
 
 
 def _worker_provider(client: OllamaClient) -> OllamaProvider:
@@ -140,9 +140,10 @@ async def test_inference_with_peer_context(
     # Verify peer context was included in messages
     call_kwargs = mock_client_success._client.chat.call_args.kwargs
     messages = call_kwargs.get("messages")
-    # Should have 3 messages: system prompt, peer context, user message
+    # 3 messages: persona, the fixed peer guard, the user message with the fenced peers
     assert len(messages) == 3
-    assert "Peer context" in messages[1]["content"]
+    assert messages[1]["content"] == PEER_CONTEXT_GUARD
+    assert "macro_01: SELL" in messages[2]["content"]
 
 
 async def test_governor_backpressure(

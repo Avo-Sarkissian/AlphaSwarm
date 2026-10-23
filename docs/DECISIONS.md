@@ -351,7 +351,7 @@ Contents
 ### <a id="adr-market-context"></a>Grounded market context: Round 1 only, fenced
 - **Decision:**
   - One formatted block per run: price, fundamentals, and 5 headlines per entity.
-  - It is its own system message, after the persona and before the user message, sent in Round 1 only ([Phase 40](#phase-40-simulation-context-wiring)).
+  - It is fenced in the user message (since F3, Aug 2026), ahead of the fenced peer block; only the fixed MARKET_CONTEXT_GUARD is a system message. Sent in Round 1 only ([Phase 40](#phase-40-simulation-context-wiring)).
   - RSS headlines are fenced as untrusted data (Aug 2026, F3) and sanitized.
 - **Rationale:** Treat third-party text as untrusted. *(Inferred, not recorded: the Phase 40 CONTEXT doc gives no reason for limiting the block to Round 1. The likely intent was to ground the prior without letting market data drown out peer dynamics. Treat this as a hypothesis to test, not a settled decision.)*
 
@@ -437,6 +437,7 @@ Contents
   - The API-key file and its directory are created owner-only (CWE-276).
   - One origin list, `AppSettings.allowed_origins` (`ALPHASWARM_ALLOWED_ORIGINS`), serves the HTTP CSRF guard and the WebSocket handshake through `origin_guard.is_allowed`; the WebSocket no longer accepts an Origin derived from the request's own Host. `ALPHASWARM_WS_ALLOWED_ORIGINS` and `ALPHASWARM_HTTP_ALLOWED_ORIGINS` are no longer read; startup logs `legacy_origin_settings_ignored` when they are set (2026-10, SPEC T7.3, T11.8).
   - `TrustedHostMiddleware` answers only `AppSettings.trusted_hosts` (default `localhost`, `127.0.0.1`, `[::1]`; `ALPHASWARM_TRUSTED_HOSTS`), so a DNS-rebinding page can no longer read `GET /api/holdings`, the advisories or the live stream. It is the outermost middleware; it became possible once the in-process `testserver` calls were removed (2026-10, SPEC T7.3). Starlette compares only the text before the first `:` of the Host, so the `[::1]` entry never matches today and an IPv6-loopback Host is refused (fail-closed; the server binds 127.0.0.1 by default).
+  - Peer rationales are sanitized (`utils.sanitize_peer_rationale`) and fenced in `<peer_observations>` in the user message behind the fixed `PEER_CONTEXT_GUARD`; no model-generated or third-party text reaches the system role (2026-10, SPEC T7.6).
 - **Commits:** 53e5954, 72d55a9, 45c7827, 1e7a8ee, e353716, 820b8fe.
 
 ### <a id="adr-docs-sync"></a>Measured numbers have one home; the docs copy them by script
@@ -577,7 +578,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p12-d-04"></a>`D-04` | Peer context budget: 4000 chars, K posts, greedy fill, last post truncated at a word boundary. | active | simulation.py:349 |
-| <a id="p12-d-05"></a>`D-05` | Unified peer-context block format (now `[agent_id|bracket] SIGNAL (conf)` lines so agents can cite IDs). | active | simulation.py:349 |
+| <a id="p12-d-05"></a>`D-05` | Unified peer-context block format (now `[agent_id|bracket] SIGNAL (conf)` lines so agents can cite IDs). Since 2026-10 each rationale is sanitized and capped near 300 characters, and the block is fenced in the user message. | partial | simulation.py:349 |
 | <a id="p12-d-06"></a>`D-06` | _format_peer_context accepts post objects and applies the budget. | active | simulation.py:349 |
 | <a id="p12-d-12"></a>`D-12` | Per-round write order: decisions -> posts -> (formerly READ_POST edges) -> next dispatch. READ_POST edges no longer written since Jun 2026. Post writes removed 2026-10. | superseded | simulation.py:1186 |
 | <a id="p12-d-13"></a>`D-13` | Round 1 has no peer context. Posts are no longer written (2026-10); Round 2 peers come from in-memory decisions. | superseded | simulation.py:1058 |
@@ -752,7 +753,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p40-d-01"></a>`D-01` | ContextPacket assembled inside run_simulation after seed extraction when both providers are present. | active | simulation.py:907,919,968 |
 | <a id="p40-d-02"></a>`D-02` | No providers -> log context_assembly_skipped and continue rumor-only. | active | simulation.py:907,968 |
 | <a id="p40-d-03"></a>`D-03` | Partial fetch failures kept in the packet; formatter silently skips fetch_failed slices. | active | context_formatter.py:6; simulation.py:907,968; tests/test_context_formatter.py:6 |
-| <a id="p40-d-04"></a>`D-04` | Market context is its own system message after the persona and before peer context/user message. | active | simulation.py:573; worker.py:155; tests/test_worker.py:219,248 |
+| <a id="p40-d-04"></a>`D-04` | Market context is its own system message after the persona and before peer context/user message. Since F3 (Aug 2026) and SPEC T7.6 (2026-10) only fixed guard texts are system messages; the market and peer blocks are fenced in the user message, market first. | partial | simulation.py:573; worker.py:155; tests/test_worker.py:219,248 |
 | <a id="p40-d-06"></a>`D-06` | Market context goes to Round 1 only. | active | simulation.py:573,907,914,970; tests/test_simulation.py:3069,3084 |
 | <a id="p40-d-07"></a>`D-07` | One formatted block shared by all 100 agents (no per-bracket filtering). | active | batch_dispatcher.py:176; tests/test_batch_dispatcher.py:691,699,734 |
 | <a id="p40-d-08"></a>`D-08` | Per entity: price, fundamentals, top headlines; fetch_failed entities omitted. | active | context_formatter.py:6,99; tests/test_context_formatter.py:4,75,103 |

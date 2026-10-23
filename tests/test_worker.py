@@ -11,6 +11,7 @@ from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import (
     DECISION_JSON_SCHEMA,
     MARKET_CONTEXT_GUARD,
+    PEER_CONTEXT_GUARD,
     UNTRUSTED_DATA_CLOSE,
     UNTRUSTED_DATA_OPEN,
     AgentWorker,
@@ -199,7 +200,7 @@ async def test_infer_uses_persona_temperature(
 async def test_infer_with_peer_context(
     sample_persona: WorkerPersonaConfig,
 ) -> None:
-    """When peer_context provided, messages list has 3 items (system, peer, user)."""
+    """peer_context adds the fixed guard (system) and a fenced block (user)."""
     governor = ResourceGovernor(GovernorSettings(baseline_parallel=4))
     provider = _fake_provider()
 
@@ -208,7 +209,8 @@ async def test_infer_with_peer_context(
 
     messages = provider.calls[0]["messages"]
     assert len(messages) == 3
-    assert "Peer context" in messages[1]["content"]
+    assert messages[1]["content"] == PEER_CONTEXT_GUARD
+    assert "macro_01: SELL" in messages[2]["content"]
 
 
 async def test_infer_with_market_context(
@@ -255,9 +257,10 @@ async def test_infer_with_market_and_peer_context(
     messages = provider.calls[0]["messages"]
     assert len(messages) == 4
     assert messages[1]["content"] == MARKET_CONTEXT_GUARD
-    assert messages[2]["content"] == "Peer context:\nPEER"
+    assert messages[2]["content"] == PEER_CONTEXT_GUARD
     assert messages[3]["role"] == "user"
     assert "MKT" in messages[3]["content"]
+    assert "PEER" in messages[3]["content"]
     assert messages[3]["content"].endswith("test")
 
 

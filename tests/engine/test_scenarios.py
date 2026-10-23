@@ -11,6 +11,7 @@ from alphaswarm.config import AppSettings, SimulationSettings
 from alphaswarm.episodes import EntityMatch, EpisodeRecord, compute_flip_type
 from alphaswarm.graph import PersistRoundResult
 from alphaswarm.types import AgentDecision, AgentPersona, SignalType, SimulationPhase
+from alphaswarm.worker import PEER_FENCE_CLOSE, PEER_FENCE_OPEN
 from tests.engine.scenario import (
     SCENARIO_CYCLE_ID,
     SCENARIO_RUMOR,
@@ -39,6 +40,12 @@ SHOCK_SUFFIX = f"\n\n[MARKET SHOCK]: {SCENARIO_SHOCK_TEXT}"
 # Rounds 2-3 prefix the reader's own prior; its presence and position are pinned in
 # tests/engine/test_fast_track_rounds.py (docs/DECISIONS.md#adr-diverse-peer-context).
 OWN_PRIOR_PREFIX = re.compile(r"^Your Round \d+ position: [^\n]*\n\n")
+# Rounds 2+ also lead the user message with the reader's fenced peer block
+# (docs/DECISIONS.md#adr-security-2026-08): an intro line, the fence, a closing line.
+PEER_FENCE_BLOCK = re.compile(
+    rf"^[^\n]*\n{re.escape(PEER_FENCE_OPEN)}\n(?P<body>.*?)\n{re.escape(PEER_FENCE_CLOSE)}\n[^\n]*\n\n",
+    re.DOTALL,
+)
 
 
 def _metrics(fake_graph: MagicMock) -> dict[str, object]:
@@ -46,7 +53,10 @@ def _metrics(fake_graph: MagicMock) -> dict[str, object]:
 
 
 def _user_messages(worker: ScriptedProvider, round_num: int) -> set[str]:
-    return {OWN_PRIOR_PREFIX.sub("", c.messages[-1]["content"], count=1) for c in round_calls(worker, round_num)}
+    return {
+        OWN_PRIOR_PREFIX.sub("", PEER_FENCE_BLOCK.sub("", c.messages[-1]["content"], count=1), count=1)
+        for c in round_calls(worker, round_num)
+    }
 
 
 def _summary(
@@ -147,7 +157,6 @@ async def test_shock_before_round_2_is_carried_into_round_3(
 
 
 QQQX = next(e for e in SCENARIO_ENTITIES if e.name == "QQQX Robotics")
-PEER_BLOCK_PREFIX = "Peer context:\n"  # how AgentWorker.infer frames a reader's peer block
 
 
 def _names_qqqx(agent_id: str, round_num: int) -> bool:
@@ -165,9 +174,9 @@ def _decide_naming_qqqx(agent_id: str, round_num: int, call: ScriptedCall) -> Ag
 def _peer_block(call: ScriptedCall) -> str:
     """The peer block one decision call carried, "" when it had none."""
     blocks = [
-        message["content"].removeprefix(PEER_BLOCK_PREFIX)
+        match.group("body")
         for message in call.messages
-        if message["role"] == "system" and message["content"].startswith(PEER_BLOCK_PREFIX)
+        if message["role"] == "user" and (match := PEER_FENCE_BLOCK.match(message["content"]))
     ]
     assert len(blocks) <= 1
     return blocks[0] if blocks else ""
