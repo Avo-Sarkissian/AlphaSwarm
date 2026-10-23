@@ -13,9 +13,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig
 from alphaswarm.errors import (
+    INFERENCE_CONFIG_INCOMPLETE_MESSAGE,
+    INFERENCE_CONFIG_INVALID_MESSAGE,
     BudgetExceededError,
     InferenceConfigError,
+    InferenceConfigIncompleteError,
     RoundFailedError,
     run_error_from_exception,
 )
@@ -241,6 +245,60 @@ async def test_invalid_inference_config_is_wrapped_without_leaking(
     for _level, _event, kw in recorded_log.calls:
         assert "SECRET" not in repr(kw)
         assert ".secrets" not in repr(kw)
+
+
+async def test_unreadable_inference_config_fails_like_an_invalid_one(
+    recorded_log: _RecordingLog,
+) -> None:
+    sm, store = _manager()
+
+    def _denied(*_: object, **__: object) -> object:
+        raise PermissionError(13, "Permission denied", "/Users/someone/.secrets/inference.json")
+
+    with _patched_run(AsyncMock(), load=_denied) as run_mock:
+        await sm.start(SEED)
+        with pytest.raises(InferenceConfigError) as exc_info:
+            await _finish(sm)
+
+    run_mock.assert_not_awaited()
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__suppress_context__ is True
+    err = store.last_error
+    assert err is not None
+    assert (err.code, err.message) == ("inference_config_invalid", INFERENCE_CONFIG_INVALID_MESSAGE)
+    assert recorded_log.find("inference_config_invalid") == ("error", {"error_type": "PermissionError"})
+
+
+async def test_cloud_role_without_api_key_points_at_settings(
+    recorded_log: _RecordingLog,
+) -> None:
+    """The file loads (the health check calls it ok), but the providers cannot be built."""
+    sm, store = _manager()
+    cfg = InferenceConfig(
+        orchestrator=RoleConfig(provider=ProviderType.ANTHROPIC, model="fictional-model-3"),
+        worker=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker"),
+    )
+    run_mock = AsyncMock()
+    with (
+        patch("alphaswarm.config.load_inference_config", return_value=cfg),
+        patch("alphaswarm.simulation.run_simulation", new=run_mock),
+    ):
+        await sm.start(SEED)
+        with pytest.raises(InferenceConfigIncompleteError) as exc_info:
+            await _finish(sm)
+
+    run_mock.assert_not_awaited()
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__suppress_context__ is True
+    err = store.last_error
+    assert err is not None
+    assert (err.code, err.message) == ("inference_config_invalid", INFERENCE_CONFIG_INCOMPLETE_MESSAGE)
+    assert recorded_log.find("inference_config_incomplete") == (
+        "error",
+        {"error_type": "ValueError", "orchestrator_provider": "anthropic", "worker_provider": "ollama"},
+    )
+    assert all(event != "inference_config_invalid" for _level, event, _kw in recorded_log.calls)
+    assert store.snapshot().phase is SimulationPhase.IDLE
 
 
 async def test_failure_is_logged_with_exc_info_even_if_the_store_rejects_it(

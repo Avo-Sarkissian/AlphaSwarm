@@ -188,6 +188,20 @@ INFERENCE_CONFIG_INVALID_MESSAGE: Final = (
 )
 
 
+class InferenceConfigIncompleteError(InferenceConfigError):
+    """The stored config loads, but a cloud role lacks its API key or base URL.
+
+    The health check reports such a file ok and Settings opens it, so the fix is
+    in Settings, not in the file (INFERENCE_CONFIG_INCOMPLETE_MESSAGE).
+    """
+
+
+INFERENCE_CONFIG_INCOMPLETE_MESSAGE: Final = (
+    "The saved inference configuration is incomplete: a cloud role needs an API key, and an "
+    "OpenAI-compatible role also needs a base URL. Open Settings, complete that role and save."
+)
+
+
 class InferenceConfigFileError(ValueError):
     """The stored inference config file fails the strict config models.
 
@@ -304,6 +318,11 @@ def _describe(exc: BaseException) -> tuple[RunErrorCode, str]:
         return (
             "graph_error",
             f"A Neo4j operation failed ({exc.op or 'unknown'}). See the server log for details.",
+        )
+    if isinstance(exc, InferenceConfigIncompleteError):
+        return (
+            "inference_config_invalid",
+            INFERENCE_CONFIG_INCOMPLETE_MESSAGE,
         )
     if isinstance(exc, InferenceConfigError):
         return (

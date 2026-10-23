@@ -9,6 +9,8 @@ from decimal import Decimal
 import pytest
 
 from alphaswarm.errors import (
+    INFERENCE_CONFIG_INCOMPLETE_MESSAGE,
+    INFERENCE_CONFIG_INVALID_MESSAGE,
     RUN_ERROR_MESSAGE_MAX_CHARS,
     AlphaSwarmError,
     AuthError,
@@ -16,6 +18,7 @@ from alphaswarm.errors import (
     GovernorCrisisError,
     GraphError,
     InferenceConfigError,
+    InferenceConfigIncompleteError,
     Neo4jQueryError,
     Neo4jUnavailableError,
     Neo4jWriteError,
@@ -31,6 +34,7 @@ def test_graph_family_shares_one_base() -> None:
         assert issubclass(cls, AlphaSwarmError)
     assert issubclass(RoundFailedError, AlphaSwarmError)
     assert issubclass(InferenceConfigError, AlphaSwarmError)
+    assert issubclass(InferenceConfigIncompleteError, InferenceConfigError)
 
 
 def test_existing_inference_errors_are_not_reparented() -> None:
@@ -70,6 +74,7 @@ def test_round_failed_error_carries_counts() -> None:
         (Neo4jQueryError("bad", op="read_round_timeline"), "graph_error"),
         (Neo4jWriteError("bad"), "graph_error"),
         (InferenceConfigError("invalid"), "inference_config_invalid"),
+        (InferenceConfigIncompleteError("incomplete"), "inference_config_invalid"),
         (RuntimeError("boom"), "internal_error"),
     ],
 )
@@ -118,6 +123,18 @@ def test_governor_crisis_message_names_the_cause() -> None:
     assert "memory monitor stopped" in dead_monitor.message
     assert "pressure" not in dead_monitor.message
     assert "sysctl" not in dead_monitor.message
+
+
+def test_incomplete_config_points_at_settings_not_at_the_file() -> None:
+    # A config the providers reject still loads, so the health check reports it
+    # ok, and moving the file aside would lose the other role's settings.
+    invalid = run_error_from_exception(InferenceConfigError("x"), round_num=None)
+    incomplete = run_error_from_exception(InferenceConfigIncompleteError("x"), round_num=None)
+    assert invalid.message == INFERENCE_CONFIG_INVALID_MESSAGE
+    assert incomplete.message == INFERENCE_CONFIG_INCOMPLETE_MESSAGE
+    assert "Open Settings" in incomplete.message
+    assert "move aside" not in incomplete.message
+    assert "health check" not in incomplete.message
 
 
 def test_unknown_exception_text_never_reaches_the_message() -> None:
