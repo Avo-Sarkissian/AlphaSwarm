@@ -937,6 +937,29 @@ async def test_write_posts_all_parse_error_is_noop(mock_driver: MagicMock) -> No
     assert result == []
 
 
+@pytest.mark.asyncio()
+@pytest.mark.parametrize("id_count", [1, 3], ids=["fewer_ids", "more_ids"])
+async def test_write_posts_raises_on_mismatched_ids(mock_driver: MagicMock, id_count: int) -> None:
+    """write_posts refuses decision_ids that do not pair one-to-one with the decisions.
+
+    Silently truncating would link a Post to the wrong Decision, or drop posts.
+    """
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    decisions = [
+        ("a1", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="up")),
+        ("a2", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="down")),
+    ]
+    decision_ids = [f"dec-{i}" for i in range(id_count)]
+
+    with pytest.raises(ValueError):
+        await gsm.write_posts(decisions, decision_ids, "c1", 1)
+
+    session.execute_write.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # Phase 27: Shock analysis graph methods (Plan 01)
 # ---------------------------------------------------------------------------
