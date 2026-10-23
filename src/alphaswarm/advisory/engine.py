@@ -1,9 +1,10 @@
-"""ADVIS-01 synthesis engine — single orchestrator LLM call over prefetched swarm data.
+"""Advisory synthesis engine — single orchestrator LLM call over prefetched swarm data.
 
 Lifecycle note: this module does NOT load or unload the orchestrator model.
 The model load/unload is handled by the caller
-(alphaswarm.web.routes.advisory._run_advisory_synthesis)
-per D-08 so the library stays infrastructure-free and unit-testable with Fakes.
+(alphaswarm.web.routes.advisory._run_advisory_synthesis,
+docs/DECISIONS.md#p41-d-08) so the library stays infrastructure-free and
+unit-testable with Fakes.
 
 Pitfall 1: NEVER pass the PortfolioSnapshot or Holding objects into a structlog
 event_dict. Log only scalar metadata (cycle_id, holdings_count, affected).
@@ -64,7 +65,7 @@ def _enrich_holdings(
         sm = sector_map.lookup(ticker)
         entity_impact = float(entity_impacts.get(ticker, 0.0))
         # Whole-word matches only: a short ticker or a one-word sector label is
-        # often an ordinary English word inside the rumor text (F-28).
+        # often an ordinary English word inside the rumor text (docs/DECISIONS.md#f-28).
         sector_phrase = "" if sm["sector"] == UNKNOWN_SECTOR["sector"] else sm["sector"].replace("_", " ")
         seed_match = (
             1.0
@@ -116,8 +117,9 @@ async def synthesize(
 
     Raises:
         pydantic.ValidationError: if the LLM returns a malformed payload twice.
-        Any exception from graph_manager or ollama_client propagates unchanged
-        so the 41-02 done_callback can record it to app.state.advisory_generation_error.
+        Any exception from graph_manager or the provider propagates unchanged so the
+        advisory job's done-callback can record it in app.state.advisory_generation_error
+        (docs/DECISIONS.md#p41-d-13).
     """
     log.info(
         "advisory_synthesize_start",
@@ -127,7 +129,7 @@ async def synthesize(
     smap = sector_map if sector_map is not None else EMPTY_SECTOR_MAP
     held = {h.ticker.upper() for h in portfolio.holdings}
 
-    # D-04: prefetch all four swarm payloads in parallel.
+    # Prefetch all four swarm payloads in parallel (docs/DECISIONS.md#p41-d-04).
     bracket_summary, timeline, narratives, entities = await asyncio.gather(
         graph_manager.read_consensus_summary(cycle_id),
         graph_manager.read_round_timeline(cycle_id),
@@ -143,19 +145,19 @@ async def synthesize(
         log.warning("advisory_seed_fetch_failed", cycle_id=cycle_id)
 
     _total_cb = sum((h.cost_basis if h.cost_basis is not None else Decimal("0")) for h in portfolio.holdings)
-    # D-07: the denominator must be POSITIVE. The old `or Decimal("1")` only
-    # caught a falsy (zero) sum; a NEGATIVE aggregate (data-entry error or a
-    # credit/short lot) is truthy and would divide positive exposures by a
-    # negative number, inverting the advisory ranking (F-29).
+    # The ranking denominator must be POSITIVE (docs/DECISIONS.md#p41-d-07). The old
+    # `or Decimal("1")` only caught a falsy (zero) sum; a NEGATIVE aggregate
+    # (data-entry error or a credit/short lot) is truthy and would divide positive
+    # exposures by a negative number, inverting the advisory ranking
+    # (docs/DECISIONS.md#f-29).
     total_cost_basis = _total_cb if _total_cb > 0 else Decimal("1")
 
-    # ITEM 6 of quick task 260512-jqn — enrich + split.
     # read_entity_impact rows carry entity_name + avg_sentiment. Collapse them to
     # {ticker: impact}, using avg_sentiment as the bounded [-1, 1] directional
     # magnitude. Entity names resolve only to HELD tickers (pass-through, or a
     # curated alias from the local sector map); anything else is skipped so it
-    # cannot score an unrelated holding (F-07). When two entities map to one
-    # ticker, keep the strongest.
+    # cannot score an unrelated holding (docs/DECISIONS.md#f-07). When two
+    # entities map to one ticker, keep the strongest.
     entity_impacts: dict[str, float] = {}
     for entry in entities:
         if not isinstance(entry, dict):
@@ -221,7 +223,8 @@ async def synthesize(
         # Normalize the ticker to the portfolio's canonical casing — the LLM
         # may echo a different case ("zzzt") than the user's CSV, which would
         # make kept (conviction) and padded (HOLD) items disagree on casing for
-        # the same position and break ticker-keyed lookups/dedupe (F-30).
+        # the same position and break ticker-keyed lookups/dedupe
+        # (docs/DECISIONS.md#f-30).
         # display_ticker[ticker_up] is guaranteed present because actual_exposure
         # (from cost_by_ticker, populated in the same loop) is not None here.
         kept_by_ticker[ticker_up] = it.model_copy(
@@ -243,8 +246,8 @@ async def synthesize(
     # Pad: every unique ticker NOT covered by a kept LLM item becomes a
     # HOLD@0.30 placeholder so the frontend Holdings tab still shows the full
     # portfolio. The user explicitly asked for one-item-per-holding rendering
-    # in 260512-jqn — we keep the contract, we just stop spending LLM tokens
-    # on it.
+    # (docs/DECISIONS.md#quick-260512-jqn) — we keep the contract, we just stop
+    # spending LLM tokens on it.
     conviction_items: list[AdvisoryItem] = list(kept_by_ticker.values())
     padded_items: list[AdvisoryItem] = [
         AdvisoryItem(
@@ -258,7 +261,8 @@ async def synthesize(
         if ticker_up not in kept_by_ticker
     ]
 
-    # D-07: rerank by score = confidence × (exposure / total_cost_basis), desc.
+    # Rerank by score = confidence × (exposure / total_cost_basis), desc
+    # (docs/DECISIONS.md#p41-d-07).
     # Padded placeholders sort AFTER conviction items regardless of score —
     # effective sort key is (is_padded, -score).
     def _score(it: AdvisoryItem) -> float:

@@ -31,9 +31,10 @@ Phase 37 / Task 17 additions (API key redaction):
   orchestrator_key/worker_key naming variants. Bare "token" is deliberately
   excluded (too broad — would clobber unrelated fields like "next_page_token").
 
-Phase 3 (2026-10): API-key shapes (sk-…, nvapi-…, Bearer …) are scrubbed from
-every string value at any depth, whatever its key, and configure_logging bridges
-stdlib logging (uvicorn, httpx, provider SDKs) into this same chain.
+Since 2026-10, API-key shapes (sk-…, nvapi-…, Bearer …) are scrubbed from every
+string value at any depth, whatever its key (docs/DECISIONS.md#adr-holdings-isolation),
+and configure_logging bridges stdlib logging (uvicorn, httpx, provider SDKs) into
+this same chain (docs/DECISIONS.md#adr-security-2026-08).
 """
 
 from __future__ import annotations
