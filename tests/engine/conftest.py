@@ -19,7 +19,7 @@ from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
 from alphaswarm.simulation import OnRoundComplete, SimulationResult, run_simulation
-from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig
+from alphaswarm.types import AgentPersona, BracketConfig
 from tests.engine.scenario import (
     SCENARIO_CYCLE_ID,
     SCENARIO_MODIFIERS_JSON,
@@ -113,18 +113,9 @@ def fake_graph() -> MagicMock:
     graph = create_autospec(GraphStateManager, instance=True)
     graph.create_cycle_with_seed_event.return_value = SCENARIO_CYCLE_ID
 
-    def _write_posts(
-        agent_decisions: list[tuple[str, AgentDecision]],
-        decision_ids: list[str],
-        cycle_id: str,
-        round_num: int,
-    ) -> list[str]:
-        return [f"post-r{round_num}-{i:03d}" for i in range(len(agent_decisions))]
-
     def _influence(cycle_id: str, up_to_round: int, total_agents: int) -> dict[str, float]:
         return influence_weights_from_writes(graph, up_to_round=up_to_round, total_agents=total_agents)
 
-    graph.write_posts.side_effect = _write_posts
     graph.read_cycle_entities.return_value = list(SCENARIO_ENTITIES)
     graph.persist_round.side_effect = fake_persist_round
     graph.compute_influence_edges.side_effect = _influence
@@ -158,7 +149,6 @@ def run_scenario(
         worker: InferenceProvider | None = None,
         orchestrator: InferenceProvider | None = None,
         controller: ConcurrencyController | None = None,
-        generate_narratives: bool = True,
         market_provider: MarketDataProvider | None = None,
         news_provider: NewsProvider | None = None,
         context_fixture: ContextPacket | None = None,
@@ -185,7 +175,6 @@ def run_scenario(
             brackets=list(all_brackets),
             on_round_complete=on_round_complete,
             state_store=scenario_store,
-            generate_narratives=generate_narratives,
             consume_shock=consume_shock,
             market_provider=market_provider,
             news_provider=news_provider,

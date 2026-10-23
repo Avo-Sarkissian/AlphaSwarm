@@ -221,7 +221,7 @@ async def test_each_round_is_persisted_from_its_own_rationales_peers_and_counts(
         decisions: list[tuple[str, AgentDecision]] = list(call.args[2])
         decision_ids = list(call.kwargs["decision_ids"])
         assert call.kwargs["entity_matches"] == [
-            EntityMatch(did, QQQX.name, QQQX.type, "substring")
+            EntityMatch(did, QQQX.name, QQQX.type, "token")
             for did, (agent_id, _) in zip(decision_ids, decisions, strict=True)
             if _names_qqqx(agent_id, round_num)
         ]

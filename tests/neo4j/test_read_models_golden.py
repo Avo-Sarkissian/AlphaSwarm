@@ -111,7 +111,7 @@ async def test_read_agent_interview_context(graph_reader: GraphStateManager, see
         assert [(d.round_num, d.signal) for d in ctx.decisions] == [
             (r, _round(seeded_cycle, r)[agent_id].signal.value) for r in range(1, seeded_cycle.num_rounds + 1)
         ]
-        # decision_narrative lives on the global Agent node, so other tests can change it.
+        # The narrative is pinned per cycle in tests/neo4j/test_interview_context.py.
         contexts[agent_id] = {
             **dataclasses.asdict(ctx),
             "interview_system_prompt": "<asserted above>",
@@ -359,14 +359,6 @@ async def test_influence_leaders_report_influence_share(
     rows = await graph_reader.read_influence_leaders(seeded_cycle.cycle_id)
     active = _active(seeded_cycle, seeded_cycle.num_rounds)
     assert [r["influence_share"] for r in rows] == pytest.approx([count / active for _, count in HUB_CITATIONS[:10]])
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="T2.4: READ_POST is never written, so post reach is empty (fix: plan 06 deletes it)",
-)
-async def test_social_post_reach_has_rows(graph_reader: GraphStateManager, seeded_cycle: SeededCycle) -> None:
-    assert await graph_reader.read_social_post_reach(seeded_cycle.cycle_id) != []
 
 
 async def test_entity_impact_counts_final_round_only(

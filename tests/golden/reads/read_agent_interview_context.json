@@ -6,6 +6,7 @@
     "decision_narrative": "<not pinned>",
     "decisions": [
       {
+        "cited_agents": [],
         "confidence": 0.0,
         "rationale": "Parse failed: seeded failure",
         "round_num": 1,
@@ -13,6 +14,7 @@
         "signal": "parse_error"
       },
       {
+        "cited_agents": [],
         "confidence": 0.0,
         "rationale": "Parse failed: seeded failure",
         "round_num": 2,
@@ -20,6 +22,7 @@
         "signal": "parse_error"
       },
       {
+        "cited_agents": [],
         "confidence": 0.8005,
         "rationale": "Degens 7 round 3: HOLD; the tape on this rumor is still thin.",
         "round_num": 3,
@@ -36,6 +39,7 @@
     "decision_narrative": "<not pinned>",
     "decisions": [
       {
+        "cited_agents": [],
         "confidence": 0.7355,
         "rationale": "Sell-Side 1 round 1: HOLD; the tape on this rumor is still thin.",
         "round_num": 1,
@@ -43,6 +47,7 @@
         "signal": "hold"
       },
       {
+        "cited_agents": [],
         "confidence": 0.4885,
         "rationale": "Sell-Side 1 round 2: BUY; QQQX Robotics holders would get a premium.",
         "round_num": 2,
@@ -50,6 +55,7 @@
         "signal": "buy"
       },
       {
+        "cited_agents": [],
         "confidence": 0.7225,
         "rationale": "Sell-Side 1 round 3: BUY; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
         "round_num": 3,

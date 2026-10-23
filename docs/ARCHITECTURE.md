@@ -30,7 +30,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `errors.py`: exception types.
 - **Engine**
   - `seed.py`: `inject_seed`. The orchestrator parses the seed and generates the persona modifiers and is then released; only after that does one atomic write create the Cycle (status `running`) and its Entities, so a seeding failure, teardown included, leaves no Cycle.
-  - `simulation.py`: `run_simulation`, `run_round1`, the round-abort check, peer selection, the control holdout and own-prior lines, shifts, bracket summaries, narratives, and the terminal `Cycle.status` write.
+  - `simulation.py`: `run_simulation`, `run_round1`, the round-abort check, peer selection, the control holdout and own-prior lines, shifts, bracket summaries, and the terminal `Cycle.status` write.
   - `metrics.py`: pure measurement functions; `split_flips` splits a round's flips between the control holdout and the treated readers.
   - `batch_dispatcher.py`: `dispatch_wave`, a TaskGroup of 100 jittered inferences.
   - `worker.py`: `AgentWorker`, the decision JSON schema, and the fence for untrusted market data.
@@ -100,35 +100,41 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    The round is then dispatched, checked against the same round-abort rule, and persisted, and `compute_influence_edges` writes `INFLUENCED_BY {round, weight}`.
 6. **Finalize.**
    - The phase becomes FINALIZING.
-   - `_generate_decision_narratives`: 100 worker calls.
+   - No narrative calls (generated lazily on first interview).
    - `write_cycle_metrics`.
    - `Cycle.status = complete` (or `failed` / `cancelled` from the `run_simulation` wrapper on error; the web manager then publishes `StateStore.last_error`).
    - The phase becomes COMPLETE.
 
    If anything in steps 1-6 fails instead (an invalid inference config, a hard stop, `RoundFailedError`, a Neo4j error), `SimulationManager._run` publishes a UI-safe `RunError` as `StateStore.last_error`, logs the exception once with its traceback, and resets the phase to IDLE. A cancelled run sets no error.
-7. **Post-run pipeline.** `PostRunPipeline` runs the advisory when holdings are loaded (`PortfolioCache`) and allowed, writing `advisory/{id}_advisory.json`, then always the report (`reports/{id}_report.md`: the ReAct loop, up to 10 orchestrator calls over 8 graph tools, rendered through Jinja). Both write atomically; job status is in the StateStore.
+7. **Post-run pipeline.** `PostRunPipeline` runs the advisory when holdings are loaded (`PortfolioCache`) and allowed, writing `advisory/{id}_advisory.json`, then always the report (`reports/{id}_report.md`: the ReAct loop, up to 10 orchestrator calls over 7 graph tools, rendered through Jinja). Both write atomically; job status is in the StateStore.
 8. **Live UI.**
    - The broadcaster sends a versioned `StateFrame` over `/ws/state`: `schema_version`, `mode`, `cycle_id`, `num_rounds`, `edges_version`, `jobs`, `last_error`, the shock fields, agent states, rationale entries with `seq`/`ts`, bracket summaries, the data-source audit, and governor metrics with the live host memory.
    - On the frontend, `useWebSocket` feeds `adapter/frame.ts`, which updates the React contexts (`FrameProviders`: Connection, FrameMeta, Telemetry, Agents, Rationales; plus Edges), which render the SVG graph.
    - Edges come over REST through one cached loader keyed by the frame's cycle_id, round and edges_version (EdgesContext). Report, advisory, replay and settings also come over REST.
 9. **Replay.** ReplayManager loads a cycle's signals from Neo4j into a ReplayStore, and the broadcaster switches its snapshot source. No inference runs, and the live phase is left alone.
-10. **Interview.** `POST /api/interview/{agent_id}` takes the request's `cycle_id` or the latest complete cycle, reads the agent's context with `read_agent_interview_context`, and runs InterviewEngine on the worker provider.
+10. **Interview.** `POST /api/interview/{agent_id}` takes the request's `cycle_id` or the latest complete cycle, reads the agent's context with `read_agent_interview_context`, and runs InterviewEngine on the worker provider. The persona is rebuilt with the cycle's stored modifiers; on the first interview of (cycle, agent) the decision narrative is generated and stored on the final-round Decision.
 
 ## Neo4j graph model
 
-```
-(:Agent {id, name, bracket, risk_profile, temperature, influence_weight_base, decision_narrative})
-(:Cycle {cycle_id, seed_rumor, overall_sentiment, created_at, num_rounds, status, error_code, <metrics>, metrics_recorded_at})
+```text
+(:Agent {id, name, bracket, risk_profile, temperature, influence_weight_base})
+(:Cycle {cycle_id, seed_rumor, overall_sentiment, created_at, status, error_code, num_rounds,
+         modifiers_json, prompt_template_hash, <metrics>, metrics_recorded_at})
     -[:MENTIONS {relevance, sentiment}]->(:Entity {name, type})
-(:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment, rationale, control, error_kind})-[:FOR]->(:Cycle)
+(:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment,
+                              rationale, control, error_kind, narrative})
 (:Decision)-[:CITED]->(:Agent)
-(:Decision)-[:HAS_EPISODE]->(:RationaleEpisode {rationale, peer_context_received, flip_type, round, cycle_id})
-(:Decision)-[:REFERENCES]->(:Entity)
-(:Agent)-[:AUTHORED]->(:Post)<-[:HAS_POST]-(:Decision)      # legacy: written, never read (BACKLOG 1.1)
+(:Decision)-[:HAS_EPISODE]->(:RationaleEpisode {peer_context_received, flip_type, round, cycle_id})
+(:Decision)-[:REFERENCES {match_type: "token"}]->(:Entity)      # cycle's own (name, type)
 (:Agent)-[:INFLUENCED_BY {weight, cycle_id, round}]->(:Agent)
 (:Cycle)-[:HAS_SHOCK]->(:ShockEvent)
+# History only, no longer written: (:Post), [:AUTHORED], [:HAS_POST],
+# (:Decision)-[:FOR]->(:Cycle), RationaleEpisode.rationale, Agent.decision_narrative
 ```
 
 Signals are stored lowercase (`SignalType.value`). Schema statements (constraints
 and indexes) live in `graph.py` `SCHEMA_STATEMENTS` and are applied by
-`ensure_schema()`. That function also seeds the Agent nodes.
+`ensure_schema()`. That function also seeds the Agent nodes, drops the retired indexes
+(it deletes no data: the old Agent narrative property stays until the owner runs
+`remove_legacy_properties()` after a backup, `docs/RUNBOOK.md` §3), and skips the `decision_id_unique` constraint while
+duplicate decision ids exist (`docs/DECISIONS.md#adr-neo4j-schema`).

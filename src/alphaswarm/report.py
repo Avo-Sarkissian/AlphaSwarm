@@ -40,7 +40,6 @@ Available tools:
 - influence_leaders: Get the most-cited agents in the final round, with influence share
 - signal_flip_analysis: Get agents who changed position between rounds
 - entity_impact: Get per-entity sentiment aggregation for the final round
-- social_post_reach: Get top posts by READ_POST edge count
 - FINAL_ANSWER: Signal that you have gathered enough data and are done
 
 For each step, output exactly this format:
@@ -265,7 +264,6 @@ TOOL_TO_TEMPLATE: dict[str, str] = {
     "influence_leaders": "05_influence_leaders.j2",
     "signal_flip_analysis": "06_signal_flip_analysis.j2",
     "entity_impact": "07_entity_impact.j2",
-    "social_post_reach": "08_social_post_reach.j2",
     "shock_impact": "11_shock_impact.j2",
 }
 
@@ -278,7 +276,6 @@ SECTION_ORDER: list[str] = [
     "influence_leaders",
     "signal_flip_analysis",
     "entity_impact",
-    "social_post_reach",
     "shock_impact",
 ]
 

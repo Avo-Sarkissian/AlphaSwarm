@@ -503,16 +503,15 @@ async def get_estimate(request: Request) -> EstimateResponse:
 
     agents = len(app_state.personas)
     rounds = app_state.settings.num_rounds
-    # narrative_calls = 1 worker call per agent (post-sim narrative generation, on by default)
-    narrative_calls = agents
 
+    # No narrative calls: a run makes none; an agent's narrative is generated on
+    # its first interview (docs/DECISIONS.md#p11-d-11).
     result: RunEstimate = estimate_run(
         cfg,
         agents=agents,
         rounds=rounds,
         avg_in=_AVG_IN_TOKENS,
         avg_out=_AVG_OUT_TOKENS,
-        narrative_calls=narrative_calls,
     )
 
     return EstimateResponse(

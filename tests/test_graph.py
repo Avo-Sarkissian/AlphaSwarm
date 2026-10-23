@@ -78,6 +78,7 @@ async def test_ensure_schema_runs_all_statements(mock_driver: MagicMock) -> None
     from alphaswarm.graph import SCHEMA_STATEMENTS, GraphStateManager
 
     session = mock_driver.session.return_value
+    session.execute_read.return_value = 0  # no duplicate decision ids
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     with patch.object(gsm, "seed_agents", new_callable=AsyncMock) as mock_seed:
@@ -216,6 +217,8 @@ async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
         0.6,
         [],
         3,
+        None,
+        None,
     )
 
     # Only 1 tx.run call (Cycle creation, no Entity UNWIND)
@@ -291,63 +294,64 @@ async def test_write_influence_edges_tx_empty_edges() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Narrative and entity methods
+# Narrative storage and legacy cleanup
 # ---------------------------------------------------------------------------
 
 
-async def test_write_decision_narratives(mock_driver: MagicMock) -> None:
-    """write_decision_narratives calls execute_write with narratives list."""
+async def test_ensure_schema_never_runs_legacy_property_cleanup(mock_driver: MagicMock) -> None:
+    """ensure_schema removes no data; the cleanup is an explicit, owner-run step."""
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read.return_value = 0  # no duplicate decision ids
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    with patch.object(gsm, "seed_agents", new_callable=AsyncMock):
+        await gsm.ensure_schema()
+
+    write_fns = [c.args[0] for c in session.execute_write.await_args_list]
+    assert GraphStateManager._legacy_property_cleanup_tx not in write_fns
+
+
+async def test_remove_legacy_properties_runs_the_cleanup_write(mock_driver: MagicMock) -> None:
     from alphaswarm.graph import GraphStateManager
 
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    narratives = [
-        {"agent_id": "quants_01", "narrative": "Maintained buy signal across all 3 rounds."},
-        {"agent_id": "degens_01", "narrative": "Flipped from buy to sell after peer influence."},
-    ]
+    await gsm.remove_legacy_properties()
 
-    await gsm.write_decision_narratives(narratives)
-
-    session.execute_write.assert_awaited_once()
-    call_args = session.execute_write.call_args
-    narratives_param = call_args[0][1]
-    assert len(narratives_param) == 2
-    assert narratives_param[0]["agent_id"] == "quants_01"
+    write_fns = [c.args[0] for c in session.execute_write.await_args_list]
+    assert write_fns == [GraphStateManager._legacy_property_cleanup_tx]
 
 
-async def test_write_decision_narratives_empty_is_noop(mock_driver: MagicMock) -> None:
-    """write_decision_narratives with empty list does not open a session."""
+async def test_legacy_property_cleanup_tx_runs_each_statement() -> None:
+    from alphaswarm.graph import LEGACY_PROPERTY_CLEANUP, GraphStateManager
+
+    tx = AsyncMock()
+    await GraphStateManager._legacy_property_cleanup_tx(tx)
+
+    assert [c.args[0] for c in tx.run.await_args_list] == list(LEGACY_PROPERTY_CLEANUP)
+    assert any("REMOVE a.decision_narrative" in stmt for stmt in LEGACY_PROPERTY_CLEANUP)
+
+
+async def test_write_decision_narrative_without_target_is_a_no_op(mock_driver: MagicMock) -> None:
+    """A narrative for an agent with no decision in the cycle writes nothing and does not raise."""
     from alphaswarm.graph import GraphStateManager
 
+    session = mock_driver.session.return_value
+    session.execute_write.return_value = 0
     gsm = GraphStateManager(driver=mock_driver, personas=[])
-    await gsm.write_decision_narratives([])
-    mock_driver.session.assert_not_called()
 
+    await gsm.write_decision_narrative("c1", "degens_09", "orphan")
 
-def test_schema_statements_includes_episode_index() -> None:
-    """SCHEMA_STATEMENTS contains RationaleEpisode composite index."""
-    from alphaswarm.graph import SCHEMA_STATEMENTS
-
-    episode_indexes = [s for s in SCHEMA_STATEMENTS if "episode_cycle_round" in s]
-    assert len(episode_indexes) == 1
-    assert "RationaleEpisode" in episode_indexes[0]
+    session.execute_write.assert_awaited_once()
+    assert session.execute_write.await_args.args[1:] == ("c1", "degens_09", "orphan")
 
 
 # ---------------------------------------------------------------------------
-# Phase 12 Plan 01 Task 1: RankedPost, Post schema index, write_posts
+# RankedPost (peer-context formatting)
 # ---------------------------------------------------------------------------
-
-
-def test_schema_statements_includes_post_index() -> None:
-    """SCHEMA_STATEMENTS contains Post composite index on (cycle_id, round_num)."""
-    from alphaswarm.graph import SCHEMA_STATEMENTS
-
-    post_indexes = [s for s in SCHEMA_STATEMENTS if "post_cycle_round" in s]
-    assert len(post_indexes) == 1
-    assert "Post" in post_indexes[0]
-    assert "cycle_id" in post_indexes[0]
-    assert "round_num" in post_indexes[0]
 
 
 def test_ranked_post_dataclass_frozen() -> None:
@@ -375,137 +379,6 @@ def test_ranked_post_dataclass_frozen() -> None:
     assert dataclasses.is_dataclass(rp)
     with pytest.raises(dataclasses.FrozenInstanceError):
         rp.content = "new"  # type: ignore[misc]
-
-
-async def test_write_posts_creates_post_nodes(mock_driver: MagicMock) -> None:
-    """write_posts creates Post nodes with correct params and returns post_ids."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    decisions = [
-        ("agent_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, sentiment=0.5, rationale="bullish")),
-    ]
-    decision_ids = ["dec-001"]
-
-    result = await gsm.write_posts(decisions, decision_ids, "cycle_1", 1)
-
-    session.execute_write.assert_awaited_once()
-    call_args = session.execute_write.call_args
-    posts_param = call_args[0][1]
-    assert len(posts_param) == 1
-    p = posts_param[0]
-    assert "post_id" in p
-    assert p["agent_id"] == "agent_01"
-    assert p["content"] == "bullish"
-    assert p["signal"] == "buy"
-    assert p["confidence"] == 0.8
-    assert p["round_num"] == 1
-    assert p["cycle_id"] == "cycle_1"
-    assert p["decision_id"] == "dec-001"
-    assert len(result) == 1
-    uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    assert re.match(uuid4_pattern, result[0])
-
-
-async def test_write_posts_skip_parse_error(mock_driver: MagicMock) -> None:
-    """write_posts filters out PARSE_ERROR decisions."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    decisions = [
-        ("a1", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="error text")),
-        ("a2", AgentDecision(signal=SignalType.BUY, confidence=0.9, rationale="strong buy")),
-    ]
-    decision_ids = ["dec-err", "dec-buy"]
-
-    result = await gsm.write_posts(decisions, decision_ids, "c1", 1)
-
-    session.execute_write.assert_awaited_once()
-    call_args = session.execute_write.call_args
-    posts_param = call_args[0][1]
-    assert len(posts_param) == 1
-    assert posts_param[0]["agent_id"] == "a2"
-    assert len(result) == 1
-
-
-async def test_write_posts_empty_list(mock_driver: MagicMock) -> None:
-    """write_posts with empty list does not call execute_write."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    result = await gsm.write_posts([], [], "c1", 1)
-
-    session.execute_write.assert_not_awaited()
-    assert result == []
-
-
-async def test_write_posts_wraps_neo4j_error(mock_driver: MagicMock) -> None:
-    """write_posts wraps Neo4jError as Neo4jWriteError."""
-    from neo4j.exceptions import Neo4jError
-
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    original_exc = Neo4jError("simulated failure")
-    session.execute_write = AsyncMock(side_effect=original_exc)
-
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-    decisions = [
-        ("a1", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="test")),
-    ]
-    decision_ids = ["dec-001"]
-
-    with pytest.raises(Neo4jWriteError) as exc_info:
-        await gsm.write_posts(decisions, decision_ids, "c1", 1)
-
-    assert exc_info.value.original_error is original_exc
-
-
-async def test_write_posts_all_parse_error_is_noop(mock_driver: MagicMock) -> None:
-    """write_posts with all PARSE_ERROR decisions does not call execute_write."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    decisions = [
-        ("a1", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="err")),
-        ("a2", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, rationale="err2")),
-    ]
-    decision_ids = ["dec-001", "dec-002"]
-
-    result = await gsm.write_posts(decisions, decision_ids, "c1", 1)
-
-    session.execute_write.assert_not_awaited()
-    assert result == []
-
-
-@pytest.mark.parametrize("id_count", [1, 3], ids=["fewer_ids", "more_ids"])
-async def test_write_posts_raises_on_mismatched_ids(mock_driver: MagicMock, id_count: int) -> None:
-    """write_posts refuses decision_ids that do not pair one-to-one with the decisions.
-
-    Silently truncating would link a Post to the wrong Decision, or drop posts.
-    """
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-    decisions = [
-        ("a1", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="up")),
-        ("a2", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="down")),
-    ]
-    decision_ids = [f"dec-{i}" for i in range(id_count)]
-
-    with pytest.raises(ValueError):
-        await gsm.write_posts(decisions, decision_ids, "c1", 1)
-
-    session.execute_write.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -824,6 +697,7 @@ async def test_ensure_schema_maps_driver_errors(mock_driver: MagicMock) -> None:
     from alphaswarm.errors import Neo4jUnavailableError
     from alphaswarm.graph import GraphStateManager
 
+    mock_driver.session.return_value.execute_read = AsyncMock(return_value=0)
     mock_driver.session.return_value.run = AsyncMock(side_effect=ServiceUnavailable("down"))
     gsm = GraphStateManager(driver=mock_driver, personas=[])
     with pytest.raises(Neo4jUnavailableError) as exc_info:
@@ -878,7 +752,7 @@ async def test_new_cycle_is_created_running() -> None:
 
     tx = MagicMock()
     tx.run = AsyncMock()
-    await GraphStateManager._create_cycle_with_entities_tx(tx, "c1", "rumor", 0.4, [], 3)
+    await GraphStateManager._create_cycle_with_entities_tx(tx, "c1", "rumor", 0.4, [], 3, None, None)
     assert "status: 'running'" in tx.run.await_args_list[0].args[0]
 
 
@@ -1018,7 +892,7 @@ async def test_persist_round_tx_counts_dropped_citations() -> None:
                 "cycle_id": "c1",
             }
         ],
-        [{"decision_id": "d1", "entity_name": "ZZZT Holdings", "match_type": "substring"}],
+        [{"decision_id": "d1", "entity_name": "ZZZT Holdings", "entity_type": "company", "match_type": "token"}],
     )
     assert summary == PersistRoundResult(
         decision_ids=("d1",),
@@ -1076,7 +950,9 @@ async def test_persist_round_sends_one_write_with_all_rows(mock_driver: MagicMoc
     assert decision_rows[0]["control"] is False
     assert cited_rows == [{"decision_id": "d1", "cited_id": "degens_01"}]
     assert episode_rows[0]["round_num"] == 1
-    assert reference_rows == [{"decision_id": "d1", "entity_name": "ZZZT Holdings", "match_type": "substring"}]
+    assert reference_rows == [
+        {"decision_id": "d1", "entity_name": "ZZZT Holdings", "entity_type": "company", "match_type": "substring"}
+    ]
 
 
 async def test_persist_round_marks_only_control_ids_as_control(mock_driver: MagicMock) -> None:
@@ -1095,3 +971,106 @@ async def test_persist_round_marks_only_control_ids_as_control(mock_driver: Magi
     )
     decision_rows = session.execute_write.await_args.args[3]
     assert [(r["agent_id"], r["control"]) for r in decision_rows] == [("quants_01", False), ("degens_01", True)]
+
+
+def test_post_writer_is_gone() -> None:
+    """Post nodes are no longer written; RankedPost stays for peer formatting."""
+    from alphaswarm.graph import GraphStateManager, RankedPost
+
+    assert not hasattr(GraphStateManager, "write_posts")
+    assert RankedPost.__dataclass_fields__.keys() >= {"agent_id", "content"}
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, None),
+        ("{not json", None),
+        ('["quants"]', None),
+        (
+            '{"quants": "fictional catalyst watcher", "legacy_suits": "x", "degens": 3}',
+            {BracketType.QUANTS: "fictional catalyst watcher"},
+        ),
+    ],
+)
+def test_decode_modifiers_drops_bad_json_and_unknown_brackets(
+    raw: object,
+    expected: dict[BracketType, str] | None,
+) -> None:
+    from alphaswarm.graph import _decode_modifiers, _encode_modifiers
+
+    assert _decode_modifiers(raw) == expected
+    modifiers = {BracketType.QUANTS: "a", BracketType.DEGENS: "b"}
+    assert _decode_modifiers(_encode_modifiers(modifiers)) == modifiers
+
+
+# ---------------------------------------------------------------------------
+# Schema statements (docs/DECISIONS.md#adr-neo4j-schema)
+# ---------------------------------------------------------------------------
+
+
+def test_schema_drops_run_before_the_decision_id_constraint() -> None:
+    """A uniqueness constraint cannot coexist with the legacy plain index."""
+    from alphaswarm.graph import SCHEMA_STATEMENTS
+
+    drop = SCHEMA_STATEMENTS.index("DROP INDEX decision_id_idx IF EXISTS")
+    create = next(i for i, s in enumerate(SCHEMA_STATEMENTS) if "decision_id_unique" in s)
+    assert drop < create
+    assert all(("IF NOT EXISTS" in s) or ("IF EXISTS" in s) for s in SCHEMA_STATEMENTS)
+
+
+def test_schema_statements_keep_the_plain_index_while_duplicates_exist() -> None:
+    """Duplicate decision ids swap the constraint for the plain index; nothing else changes."""
+    from alphaswarm.graph import SCHEMA_STATEMENTS, schema_statements
+
+    assert schema_statements(0) == SCHEMA_STATEMENTS
+    guarded = schema_statements(3)
+    assert "DROP INDEX decision_id_idx IF EXISTS" not in guarded
+    assert not any("decision_id_unique" in s for s in guarded)
+    assert "CREATE INDEX decision_id_idx IF NOT EXISTS FOR (d:Decision) ON (d.decision_id)" in guarded
+    untouched = [s for s in SCHEMA_STATEMENTS if "decision_id_idx" not in s and "decision_id_unique" not in s]
+    assert [s for s in guarded if "decision_id_idx" not in s] == untouched
+    assert all(("IF NOT EXISTS" in s) or ("IF EXISTS" in s) for s in guarded)
+
+
+async def test_ensure_schema_skips_the_constraint_over_duplicate_decision_ids(mock_driver: MagicMock) -> None:
+    """Existing duplicates never fail startup: warn with the count, keep the plain index."""
+    from alphaswarm.graph import GraphStateManager, schema_statements
+
+    session = mock_driver.session.return_value
+    session.execute_read.return_value = 2
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    gsm._log = MagicMock()
+
+    with patch.object(gsm, "seed_agents", new_callable=AsyncMock):
+        await gsm.ensure_schema()
+
+    ran = [c.args[0] for c in session.run.await_args_list]
+    assert ran == schema_statements(2)
+    gsm._log.warning.assert_called_once_with("decision_id_duplicates_found", count=2)
+
+
+async def test_decision_id_duplicate_count_skips_the_scan_once_the_constraint_exists() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    present = MagicMock()
+    present.single = AsyncMock(return_value={"n": 1})
+    tx = MagicMock()
+    tx.run = AsyncMock(return_value=present)
+
+    assert await GraphStateManager._count_decision_id_duplicates_tx(tx) == 0
+    tx.run.assert_awaited_once()
+
+
+async def test_decision_id_duplicate_count_scans_while_the_constraint_is_absent() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    absent = MagicMock()
+    absent.single = AsyncMock(return_value={"n": 0})
+    dupes = MagicMock()
+    dupes.single = AsyncMock(return_value={"duplicate_ids": 4})
+    tx = MagicMock()
+    tx.run = AsyncMock(side_effect=[absent, dupes])
+
+    assert await GraphStateManager._count_decision_id_duplicates_tx(tx) == 4
+    assert "count(*) AS duplicate_ids" in tx.run.await_args_list[1].args[0]

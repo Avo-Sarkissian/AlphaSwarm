@@ -300,8 +300,9 @@ async def test_entity_impact_counts_each_decision_once_for_the_cycles_own_entiti
 ) -> None:
     zzzt = SeedEntity(name="ZZZT Holdings", type=EntityType.COMPANY, relevance=0.9, sentiment=0.6)
     zzzt_sector = SeedEntity(name="ZZZT Holdings", type=EntityType.SECTOR, relevance=0.5, sentiment=0.2)
-    # Another cycle MENTIONS a same-name entity of another type. It is written first,
-    # so the name-matched REFERENCES of the cycle under test reach it as well.
+    # Another cycle MENTIONS a same-name entity of another type. It is written first;
+    # REFERENCES match (name, type) through the cycle's own MENTIONS, so the cycle
+    # under test must not reach it.
     other_id = await write_mini_cycle(
         graph_manager_test,
         num_rounds=2,
@@ -321,8 +322,9 @@ async def test_entity_impact_counts_each_decision_once_for_the_cycles_own_entiti
         },
         entities=[zzzt, zzzt],
     )
-    # The setup must hold both hazards, or the reads below prove nothing: two MENTIONS
-    # of one entity, and REFERENCES to an entity this cycle never MENTIONS.
+    # The setup must hold the duplicate-MENTIONS hazard, or the reads below prove
+    # nothing; the write path can no longer reference an entity this cycle never
+    # MENTIONS (legacy data can, which the read's MENTIONS scoping still guards).
     mentions = await cypher(
         graph_manager_test,
         "MATCH (:Cycle {cycle_id: $cid})-[m:MENTIONS]->(e:Entity) RETURN e.type AS type, count(m) AS n",
@@ -334,7 +336,7 @@ async def test_entity_impact_counts_each_decision_once_for_the_cycles_own_entiti
         "MATCH (d:Decision {cycle_id: $cid})-[:REFERENCES]->(:Entity {type: 'sector'}) RETURN count(DISTINCT d) AS n",
         cid=cycle_id,
     )
-    assert stray == [{"n": 3}]
+    assert stray == [{"n": 0}]
 
     rows = await graph_manager_test.read_entity_impact(cycle_id)
     other_rows = await graph_manager_test.read_entity_impact(other_id)
@@ -350,7 +352,7 @@ async def test_entity_impact_counts_each_decision_once_for_the_cycles_own_entiti
             "hold_mentions": 0,
         },
     ]
-    # The other cycle counts only its own decision, not the stray REFERENCES above.
+    # The other cycle counts only its own decision.
     assert other_rows == [
         {
             "entity_name": "ZZZT Holdings",

@@ -156,5 +156,4 @@ def scenario_summary(
         "rounds": rounds,
         "shocks": [[c.args[1], c.kwargs["injected_before_round"]] for c in graph.write_shock_event.await_args_list],
         "metrics": {k: v for k, v in sorted(metrics.items()) if not k.endswith("_seconds")},
-        "narratives_written": sum(len(c.args[0]) for c in graph.write_decision_narratives.await_args_list),
     }

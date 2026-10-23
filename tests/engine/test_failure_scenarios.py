@@ -79,7 +79,6 @@ async def run_case(
     personas: Sequence[AgentPersona],
     brackets: Sequence[BracketConfig],
     state_store: StateStore | None = None,
-    generate_narratives: bool = False,
     orch: ScriptedProvider | None = None,
 ) -> SimulationResult:
     return await run_simulation(
@@ -92,7 +91,6 @@ async def run_case(
         list(personas),
         list(brackets),
         state_store=state_store,
-        generate_narratives=generate_narratives,
         orchestrator_provider=orch if orch is not None else orchestrator(personas),
         worker_provider=worker,
     )
@@ -223,7 +221,6 @@ async def test_phase_sequence_includes_finalizing(
 
         return record
 
-    graph.write_decision_narratives.side_effect = phase_during("narratives")
     graph.write_cycle_metrics.side_effect = phase_during("metrics")
     await run_case(
         settings=scenario_settings,
@@ -232,7 +229,6 @@ async def test_phase_sequence_includes_finalizing(
         personas=all_personas,
         brackets=all_brackets,
         state_store=store,
-        generate_narratives=True,
     )
     assert store.phases == [
         SimulationPhase.IDLE,
@@ -243,10 +239,7 @@ async def test_phase_sequence_includes_finalizing(
         SimulationPhase.FINALIZING,
         SimulationPhase.COMPLETE,
     ]
-    assert live_phase == {
-        "narratives": SimulationPhase.FINALIZING,
-        "metrics": SimulationPhase.FINALIZING,
-    }
+    assert live_phase == {"metrics": SimulationPhase.FINALIZING}
 
 
 class BlockOnRound2(ScriptedProvider):

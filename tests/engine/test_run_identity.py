@@ -5,9 +5,12 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from unittest.mock import MagicMock
 
+import pytest
+
+from alphaswarm.config import compute_prompt_template_hash
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.simulation import RoundCompleteEvent
-from alphaswarm.types import AgentPersona
+from alphaswarm.types import AgentPersona, BracketConfig, BracketType
 from tests.engine.scenario import (
     SCENARIO_CYCLE_ID,
     SCENARIO_MODIFIERS_JSON,
@@ -69,3 +72,22 @@ async def test_second_run_reports_its_own_cycle_and_restarts_edges_version(
 
     assert seen[0] == (1, SECOND_CYCLE_ID, 0)
     assert scenario_store.snapshot().edges_version == 2
+
+
+async def test_cycle_records_the_runs_modifiers_and_prompt_hash(
+    run_scenario: RunScenario,
+    fake_graph: MagicMock,
+    all_brackets: list[BracketConfig],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The created Cycle carries the generated modifiers and the hash of the run's brackets.
+
+    inject_seed's own default (the configured brackets) is made to differ, so the
+    test fails unless run_simulation passes the hash of the brackets it was given.
+    """
+    monkeypatch.setattr("alphaswarm.seed.load_bracket_configs", lambda: list(reversed(all_brackets)))
+    await run_scenario()
+
+    kwargs = fake_graph.create_cycle_with_seed_event.await_args.kwargs
+    assert kwargs["prompt_template_hash"] == compute_prompt_template_hash(all_brackets)
+    assert set(kwargs["modifiers"]) == set(BracketType)

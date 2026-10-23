@@ -1,10 +1,10 @@
-"""Tests for /api/settings endpoints (Task 16).
+"""Tests for /api/settings endpoints.
 
 Covers:
 - GET /api/settings: returns masked config (no raw key), mode, model lists.
 - PUT /api/settings: persists; empty api_key leaves stored key unchanged; 409 mid-run; 400 bad body.
 - POST /api/settings/test: {ok:true} on success; {ok:false, error:...} on AuthError; never 500.
-- GET /api/settings/estimate: calls = agents*rounds + agents(narratives) + 3; local cfg → $0.
+- GET /api/settings/estimate: calls = agents*rounds + 3 (a run makes no narrative calls); local cfg → $0.
 """
 
 from __future__ import annotations
@@ -603,17 +603,26 @@ class TestConnectionTest:
 
 
 class TestGetEstimate:
-    def test_calls_count_includes_narratives(self) -> None:
-        """calls = agents*rounds + agents(narratives) + 3."""
-        with _mock_load_cfg(_LOCAL_CFG), TestClient(_make_settings_test_app()) as client:
+    def test_estimate_counts_no_narrative_calls(self) -> None:
+        """calls = agents*rounds + 3, and the cost has no narrative share.
+
+        Narratives are generated on an agent's first interview, not by the run.
+        """
+        from alphaswarm.inference.budget import estimate_run
+        from alphaswarm.web.routes.settings import _AVG_IN_TOKENS, _AVG_OUT_TOKENS
+
+        with _mock_load_cfg(_ANTHROPIC_CFG), TestClient(_make_settings_test_app()) as client:
             agents = len(client.app.state.app_state.personas)
             rounds = client.app.state.app_state.settings.num_rounds
             r = client.get("/api/settings/estimate")
 
         assert r.status_code == 200
         data = r.json()
-        expected_calls = agents * rounds + agents + 3
-        assert data["calls"] == expected_calls
+        assert data["calls"] == agents * rounds + 3
+        run_only = estimate_run(
+            _ANTHROPIC_CFG, agents=agents, rounds=rounds, avg_in=_AVG_IN_TOKENS, avg_out=_AVG_OUT_TOKENS
+        )
+        assert (Decimal(data["low_usd"]), Decimal(data["high_usd"])) == (run_only.low_usd, run_only.high_usd)
 
     def test_local_config_zero_cost(self) -> None:
         """Local (OLLAMA) config → cost is $0."""

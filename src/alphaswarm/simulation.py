@@ -24,8 +24,13 @@ from typing import TYPE_CHECKING, Final
 
 import structlog
 
-from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS, dispatch_wave
-from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
+from alphaswarm.batch_dispatcher import dispatch_wave
+from alphaswarm.config import (
+    compute_prompt_template_hash,
+    generate_modifiers,
+    generate_personas,
+    persona_to_worker_config,
+)
 from alphaswarm.context_formatter import format_market_context
 from alphaswarm.episodes import EpisodeRecord, compute_flip_type, match_entities, new_decision_ids
 from alphaswarm.errors import RoundFailedError, run_error_from_exception
@@ -991,7 +996,6 @@ async def _run_simulation(
     *,
     on_round_complete: OnRoundComplete = None,
     state_store: StateStore | None = None,
-    generate_narratives: bool = True,
     consume_shock: Callable[[], str | None] | None = None,
     market_provider: MarketDataProvider | None = None,
     news_provider: NewsProvider | None = None,
@@ -1042,6 +1046,7 @@ async def _run_simulation(
         orch,
         graph_manager,
         modifier_generator=generate_modifiers,
+        prompt_template_hash=compute_prompt_template_hash(brackets),
     )
     tracker.cycle_id = cycle_id
     if state_store is not None:
@@ -1134,14 +1139,6 @@ async def _run_simulation(
 
     phase = SimulationPhase.ROUND_1
     logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
-
-    # Phase 12: Write Round 1 Post nodes from Decision rationale (D-13)
-    round1_post_ids = await graph_manager.write_posts(
-        round1_result.agent_decisions,
-        round1_result.decision_ids,
-        cycle_id,
-        round_num=1,
-    )
 
     # Skip Round 1 influence-edge computation: Round 1 agents see only the
     # rumor (no peer context), so they can't populate `cited_agents`, so
@@ -1242,7 +1239,6 @@ async def _run_simulation(
             personas,
             round_num=2,
         )
-        _ = round1_post_ids  # Posts still written for report/interview reads
 
         logger.info(
             "round_dispatch_start",
@@ -1292,15 +1288,6 @@ async def _run_simulation(
                 prev_decisions=round1_result.agent_decisions,
                 entities=entities,
                 control_ids=control_ids,
-            )
-            round2_ids = list(round2_persisted.decision_ids)
-
-            # Phase 12: Write Round 2 Post nodes (D-12 step 2)
-            round2_post_ids = await graph_manager.write_posts(
-                round2_decisions,
-                round2_ids,
-                cycle_id,
-                round_num=2,
             )
 
             # Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2).
@@ -1428,7 +1415,6 @@ async def _run_simulation(
                     control_ids=control_ids,
                 )
                 exposure_metrics.update(compute_exposure_metrics(round3_exposures, personas, round_num=3))
-                _ = round2_post_ids  # Posts still written for report/interview reads
 
                 logger.info(
                     "round_dispatch_start",
@@ -1474,16 +1460,7 @@ async def _run_simulation(
                     entities=entities,
                     control_ids=control_ids,
                 )
-                round3_ids = list(round3_persisted.decision_ids)
                 round3_citations_dropped = round3_persisted.citations_dropped
-
-                # Phase 12: Write Round 3 Post nodes
-                await graph_manager.write_posts(
-                    round3_decisions,
-                    round3_ids,
-                    cycle_id,
-                    round_num=3,
-                )
 
                 # Compute influence edges after Round 3 so /api/edges/{cycle}?round=3
                 # returns a non-empty array (ITEM 2 of quick task 260512-jqn).
@@ -1546,32 +1523,13 @@ async def _run_simulation(
 
                 r3_seconds = time.monotonic() - r3_start
 
-            # FINALIZING: every round is persisted; narratives (while still
-            # eager), metrics and the status write follow, so the UI no longer
-            # sits on the last round's label (docs/DECISIONS.md#p7-d-07).
+            # FINALIZING: every round is persisted; the metrics and status write
+            # follow, so the UI no longer sits on the last round's label
+            # (docs/DECISIONS.md#p7-d-07).
             phase = SimulationPhase.FINALIZING
             logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
             if state_store is not None:
                 await state_store.set_phase(SimulationPhase.FINALIZING)
-
-            # Phase 11: Post-simulation narrative generation (D-10, D-11)
-            # Worker model is still loaded here -- generate before unload
-            narratives_start = time.monotonic()
-            if generate_narratives:
-                logger.info("narrative_generation_start", agent_count=len(personas))
-                narratives = await _generate_decision_narratives(
-                    personas=personas,
-                    all_decisions={
-                        1: round1_result.agent_decisions,
-                        2: round2_decisions,
-                        3: round3_decisions,
-                    },
-                    graph_manager=graph_manager,
-                    governor=governor,
-                    provider=worker,
-                )
-                logger.info("narrative_generation_complete", count=len(narratives))
-            narratives_seconds = time.monotonic() - narratives_start
 
         finally:
             # Teardown worker (unload model for local OllamaProvider; no-op for cloud providers)
@@ -1599,7 +1557,6 @@ async def _run_simulation(
         "r1_seconds": round(r1_seconds, 1),
         "r2_seconds": round(r2_seconds, 1),
         "r3_seconds": round(r3_seconds, 1),
-        "narratives_seconds": round(narratives_seconds, 1),
         "total_seconds": round(time.monotonic() - sim_start, 1),
         "r2_flips": round2_shifts.total_flips,
         "r3_flips": round3_shifts.total_flips,
@@ -1678,7 +1635,6 @@ async def run_simulation(
     *,
     on_round_complete: OnRoundComplete = None,
     state_store: StateStore | None = None,
-    generate_narratives: bool = True,
     consume_shock: Callable[[], str | None] | None = None,
     market_provider: MarketDataProvider | None = None,
     news_provider: NewsProvider | None = None,
@@ -1722,7 +1678,6 @@ async def run_simulation(
             brackets,
             on_round_complete=on_round_complete,
             state_store=state_store,
-            generate_narratives=generate_narratives,
             consume_shock=consume_shock,
             market_provider=market_provider,
             news_provider=news_provider,
@@ -1738,133 +1693,3 @@ async def run_simulation(
         code = run_error_from_exception(exc, round_num=None).code
         await _record_terminal_status(graph_manager, tracker.cycle_id, "failed", code)
         raise
-
-
-# ---------------------------------------------------------------------------
-# Post-simulation narrative generation helper (Phase 11, D-10, D-11)
-# ---------------------------------------------------------------------------
-
-
-async def _generate_decision_narratives(
-    personas: list[AgentPersona],
-    all_decisions: dict[int, list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]],
-    graph_manager: GraphStateManager,
-    governor: ConcurrencyController,
-    provider: InferenceProvider,
-) -> list[dict]:
-    """Generate natural-language decision narrative for each agent (D-10, D-11).
-
-    Uses the worker provider through governor for memory safety.
-    Skip-and-log on per-agent failures (Pitfall 5 from research); hard stops
-    (HARD_STOP_ERRORS) propagate bare, the first one if several fail.
-
-    Args:
-        personas: Agent personas to generate narratives for.
-        all_decisions: Mapping of round_num -> list of (agent_id, AgentDecision).
-        graph_manager: Neo4j graph state manager for persisting narratives.
-        governor: Concurrency controller for throttling inference.
-        provider: Worker InferenceProvider to route narrative inference through.
-            For local path this is the OllamaProvider; for cloud path it is the
-            configured cloud provider. Behavior is identical for local (same
-            model, same prompt) — only the call site changes from client.generate
-            to provider.chat with equivalent messages.
-
-    Returns list of {"agent_id": str, "narrative": str} dicts that were written.
-    """
-    import asyncio as _asyncio
-
-    from alphaswarm.inference.types import InferenceMessage
-
-    # Build per-agent decision summaries
-    agent_decisions_by_id: dict[str, dict[int, AgentDecision]] = {}
-    for round_num, decisions in all_decisions.items():
-        for agent_id, decision in decisions:
-            if agent_id not in agent_decisions_by_id:
-                agent_decisions_by_id[agent_id] = {}
-            agent_decisions_by_id[agent_id][round_num] = decision
-
-    persona_map = {p.id: p for p in personas}
-    narratives: list[dict[str, str]] = []
-    failed = 0
-
-    async def _generate_one(agent_id: str) -> dict[str, str] | None:
-        persona = persona_map.get(agent_id)
-        if not persona:
-            return None
-        rounds = agent_decisions_by_id.get(agent_id, {})
-        if not rounds:
-            return None
-
-        # Build a prompt summarizing the arc over the rounds that ran
-        # (docs/DECISIONS.md#adr-num-rounds)
-        lines = [
-            f"Agent: {persona.name} ({persona.bracket.value})",
-            f"Risk profile: {persona.risk_profile}",
-            "",
-        ]
-        for rn in sorted(rounds.keys()):
-            dec = rounds[rn]
-            flip_label = "none"
-            if rn > 1:
-                prev = rounds.get(rn - 1)
-                if prev:
-                    flip_label = compute_flip_type(prev.signal, dec.signal).value
-            lines.append(
-                f"Round {rn}: {dec.signal.value.upper()} "
-                f"(confidence: {dec.confidence:.2f}, sentiment: {dec.sentiment:.2f}) "
-                f"flip: {flip_label}"
-            )
-            if dec.cited_agents:
-                lines.append(f"  Cited: {', '.join(dec.cited_agents)}")
-
-        prompt = (
-            f"Summarize this agent's {len(rounds)}-round decision arc in 2-3 sentences. "
-            "Note any signal changes and key influences. Be concise.\n\n" + "\n".join(lines)
-        )
-
-        messages: list[InferenceMessage] = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a concise financial analyst narrator. Summarize agent decision arcs in 2-3 sentences."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ]
-
-        nonlocal failed
-        try:
-            async with governor:
-                result = await provider.chat(messages)
-                narrative_text = result.content.strip()
-                if narrative_text:
-                    return {"agent_id": agent_id, "narrative": narrative_text}
-                return None
-        except HARD_STOP_ERRORS:
-            raise  # budget/auth/crisis stop the run (docs/DECISIONS.md#adr-taskgroup-dispatch)
-        except Exception:
-            failed += 1
-            logger.warning("narrative_generation_failed", agent_id=agent_id, exc_info=True)
-            return None
-
-    # Fan out through a TaskGroup (the governor throttles); hard stops leave bare.
-    tasks: list[_asyncio.Task[dict[str, str] | None]] = []
-    try:
-        async with _asyncio.TaskGroup() as tg:
-            tasks = [tg.create_task(_generate_one(agent_id)) for agent_id in agent_decisions_by_id]
-    except* HARD_STOP_ERRORS as eg:
-        raise eg.exceptions[0] from eg
-
-    for task in tasks:
-        outcome = task.result()
-        if outcome is not None:
-            narratives.append(outcome)
-
-    if failed:
-        logger.warning("narrative_generation_partial_failures", error_count=failed)
-
-    # Batch-write all successful narratives to Agent nodes
-    if narratives:
-        await graph_manager.write_decision_narratives(narratives)
-
-    return narratives

@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from alphaswarm.graph import GraphStateManager
-from alphaswarm.types import AgentDecision, EntityType, SeedEntity, SeedEvent, SignalType
+from alphaswarm.types import AgentDecision, BracketType, EntityType, SeedEntity, SeedEvent, SignalType
 from tests.support.graph_fakes import write_round
 
 MINI_RUMOR = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
@@ -48,6 +48,8 @@ async def write_mini_cycle(
     rounds: Mapping[int, Sequence[tuple[str, AgentDecision]]],
     entities: Sequence[SeedEntity] = MINI_ENTITIES,
     shock: tuple[int, str] | None = None,
+    modifiers: Mapping[BracketType, str] | None = None,
+    prompt_template_hash: str | None = None,
 ) -> str:
     """Write a cycle with the given decisions per round and return its id.
 
@@ -59,6 +61,8 @@ async def write_mini_cycle(
         MINI_RUMOR,
         SeedEvent(raw_rumor=MINI_RUMOR, entities=list(entities), overall_sentiment=0.3),
         num_rounds=num_rounds,
+        modifiers=modifiers,
+        prompt_template_hash=prompt_template_hash,
     )
     cycle_entities = await gm.read_cycle_entities(cycle_id)
     # Each agent's latest earlier decision, so a flip spans a round the agent skipped.

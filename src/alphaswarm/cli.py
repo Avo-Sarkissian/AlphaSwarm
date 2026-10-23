@@ -637,7 +637,7 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
         # Prepare (load) orchestrator model (per D-12, follows seed.py pattern)
         await orch_provider.prepare()
 
-        # Build tool registry: map 8 tool names -> bound graph_manager methods
+        # Build tool registry: map 7 tool names -> bound graph_manager methods
         gm = app.graph_manager
         tools: dict[str, object] = {
             "bracket_summary": lambda **kw: gm.read_consensus_summary(kw.get("cycle_id", cycle_id)),
@@ -647,7 +647,6 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
             "influence_leaders": lambda **kw: gm.read_influence_leaders(kw.get("cycle_id", cycle_id)),
             "signal_flip_analysis": lambda **kw: gm.read_signal_flips(kw.get("cycle_id", cycle_id)),
             "entity_impact": lambda **kw: gm.read_entity_impact(kw.get("cycle_id", cycle_id)),
-            "social_post_reach": lambda **kw: gm.read_social_post_reach(kw.get("cycle_id", cycle_id)),
         }
 
         # Phase 27: Pre-seed shock_impact observation when a ShockEvent exists

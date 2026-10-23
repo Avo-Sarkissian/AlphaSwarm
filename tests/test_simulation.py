@@ -130,9 +130,6 @@ def mock_graph_manager() -> AsyncMock:
     gm.set_cycle_status = AsyncMock()
     gm.compute_influence_edges = AsyncMock(return_value={})
     gm.read_cycle_entities = AsyncMock(return_value=[])  # Phase 11
-    gm.write_decision_narratives = AsyncMock()  # Phase 11
-    # Phase 12: Post node methods
-    gm.write_posts = AsyncMock(return_value=["post_id_1", "post_id_2"])
     # Phase 35.1 — shock injection writer (B1 wiring fix)
     gm.write_shock_event = AsyncMock(return_value="shock-id-123")
     return gm
@@ -501,7 +498,7 @@ async def test_run_round1_result_agent_decisions_count_matches_personas(
 
 
 # ---------------------------------------------------------------------------
-# Provider-injection tests for run_round1 and narrative generation (T15a)
+# Provider-injection tests for run_round1
 # ---------------------------------------------------------------------------
 
 
@@ -608,75 +605,6 @@ async def test_run_round1_default_path_uses_model_manager(
 
     mock_model_manager.load_model.assert_awaited_with(mock_settings.ollama.worker_model_alias)
     mock_model_manager.unload_model.assert_awaited_with(mock_settings.ollama.worker_model_alias)
-
-
-async def test_generate_decision_narratives_uses_injected_provider(
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-) -> None:
-    """_generate_decision_narratives calls provider.chat(), not a hardcoded client.
-
-    Verifies that the narrative generation path routes through the injected
-    InferenceProvider and that the provider.chat() call receives messages
-    containing both the system prompt and user content.
-    """
-    from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
-    from alphaswarm.simulation import _generate_decision_narratives
-
-    chat_calls: list[list[InferenceMessage]] = []
-
-    class TrackingProvider:
-        role = ProviderRole.WORKER
-        model = "tracking-worker"
-
-        def is_local(self) -> bool:
-            return False
-
-        async def prepare(self) -> None:
-            pass
-
-        async def teardown(self) -> None:
-            pass
-
-        async def chat(self, messages: list[InferenceMessage], **kwargs) -> InferenceResult:  # type: ignore[override]
-            chat_calls.append(list(messages))
-            return InferenceResult(content="cloud narrative", model="tracking-worker")
-
-        async def aclose(self) -> None:
-            pass
-
-    persona = AgentPersona(
-        id="institutions_01",
-        name="Institutions 1",
-        bracket=BracketType.QUANTS,
-        risk_profile=0.3,
-        temperature=0.2,
-        system_prompt="test",
-        influence_weight_base=0.9,
-    )
-    all_decisions: dict[int, list[tuple[str, AgentDecision]]] = {
-        1: [("institutions_01", AgentDecision(signal=SignalType.BUY, confidence=0.8, sentiment=0.5))],
-        2: [("institutions_01", AgentDecision(signal=SignalType.BUY, confidence=0.85, sentiment=0.6))],
-        3: [("institutions_01", AgentDecision(signal=SignalType.HOLD, confidence=0.6, sentiment=0.1))],
-    }
-
-    result = await _generate_decision_narratives(
-        personas=[persona],
-        all_decisions=all_decisions,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        provider=TrackingProvider(),
-    )
-
-    assert len(result) == 1
-    assert result[0]["agent_id"] == "institutions_01"
-    assert result[0]["narrative"] == "cloud narrative"
-    # provider.chat() was called with a messages list
-    assert len(chat_calls) == 1
-    messages = chat_calls[0]
-    roles = [m["role"] for m in messages]
-    assert "system" in roles, "System message missing from provider.chat() call"
-    assert "user" in roles, "User message missing from provider.chat() call"
 
 
 def test_round1_result_is_frozen() -> None:
@@ -2035,7 +1963,7 @@ def test_round_complete_event_has_bracket_summaries() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Round persistence and narrative generation
+# Round persistence
 # ---------------------------------------------------------------------------
 
 
@@ -2102,7 +2030,6 @@ async def test_run_simulation_persists_episode_records(
         governor=mock_governor,
         personas=TEST_PERSONAS,
         brackets=TEST_BRACKETS,
-        generate_narratives=False,
     )
 
     episodes_by_round = {c.args[1]: c.kwargs["episodes"] for c in mock_graph_manager.persist_round.await_args_list}
@@ -2120,110 +2047,9 @@ async def test_run_simulation_persists_episode_records(
     assert {e.flip_type for e in episodes_by_round[3]} == {"none"}
 
 
-@patch("alphaswarm.simulation._generate_decision_narratives", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
-async def test_run_simulation_narrative_generation_gated(
-    mock_inject: AsyncMock,
-    mock_round1: AsyncMock,
-    mock_dispatch_wave: AsyncMock,
-    mock_narratives: AsyncMock,
-    mock_settings: AppSettings,
-    mock_ollama_client: MagicMock,
-    mock_model_manager: AsyncMock,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-) -> None:
-    """Narrative generation is called when generate_narratives=True and skipped when False.
-
-    _generate_decision_narratives is patched to isolate the gating logic from
-    the provider abstraction (that path is covered by
-    test_generate_decision_narratives_produces_output).
-    """
-    from alphaswarm.simulation import run_simulation
-
-    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
-    mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
-    mock_narratives.return_value = []
-
-    # Test generate_narratives=False: _generate_decision_narratives NOT called
-    await run_simulation(
-        rumor=MOCK_RUMOR,
-        settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        personas=TEST_PERSONAS,
-        brackets=TEST_BRACKETS,
-        generate_narratives=False,
-    )
-    mock_narratives.assert_not_awaited()
-
-    # Reset mock
-    mock_narratives.reset_mock()
-
-    # Test generate_narratives=True: _generate_decision_narratives IS called
-    await run_simulation(
-        rumor=MOCK_RUMOR,
-        settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        personas=TEST_PERSONAS,
-        brackets=TEST_BRACKETS,
-        generate_narratives=True,
-    )
-    mock_narratives.assert_awaited_once()
-
-
 # ---------------------------------------------------------------------------
 # Phase 12 Task 3: Post-write and ranked-post integration tests
 # ---------------------------------------------------------------------------
-
-
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
-async def test_run_simulation_writes_posts_after_decisions(
-    mock_inject: AsyncMock,
-    mock_round1: AsyncMock,
-    mock_dispatch_wave: AsyncMock,
-    mock_settings: AppSettings,
-    mock_ollama_client: MagicMock,
-    mock_model_manager: AsyncMock,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-) -> None:
-    """write_posts called 3 times (once per round) with correct round_num."""
-    from alphaswarm.simulation import run_simulation
-
-    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
-    mock_round1.return_value = _mock_round1_result()
-    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
-
-    await run_simulation(
-        rumor=MOCK_RUMOR,
-        settings=mock_settings,
-        ollama_client=mock_ollama_client,
-        model_manager=mock_model_manager,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        personas=TEST_PERSONAS,
-        brackets=TEST_BRACKETS,
-        generate_narratives=False,
-    )
-
-    # write_posts called 3 times (once per round)
-    assert mock_graph_manager.write_posts.await_count == 3
-    round_nums = [
-        call.kwargs.get("round_num", call.args[3] if len(call.args) > 3 else None)
-        for call in mock_graph_manager.write_posts.await_args_list
-    ]
-    assert round_nums == [1, 2, 3]
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -2255,7 +2081,6 @@ async def test_run_simulation_peer_contexts_cite_round1_agents(
         governor=mock_governor,
         personas=TEST_PERSONAS,
         brackets=TEST_BRACKETS,
-        generate_narratives=False,
     )
 
     # Each agent's Round 2 context names peer agent ids from Round 1 (the
@@ -2301,7 +2126,6 @@ async def test_run_simulation_two_rounds_skips_round3(
         governor=mock_governor,
         personas=TEST_PERSONAS,
         brackets=TEST_BRACKETS,
-        generate_narratives=False,
     )
 
     # Only the Round 2 wave dispatched (Round 1 is mocked out via run_round1).
@@ -3334,92 +3158,6 @@ async def test_run_simulation_through_dispatch_wave(
     assert "== NVDA ==" in combined
 
 
-# ---------------------------------------------------------------------------
-# Phase 41.2-03: D-03 — _generate_decision_narratives must produce ≥1 narrative
-# ---------------------------------------------------------------------------
-
-
-async def test_generate_decision_narratives_produces_output(
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-) -> None:
-    """Regression for D-03: `_generate_decision_narratives` must return ≥1
-    narrative dict for a happy-path single-agent fixture.
-
-    Updated for provider abstraction: the function now accepts
-    `provider: InferenceProvider` instead of `client`/`model`. The test uses
-    a FakeInferenceProvider that returns a fixed InferenceResult so the test
-    does not require a real Ollama connection.
-
-    Helper signature (simulation.py):
-        _generate_decision_narratives(personas, all_decisions, graph_manager,
-                                      governor, provider)
-    """
-    from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
-    from alphaswarm.simulation import _generate_decision_narratives
-
-    class FakeNarrativeProvider:
-        """Minimal InferenceProvider stub for narrative generation tests."""
-
-        role = ProviderRole.WORKER
-        model = "alphaswarm-worker"
-
-        def is_local(self) -> bool:
-            return True
-
-        async def prepare(self) -> None:
-            pass
-
-        async def teardown(self) -> None:
-            pass
-
-        async def chat(
-            self,
-            messages: list[InferenceMessage],
-            *,
-            response_schema: object = None,
-            json_mode: bool = False,
-            temperature: float | None = None,
-            max_tokens: int | None = None,
-        ) -> InferenceResult:
-            return InferenceResult(content="test narrative", model="alphaswarm-worker")
-
-        async def aclose(self) -> None:
-            pass
-
-    persona = AgentPersona(
-        id="quants_01",
-        name="Quants 1",
-        bracket=BracketType.QUANTS,
-        risk_profile=0.4,
-        temperature=0.3,
-        system_prompt="test prompt quants 1",
-        influence_weight_base=0.7,
-    )
-    # 3 rounds for one agent — exercises the flip-label branch (rn > 1)
-    all_decisions: dict[int, list[tuple[str, AgentDecision]]] = {
-        1: [("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.7, sentiment=0.4))],
-        2: [("quants_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, sentiment=-0.2))],
-        3: [("quants_01", AgentDecision(signal=SignalType.SELL, confidence=0.8, sentiment=-0.3))],
-    }
-
-    # mock_graph_manager.write_decision_narratives is a no-op AsyncMock per fixture.
-    # mock_governor is AsyncMock so `async with governor:` works out of the box.
-    result = await _generate_decision_narratives(
-        personas=[persona],
-        all_decisions=all_decisions,
-        graph_manager=mock_graph_manager,
-        governor=mock_governor,
-        provider=FakeNarrativeProvider(),
-    )
-
-    assert isinstance(result, list)
-    assert len(result) >= 1, f"_generate_decision_narratives produced 0 narratives — D-03 regression. Result: {result}"
-    first = result[0]
-    assert first.get("agent_id") == "quants_01"
-    assert first.get("narrative", "").strip() == "test narrative"
-
-
 # Per-round peer exposure keys for TEST_BRACKETS (quants, degens), rounds 2-3
 # (docs/DECISIONS.md#adr-diverse-peer-context).
 _EXPOSURE_KEYS_TEST_BRACKETS: frozenset[str] = frozenset(
@@ -3501,7 +3239,6 @@ async def test_run_simulation_writes_cycle_metrics(
         "r1_seconds",
         "r2_seconds",
         "r3_seconds",
-        "narratives_seconds",
         "total_seconds",
         "r2_flips",
         "r3_flips",
@@ -3741,7 +3478,6 @@ async def test_run_simulation_uses_injected_worker_provider(
         governor=mock_governor,
         personas=TEST_PERSONAS,
         brackets=TEST_BRACKETS,
-        generate_narratives=False,
         worker_provider=fake_worker,
     )
 
@@ -3792,7 +3528,6 @@ async def test_run_simulation_default_path_builds_ollama_providers(
         governor=mock_governor,
         personas=TEST_PERSONAS,
         brackets=TEST_BRACKETS,
-        generate_narratives=False,
         # No orchestrator_provider / worker_provider — default local path.
     )
 
@@ -3807,3 +3542,15 @@ async def test_run_simulation_default_path_builds_ollama_providers(
     # model_manager lifecycle: load_model and unload_model called via prepare/teardown.
     mock_model_manager.load_model.assert_awaited_once()
     mock_model_manager.unload_model.assert_awaited_once()
+
+
+def test_run_simulation_makes_no_eager_narrative_calls() -> None:
+    """Narratives are generated lazily on first interview, never in the run."""
+    import inspect
+
+    from alphaswarm import simulation
+    from alphaswarm.graph import GraphStateManager
+
+    assert "generate_narratives" not in inspect.signature(simulation.run_simulation).parameters
+    assert not hasattr(simulation, "_generate_decision_narratives")
+    assert not hasattr(GraphStateManager, "write_decision_narratives")

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import uuid
-from collections.abc import Awaitable, Callable, Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, TypeVar, cast, get_args
@@ -13,16 +14,17 @@ from neo4j import unit_of_work
 from neo4j.exceptions import AuthError as Neo4jAuthError
 from neo4j.exceptions import DriverError, Neo4jError
 
-from alphaswarm.config import DEFAULT_BRACKETS
+from alphaswarm.config import DEFAULT_BRACKETS, generate_personas, load_bracket_configs
 from alphaswarm.episodes import EntityRef
 from alphaswarm.errors import (
+    AgentNotFoundError,
     GraphError,
     Neo4jQueryError,
     Neo4jUnavailableError,
     Neo4jWriteError,
 )
 from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
-from alphaswarm.types import SignalType
+from alphaswarm.types import BracketType, SignalType
 
 if TYPE_CHECKING:
     from neo4j import AsyncDriver, AsyncManagedTransaction
@@ -35,6 +37,33 @@ if TYPE_CHECKING:
 log = structlog.get_logger(component="graph")
 
 T = TypeVar("T")
+
+
+def _encode_modifiers(modifiers: Mapping[BracketType, str] | None) -> str | None:
+    """Canonical JSON of the per-cycle focus lines keyed by bracket value; None stays None."""
+    if modifiers is None:
+        return None
+    return json.dumps(
+        {bracket.value: text for bracket, text in modifiers.items()},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+
+
+def _decode_modifiers(raw: object) -> dict[BracketType, str] | None:
+    """Inverse of _encode_modifiers; unknown brackets and bad JSON are dropped."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        log.warning("cycle_modifiers_decode_failed")
+        return None
+    if not isinstance(data, dict):
+        return None
+    known = {b.value for b in BracketType}
+    return {BracketType(k): v for k, v in data.items() if k in known and isinstance(v, str)}
+
 
 # neo4j 5.x raises a pool-acquisition timeout as a code-less ClientError
 # (6.0 plans to make it a DriverError).
@@ -239,18 +268,63 @@ class RationaleRoundRow(TypedDict):
 # ---------------------------------------------------------------------------
 
 SCHEMA_STATEMENTS: list[str] = [
+    # Drops first: the decision_id uniqueness constraint cannot be created while
+    # the plain decision_id_idx index exists; post/episode indexes serve no query
+    # and agent_id_idx duplicates agent_id_unique (docs/DECISIONS.md#adr-neo4j-schema).
+    "DROP INDEX decision_id_idx IF EXISTS",
+    "DROP INDEX agent_id_idx IF EXISTS",
+    "DROP INDEX post_cycle_round IF EXISTS",
+    "DROP INDEX post_id_idx IF EXISTS",
+    "DROP INDEX episode_cycle_round IF EXISTS",
     "CREATE CONSTRAINT agent_id_unique IF NOT EXISTS FOR (a:Agent) REQUIRE a.id IS UNIQUE",
     "CREATE CONSTRAINT cycle_id_unique IF NOT EXISTS FOR (c:Cycle) REQUIRE c.cycle_id IS UNIQUE",
     "CREATE CONSTRAINT entity_name_type_unique IF NOT EXISTS FOR (e:Entity) REQUIRE (e.name, e.type) IS UNIQUE",
-    "CREATE INDEX decision_cycle_round IF NOT EXISTS FOR (d:Decision) ON (d.cycle_id, d.round)",
-    "CREATE INDEX agent_id_idx IF NOT EXISTS FOR (a:Agent) ON (a.id)",
-    "CREATE INDEX decision_id_idx IF NOT EXISTS FOR (d:Decision) ON (d.decision_id)",
-    "CREATE INDEX episode_cycle_round IF NOT EXISTS FOR (re:RationaleEpisode) ON (re.cycle_id, re.round)",
-    "CREATE INDEX post_cycle_round IF NOT EXISTS FOR (p:Post) ON (p.cycle_id, p.round_num)",
-    "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
+    "CREATE CONSTRAINT decision_id_unique IF NOT EXISTS FOR (d:Decision) REQUIRE d.decision_id IS UNIQUE",
     "CREATE CONSTRAINT shock_id_unique IF NOT EXISTS FOR (se:ShockEvent) REQUIRE se.shock_id IS UNIQUE",
+    "CREATE INDEX decision_cycle_round IF NOT EXISTS FOR (d:Decision) ON (d.cycle_id, d.round)",
+    "CREATE INDEX decision_cycle IF NOT EXISTS FOR (d:Decision) ON (d.cycle_id)",
+    "CREATE INDEX influenced_by_cycle_round IF NOT EXISTS FOR ()-[r:INFLUENCED_BY]-() ON (r.cycle_id, r.round)",
+    "CREATE INDEX cycle_created IF NOT EXISTS FOR (c:Cycle) ON (c.created_at)",
     "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)",
 ]
+
+# A uniqueness constraint cannot be created over existing duplicates, and no
+# migration may delete data: while duplicate decision ids exist, ensure_schema
+# keeps the plain index instead and warns (docs/DECISIONS.md#adr-neo4j-schema).
+_DECISION_ID_CONSTRAINT: Final = "decision_id_unique"
+_DROP_DECISION_ID_INDEX: Final = "DROP INDEX decision_id_idx IF EXISTS"
+_DECISION_ID_INDEX: Final = "CREATE INDEX decision_id_idx IF NOT EXISTS FOR (d:Decision) ON (d.decision_id)"
+_DECISION_ID_CONSTRAINT_PRESENT: Final = "SHOW CONSTRAINTS YIELD name WHERE name = $name RETURN count(*) AS n"
+_DECISION_ID_DUPLICATES: Final = (
+    "MATCH (d:Decision) WHERE d.decision_id IS NOT NULL "
+    "WITH d.decision_id AS id, count(*) AS n WHERE n > 1 "
+    "RETURN count(*) AS duplicate_ids"
+)
+
+
+def schema_statements(duplicate_decision_ids: int) -> list[str]:
+    """The statements ensure_schema runs, given the duplicate decision id count.
+
+    With duplicates the decision_id_idx drop is skipped and the uniqueness
+    constraint is replaced by the plain index, so startup never fails on them.
+    """
+    if duplicate_decision_ids <= 0:
+        return list(SCHEMA_STATEMENTS)
+    return [
+        _DECISION_ID_INDEX if _DECISION_ID_CONSTRAINT in stmt else stmt
+        for stmt in SCHEMA_STATEMENTS
+        if stmt != _DROP_DECISION_ID_INDEX
+    ]
+
+
+# Idempotent removal of retired properties. Not run by ensure_schema: removing data is the
+# owner's call after a backup (docs/RUNBOOK.md §3), so it runs only through
+# remove_legacy_properties().
+LEGACY_PROPERTY_CLEANUP: Final[tuple[str, ...]] = (
+    # Narratives moved to the final-round Decision (docs/DECISIONS.md#p11-d-10);
+    # the shared Agent property paired one cycle's text with another's decisions.
+    "MATCH (a:Agent) WHERE a.decision_narrative IS NOT NULL REMOVE a.decision_narrative",
+)
 
 CycleStatus = Literal["running", "complete", "failed", "cancelled"]
 
@@ -295,7 +369,6 @@ CREATE (dec:Decision {
     error_kind: d.error_kind
 })
 CREATE (a)-[:MADE]->(dec)
-CREATE (dec)-[:FOR]->(c)
 RETURN count(dec) AS created
 """
 
@@ -310,11 +383,11 @@ FOREACH (ignored IN CASE WHEN agent IS NULL THEN [] ELSE [1] END |
 RETURN c.cited_id AS cited_id, agent IS NOT NULL AS written
 """
 
+# rationale lives on the Decision only (docs/DECISIONS.md#adr-neo4j-schema)
 _PERSIST_EPISODES: Final = """
 UNWIND $episodes AS ep
 MATCH (d:Decision {decision_id: ep.decision_id})
 CREATE (re:RationaleEpisode {
-    rationale: ep.rationale,
     timestamp: datetime(),
     peer_context_received: ep.peer_context_received,
     flip_type: ep.flip_type,
@@ -325,11 +398,15 @@ CREATE (d)-[:HAS_EPISODE]->(re)
 RETURN count(re) AS n
 """
 
-# Name-only MATCH keeps the baseline semantics (docs/DECISIONS.md#p11-d-08).
+# REFERENCES link a decision only to its own cycle's (name, type) entity, through
+# MENTIONS; names are matched on whole tokens in episodes.match_entities. EXISTS
+# (not a MENTIONS path) so a seed that lists an entity twice still yields one
+# edge per match (docs/DECISIONS.md#p11-d-08).
 _PERSIST_REFERENCES: Final = """
 UNWIND $matches AS m
 MATCH (d:Decision {decision_id: m.decision_id})
-MATCH (e:Entity {name: m.entity_name})
+MATCH (e:Entity {name: m.entity_name, type: m.entity_type})
+WHERE EXISTS { MATCH (:Cycle {cycle_id: $cycle_id})-[:MENTIONS]->(e) }
 CREATE (d)-[:REFERENCES {match_type: m.match_type}]->(e)
 RETURN count(*) AS n
 """
@@ -461,21 +538,49 @@ class GraphStateManager:
     async def ensure_schema(self) -> None:
         """Apply idempotent schema constraints and indexes, then seed agents.
 
-        Per D-05: open one session, execute each statement sequentially,
-        then seed all agent nodes.
+        Opens one session and runs each statement in order
+        (docs/DECISIONS.md#p4-d-05), back-fills ``Cycle.status`` and seeds all
+        agent nodes. It removes no data: the retired Agent-level
+        ``decision_narrative`` stays until ``remove_legacy_properties()`` runs. Duplicate decision
+        ids found while the decision_id_unique constraint is absent keep the
+        plain index in its place and log ``decision_id_duplicates_found``;
+        they are never deleted.
         """
+        duplicates = await self._read(self._count_decision_id_duplicates_tx, op="ensure_schema")
+        if duplicates:
+            self._log.warning("decision_id_duplicates_found", count=duplicates)
+        statements = schema_statements(duplicates)
         try:
             async with self._driver.session(database=self._database) as session:
-                for stmt in SCHEMA_STATEMENTS:
+                for stmt in statements:
                     await session.run(stmt)
         except (DriverError, Neo4jError) as exc:
             raise _map_graph_error(exc, op="ensure_schema", write=True) from exc
 
-        self._log.info("schema_applied", statement_count=len(SCHEMA_STATEMENTS))
+        self._log.info("schema_applied", statement_count=len(statements))
         backfilled = await self._write(self._backfill_cycle_status_tx, op="backfill_cycle_status")
         if backfilled:
             self._log.info("cycle_status_backfilled", count=backfilled)
         await self.seed_agents(self._personas)
+
+    async def remove_legacy_properties(self) -> None:
+        """Remove retired properties (``LEGACY_PROPERTY_CLEANUP``); idempotent.
+
+        Deletes data that nothing reads any more, so it never runs at startup;
+        take a backup first (docs/RUNBOOK.md §3).
+        """
+        await self._write(self._legacy_property_cleanup_tx, op="legacy_property_cleanup")
+
+    @staticmethod
+    async def _count_decision_id_duplicates_tx(tx: AsyncManagedTransaction) -> int:
+        """Duplicate decision ids; 0 without a scan once the constraint exists."""
+        result = await tx.run(_DECISION_ID_CONSTRAINT_PRESENT, name=_DECISION_ID_CONSTRAINT)
+        record = await result.single()
+        if record and record["n"]:
+            return 0
+        result = await tx.run(_DECISION_ID_DUPLICATES)
+        record = await result.single()
+        return int(record["duplicate_ids"]) if record else 0
 
     @staticmethod
     async def _backfill_cycle_status_tx(tx: AsyncManagedTransaction) -> int:
@@ -483,6 +588,13 @@ class GraphStateManager:
         result = await tx.run(CYCLE_STATUS_BACKFILL)
         record = await result.single()
         return int(record["backfilled"]) if record else 0
+
+    @staticmethod
+    async def _legacy_property_cleanup_tx(tx: AsyncManagedTransaction) -> None:
+        """Idempotent removal of retired properties (no migration framework)."""
+        for stmt in LEGACY_PROPERTY_CLEANUP:
+            result = await tx.run(stmt)
+            await result.consume()
 
     async def set_cycle_status(
         self,
@@ -675,13 +787,18 @@ class GraphStateManager:
         seed_event: SeedEvent,
         *,
         num_rounds: int,
+        modifiers: Mapping[BracketType, str] | None = None,
+        prompt_template_hash: str | None = None,
     ) -> str:
         """Atomically create the Cycle (with num_rounds) and its seed entities.
 
         Cycle, Entity and MENTIONS are written in one transaction so a failure
         cannot leave an orphan Cycle. `num_rounds` is stamped here so running
         and failed cycles carry it too; report queries resolve the final round
-        from it (docs/DECISIONS.md#adr-num-rounds).
+        from it (docs/DECISIONS.md#adr-num-rounds). The cycle's generated
+        persona modifiers (canonical JSON, absent when None) and the
+        prompt-template hash are stored on the same node so a past run's
+        prompts can be rebuilt (docs/DECISIONS.md#adr-neo4j-schema).
 
         Returns:
             cycle_id: The UUID4 string for the created Cycle.
@@ -705,6 +822,8 @@ class GraphStateManager:
             seed_event.overall_sentiment,
             entity_params,
             num_rounds,
+            _encode_modifiers(modifiers),
+            prompt_template_hash,
             op="create_cycle_with_seed_event",
         )
         self._log.info(
@@ -713,6 +832,7 @@ class GraphStateManager:
             entity_count=len(entity_params),
             overall_sentiment=seed_event.overall_sentiment,
             num_rounds=num_rounds,
+            has_modifiers=modifiers is not None,
         )
         return cycle_id
 
@@ -724,8 +844,10 @@ class GraphStateManager:
         overall_sentiment: float,
         entities: list[dict[str, Any]],
         num_rounds: int,
+        modifiers_json: str | None,
+        prompt_template_hash: str | None,
     ) -> None:
-        """Single transaction: Cycle (num_rounds, status 'running') then UNWIND Entity + MENTIONS."""
+        """One transaction: Cycle (metadata, status 'running'), then UNWIND Entity + MENTIONS."""
         await tx.run(
             """
             CREATE (c:Cycle {
@@ -734,6 +856,8 @@ class GraphStateManager:
                 overall_sentiment: $overall_sentiment,
                 created_at: datetime(),
                 num_rounds: $num_rounds,
+                modifiers_json: $modifiers_json,
+                prompt_template_hash: $prompt_template_hash,
                 status: 'running'
             })
             """,
@@ -741,6 +865,8 @@ class GraphStateManager:
             seed_rumor=seed_rumor,
             overall_sentiment=overall_sentiment,
             num_rounds=num_rounds,
+            modifiers_json=modifiers_json,
+            prompt_template_hash=prompt_template_hash,
         )
         # Create Entity nodes + MENTIONS relationships (only if entities exist)
         if entities:
@@ -812,7 +938,12 @@ class GraphStateManager:
             for e in episodes
         ]
         reference_rows = [
-            {"decision_id": m.decision_id, "entity_name": m.entity_name, "match_type": m.match_type}
+            {
+                "decision_id": m.decision_id,
+                "entity_name": m.entity_name,
+                "entity_type": m.entity_type,
+                "match_type": m.match_type,
+            }
             for m in entity_matches
         ]
         summary, dropped = await self._write(
@@ -889,7 +1020,7 @@ class GraphStateManager:
 
         references_written = 0
         if references:
-            result = await tx.run(_PERSIST_REFERENCES, matches=references)
+            result = await tx.run(_PERSIST_REFERENCES, matches=references, cycle_id=cycle_id)
             record = await result.single()
             references_written = int(record["n"]) if record else 0
 
@@ -902,94 +1033,6 @@ class GraphStateManager:
             references_written=references_written,
         )
         return summary, tuple(dropped)
-
-    # ------------------------------------------------------------------
-    # Phase 12: Post nodes for social influence dynamics
-    # ------------------------------------------------------------------
-
-    async def write_posts(
-        self,
-        agent_decisions: list[tuple[str, AgentDecision]],
-        decision_ids: list[str],
-        cycle_id: str,
-        round_num: int,
-    ) -> list[str]:
-        """Batch-write Post nodes from Decision rationale with zero extra inference (SOCIAL-01).
-
-        Creates Post nodes linked to Agent (AUTHORED) and Decision (HAS_POST).
-        Filters out PARSE_ERROR decisions to prevent error text from becoming posts.
-
-        Args:
-            agent_decisions: List of (agent_id, AgentDecision) tuples.
-            decision_ids: The round's decision IDs from persist_round(). Must match
-                length of agent_decisions. PARSE_ERROR entries are skipped along with
-                their corresponding decision_id.
-            cycle_id: Current simulation cycle ID.
-            round_num: Current round number (1, 2, or 3).
-
-        Returns:
-            list[str]: The post_id strings for each Post written (PARSE_ERROR excluded).
-        """
-        posts: list[dict] = []  # type: ignore[type-arg]
-        post_ids: list[str] = []
-        for did, (agent_id, decision) in zip(decision_ids, agent_decisions, strict=True):
-            if decision.signal == SignalType.PARSE_ERROR:
-                continue
-            pid = str(uuid.uuid4())
-            post_ids.append(pid)
-            posts.append(
-                {
-                    "post_id": pid,
-                    "decision_id": did,
-                    "agent_id": agent_id,
-                    "content": decision.rationale,
-                    "signal": decision.signal.value,
-                    "confidence": decision.confidence,
-                    "round_num": round_num,
-                    "cycle_id": cycle_id,
-                }
-            )
-        if not posts:
-            return []
-        await self._write(self._batch_write_posts_tx, posts, cycle_id, round_num, op="write_posts")
-        self._log.info(
-            "posts_written",
-            cycle_id=cycle_id,
-            round_num=round_num,
-            count=len(posts),
-        )
-        return post_ids
-
-    @staticmethod
-    async def _batch_write_posts_tx(
-        tx: AsyncManagedTransaction,
-        posts: list[dict],  # type: ignore[type-arg]
-        cycle_id: str,
-        round_num: int,
-    ) -> None:
-        """UNWIND batch create Post nodes linked to Agent (AUTHORED) and Decision (HAS_POST)."""
-        await tx.run(
-            """
-            UNWIND $posts AS p
-            MATCH (a:Agent {id: p.agent_id})
-            MATCH (d:Decision {decision_id: p.decision_id})
-            CREATE (post:Post {
-                post_id: p.post_id,
-                content: p.content,
-                agent_id: p.agent_id,
-                signal: p.signal,
-                confidence: p.confidence,
-                round_num: $round_num,
-                cycle_id: $cycle_id,
-                created_at: datetime()
-            })
-            CREATE (a)-[:AUTHORED]->(post)
-            CREATE (d)-[:HAS_POST]->(post)
-            """,
-            posts=posts,
-            cycle_id=cycle_id,
-            round_num=round_num,
-        )
 
     # ------------------------------------------------------------------
     # Entity reads and narrative writes
@@ -1017,34 +1060,75 @@ class GraphStateManager:
         )
         return [EntityRef(str(r["name"]), str(r["type"])) async for r in result]
 
-    async def write_decision_narratives(
-        self,
-        narratives: list[dict],  # [{"agent_id": str, "narrative": str}]
-    ) -> None:
-        """Batch-write decision_narrative property to Agent nodes (D-10).
-
-        Args:
-            narratives: List of {"agent_id": str, "narrative": str} dicts.
-        """
-        if not narratives:
-            return
-        await self._write(self._batch_write_narratives_tx, narratives, op="write_decision_narratives")
-        self._log.info("narratives_written", count=len(narratives))
+    async def read_decision_narrative(self, cycle_id: str, agent_id: str) -> str | None:
+        """Narrative stored on the agent's final-round Decision of this cycle, or None."""
+        return await self._read(
+            self._read_decision_narrative_tx,
+            cycle_id,
+            agent_id,
+            op="read_decision_narrative",
+        )
 
     @staticmethod
-    async def _batch_write_narratives_tx(
+    async def _read_decision_narrative_tx(
         tx: AsyncManagedTransaction,
-        narratives: list[dict],  # type: ignore[type-arg]
-    ) -> None:
-        """UNWIND batch SET decision_narrative on Agent nodes."""
-        await tx.run(
+        cycle_id: str,
+        agent_id: str,
+    ) -> str | None:
+        result = await tx.run(
             """
-            UNWIND $narratives AS n
-            MATCH (a:Agent {id: n.agent_id})
-            SET a.decision_narrative = n.narrative
+            MATCH (:Agent {id: $agent_id})-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            RETURN d.narrative AS narrative
+            ORDER BY d.round DESC
+            LIMIT 1
             """,
-            narratives=narratives,
+            cycle_id=cycle_id,
+            agent_id=agent_id,
         )
+        record = await result.single()
+        if record is None or record["narrative"] is None:
+            return None
+        return str(record["narrative"])
+
+    async def write_decision_narrative(self, cycle_id: str, agent_id: str, narrative: str) -> None:
+        """Store a narrative on the agent's final-round Decision of this cycle.
+
+        Narratives are per cycle; the shared Agent node never holds one again
+        (docs/DECISIONS.md#p11-d-10). With no matching Decision the write is a
+        logged no-op.
+        """
+        updated = await self._write(
+            self._write_decision_narrative_tx,
+            cycle_id,
+            agent_id,
+            narrative,
+            op="write_decision_narrative",
+        )
+        if updated == 0:
+            self._log.warning("decision_narrative_target_missing", cycle_id=cycle_id, agent_id=agent_id)
+            return
+        self._log.info("decision_narrative_written", cycle_id=cycle_id, agent_id=agent_id)
+
+    @staticmethod
+    async def _write_decision_narrative_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        agent_id: str,
+        narrative: str,
+    ) -> int:
+        result = await tx.run(
+            """
+            MATCH (:Agent {id: $agent_id})-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            WITH d ORDER BY d.round DESC LIMIT 1
+            SET d.narrative = $narrative
+            RETURN count(d) AS updated
+            """,
+            cycle_id=cycle_id,
+            agent_id=agent_id,
+            narrative=narrative,
+        )
+        record = await result.single()
+        return int(record["updated"]) if record is not None else 0
 
     # ------------------------------------------------------------------
     # Influence edge computation (Phase 8: dynamic influence topology)
@@ -1237,61 +1321,57 @@ class GraphStateManager:
         agent_id: str,
         cycle_id: str,
     ) -> InterviewContext:
-        """Read agent context for post-simulation interview (INT-01, D-04, D-06).
+        """Interview context for one agent in one cycle.
 
-        Reconstructs InterviewContext from Neo4j Agent + Decision nodes and
-        the in-memory persona list for system_prompt lookup.
-
-        Args:
-            agent_id: The agent to interview.
-            cycle_id: The simulation cycle to pull decisions from.
-
-        Returns:
-            InterviewContext with persona, narrative, and per-round decisions.
+        The persona is rebuilt from config with the cycle's stored modifiers, so
+        the agent keeps the focus line it had in that run
+        (docs/DECISIONS.md#p14-d-06). The narrative is the one stored on this
+        cycle's final-round Decision, never another cycle's.
 
         Raises:
+            AgentNotFoundError: no Agent node, or the agent is not in the roster.
             Neo4jQueryError / Neo4jUnavailableError: When the read fails.
         """
-        records = await self._read(
-            self._read_interview_context_tx, agent_id, cycle_id, op="read_agent_interview_context"
+        rows = await self._read(
+            self._read_interview_context_tx,
+            agent_id,
+            cycle_id,
+            op="read_agent_interview_context",
         )
-
-        # Look up persona from in-memory list (D-06: avoids second Neo4j query)
-        persona = next((p for p in self._personas if p.id == agent_id), None)
-        interview_system_prompt = _strip_json_instructions(persona.system_prompt) if persona else ""
-
-        # Extract agent-level fields from first record
-        first = records[0] if records else {}
-        agent_name = first.get("name", "")
-        bracket = first.get("bracket", "")
-        decision_narrative = first.get("decision_narrative") or ""
-
-        # Build per-round decisions (skip records with no round_num, e.g. OPTIONAL MATCH miss)
+        if not rows:
+            raise AgentNotFoundError(agent_id, cycle_id)
+        personas = generate_personas(
+            load_bracket_configs(),
+            modifiers=_decode_modifiers(rows[0]["modifiers_json"]),
+        )
+        persona = next((p for p in personas if p.id == agent_id), None)
+        if persona is None:
+            raise AgentNotFoundError(agent_id, cycle_id)
+        decided = [r for r in rows if r["round_num"] is not None]
         decisions = [
             RoundDecision(
-                round_num=r["round_num"],
-                signal=r["signal"],
-                confidence=r["confidence"],
-                sentiment=r["sentiment"],
-                rationale=r["rationale"],
+                round_num=int(r["round_num"]),
+                signal=str(r["signal"]),
+                confidence=float(r["confidence"]),
+                sentiment=float(r["sentiment"]),
+                rationale=str(r["rationale"] or ""),
+                cited_agents=tuple(sorted(r["cited_agents"])),
             )
-            for r in records
-            if r.get("round_num") is not None
+            for r in decided
         ]
-
+        narrative = str(decided[-1]["narrative"] or "") if decided else ""
         self._log.debug(
             "interview_context_read",
             agent_id=agent_id,
             cycle_id=cycle_id,
             decision_count=len(decisions),
         )
-
         return InterviewContext(
             agent_id=agent_id,
-            agent_name=agent_name,
-            bracket=bracket,
-            interview_system_prompt=interview_system_prompt,
-            decision_narrative=decision_narrative,
+            agent_name=str(rows[0]["name"]),
+            bracket=str(rows[0]["bracket"]),
+            interview_system_prompt=_strip_json_instructions(persona.system_prompt),
+            decision_narrative=narrative,
             decisions=decisions,
         )
 
@@ -1300,23 +1380,26 @@ class GraphStateManager:
         tx: AsyncManagedTransaction,
         agent_id: str,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for reading agent interview context."""
+    ) -> list[dict[str, Any]]:
+        """One row per stored round (or one null-decision row) with the cycle's modifiers."""
         result = await tx.run(
             """
             MATCH (a:Agent {id: $agent_id})
-            OPTIONAL MATCH (a)-[:MADE]->(d:Decision)
-            WHERE d.cycle_id = $cycle_id
-            RETURN a.id AS agent_id,
-                   a.name AS name,
+            OPTIONAL MATCH (c:Cycle {cycle_id: $cycle_id})
+            OPTIONAL MATCH (a)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            OPTIONAL MATCH (d)-[:CITED]->(cited:Agent)
+            WITH a, c, d, collect(DISTINCT cited.id) AS cited_agents
+            RETURN a.name AS name,
                    a.bracket AS bracket,
-                   a.decision_narrative AS decision_narrative,
+                   c.modifiers_json AS modifiers_json,
                    d.round AS round_num,
                    d.signal AS signal,
                    d.confidence AS confidence,
                    d.sentiment AS sentiment,
-                   d.rationale AS rationale
-            ORDER BY d.round
+                   d.rationale AS rationale,
+                   d.narrative AS narrative,
+                   cited_agents
+            ORDER BY round_num
             """,
             agent_id=agent_id,
             cycle_id=cycle_id,
@@ -1726,56 +1809,6 @@ class GraphStateManager:
             )
             async for r in result
         ]
-
-    async def read_social_post_reach(
-        self,
-        cycle_id: str,
-        limit: int = 10,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Return top posts by READ_POST edge count for the cycle (REPORT-02).
-
-        READ_POST edges are no longer written (docs/DECISIONS.md#hist-read-post),
-        so this returns nothing for new cycles.
-
-        Args:
-            cycle_id: Simulation cycle ID.
-            limit: Maximum number of posts to return (default 10).
-
-        Returns:
-            List of dicts with post_id, author_name, bracket, signal, round_num,
-            content, reader_count.
-        """
-        records = await self._read(self._read_social_post_reach_tx, cycle_id, limit, op="read_social_post_reach")
-        self._log.debug("report_social_post_reach", cycle_id=cycle_id, count=len(records))
-        return records
-
-    @staticmethod
-    async def _read_social_post_reach_tx(
-        tx: AsyncManagedTransaction,
-        cycle_id: str,
-        limit: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for top posts by reader count."""
-        result = await tx.run(
-            """
-            MATCH (a:Agent)-[:READ_POST {cycle_id: $cycle_id}]->(p:Post)
-            WITH p, count(a) AS reader_count
-            MATCH (author:Agent {id: p.agent_id})
-            RETURN
-                p.post_id AS post_id,
-                author.name AS author_name,
-                author.bracket AS bracket,
-                p.signal AS signal,
-                p.round_num AS round_num,
-                p.content AS content,
-                reader_count
-            ORDER BY reader_count DESC
-            LIMIT $limit
-            """,
-            cycle_id=cycle_id,
-            limit=limit,
-        )
-        return [dict(record) async for record in result]
 
     async def read_latest_cycle_id(
         self,

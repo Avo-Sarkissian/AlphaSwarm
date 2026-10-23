@@ -400,3 +400,53 @@ async def test_an_interrupted_teardown_leaves_no_cycle(
             graph_manager=mock_graph_manager,
         )
     mock_graph_manager.create_cycle_with_seed_event.assert_not_awaited()
+
+
+async def test_inject_seed_persists_modifiers_and_default_prompt_hash(
+    mock_settings: MagicMock,
+    fake_provider: FakeInferenceProvider,
+    mock_graph_manager: AsyncMock,
+) -> None:
+    from alphaswarm.config import compute_prompt_template_hash, load_bracket_configs
+    from alphaswarm.seed import inject_seed
+    from alphaswarm.types import BracketType, ParsedModifiersResult
+
+    async def _modifiers(seed_event: SeedEvent, provider: object) -> ParsedModifiersResult:
+        return ParsedModifiersResult(
+            modifiers={BracketType.QUANTS: "fictional catalyst watcher"},
+            parse_tier=1,
+        )
+
+    mock_settings.num_rounds = 3
+    await inject_seed(
+        rumor="ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.",
+        settings=mock_settings,
+        orchestrator=fake_provider,
+        graph_manager=mock_graph_manager,
+        modifier_generator=_modifiers,
+    )
+
+    kwargs = mock_graph_manager.create_cycle_with_seed_event.call_args.kwargs
+    assert kwargs["modifiers"] == {BracketType.QUANTS: "fictional catalyst watcher"}
+    assert kwargs["prompt_template_hash"] == compute_prompt_template_hash(load_bracket_configs())
+
+
+async def test_inject_seed_passes_explicit_prompt_hash(
+    mock_settings: MagicMock,
+    fake_provider: FakeInferenceProvider,
+    mock_graph_manager: AsyncMock,
+) -> None:
+    from alphaswarm.seed import inject_seed
+
+    mock_settings.num_rounds = 3
+    await inject_seed(
+        rumor="ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.",
+        settings=mock_settings,
+        orchestrator=fake_provider,
+        graph_manager=mock_graph_manager,
+        prompt_template_hash="cd" * 32,
+    )
+
+    kwargs = mock_graph_manager.create_cycle_with_seed_event.call_args.kwargs
+    assert kwargs["prompt_template_hash"] == "cd" * 32
+    assert kwargs["modifiers"] is None

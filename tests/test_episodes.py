@@ -63,11 +63,11 @@ def test_flip_type_vocabulary_is_none_plus_six_transitions() -> None:
     }
 
 
-def test_match_entities_is_case_insensitive_substring() -> None:
+def test_match_entities_is_case_insensitive_token() -> None:
     records = [_record("d1", "zzzt holdings looks cheap"), _record("d2", "Nothing relevant")]
     entities = [EntityRef("ZZZT Holdings", "company"), EntityRef("QQQX Robotics", "company")]
     assert match_entities(records, entities) == [
-        EntityMatch("d1", "ZZZT Holdings", "company", "substring"),
+        EntityMatch("d1", "ZZZT Holdings", "company", "token"),
     ]
 
 

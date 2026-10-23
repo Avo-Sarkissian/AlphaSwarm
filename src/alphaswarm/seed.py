@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from alphaswarm.config import compute_prompt_template_hash, load_bracket_configs
 from alphaswarm.parsing import parse_seed_event
 
 if TYPE_CHECKING:
@@ -49,6 +50,7 @@ async def inject_seed(
     graph_manager: GraphStateManager,
     *,
     modifier_generator: (Callable[[SeedEvent, InferenceProvider], Awaitable[ParsedModifiersResult]] | None) = None,
+    prompt_template_hash: str | None = None,
 ) -> tuple[str, ParsedSeedResult, ParsedModifiersResult | None]:
     """End-to-end seed injection pipeline. Returns (cycle_id, parsed_result, modifier_result).
 
@@ -56,6 +58,10 @@ async def inject_seed(
     BEFORE the Cycle is persisted, in the same orchestrator session
     (docs/DECISIONS.md#p13-d-06), so a failure leaves no orphan Cycle.
     modifier_result is None when no callback is provided.
+
+    prompt_template_hash: sha256 of the static persona prompt set; defaults to
+    the configured brackets. It is stored on the Cycle with the generated
+    modifiers (docs/DECISIONS.md#adr-neo4j-schema).
 
     Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence,
     after the orchestrator is released: nothing that can fail runs between
@@ -110,6 +116,12 @@ async def inject_seed(
         rumor,
         parsed_result.seed_event,
         num_rounds=settings.num_rounds,
+        modifiers=modifier_result.modifiers if modifier_result is not None else None,
+        prompt_template_hash=(
+            prompt_template_hash
+            if prompt_template_hash is not None
+            else compute_prompt_template_hash(load_bracket_configs())
+        ),
     )
 
     logger.info(

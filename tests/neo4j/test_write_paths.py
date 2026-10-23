@@ -155,4 +155,4 @@ async def test_narrative_edges_link_decisions_case_insensitively(
         "RETURN e.name AS name, r.match_type AS match_type",
         did=ids[0],
     )
-    assert rows == [{"name": "ZZZT Holdings", "match_type": "substring"}]
+    assert rows == [{"name": "ZZZT Holdings", "match_type": "token"}]

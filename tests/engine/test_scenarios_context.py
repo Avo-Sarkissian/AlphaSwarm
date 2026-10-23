@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from alphaswarm.ingestion.providers import FakeMarketDataProvider, FakeNewsProvider
 from alphaswarm.ingestion.types import NewsSlice
+from alphaswarm.interview import InterviewContext, RoundDecision, ensure_decision_narrative
 from alphaswarm.types import AgentPersona
 from alphaswarm.worker import MARKET_CONTEXT_GUARD, UNTRUSTED_DATA_OPEN
 from tests.engine.scenario import RunScenario, recorded_decisions, round_calls
@@ -48,10 +49,28 @@ async def test_narrative_prompts_identify_every_agent(
     scripted_worker: ScriptedProvider,
     all_personas: list[AgentPersona],
 ) -> None:
-    """ScriptedProvider reads narrative identity from the prompt's "Agent: <name> (<bracket>)"
+    """A run makes no narrative calls; the lazy interview narrative does, one per agent.
+
+    ScriptedProvider reads narrative identity from the prompt's "Agent: <name> (<bracket>)"
     line and classifies a call whose system prompt carries a persona header as an interview
     chat, so prompt drift shows up here instead of as narratives for agent None."""
     await run_scenario()
+    assert scripted_worker.calls_for("narrative") == []
+
+    class _Store:
+        async def write_decision_narrative(self, cycle_id: str, agent_id: str, narrative: str) -> None:
+            pass
+
+    for persona in all_personas:
+        context = InterviewContext(
+            agent_id=persona.id,
+            agent_name=persona.name,
+            bracket=persona.bracket.value,
+            interview_system_prompt=persona.system_prompt,
+            decision_narrative="",
+            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.5, sentiment=0.1, rationale="r")],
+        )
+        await ensure_decision_narrative(_Store(), scripted_worker, context, cycle_id="scenario-cycle")
     narratives = scripted_worker.calls_for("narrative")
     assert len(narratives) == len(all_personas)
     assert {c.agent_id for c in narratives} == {p.id for p in all_personas}
