@@ -227,7 +227,8 @@ uv run pytest -q tests/engine -rxX
                           # lines are pinned engine bugs (DECISIONS#adr-engine-scenario-harness)
 (cd frontend && npx tsc -b --noEmit && npx vitest run && npm run lint && npm run build)
                           # npm run lint is ESLint: 0 errors required (frontend/TESTING.md)
-uv run lint-imports       # holdings isolation contract: must report "kept"
+uv run lint-imports       # every contract must report "KEPT": holdings isolation and
+                          # acyclic siblings (no import cycles between alphaswarm modules)
 uv run mypy src           # strict; must report "Success: no issues found"
 uv run ruff check src tests && uv run ruff format --check src tests
                           # 120 columns; the pre-commit hooks fix most findings
