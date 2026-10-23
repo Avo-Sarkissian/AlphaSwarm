@@ -78,6 +78,7 @@ async def test_ensure_schema_runs_all_statements(mock_driver: MagicMock) -> None
     from alphaswarm.graph import SCHEMA_STATEMENTS, GraphStateManager
 
     session = mock_driver.session.return_value
+    session.execute_read.return_value = 0  # no duplicate decision ids
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     with patch.object(gsm, "seed_agents", new_callable=AsyncMock) as mock_seed:
@@ -302,6 +303,7 @@ async def test_ensure_schema_runs_legacy_property_cleanup(mock_driver: MagicMock
     from alphaswarm.graph import GraphStateManager
 
     session = mock_driver.session.return_value
+    session.execute_read.return_value = 0  # no duplicate decision ids
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     with patch.object(gsm, "seed_agents", new_callable=AsyncMock):
@@ -335,29 +337,9 @@ async def test_write_decision_narrative_without_target_is_a_no_op(mock_driver: M
     assert session.execute_write.await_args.args[1:] == ("c1", "degens_09", "orphan")
 
 
-def test_schema_statements_includes_episode_index() -> None:
-    """SCHEMA_STATEMENTS contains RationaleEpisode composite index."""
-    from alphaswarm.graph import SCHEMA_STATEMENTS
-
-    episode_indexes = [s for s in SCHEMA_STATEMENTS if "episode_cycle_round" in s]
-    assert len(episode_indexes) == 1
-    assert "RationaleEpisode" in episode_indexes[0]
-
-
 # ---------------------------------------------------------------------------
-# RankedPost (peer-context formatting) and the Post schema index
+# RankedPost (peer-context formatting)
 # ---------------------------------------------------------------------------
-
-
-def test_schema_statements_includes_post_index() -> None:
-    """SCHEMA_STATEMENTS contains Post composite index on (cycle_id, round_num)."""
-    from alphaswarm.graph import SCHEMA_STATEMENTS
-
-    post_indexes = [s for s in SCHEMA_STATEMENTS if "post_cycle_round" in s]
-    assert len(post_indexes) == 1
-    assert "Post" in post_indexes[0]
-    assert "cycle_id" in post_indexes[0]
-    assert "round_num" in post_indexes[0]
 
 
 def test_ranked_post_dataclass_frozen() -> None:
@@ -703,6 +685,7 @@ async def test_ensure_schema_maps_driver_errors(mock_driver: MagicMock) -> None:
     from alphaswarm.errors import Neo4jUnavailableError
     from alphaswarm.graph import GraphStateManager
 
+    mock_driver.session.return_value.execute_read = AsyncMock(return_value=0)
     mock_driver.session.return_value.run = AsyncMock(side_effect=ServiceUnavailable("down"))
     gsm = GraphStateManager(driver=mock_driver, personas=[])
     with pytest.raises(Neo4jUnavailableError) as exc_info:
@@ -1007,3 +990,75 @@ def test_decode_modifiers_drops_bad_json_and_unknown_brackets(
     assert _decode_modifiers(raw) == expected
     modifiers = {BracketType.QUANTS: "a", BracketType.DEGENS: "b"}
     assert _decode_modifiers(_encode_modifiers(modifiers)) == modifiers
+
+
+# ---------------------------------------------------------------------------
+# Schema statements (docs/DECISIONS.md#adr-neo4j-schema)
+# ---------------------------------------------------------------------------
+
+
+def test_schema_drops_run_before_the_decision_id_constraint() -> None:
+    """A uniqueness constraint cannot coexist with the legacy plain index."""
+    from alphaswarm.graph import SCHEMA_STATEMENTS
+
+    drop = SCHEMA_STATEMENTS.index("DROP INDEX decision_id_idx IF EXISTS")
+    create = next(i for i, s in enumerate(SCHEMA_STATEMENTS) if "decision_id_unique" in s)
+    assert drop < create
+    assert all(("IF NOT EXISTS" in s) or ("IF EXISTS" in s) for s in SCHEMA_STATEMENTS)
+
+
+def test_schema_statements_keep_the_plain_index_while_duplicates_exist() -> None:
+    """Duplicate decision ids swap the constraint for the plain index; nothing else changes."""
+    from alphaswarm.graph import SCHEMA_STATEMENTS, schema_statements
+
+    assert schema_statements(0) == SCHEMA_STATEMENTS
+    guarded = schema_statements(3)
+    assert "DROP INDEX decision_id_idx IF EXISTS" not in guarded
+    assert not any("decision_id_unique" in s for s in guarded)
+    assert "CREATE INDEX decision_id_idx IF NOT EXISTS FOR (d:Decision) ON (d.decision_id)" in guarded
+    untouched = [s for s in SCHEMA_STATEMENTS if "decision_id_idx" not in s and "decision_id_unique" not in s]
+    assert [s for s in guarded if "decision_id_idx" not in s] == untouched
+    assert all(("IF NOT EXISTS" in s) or ("IF EXISTS" in s) for s in guarded)
+
+
+async def test_ensure_schema_skips_the_constraint_over_duplicate_decision_ids(mock_driver: MagicMock) -> None:
+    """Existing duplicates never fail startup: warn with the count, keep the plain index."""
+    from alphaswarm.graph import GraphStateManager, schema_statements
+
+    session = mock_driver.session.return_value
+    session.execute_read.return_value = 2
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    gsm._log = MagicMock()
+
+    with patch.object(gsm, "seed_agents", new_callable=AsyncMock):
+        await gsm.ensure_schema()
+
+    ran = [c.args[0] for c in session.run.await_args_list]
+    assert ran == schema_statements(2)
+    gsm._log.warning.assert_called_once_with("decision_id_duplicates_found", count=2)
+
+
+async def test_decision_id_duplicate_count_skips_the_scan_once_the_constraint_exists() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    present = MagicMock()
+    present.single = AsyncMock(return_value={"n": 1})
+    tx = MagicMock()
+    tx.run = AsyncMock(return_value=present)
+
+    assert await GraphStateManager._count_decision_id_duplicates_tx(tx) == 0
+    tx.run.assert_awaited_once()
+
+
+async def test_decision_id_duplicate_count_scans_while_the_constraint_is_absent() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    absent = MagicMock()
+    absent.single = AsyncMock(return_value={"n": 0})
+    dupes = MagicMock()
+    dupes.single = AsyncMock(return_value={"duplicate_ids": 4})
+    tx = MagicMock()
+    tx.run = AsyncMock(side_effect=[absent, dupes])
+
+    assert await GraphStateManager._count_decision_id_duplicates_tx(tx) == 4
+    assert "count(*) AS duplicate_ids" in tx.run.await_args_list[1].args[0]

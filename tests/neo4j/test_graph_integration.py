@@ -43,20 +43,15 @@ async def test_ensure_schema_idempotent(graph_manager_test: GraphStateManager) -
         assert "agent_id_unique" in constraint_names
         assert "cycle_id_unique" in constraint_names
 
-        # Verify indexes. Neo4j 5.x silently no-ops `CREATE INDEX agent_id_idx`
-        # because the `agent_id_unique` UNIQUE constraint already provides a
-        # backing index on (:Agent.id) — so we just check that lookup-by-id is
-        # backed by SOMETHING (constraint OR index), not specifically by the
-        # redundant index name.
+        # Lookups by Agent.id and Decision.decision_id are backed by the
+        # uniqueness constraints; the plain indexes they replaced are dropped.
+        assert "decision_id_unique" in constraint_names
         result = await session.run("SHOW INDEXES")
         indexes = [dict(record) async for record in result]
         index_names = [idx["name"] for idx in indexes]
         assert "decision_cycle_round" in index_names
-        assert "decision_id_idx" in index_names
-        agent_id_backed = "agent_id_idx" in index_names or "agent_id_unique" in constraint_names
-        assert agent_id_backed, (
-            "Expected a backing index for (:Agent.id) via either 'agent_id_idx' index or 'agent_id_unique' constraint"
-        )
+        assert "decision_id_idx" not in index_names
+        assert "agent_id_idx" not in index_names
 
 
 async def test_seed_agents_creates_100_nodes(graph_manager_test: GraphStateManager) -> None:

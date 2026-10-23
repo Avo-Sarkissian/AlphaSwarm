@@ -268,18 +268,54 @@ class RationaleRoundRow(TypedDict):
 # ---------------------------------------------------------------------------
 
 SCHEMA_STATEMENTS: list[str] = [
+    # Drops first: the decision_id uniqueness constraint cannot be created while
+    # the plain decision_id_idx index exists; post/episode indexes serve no query
+    # and agent_id_idx duplicates agent_id_unique (docs/DECISIONS.md#adr-neo4j-schema).
+    "DROP INDEX decision_id_idx IF EXISTS",
+    "DROP INDEX agent_id_idx IF EXISTS",
+    "DROP INDEX post_cycle_round IF EXISTS",
+    "DROP INDEX post_id_idx IF EXISTS",
+    "DROP INDEX episode_cycle_round IF EXISTS",
     "CREATE CONSTRAINT agent_id_unique IF NOT EXISTS FOR (a:Agent) REQUIRE a.id IS UNIQUE",
     "CREATE CONSTRAINT cycle_id_unique IF NOT EXISTS FOR (c:Cycle) REQUIRE c.cycle_id IS UNIQUE",
     "CREATE CONSTRAINT entity_name_type_unique IF NOT EXISTS FOR (e:Entity) REQUIRE (e.name, e.type) IS UNIQUE",
-    "CREATE INDEX decision_cycle_round IF NOT EXISTS FOR (d:Decision) ON (d.cycle_id, d.round)",
-    "CREATE INDEX agent_id_idx IF NOT EXISTS FOR (a:Agent) ON (a.id)",
-    "CREATE INDEX decision_id_idx IF NOT EXISTS FOR (d:Decision) ON (d.decision_id)",
-    "CREATE INDEX episode_cycle_round IF NOT EXISTS FOR (re:RationaleEpisode) ON (re.cycle_id, re.round)",
-    "CREATE INDEX post_cycle_round IF NOT EXISTS FOR (p:Post) ON (p.cycle_id, p.round_num)",
-    "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
+    "CREATE CONSTRAINT decision_id_unique IF NOT EXISTS FOR (d:Decision) REQUIRE d.decision_id IS UNIQUE",
     "CREATE CONSTRAINT shock_id_unique IF NOT EXISTS FOR (se:ShockEvent) REQUIRE se.shock_id IS UNIQUE",
+    "CREATE INDEX decision_cycle_round IF NOT EXISTS FOR (d:Decision) ON (d.cycle_id, d.round)",
+    "CREATE INDEX decision_cycle IF NOT EXISTS FOR (d:Decision) ON (d.cycle_id)",
+    "CREATE INDEX influenced_by_cycle_round IF NOT EXISTS FOR ()-[r:INFLUENCED_BY]-() ON (r.cycle_id, r.round)",
+    "CREATE INDEX cycle_created IF NOT EXISTS FOR (c:Cycle) ON (c.created_at)",
     "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)",
 ]
+
+# A uniqueness constraint cannot be created over existing duplicates, and no
+# migration may delete data: while duplicate decision ids exist, ensure_schema
+# keeps the plain index instead and warns (docs/DECISIONS.md#adr-neo4j-schema).
+_DECISION_ID_CONSTRAINT: Final = "decision_id_unique"
+_DROP_DECISION_ID_INDEX: Final = "DROP INDEX decision_id_idx IF EXISTS"
+_DECISION_ID_INDEX: Final = "CREATE INDEX decision_id_idx IF NOT EXISTS FOR (d:Decision) ON (d.decision_id)"
+_DECISION_ID_CONSTRAINT_PRESENT: Final = "SHOW CONSTRAINTS YIELD name WHERE name = $name RETURN count(*) AS n"
+_DECISION_ID_DUPLICATES: Final = (
+    "MATCH (d:Decision) WHERE d.decision_id IS NOT NULL "
+    "WITH d.decision_id AS id, count(*) AS n WHERE n > 1 "
+    "RETURN count(*) AS duplicate_ids"
+)
+
+
+def schema_statements(duplicate_decision_ids: int) -> list[str]:
+    """The statements ensure_schema runs, given the duplicate decision id count.
+
+    With duplicates the decision_id_idx drop is skipped and the uniqueness
+    constraint is replaced by the plain index, so startup never fails on them.
+    """
+    if duplicate_decision_ids <= 0:
+        return list(SCHEMA_STATEMENTS)
+    return [
+        _DECISION_ID_INDEX if _DECISION_ID_CONSTRAINT in stmt else stmt
+        for stmt in SCHEMA_STATEMENTS
+        if stmt != _DROP_DECISION_ID_INDEX
+    ]
+
 
 # Idempotent data cleanups run by ensure_schema (no migration framework).
 LEGACY_PROPERTY_CLEANUP: Final[tuple[str, ...]] = (
@@ -501,21 +537,38 @@ class GraphStateManager:
         """Apply idempotent schema constraints and indexes, then seed agents.
 
         Per D-05: open one session, execute each statement sequentially,
-        then seed all agent nodes.
+        then seed all agent nodes. Duplicate decision ids found while the
+        decision_id_unique constraint is absent keep the plain index in its
+        place and log ``decision_id_duplicates_found``; no data is deleted.
         """
+        duplicates = await self._read(self._count_decision_id_duplicates_tx, op="ensure_schema")
+        if duplicates:
+            self._log.warning("decision_id_duplicates_found", count=duplicates)
+        statements = schema_statements(duplicates)
         try:
             async with self._driver.session(database=self._database) as session:
-                for stmt in SCHEMA_STATEMENTS:
+                for stmt in statements:
                     await session.run(stmt)
         except (DriverError, Neo4jError) as exc:
             raise _map_graph_error(exc, op="ensure_schema", write=True) from exc
 
-        self._log.info("schema_applied", statement_count=len(SCHEMA_STATEMENTS))
+        self._log.info("schema_applied", statement_count=len(statements))
         backfilled = await self._write(self._backfill_cycle_status_tx, op="backfill_cycle_status")
         if backfilled:
             self._log.info("cycle_status_backfilled", count=backfilled)
         await self._write(self._legacy_property_cleanup_tx, op="legacy_property_cleanup")
         await self.seed_agents(self._personas)
+
+    @staticmethod
+    async def _count_decision_id_duplicates_tx(tx: AsyncManagedTransaction) -> int:
+        """Duplicate decision ids; 0 without a scan once the constraint exists."""
+        result = await tx.run(_DECISION_ID_CONSTRAINT_PRESENT, name=_DECISION_ID_CONSTRAINT)
+        record = await result.single()
+        if record and record["n"]:
+            return 0
+        result = await tx.run(_DECISION_ID_DUPLICATES)
+        record = await result.single()
+        return int(record["duplicate_ids"]) if record else 0
 
     @staticmethod
     async def _backfill_cycle_status_tx(tx: AsyncManagedTransaction) -> int:
