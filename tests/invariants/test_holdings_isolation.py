@@ -42,6 +42,9 @@ REVIEW MEDIUM (Codex): canary searches for ALL sentinel representations
 
 from __future__ import annotations
 
+import asyncio
+import re
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -53,7 +56,7 @@ from alphaswarm.advisory import synthesize
 from alphaswarm.holdings.types import PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.factory import BuiltProviders
-from tests.support.web_app import CYCLE_A, make_route_app, route_test_settings
+from tests.support.web_app import CYCLE_A, FakeCycleGraph, make_route_app, route_test_settings
 
 from .conftest import (
     SENTINEL_ACCT,
@@ -354,3 +357,45 @@ def test_invalid_twice_leaks_nothing_to_logs_or_http(
     for sentinel in all_sentinel_representations():
         assert sentinel not in response.text, f"{sentinel!r} leaked into the HTTP body"
         assert sentinel not in log_output, f"{sentinel!r} leaked into logs"
+
+
+# --------- AppState (reachable from the swarm side) never holds the portfolio ---------
+
+
+def test_holdings_never_land_on_app_state(
+    sentinel_portfolio: PortfolioSnapshot,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """The portfolio stays in app.state.portfolio_cache, never on the shared AppState
+    (docs/DECISIONS.md#adr-holdings-isolation)."""
+    import alphaswarm.web.routes.advisory as advisory_route
+
+    async def _blocked(*_args: Any) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(advisory_route, "_run_advisory_synthesis", _blocked)
+    app = make_route_app(
+        advisory_route.router,
+        settings=route_test_settings(tmp_path),
+        graph=FakeCycleGraph({CYCLE_A: "complete"}),
+        portfolio=sentinel_portfolio,
+    )
+    with TestClient(app) as client:
+        assert client.post(f"/api/advisory/{CYCLE_A}").status_code == 202
+        app_state = app.state.app_state
+        assert not any(isinstance(value, PortfolioSnapshot) for value in vars(app_state).values())
+        assert not hasattr(app_state, "portfolio_snapshot")
+
+
+def test_no_source_assigns_a_portfolio_snapshot_attribute() -> None:
+    """Source scan: the lazy reload that wrote AppState.portfolio_snapshot stays deleted."""
+    src = Path(__file__).resolve().parents[2] / "src" / "alphaswarm"
+    hits = [
+        f"{path.relative_to(src)}:{number}"
+        for path in sorted(src.rglob("*.py"))
+        if not re.search(r" [2-9]\.py$", path.name)
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if re.search(r"\bportfolio_snapshot\b", line)
+    ]
+    assert hits == [], f"portfolio_snapshot reappeared at {hits}"
