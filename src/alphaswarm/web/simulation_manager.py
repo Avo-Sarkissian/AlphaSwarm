@@ -10,18 +10,12 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.errors import (
-    INFERENCE_CONFIG_INCOMPLETE_MESSAGE,
-    INFERENCE_CONFIG_INVALID_MESSAGE,
-    InferenceConfigError,
-    InferenceConfigIncompleteError,
-    run_error_from_exception,
-)
+from alphaswarm.errors import run_error_from_exception
 from alphaswarm.types import SimulationPhase
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
-    from alphaswarm.inference.factory import BuiltProviders
+    from alphaswarm.services.runtime import InferenceRuntime
     from alphaswarm.types import BracketConfig
     from alphaswarm.web.replay_manager import ReplayManager
 
@@ -86,6 +80,7 @@ class SimulationManager:
         replay_manager: ReplayManager | None = None,
         on_complete: Callable[[str], Awaitable[object]] | None = None,
         orchestrator_busy: Callable[[], bool] | None = None,
+        inference: InferenceRuntime | None = None,
     ) -> None:
         self._app_state = app_state
         self._brackets = brackets
@@ -93,6 +88,7 @@ class SimulationManager:
         self._replay_manager = replay_manager
         self._on_complete = on_complete
         self._orchestrator_busy = orchestrator_busy
+        self._inference = inference
         self._lock = asyncio.Lock()
         self._is_running: bool = False
         self._task: asyncio.Task[None] | None = None
@@ -163,6 +159,18 @@ class SimulationManager:
         self._task = asyncio.create_task(self._run(seed))
         self._task.add_done_callback(self._on_task_done)
 
+    def _inference_runtime(self) -> InferenceRuntime:
+        """The shared InferenceRuntime (the lifespan passes one); built lazily otherwise."""
+        if self._inference is None:
+            from alphaswarm.services.runtime import InferenceRuntime
+
+            self._inference = InferenceRuntime(
+                self._app_state.settings,
+                ollama_client=self._app_state.ollama_client,
+                model_manager=self._app_state.model_manager,
+            )
+        return self._inference
+
     async def _run(self, seed: str) -> None:
         """Execute the simulation pipeline in a background task.
 
@@ -175,79 +183,27 @@ class SimulationManager:
         B10 (docs/DECISIONS.md#b10): COMPLETE is set by run_simulation as the single source of
         truth — no duplicate set_phase(COMPLETE) here.
         """
-        import asyncio as _asyncio
-        import contextlib as _ctx
-
-        from alphaswarm.errors import Neo4jUnavailableError
-        from alphaswarm.inference.config import load_inference_config
-        from alphaswarm.inference.factory import build_controller, build_providers, inference_mode
-        from alphaswarm.simulation import SimulationDeps, run_simulation
-
-        # `built` may remain None if cancelled before build_providers completes.
-        # The finally block guards aclose() accordingly.
-        built: BuiltProviders | None = None
+        from alphaswarm.services.runtime import open_simulation
+        from alphaswarm.simulation import run_simulation
 
         try:
-            try:
-                # Load inference config off the event loop (sync file I/O).
-                cfg = await _asyncio.to_thread(load_inference_config, self._app_state.settings)
-            except (ValueError, OSError) as exc:
-                # The load error text can quote the file path, so neither the
-                # UI nor the log gets it; the fix is the file itself
-                # (docs/DECISIONS.md#adr-local-first-inference).
-                log.error("inference_config_invalid", error_type=type(exc).__name__)
-                raise InferenceConfigError(INFERENCE_CONFIG_INVALID_MESSAGE) from None
-            try:
-                built = build_providers(
-                    cfg,
-                    ollama_client=self._app_state.ollama_client,
-                    ollama_model_manager=self._app_state.model_manager,
-                )
-            except ValueError as exc:
-                # The file loads (the health check reports it ok), but a cloud
-                # role lacks its API key or base URL: the fix is in Settings.
-                log.error(
-                    "inference_config_incomplete",
-                    error_type=type(exc).__name__,
-                    orchestrator_provider=cfg.orchestrator.provider.value,
-                    worker_provider=cfg.worker.provider.value,
-                )
-                raise InferenceConfigIncompleteError(INFERENCE_CONFIG_INCOMPLETE_MESSAGE) from None
-            controller = build_controller(
-                cfg,
-                self._app_state.settings.governor,
-                state_store=self._app_state.state_store,
-            )
-
-            # Store budget meter + inference mode on app_state for telemetry/estimates.
-            self._app_state.budget_meter = built.budget_meter  # type: ignore[attr-defined]
-            self._app_state.inference_mode = inference_mode(cfg)  # type: ignore[attr-defined]
-
-            log.info(
-                "inference_config_loaded",
-                mode=self._app_state.inference_mode,  # type: ignore[attr-defined]
-            )
-
-            graph = self._app_state.graph_manager
-            if graph is None:
-                raise Neo4jUnavailableError("Neo4j is not connected; cannot start a simulation", op="simulation_start")
-            deps = SimulationDeps(
-                settings=self._app_state.settings,
-                graph=graph,
-                controller=controller,
-                orchestrator=built.orchestrator,
-                worker=built.worker,
+            inference = self._inference_runtime()
+            async with open_simulation(
+                inference,
+                self._app_state,
                 state=self._app_state.state_store,
-                market=self._app_state.market_provider,
-                news=self._app_state.news_provider,
-            )
-            result = await run_simulation(
-                rumor=seed,
-                deps=deps,
-                personas=list(self._app_state.personas),
-                brackets=list(self._brackets),
-                consume_shock=self.consume_shock,
-            )
+            ) as deps:
+                # This run's meter and mode, read by /api/health.
+                self._app_state.budget_meter = inference.last_meter
+                self._app_state.inference_mode = await inference.mode()
+                log.info("inference_config_loaded", mode=self._app_state.inference_mode)
+                result = await run_simulation(
+                    rumor=seed,
+                    deps=deps,
+                    personas=list(self._app_state.personas),
+                    brackets=list(self._brackets),
+                    consume_shock=self.consume_shock,
+                )
             self._last_cycle_id = result.cycle_id
             # B10: do NOT set COMPLETE here — run_simulation is the single
             # source of truth and sets it before this await returns.
@@ -267,14 +223,6 @@ class SimulationManager:
             except Exception:
                 log.error("failed_to_reset_phase_to_idle_on_error")
             raise
-        finally:
-            # aclose providers so cloud clients (httpx/anthropic) release connections.
-            # OllamaProvider.aclose is a documented no-op — safe for the local path.
-            # Guard: built may be None if cancelled before build_providers completed.
-            if built is not None:
-                async with _ctx.AsyncExitStack() as stack:
-                    stack.push_async_callback(built.orchestrator.aclose)
-                    stack.push_async_callback(built.worker.aclose)
 
     async def _publish_failure(self, exc: BaseException) -> None:
         """Put a UI-safe RunError on the StateStore and log the failure once.
@@ -335,8 +283,8 @@ class SimulationManager:
                 # Details were logged by _publish_failure; keep this line text-free.
                 log.info("simulation_task_failed", error_type=type(exc).__name__)
             else:
-                # Raised outside _run's failure handler (a provider aclose in its
-                # finally, say), so this is the only record of the traceback.
+                # Raised outside _run's failure handler, so this is the only
+                # record of the traceback.
                 log.error("simulation_task_failed", error_type=type(exc).__name__, exc_info=exc)
 
     def stop(self) -> None:

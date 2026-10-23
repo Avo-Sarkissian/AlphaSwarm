@@ -73,3 +73,57 @@ def test_settings_connection_test_409_while_simulation_runs(tmp_path: Path) -> N
         r = client.post("/api/settings/test", json={"role": "worker"})
     assert r.status_code == 409
     assert r.json()["detail"]["error"] == "simulation_running"
+
+
+async def test_run_uses_the_inference_runtime_and_records_typed_telemetry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from alphaswarm.inference.budget import BudgetMeter
+    from alphaswarm.inference.factory import BuiltProviders
+    from alphaswarm.inference.types import ProviderRole
+    from alphaswarm.services.runtime import build_runtime
+    from tests.inference.fakes import FakeInferenceProvider
+
+    runtime = build_runtime(route_test_settings(tmp_path), with_ollama=False, with_neo4j=False)
+    runtime.app_state.graph_manager = MagicMock()
+    meter = BudgetMeter(None, {})
+    providers = BuiltProviders(
+        orchestrator=FakeInferenceProvider(ProviderRole.ORCHESTRATOR, "o", scripted=[]),
+        worker=FakeInferenceProvider(ProviderRole.WORKER, "w", scripted=[]),
+        budget_meter=meter,
+    )
+    opened: list[str] = []
+
+    async def _open(name: str) -> BuiltProviders:
+        opened.append(name)
+        object.__setattr__(runtime.inference, "_last_meter", meter)
+        return providers
+
+    monkeypatch.setattr(runtime.inference, "open_operation", _open)
+    monkeypatch.setattr(runtime.inference, "build_controller", AsyncMock(return_value=MagicMock()))
+    captured: dict[str, object] = {}
+
+    async def _fake_run(*args: object, **kwargs: object) -> object:
+        captured["deps"] = kwargs["deps"] if "deps" in kwargs else args[1]
+        result = MagicMock()
+        result.cycle_id = CYCLE_A
+        return result
+
+    monkeypatch.setattr("alphaswarm.simulation.run_simulation", _fake_run)
+    sm = SimulationManager(runtime.app_state, brackets=[], inference=runtime.inference)
+    await sm._run(_SEED)
+    assert opened == ["simulation"]
+    assert runtime.app_state.budget_meter is meter
+    assert runtime.app_state.inference_mode == "local"
+    assert captured["deps"].orchestrator is providers.orchestrator  # type: ignore[attr-defined]
+
+
+def test_simulation_manager_has_no_attr_defined_ignores() -> None:
+    import inspect
+
+    import alphaswarm.web.simulation_manager as simulation_manager_module
+
+    source = inspect.getsource(simulation_manager_module)  # independent of the working directory
+    assert "type: ignore[attr-defined]" not in source
+    assert "build_providers" not in source

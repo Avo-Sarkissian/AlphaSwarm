@@ -24,6 +24,7 @@ from alphaswarm.errors import (
     run_error_from_exception,
 )
 from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
+from alphaswarm.services import runtime as runtime_module
 from alphaswarm.state import StateStore
 from alphaswarm.types import SimulationPhase
 from alphaswarm.web import simulation_manager as manager_module
@@ -56,6 +57,8 @@ class _RecordingLog:
 def recorded_log(monkeypatch: pytest.MonkeyPatch) -> _RecordingLog:
     log = _RecordingLog()
     monkeypatch.setattr(manager_module, "log", log)
+    # The inference config is loaded by the shared InferenceRuntime, which logs its failures.
+    monkeypatch.setattr(runtime_module, "log", log)
     return log
 
 
@@ -296,7 +299,12 @@ async def test_cloud_role_without_api_key_points_at_settings(
     assert (err.code, err.message) == ("inference_config_invalid", INFERENCE_CONFIG_INCOMPLETE_MESSAGE)
     assert recorded_log.find("inference_config_incomplete") == (
         "error",
-        {"error_type": "ValueError", "orchestrator_provider": "anthropic", "worker_provider": "ollama"},
+        {
+            "operation": "simulation",
+            "error_type": "ValueError",
+            "orchestrator_provider": "anthropic",
+            "worker_provider": "ollama",
+        },
     )
     assert all(event != "inference_config_invalid" for _level, event, _kw in recorded_log.calls)
     assert store.snapshot().phase is SimulationPhase.IDLE
@@ -319,7 +327,7 @@ async def test_run_without_a_graph_manager_fails_as_graph_unavailable(
             await _finish(sm)
 
     run_mock.assert_not_awaited()
-    assert exc_info.value.op == "simulation_start"
+    assert exc_info.value.op == "open_simulation"
     err = store.last_error
     assert err is not None
     assert (err.code, err.round_num) == ("graph_unavailable", None)
@@ -359,22 +367,42 @@ async def test_failure_is_logged_with_exc_info_even_if_the_store_rejects_it(
     assert store.snapshot().phase is SimulationPhase.IDLE
 
 
-async def test_failure_after_the_run_handler_is_logged_with_exc_info(
+async def test_provider_close_failure_does_not_fail_the_run(
     recorded_log: _RecordingLog,
 ) -> None:
+    """Closing the providers is best effort: a finished run stays finished."""
     sm, _store = _manager()
-    boom = RuntimeError("worker aclose exploded")
+    cycle_id = "00000000-0000-4000-8000-000000000007"
 
     async def _ok(**_: object) -> MagicMock:
-        return MagicMock(cycle_id="00000000-0000-4000-8000-000000000007")
+        return MagicMock(cycle_id=cycle_id)
 
-    with _patched_run(_ok, aclose_error=boom):
+    with _patched_run(_ok, aclose_error=RuntimeError("worker aclose exploded")):
         await sm.start(SEED)
-        with pytest.raises(RuntimeError):
-            await _finish(sm)
+        await _finish(sm)
 
-    # Raised in _run's finally, so _publish_failure never saw it: the
-    # done-callback is the only place left to record the traceback.
+    level, kwargs = recorded_log.find("provider_close_failed")
+    assert (level, kwargs["exc_info"]) == ("warning", True)
+    assert all(event != "simulation_task_failed" for _level, event, _kw in recorded_log.calls)
+
+
+async def test_failure_outside_the_run_handler_is_logged_with_exc_info(
+    recorded_log: _RecordingLog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sm, _store = _manager()
+    boom = RuntimeError("raised outside the run handler")
+
+    async def _broken_run(_seed: str) -> None:
+        raise boom
+
+    monkeypatch.setattr(sm, "_run", _broken_run)
+    await sm.start(SEED)
+    with pytest.raises(RuntimeError):
+        await _finish(sm)
+
+    # _publish_failure never saw it: the done-callback is the only place left
+    # to record the traceback.
     assert recorded_log.find("simulation_task_failed") == (
         "error",
         {"error_type": "RuntimeError", "exc_info": boom},

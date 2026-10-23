@@ -79,11 +79,11 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 
 ## Data flow: seed → rounds → graph → web → UI
 
-1. **Start.** `POST /api/simulate/start {seed}` reaches `SimulationManager.start`, which refuses with 409 while a replay is active or post-run jobs hold the orchestrator (`post_run_jobs_in_progress`), then takes the lock, clears interview sessions and the previous run's `StateStore.last_error`, and calls `_run`. `_run` loads the InferenceConfig (or the local defaults) and builds:
+1. **Start.** `POST /api/simulate/start {seed}` reaches `SimulationManager.start`, which refuses with 409 while a replay is active or post-run jobs hold the orchestrator (`post_run_jobs_in_progress`), then takes the lock, clears interview sessions and the previous run's `StateStore.last_error`, and calls `_run`. `_run` opens `services.runtime.open_simulation` on the shared `InferenceRuntime`, which loads the InferenceConfig (or the local defaults; cached until the file changes) and builds:
    - providers with `build_providers`: Ollama, or budget-wrapped cloud providers;
    - a controller with `build_controller`: ResourceGovernor locally, RateLimitController for cloud.
 
-   Then it calls `run_simulation`.
+   It records the run's budget meter and inference mode on `AppState` (read by `/api/health`), then calls `run_simulation`; the providers are closed afterwards.
 2. **Seed.** `inject_seed` runs these steps:
    - `orchestrator.prepare`, then one `chat_structured` call that decodes the reply as `SeedLLMOutput` (a reply that never validates leaves an empty SeedEvent, tier 3);
    - `generate_modifiers`, a second `chat_structured` call (`ModifiersLLMOutput`; the static modifiers when it never validates);
