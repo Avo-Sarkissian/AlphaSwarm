@@ -1,7 +1,5 @@
-// src/App.tsx — 7-context shell mirroring frontend-react-archive/src/App.tsx (docs/DECISIONS.md#p41-6-d-07)
-// + onboarding localStorage gate skeleton (D-12).
-// The full Onboarding component lands in Plan 41.6-04 (W4); this file just
-// wires the gate so W2/W3 can run the dashboard against a flag-bypass.
+// App root: the context tree (docs/DECISIONS.md#p41-6-d-07) and the
+// onboarding gate (docs/DECISIONS.md#p41-6-d-12).
 //
 // useWebSocket() runs ABOVE the gate so the WS
 // connection is open for the entire session, even while Onboarding renders.
@@ -19,11 +17,11 @@ import { safeStorage } from '../lib/safeStorage';
 const ONBOARDING_FLAG = 'as_onboarding_v1_complete';
 
 export function App() {
-  // useWebSocket() ABOVE the gate per Pitfall #6 — keeps WS open across onboarding.
+  // useWebSocket() runs above the gate, so the socket stays open across onboarding.
   const { connected, status, lastFrame } = useWebSocket();
 
-  // Onboarding gate (D-12). Full Onboarding component arrives in W4.
-  // codex LOW-9 + gemini #6: derive initial state from BOTH the dev-skip env var
+  // Onboarding gate (docs/DECISIONS.md#p41-6-d-12): derive the initial state
+  // from BOTH the dev-skip env var
   // AND the persisted storage flag. Pure read; no storage writes during
   // the render path (no useEffect, no setItem in initializer).
   const [onboardingDone, setOnboardingDone] = useState<boolean>(() => {
@@ -33,8 +31,7 @@ export function App() {
   // The seed typed during onboarding pre-fills the dashboard, so the topbar
   // and SeedingState show what is actually running.
   const [initialSeed, setInitialSeed] = useState<string>('');
-  // codex LOW-9 + gemini #6 (preserved from W1 patch): the onboardingDone
-  // initial state ALREADY honors VITE_SKIP_ONBOARDING=true via the useState
+  // The onboardingDone initial state ALREADY honors VITE_SKIP_ONBOARDING=true via the useState
   // initializer above; the dev-skip path falls through to the dashboard render
   // automatically because onboardingDone === true at mount. We do NOT write
   // storage during render — the safeStorage.set below runs only inside

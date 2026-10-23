@@ -11,7 +11,7 @@
 //     live signal for the round in progress; the agent is looked up live by id
 //     (docs/DECISIONS.md#p14-d-06).
 //   - CitationGraph reads cites/citedBy for the round on screen from EdgesContext,
-//     the verified codex MEDIUM-7 semantics (source_id = citing, target_id = cited).
+//     with source_id = citing, target_id = cited.
 //   - Cycle-stats panel: Cites / Cited by count the edges of the round on screen
 //     from EdgesContext; rows without a live source are not rendered
 //     (docs/DECISIONS.md#kr-41-6-09).
@@ -223,7 +223,8 @@ export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
     }
   };
 
-  // Generic suggested prompts (not bracket-specific — PERSONA dict removed per KR-41.6-03).
+  // Generic suggested prompts (not bracket-specific; the PERSONA dict was removed,
+  // docs/DECISIONS.md#kr-41-6-03).
   const prompts = [
     'What drove your signal?',
     'Which peer influenced you most?',
@@ -326,7 +327,7 @@ export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
                   </div>
                 )}
               </div>
-              {/* generic suggested prompts (no PERSONA per KR-41.6-03) */}
+              {/* generic suggested prompts (no PERSONA, docs/DECISIONS.md#kr-41-6-03) */}
               <div className="itv-prompts">
                 {prompts.map((p, i) => (
                   <button

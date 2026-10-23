@@ -16,10 +16,12 @@ import { parseOutlook, countAgentCitationsAgainst } from '../../lib/advisoryPars
 import { isPlaceholder, overviewStats, recLabel } from '../../lib/advisoryView';
 import { AdvHoldingRow, AdvStat, type HoldingAnalysis } from './AdvisoryParts';
 
-// D-08 derive-or-stub. D-09 renderMarkdown for portfolio_outlook. D-10 4 tabs.
-// D-22 design-label relabel → "HOLDINGS AFFECTED" using affected_holdings/total_holdings
-// directly from backend. gemini #G2 strict-intersection citation count.
-// codex HIGH-3: NO advisory POST trigger — backend auto-fires on FINAL round.
+// Derive what the backend supports and stub the rest (docs/DECISIONS.md#p41-6-d-08);
+// portfolio_outlook through renderMarkdown (docs/DECISIONS.md#p41-6-d-09); four
+// tabs (docs/DECISIONS.md#p41-6-d-10); "HOLDINGS AFFECTED" read from
+// affected_holdings/total_holdings (docs/DECISIONS.md#p41-6-d-22); citation
+// counts intersect with live agent ids. No advisory POST trigger: the backend
+// fires the synthesis on the final round.
 
 export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
   const meta = useFrameMeta();
@@ -32,15 +34,15 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
   const liveAgentIds = useMemo(
     () => new Set(liveAgents.map((a) => a.id)),
     [liveAgents],
-  ); // gemini #G2 — used for strict citation intersection
+  ); // used for the strict citation intersection
   const [tab, setTab] = useState<'overview' | 'holdings' | 'risk' | 'isolation'>(
     'overview',
   );
   const [privacy] = usePrivacyFacts();
 
-  // codex HIGH-3: GET-only polling. No POST trigger — synthesis is
-  // auto-fired by SimulationManager.on_complete (per quick task 260507-19f).
-  // 404 → null (pending); 500 → polled.error (D-19 surfaces).
+  // GET-only polling. No POST trigger — synthesis is auto-fired by
+  // SimulationManager.on_complete.
+  // 404 → null (pending); 500 → polled.error (docs/DECISIONS.md#p41-6-d-19).
   // Cap = 1200 attempts × 3000ms = 60min. Realistic on M1 Max where
   // post-run narrative generation (~12-25min) + worker→orchestrator swap
   // (~30-90s) + advisory synthesis (~2-5min) can exceed the prior 10min cap.
@@ -59,7 +61,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
   const isExhausted =
     polled.error !== null && /polling timed out/i.test(polled.error.message);
 
-  // D-08 derive-or-stub: build holdingAnalysis array
+  // Derive-or-stub (docs/DECISIONS.md#p41-6-d-08): build the holdingAnalysis array
   const holdingAnalysis = useMemo<HoldingAnalysis[]>(() => {
     if (!report?.items) return [];
     const totalExposure = report.items.reduce(
@@ -77,9 +79,9 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
         rationale: item.rationale_summary,
         value,
         weight,
-        // gemini #G2 — strict intersection (KR-41.6-10 closed for false positives)
+        // Strict intersection with live ids (docs/DECISIONS.md#kr-41-6-10)
         agents: countAgentCitationsAgainst(item.rationale_summary, liveAgentIds),
-        // STUB per D-08 + KR-41.6-01:
+        // Stubbed (docs/DECISIONS.md#p41-6-d-08, docs/DECISIONS.md#kr-41-6-01):
         shares: null,
         basis: null,
         last: null,
@@ -106,7 +108,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
   // Stat derivations for the Overview row
   const totalHoldings = report?.total_holdings ?? 0;
   const affectedHoldings = report?.affected_holdings ?? 0;
-  // D-22 — display as `${affected}/${total}` directly from backend.
+  // Display `${affected}/${total}` directly from the backend (docs/DECISIONS.md#p41-6-d-22).
   const holdingsAffectedDisplay = `${affectedHoldings}/${totalHoldings}`;
 
   // Backend stats over conviction items only: placeholders never skew them.
@@ -216,7 +218,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
 
         {report && tab === 'overview' && (
           <div className="adv-overview">
-            {/* Primary rec — D-09 renderMarkdown for portfolio_outlook */}
+            {/* Primary rec — renderMarkdown for portfolio_outlook (docs/DECISIONS.md#p41-6-d-09) */}
             <div className="adv-primary-rec">
               <div className="adv-rec-tag">PRIMARY RECOMMENDATION</div>
               <div className="adv-rec-headline">
@@ -228,7 +230,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
               />
             </div>
 
-            {/* Summary stats — D-22 HOLDINGS AFFECTED relabel */}
+            {/* Summary stats — HOLDINGS AFFECTED (docs/DECISIONS.md#p41-6-d-22) */}
             <div className="adv-summary-stats">
               <AdvStat
                 label="PORTFOLIO"
@@ -258,7 +260,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
               />
             </div>
 
-            {/* Quick holding view — D-10 single source */}
+            {/* Quick holding view — one source of items (docs/DECISIONS.md#p41-6-d-10) */}
             <div className="adv-quick-holdings">
               <div className="label" style={{ marginBottom: 12 }}>
                 SWARM VIEW ON YOUR HOLDINGS
@@ -277,7 +279,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
             </div>
             <div className="adv-rec-body" style={{ color: 'var(--text-3)' }}>
               The advisory synthesis emitted an empty <code>items[]</code> array.
-              After ITEM 6 of 260512-jqn, the prompt instructs the orchestrator
+              The prompt instructs the orchestrator
               to emit one entry per holding (HOLD@0.2-0.4 placeholder if no
               strong signal), so a re-trigger should populate this view.
             </div>
@@ -300,7 +302,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
                     )}
                   </div>
                   <div className="adv-hc-value">
-                    {/* STUB per D-08 + KR-41.6-01 — last/shares not on backend */}
+                    {/* Stubbed: last/shares are not on the backend (docs/DECISIONS.md#kr-41-6-01) */}
                     <div className="adv-hc-val mono">{h.last ?? '—'}</div>
                     <div className="label">
                       {h.shares ?? '—'} sh · ${(h.value / 1000).toFixed(0)}K ·{' '}
@@ -310,7 +312,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
                   <div className={`adv-hc-rec adv-rec-${h.recTone}`}>{h.rec}</div>
                   <div className="adv-hc-agents label">{h.agents} agents cited</div>
                 </div>
-                {/* Sentiment bar — STUBBED 0 per KR-41.6-01; bar centers on the midline */}
+                {/* Sentiment bar — stubbed at 0 (docs/DECISIONS.md#kr-41-6-01); centred on the midline */}
                 <div className="adv-hc-sentiment">
                   <div className="adv-sentiment-bar">
                     <div
@@ -363,7 +365,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
                 }}
               >
                 Risk modeling lands in a future phase. Backend currently has no
-                scenario or risk-matrix data source (KR-41.6-05).
+                scenario or risk-matrix data source.
               </div>
             </div>
           </div>

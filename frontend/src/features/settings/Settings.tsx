@@ -1,12 +1,11 @@
 // Settings — full-screen takeover.
 //
-// Ported from AlphaSwarm-2/src/settings.jsx per D-03; .jsx → .tsx per codex HIGH-1.
-//
-// D-23 persistence policy:
+// Persistence policy (docs/DECISIONS.md#p41-6-d-23):
 //   • Nothing in Settings is stored in the browser: the UI tweaks had no effect
 //     and were removed (docs/DECISIONS.md#p41-6-d-23).
 //   • Backend-owned values never touch localStorage. Read-only rows show the
-//     backend's live value or say where the value is configured (KR-41.6-06).
+//     backend's live value or say where the value is configured
+//     (docs/DECISIONS.md#kr-41-6-06).
 //   • Privacy copy, the version and the live slot counts come from the backend
 //     (GET /api/settings, GET /api/health, the WebSocket frame), never from
 //     constants (docs/DECISIONS.md#adr-local-first-inference).
@@ -107,7 +106,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
         <div className="st-content">
           {section === 'runtime' && (
             <>
-              {/* Backend-touching: memory threshold — read-only, KR-41.6-06 */}
+              {/* Backend-touching: memory threshold — read-only (docs/DECISIONS.md#kr-41-6-06) */}
               <BackendRow
                 label="Memory ceiling"
                 value="90 %"
@@ -119,7 +118,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 value={slotsValue(telemetry)}
                 desc="Live from the memory governor; the allowance shrinks under memory pressure."
               />
-              {/* Backend-touching: agent count — read-only, KR-41.6-06 */}
+              {/* Backend-touching: agent count — read-only (docs/DECISIONS.md#kr-41-6-06) */}
               <BackendRow
                 label="Agent population"
                 value="100"
@@ -291,7 +290,7 @@ function DefaultRow({ label, value, envVar }: { label: string; value: string; en
   );
 }
 
-// Read-only row for backend-touching settings — KR-41.6-06.
+// Read-only row for backend-touching settings (docs/DECISIONS.md#kr-41-6-06).
 function BackendRow({
   label,
   value,

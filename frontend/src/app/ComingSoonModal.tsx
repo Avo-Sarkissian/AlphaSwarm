@@ -29,7 +29,7 @@ const COMING_SOON_COPY: Record<ComingSoonKey, { title: string; subtitle: string;
       'Inject a hypothetical macro/idiosyncratic shock mid-cycle and watch how each bracket ' +
       'updates. Returns a per-holding sensitivity map and worst-case drawdown estimates ' +
       'derived from the post-shock consensus distribution.\n\n' +
-      'Requires the existing shock-injection wiring (Phase 35.1) plus a portfolio-aware ' +
+      'Requires the existing shock-injection wiring plus a portfolio-aware ' +
       'risk aggregator on the orchestrator side.',
   },
   brackets: {

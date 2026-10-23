@@ -46,7 +46,7 @@ export function AdvHoldingRow({
   h: HoldingAnalysis;
   totalValue: number;
 }) {
-  // Sentiment STUBBED (KR-41.6-01) — render midline bar.
+  // Sentiment is stubbed (docs/DECISIONS.md#kr-41-6-01): render the midline bar.
   return (
     <div className="adv-qh-row">
       <div className="adv-qh-ticker">

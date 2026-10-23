@@ -32,6 +32,8 @@ const stripJsonComments = (text: string): string =>
 
 const MAX_MODULE_LINES = 600;
 const IMPORT_SPEC = /\b(?:from|import)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g;
+const PROCESS_TAG =
+  /\b(?:[Cc]odex|[Gg]emini|REVIEWS?|REVISION-\d|Pitfall\s*#?\d+|W[1-4] Plan|Plan \d+(?:\.\d+)?-\d+|[Qq]uick task|ITEM \d+|Phase \d+(?:\.\d+)?|\d{6}-[a-z0-9]{3})\b|\b(?:D-\d{2}|F-\d{2}|KR-41\.\d-\d{2}|T-\d{2}-\d{2})\b/;
 
 function importsOf(file: string): string[] {
   return [...read(file).matchAll(IMPORT_SPEC)].map((m) => posix.normalize(posix.join(posix.dirname(file), m[1] ?? '')));
@@ -109,6 +111,11 @@ describe('frontend structure', () => {
     const offenders = FILES.filter(
       (file) => /^(app|features)\/.*\.tsx?$/.test(file) && read(file).split('\n').length > MAX_MODULE_LINES,
     );
+    expect(offenders).toEqual([]);
+  });
+
+  it('has no planning-process tags in app/ and features/', () => {
+    const offenders = FILES.filter((file) => /^(app|features)\/.*\.(ts|tsx)$/.test(file) && PROCESS_TAG.test(read(file)));
     expect(offenders).toEqual([]);
   });
 });

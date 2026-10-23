@@ -8,7 +8,7 @@
 //
 // onComplete signature: (seed: string) => void.
 // App.tsx is responsible for setting the localStorage flag in its event handler
-// (codex LOW-9 — never write localStorage during render).
+// (never write localStorage during render).
 
 import { useEffect, useState } from 'react';
 import { Icon } from '../../components/Icon';

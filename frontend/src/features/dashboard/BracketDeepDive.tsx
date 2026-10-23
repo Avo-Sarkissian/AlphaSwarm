@@ -1,13 +1,12 @@
 // Bracket Deep-Dive — full-screen takeover showing bracket internals.
-// Real-wired per D-13 / KR-41.6-13.
+// Real-wired per docs/DECISIONS.md#p41-6-d-13 and docs/DECISIONS.md#kr-41-6-13.
 //
-// Source: AlphaSwarm-2/src/bracket_deep.jsx (159 LOC, CDN-globals format).
-// Conversion notes:
+// Notes:
 //   - Citation counts come from the shared EdgesContext (round on screen).
-//     Direction semantics per codex MEDIUM-7: source_id = citing, target_id = cited.
+//     Direction semantics: source_id = citing, target_id = cited.
 //   - Before round 2's edges exist (R1, seeding, idle) both counts render '—'.
-//   - Source's CDN-globals export DELETED — module export only (no global pollution).
-//   - agents prop is pre-filtered by the caller (AppShell) per D-13:
+//   - agents prop is pre-filtered by the caller (ModalHost)
+//     (docs/DECISIONS.md#p41-6-d-13):
 //       useAgents().agents.filter(a => a.bracket === bracket.bracket)
 //     So the inner `members` filter is now a no-op — kept defensive in case caller
 //     forgets to filter.

@@ -1,7 +1,4 @@
 // Side panels — brackets list, rationale feed, KPI strip, bracket composition.
-// Lifted from AlphaSwarm-2/src/panels.jsx (W2 Plan 41.6-02 task 1) and converted
-// to native ES modules per D-03 (panel components were attached as globals
-// before the conversion).
 
 import { sparkBars } from '../../lib/spark';
 import { consensusLeader, tallySignals } from '../../lib/tally';

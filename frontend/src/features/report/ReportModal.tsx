@@ -230,9 +230,8 @@ export function ReportModal({
 
           {report && (
             <>
-              {/* Hero — minimal, derived from backend metadata only. The
-                  AlphaSwarm-2 design's hero filler text is not preserved per
-                  Pitfall #3; this hero shows the live cycle id + generated_at. */}
+              {/* Hero — minimal, derived from backend metadata only: the
+                  live cycle id + generated_at, no design filler text. */}
               <div className="rpt-hero" style={{ padding: 24 }}>
                 <div className="rpt-kicker label">
                   CYCLE {report.cycle_id}
