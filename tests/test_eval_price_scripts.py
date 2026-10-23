@@ -141,10 +141,10 @@ def test_every_stored_headline_reaches_the_market_block(tmp_path: Path) -> None:
 
 
 def test_label_event_uses_auto_adjusted_closes_and_the_benchmark() -> None:
-    download = FakeDownload({"ZZZT": alternating_series(0.05), "SPY": flat_series()})
+    download = FakeDownload({"ZZZT": alternating_series(0.05), "IVV": flat_series()})
     label = label_outcomes.label_event(EVENT, download)
     assert label.label_1d == "up" and label.abn_ret_1d == pytest.approx(0.05, abs=1e-6)
-    assert {r[0] for r in download.requests} == {"ZZZT", "SPY"}
+    assert {r[0] for r in download.requests} == {"ZZZT", "IVV"}
     assert all(r[3] is True for r in download.requests)
     start, end = label_outcomes.label_window(EVENT)
     assert (start, end) == (
@@ -167,7 +167,7 @@ def test_label_all_keeps_existing_and_reports_failures() -> None:
         {
             "ZZZT": alternating_series(0.05),
             "QQQX": alternating_series(0.05)[:10],
-            "SPY": flat_series(),
+            "IVV": flat_series(),
         }
     )
     lines: list[str] = []
@@ -182,7 +182,7 @@ def test_label_main_writes_in_event_order(tmp_path: Path, monkeypatch: pytest.Mo
     write_events(paths.events, [EVENT, second])
     write_jsonl(paths.labels, [])
     monkeypatch.setattr(label_outcomes, "PATHS", paths)
-    fake = FakeDownload({"ZZZT": alternating_series(0.05), "QQQX": alternating_series(-0.05), "SPY": flat_series()})
+    fake = FakeDownload({"ZZZT": alternating_series(0.05), "QQQX": alternating_series(-0.05), "IVV": flat_series()})
     monkeypatch.setattr(label_outcomes, "yfinance_closes", fake)
     assert label_outcomes.main([]) == 0
     written = [json.loads(line) for line in paths.labels.read_text().splitlines()]
