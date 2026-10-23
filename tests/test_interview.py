@@ -176,7 +176,8 @@ class TestInterviewEngineInit:
     def test_window_size_constant(self) -> None:
         from alphaswarm.interview import InterviewEngine
 
-        assert InterviewEngine.WINDOW_SIZE == 10
+        assert InterviewEngine.WINDOW_SIZE == 12
+        assert InterviewEngine.TRIM_BLOCK_PAIRS == 6
 
 
 class TestInterviewEngineAsk:
@@ -271,19 +272,19 @@ class TestBuildMessages:
 
 
 class TestSlidingWindow:
-    async def test_sliding_window_trims_at_11_pairs(self) -> None:
+    async def test_sliding_window_trims_a_block_at_13_pairs(self) -> None:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        # 11 ask responses + 1 summary generation = 12 total
-        provider = _make_fake_provider("Response", count=12)
+        # 13 ask responses + 1 summary = 14
+        provider = _make_fake_provider("Response", count=14)
         engine = InterviewEngine(context=ctx, provider=provider)
 
-        for i in range(11):
+        for i in range(13):
             await engine.ask(f"Question {i}")
 
-        # After 11 asks, should have 10 pairs (20 messages) and a summary
-        assert len(engine._history) == 20
+        # After 13 asks the oldest 6 pairs are summarized: 7 pairs (14 messages) remain
+        assert len(engine._history) == 14
         assert engine._summary is not None
         assert len(engine._summary) > 0
 
@@ -291,15 +292,15 @@ class TestSlidingWindow:
         from alphaswarm.interview import InterviewEngine
 
         ctx = _make_context()
-        # 11 ask responses + 1 summary generation = 12 total
-        provider = _make_fake_provider("Response", count=12)
+        # 13 ask responses + 1 summary = 14
+        provider = _make_fake_provider("Response", count=14)
         engine = InterviewEngine(context=ctx, provider=provider)
 
-        for i in range(11):
+        for i in range(13):
             await engine.ask(f"Question {i}")
 
-        # 11 ask calls + 1 summary generation = 12 provider calls
-        assert len(provider.calls) == 12
+        # 13 ask responses + 1 summary = 14
+        assert len(provider.calls) == 14
 
 
 def test_context_block_omits_empty_narrative() -> None:

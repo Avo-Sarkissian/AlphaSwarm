@@ -159,16 +159,19 @@ async def ensure_decision_narrative(
 
 
 class InterviewEngine:
-    """Manages multi-turn agent interview conversation.
+    """Multi-turn agent interview conversation.
 
-    Per D-08: 10-turn sliding window (10 user+agent pairs = 20 messages).
-    Per D-09: Summary of dropped pairs prepended as system message.
-    Per D-10: Summary generated via worker model (same model as interview).
-    Per D-13: Uses OllamaClient.chat() directly (no governor).
+    History holds complete user/assistant pairs only: a turn is committed after
+    the provider answers, so a failed call never leaves an orphaned user message.
+    Once more than WINDOW_SIZE pairs exist, the oldest TRIM_BLOCK_PAIRS pairs are
+    summarized in one worker call and prepended as "[Earlier: ...]"
+    (docs/DECISIONS.md#p14-d-08, #p14-d-09, #p14-d-10). No governor
+    (docs/DECISIONS.md#p14-d-13).
     """
 
-    WINDOW_SIZE = 10  # max user+agent message pairs
-    SUMMARY_MAX_CHARS = 1500  # cap on merged summary (~10 one-sentence summaries)
+    WINDOW_SIZE = 12  # pairs kept before a block trim
+    TRIM_BLOCK_PAIRS = 6  # pairs folded into the summary per trim
+    SUMMARY_MAX_CHARS = 1500  # cap on the merged summary (a few two-sentence block summaries)
 
     def __init__(
         self,
@@ -215,60 +218,52 @@ class InterviewEngine:
         return messages
 
     async def ask(self, user_message: str) -> str:
-        """Send a user message and return the agent's response.
+        """Send *user_message* and return the agent's answer.
 
-        Appends to history, calls LLM, trims window if needed.
+        The user turn and the answer are appended together after the provider
+        succeeds. A failed summary call does not fail a turn whose answer exists:
+        the trim is retried on the next turn (hard-stop errors still propagate).
         """
-        self._history.append({"role": "user", "content": user_message})
-        messages = self._build_messages()
-        result = await self._provider.chat(messages)
+        user_turn: InferenceMessage = {"role": "user", "content": user_message}
+        result = await self._provider.chat([*self._build_messages(), user_turn])
         assistant_content = result.content or ""
-        self._history.append({"role": "assistant", "content": assistant_content})
-        await self._trim_window()
+        self._history.extend([user_turn, {"role": "assistant", "content": assistant_content}])
+        try:
+            await self._trim_window()
+        except HARD_STOP_ERRORS:
+            raise
+        except Exception:  # the answer exists; the trim retries next turn
+            self._log.warning(
+                "interview_trim_failed",
+                pair_count=len(self._history) // 2,
+                exc_info=True,
+            )
         return assistant_content
 
     async def _trim_window(self) -> None:
-        """Trim conversation history to WINDOW_SIZE pairs, summarizing dropped pairs."""
-        pair_count = len(self._history) // 2
-        if pair_count <= self.WINDOW_SIZE:
+        """Fold the oldest TRIM_BLOCK_PAIRS pairs into the summary once over WINDOW_SIZE."""
+        if len(self._history) // 2 <= self.WINDOW_SIZE:
             return
-
-        # Read (do NOT yet remove) the oldest pair. We must not mutate
-        # self._history until the summary chat succeeds: if it raises (transient
-        # backend error, timeout, cloud rate-limit), an early splice would
-        # permanently discard a turn of context AND fail the current ask() whose
-        # answer was already produced (F-15). Trimming simply retries next turn.
-        dropped_user = self._history[0]
-        dropped_assistant = self._history[1]
-
-        # Generate summary of dropped pair via worker model
+        block = self._history[: self.TRIM_BLOCK_PAIRS * 2]
         summary_prompt: list[InferenceMessage] = [
             {
                 "role": "system",
                 "content": (
-                    "In one sentence, summarize what the user asked and what you said in the following exchange."
+                    "In at most two sentences, summarize what the user asked and what "
+                    "you said in the following exchanges."
                 ),
             },
-            {"role": "user", "content": dropped_user["content"]},
-            {"role": "assistant", "content": dropped_assistant["content"]},
-            {"role": "user", "content": "Summarize the above exchange in one sentence."},
+            *block,
+            {"role": "user", "content": "Summarize the exchanges above in at most two sentences."},
         ]
         summary_result = await self._provider.chat(summary_prompt)
         new_summary = summary_result.content or ""
-
-        # Merge with existing summary, capped at SUMMARY_MAX_CHARS so the
-        # summary cannot grow unboundedly (one sentence per trimmed pair,
-        # forever). Keep the most recent tail when over budget.
+        # Cap the merged summary so it cannot grow without bound; keep the newest tail.
         merged = f"{self._summary} {new_summary}" if self._summary is not None else new_summary
         if len(merged) > self.SUMMARY_MAX_CHARS:
             merged = merged[-self.SUMMARY_MAX_CHARS :].lstrip()
-
-        # Commit both mutations only after the summary succeeded.
+        # Commit both mutations only after the summary succeeded
+        # (docs/DECISIONS.md#f-15).
         self._summary = merged
-        self._history = self._history[2:]
-
-        self._log.debug(
-            "window_trimmed",
-            pair_count=len(self._history) // 2,
-            has_summary=True,
-        )
+        self._history = self._history[self.TRIM_BLOCK_PAIRS * 2 :]
+        self._log.debug("window_trimmed", pair_count=len(self._history) // 2, has_summary=True)
