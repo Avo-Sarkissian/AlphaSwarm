@@ -6,26 +6,25 @@ Every value here is fictional.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi import APIRouter, FastAPI
 
-from alphaswarm.app import create_app_state
+from alphaswarm.app import AppState
 from alphaswarm.errors import AgentNotFoundError
-from alphaswarm.personas import generate_personas, load_bracket_configs
+from alphaswarm.services.advisory import AdvisoryService
+from alphaswarm.services.jobs import JobRunner
+from alphaswarm.services.report import ReportService
+from alphaswarm.services.runtime import InferenceRuntime, Runtime, RuntimeFactory, build_runtime
 from alphaswarm.settings import AppSettings
-from alphaswarm.web.app import make_session_clearer
-from alphaswarm.web.connection_manager import ConnectionManager
+from alphaswarm.web.app import wire_web_state
 from alphaswarm.web.errors import install_error_handlers
-from alphaswarm.web.guards import orchestrator_job_running
-from alphaswarm.web.replay_manager import ReplayManager
-from alphaswarm.web.simulation_manager import SimulationManager
 
 CYCLE_A: Final = "00000000-0000-4000-8000-0000000000a1"
 CYCLE_B: Final = "00000000-0000-4000-8000-0000000000b2"
@@ -151,59 +150,88 @@ def route_test_settings(tmp_path: Path, **overrides: Any) -> AppSettings:
     return AppSettings(_env_file=None, **values)  # type: ignore[call-arg]
 
 
+def runtime_for(app_state: AppState) -> Runtime:
+    """A Runtime around an AppState a test built by hand (for custom test lifespans)."""
+    return Runtime(
+        settings=app_state.settings,
+        app_state=app_state,
+        inference=InferenceRuntime(
+            app_state.settings,
+            ollama_client=app_state.ollama_client,
+            model_manager=app_state.model_manager,
+        ),
+        jobs=JobRunner(app_state.state_store),
+        neo4j_ready=app_state.graph_manager is not None,
+    )
+
+
+def offline_runtime(settings: AppSettings, *, graph: object | None = None) -> Runtime:
+    """build_runtime without Ollama or Neo4j; *graph* (a fake) becomes the graph manager."""
+    runtime = build_runtime(settings, with_ollama=False, with_neo4j=False)
+    runtime.app_state.graph_manager = graph  # type: ignore[assignment]
+    return runtime_for(runtime.app_state)
+
+
+def offline_runtime_factory(
+    *,
+    graph: object | None = None,
+    events: list[str] | None = None,
+) -> RuntimeFactory:
+    """A RuntimeFactory for create_app(settings, runtime_factory=...) tests."""
+
+    @asynccontextmanager
+    async def _factory(settings: AppSettings) -> AsyncIterator[Runtime]:
+        runtime = offline_runtime(settings, graph=graph)
+        if events is not None:
+            events.append("runtime_open")
+        try:
+            yield runtime
+        finally:
+            await runtime.jobs.shutdown()
+            if events is not None:
+                events.append("runtime_close")
+
+    return _factory
+
+
+def block_service_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ReportService/AdvisoryService.generate wait forever (route tests never run a job)."""
+
+    async def _blocked(self: object, cycle_id: str) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(ReportService, "generate", _blocked)
+    monkeypatch.setattr(AdvisoryService, "generate", _blocked)
+
+
 def make_route_app(
     *routers: APIRouter,
     settings: AppSettings,
     graph: object | None = None,
     portfolio: object | None = None,
 ) -> FastAPI:
-    """App with *routers*, the error handlers and an offline AppState (no Neo4j/Ollama).
+    """App with *routers* and the error handlers, wired by the production wire_web_state.
 
-    Mirrors the app.state slots the production lifespan creates. Job tasks still
-    running at shutdown are cancelled, like the real lifespan teardown.
+    Runs offline (no Ollama, no Neo4j driver): *graph* is a fake and *portfolio*
+    a fixed snapshot behind StaticPortfolioCache, so every route test exercises
+    the production wiring.
     """
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-        brackets = load_bracket_configs()
-        app_state = create_app_state(
-            settings,
-            generate_personas(brackets),
-            with_ollama=False,
-            with_neo4j=False,
-        )
-        app_state.graph_manager = graph  # type: ignore[assignment]
-        # A loopback host, so the advisory's cloud guard sees a local Ollama server.
-        app_state.ollama_client = MagicMock(base_url="http://127.0.0.1:11434")
-        app_state.model_manager = MagicMock()
-        app.state.interview_sessions = {}
-        app.state.report_task = None
-        app.state.advisory_task = None
-        app.state.report_generation_error = {}
-        app.state.advisory_generation_error = {}
-        app.state.portfolio_cache = StaticPortfolioCache(portfolio)
-        replay_manager = ReplayManager(app_state)
-        sim_manager = SimulationManager(
-            app_state,
-            brackets,
-            on_start=make_session_clearer(app),
-            replay_manager=replay_manager,
-            orchestrator_busy=lambda: orchestrator_job_running(app_state),
-        )
-        replay_manager.set_sim_running_check(lambda: sim_manager.is_running)
-        app.state.app_state = app_state
-        app.state.sim_manager = sim_manager
-        app.state.replay_manager = replay_manager
-        app.state.connection_manager = ConnectionManager()
-        yield
-        for attr in ("report_task", "advisory_task"):
-            task = getattr(app.state, attr, None)
-            if task is not None and not task.done():
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
+        async with AsyncExitStack() as stack:
+            app_state = offline_runtime(settings, graph=graph).app_state
+            # A loopback host, so the advisory's cloud guard sees a local Ollama server;
+            # no route test call reaches the client or the model manager.
+            app_state.ollama_client = MagicMock(base_url="http://127.0.0.1:11434")
+            app_state.model_manager = MagicMock()
+            runtime = runtime_for(app_state)
+            stack.push_async_callback(runtime.jobs.shutdown)
+            await wire_web_state(app, runtime, stack, portfolio=StaticPortfolioCache(portfolio))  # type: ignore[arg-type]
+            yield
 
     app = FastAPI(lifespan=_lifespan)
+    app.state.settings = settings
     install_error_handlers(app)
     for router in routers:
         app.include_router(router, prefix="/api")

@@ -186,6 +186,7 @@ source_modules = [
     "alphaswarm.web.broadcaster",
     "alphaswarm.web.wire",
     "alphaswarm.web.connection_manager",
+    "alphaswarm.web.deps",
     "alphaswarm.web.errors",
     "alphaswarm.web.guards",
     "alphaswarm.web.origin_guard",

@@ -112,7 +112,7 @@ improve the product:
 | 41.2-05 | Delete red tests, opt-in integration marker, `UV_CACHE_DIR`, ReAct JSON hardening, model-tag reconciliation | partial: ReAct hardening re-done in 3110d11 (`report.py:195-197`) and models reconciled (`settings.py:OllamaSettings`). Open: item 2.8 (1.8 and 2.7 done 2026-10). The original commits sit on the unmerged `worktree-agent-aa61fcfe` and `worktree-agent-a013a1a5` | — |
 | 41.5 | Advisory hero, KPI strip, per-holding table | done (absorbed by 41.6 AdvisoryV2) | `fe/components/v2.tsx` (`AdvisoryV2`) |
 | 41.6 | Quant Terminal port | code done. **Formal UAT never signed off** (6 HUMAN-UAT items pending; 31 parity rows unsigned) | see section 7 |
-| 999.1 | Auto-trigger advisory on completion | done; the in-process trigger was replaced by PostRunPipeline (2026-10) | `services/post_run.py`; `web/app.py:WebPostRunJobs` |
+| 999.1 | Auto-trigger advisory on completion | done; the in-process trigger was replaced by PostRunPipeline (2026-10) | `services/post_run.py:ServicePostRunJobs` |
 | 999.3 | Live memory telemetry | done | `web/broadcaster.py` (`_host_memory_percent`); `web/wire.py` (`_governor`) |
 | 41.3 (branch only) | Codex remediation | superseded, never merged | item 2.11 |
 

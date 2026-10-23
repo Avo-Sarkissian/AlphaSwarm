@@ -138,7 +138,7 @@ npm --prefix frontend run dev                           # http://localhost:5173
 ```
 - `./start` and `alphaswarm web` configure logging before uvicorn starts, so every
   server line, uvicorn's own included, goes through the redacting structlog chain.
-  A direct `uv run uvicorn alphaswarm.web.app:app --port 8000` also works, but its
+  A direct `uv run uvicorn --factory alphaswarm.web.app:create_app --port 8000` also works, but its
   first two lines ("Started server process", "Waiting for application startup.")
   use uvicorn's own format; the app takes over uvicorn's loggers when its lifespan
   starts.

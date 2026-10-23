@@ -56,7 +56,7 @@ async def _never_called_app(scope: object, receive: object, send: object) -> Non
 
 @pytest.mark.usefixtures("uvicorn_loggers")
 def test_a_direct_uvicorn_launch_is_bridged_too(capsys: pytest.CaptureFixture[str]) -> None:
-    """`uvicorn alphaswarm.web.app:app` applies uvicorn's default log_config, which gives
+    """`uvicorn --factory alphaswarm.web.app:create_app` applies uvicorn's default log_config, which gives
     its loggers their own handlers and stops propagation. Configuring logging (the web
     lifespan does) takes them over, so an ASGI traceback and the access lines are
     redacted like every other line."""
