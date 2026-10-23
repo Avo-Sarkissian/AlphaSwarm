@@ -699,12 +699,19 @@ def _handle_web(host: str, port: int) -> None:
     Per D-13: uvicorn.run() is a blocking synchronous call that creates and owns
     the asyncio event loop internally. Do NOT wrap with asyncio.run().
     All stateful objects are created inside the FastAPI lifespan context (D-04).
+    Logging is configured before uvicorn starts and uvicorn gets log_config=None,
+    so its records go through the redacting structlog bridge instead of uvicorn's
+    own handlers (docs/DECISIONS.md#adr-security-2026-08).
     """
     import uvicorn
 
+    from alphaswarm.config import AppSettings
+    from alphaswarm.logging import configure_logging
     from alphaswarm.web import create_app
 
-    uvicorn.run(create_app(), host=host, port=port)
+    settings = AppSettings()
+    configure_logging(log_level=settings.log_level, json_output=not settings.debug)
+    uvicorn.run(create_app(settings), host=host, port=port, log_config=None)
 
 
 # ---------------------------------------------------------------------------

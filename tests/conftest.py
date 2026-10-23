@@ -434,3 +434,20 @@ def web_test_settings(tmp_path: Path) -> AppSettings:
     from tests.support.web_app import route_test_settings
 
     return route_test_settings(tmp_path, trusted_hosts=(*DEFAULT_TRUSTED_HOSTS, "testserver"))
+
+
+@pytest.fixture(autouse=True)
+def _reset_log_context() -> Iterator[None]:
+    """Clear structlog contextvars and the stdlib bridge after every test.
+
+    run_simulation, agent tasks and the report/advisory jobs bind cycle_id/round
+    task-locally; a test that awaits them in its own task would otherwise leak the
+    binding into later tests (docs/DECISIONS.md#adr-security-2026-08).
+    """
+    yield
+    import structlog
+
+    from alphaswarm.logging import reset_stdlib_bridge
+
+    structlog.contextvars.clear_contextvars()
+    reset_stdlib_bridge()

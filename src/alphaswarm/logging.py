@@ -32,7 +32,8 @@ Phase 37 / Task 17 additions (API key redaction):
   excluded (too broad — would clobber unrelated fields like "next_page_token").
 
 Phase 3 (2026-10): API-key shapes (sk-…, nvapi-…, Bearer …) are scrubbed from
-every string value at any depth, whatever its key.
+every string value at any depth, whatever its key, and configure_logging bridges
+stdlib logging (uvicorn, httpx, provider SDKs) into this same chain.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ import logging
 import re
 import sys
 from collections.abc import Mapping, MutableMapping
-from typing import Any
+from typing import Any, Final, Protocol, TextIO
 
 import structlog
 from pydantic import ValidationError
@@ -98,9 +99,10 @@ _CURRENCY_RE = re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?")
 _SSN_RE = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 
 # API-key shapes are scrubbed from EVERY string value, whatever its key
-# (docs/DECISIONS.md#adr-holdings-isolation): free-text error= fields and exception
-# text can carry a token past the key-name rules. The patterns are vendor prefixes
-# and "Bearer <token>", so ordinary text ("risk-adjusted", "task-123") is untouched.
+# (docs/DECISIONS.md#adr-holdings-isolation): free-text error= fields, exception
+# text and bridged stdlib messages can carry a token past the key-name rules. The
+# patterns are vendor prefixes and "Bearer <token>", so ordinary text
+# ("risk-adjusted", "task-123") is untouched.
 _SECRET_TOKEN_RE = re.compile(
     r"\bsk-(?:ant-|proj-)?[A-Za-z0-9_\-]{8,}"
     r"|\bnvapi-[A-Za-z0-9_\-]{8,}"
@@ -234,43 +236,119 @@ def pii_redaction_processor(logger: Any, method_name: str, event_dict: MutableMa
         raise structlog.DropEvent from None
 
 
-def configure_logging(log_level: str = "INFO", json_output: bool = True) -> None:
-    """Configure structlog for the application. Call once at startup.
+BRIDGE_HANDLER_NAME: Final = "alphaswarm-structlog-bridge"
+# Third-party loggers held at WARNING even when the app logs at INFO: httpx/httpcore
+# log every request (hundreds per simulation), neo4j logs schema notifications.
+_QUIET_STDLIB_LOGGERS: Final = ("httpx", "httpcore", "neo4j")
 
-    Args:
-        log_level: Python log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL).
-        json_output: If True, output JSON lines. If False, use colored console output.
+
+class _Writable(Protocol):
+    def write(self, text: str, /) -> int: ...
+
+    def flush(self) -> None: ...
+
+
+class _CurrentStdout:
+    """Writes to whatever sys.stdout is at write time.
+
+    The default stream is resolved late, as structlog's PrintLoggerFactory() does,
+    so a stdout that is swapped out and closed later (pytest's capsys,
+    contextlib.redirect_stdout) is never kept by the bridge handler.
     """
-    processors: list[structlog.types.Processor] = [
+
+    def write(self, text: str, /) -> int:
+        return sys.stdout.write(text)
+
+    def flush(self) -> None:
+        sys.stdout.flush()
+
+
+def _pre_chain(json_output: bool) -> list[structlog.types.Processor]:
+    """Processors shared by structlog events and bridged stdlib records."""
+    chain: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,  # MUST be first processor
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
         structlog.dev.set_exc_info,
     ]
-
-    # Tracebacks never include local variables: frames hold API keys, prompts
-    # and portfolio objects (docs/DECISIONS.md#adr-holdings-isolation). structlog's
-    # stock dict_tracebacks and its default (Rich) console formatter both use
-    # show_locals=True, so neither is used.
+    # Tracebacks never include local variables: frames hold API keys, prompts and
+    # portfolio objects (docs/DECISIONS.md#adr-holdings-isolation). structlog's stock
+    # dict_tracebacks and its default (Rich) console formatter both use
+    # show_locals=True, so neither is used. In JSON mode the traceback becomes a
+    # structured "exception" list BEFORE redaction, so the redactor also walks it.
     if json_output:
-        # Turn exc_info into a structured "exception" list before redaction, so
-        # the redactor also walks the traceback. Without this, JSONRenderer only
-        # emits "exc_info": true and the stack is lost.
-        processors.append(structlog.processors.ExceptionRenderer(ExceptionDictTransformer(show_locals=False)))
-        processors.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer
-        processors.append(structlog.processors.JSONRenderer())
-    else:
-        processors.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer
-        processors.append(structlog.dev.ConsoleRenderer(exception_formatter=structlog.dev.plain_traceback))
+        chain.append(structlog.processors.ExceptionRenderer(ExceptionDictTransformer(show_locals=False)))
+    chain.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer (Pitfall 1)
+    return chain
 
+
+def _renderer(json_output: bool) -> structlog.types.Processor:
+    if json_output:
+        return structlog.processors.JSONRenderer()
+    return structlog.dev.ConsoleRenderer(exception_formatter=structlog.dev.plain_traceback)
+
+
+def configure_logging(
+    log_level: str = "INFO",
+    json_output: bool = True,
+    *,
+    stream: TextIO | None = None,
+) -> None:
+    """Configure structlog and bridge stdlib logging into it. Call once at startup.
+
+    Args:
+        log_level: Python log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        json_output: If True, output JSON lines. If False, use console output.
+        stream: Where lines go. Default: sys.stdout as it is when each line is
+            written (never a stream captured at configure time).
+
+    stdlib records (uvicorn, httpx, provider SDKs) get the same processors, so they
+    are redacted and rendered in the same format
+    (docs/DECISIONS.md#adr-security-2026-08). Calling it again replaces the bridge.
+    """
+    level = getattr(logging, log_level.upper(), logging.INFO)
     structlog.configure(
-        processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, log_level.upper(), logging.INFO)),
+        processors=[*_pre_chain(json_output), _renderer(json_output)],
+        wrapper_class=structlog.make_filtering_bound_logger(level),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=(
+            structlog.PrintLoggerFactory(file=stream)
+            if stream is not None
+            else structlog.PrintLoggerFactory()  # resolves sys.stdout per logger, as before
+        ),
         cache_logger_on_first_use=True,
     )
+    _install_stdlib_bridge(level, json_output, stream if stream is not None else _CurrentStdout())
+
+
+def _install_stdlib_bridge(level: int, json_output: bool, stream: _Writable) -> None:
+    reset_stdlib_bridge()
+    handler = logging.StreamHandler(stream)
+    handler.set_name(BRIDGE_HANDLER_NAME)
+    handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            foreign_pre_chain=_pre_chain(json_output),
+            processors=[
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                _renderer(json_output),
+            ],
+        )
+    )
+    root = logging.getLogger()
+    root.addHandler(handler)
+    root.setLevel(level)
+    for name in _QUIET_STDLIB_LOGGERS:
+        logging.getLogger(name).setLevel(max(level, logging.WARNING))
+
+
+def reset_stdlib_bridge() -> None:
+    """Remove the bridge handler from the root logger (repeated configure; tests)."""
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if handler.get_name() == BRIDGE_HANDLER_NAME:
+            root.removeHandler(handler)
+            handler.close()
 
 
 def get_logger(**initial_bindings: object) -> structlog.stdlib.BoundLogger:
