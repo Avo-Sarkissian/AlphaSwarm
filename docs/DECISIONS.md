@@ -695,8 +695,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p34-d-07"></a>`D-07` | ReplayManager holds the ReplayStore, cycle_id and round; created in the lifespan. | active | web/replay_manager.py:1; tests/test_web.py:1209 |
-| <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, builds ReplayStore, sets round 1, broadcasts. | active | web/replay_manager.py:167; web/routes/replay.py:51,99 |
-| <a id="p34-d-09"></a>`D-09` | replay_advance increments the round (capped at the cycle's real depth since F-12) and broadcasts. | active | web/replay_manager.py:218; web/routes/replay.py:59,124 |
+| <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, reads round 1 and only then commits the ReplayStore; the 5 Hz broadcaster shows it on its next tick; the immediate broadcast was removed. | partial | web/replay_manager.py; web/routes/replay.py |
+| <a id="p34-d-09"></a>`D-09` | replay_advance reads the next round first and commits it in one synchronous step (capped at the cycle's real depth since F-12); no immediate broadcast. | partial | web/replay_manager.py; web/routes/replay.py |
 | <a id="p34-d-10"></a>`D-10` | POST /api/replay/stop ends the replay (ReplayManager inactive again) and never writes the live StateStore phase, which stays IDLE or COMPLETE. Revised 2026-10 (start set the live phase to REPLAY and stop set it to IDLE). | revised | web/replay_manager.py:249; web/routes/replay.py:66,136 |
 | <a id="p34-d-11"></a>`D-11` | Broadcaster reads the replay snapshot instead of live state while replay is active. | active | web/broadcaster.py (`snapshot_to_json`); tests/test_broadcaster_frames.py |
 

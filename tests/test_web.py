@@ -1531,16 +1531,15 @@ async def test_m8x_replay_manager_advance_and_stop_hold_lock() -> None:
     rm._lock.acquire = counting_acquire  # type: ignore[method-assign]
 
     # Seed a minimal store + state so advance() does not early-return.
-    mock_cm = MagicMock()
     mock_gm = AsyncMock()
     mock_gm.read_bracket_narratives_for_round = AsyncMock(return_value=[])
     mock_gm.read_rationale_entries_for_round = AsyncMock(return_value=[])
     signals = {("agent_1", 1): AgentState(signal=SignalType.BUY, confidence=0.8)}
 
-    await rm.start("cycle-x", signals, mock_cm, mock_gm)
+    await rm.start("cycle-x", signals, mock_gm)
     assert acquire_counter["count"] == 1  # start() acquires once
 
-    await rm.advance(mock_cm, mock_gm)
+    await rm.advance(mock_gm)
     assert acquire_counter["count"] == 2  # advance() acquires once (B9)
 
     await rm.stop()

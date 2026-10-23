@@ -48,7 +48,7 @@ class ReplayCyclesResponse(BaseModel):
 
 
 class ReplayStartResponse(BaseModel):
-    """Response for POST /replay/start/{cycle_id} (D-08)."""
+    """Response for POST /replay/start/{cycle_id} (docs/DECISIONS.md#p34-d-08)."""
 
     status: str
     cycle_id: str
@@ -56,14 +56,14 @@ class ReplayStartResponse(BaseModel):
 
 
 class ReplayAdvanceResponse(BaseModel):
-    """Response for POST /replay/advance (D-09)."""
+    """Response for POST /replay/advance (docs/DECISIONS.md#p34-d-09)."""
 
     status: str
     round_num: int
 
 
 class ReplayStopResponse(BaseModel):
-    """Response for POST /replay/stop (D-10)."""
+    """Response for POST /replay/stop (docs/DECISIONS.md#p34-d-10)."""
 
     status: str
 
@@ -96,7 +96,7 @@ async def replay_cycles(
 
 @router.post("/replay/start/{cycle_id}", response_model=ReplayStartResponse)
 async def replay_start(cycle_id: CycleId, request: Request) -> ReplayStartResponse:
-    """Start replay for *cycle_id* (D-08).
+    """Start replay for *cycle_id* (docs/DECISIONS.md#p34-d-08).
 
     422 malformed id; 409 simulation_in_progress / replay_already_active; 404
     cycle_not_found when the cycle has no signals; 503 graph_unavailable. The
@@ -116,26 +116,26 @@ async def replay_start(cycle_id: CycleId, request: Request) -> ReplayStartRespon
     signals = await graph.read_full_cycle_signals(cycle_id)
     if not signals:
         raise ApiError(404, "cycle_not_found", f"No signals found for cycle {cycle_id}")
-    await replay_manager.start(cycle_id, signals, request.app.state.connection_manager, graph)
+    await replay_manager.start(cycle_id, signals, graph)
     log.info("replay_started", cycle_id=cycle_id)
     return ReplayStartResponse(status="ok", cycle_id=cycle_id, round_num=1)
 
 
 @router.post("/replay/advance", response_model=ReplayAdvanceResponse)
 async def replay_advance(request: Request) -> ReplayAdvanceResponse:
-    """Advance to the next round (D-09); a concurrent stop surfaces as 409 no_replay_active."""
+    """Advance to the next round (docs/DECISIONS.md#p34-d-09); a concurrent stop surfaces as 409 no_replay_active."""
     replay_manager = request.app.state.replay_manager
     if not replay_manager.is_active:
         raise ApiError(409, "no_replay_active", "No replay session is active")
     graph = require_graph(request.app.state.app_state)
-    new_round = await replay_manager.advance(request.app.state.connection_manager, graph)
+    new_round = await replay_manager.advance(graph)
     log.info("replay_advanced", round_num=new_round)
     return ReplayAdvanceResponse(status="ok", round_num=new_round)
 
 
 @router.post("/replay/stop", response_model=ReplayStopResponse)
 async def replay_stop(request: Request) -> ReplayStopResponse:
-    """Stop the active replay (D-10); 409 when none is active."""
+    """Stop the active replay (docs/DECISIONS.md#p34-d-10); 409 when none is active."""
     replay_manager = request.app.state.replay_manager
     if not replay_manager.is_active:
         raise ApiError(409, "no_replay_active", "No replay session is active")

@@ -11,13 +11,11 @@ import structlog
 from alphaswarm.personas import DEFAULT_BRACKETS
 from alphaswarm.state import BracketSummary, RationaleEntry, ReplayStore
 from alphaswarm.types import SignalType
-from alphaswarm.web.broadcaster import snapshot_to_json
 
 if TYPE_CHECKING:
     from alphaswarm.app import AppState
     from alphaswarm.graph import BracketRoundRow, GraphStateManager, RationaleRoundRow
     from alphaswarm.state import AgentState
-    from alphaswarm.web.connection_manager import ConnectionManager
 
 log = structlog.get_logger(component="web.replay_manager")
 
@@ -115,7 +113,6 @@ class ReplayManager:
         self._cycle_id: str | None = None
         self._round_num: int = 0
         self._max_rounds: int = 3
-        self._seed_rumor: str = ""
         self._starting: bool = False
         # Set by app.py lifespan after SimulationManager exists (constructed
         # later). Lets start() re-check for a live simulation under our lock.
@@ -162,19 +159,15 @@ class ReplayManager:
         """Active cycle ID, or None when inactive."""
         return self._cycle_id
 
-    @property
-    def seed_rumor(self) -> str:
-        """Seed rumor for the active replay."""
-        return self._seed_rumor
-
     async def start(
         self,
         cycle_id: str,
         signals: dict[tuple[str, int], AgentState],
-        connection_manager: ConnectionManager,
         graph_manager: GraphStateManager,
     ) -> None:
-        """Start replay: construct ReplayStore, load round 1, broadcast (D-08).
+        """Start a replay of *cycle_id* on round 1 (docs/DECISIONS.md#p34-d-08).
+
+        The broadcaster shows the new store on its next tick.
 
         Commit discipline: self._store/_cycle_id/_round_num are assigned ONLY
         after every awaited Neo4j load succeeds. A failure mid-start therefore
@@ -217,17 +210,13 @@ class ReplayManager:
             # The live phase is left alone: ReplayStore.snapshot() reports REPLAY and the
             # broadcaster serves it while a store is committed
             # (docs/DECISIONS.md#adr-replaystore-separate).
-            # Broadcast round-1 snapshot immediately
-            # Same StateFrame as every broadcaster tick.
-            connection_manager.broadcast(snapshot_to_json(self._app_state.state_store, self))
             log.info("replay_started", cycle_id=cycle_id, round_num=1)
 
     async def advance(
         self,
-        connection_manager: ConnectionManager,
         graph_manager: GraphStateManager,
     ) -> int:
-        """Advance to next round (max 3), broadcast new snapshot (D-09).
+        """Show the next round and return its number (docs/DECISIONS.md#p34-d-09).
 
         B9: body is serialized behind self._lock to match start() and
         prevent concurrent mutation of _store / _round_num / _cycle_id.
@@ -259,7 +248,6 @@ class ReplayManager:
                     ),
                 )
             )
-            connection_manager.broadcast(snapshot_to_json(self._app_state.state_store, self))
             log.info("replay_advanced", cycle_id=self._cycle_id, round_num=self._round_num)
             return self._round_num
 
@@ -274,5 +262,4 @@ class ReplayManager:
             self._cycle_id = None
             self._round_num = 0
             self._max_rounds = 3
-            self._seed_rumor = ""
             log.info("replay_stopped")
