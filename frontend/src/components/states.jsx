@@ -10,16 +10,21 @@
 // (docs/DECISIONS.md#p41-6-d-14).
 import { Icon } from './icons';
 import { BRACKETS } from '../data';
+import { fetchHealth } from '../api/health';
+import { usePolling } from '../hooks/usePolling';
 import { formatDuration } from '../lib/format';
+import { systemChecks } from '../lib/systemChecks';
 
 // ─── IDLE ─────────────────────────────────────────────────────────────
 // Overlay inside the dashboard canvas while idle: the topbar (seed, Run,
 // Settings, replay) stays usable above it. The seed is entered in
-// the topbar only. SystemCheck rows are static design copy until they are
-// fed from /api/health (docs/DECISIONS.md#kr-41-6-11); the Data sources row
-// says the feed is mocked (docs/DECISIONS.md#kr-41-1-02).
+// the topbar only. System-check rows come from /api/health components
+// (docs/DECISIONS.md#kr-41-6-11).
+/** @param {{ seed: string, numRounds: number, onShowHistory?: () => void }} props */
 export function IdleState({ seed, numRounds, onShowHistory }) {
   const totalPersonas = BRACKETS.reduce((sum, b) => sum + b.count, 0);
+  const { data: health, error } = usePolling({ key: 'health-idle', fetchFn: fetchHealth, intervalMs: 10_000 });
+  const rows = systemChecks(health, error, { personas: totalPersonas, brackets: BRACKETS.length });
   return (
     <div className="state-overlay">
       <div className="state-center idle-center">
@@ -45,24 +50,21 @@ export function IdleState({ seed, numRounds, onShowHistory }) {
           </button>
         )}
         <div className="idle-grid">
-          <SystemCheck label="Ollama" value="qwen3.6:35b-a3b-nvfp4 (MLX) · 64GB RAM" ok />
-          <SystemCheck label="Agents" value={`${totalPersonas} personas · ${BRACKETS.length} brackets`} ok />
-          <SystemCheck label="Data sources" value="mocked · pending live wire" ok />
-          <SystemCheck label="Storage" value="~/.alphaswarm" ok />
-        </div>
-        <div className="idle-hint label">
-          TIP · press <kbd>R</kbd> to run · <kbd>S</kbd> to seed · <kbd>?</kbd> for shortcuts
+          {rows.map((r) => (
+            <SystemCheck key={r.label} {...r} />
+          ))}
         </div>
       </div>
     </div>
   );
 }
-function SystemCheck({ label, value, ok }) {
+function SystemCheck({ label, value, state, fix }) {
   return (
-    <div className="syscheck">
-      <span className={`syscheck-dot ${ok ? 'ok' : 'err'}`} />
+    <div className="syscheck" data-state={state}>
+      <span className={`syscheck-dot ${state}`} />
       <span className="label">{label}</span>
       <span className="syscheck-val mono">{value}</span>
+      {fix && <code className="syscheck-fix mono">{fix}</code>}
     </div>
   );
 }

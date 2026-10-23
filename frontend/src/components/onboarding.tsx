@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './icons';
 import { InlineError } from './InlineError';
-import { apiFetch } from '../api/client';
+import { fetchHealth } from '../api/health';
 import { roundsFor } from '../hooks/useRounds';
 import { useRunGate } from '../hooks/useRunGate';
 import { ONBOARDING_PRIVACY_LINE } from '../lib/privacyCopy';
@@ -164,7 +164,7 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
   // Each answer replaces the previous one; until it arrives the last one stays on screen.
   useEffect(() => {
     let cancelled = false;
-    apiFetch<unknown>('/api/health')
+    fetchHealth()
       .then((raw) => {
         if (cancelled) return;
         setHealth(parseHealth(raw));

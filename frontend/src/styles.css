@@ -583,14 +583,6 @@ body { background: var(--bg); }
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border-2));
 }
-.idle-hint { margin-top: 18px; color: var(--text-3); font-size: 10.5px; }
-.idle-hint kbd {
-  font-family: 'JetBrains Mono', monospace;
-  background: var(--bg-3); border: 1px solid var(--border-2);
-  padding: 1px 5px; border-radius: 2px;
-  color: var(--text-2); font-size: 10px;
-  margin: 0 2px;
-}
 
 /* SEEDING */
 .seeding-center {}
@@ -2388,3 +2380,6 @@ body { background: var(--bg); }
   display: flex; align-items: center; justify-content: center;
   color: var(--text-2); font-family: var(--font-mono, monospace); font-size: 12px; letter-spacing: 0.08em;
 }
+.syscheck[data-state] { flex-wrap: wrap; }
+.syscheck-dot.pending { background: var(--text-3); }
+.syscheck-fix { flex-basis: 100%; padding-left: 112px; color: var(--text-3); font-size: 10.5px; white-space: pre-wrap; }
