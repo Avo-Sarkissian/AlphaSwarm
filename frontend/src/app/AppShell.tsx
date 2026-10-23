@@ -24,7 +24,7 @@ import { signalClass, signalLabel } from '../lib/signals';
 import { bracketTallies } from '../lib/tally';
 import { phaseLabelFor } from '../lib/phase';
 import { useRound, useRounds } from '../hooks/useRounds';
-import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from '../components/v2';
+import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from '../features/advisory/AdvisoryPanel';
 import { ShockDrawer } from '../features/dashboard/ShockDrawer';
 import { ReplayBar } from '../features/dashboard/ReplayBar';
 import { ReportModal } from '../features/report/ReportModal';

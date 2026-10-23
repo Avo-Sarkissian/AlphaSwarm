@@ -21,34 +21,34 @@
 //   • ConvergenceFlow / InfluenceChart — drawn by ./ReportModal.tsx from the
 //     backend's structured report sections; markdown is never parsed.
 import { useState, useMemo } from 'react';
-import { getHealth } from '../api/settings';
-import { Icon } from './Icon';
-import { useTelemetry } from '../context/TelemetryContext';
-import { useConnection } from '../context/ConnectionContext';
-import { useAgents } from '../context/AgentsContext';
-import { useFrameMeta } from '../context/FrameMetaContext';
-import { useLatestCompletedCycle } from '../hooks/useLatestCompletedCycle';
-import { useRounds } from '../hooks/useRounds';
-import { defaultCycleId } from '../lib/defaultCycle';
-import { usePolling } from '../hooks/usePolling';
-import { useDataSourceAudit } from '../hooks/useDataSourceAudit';
-import { usePrivacyFacts } from '../hooks/usePrivacyFacts';
-import { advisoryLine, dataSourcesNote } from '../lib/privacyCopy';
+import { getHealth } from '../../api/settings';
+import { Icon } from '../../components/Icon';
+import { useTelemetry } from '../../context/TelemetryContext';
+import { useConnection } from '../../context/ConnectionContext';
+import { useAgents } from '../../context/AgentsContext';
+import { useFrameMeta } from '../../context/FrameMetaContext';
+import { useLatestCompletedCycle } from '../../hooks/useLatestCompletedCycle';
+import { useRounds } from '../../hooks/useRounds';
+import { defaultCycleId } from '../../lib/defaultCycle';
+import { usePolling } from '../../hooks/usePolling';
+import { useDataSourceAudit } from '../../hooks/useDataSourceAudit';
+import { usePrivacyFacts } from '../../hooks/usePrivacyFacts';
+import { advisoryLine, dataSourcesNote } from '../../lib/privacyCopy';
 import {
   advisoryFetch,
   type AdvisoryContent,
   type AdvisoryReportPayload,
-} from '../api/advisory';
-import type { ConvergenceRow, InfluenceRow } from '../api/report';
-import { renderMarkdown } from '../lib/markdown';
-import { AdvisoryDisclaimer } from '../features/advisory/AdvisoryDisclaimer';
+} from '../../api/advisory';
+import type { ConvergenceRow, InfluenceRow } from '../../api/report';
+import { renderMarkdown } from '../../lib/markdown';
+import { AdvisoryDisclaimer } from './AdvisoryDisclaimer';
 import {
   parseOutlook,
   countAgentCitationsAgainst, // gemini #G2 — strict intersection (NOT bare countAgentCitations)
-} from '../lib/advisoryParse';
-import { isPlaceholder, overviewStats, recLabel } from '../lib/advisoryView';
-import { recentFor, summarizeAudit } from '../lib/dataSources';
-import { convergenceBars, influenceBars } from '../lib/reportSections';
+} from '../../lib/advisoryParse';
+import { isPlaceholder, overviewStats, recLabel } from '../../lib/advisoryView';
+import { recentFor, summarizeAudit } from '../../lib/dataSources';
+import { convergenceBars, influenceBars } from '../../lib/reportSections';
 
 // One ticker item: a provider call with its subject in the agent slot.
 interface WireItem {

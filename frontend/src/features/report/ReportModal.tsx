@@ -18,7 +18,7 @@ import { ApiError } from '../../api/client';
 import { errorMessage, parseErrorEnvelope } from '../../lib/apiError';
 import { shouldKeepPolling } from '../../lib/reportPolling';
 import { renderMarkdown } from '../../lib/markdown';
-import { ConvergenceFlow, InfluenceChart } from '../../components/v2';
+import { ConvergenceFlow, InfluenceChart } from '../advisory/AdvisoryPanel';
 
 // Local extension over ReportContent — the backend always sets `cycle_id`,
 // `content`, `generated_at`; we additionally tolerate a `report_markdown`

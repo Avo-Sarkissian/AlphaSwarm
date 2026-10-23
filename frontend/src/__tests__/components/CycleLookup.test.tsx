@@ -5,7 +5,7 @@
 import { act, cleanup, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ReportModal } from '../../features/report/ReportModal';
-import { AdvisoryV2 } from '../../components/v2';
+import { AdvisoryV2 } from '../../features/advisory/AdvisoryPanel';
 import { renderAt } from '../helpers/lifecycleFrames';
 
 afterEach(() => {

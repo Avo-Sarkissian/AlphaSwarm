@@ -3,7 +3,7 @@
 // fixed round, so a 2-round run does not read "3 rounds" or "post-R3".
 import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AdvisoryV2 } from '../../components/v2';
+import { AdvisoryV2 } from '../../features/advisory/AdvisoryPanel';
 import { renderAt } from '../helpers/lifecycleFrames';
 
 beforeEach(() => {

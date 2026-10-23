@@ -37,7 +37,7 @@ vi.mock('../../context/EdgesContext', async () => {
 // The idle overlay polls /api/health; these tests do not cover it (idleState.test.tsx
 // does), and a pending check keeps unstubbed tests off the network.
 vi.mock('../../api/health', () => ({ fetchHealth: () => new Promise<never>(() => {}) }));
-vi.mock('../../components/v2', () => ({
+vi.mock('../../features/advisory/AdvisoryPanel', () => ({
   SignalWire: () => null,
   ModelStatus: () => null,
   DataSourcesTakeover: () => null,

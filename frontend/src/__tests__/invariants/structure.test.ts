@@ -22,12 +22,11 @@ const FILES: readonly string[] = walk(SRC)
 const read = (file: string): string => readFileSync(join(SRC, file), 'utf8');
 const isSource = (file: string): boolean => /\.(ts|tsx|css)$/.test(file) && !file.startsWith('__tests__/');
 
-// Files that still reference components/v2.tsx (imports of AdvisoryV2 or the
-// report charts, stylesheet section titles). The v2.tsx split empties it.
+// Files that still carry the v2 names (AdvisoryV2 and its importer, stylesheet
+// section titles). The AdvisoryPanel.tsx split empties it.
 const PENDING_V2: readonly string[] = [
   'app/AppShell.tsx',
-  'components/v2.tsx',
-  'features/report/ReportModal.tsx',
+  'features/advisory/AdvisoryPanel.tsx',
   'styles.css',
 ];
 // File names and mentions (v2.tsx, app_v2, interview_v2, components/v2),
