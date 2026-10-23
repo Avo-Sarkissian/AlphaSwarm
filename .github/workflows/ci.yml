@@ -116,6 +116,9 @@ jobs:
       - name: Lint (ESLint)
         run: npm run lint
 
+      - name: Dead code (knip)
+        run: npm run knip
+
       - name: Wire-contract tests
         run: npx vitest run
 
