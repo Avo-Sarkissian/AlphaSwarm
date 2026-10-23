@@ -123,7 +123,7 @@ class WorkerPersonaConfig(TypedDict):
     influence_weight: float
     temperature: float
     system_prompt: str
-    risk_profile: str
+    risk_profile: float  # AgentPersona.risk_profile; unused by the prompt (docs/DECISIONS.md#adr-swarm-composition-v2)
 
 
 class SignalType(StrEnum):

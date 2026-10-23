@@ -78,7 +78,7 @@ def sample_personas() -> list[WorkerPersonaConfig]:
             influence_weight=0.7,
             temperature=0.3,
             system_prompt="test",
-            risk_profile="0.4",
+            risk_profile=0.4,
         ),
         WorkerPersonaConfig(
             agent_id="quants_02",
@@ -86,7 +86,7 @@ def sample_personas() -> list[WorkerPersonaConfig]:
             influence_weight=0.7,
             temperature=0.3,
             system_prompt="test",
-            risk_profile="0.4",
+            risk_profile=0.4,
         ),
         WorkerPersonaConfig(
             agent_id="degens_01",
@@ -94,7 +94,7 @@ def sample_personas() -> list[WorkerPersonaConfig]:
             influence_weight=0.3,
             temperature=1.2,
             system_prompt="test",
-            risk_profile="0.95",
+            risk_profile=0.95,
         ),
         WorkerPersonaConfig(
             agent_id="degens_02",
@@ -102,7 +102,7 @@ def sample_personas() -> list[WorkerPersonaConfig]:
             influence_weight=0.3,
             temperature=1.2,
             system_prompt="test",
-            risk_profile="0.95",
+            risk_profile=0.95,
         ),
     ]
 
@@ -237,7 +237,7 @@ async def test_partial_failure_produces_parse_error(
             influence_weight=0.7,
             temperature=0.3,
             system_prompt="test",
-            risk_profile="0.4",
+            risk_profile=0.4,
         ),
         WorkerPersonaConfig(
             agent_id="fail_01",
@@ -245,7 +245,7 @@ async def test_partial_failure_produces_parse_error(
             influence_weight=0.7,
             temperature=0.3,
             system_prompt="test",
-            risk_profile="0.4",
+            risk_profile=0.4,
         ),
     ]
 
@@ -307,7 +307,7 @@ async def test_high_failure_rate_calls_report_wave_failures(
             influence_weight=0.7,
             temperature=0.3,
             system_prompt="test",
-            risk_profile="0.4",
+            risk_profile=0.4,
         )
         for i in range(10)
     ]
@@ -362,7 +362,7 @@ async def test_low_failure_rate_does_not_call_report(
             influence_weight=0.7,
             temperature=0.3,
             system_prompt="test",
-            risk_profile="0.4",
+            risk_profile=0.4,
         )
         for i in range(10)
     ]
@@ -485,7 +485,7 @@ async def test_cancelled_error_propagates(
         influence_weight=0.7,
         temperature=0.3,
         system_prompt="test",
-        risk_profile="0.4",
+        risk_profile=0.4,
     )
 
     provider = _fake_provider(n=1)
@@ -527,7 +527,7 @@ async def test_keyboard_interrupt_propagates(
         influence_weight=0.7,
         temperature=0.3,
         system_prompt="test",
-        risk_profile="0.4",
+        risk_profile=0.4,
     )
 
     provider = _fake_provider(n=1)
@@ -807,7 +807,7 @@ async def test_safe_agent_inference_streams_state_on_success(
         influence_weight=0.7,
         temperature=0.3,
         system_prompt="test",
-        risk_profile="0.4",
+        risk_profile=0.4,
     )
     store = StateStore()
     provider = _fake_provider(n=1)
@@ -868,7 +868,7 @@ async def test_safe_agent_inference_streams_parse_error_on_inference_failure(
         influence_weight=0.3,
         temperature=1.2,
         system_prompt="test",
-        risk_profile="0.95",
+        risk_profile=0.95,
     )
     store = StateStore()
     await store.update_agent_state("degens_07", SignalType.SELL, 0.6)
@@ -909,7 +909,7 @@ async def test_safe_agent_inference_streams_parse_error_from_parse_fallback(
         influence_weight=0.5,
         temperature=0.5,
         system_prompt="test",
-        risk_profile="0.5",
+        risk_profile=0.5,
     )
     store = StateStore()
 
@@ -1330,7 +1330,7 @@ def _ft_personas(ids: list[str]) -> list[WorkerPersonaConfig]:
             influence_weight=0.7,
             temperature=0.3,
             system_prompt=f"persona {agent_id}",
-            risk_profile="0.4",
+            risk_profile=0.4,
         )
         for agent_id in ids
     ]
