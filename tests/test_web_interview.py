@@ -6,11 +6,11 @@ import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from alphaswarm.types import SimulationPhase
+from tests.support.aio import eventually
 from tests.support.web_app import CYCLE_A
 
 # ---------------------------------------------------------------------------
@@ -305,7 +305,6 @@ def test_interview_session_reuse() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_interview_concurrent_same_agent_serializes() -> None:
     """Two concurrent POSTs for same agent_id both complete; engine.ask never runs in parallel."""
     from unittest.mock import AsyncMock, MagicMock, patch
@@ -363,7 +362,7 @@ async def test_interview_concurrent_same_agent_serializes() -> None:
             t1.join(timeout=5)
             t2.join(timeout=5)
 
-    assert all(s == 200 for s in results), f"Expected 200s, got: {results}"
+    assert results == [200, 200], f"Expected two 200s, got: {results}"
     assert max_concurrent == 1, f"Expected max 1 concurrent ask, got {max_concurrent}"
 
 
@@ -372,12 +371,12 @@ async def test_interview_concurrent_same_agent_serializes() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_interview_sessions_cleared_on_new_simulation() -> None:
+async def test_interview_sessions_cleared_on_new_simulation() -> None:
     """After populating interview_sessions, calling sim_manager.start() clears them."""
     from unittest.mock import AsyncMock, patch
 
     app = _make_interview_test_app()
-    with TestClient(app):
+    async with app.router.lifespan_context(app):
         # Pre-populate interview_sessions
         app.state.interview_sessions["agent_1"] = object()
         app.state.interview_sessions["agent_2"] = object()
@@ -385,7 +384,8 @@ def test_interview_sessions_cleared_on_new_simulation() -> None:
 
         # Patch _run so start() completes without real simulation
         with patch.object(app.state.sim_manager, "_run", AsyncMock(return_value=None)):
-            asyncio.get_event_loop().run_until_complete(app.state.sim_manager.start("new seed"))
+            await app.state.sim_manager.start("new seed")
+        await eventually(lambda: not app.state.sim_manager.is_running, what="patched run to finish")
 
         assert app.state.interview_sessions == {}
 
@@ -395,7 +395,6 @@ def test_interview_sessions_cleared_on_new_simulation() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_interview_provider_aclose_called_on_session_clear() -> None:
     """on_start clears sessions AND calls aclose() on each session's provider.
 
@@ -446,7 +445,6 @@ async def test_interview_provider_aclose_called_on_session_clear() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_interview_provider_aclose_failure_isolated() -> None:
     """A failing aclose() on one provider does not prevent the sessions dict from clearing."""
     from unittest.mock import AsyncMock, MagicMock, patch

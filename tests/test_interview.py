@@ -151,7 +151,6 @@ class TestStripJsonInstructions:
 
 
 class TestReadAgentInterviewContext:
-    @pytest.mark.asyncio()
     async def test_returns_context_with_3_decisions(
         self,
         mock_driver: MagicMock,
@@ -210,7 +209,6 @@ class TestReadAgentInterviewContext:
         assert ctx.decisions[2].round_num == 3
         assert ctx.decisions[2].signal == "sell"
 
-    @pytest.mark.asyncio()
     async def test_handles_missing_decision_narrative(
         self,
         mock_driver: MagicMock,
@@ -240,7 +238,6 @@ class TestReadAgentInterviewContext:
 
         assert ctx.decision_narrative == ""
 
-    @pytest.mark.asyncio()
     async def test_strips_json_instructions_from_system_prompt(
         self,
         mock_driver: MagicMock,
@@ -271,7 +268,6 @@ class TestReadAgentInterviewContext:
         assert JSON_OUTPUT_INSTRUCTIONS not in ctx.interview_system_prompt
         assert "quantitative analyst" in ctx.interview_system_prompt
 
-    @pytest.mark.asyncio()
     async def test_raises_neo4j_connection_error_on_failure(
         self,
         mock_driver: MagicMock,
@@ -362,7 +358,6 @@ class TestInterviewEngineInit:
 
 
 class TestInterviewEngineAsk:
-    @pytest.mark.asyncio()
     async def test_ask_appends_to_history_and_returns_response(self) -> None:
         from alphaswarm.interview import InterviewEngine
 
@@ -380,7 +375,6 @@ class TestInterviewEngineAsk:
             "content": "I bought because data was strong.",
         }
 
-    @pytest.mark.asyncio()
     async def test_ask_calls_provider_chat_with_assembled_messages(self) -> None:
         from alphaswarm.interview import InterviewEngine
 
@@ -455,7 +449,6 @@ class TestBuildMessages:
 
 
 class TestSlidingWindow:
-    @pytest.mark.asyncio()
     async def test_sliding_window_trims_at_11_pairs(self) -> None:
         from alphaswarm.interview import InterviewEngine
 
@@ -472,7 +465,6 @@ class TestSlidingWindow:
         assert engine._summary is not None
         assert len(engine._summary) > 0
 
-    @pytest.mark.asyncio()
     async def test_summary_generation_calls_chat(self) -> None:
         from alphaswarm.interview import InterviewEngine
 

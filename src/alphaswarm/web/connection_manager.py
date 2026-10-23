@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import structlog
 
@@ -13,11 +13,14 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(component="web.connection_manager")
 
+# Frames buffered per client before the oldest is dropped (docs/DECISIONS.md#adr-ws-broadcaster).
+CLIENT_QUEUE_MAXSIZE: Final = 100
+
 
 class ConnectionManager:
     """Manages WebSocket client lifecycle with per-client bounded queues.
 
-    Each client gets an asyncio.Queue[str](maxsize=100) and a dedicated
+    Each client gets an asyncio.Queue[str](maxsize=CLIENT_QUEUE_MAXSIZE) and a dedicated
     asyncio.Task that drains the queue and sends to the socket.
     broadcast() puts into all queues without awaiting sends (non-blocking).
     Drop-oldest policy on overflow.
@@ -32,7 +35,7 @@ class ConnectionManager:
     async def connect(self, ws: WebSocket) -> None:
         """Accept WebSocket and register client with a bounded queue + writer task."""
         await ws.accept()
-        queue: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
+        queue: asyncio.Queue[str] = asyncio.Queue(maxsize=CLIENT_QUEUE_MAXSIZE)
         self._clients[ws] = queue
         self._tasks[ws] = asyncio.create_task(self._writer(ws, queue))
         log.info("client_connected", client_count=len(self._clients))

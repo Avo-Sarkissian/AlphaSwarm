@@ -98,6 +98,7 @@ async def test_each_held_ticker_appears_once() -> None:
 
 async def test_entries_carry_only_the_ticker_and_sector_tags() -> None:
     entries = _portfolio_entries((await _prompt_messages())[1]["content"])
+    assert len(entries) == 2
     assert all(set(entry) == _ENTRY_KEYS for entry in entries)
 
 

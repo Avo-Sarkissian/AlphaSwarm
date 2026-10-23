@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Coroutine
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -159,8 +161,11 @@ def test_main_inject_calls_asyncio_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("sys.argv", ["alphaswarm", "inject", "NVIDIA announces breakthrough"])
 
+    def _close(coro: Coroutine[Any, Any, None]) -> None:
+        coro.close()  # the mocked asyncio.run never awaits it
+
     with patch("alphaswarm.cli.asyncio") as mock_asyncio:
-        mock_asyncio.run = MagicMock()
+        mock_asyncio.run = MagicMock(side_effect=_close)
         main()
 
     mock_asyncio.run.assert_called_once()
@@ -175,8 +180,12 @@ def test_main_inject_failure_prints_error_to_stderr(
 
     monkeypatch.setattr("sys.argv", ["alphaswarm", "inject", "bad rumor"])
 
+    def _close_then_fail(coro: Coroutine[Any, Any, None]) -> None:
+        coro.close()
+        raise Exception("Connection failed")
+
     with patch("alphaswarm.cli.asyncio") as mock_asyncio, patch("alphaswarm.cli.logger"):
-        mock_asyncio.run.side_effect = Exception("Connection failed")
+        mock_asyncio.run.side_effect = _close_then_fail
         with pytest.raises(SystemExit) as exc_info:
             main()
 
@@ -729,7 +738,6 @@ def test_simulation_summary_final_bracket_table(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_round_complete_handler_prints_report_and_shift(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -769,7 +777,6 @@ async def test_round_complete_handler_prints_report_and_shift(
     assert "Confidence Drift by Bracket" in captured.out
 
 
-@pytest.mark.asyncio
 async def test_round_complete_handler_round1_no_shift(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -801,7 +808,6 @@ async def test_round_complete_handler_round1_no_shift(
     assert "Signal Transitions" not in captured.out
 
 
-@pytest.mark.asyncio
 async def test_run_pipeline_calls_run_simulation_with_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -883,7 +889,6 @@ def test_report_subcommand_registered() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_shock_impact_preseeded_when_shock_event_exists() -> None:
     """Phase 27 SHOCK-05 — shock_impact ToolObservation added to pre_seeded when shock present."""
     from unittest.mock import AsyncMock, MagicMock
@@ -934,7 +939,6 @@ async def test_shock_impact_preseeded_when_shock_event_exists() -> None:
     mock_gm.read_shock_impact.assert_awaited_once_with("cycle-1")
 
 
-@pytest.mark.asyncio()
 async def test_shock_impact_not_preseeded_when_no_shock_event() -> None:
     """Phase 27 SHOCK-05 — no shock_impact ToolObservation when read_shock_event returns None."""
     from unittest.mock import AsyncMock, MagicMock
@@ -960,7 +964,6 @@ async def test_shock_impact_not_preseeded_when_no_shock_event() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_run_pipeline_constructs_providers() -> None:
     """Phase 40 D-11: CLI _run_pipeline constructs real YFinance+RSS providers
     and forwards them to run_simulation as kwargs.
@@ -1014,7 +1017,6 @@ async def test_run_pipeline_constructs_providers() -> None:
     assert isinstance(kwargs["news_provider"], RSSNewsProvider)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["context_fixture", "no_market_context"])
 async def test_run_pipeline_point_in_time_runs_build_no_live_providers(mode: str) -> None:
     """A fixture or --no-market-context run builds no YFinance/RSS provider, and the

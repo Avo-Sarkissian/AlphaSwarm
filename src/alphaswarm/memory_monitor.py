@@ -16,7 +16,7 @@ import contextlib
 import enum
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import psutil
 import structlog
@@ -90,6 +90,18 @@ class MemoryReading:
             and self.psutil_percent < self.scale_up_threshold
             and self.pressure_level == PressureLevel.GREEN
         )
+
+
+@runtime_checkable
+class MemoryReader(Protocol):
+    """Anything that produces a combined MemoryReading.
+
+    ResourceGovernor depends on this protocol rather than on MemoryMonitor, so
+    tests can drive the real state machine with scripted readings
+    (docs/DECISIONS.md#adr-governor).
+    """
+
+    async def read_combined(self) -> MemoryReading: ...
 
 
 class MemoryMonitor:

@@ -71,7 +71,12 @@ async def test_no_num_ctx(ollama_client: Any, mock_async_client: AsyncMock) -> N
     assert passed_options.get("temperature") == 0.5
 
 
-async def test_backoff_retry(ollama_client: Any, mock_async_client: AsyncMock, mock_chat_response: MagicMock) -> None:
+async def test_backoff_retry(
+    ollama_client: Any,
+    mock_async_client: AsyncMock,
+    mock_chat_response: MagicMock,
+    instant_sleep: list[float],
+) -> None:
     """When mocked client raises ResponseError on first call then succeeds, returns success."""
     mock_async_client.chat = AsyncMock(side_effect=[ollama.ResponseError("server error"), mock_chat_response])
     result = await ollama_client.chat(
@@ -79,10 +84,11 @@ async def test_backoff_retry(ollama_client: Any, mock_async_client: AsyncMock, m
         messages=[{"role": "user", "content": "hi"}],
     )
     assert mock_async_client.chat.call_count == 2
+    assert len(instant_sleep) == 1  # one backoff wait between the two tries
     assert result.message.content == '{"signal": "buy", "confidence": 0.8}'
 
 
-async def test_max_retries_error(ollama_client: Any, mock_async_client: AsyncMock) -> None:
+async def test_max_retries_error(ollama_client: Any, mock_async_client: AsyncMock, instant_sleep: list[float]) -> None:
     """When mocked client raises ResponseError 3 times, raises OllamaInferenceError."""
     mock_async_client.chat = AsyncMock(side_effect=ollama.ResponseError("server error"))
     with pytest.raises(OllamaInferenceError) as exc_info:
@@ -92,6 +98,8 @@ async def test_max_retries_error(ollama_client: Any, mock_async_client: AsyncMoc
         )
     assert exc_info.value.model == "qwen3.5:7b"
     assert isinstance(exc_info.value.original_error, ollama.ResponseError)
+    assert mock_async_client.chat.call_count == 3  # backoff max_tries=3
+    assert len(instant_sleep) == 2
 
 
 async def test_no_retry_on_request_error(ollama_client: Any, mock_async_client: AsyncMock) -> None:

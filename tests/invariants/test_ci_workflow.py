@@ -49,7 +49,9 @@ def test_every_job_is_time_boxed_and_locked() -> None:
     text = _text(CI)
     for name, job in _jobs(text).items():
         assert "timeout-minutes: 15" in job, name
-    assert all("--locked" in line for line in re.findall(r"uv sync[^\n]*", text))
+    syncs = re.findall(r"uv sync[^\n]*", text)
+    assert syncs
+    assert all("--locked" in line for line in syncs)
     assert "\npermissions:\n  contents: read\n" in text
     assert "cancel-in-progress: true" in text
     assert "--ignore=" not in text

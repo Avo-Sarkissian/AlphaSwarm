@@ -14,12 +14,14 @@ accounting are tested here.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from alphaswarm.inference.concurrency import ConcurrencyController
 from alphaswarm.inference.rate_limit import RateLimitController, TokenBucket
+from tests.support.aio import eventually
 
 # ---------------------------------------------------------------------------
 # Fake clock helpers
@@ -158,7 +160,6 @@ class TestRateLimitControllerProtocol:
 
 
 class TestRateLimitControllerSlots:
-    @pytest.mark.asyncio
     async def test_acquire_increments_in_flight(self) -> None:
         clock = FakeClock()
         with patch("asyncio.sleep", new_callable=AsyncMock):
@@ -173,7 +174,6 @@ class TestRateLimitControllerSlots:
             await ctrl.acquire()
             assert ctrl._in_flight == 2
 
-    @pytest.mark.asyncio
     async def test_release_decrements_in_flight(self) -> None:
         clock = FakeClock()
         with patch("asyncio.sleep", new_callable=AsyncMock):
@@ -188,7 +188,6 @@ class TestRateLimitControllerSlots:
             ctrl.release()
             assert ctrl._in_flight == 1
 
-    @pytest.mark.asyncio
     async def test_blocks_past_max_in_flight(self) -> None:
         """Verify that a (max_in_flight+1)-th acquire actually blocks."""
         clock = FakeClock()
@@ -215,7 +214,6 @@ class TestRateLimitControllerSlots:
             await asyncio.sleep(0)
             await blocked  # should complete now
 
-    @pytest.mark.asyncio
     async def test_semaphore_internal_locked_at_capacity(self) -> None:
         """Inspect semaphore state directly to confirm blocking logic."""
         clock = FakeClock()
@@ -233,7 +231,6 @@ class TestRateLimitControllerSlots:
 
 
 class TestRateLimitControllerTPMReconciliation:
-    @pytest.mark.asyncio
     async def test_release_refunds_when_actual_less_than_estimated(self) -> None:
         clock = FakeClock()
         with patch("asyncio.sleep", new_callable=AsyncMock):
@@ -253,7 +250,6 @@ class TestRateLimitControllerTPMReconciliation:
             # Should have refunded 1000 tokens
             assert tokens_after == pytest.approx(tokens_before + 1000, abs=1.0)
 
-    @pytest.mark.asyncio
     async def test_release_takes_more_when_actual_exceeds_estimated(self) -> None:
         clock = FakeClock()
         with patch("asyncio.sleep", new_callable=AsyncMock):
@@ -271,7 +267,6 @@ class TestRateLimitControllerTPMReconciliation:
             tokens_after = ctrl._tpm_bucket._tokens
             assert tokens_after == pytest.approx(tokens_before - 1000, abs=1.0)
 
-    @pytest.mark.asyncio
     async def test_release_refunds_full_reservation_when_result_tokens_none(self) -> None:
         """F-11: a failed/None-token call must refund the full upfront reservation,
         else the TPM bucket leaks avg_tokens_per_call on every failure and drifts
@@ -293,7 +288,6 @@ class TestRateLimitControllerTPMReconciliation:
             # Full reservation refunded → bucket returns to its pre-acquire level
             assert ctrl._tpm_bucket._tokens == pytest.approx(tokens_pre_acquire, abs=1.0)
 
-    @pytest.mark.asyncio
     async def test_release_success_with_none_tokens_keeps_reservation(self) -> None:
         """A SUCCESSFUL call whose provider omitted usage (result_tokens=None) must
         KEEP the upfront reservation — refunding it would under-count TPM and
@@ -358,7 +352,6 @@ class TestRateLimitControllerShrink:
         assert ctrl._target_slots == 1
         assert ctrl._shrink_pending == 0
 
-    @pytest.mark.asyncio
     async def test_shrink_takes_effect_on_next_acquire(self) -> None:
         """After shrink, the effective capacity is reduced by 1."""
         clock = FakeClock()
@@ -388,7 +381,6 @@ class TestRateLimitControllerShrink:
 
 
 class TestRateLimitControllerMonitoring:
-    @pytest.mark.asyncio
     async def test_start_stop_monitoring_no_state_store(self) -> None:
         """Monitoring starts and stops cleanly even without a state_store."""
         ctrl = RateLimitController(
@@ -401,7 +393,6 @@ class TestRateLimitControllerMonitoring:
         await ctrl.stop_monitoring()
         assert ctrl._monitor_task is None
 
-    @pytest.mark.asyncio
     async def test_start_monitoring_idempotent(self) -> None:
         ctrl = RateLimitController(
             max_in_flight=1,
@@ -415,30 +406,52 @@ class TestRateLimitControllerMonitoring:
         assert task1 is task2
         await ctrl.stop_monitoring()
 
-    @pytest.mark.asyncio
-    async def test_monitoring_emits_to_state_store(self) -> None:
-        """If state_store is present, the monitoring loop calls set()."""
-        received: list[dict] = []
 
-        class FakeStore:
-            def set(self, key: str, value: object) -> None:
-                received.append({"key": key, "value": value})
+async def _cancel_quietly(task: asyncio.Task[None]) -> None:
+    if not task.done():
+        task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
 
-        ctrl = RateLimitController(
-            max_in_flight=2,
-            requests_per_min=60,
-            tokens_per_min=100_000,
-            state_store=FakeStore(),
-        )
-        await ctrl.start_monitoring()
-        # Tick the event loop enough times for the 2s sleep to fire once.
-        # We patch asyncio.sleep to advance immediately for this test.
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            await asyncio.sleep(0)  # let the task run
-            # Give the loop a few iterations
-            for _ in range(5):
-                await asyncio.sleep(0)
-        await ctrl.stop_monitoring()
-        # We can't guarantee emissions without real time, but the test
-        # confirms no exceptions and clean stop.  Accept 0 or more emissions.
-        assert all("key" in r for r in received)
+
+class TestRateLimitControllerCancellation:
+    """Cancellation must never leak an in-flight slot."""
+
+    async def test_cancel_while_waiting_for_a_slot_does_not_leak(self) -> None:
+        ctrl = RateLimitController(max_in_flight=1, requests_per_min=None, tokens_per_min=None)
+        await ctrl.acquire()
+        waiter = asyncio.create_task(ctrl.acquire())
+        await asyncio.sleep(0)
+        assert not waiter.done()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        ctrl.release()
+        follower = asyncio.create_task(ctrl.acquire())
+        try:
+            await eventually(follower.done, what="acquire after a cancelled waiter")
+        finally:
+            await _cancel_quietly(follower)
+        ctrl.release()
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="T1.7: RateLimitController.acquire leaks its slot when cancelled during the pacing sleep (fix: plan 05)",
+    )
+    async def test_cancel_during_pacing_sleep_returns_the_slot(self) -> None:
+        clock = FakeClock()
+        ctrl = RateLimitController(max_in_flight=1, requests_per_min=1, tokens_per_min=None, now=clock)
+        await ctrl.acquire()  # bucket starts full: no pacing
+        ctrl.release()
+        paced = asyncio.create_task(ctrl.acquire())  # takes the only slot, then paces ~60 s
+        await asyncio.sleep(0)
+        assert not paced.done()
+        paced.cancel()  # interrupts the pacing sleep immediately: no wall time passes
+        with pytest.raises(asyncio.CancelledError):
+            await paced
+        clock.advance(600.0)  # buckets refilled; only a leaked slot can block now
+        follower = asyncio.create_task(ctrl.acquire())
+        try:
+            await eventually(follower.done, what="acquire after a cancelled pacing sleep")
+        finally:
+            await _cancel_quietly(follower)

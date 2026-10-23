@@ -70,7 +70,6 @@ def _build_manager(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cycle_id_stored(monkeypatch: pytest.MonkeyPatch) -> None:
     """AUTO-01: _run() must store result.cycle_id on self._last_cycle_id."""
     fake_result = SimpleNamespace(cycle_id="abc123")
@@ -109,7 +108,6 @@ async def test_cycle_id_stored(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_done_callback_schedules_task() -> None:
     """AUTO-02: successful task completion schedules on_complete with cycle_id."""
     received: list[str] = []
@@ -132,7 +130,6 @@ async def test_done_callback_schedules_task() -> None:
     assert received == ["abc123"], f"Expected ['abc123'], got {received}"
 
 
-@pytest.mark.asyncio
 async def test_no_trigger_on_cancel() -> None:
     """AUTO-02: cancelled task must NOT call on_complete."""
     received: list[str] = []
@@ -151,7 +148,6 @@ async def test_no_trigger_on_cancel() -> None:
     assert received == [], f"Expected no callback on cancel, got {received}"
 
 
-@pytest.mark.asyncio
 async def test_no_trigger_on_exception() -> None:
     """AUTO-02: failed task must NOT call on_complete."""
     received: list[str] = []
@@ -170,7 +166,6 @@ async def test_no_trigger_on_exception() -> None:
     assert received == [], f"Expected no callback on exception, got {received}"
 
 
-@pytest.mark.asyncio
 async def test_on_complete_none_is_safe() -> None:
     """_on_task_done is safe when on_complete=None and _last_cycle_id=None."""
     manager = _build_manager(on_complete=None)

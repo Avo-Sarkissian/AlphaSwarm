@@ -269,6 +269,7 @@ async def test_ticker_join_filters_unmatched() -> None:
     assert {i.ticker for i in report.items} == {"AAPL", "NVDA", "TSLA", "AMZN", "MSFT"}
     # Padded items are HOLD@0.30 with the canonical placeholder message.
     padded = [i for i in report.items if i.ticker in {"AAPL", "AMZN", "MSFT"}]
+    assert len(padded) == 3
     assert all(i.consensus_signal == "HOLD" for i in padded)
     assert all(abs(float(i.confidence) - 0.30) < 1e-9 for i in padded)
 
@@ -367,6 +368,7 @@ async def test_infer_with_retry_passes_json_mode() -> None:
     )
 
     # Both chat calls (initial + validation-retry) request JSON output.
+    assert len(fake_provider.calls) == 2
     assert all(call["json_mode"] is True for call in fake_provider.calls)
 
 

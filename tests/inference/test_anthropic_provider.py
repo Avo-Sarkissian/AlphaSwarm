@@ -131,19 +131,16 @@ def test_model_attribute() -> None:
     assert p.model == "claude-opus-4-5"
 
 
-@pytest.mark.asyncio
 async def test_prepare_noop() -> None:
     p, _ = _make_provider(_FakeResponse(content=[_FakeTextBlock(text="hi")]))
     await p.prepare()  # must not raise
 
 
-@pytest.mark.asyncio
 async def test_teardown_noop() -> None:
     p, _ = _make_provider(_FakeResponse(content=[_FakeTextBlock(text="hi")]))
     await p.teardown()  # must not raise
 
 
-@pytest.mark.asyncio
 async def test_aclose_does_not_close_injected_client() -> None:
     """aclose() must NOT close an injected client — lifecycle stays with caller."""
     p, fake_client = _make_provider(_FakeResponse(content=[_FakeTextBlock(text="hi")]))
@@ -156,7 +153,6 @@ async def test_aclose_does_not_close_injected_client() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_schema_path_sends_tools_and_tool_choice() -> None:
     """response_schema → tools=[emit_decision tool], tool_choice pinned to emit_decision."""
     tool_input = {"signal": "buy"}
@@ -178,7 +174,6 @@ async def test_schema_path_sends_tools_and_tool_choice() -> None:
     assert result.model == "claude-3-5-sonnet-20241022"
 
 
-@pytest.mark.asyncio
 async def test_schema_path_no_tools_in_plain_chat() -> None:
     """Plain chat (no schema, no json_mode) → tools must NOT appear in kwargs."""
     resp = _FakeResponse(
@@ -196,7 +191,6 @@ async def test_schema_path_no_tools_in_plain_chat() -> None:
     assert result.output_tokens == 2
 
 
-@pytest.mark.asyncio
 async def test_plain_chat_multiple_text_blocks_concatenated() -> None:
     """Multiple text blocks → content is their texts joined."""
     resp = _FakeResponse(
@@ -215,7 +209,6 @@ async def test_plain_chat_multiple_text_blocks_concatenated() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_system_message_hoisted_to_system_kwarg() -> None:
     """System messages must be extracted from messages and passed as system=."""
     resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
@@ -237,7 +230,6 @@ async def test_system_message_hoisted_to_system_kwarg() -> None:
     assert any(m.get("role") == "user" for m in kwargs.get("messages", []))
 
 
-@pytest.mark.asyncio
 async def test_multiple_system_messages_joined_with_newline() -> None:
     """Multiple system messages → joined with newline as top-level system=."""
     resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
@@ -254,7 +246,6 @@ async def test_multiple_system_messages_joined_with_newline() -> None:
     assert kwargs.get("system") == "Rule 1.\nRule 2."
 
 
-@pytest.mark.asyncio
 async def test_no_system_message_no_system_kwarg() -> None:
     """No system messages → system= must NOT appear in kwargs at all."""
     resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
@@ -271,7 +262,6 @@ async def test_no_system_message_no_system_kwarg() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_temperature_passed_when_provided() -> None:
     resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
     p, fake_client = _make_provider(resp)
@@ -279,7 +269,6 @@ async def test_temperature_passed_when_provided() -> None:
     assert fake_client.messages.last_kwargs.get("temperature") == 0.7
 
 
-@pytest.mark.asyncio
 async def test_temperature_absent_when_not_provided() -> None:
     resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
     p, fake_client = _make_provider(resp)
@@ -287,7 +276,6 @@ async def test_temperature_absent_when_not_provided() -> None:
     assert "temperature" not in fake_client.messages.last_kwargs
 
 
-@pytest.mark.asyncio
 async def test_max_tokens_defaults_to_constructor_value() -> None:
     """When max_tokens not passed to chat(), use max_tokens_default from constructor."""
     resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
@@ -296,7 +284,6 @@ async def test_max_tokens_defaults_to_constructor_value() -> None:
     assert fake_client.messages.last_kwargs.get("max_tokens") == 512
 
 
-@pytest.mark.asyncio
 async def test_max_tokens_caller_overrides_default() -> None:
     """Explicit max_tokens in chat() overrides the constructor default."""
     resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
@@ -323,7 +310,6 @@ def _make_httpx_response(status_code: int, headers: dict[str, str] | None = None
     )
 
 
-@pytest.mark.asyncio
 async def test_auth_error_on_authentication_error() -> None:
     """anthropic.AuthenticationError → AuthError raised at public boundary."""
     import anthropic
@@ -339,7 +325,6 @@ async def test_auth_error_on_authentication_error() -> None:
     assert exc_info.value.provider == "anthropic"
 
 
-@pytest.mark.asyncio
 async def test_auth_error_on_permission_denied() -> None:
     """anthropic.PermissionDeniedError → AuthError raised at public boundary."""
     import anthropic
@@ -355,7 +340,6 @@ async def test_auth_error_on_permission_denied() -> None:
     assert exc_info.value.provider == "anthropic"
 
 
-@pytest.mark.asyncio
 async def test_rate_limit_retries_then_raises_inference_error() -> None:
     """RateLimitError retried up to max_retries then raises InferenceError."""
     import anthropic
@@ -399,8 +383,9 @@ async def test_rate_limit_retries_then_raises_inference_error() -> None:
     assert call_count == 3  # initial + 2 retries
 
 
-@pytest.mark.asyncio
-async def test_api_connection_error_retries_then_raises_inference_error() -> None:
+async def test_api_connection_error_retries_then_raises_inference_error(
+    instant_sleep: list[float],
+) -> None:
     """APIConnectionError → retried with backoff, then InferenceError."""
     import anthropic
     import httpx
@@ -439,3 +424,4 @@ async def test_api_connection_error_retries_then_raises_inference_error() -> Non
 
     assert exc_info.value.provider == "anthropic"
     assert call_count == 2  # initial + 1 retry
+    assert instant_sleep == [1.0]  # 2**0 back-off before the retry

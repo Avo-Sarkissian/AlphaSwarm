@@ -89,19 +89,16 @@ def test_model_attribute() -> None:
     assert p.model == "claude-3"
 
 
-@pytest.mark.asyncio
 async def test_prepare_noop() -> None:
     p = _make_provider(lambda req: _200("hi"))
     await p.prepare()  # must not raise
 
 
-@pytest.mark.asyncio
 async def test_teardown_noop() -> None:
     p = _make_provider(lambda req: _200("hi"))
     await p.teardown()  # must not raise
 
 
-@pytest.mark.asyncio
 async def test_aclose_does_not_raise_for_injected_client() -> None:
     """aclose() must not raise or close an injected client.
 
@@ -124,7 +121,6 @@ async def test_aclose_does_not_raise_for_injected_client() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_schema_request_body_has_json_schema() -> None:
     """response_schema → response_format.type == 'json_schema' in request body."""
     captured: list[dict[str, Any]] = []
@@ -154,7 +150,6 @@ async def test_schema_request_body_has_json_schema() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_json_mode_body_has_json_object() -> None:
     """json_mode=True and no schema → response_format.type == 'json_object'."""
     captured: list[dict[str, Any]] = []
@@ -175,7 +170,6 @@ async def test_json_mode_body_has_json_object() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_no_schema_no_json_mode_no_response_format() -> None:
     """No schema and no json_mode → response_format must NOT appear in the body."""
     captured: list[dict[str, Any]] = []
@@ -195,7 +189,6 @@ async def test_no_schema_no_json_mode_no_response_format() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_temperature_and_max_tokens_included_when_provided() -> None:
     captured: list[dict[str, Any]] = []
 
@@ -211,7 +204,6 @@ async def test_temperature_and_max_tokens_included_when_provided() -> None:
     assert body.get("max_tokens") == 256
 
 
-@pytest.mark.asyncio
 async def test_temperature_and_max_tokens_absent_when_not_provided() -> None:
     captured: list[dict[str, Any]] = []
 
@@ -232,7 +224,6 @@ async def test_temperature_and_max_tokens_absent_when_not_provided() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_token_usage_parsed_from_response() -> None:
     p = _make_provider(lambda req: _200("hi", {"prompt_tokens": 42, "completion_tokens": 7}))
     result = await p.chat(_MSG)
@@ -240,7 +231,6 @@ async def test_token_usage_parsed_from_response() -> None:
     assert result.output_tokens == 7
 
 
-@pytest.mark.asyncio
 async def test_null_content_becomes_empty_string() -> None:
     """choices[0].message.content = null → content == '' in InferenceResult."""
 
@@ -263,14 +253,12 @@ async def test_null_content_becomes_empty_string() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_401_raises_auth_error() -> None:
     p = _make_provider(lambda req: _error(401, {"error": "Unauthorized"}))
     with pytest.raises(AuthError):
         await p.chat(_MSG)
 
 
-@pytest.mark.asyncio
 async def test_403_raises_auth_error() -> None:
     p = _make_provider(lambda req: _error(403, {"error": "Forbidden"}))
     with pytest.raises(AuthError):
@@ -282,7 +270,6 @@ async def test_403_raises_auth_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_strict_unsupported_400_retries_with_json_object() -> None:
     """First POST returns 400 mentioning json_schema; second returns 200.
 
@@ -327,7 +314,6 @@ async def test_strict_unsupported_400_retries_with_json_object() -> None:
     _ = bodies_before  # suppress unused variable warning
 
 
-@pytest.mark.asyncio
 async def test_400_not_schema_related_raises_inference_error() -> None:
     """400 that doesn't mention json_schema/response_format must raise InferenceError directly."""
     p = _make_provider(
@@ -337,7 +323,6 @@ async def test_400_not_schema_related_raises_inference_error() -> None:
         await p.chat(_MSG, response_schema=_SCHEMA)
 
 
-@pytest.mark.asyncio
 async def test_strict_downgrade_inner_retry_transport_error_raises_inference_error() -> None:
     """Strict-downgrade inner retry hitting a transport error → InferenceError (not raw httpx).
 
@@ -380,7 +365,6 @@ async def test_strict_downgrade_inner_retry_transport_error_raises_inference_err
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_response_schema_wins_over_json_mode_when_strict_enabled() -> None:
     """When both response_schema and json_mode=True are passed (and _no_strict=False),
     the strict json_schema response_format takes precedence — json_mode is ignored.
@@ -405,7 +389,6 @@ async def test_response_schema_wins_over_json_mode_when_strict_enabled() -> None
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_429_with_retry_after_0_then_200_succeeds() -> None:
     """429 with Retry-After: 0 then 200 → succeeds after one retry."""
     call_count = 0
@@ -423,7 +406,6 @@ async def test_429_with_retry_after_0_then_200_succeeds() -> None:
     assert call_count == 2
 
 
-@pytest.mark.asyncio
 async def test_persistent_429_raises_inference_error() -> None:
     """Persistent 429 after max_retries → InferenceError."""
 
@@ -440,11 +422,11 @@ async def test_persistent_429_raises_inference_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_500_raises_inference_error_after_retries() -> None:
+async def test_500_raises_inference_error_after_retries(instant_sleep: list[float]) -> None:
     p = _make_provider(lambda req: _error(500), max_retries=1)
     with pytest.raises(InferenceError):
         await p.chat(_MSG)
+    assert instant_sleep == [1.0]  # 2**0 back-off before the single retry
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +434,6 @@ async def test_500_raises_inference_error_after_retries() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_extra_headers_forwarded() -> None:
     captured_headers: list[httpx.Headers] = []
 

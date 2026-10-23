@@ -52,7 +52,6 @@ def mock_graph_manager() -> AsyncMock:
     return manager
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_loads_orchestrator_model(
     mock_settings: MagicMock,
     fake_provider: FakeInferenceProvider,
@@ -78,7 +77,6 @@ async def test_inject_seed_loads_orchestrator_model(
     assert prepare_calls == ["prepare"]
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_calls_chat_with_json_mode(
     mock_settings: MagicMock,
     fake_provider: FakeInferenceProvider,
@@ -104,7 +102,6 @@ async def test_inject_seed_calls_chat_with_json_mode(
     assert call["json_mode"] is True
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_calls_create_cycle_with_seed_event(
     mock_settings: MagicMock,
     fake_provider: FakeInferenceProvider,
@@ -127,7 +124,6 @@ async def test_inject_seed_calls_create_cycle_with_seed_event(
     assert isinstance(call_args[0][1], SeedEvent)
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_unloads_model_on_error(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -159,7 +155,6 @@ async def test_inject_seed_unloads_model_on_error(
     assert teardown_calls == ["teardown"]
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_returns_cycle_id_and_parsed_result(
     mock_settings: MagicMock,
     fake_provider: FakeInferenceProvider,
@@ -180,7 +175,6 @@ async def test_inject_seed_returns_cycle_id_and_parsed_result(
     assert parsed_result.parse_tier == 1
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_parsed_result_has_correct_entities(
     mock_settings: MagicMock,
     fake_provider: FakeInferenceProvider,
@@ -203,7 +197,6 @@ async def test_inject_seed_parsed_result_has_correct_entities(
     assert entities[1].name == "Semiconductors"
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_logs_warning_on_parse_tier_3(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -235,7 +228,6 @@ async def test_inject_seed_logs_warning_on_parse_tier_3(
         assert "seed_parse_used_fallback" in call_kwargs[0]
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_orchestrator_system_prompt_exists() -> None:
     """ORCHESTRATOR_SYSTEM_PROMPT is defined and mentions entity extraction."""
     from alphaswarm.seed import ORCHESTRATOR_SYSTEM_PROMPT
@@ -245,7 +237,6 @@ async def test_inject_seed_orchestrator_system_prompt_exists() -> None:
     assert "overall_sentiment" in ORCHESTRATOR_SYSTEM_PROMPT
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_passes_rumor_as_user_message(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -273,7 +264,6 @@ async def test_inject_seed_passes_rumor_as_user_message(
     assert messages[1]["content"] == "Tesla CEO steps down unexpectedly"
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_stamps_num_rounds(
     mock_settings: MagicMock,
     fake_provider: FakeInferenceProvider,

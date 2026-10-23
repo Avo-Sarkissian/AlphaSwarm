@@ -296,6 +296,7 @@ async def test_market_context_never_reaches_a_system_message(
 
     messages = provider.calls[0]["messages"]
     system_contents = [m["content"] for m in messages if m["role"] == "system"]
+    assert len(system_contents) == 2  # persona prompt + MARKET_CONTEXT_GUARD
     assert all("ignore your persona" not in c for c in system_contents)
     # The only system text about market data is the fixed guard we author.
     assert MARKET_CONTEXT_GUARD in system_contents
@@ -539,7 +540,12 @@ async def test_ft_own_prior_goes_into_the_user_message_before_the_rumor(
 
     assert messages[-1]["role"] == "user"
     assert user.index(_FT_OWN) < user.index(_FT_RUMOR)
-    assert all(_FT_OWN not in m["content"] for m in messages if m["role"] == "system")
+    system_contents = [m["content"] for m in messages if m["role"] == "system"]
+    # The persona prompt, then the peer block, which still travels as a system message. That is a
+    # known defect (untrusted peer text belongs in the user message); its fix leaves a fixed guard
+    # in that slot, so the count stays 2. No market_context here, so no market guard.
+    assert len(system_contents) == 2
+    assert all(_FT_OWN not in c for c in system_contents)
 
 
 async def test_ft_without_own_prior_the_user_message_is_unchanged(

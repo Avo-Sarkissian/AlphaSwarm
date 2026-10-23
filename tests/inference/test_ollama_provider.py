@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
 
@@ -103,7 +101,6 @@ def test_model_attribute() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_ollama_provider_maps_schema_to_format() -> None:
     """response_schema is forwarded to OllamaClient as format=<schema>."""
     p, fc, _ = _make_provider()
@@ -125,7 +122,6 @@ async def test_ollama_provider_maps_schema_to_format() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_json_mode_maps_to_format_json() -> None:
     """json_mode=True with no schema → format="json"."""
     p, fc, _ = _make_provider()
@@ -139,7 +135,6 @@ async def test_json_mode_maps_to_format_json() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_no_schema_no_json_mode_format_is_none() -> None:
     """No schema and no json_mode → format=None."""
     p, fc, _ = _make_provider()
@@ -153,7 +148,6 @@ async def test_no_schema_no_json_mode_format_is_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_schema_takes_precedence_over_json_mode() -> None:
     """response_schema wins even when json_mode=True."""
     schema = {"type": "object", "properties": {"signal": {"type": "string"}}}
@@ -172,7 +166,6 @@ async def test_schema_takes_precedence_over_json_mode() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_think_is_always_false() -> None:
     p, fc, _ = _make_provider()
     await p.chat([{"role": "user", "content": "x"}])
@@ -185,7 +178,6 @@ async def test_think_is_always_false() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_keep_alive_forwarded() -> None:
     p, fc, _ = _make_provider(keep_alive="10m")
     await p.chat([{"role": "user", "content": "x"}])
@@ -198,7 +190,6 @@ async def test_keep_alive_forwarded() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_temperature_in_options() -> None:
     p, fc, _ = _make_provider()
     await p.chat([{"role": "user", "content": "x"}], temperature=0.7)
@@ -206,7 +197,6 @@ async def test_temperature_in_options() -> None:
     assert fc.kwargs["options"] == {"temperature": 0.7}
 
 
-@pytest.mark.asyncio
 async def test_no_temperature_options_is_none() -> None:
     """When temperature is None, options must be None (not an empty dict)."""
     p, fc, _ = _make_provider()
@@ -220,7 +210,6 @@ async def test_no_temperature_options_is_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_max_tokens_accepted_but_ignored() -> None:
     """max_tokens kwarg must be accepted without error; it does not flow to Ollama."""
     p, fc, _ = _make_provider()
@@ -235,7 +224,6 @@ async def test_max_tokens_accepted_but_ignored() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_eval_count_and_duration_forwarded() -> None:
     p, _, _ = _make_provider()
     out = await p.chat([{"role": "user", "content": "x"}])
@@ -243,7 +231,6 @@ async def test_eval_count_and_duration_forwarded() -> None:
     assert out.eval_duration_ns == 1_000_000
 
 
-@pytest.mark.asyncio
 async def test_input_output_tokens_are_none() -> None:
     """Local inference is free; input_tokens/output_tokens stay None."""
     p, _, _ = _make_provider()
@@ -252,14 +239,12 @@ async def test_input_output_tokens_are_none() -> None:
     assert out.output_tokens is None
 
 
-@pytest.mark.asyncio
 async def test_content_forwarded() -> None:
     p, _, _ = _make_provider()
     out = await p.chat([{"role": "user", "content": "x"}])
     assert out.content == '{"signal":"buy"}'
 
 
-@pytest.mark.asyncio
 async def test_model_in_result() -> None:
     p, _, _ = _make_provider(model="alphaswarm-worker")
     out = await p.chat([{"role": "user", "content": "x"}])
@@ -271,7 +256,6 @@ async def test_model_in_result() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_none_content_becomes_empty_string() -> None:
     """OllamaClient may return None for content; provider must coerce to ''."""
 
@@ -302,7 +286,6 @@ async def test_none_content_becomes_empty_string() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_prepare_calls_load_model() -> None:
     p, _, mgr = _make_provider(model="alphaswarm-worker")
     await p.prepare()
@@ -310,7 +293,6 @@ async def test_prepare_calls_load_model() -> None:
     assert mgr.unloaded == []
 
 
-@pytest.mark.asyncio
 async def test_teardown_calls_unload_model() -> None:
     p, _, mgr = _make_provider(model="alphaswarm-worker")
     await p.teardown()
@@ -318,7 +300,6 @@ async def test_teardown_calls_unload_model() -> None:
     assert mgr.loaded == []
 
 
-@pytest.mark.asyncio
 async def test_aclose_is_noop() -> None:
     """aclose() must not raise and must not touch the model manager."""
     p, _, mgr = _make_provider()
@@ -332,7 +313,6 @@ async def test_aclose_is_noop() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_prepare_is_noop_when_manager_is_none() -> None:
     """prepare() must not raise and must not call any manager when model_manager=None."""
     fc = _FakeOllama()
@@ -346,7 +326,6 @@ async def test_prepare_is_noop_when_manager_is_none() -> None:
     await p.prepare()
 
 
-@pytest.mark.asyncio
 async def test_teardown_is_noop_when_manager_is_none() -> None:
     """teardown() must not raise and must not call any manager when model_manager=None."""
     fc = _FakeOllama()
@@ -365,7 +344,6 @@ async def test_teardown_is_noop_when_manager_is_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_model_kwarg_forwarded_to_client() -> None:
     p, fc, _ = _make_provider(model="alphaswarm-worker")
     await p.chat([{"role": "user", "content": "x"}])
