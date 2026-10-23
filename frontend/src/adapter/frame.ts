@@ -91,7 +91,7 @@ function checkSchemaVersion(version: number): void {
 // Defensive: every field has a typed fallback, so a partial or malformed frame
 // never throws. The wire shape is WireStateFrame (types.ts), pinned by the
 // backend-written fixtures in src/__tests__/fixtures/.
-export function adaptSnapshot(raw: unknown): StateFrame {
+function buildFrame(raw: unknown): StateFrame {
   const r = (raw ?? {}) as Record<string, unknown>;
   const schemaVersion = finiteOr(r.schema_version, 0);
   if (typeof r.schema_version === 'number') checkSchemaVersion(schemaVersion);
@@ -242,4 +242,69 @@ export function adaptSnapshot(raw: unknown): StateFrame {
     appliedShocks: adaptAppliedShocks(r.applied_shocks),
     shockWindowOpen: r.shock_window_open === true,
   };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+/**
+ * Structural sharing for plain data: returns `prev` when `next` equals it,
+ * otherwise `next` with every equal sub-tree replaced by its `prev` counterpart.
+ */
+function share<T>(next: T, prev: unknown): T {
+  if (Object.is(next, prev)) return next;
+  if (Array.isArray(next) && Array.isArray(prev)) {
+    const before = prev as readonly unknown[];
+    let same = next.length === before.length;
+    const out = (next as readonly unknown[]).map((item, i) => {
+      const reused = share(item, before[i]);
+      if (reused !== before[i]) same = false;
+      return reused;
+    });
+    return (same ? prev : out) as T;
+  }
+  if (isPlainObject(next) && isPlainObject(prev)) {
+    const keys = Object.keys(next);
+    let same = keys.length === Object.keys(prev).length;
+    const out: Record<string, unknown> = {};
+    for (const key of keys) {
+      const had = Object.prototype.hasOwnProperty.call(prev, key);
+      const reused = share(next[key], had ? prev[key] : undefined);
+      out[key] = reused;
+      if (!had || reused !== prev[key]) same = false;
+    }
+    return (same ? prev : out) as T;
+  }
+  return next;
+}
+
+/** Like `share` for lists whose items carry an identity, so a shifted window still reuses items. */
+function shareByKey<T>(next: readonly T[], prev: readonly T[], key: (item: T) => string | number): T[] {
+  const byKey = new Map<string | number, T>();
+  for (const item of prev) byKey.set(key(item), item);
+  let same = next.length === prev.length;
+  const out = next.map((item, i) => {
+    const reused = share(item, byKey.get(key(item)));
+    if (reused !== prev[i]) same = false;
+    return reused;
+  });
+  return same ? (prev as T[]) : out;
+}
+
+/**
+ * Wire frame → view frame. With `prev`, unchanged agents, rationale entries and
+ * other values keep their identity, and an unchanged frame is `prev` itself, so
+ * memoized panels skip re-rendering (docs/DECISIONS.md#adr-frontend-quant-terminal).
+ */
+export function adaptSnapshot(raw: unknown, prev?: StateFrame | null): StateFrame {
+  const fresh = buildFrame(raw);
+  if (!prev) return fresh;
+  const agents = shareByKey(fresh.agents, prev.agents, (agent) => agent.id);
+  const rationales = shareByKey(fresh.rationales, prev.rationales, (entry) => entry.seq);
+  // The keyed lists are shared by identity above; sharing them again by
+  // position would copy every item that moved.
+  const rest = share({ ...fresh, agents: prev.agents, rationales: prev.rationales }, prev);
+  if (rest === prev && agents === prev.agents && rationales === prev.rationales) return prev;
+  return { ...rest, agents, rationales };
 }
