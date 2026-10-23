@@ -35,12 +35,12 @@ async def test_rss_real_fetch_ticker_entity_returns_fresh_slice() -> None:
     tickers (off-hours / rate-limit edge). We assert staleness='fresh'
     (fetch succeeded) NOT headline count."""
     provider = RSSNewsProvider()
-    result = await provider.get_headlines(["AAPL"])
-    assert "AAPL" in result
-    slice_ = result["AAPL"]
+    result = await provider.get_headlines(["MSFT"])
+    assert "MSFT" in result
+    slice_ = result["MSFT"]
     assert isinstance(slice_, NewsSlice)
     assert slice_.staleness == "fresh", (
-        f"AAPL Yahoo RSS fetch should be fresh; got {slice_.staleness}. "
+        f"MSFT Yahoo RSS fetch should be fresh; got {slice_.staleness}. "
         "If this fails repeatedly, either (a) Yahoo is rate-limiting the "
         "test environment (check UA + Pitfall 4), (b) Yahoo RSS URL "
         "template changed, or (c) feedparser parse regressed."
@@ -90,8 +90,8 @@ async def test_rss_real_user_agent_prevents_yahoo_429() -> None:
     fetch_failed. Staleness='fresh' on this first-attempt fetch is the
     signal that the UA mitigation is live."""
     provider = RSSNewsProvider()
-    result = await provider.get_headlines(["AAPL"])
-    assert result["AAPL"].staleness == "fresh", (
+    result = await provider.get_headlines(["MSFT"])
+    assert result["MSFT"].staleness == "fresh", (
         "First-attempt Yahoo RSS fetch failed. Most likely cause: _USER_AGENT header removed or misapplied (Pitfall 4)."
     )
 
@@ -101,7 +101,7 @@ async def test_rss_real_mixed_batch_returns_fresh_for_all_entities() -> None:
     through a shared httpx.AsyncClient — confirms the dual-source routing
     works inside a single get_headlines call."""
     provider = RSSNewsProvider()
-    result = await provider.get_headlines(["AAPL", "EV battery"])
-    assert set(result.keys()) == {"AAPL", "EV battery"}
-    assert result["AAPL"].staleness == "fresh"
+    result = await provider.get_headlines(["MSFT", "EV battery"])
+    assert set(result.keys()) == {"MSFT", "EV battery"}
+    assert result["MSFT"].staleness == "fresh"
     assert result["EV battery"].staleness == "fresh"

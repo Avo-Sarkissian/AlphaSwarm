@@ -16,6 +16,7 @@ from typing import Final, Literal, Protocol
 import structlog
 
 from alphaswarm.errors import AlphaSwarmError
+from alphaswarm.logging import validation_error_summary
 
 log = structlog.get_logger(component="web.post_run")
 
@@ -89,10 +90,21 @@ class PostRunPipeline:
         except PostRunJobBusyError:
             log.warning("auto_advisory_skipped_busy", cycle_id=cycle_id)
             return "skipped_busy"
-        except Exception:
+        except Exception as exc:
             # Includes AuthError/BudgetExceededError: logged with the traceback and
-            # recorded as the job's failure, never silently dropped.
-            log.error("auto_advisory_failed", cycle_id=cycle_id, exc_info=True)
+            # recorded as the job's failure, never silently dropped. A ValidationError
+            # is logged as a summary without the traceback, whose text echoes the
+            # model's input (docs/DECISIONS.md#adr-holdings-isolation).
+            summary = validation_error_summary(exc)
+            if summary:
+                log.error(
+                    "auto_advisory_failed",
+                    cycle_id=cycle_id,
+                    exc_type=exc.__class__.__name__,
+                    **summary,
+                )
+            else:
+                log.error("auto_advisory_failed", cycle_id=cycle_id, exc_info=True)
             return "failed"
         return "ran"
 

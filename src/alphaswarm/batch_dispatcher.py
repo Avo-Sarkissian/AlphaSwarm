@@ -99,6 +99,10 @@ async def _safe_agent_inference(
         BudgetExceededError: Always re-raised (spend cap must halt the wave).
         AuthError: Always re-raised (bad API key is a config error, not transient).
     """
+    # Each agent call runs in its own TaskGroup task, so this binding is task-local:
+    # every log line of this call carries the round and the agent
+    # (docs/DECISIONS.md#adr-security-2026-08).
+    structlog.contextvars.bind_contextvars(round=round_num, agent_id=persona["agent_id"])
     try:
         await asyncio.sleep(random.uniform(jitter_min, jitter_max))
         async with agent_worker(persona, governor, provider, state_store=state_store) as worker:

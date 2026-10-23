@@ -16,7 +16,7 @@ def test_data_audit_entry_frozen() -> None:
     entry = DataSourceAuditEntry(
         ts=1700000000.0,
         source="yfinance",
-        query="AAPL OHLCV",
+        query="QQQX OHLCV",
         result="ok",
         used=True,
     )
@@ -29,11 +29,11 @@ def test_data_audit_entry_frozen() -> None:
 def test_data_audit_buffer_record_appends() -> None:
     """record() appends an entry to the buffer."""
     buf = DataSourceAuditBuffer()
-    buf.record(source="yfinance", query="AAPL OHLCV", result="ok", used=True)
+    buf.record(source="yfinance", query="QQQX OHLCV", result="ok", used=True)
     snap = buf.snapshot()
     assert len(snap) == 1
     assert snap[0].source == "yfinance"
-    assert snap[0].query == "AAPL OHLCV"
+    assert snap[0].query == "QQQX OHLCV"
     assert snap[0].result == "ok"
     assert snap[0].used is True
     assert snap[0].ts > 0
@@ -82,13 +82,13 @@ def test_state_store_record_data_source_threading() -> None:
     store = StateStore()
     store.record_data_source(
         source="yfinance",
-        query="NVDA OHLCV",
+        query="XQZW OHLCV",
         result="ok",
         used=True,
     )
     store.record_data_source(
         source="rss",
-        query="headlines:NVDA",
+        query="headlines:XQZW",
         result="ok",
         used=False,
     )

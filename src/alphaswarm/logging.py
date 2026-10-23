@@ -30,6 +30,11 @@ Phase 37 / Task 17 additions (API key redaction):
   Covers RoleConfig.api_key, HTTP Authorization headers, and the spec's
   orchestrator_key/worker_key naming variants. Bare "token" is deliberately
   excluded (too broad — would clobber unrelated fields like "next_page_token").
+
+Since 2026-10, API-key shapes (sk-…, nvapi-…, Bearer …) are scrubbed from every
+string value at any depth, whatever its key (docs/DECISIONS.md#adr-holdings-isolation),
+and configure_logging bridges stdlib logging (uvicorn, httpx, provider SDKs) into
+this same chain (docs/DECISIONS.md#adr-security-2026-08).
 """
 
 from __future__ import annotations
@@ -39,9 +44,11 @@ import logging
 import re
 import sys
 from collections.abc import Mapping, MutableMapping
-from typing import Any
+from typing import Any, Final, Protocol, TextIO
 
 import structlog
+from pydantic import ValidationError
+from pydantic_core import ErrorDetails
 from structlog.tracebacks import ExceptionDictTransformer
 
 from alphaswarm.security.hashing import sha256_first8
@@ -92,6 +99,18 @@ _FREE_TEXT_NORMALIZED: frozenset[str] = frozenset({"note", "summary", "message",
 _CURRENCY_RE = re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?")
 _SSN_RE = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 
+# API-key shapes are scrubbed from EVERY string value, whatever its key
+# (docs/DECISIONS.md#adr-holdings-isolation): free-text error= fields, exception
+# text and bridged stdlib messages can carry a token past the key-name rules. The
+# patterns are vendor prefixes and "Bearer <token>", so ordinary text
+# ("risk-adjusted", "task-123") is untouched.
+_SECRET_TOKEN_RE = re.compile(
+    r"\bsk-(?:ant-|proj-)?[A-Za-z0-9_\-]{8,}"
+    r"|\bnvapi-[A-Za-z0-9_\-]{8,}"
+    r"|\bBearer\s+[A-Za-z0-9._~+/=\-]{8,}"
+)
+_SECRET_SENTINEL = "[REDACTED_SECRET]"
+
 _MAX_REDACTION_DEPTH = 8
 _CYCLE_SENTINEL = "[REDACTED_CYCLE]"
 _DEPTH_SENTINEL = "[REDACTED_DEPTH]"
@@ -110,6 +129,10 @@ def _hash_account(value: Any) -> str:
     if s == "":
         return "acct:[EMPTY]"
     return f"acct:{sha256_first8(s)}"
+
+
+def _scrub_secrets(s: str) -> str:
+    return _SECRET_TOKEN_RE.sub(_SECRET_SENTINEL, s)
 
 
 def _scrub_free_text(s: str) -> str:
@@ -148,6 +171,9 @@ def _redact_value(value: Any, *, depth: int, seen: set[int]) -> Any:
     # Scalar — scalars inside arbitrary (non-free-text) keys are passed through;
     # only mapping-level key rules decide redaction. Scalar-level scrubs happen
     # in _redact_mapping when the key matches _FREE_TEXT_NORMALIZED.
+    # API-key shapes are the exception: they are scrubbed from every string.
+    if isinstance(value, str):
+        return _scrub_secrets(value)
     return value
 
 
@@ -172,7 +198,7 @@ def _redact_mapping(mapping: dict[Any, Any], *, depth: int, seen: set[int]) -> d
 
         # Not a sensitive key. If it's a free-text key, apply regex backstop to string.
         if norm in _FREE_TEXT_NORMALIZED and isinstance(value, str):
-            out[key] = _scrub_free_text(value)
+            out[key] = _scrub_free_text(_scrub_secrets(value))
             continue
 
         # Recurse into children so nested sensitive keys are caught.
@@ -211,45 +237,201 @@ def pii_redaction_processor(logger: Any, method_name: str, event_dict: MutableMa
         raise structlog.DropEvent from None
 
 
-def configure_logging(log_level: str = "INFO", json_output: bool = True) -> None:
-    """Configure structlog for the application. Call once at startup.
+BRIDGE_HANDLER_NAME: Final = "alphaswarm-structlog-bridge"
+# Third-party loggers held at WARNING even when the app logs at INFO: httpx/httpcore
+# log every request (hundreds per simulation), neo4j logs schema notifications.
+_QUIET_STDLIB_LOGGERS: Final = ("httpx", "httpcore", "neo4j")
+# The loggers uvicorn's default LOGGING_CONFIG gives their own handlers (with
+# propagation off) on a direct `uvicorn alphaswarm.web.app:app` launch.
+_UVICORN_LOGGERS: Final = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
-    Args:
-        log_level: Python log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL).
-        json_output: If True, output JSON lines. If False, use colored console output.
+
+class _Writable(Protocol):
+    def write(self, text: str, /) -> int: ...
+
+    def flush(self) -> None: ...
+
+
+class _CurrentStdout:
+    """Writes to whatever sys.stdout is at write time.
+
+    The default stream is resolved late, as structlog's PrintLoggerFactory() does,
+    so a stdout that is swapped out and closed later (pytest's capsys,
+    contextlib.redirect_stdout) is never kept by the bridge handler.
     """
-    processors: list[structlog.types.Processor] = [
+
+    def write(self, text: str, /) -> int:
+        return sys.stdout.write(text)
+
+    def flush(self) -> None:
+        sys.stdout.flush()
+
+
+def _pre_chain(json_output: bool) -> list[structlog.types.Processor]:
+    """Processors shared by structlog events and bridged stdlib records."""
+    chain: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,  # MUST be first processor
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
         structlog.dev.set_exc_info,
     ]
-
-    # Tracebacks never include local variables: frames hold API keys, prompts
-    # and portfolio objects (docs/DECISIONS.md#adr-holdings-isolation). structlog's
-    # stock dict_tracebacks and its default (Rich) console formatter both use
-    # show_locals=True, so neither is used.
+    # Tracebacks never include local variables: frames hold API keys, prompts and
+    # portfolio objects (docs/DECISIONS.md#adr-holdings-isolation). structlog's stock
+    # dict_tracebacks and its default (Rich) console formatter both use
+    # show_locals=True, so neither is used. The traceback is rendered BEFORE
+    # redaction in both modes, so the redactor also scrubs its text: JSON mode makes
+    # a structured "exception" list, console mode (ALPHASWARM_DEBUG=true) a plain
+    # string that ConsoleRenderer prints as it is.
     if json_output:
-        # Turn exc_info into a structured "exception" list before redaction, so
-        # the redactor also walks the traceback. Without this, JSONRenderer only
-        # emits "exc_info": true and the stack is lost.
-        processors.append(structlog.processors.ExceptionRenderer(ExceptionDictTransformer(show_locals=False)))
-        processors.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer
-        processors.append(structlog.processors.JSONRenderer())
+        chain.append(structlog.processors.ExceptionRenderer(ExceptionDictTransformer(show_locals=False)))
     else:
-        processors.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer
-        processors.append(structlog.dev.ConsoleRenderer(exception_formatter=structlog.dev.plain_traceback))
+        chain.append(structlog.processors.format_exc_info)
+    chain.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer (Pitfall 1)
+    return chain
 
+
+def _renderer(json_output: bool) -> structlog.types.Processor:
+    if json_output:
+        return structlog.processors.JSONRenderer()
+    return structlog.dev.ConsoleRenderer(exception_formatter=structlog.dev.plain_traceback)
+
+
+def configure_logging(
+    log_level: str = "INFO",
+    json_output: bool = True,
+    *,
+    stream: TextIO | None = None,
+) -> None:
+    """Configure structlog and bridge stdlib logging into it. Call once at startup.
+
+    Args:
+        log_level: Python log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        json_output: If True, output JSON lines. If False, use console output.
+        stream: Where lines go. Default: sys.stdout as it is when each line is
+            written (never a stream captured at configure time).
+
+    stdlib records (uvicorn, httpx, provider SDKs) get the same processors, so they
+    are redacted and rendered in the same format
+    (docs/DECISIONS.md#adr-security-2026-08). Calling it again replaces the bridge.
+    """
+    level = getattr(logging, log_level.upper(), logging.INFO)
     structlog.configure(
-        processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, log_level.upper(), logging.INFO)),
+        processors=[*_pre_chain(json_output), _renderer(json_output)],
+        wrapper_class=structlog.make_filtering_bound_logger(level),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=(
+            structlog.PrintLoggerFactory(file=stream)
+            if stream is not None
+            else structlog.PrintLoggerFactory()  # resolves sys.stdout per logger, as before
+        ),
         cache_logger_on_first_use=True,
     )
+    _install_stdlib_bridge(level, json_output, stream if stream is not None else _CurrentStdout())
+
+
+def _install_stdlib_bridge(level: int, json_output: bool, stream: _Writable) -> None:
+    reset_stdlib_bridge()
+    handler = logging.StreamHandler(stream)
+    handler.set_name(BRIDGE_HANDLER_NAME)
+    handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            foreign_pre_chain=_pre_chain(json_output),
+            processors=[
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                _renderer(json_output),
+            ],
+        )
+    )
+    root = logging.getLogger()
+    root.addHandler(handler)
+    root.setLevel(level)
+    for name in _QUIET_STDLIB_LOGGERS:
+        logging.getLogger(name).setLevel(max(level, logging.WARNING))
+    _adopt_uvicorn_loggers()
+
+
+def _adopt_uvicorn_loggers() -> None:
+    """Send uvicorn's own records through the bridge as well.
+
+    `alphaswarm web` passes log_config=None, so uvicorn adds no handlers. A direct
+    `uvicorn alphaswarm.web.app:app` launch applies uvicorn's default log_config
+    first: its handlers print unredacted text, ASGI tracebacks included, and
+    propagation is off. A logger with its own handlers loses them and propagates to
+    the root bridge (docs/DECISIONS.md#adr-security-2026-08). A logger with no
+    handlers is left alone, so an access log turned off with --no-access-log stays
+    off. Lines uvicorn prints before this runs (the web lifespan calls it) keep
+    uvicorn's own format.
+    """
+    for name in _UVICORN_LOGGERS:
+        logger = logging.getLogger(name)
+        if logger.handlers:
+            for handler in list(logger.handlers):
+                logger.removeHandler(handler)
+            logger.propagate = True
+
+
+def reset_stdlib_bridge() -> None:
+    """Remove the bridge handler from the root logger (repeated configure; tests)."""
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if handler.get_name() == BRIDGE_HANDLER_NAME:
+            root.removeHandler(handler)
+            handler.close()
 
 
 def get_logger(**initial_bindings: object) -> structlog.stdlib.BoundLogger:
     """Get a structlog logger with optional initial context bindings."""
     return structlog.get_logger(**initial_bindings)  # type: ignore[no-any-return]
+
+
+# ------ Loggable pydantic validation failures (docs/DECISIONS.md#adr-holdings-isolation) ------
+
+_MAX_ERROR_LOCATIONS = 10
+
+
+def validation_error_location(error: ErrorDetails) -> str:
+    """Dotted location of one pydantic error. An extra key's own name is masked:
+    it is text the model chose and could be a ticker."""
+    parts = [str(part) for part in error["loc"]]
+    if error["type"] == "extra_forbidden" and parts:
+        parts[-1] = "<extra>"
+    return ".".join(parts) or "(root)"
+
+
+def validation_error_details(exc: ValidationError) -> list[ErrorDetails]:
+    """The errors of *exc* without input values, URLs or context."""
+    return exc.errors(include_input=False, include_url=False, include_context=False)
+
+
+def _find_validation_error(exc: BaseException) -> ValidationError | None:
+    """*exc* itself or the first pydantic ValidationError on its cause/context chain."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, ValidationError):
+            return current
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def validation_error_summary(exc: BaseException) -> dict[str, object]:
+    """Loggable facts about the pydantic ValidationError *exc* is or was raised from.
+
+    str() and repr() of a ValidationError echo the input values, which on the
+    advisory path can include tickers or a cost basis. The summary keeps the error
+    count, up to ten dotted locations and the sorted error types. Without a
+    ValidationError on the chain it is {}: log the exception class (and, where
+    safe, the traceback) instead. Callers that get a summary must not also pass
+    exc_info, because the rendered traceback carries the exception text.
+    """
+    validation_error = _find_validation_error(exc)
+    if validation_error is None:
+        return {}
+    errors = validation_error_details(validation_error)
+    return {
+        "error_count": len(errors),
+        "error_locations": [validation_error_location(error) for error in errors[:_MAX_ERROR_LOCATIONS]],
+        "error_types": sorted({error["type"] for error in errors}),
+    }

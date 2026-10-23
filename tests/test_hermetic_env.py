@@ -29,7 +29,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def test_only_the_hermetic_variables_are_set(hermetic_env: Path) -> None:
     present = sorted(key for key in os.environ if key.startswith("ALPHASWARM_"))
-    assert present == ["ALPHASWARM_HOLDINGS_CSV_PATH", "ALPHASWARM_INFERENCE_CONFIG_PATH"]
+    assert present == [
+        "ALPHASWARM_HOLDINGS_CSV_PATH",
+        "ALPHASWARM_INFERENCE_CONFIG_PATH",
+        "ALPHASWARM_SECTOR_MAP_PATH",
+    ]
     assert os.environ["ALPHASWARM_INFERENCE_CONFIG_PATH"] == str(hermetic_env)
 
 
@@ -94,3 +98,9 @@ def test_an_exported_neo4j_password_never_reaches_a_test() -> None:
         check=False,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_the_sector_map_path_never_points_at_real_data(hermetic_env: Path) -> None:
+    sector_map_path = AppSettings().sector_map_path
+    assert sector_map_path.parent == hermetic_env.parent
+    assert not sector_map_path.exists()

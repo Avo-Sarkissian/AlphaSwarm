@@ -13,10 +13,11 @@ even those that bypass the RateLimitController.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+
+import structlog
 
 from alphaswarm.config import InferenceConfig, ModelPrice, ProviderType
 from alphaswarm.errors import BudgetExceededError
@@ -25,7 +26,7 @@ from alphaswarm.inference.types import InferenceMessage, InferenceResult, Provid
 if TYPE_CHECKING:
     from alphaswarm.inference.provider import InferenceProvider
 
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(component="inference.budget")
 
 # ---------------------------------------------------------------------------
 # Default pricing table
@@ -176,13 +177,11 @@ class BudgetMeter:
             # treating it as free would make the cap silently unenforceable
             # (F-18), so price it at a conservative ceiling instead.
             if model not in self._warned_unknown:
-                logger.warning(
-                    "BudgetMeter: unknown model %r — %s. "
-                    "Add an entry to DEFAULT_PRICING or InferenceConfig.pricing_overrides.",
-                    model,
-                    "pricing at a conservative ceiling for cap enforcement"
-                    if self._cap is not None
-                    else "treating as free (price = $0)",
+                # Add an entry to DEFAULT_PRICING or InferenceConfig.pricing_overrides.
+                log.warning(
+                    "budget_model_unpriced",
+                    model=model,
+                    policy="ceiling" if self._cap is not None else "free",
                 )
                 self._warned_unknown.add(model)
             if self._cap is None:
@@ -277,10 +276,7 @@ def estimate_run(
             return Decimal(0)
         mp = resolved.get(model)
         if mp is None:
-            logger.warning(
-                "estimate_run: no pricing for model %r — treating as $0.",
-                model,
-            )
+            log.warning("estimate_model_unpriced", model=model)
             return Decimal(0)
         per_call = Decimal(avg_in) / _MTOK * mp.input_per_mtok + Decimal(avg_out) / _MTOK * mp.output_per_mtok
         return per_call * n

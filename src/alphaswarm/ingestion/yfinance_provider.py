@@ -10,7 +10,7 @@ D-19: NEVER raises — every failure mode returns _fetch_failed_market_slice(tic
 Ticker input contract (Codex review): ticker strings are passed through to
 yf.Ticker(t) AS-IS. This provider does NOT sanitize whitespace, case, or
 exotic symbols (BRK.B, ^GSPC, BTC-USD). Upstream callers (Phase 40 entity
-extraction) are responsible for normalization. Inputs like " aapl " will
+extraction) are responsible for normalization. Inputs like " msft " will
 produce fetch_failed slices; this is intentional.
 
 Pitfall 1 (HIGH): fast_info.last_price raises KeyError('currentTradingPeriod') on

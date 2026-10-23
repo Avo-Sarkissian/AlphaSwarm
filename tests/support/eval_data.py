@@ -28,7 +28,7 @@ def make_event(index: int, *, when: datetime | None = None, **overrides: object)
             f"{ticker} Holdings is reported to be exploring a sale of its robotics unit (fictional event {index})."
         ),
         "primary_ticker": ticker,
-        "benchmark": "SPY",
+        "benchmark": "IVV",
         "category": CATEGORIES[(index - 1) % len(CATEGORIES)],
         "post_cutoff": timestamp.date() > WORKER_RELEASE,
         "anonymized_rumor": (

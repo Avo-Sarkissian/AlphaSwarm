@@ -34,7 +34,7 @@ EVENT_LINE = {
     "timestamp": "2026-08-14T15:30:00+02:00",
     "rumor": "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.",
     "primary_ticker": "ZZZT",
-    "benchmark": "SPY",
+    "benchmark": "IVV",
     "category": "m_and_a",
     "post_cutoff": True,
     "anonymized_rumor": "An industrial company is in late-stage talks to acquire a robotics maker.",

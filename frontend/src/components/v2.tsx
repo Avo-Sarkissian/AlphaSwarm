@@ -59,11 +59,11 @@ const SOURCE_LABEL: Record<string, string> = { yfinance: 'YAHOO', rss: 'RSS' };
 const SOURCE_COLOR: Record<string, string> = { yfinance: '#f5a524', rss: '#5be7b8' };
 
 // Pull the subject of a provider call out of the audit `query` string so
-// the ticker shows e.g. AAPL / MSFT / NVDA in the agent slot instead of
+// the ticker shows e.g. ZZZT / MSFT / QQQX in the agent slot instead of
 // repeating the source name. Mirrors the two query shapes in
 // alphaswarm/ingestion/{yfinance,rss}_provider.py:
-//   "AAPL OHLCV"     → "AAPL"
-//   "headlines:AAPL" → "AAPL"
+//   "ZZZT OHLCV"     → "ZZZT"
+//   "headlines:ZZZT" → "ZZZT"
 function extractSubject(query: string, source: string): string {
   const after = query.includes(':') ? query.slice(query.indexOf(':') + 1) : query;
   const head = after.trim().split(/\s+/)[0] ?? '';
@@ -71,8 +71,8 @@ function extractSubject(query: string, source: string): string {
 }
 
 // Drop the subject token from the query so the post-arrow `sw-q` slot
-// doesn't echo what's already in the agent slot. "AAPL OHLCV" → "OHLCV";
-// "headlines:AAPL" → "headlines".
+// doesn't echo what's already in the agent slot. "ZZZT OHLCV" → "OHLCV";
+// "headlines:ZZZT" → "headlines".
 function stripSubject(query: string): string {
   if (query.includes(':')) return query.slice(0, query.indexOf(':'));
   const parts = query.trim().split(/\s+/);
@@ -818,9 +818,9 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
                 <p>
                   The orchestrator reads only the consensus output — signals,
                   rationales, influence graph — never the raw agent prompts. Your
-                  holdings are read from your local CSV and never written to Neo4j or
-                  the live stream; the advisory result, including the cost-basis
-                  exposure, is saved under advisory/ as an owner-only file.
+                  holdings are read from your local CSV and never written to Neo4j,
+                  the live stream or the logs; the advisory result, including the
+                  cost-basis exposure, is saved under advisory/ as an owner-only file.
                 </p>
               </div>
             </div>

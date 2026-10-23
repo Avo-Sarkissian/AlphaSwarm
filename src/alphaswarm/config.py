@@ -7,7 +7,7 @@ import json
 import os
 import re
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
@@ -482,23 +482,39 @@ def masked_config(cfg: InferenceConfig) -> dict[str, Any]:
 
 # The two ways the operator actually reaches the UI: the Vite dev server (5173)
 # and the uvicorn app that also serves the built SPA (8000), on both loopback
-# spellings. Shared by the WebSocket handshake guard and the HTTP CSRF guard so
-# the two cannot drift apart.
-_DEFAULT_LOCAL_ORIGINS: tuple[str, ...] = (
+# spellings. One list serves the WebSocket handshake and the HTTP CSRF guard
+# (docs/DECISIONS.md#adr-security-2026-08).
+DEFAULT_ALLOWED_ORIGINS: Final[tuple[str, ...]] = (
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 )
 
-# Origins permitted to open the unauthenticated /ws/state WebSocket stream.
-DEFAULT_WS_ALLOWED_ORIGINS: tuple[str, ...] = _DEFAULT_LOCAL_ORIGINS
+# Host header values the server answers (DNS-rebinding defence). Hosts only, no
+# port: Starlette's TrustedHostMiddleware compares the part before the first ":".
+DEFAULT_TRUSTED_HOSTS: Final[tuple[str, ...]] = ("localhost", "127.0.0.1", "[::1]")
 
-# Origins allowed to issue state-changing (non-GET) HTTP requests to the API.
-# The server is a localhost-only operator console with no authentication, so
-# without this allow-list ANY web page the operator visits could POST to
-# /api/simulate/start, /api/advisory/{id}, ... (CWE-352).
-DEFAULT_HTTP_ALLOWED_ORIGINS: tuple[str, ...] = _DEFAULT_LOCAL_ORIGINS
+# The per-channel origin variables that ALPHASWARM_ALLOWED_ORIGINS replaced.
+LEGACY_ORIGIN_ENV_VARS: Final[tuple[str, ...]] = (
+    "ALPHASWARM_HTTP_ALLOWED_ORIGINS",
+    "ALPHASWARM_WS_ALLOWED_ORIGINS",
+)
+
+
+def legacy_origin_settings(environ: Mapping[str, str], env_file: Path | None) -> list[str]:
+    """Names of the removed per-channel origin variables set in *environ* or *env_file*.
+
+    They are no longer read; create_app logs a warning so a customised value is not
+    lost silently. The .env file is scanned for keys only, never values.
+    """
+    found = {name for name in LEGACY_ORIGIN_ENV_VARS if name in environ}
+    if env_file is not None and env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            key = line.split("=", 1)[0].strip().removeprefix("export ").strip()
+            if key in LEGACY_ORIGIN_ENV_VARS:
+                found.add(key)
+    return sorted(found)
 
 
 class AppSettings(BaseSettings):
@@ -539,6 +555,12 @@ class AppSettings(BaseSettings):
     # pydantic-settings v2 coerces string env values to pathlib.Path automatically.
     holdings_csv_path: Path = Path("Schwab/holdings.csv")
 
+    # Curated ticker -> sector map for the advisory (owner data, gitignored). Relative
+    # paths resolve against PROJECT_ROOT; when the file is missing the fictional
+    # examples/sector_map.example.json is used (docs/DECISIONS.md#adr-holdings-isolation).
+    # Env ALPHASWARM_SECTOR_MAP_PATH.
+    sector_map_path: Path = Path("data/sector_map.local.json")
+
     # Runtime inference config (provider choice, cloud API keys), written by the
     # Settings UI. Injectable so tests point it at a temp file and never read the
     # operator's real one (docs/DECISIONS.md#adr-tests-scoped-cleanup). Env var:
@@ -550,24 +572,27 @@ class AppSettings(BaseSettings):
     # resolve against PROJECT_ROOT (see resolve_path).
     reports_dir: Path = Path("reports")
     advisory_dir: Path = Path("advisory")
+    # Advisory JSON holds cost-basis exposure, so only the newest N files are kept
+    # (docs/DECISIONS.md#adr-holdings-isolation). Env ALPHASWARM_ADVISORY_KEEP_LAST.
+    advisory_keep_last: int = Field(default=20, ge=1)
 
     def resolve_path(self, p: Path) -> Path:
         """Return *p* as an absolute path; relative paths are anchored at PROJECT_ROOT."""
         expanded = p.expanduser()
         return expanded if expanded.is_absolute() else PROJECT_ROOT / expanded
 
-    # Browser origins allowed to open /ws/state. The stream is unauthenticated,
-    # so without this any page the operator visits could open it cross-origin
-    # and read the whole live simulation state. Override with a JSON array in
-    # ALPHASWARM_WS_ALLOWED_ORIGINS. Compared exactly (case- and trailing-slash
-    # insensitive); the server's own origin is always accepted in addition.
-    ws_allowed_origins: list[str] = Field(default_factory=lambda: list(DEFAULT_WS_ALLOWED_ORIGINS))
+    # One origin allow-list for the unauthenticated /ws/state handshake and for
+    # state-changing HTTP requests (CSRF, CWE-352); see web/origin_guard.py and
+    # docs/DECISIONS.md#adr-security-2026-08. JSON list in ALPHASWARM_ALLOWED_ORIGINS,
+    # e.g. ["http://localhost:5173","http://192.168.1.20:8000"]. Entries compare as
+    # scheme://host[:port] with case and default ports folded.
+    allowed_origins: tuple[str, ...] = DEFAULT_ALLOWED_ORIGINS
 
-    # CSRF guard (CWE-352): origins allowed to send state-changing HTTP requests.
-    # Consumed by alphaswarm.web.origin_guard, wired in web/app.py:create_app().
-    # Override with a JSON list when the server is reached under another origin:
-    #   ALPHASWARM_HTTP_ALLOWED_ORIGINS=["http://localhost:9000"]
-    http_allowed_origins: tuple[str, ...] = DEFAULT_HTTP_ALLOWED_ORIGINS
+    # Host header values the server answers (TrustedHostMiddleware, DNS-rebinding
+    # defence, installed in web/app.py). JSON list in ALPHASWARM_TRUSTED_HOSTS;
+    # hosts only, no port. Entries are lower-cased, and a malformed one fails
+    # startup (web/origin_guard.normalized_trusted_hosts).
+    trusted_hosts: tuple[str, ...] = DEFAULT_TRUSTED_HOSTS
 
 
 # ---------------------------------------------------------------------------

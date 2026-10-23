@@ -102,8 +102,9 @@ def test_context_packet_fields_not_in_pii_redaction_set() -> None:
 
 def _raise_with_canary_local() -> None:
     # Built at runtime so the joined value never appears in this file's source,
-    # which a traceback would otherwise print as code context.
-    secret = "".join(["sk-", "LOCAL", "-CANARY"])
+    # which a traceback would otherwise print as code context. Not shaped like an
+    # API key, so the key scrub cannot hide a rendered local.
+    secret = "".join(["FRAME", "-LOCAL-", "CANARY"])
     raise ValueError(f"boom ({len(secret)} chars)")
 
 
@@ -136,7 +137,7 @@ def test_json_exception_has_structured_traceback_without_locals(
     assert "exc_info" not in parsed
     stack = parsed["exception"]
     assert stack[0]["exc_type"] == "ValueError"
-    assert stack[0]["exc_value"] == "boom (15 chars)"
+    assert stack[0]["exc_value"] == "boom (18 chars)"
     assert [f["name"] for f in stack[0]["frames"]][-1] == "_raise_with_canary_local"
     assert "locals" not in _walk_keys(stack)
     assert "LOCAL-CANARY" not in line
@@ -167,7 +168,8 @@ def test_json_exception_raised_from_none_drops_the_suppressed_context(
     # show only the wrapper (docs/DECISIONS.md#adr-local-first-inference).
     configure_logging(log_level="INFO", json_output=True)
     logger = get_logger(component="test")
-    secret = "".join(["sk-", "CONTEXT", "-CANARY"])
+    # A key format the pattern scrub does not know, so only `from None` keeps it out.
+    secret = "".join(["CONFIG", "-CONTEXT-", "CANARY"])
     try:
         try:
             raise ValueError(f"bad inference config: api_key={secret}")

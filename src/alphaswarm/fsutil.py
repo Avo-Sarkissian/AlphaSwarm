@@ -39,3 +39,30 @@ def atomic_write_text(path: Path, text: str, *, mode: int = 0o600) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def prune_old_files(directory: Path, pattern: str, *, keep: int) -> list[Path]:
+    """Delete all but the *keep* newest regular files in *directory* matching *pattern*.
+
+    "Newest" is by modification time, ties broken by name. Symlinks and
+    sub-directories are never touched, so a dangling or hostile link cannot
+    redirect a delete; the ``.tmp`` files atomic_write_text uses do not match an
+    ``*_advisory.json`` pattern. A missing directory yields []. Returns the
+    deleted paths, oldest first. Synchronous: async callers wrap it in
+    ``asyncio.to_thread``. Advisory files hold cost-basis exposure, so only the
+    newest are kept (docs/DECISIONS.md#adr-holdings-isolation).
+    """
+    if keep < 1:
+        raise ValueError("keep must be at least 1")
+    if not directory.is_dir():
+        return []
+    candidates = [p for p in directory.glob(pattern) if p.is_file() and not p.is_symlink()]
+    candidates.sort(key=lambda p: (p.stat().st_mtime_ns, p.name))
+    deleted: list[Path] = []
+    for path in candidates[: max(0, len(candidates) - keep)]:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        deleted.append(path)
+    return deleted

@@ -128,7 +128,7 @@ async def test_dispatch_wave_returns_list_of_decisions(
             personas=sample_personas,
             governor=governor,
             provider=provider,
-            user_message="AAPL rumor",
+            user_message="ZZZT rumor",
             settings=settings,
         )
 

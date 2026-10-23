@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import io
 import json as _json_for_canary  # local alias to avoid shadowing
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -248,5 +249,60 @@ def canary_valid_advisory_json() -> str:
             "items": [],
             "total_holdings": 1,
             "affected_holdings": 0,
+        }
+    )
+
+
+# ------------------------------------------------------------------
+# Failure-path canary helpers: invalid LLM JSON must not leak through errors
+# (docs/DECISIONS.md#adr-holdings-isolation).
+# ------------------------------------------------------------------
+class CanarySequenceProvider(CanaryFakeOllamaClient):
+    """Canary provider that answers each chat call with the next scripted content."""
+
+    def __init__(self, *, prompt_sink: list[str], contents: Sequence[str]) -> None:
+        super().__init__(prompt_sink=prompt_sink, canned_content="")
+        self._contents = list(contents)
+
+    async def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        response_schema: dict[str, _AnyForCanary] | None = None,
+        json_mode: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> _AnyForCanary:
+        from alphaswarm.inference.types import InferenceResult
+
+        self._prompt_sink.append("\n".join(m.get("content", "") for m in messages))
+        if not self._contents:
+            raise AssertionError("CanarySequenceProvider ran out of scripted responses")
+        return InferenceResult(content=self._contents.pop(0), model="canary-fake")
+
+
+def canary_invalid_advisory_json() -> str:
+    """Schema-invalid advisory JSON whose failing fields echo every sentinel value.
+
+    str() of the resulting ValidationError contains the ticker, quantity, cost-basis
+    and account sentinels as input values: exactly what must never reach a log
+    line, a retry prompt or an HTTP body.
+    """
+    return _json_for_canary.dumps(
+        {
+            "cycle_id": "canary_cycle",
+            "generated_at": "2026-04-19T22:00:00+00:00",
+            "portfolio_outlook": "Canary outlook.",
+            "items": [
+                {
+                    "ticker": SENTINEL_TICKER,
+                    "consensus_signal": f"BUY {SENTINEL_TICKER}",
+                    "confidence": str(SENTINEL_QTY),
+                    "rationale_summary": "x",
+                    "position_exposure": f"{SENTINEL_COST_BASIS} USD",
+                }
+            ],
+            "total_holdings": 1,
+            "affected_holdings": SENTINEL_ACCT,
         }
     )

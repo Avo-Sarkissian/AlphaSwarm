@@ -40,8 +40,8 @@ SENSITIVE_FIELD_NAMES = frozenset(
 
 
 def test_market_slice_constructs_with_required_fields() -> None:
-    m = MarketSlice(ticker="AAPL", fetched_at=datetime.now(UTC), source="yfinance")
-    assert m.ticker == "AAPL"
+    m = MarketSlice(ticker="ZZZT", fetched_at=datetime.now(UTC), source="yfinance")
+    assert m.ticker == "ZZZT"
     assert m.staleness == "fresh"
     assert m.price is None
 
@@ -49,7 +49,7 @@ def test_market_slice_constructs_with_required_fields() -> None:
 def test_market_slice_price_accepts_decimal() -> None:
     """REVIEW MEDIUM: price is Decimal for financial precision (not float)."""
     m = MarketSlice(
-        ticker="AAPL",
+        ticker="ZZZT",
         price=Decimal("185.42"),
         fetched_at=datetime.now(UTC),
         source="yfinance",
@@ -61,7 +61,7 @@ def test_market_slice_price_accepts_decimal() -> None:
 def test_market_slice_rejects_extra_keys() -> None:
     with pytest.raises(ValidationError):
         MarketSlice(
-            ticker="AAPL",
+            ticker="ZZZT",
             fetched_at=datetime.now(UTC),
             source="x",
             holdings=["bad"],  # type: ignore[call-arg]
@@ -69,7 +69,7 @@ def test_market_slice_rejects_extra_keys() -> None:
 
 
 def test_market_slice_is_frozen() -> None:
-    m = MarketSlice(ticker="AAPL", fetched_at=datetime.now(UTC), source="x")
+    m = MarketSlice(ticker="ZZZT", fetched_at=datetime.now(UTC), source="x")
     with pytest.raises(ValidationError):
         m.ticker = "MSFT"  # type: ignore[misc]
 
@@ -101,7 +101,7 @@ def test_market_slice_fundamentals_is_nested_frozen_model_not_dict() -> None:
     A nested frozen BaseModel produces deep immutability.
     """
     m = MarketSlice(
-        ticker="AAPL",
+        ticker="ZZZT",
         fetched_at=datetime.now(UTC),
         source="x",
         fundamentals=Fundamentals(pe_ratio=Decimal("20")),
@@ -118,7 +118,7 @@ def test_market_slice_fundamentals_is_nested_frozen_model_not_dict() -> None:
 
 def test_news_slice_headlines_is_tuple() -> None:
     n = NewsSlice(
-        entity="AAPL",
+        entity="ZZZT",
         fetched_at=datetime.now(UTC),
         source="rss",
         headlines=("headline 1", "headline 2"),
@@ -131,7 +131,7 @@ def test_news_slice_headlines_is_tuple() -> None:
 def test_news_slice_rejects_extra_keys() -> None:
     with pytest.raises(ValidationError):
         NewsSlice(
-            entity="AAPL",
+            entity="ZZZT",
             fetched_at=datetime.now(UTC),
             source="rss",
             portfolio="bad",  # type: ignore[call-arg]
@@ -147,14 +147,14 @@ def test_news_slice_zero_holdings_fields() -> None:
 
 
 def test_context_packet_constructs_empty() -> None:
-    p = ContextPacket(cycle_id="c1", as_of=datetime.now(UTC), entities=("AAPL",))
+    p = ContextPacket(cycle_id="c1", as_of=datetime.now(UTC), entities=("ZZZT",))
     assert p.market == ()
     assert p.news == ()
 
 
 def test_context_packet_collections_are_tuples() -> None:
     """REVIEW HIGH: entities, market, news must all be tuple-typed and tuple-instance at runtime."""
-    p = ContextPacket(cycle_id="c1", as_of=datetime.now(UTC), entities=("AAPL", "MSFT"))
+    p = ContextPacket(cycle_id="c1", as_of=datetime.now(UTC), entities=("ZZZT", "MSFT"))
     assert isinstance(p.entities, tuple)
     assert isinstance(p.market, tuple)
     assert isinstance(p.news, tuple)
@@ -186,7 +186,7 @@ def test_context_packet_rejects_extra_keys() -> None:
         ContextPacket(
             cycle_id="c1",
             as_of=datetime.now(UTC),
-            entities=("AAPL",),
+            entities=("ZZZT",),
             holdings=[],  # type: ignore[call-arg]
         )
 
@@ -196,7 +196,7 @@ def test_context_packet_rejects_portfolio_field() -> None:
         ContextPacket(
             cycle_id="c1",
             as_of=datetime.now(UTC),
-            entities=("AAPL",),
+            entities=("ZZZT",),
             portfolio=[],  # type: ignore[call-arg]
         )
 
@@ -207,7 +207,7 @@ def test_context_packet_zero_holdings_fields() -> None:
 
 
 def test_context_packet_is_frozen() -> None:
-    p = ContextPacket(cycle_id="c1", as_of=datetime.now(UTC), entities=("AAPL",))
+    p = ContextPacket(cycle_id="c1", as_of=datetime.now(UTC), entities=("ZZZT",))
     with pytest.raises(ValidationError):
         p.cycle_id = "c2"  # type: ignore[misc]
 
@@ -216,7 +216,7 @@ def test_staleness_accepts_only_literal_values() -> None:
     """REVIEW MEDIUM: StalenessState is a typed literal — 'unknown' must be rejected."""
     for value in ("fresh", "stale", "fetch_failed"):
         m = MarketSlice(
-            ticker="AAPL",
+            ticker="ZZZT",
             fetched_at=datetime.now(UTC),
             source="x",
             staleness=value,  # type: ignore[arg-type]
@@ -224,7 +224,7 @@ def test_staleness_accepts_only_literal_values() -> None:
         assert m.staleness == value
     with pytest.raises(ValidationError):
         MarketSlice(
-            ticker="AAPL",
+            ticker="ZZZT",
             fetched_at=datetime.now(UTC),
             source="x",
             staleness="unknown",  # type: ignore[arg-type]

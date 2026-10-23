@@ -18,10 +18,10 @@ Key behaviours:
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import TYPE_CHECKING, Any
 
 import anthropic
+import structlog
 
 from alphaswarm.errors import AuthError, InferenceError
 from alphaswarm.inference.schema import extract_anthropic_tool_json, to_anthropic_tool
@@ -35,7 +35,7 @@ from alphaswarm.inference.types import (
 if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(component="inference.anthropic")
 
 
 class AnthropicProvider:
@@ -187,11 +187,12 @@ class AnthropicProvider:
                 last_exc = exc
                 retry_after = self._parse_retry_after(exc)
                 if attempt < self._max_retries:
-                    logger.warning(
-                        "Anthropic rate limited; sleeping %.1fs (attempt %d/%d)",
-                        retry_after,
-                        attempt + 1,
-                        self._max_retries,
+                    log.warning(
+                        "anthropic_rate_limited",
+                        model=self.model,
+                        retry_after_s=round(retry_after, 1),
+                        attempt=attempt + 1,
+                        max_retries=self._max_retries,
                     )
                     await asyncio.sleep(retry_after)
                     continue
@@ -205,12 +206,13 @@ class AnthropicProvider:
                 last_exc = exc
                 if attempt < self._max_retries:
                     backoff = 2**attempt
-                    logger.warning(
-                        "Anthropic API error %s; retrying in %ds (attempt %d/%d)",
-                        type(exc).__name__,
-                        backoff,
-                        attempt + 1,
-                        self._max_retries,
+                    log.warning(
+                        "anthropic_api_error_retrying",
+                        model=self.model,
+                        error_type=type(exc).__name__,
+                        backoff_s=backoff,
+                        attempt=attempt + 1,
+                        max_retries=self._max_retries,
                     )
                     await asyncio.sleep(backoff)
                     continue

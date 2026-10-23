@@ -752,8 +752,9 @@ def test_format_peer_context_budget_enforced() -> None:
         for i in range(10)
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
-    assert len(result) <= 4000
+    # Rationales are capped near 300 characters, so ten now fit 4,000; 2,000 still truncates.
+    result, _shown = _format_peer_context(posts, source_round=1, budget=2000)
+    assert len(result) <= 2000
     # Not all 10 posts should appear (total would exceed budget)
     numbered_lines = [line for line in result.split("\n") if line and line[0].isdigit()]
     assert len(numbered_lines) < 10
@@ -782,8 +783,10 @@ def test_format_peer_context_word_boundary_truncation() -> None:
         ),
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
-    assert len(result) <= 4000
+    # The capped rationale (~300 chars) fits 4,000; a 400-character budget forces the
+    # word-boundary budget truncation this test is about.
+    result, _shown = _format_peer_context(posts, source_round=1, budget=400)
+    assert len(result) <= 400
     # Find the content inside quotes on the numbered line
     for line in result.split("\n"):
         if line.startswith("1."):
@@ -968,7 +971,7 @@ def test_format_peer_context_returns_rendered_ids() -> None:
         post("shorts_01", "shorts", "never reached"),  # budget exhausted
     ]
 
-    text, shown = _format_peer_context(posts, source_round=1, budget=1000)
+    text, shown = _format_peer_context(posts, source_round=1, budget=500)
 
     assert shown == ("quants_01", "macro_01")
     assert "[degens_01|" not in text
@@ -2543,8 +2546,8 @@ async def test_run_simulation_assembles_context_packet(
 
     fake_market = FakeMarketDataProvider(
         fixtures={
-            "NVDA": MarketSlice(
-                ticker="NVDA",
+            "ZZZT": MarketSlice(
+                ticker="ZZZT",
                 price=Decimal("523.45"),
                 fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
                 source="fake",
@@ -2554,9 +2557,9 @@ async def test_run_simulation_assembles_context_packet(
     )
     fake_news = FakeNewsProvider(
         fixtures={
-            "NVDA": NewsSlice(
-                entity="NVDA",
-                headlines=("NVDA soars",),
+            "ZZZT": NewsSlice(
+                entity="ZZZT",
+                headlines=("ZZZT soars",),
                 fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
                 source="fake",
                 staleness="fresh",
@@ -2564,7 +2567,7 @@ async def test_run_simulation_assembles_context_packet(
         }
     )
 
-    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["ZZZT"]), None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
@@ -2583,9 +2586,9 @@ async def test_run_simulation_assembles_context_packet(
 
     market_context_str = mock_round1.call_args.kwargs["market_context"]
     assert market_context_str is not None
-    assert "== NVDA ==" in market_context_str
+    assert "== ZZZT ==" in market_context_str
     assert "$523.45" in market_context_str
-    assert "NVDA soars" in market_context_str
+    assert "ZZZT soars" in market_context_str
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -2608,7 +2611,7 @@ async def test_run_simulation_skips_context_when_market_provider_missing(
     from alphaswarm.ingestion import FakeNewsProvider
     from alphaswarm.simulation import run_simulation
 
-    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["ZZZT"]), None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
@@ -2652,7 +2655,7 @@ async def test_run_simulation_skips_context_when_news_provider_missing(
     from alphaswarm.ingestion import FakeMarketDataProvider
     from alphaswarm.simulation import run_simulation
 
-    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["ZZZT"]), None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
@@ -2695,7 +2698,7 @@ async def test_run_simulation_skips_context_when_both_providers_missing(
 
     from alphaswarm.simulation import run_simulation
 
-    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["ZZZT"]), None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
@@ -2776,7 +2779,7 @@ async def test_run_simulation_formatter_drops_all_fetch_failed(
     fake_market = FakeMarketDataProvider(fixtures={})
     fake_news = FakeNewsProvider(fixtures={})
 
-    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["ZZZT"]), None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
@@ -2835,7 +2838,7 @@ async def test_run_simulation_filters_non_ticker_entities_from_market_call(
 
     mock_inject.return_value = (
         "cid",
-        _phase40_mock_parsed_result(["NVDA", "Federal Reserve", "AAPL"]),
+        _phase40_mock_parsed_result(["ZZZT", "Federal Reserve", "QQQX"]),
         None,
     )
     mock_round1.return_value = _mock_round1_result()
@@ -2855,9 +2858,9 @@ async def test_run_simulation_filters_non_ticker_entities_from_market_call(
     )
 
     # market_provider.get_prices received ONLY the ticker-shaped entities
-    assert recorded_ticker_calls == [["NVDA", "AAPL"]]
+    assert recorded_ticker_calls == [["ZZZT", "QQQX"]]
     # news_provider.get_headlines received ALL entities
-    assert recorded_entity_calls == [["NVDA", "Federal Reserve", "AAPL"]]
+    assert recorded_entity_calls == [["ZZZT", "Federal Reserve", "QQQX"]]
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -2873,7 +2876,7 @@ async def test_run_simulation_company_name_entity_gets_news_only(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """Phase 40 REVIEWS concern #2 pin: orchestrator emits 'NVIDIA' not 'NVDA',
+    """Phase 40 REVIEWS concern #2 pin: orchestrator emits 'NVIDIA' not 'ZZZT',
     so market lookup misses and only news attaches. Pins the known-limitation
     behavior end-to-end through the simulation layer."""
     from datetime import UTC, datetime
@@ -2886,8 +2889,8 @@ async def test_run_simulation_company_name_entity_gets_news_only(
     # MarketSlice keyed by TICKER shape — will not match entity "NVIDIA"
     fake_market = FakeMarketDataProvider(
         fixtures={
-            "NVDA": MarketSlice(
-                ticker="NVDA",
+            "ZZZT": MarketSlice(
+                ticker="ZZZT",
                 price=Decimal("523.45"),
                 fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
                 source="fake",
@@ -2978,7 +2981,7 @@ async def test_run_simulation_forwards_market_context_to_run_round1(
     SCOPE: only asserts the run_simulation→run_round1 interface. Does NOT prove
     AgentWorker.infer receives the message — see
     test_run_simulation_through_dispatch_wave for that dispatch-depth assertion.
-    Uses the ticker-shaped entity "NVDA" so the _TICKER_RE happy path runs and
+    Uses the ticker-shaped entity "ZZZT" so the _TICKER_RE happy path runs and
     Price/P-E tokens appear (contrast: test_run_simulation_assembles_context_packet
     uses "NVIDIA" to pin the KNOWN LIMITATION).
     """
@@ -2991,8 +2994,8 @@ async def test_run_simulation_forwards_market_context_to_run_round1(
 
     fake_market = FakeMarketDataProvider(
         fixtures={
-            "NVDA": MarketSlice(
-                ticker="NVDA",
+            "ZZZT": MarketSlice(
+                ticker="ZZZT",
                 price=Decimal("523.45"),
                 fundamentals=Fundamentals(pe_ratio=Decimal("65.2")),
                 fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
@@ -3003,8 +3006,8 @@ async def test_run_simulation_forwards_market_context_to_run_round1(
     )
     fake_news = FakeNewsProvider(
         fixtures={
-            "NVDA": NewsSlice(
-                entity="NVDA",
+            "ZZZT": NewsSlice(
+                entity="ZZZT",
                 headlines=("NVIDIA breaks records",),
                 fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
                 source="fake_news",
@@ -3013,7 +3016,7 @@ async def test_run_simulation_forwards_market_context_to_run_round1(
         }
     )
 
-    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["ZZZT"]), None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
@@ -3032,7 +3035,7 @@ async def test_run_simulation_forwards_market_context_to_run_round1(
 
     market_context_str = mock_round1.call_args.kwargs["market_context"]
     assert market_context_str is not None
-    assert "== NVDA ==" in market_context_str
+    assert "== ZZZT ==" in market_context_str
     assert "Price: $523.45" in market_context_str
     assert "P/E: 65.2" in market_context_str
     assert "NVIDIA breaks records" in market_context_str
@@ -3070,8 +3073,8 @@ async def test_run_simulation_through_dispatch_wave(
 
     fake_market = FakeMarketDataProvider(
         fixtures={
-            "NVDA": MarketSlice(
-                ticker="NVDA",
+            "ZZZT": MarketSlice(
+                ticker="ZZZT",
                 price=Decimal("523.45"),
                 fundamentals=Fundamentals(pe_ratio=Decimal("65.2")),
                 fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
@@ -3082,8 +3085,8 @@ async def test_run_simulation_through_dispatch_wave(
     )
     fake_news = FakeNewsProvider(
         fixtures={
-            "NVDA": NewsSlice(
-                entity="NVDA",
+            "ZZZT": NewsSlice(
+                entity="ZZZT",
                 headlines=("NVIDIA breaks records",),
                 fetched_at=datetime(2026, 4, 19, tzinfo=UTC),
                 source="fake_news",
@@ -3092,7 +3095,7 @@ async def test_run_simulation_through_dispatch_wave(
         }
     )
 
-    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["NVDA"]), None)
+    mock_inject.return_value = ("cid", _phase40_mock_parsed_result(["ZZZT"]), None)
 
     # Reduce to 3 personas for speed — dispatch_wave semantics preserved.
     reduced_personas = TEST_PERSONAS[:3]
@@ -3155,7 +3158,7 @@ async def test_run_simulation_through_dispatch_wave(
         "dispatch-depth chain is broken. Inspect "
         "batch_dispatcher._safe_agent_inference message construction."
     )
-    assert "== NVDA ==" in combined
+    assert "== ZZZT ==" in combined
 
 
 # Per-round peer exposure keys for TEST_BRACKETS (quants, degens), rounds 2-3

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from alphaswarm.fsutil import atomic_write_text
+from alphaswarm.fsutil import atomic_write_text, prune_old_files
 
 
 def _mode(path: Path) -> int:
@@ -57,3 +57,38 @@ def test_failed_replace_keeps_old_content_and_removes_temp(
         atomic_write_text(target, "new")
     assert target.read_text(encoding="utf-8") == "old"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["out.md"]
+
+
+def _touch(path: Path, mtime_s: int) -> None:
+    path.write_text("{}", encoding="utf-8")
+    os.utime(path, (mtime_s, mtime_s))
+
+
+def test_prune_keeps_the_newest_matching_files(tmp_path: Path) -> None:
+    for index in range(5):
+        _touch(tmp_path / f"c{index}_advisory.json", 1_000 + index)
+    _touch(tmp_path / "notes.txt", 1)
+    deleted = prune_old_files(tmp_path, "*_advisory.json", keep=2)
+    assert [p.name for p in deleted] == [
+        "c0_advisory.json",
+        "c1_advisory.json",
+        "c2_advisory.json",
+    ]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "c3_advisory.json",
+        "c4_advisory.json",
+        "notes.txt",
+    ]
+
+
+def test_prune_ignores_temp_files_symlinks_and_missing_dirs(tmp_path: Path) -> None:
+    _touch(tmp_path / "a_advisory.json", 1)
+    (tmp_path / ".b_advisory.json.123.abcd.tmp").write_text("x", encoding="utf-8")
+    (tmp_path / "link_advisory.json").symlink_to(tmp_path / "a_advisory.json")
+    assert prune_old_files(tmp_path, "*_advisory.json", keep=1) == []
+    assert prune_old_files(tmp_path / "missing", "*_advisory.json", keep=1) == []
+
+
+def test_prune_rejects_keep_below_one(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="at least 1"):
+        prune_old_files(tmp_path, "*", keep=0)

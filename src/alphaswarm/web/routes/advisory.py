@@ -22,9 +22,11 @@ from fastapi import APIRouter, FastAPI, Request, status
 from pydantic import BaseModel, ValidationError
 
 from alphaswarm.advisory import AdvisoryReport, synthesize
+from alphaswarm.advisory.sector_map import load_sector_map
 from alphaswarm.config import ProviderType, load_inference_config
-from alphaswarm.fsutil import atomic_write_text
+from alphaswarm.fsutil import atomic_write_text, prune_old_files
 from alphaswarm.inference.factory import advisory_block_reason, build_providers
+from alphaswarm.logging import validation_error_summary
 from alphaswarm.state import JobStatus
 from alphaswarm.web.errors import ApiError
 from alphaswarm.web.guards import (
@@ -310,14 +312,38 @@ def _on_advisory_task_done(task: asyncio.Task[Any], cycle_id: str, app: FastAPI)
         _record_advisory_failure(app, cycle_id, code, message)
         _set_advisory_status(app, JobStatus("failed", cycle_id, code))
         # Event name and exc_info are pinned by tests/test_task_failure_logging.py.
+        # A ValidationError's traceback text echoes the model's input, so it is
+        # logged as a summary without exc_info (docs/DECISIONS.md#adr-holdings-isolation).
+        summary = validation_error_summary(exc)
         log.error(
             "advisory_task_exception_recorded",
             cycle_id=cycle_id,
             exc_type=exc.__class__.__name__,
-            exc_info=exc,
+            **(summary or {"exc_info": exc}),
         )
     except Exception:  # a done-callback must never raise
         log.exception("advisory_task_done_callback_failed", cycle_id=cycle_id)
+
+
+async def _prune_old_advisories(app_state: AppState, directory: Path, cycle_id: str) -> None:
+    """Keep only the newest ``advisory_keep_last`` advisory files after a write.
+
+    Advisory JSON holds cost-basis exposure (docs/DECISIONS.md#adr-holdings-isolation).
+    Only ``*_advisory.json`` regular files the job writes are touched. A failed prune
+    is logged by type and does not fail the advisory just written.
+    """
+    try:
+        pruned = await asyncio.to_thread(
+            prune_old_files,
+            directory,
+            "*_advisory.json",
+            keep=app_state.settings.advisory_keep_last,
+        )
+    except OSError as exc:
+        log.warning("advisory_prune_failed", cycle_id=cycle_id, error_type=type(exc).__name__)
+        return
+    if pruned:
+        log.info("advisory_files_pruned", cycle_id=cycle_id, count=len(pruned))
 
 
 async def _run_advisory_synthesis(
@@ -335,6 +361,9 @@ async def _run_advisory_synthesis(
     with identical behaviour to before.  The budget_meter here is per-operation
     (fresh per advisory run) which bounds each advisory to its own spend cap.
     """
+    # The job runs in its own task (start_advisory_job), so the binding is task-local
+    # (docs/DECISIONS.md#adr-security-2026-08).
+    structlog.contextvars.bind_contextvars(cycle_id=cycle_id, job="advisory")
     gm = app_state.graph_manager
     ollama_client = app_state.ollama_client
     model_manager = app_state.model_manager
@@ -346,6 +375,12 @@ async def _run_advisory_synthesis(
         cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
     except (ValueError, OSError) as exc:
         raise job_config_error(exc, job="advisory", cycle_id=cycle_id) from None
+    # Read per run, so edits to the local map apply without a restart. A missing
+    # file falls back to the fictional example and an invalid one to the empty map;
+    # neither blocks the advisory (docs/DECISIONS.md#adr-holdings-isolation).
+    sector_map = await asyncio.to_thread(
+        load_sector_map, app_state.settings.resolve_path(app_state.settings.sector_map_path)
+    )
     reason = _orchestrator_block_reason(cfg, app_state)
     if reason is not None:
         # The config can change between the POST and this task starting.
@@ -367,6 +402,7 @@ async def _run_advisory_synthesis(
             portfolio=portfolio,
             graph_manager=gm,
             provider=provider,
+            sector_map=sector_map,
         )
 
         output_path = advisory_dir(app_state) / f"{cycle_id}_advisory.json"
@@ -375,6 +411,7 @@ async def _run_advisory_synthesis(
             output_path,
             report_obj.model_dump_json(indent=2),
         )
+        await _prune_old_advisories(app_state, output_path.parent, cycle_id)
 
         log.info(
             "advisory_generation_complete",
@@ -383,7 +420,14 @@ async def _run_advisory_synthesis(
             affected=report_obj.affected_holdings,
         )
     except Exception as exc:
-        log.error("advisory_generation_failed", cycle_id=cycle_id, error=str(exc))
+        # Never str(exc) and no traceback: advisory exceptions can echo holdings
+        # (docs/DECISIONS.md#adr-holdings-isolation).
+        log.error(
+            "advisory_generation_failed",
+            cycle_id=cycle_id,
+            exc_type=exc.__class__.__name__,
+            **validation_error_summary(exc),
+        )
         raise
     finally:
         try:

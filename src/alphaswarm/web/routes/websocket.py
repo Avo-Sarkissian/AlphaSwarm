@@ -4,10 +4,11 @@ Data flows server-to-client only. The broadcaster task calls
 connection_manager.broadcast() which enqueues messages to each client's
 writer task. The receive loop exists solely for disconnect detection.
 
-Local-dev-only (D-10): no authentication. Because there is no authentication,
-the handshake Origin is checked against an allow-list (F2) — otherwise any
-page the operator visits while the server runs could open this socket
-cross-origin and stream the entire live simulation state.
+Local-dev-only (docs/DECISIONS.md#p30-d-10): no authentication. A handshake
+must pass the Host check (TrustedHostMiddleware) and then the single origin
+policy shared with the HTTP CSRF guard (web/origin_guard.is_allowed, docs/DECISIONS.md#adr-security-2026-08).
+The allowed origin is never derived from the request's own Host header: a
+DNS-rebinding page controls that header.
 """
 
 from __future__ import annotations
@@ -18,7 +19,8 @@ import structlog
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
-from alphaswarm.config import DEFAULT_WS_ALLOWED_ORIGINS
+from alphaswarm.config import DEFAULT_ALLOWED_ORIGINS
+from alphaswarm.web.origin_guard import is_allowed
 
 log = structlog.get_logger(component="web.ws_state")
 router = APIRouter()
@@ -33,15 +35,6 @@ _POLICY_VIOLATION_CLOSE_CODE = 1008
 # such a value would forge additional key=value pairs in the rendered line.
 _MAX_LOGGED_ORIGIN_CHARS = 64
 _ORIGIN_TRUNCATION_MARKER = "...[truncated]"
-
-
-def _normalize_origin(value: str) -> str:
-    """Canonical form for exact-match comparison: trimmed, no trailing slash, lowercased.
-
-    Deliberately no prefix/suffix matching — "http://localhost:5173.evil.example"
-    and "http://localhost:8000@evil.example" must not match an allow-list entry.
-    """
-    return value.strip().rstrip("/").lower()
 
 
 def _safe_origin_for_log(origin: str | None) -> str:
@@ -63,59 +56,22 @@ def _safe_origin_for_log(origin: str | None) -> str:
     return cleaned
 
 
-def _server_origin(websocket: WebSocket) -> str | None:
-    """This server's own origin, derived from the ASGI scope without URL parsing.
-
-    scope["scheme"] is already "ws"/"wss", so the http(s) scheme needs no
-    parsing. We deliberately do NOT read websocket.url.scheme: Starlette builds
-    URL by concatenating the raw Host header, and .scheme lazily calls urlsplit,
-    which raises ValueError ("Invalid IPv6 URL") on an unbalanced-bracket Host
-    such as "]" or "[x]". h11/uvicorn accept such a Host, so an unauthenticated
-    peer could otherwise turn every handshake into an unhandled 500. Here a
-    malformed Host merely yields a string that matches nothing, and the
-    connection takes the normal refusal path.
-    """
-    host = websocket.headers.get("host")
-    if not host:
-        return None
-    scheme = "https" if websocket.scope.get("scheme") == "wss" else "http"
-    return _normalize_origin(f"{scheme}://{host}")
-
-
 def _configured_allowed_origins(websocket: WebSocket) -> tuple[str, ...]:
-    """Allow-list from AppSettings.ws_allowed_origins, wired via app.state.app_state.
-
-    Falls back to the same defaults the setting declares if app.state is only
-    partially wired — never to "allow everything".
-    """
-    app_state = getattr(websocket.app.state, "app_state", None)
-    configured = getattr(getattr(app_state, "settings", None), "ws_allowed_origins", None)
-    if not isinstance(configured, (list, tuple)):
-        return DEFAULT_WS_ALLOWED_ORIGINS
-    return tuple(str(entry) for entry in configured)
+    """AppSettings.allowed_origins, from app.state.settings (create_app) or
+    app.state.app_state.settings (test apps); the defaults otherwise — never
+    "allow everything"."""
+    state = websocket.app.state
+    app_state = getattr(state, "app_state", None)
+    for settings in (getattr(state, "settings", None), getattr(app_state, "settings", None)):
+        configured = getattr(settings, "allowed_origins", None)
+        if isinstance(configured, (list, tuple)):
+            return tuple(str(entry) for entry in configured)
+    return DEFAULT_ALLOWED_ORIGINS
 
 
 def _is_origin_allowed(websocket: WebSocket) -> bool:
-    """True when this handshake's Origin may open the state stream.
-
-    - No Origin header → allowed. Browsers ALWAYS send Origin on a WebSocket
-      handshake, so the cross-site threat this guards against always carries
-      one; non-browser tooling (TestClient, wscat, scripts) sends none and
-      keeps working.
-    - Configured allow-list, or the server's own origin → allowed.
-    - Anything else, including "null" (sandboxed iframe / opaque origin) → refused.
-    """
-    origin = websocket.headers.get("origin")
-    if origin is None:
-        return True
-    candidate = _normalize_origin(origin)
-    if not candidate:
-        return False
-    allowed = {_normalize_origin(entry) for entry in _configured_allowed_origins(websocket)}
-    if candidate in allowed:
-        return True
-    server_origin = _server_origin(websocket)
-    return server_origin is not None and candidate == server_origin
+    """True when this handshake's Origin may open the state stream."""
+    return is_allowed(websocket.headers.get("origin"), _configured_allowed_origins(websocket))
 
 
 @router.websocket("/ws/state")
@@ -130,8 +86,8 @@ async def ws_state(websocket: WebSocket) -> None:
     - Data flows server-to-client only, so any inbound frame (text or binary)
       is discarded. We use receive() rather than receive_text() so a non-text
       frame does not raise a KeyError that escapes as an unhandled endpoint
-      error and abruptly drops the connection (F-27).
-    - F2: the Origin check runs BEFORE connection_manager.connect(), so a
+      error and abruptly drops the connection (docs/DECISIONS.md#f-27).
+    - The Origin check runs BEFORE connection_manager.connect(), so a
       refused peer never reaches ws.accept(), never allocates a queue or a
       writer task, and never appears in client_count.
     """

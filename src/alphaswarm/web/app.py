@@ -7,15 +7,22 @@ import contextlib
 import os
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import FastAPI
 from neo4j.exceptions import AuthError as Neo4jAuthError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.staticfiles import StaticFiles
 
 from alphaswarm.app import create_app_state
-from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+from alphaswarm.config import (
+    AppSettings,
+    generate_personas,
+    legacy_origin_settings,
+    load_bracket_configs,
+)
 from alphaswarm.errors import GraphError
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.manifest import current_git_revision
@@ -24,7 +31,7 @@ from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers
 from alphaswarm.web.guards import orchestrator_job_running
-from alphaswarm.web.origin_guard import install_origin_guard
+from alphaswarm.web.origin_guard import install_origin_guard, normalized_trusted_hosts
 from alphaswarm.web.post_run import AdvisoryGate, PostRunJobBusyError, PostRunPipeline
 from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.routes.advisory import advisory_refusal, start_advisory_job
@@ -279,6 +286,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("lifespan_stopped")
 
 
+def _warn_legacy_origin_settings(settings: AppSettings) -> None:
+    """Log once when a removed per-channel origin variable is still configured."""
+    env_file = settings.model_config.get("env_file")
+    env_path = Path(env_file) if isinstance(env_file, (str, Path)) else None
+    names = legacy_origin_settings(os.environ, env_path)
+    if names:
+        log.warning("legacy_origin_settings_ignored", names=names, use="ALPHASWARM_ALLOWED_ORIGINS")
+
+
 def create_app(settings: AppSettings | None = None) -> FastAPI:
     """Create and configure the AlphaSwarm FastAPI application.
 
@@ -296,7 +312,18 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     # in front of the whole app rejects non-GET requests carrying a foreign
     # Origin/Referer, covering all routers below plus any added later.
     # Header-less callers (curl, scripts/) are unaffected — see web/origin_guard.py.
-    install_origin_guard(app, resolved.http_allowed_origins)
+    install_origin_guard(app, resolved.allowed_origins)
+    # DNS-rebinding guard (docs/DECISIONS.md#adr-security-2026-08): a page that
+    # re-points its own name at 127.0.0.1 still sends that name as Host, so only
+    # the Host values in settings.trusted_hosts reach any route or the WebSocket.
+    # Added after the origin guard so it is the outermost middleware. A malformed
+    # entry raises ValueError here, at startup.
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=normalized_trusted_hosts(resolved.trusted_hosts),
+        www_redirect=False,
+    )
+    _warn_legacy_origin_settings(resolved)
 
     app.include_router(health_router, prefix="/api")
     app.include_router(simulation_router, prefix="/api")

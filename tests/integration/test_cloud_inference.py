@@ -47,7 +47,7 @@ _OPENAI_MODEL: str = os.environ.get("ALPHASWARM_TEST_OPENAI_MODEL", "gpt-4o-mini
 _PROMPT: list[dict[str, str]] = [
     {
         "role": "user",
-        "content": "AAPL up 3% on strong iPhone demand. Quick BUY/SELL/HOLD call.",
+        "content": "ZZZT up 3% on strong iPhone demand. Quick BUY/SELL/HOLD call.",
     }
 ]
 

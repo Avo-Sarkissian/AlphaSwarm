@@ -73,7 +73,7 @@ class EvalEvent(BaseModel):
     timestamp: datetime
     rumor: str = Field(min_length=10, max_length=2000)
     primary_ticker: str = Field(pattern=TICKER_PATTERN)
-    benchmark: str = Field(default="SPY", pattern=TICKER_PATTERN)
+    benchmark: str = Field(default="IVV", pattern=TICKER_PATTERN)  # an S&P 500 ETF
     category: EventCategory
     post_cutoff: bool
     anonymized_rumor: str = Field(min_length=10, max_length=2000)

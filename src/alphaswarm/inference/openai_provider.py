@@ -9,10 +9,10 @@ Conforms to the ``InferenceProvider`` protocol without subclassing it.
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
 import httpx
+import structlog
 
 from alphaswarm.errors import AuthError, InferenceError
 from alphaswarm.inference.schema import to_openai_json_object, to_openai_response_format
@@ -23,7 +23,7 @@ from alphaswarm.inference.types import (
     parse_retry_after,
 )
 
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(component="inference.openai")
 
 # Sentinel: body text indicating the endpoint doesn't support strict JSON schema
 _STRICT_UNSUPPORTED_MARKERS = ("json_schema", "response_format", "strict")
@@ -33,6 +33,11 @@ def _body_mentions_strict_unsupported(body: str) -> bool:
     """Return True if the 400 error body suggests strict JSON schema is unsupported."""
     lower = body.lower()
     return any(marker in lower for marker in _STRICT_UNSUPPORTED_MARKERS)
+
+
+def _excerpt(text: str, limit: int = 200) -> str:
+    """Whitespace-collapsed prefix of a provider error body, for one log line."""
+    return " ".join(text.split())[:limit]
 
 
 class OpenAICompatProvider:
@@ -228,6 +233,12 @@ class OpenAICompatProvider:
                 if response_schema is not None and _body_mentions_strict_unsupported(resp.text) and not self._no_strict:
                     # First time: downgrade to json_object and retry once.
                     self._no_strict = True
+                    log.warning(
+                        "openai_strict_schema_downgraded",
+                        model=self.model,
+                        status=resp.status_code,
+                        body_excerpt=_excerpt(resp.text),
+                    )
                     body["response_format"] = to_openai_json_object()
                     # Single immediate retry (not counted against max_retries).
                     try:

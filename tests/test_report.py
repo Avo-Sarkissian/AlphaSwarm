@@ -236,7 +236,7 @@ _TIMELINE_OBS = None
 _BRACKET_OBS = None
 _DISSENTERS_OBS = None
 _FULL_MARKET_ROW: dict = {
-    "ticker": "AAPL",
+    "ticker": "XQZW",
     "company_name": "Apple Inc.",
     "last_close": 189.50,
     "majority_signal": "BUY",

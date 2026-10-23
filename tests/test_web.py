@@ -586,19 +586,33 @@ def test_ws_state_same_connection_manager() -> None:
 
 
 def test_ws_state_allows_configured_origin() -> None:
-    """F2: an Origin in AppSettings.ws_allowed_origins connects normally."""
+    """F2: an Origin in AppSettings.allowed_origins connects normally."""
     app = _make_ws_test_app()
     with TestClient(app) as client, client.websocket_connect("/ws/state", headers={"origin": "http://localhost:5173"}):
         assert client.app.state.connection_manager.client_count == 1
 
 
-def test_ws_state_allows_same_origin_from_host_header() -> None:
-    """F2: the server's own origin (scheme + Host) is accepted without configuration.
+def test_ws_state_refuses_an_origin_derived_from_the_host_header() -> None:
+    """The request's own Host is not an allow-list entry: a DNS-rebinding page
+    controls Host, so Origin http://testserver (TestClient's Host) is refused."""
+    from starlette.websockets import WebSocketDisconnect
 
-    TestClient sends Host: testserver, so http://testserver is same-origin here.
-    """
     app = _make_ws_test_app()
-    with TestClient(app) as client, client.websocket_connect("/ws/state", headers={"origin": "http://testserver"}):
+    with TestClient(app) as client:
+        with (
+            pytest.raises(WebSocketDisconnect) as excinfo,
+            client.websocket_connect("/ws/state", headers={"origin": "http://testserver"}),
+        ):
+            pass
+        assert excinfo.value.code == 1008
+        assert client.app.state.connection_manager.client_count == 0
+
+
+@pytest.mark.parametrize("origin", ["http://localhost:8000", "HTTP://LOCALHOST:8000/"])
+def test_ws_state_allows_the_served_spa_origin(origin: str) -> None:
+    """The built UI on uvicorn (port 8000) connects; spelling differences fold."""
+    app = _make_ws_test_app()
+    with TestClient(app) as client, client.websocket_connect("/ws/state", headers={"origin": origin}):
         assert client.app.state.connection_manager.client_count == 1
 
 

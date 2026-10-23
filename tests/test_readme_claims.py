@@ -109,3 +109,21 @@ def test_env_example_never_sends_test_runs_to_the_dev_password() -> None:
     text = (ROOT / ".env.example").read_text(encoding="utf-8")
     assert "export ALPHASWARM_NEO4J__PASSWORD" not in text
     assert "tests/test_graph_integration.py" not in text
+
+
+def test_env_example_lists_every_path_setting_and_the_advisory_retention() -> None:
+    """The Paths block shows every path setting with its default, and the retention
+    count the docs tell the owner to raise is listed too."""
+    from alphaswarm.config import AppSettings
+
+    text = (ROOT / ".env.example").read_text(encoding="utf-8")
+    path_fields = {name: field for name, field in AppSettings.model_fields.items() if field.annotation is Path}
+    assert "sector_map_path" in path_fields
+    missing = [
+        f"ALPHASWARM_{name.upper()}={field.default.as_posix()}"
+        for name, field in path_fields.items()
+        if f"# ALPHASWARM_{name.upper()}={field.default.as_posix()}" not in text
+    ]
+    assert missing == []
+    keep_last = AppSettings.model_fields["advisory_keep_last"].default
+    assert f"# ALPHASWARM_ADVISORY_KEEP_LAST={keep_last}" in text

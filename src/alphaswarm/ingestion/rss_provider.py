@@ -49,7 +49,7 @@ T-38-01 (HIGH — URL injection): entity strings come from the seed rumor
 Both mitigations are asserted by unit tests.
 
 International ticker routing (Gemini MEDIUM review — intentional scope):
-The _TICKER_RE pattern ^[A-Z]{1,5}$ is tuned for US-listed symbols (AAPL,
+The _TICKER_RE pattern ^[A-Z]{1,5}$ is tuned for US-listed symbols (ZZZT,
 MSFT, GOOG). International tickers with exchange suffixes — e.g.,
 VOD.L (Vodafone on LSE), SHOP.TO (Shopify on TSX), 7203.T (Toyota on TSE)
 — do NOT match this regex and therefore route to Google News RSS rather

@@ -28,15 +28,15 @@ from alphaswarm.ingestion import MarketSlice, YFinanceMarketDataProvider
 pytestmark = pytest.mark.live_network
 
 
-async def test_yfinance_real_fetch_aapl_returns_fresh_slice() -> None:
+async def test_yfinance_real_fetch_msft_returns_fresh_slice() -> None:
     """Validates INGEST-01 end-to-end against live Yahoo backend."""
     provider = YFinanceMarketDataProvider()
-    result = await provider.get_prices(["AAPL"])
-    assert "AAPL" in result
-    slice_ = result["AAPL"]
+    result = await provider.get_prices(["MSFT"])
+    assert "MSFT" in result
+    slice_ = result["MSFT"]
     assert isinstance(slice_, MarketSlice)
     assert slice_.staleness == "fresh", (
-        f"AAPL should fetch fresh; got {slice_.staleness}. "
+        f"MSFT should fetch fresh; got {slice_.staleness}. "
         "If this fails repeatedly, Yahoo is rate-limiting or the yfinance "
         "FastInfo shape changed — re-run RESEARCH probe."
     )
@@ -92,9 +92,9 @@ async def test_yfinance_real_batch_with_good_and_bad_ticker_returns_both_slices(
     Tolerance (Codex review): the bad-ticker slice is either fetch_failed
     or a structurally valid empty slice — either proves isolation held."""
     provider = YFinanceMarketDataProvider()
-    result = await provider.get_prices(["AAPL", "ZZZZNOTREAL"])
-    assert set(result.keys()) == {"AAPL", "ZZZZNOTREAL"}
-    assert result["AAPL"].staleness == "fresh"
+    result = await provider.get_prices(["MSFT", "ZZZZNOTREAL"])
+    assert set(result.keys()) == {"MSFT", "ZZZZNOTREAL"}
+    assert result["MSFT"].staleness == "fresh"
     bad = result["ZZZZNOTREAL"]
     assert bad.staleness in {"fetch_failed", "fresh"}
     if bad.staleness == "fresh":
@@ -103,16 +103,16 @@ async def test_yfinance_real_batch_with_good_and_bad_ticker_returns_both_slices(
 
 async def test_yfinance_real_fetch_fundamentals_returns_at_least_one_field() -> None:
     """D-06 — .info mapping path works against real Yahoo for a liquid ticker.
-    AAPL reliably has trailingPE and marketCap; at least one fundamentals
+    MSFT reliably has trailingPE and marketCap; at least one fundamentals
     Decimal field must be populated."""
     provider = YFinanceMarketDataProvider()
-    result = await provider.get_fundamentals(["AAPL"])
-    assert result["AAPL"].staleness == "fresh"
-    fundamentals = result["AAPL"].fundamentals
+    result = await provider.get_fundamentals(["MSFT"])
+    assert result["MSFT"].staleness == "fresh"
+    fundamentals = result["MSFT"].fundamentals
     assert fundamentals is not None
     populated = [fundamentals.pe_ratio, fundamentals.eps, fundamentals.market_cap]
     assert any(f is not None for f in populated), (
-        f"Expected at least one of (pe_ratio, eps, market_cap) to be populated for AAPL; got {fundamentals}"
+        f"Expected at least one of (pe_ratio, eps, market_cap) to be populated for MSFT; got {fundamentals}"
     )
     for field in populated:
         if field is not None:

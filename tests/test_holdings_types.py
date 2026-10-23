@@ -16,25 +16,25 @@ from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 
 
 def test_holding_constructs_with_decimal_qty_and_cost_basis() -> None:
-    h = Holding(ticker="AAPL", qty=Decimal("10"), cost_basis=Decimal("150.25"))
-    assert h.ticker == "AAPL"
+    h = Holding(ticker="ZZZT", qty=Decimal("10"), cost_basis=Decimal("150.25"))
+    assert h.ticker == "ZZZT"
     assert h.qty == Decimal("10")
     assert h.cost_basis == Decimal("150.25")
 
 
 def test_holding_cost_basis_defaults_to_none() -> None:
-    h = Holding(ticker="AAPL", qty=Decimal("10"))
+    h = Holding(ticker="ZZZT", qty=Decimal("10"))
     assert h.cost_basis is None
 
 
 def test_holding_is_frozen() -> None:
-    h = Holding(ticker="AAPL", qty=Decimal("10"))
+    h = Holding(ticker="ZZZT", qty=Decimal("10"))
     with pytest.raises(dataclasses.FrozenInstanceError):
         h.qty = Decimal("20")  # type: ignore[misc]
 
 
 def test_portfolio_snapshot_holdings_is_tuple() -> None:
-    h1 = Holding(ticker="AAPL", qty=Decimal("10"))
+    h1 = Holding(ticker="ZZZT", qty=Decimal("10"))
     h2 = Holding(ticker="MSFT", qty=Decimal("5"))
     snap = PortfolioSnapshot(
         holdings=(h1, h2),
@@ -48,7 +48,7 @@ def test_portfolio_snapshot_holdings_is_tuple() -> None:
 def test_portfolio_snapshot_holdings_is_not_a_list() -> None:
     """REVIEW HIGH: frozen dataclass doesn't block list mutation. Collection MUST be tuple."""
     snap = PortfolioSnapshot(
-        holdings=(Holding(ticker="AAPL", qty=Decimal("1")),),
+        holdings=(Holding(ticker="ZZZT", qty=Decimal("1")),),
         as_of=datetime.now(UTC),
         account_number_hash="abcd1234",
     )

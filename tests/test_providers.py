@@ -32,25 +32,25 @@ from alphaswarm.ingestion import (
 
 async def _market_consumer(p: MarketDataProvider) -> list[str]:
     """mypy conformance probe — if FakeMarketDataProvider drifts, this fails to type-check."""
-    result = await p.get_prices(["AAPL"])
+    result = await p.get_prices(["ZZZT"])
     return list(result.keys())
 
 
 async def _news_consumer(p: NewsProvider) -> list[str]:
-    result = await p.get_headlines(["AAPL"], max_age_hours=48)
+    result = await p.get_headlines(["ZZZT"], max_age_hours=48)
     return list(result.keys())
 
 
 async def test_fake_market_data_provider_structurally_conforms() -> None:
     fake = FakeMarketDataProvider()
     keys = await _market_consumer(fake)
-    assert keys == ["AAPL"]
+    assert keys == ["ZZZT"]
 
 
 async def test_fake_news_provider_structurally_conforms() -> None:
     fake = FakeNewsProvider()
     keys = await _news_consumer(fake)
-    assert keys == ["AAPL"]
+    assert keys == ["ZZZT"]
 
 
 # --------- Async-signature enforcement (REVIEW MEDIUM — Gemini/Codex) ---------
@@ -85,15 +85,15 @@ def test_fake_news_methods_are_async_def() -> None:
 
 async def test_fake_market_returns_fixture_for_known_ticker() -> None:
     fixture = MarketSlice(
-        ticker="AAPL",
+        ticker="ZZZT",
         price=Decimal("185.50"),
         fetched_at=datetime.now(UTC),
         source="test",
     )
-    fake = FakeMarketDataProvider(fixtures={"AAPL": fixture})
-    result = await fake.get_prices(["AAPL"])
-    assert result["AAPL"].price == Decimal("185.50")
-    assert result["AAPL"].staleness == "fresh"
+    fake = FakeMarketDataProvider(fixtures={"ZZZT": fixture})
+    result = await fake.get_prices(["ZZZT"])
+    assert result["ZZZT"].price == Decimal("185.50")
+    assert result["ZZZT"].staleness == "fresh"
 
 
 async def test_fake_market_returns_fetch_failed_for_unknown_ticker() -> None:
@@ -127,9 +127,9 @@ async def test_fake_market_returns_single_key_for_duplicate_tickers() -> None:
     to de-duplicate, but providers MUST be idempotent and non-raising here
     (REVIEW MEDIUM — Codex duplicate handling)."""
     fake = FakeMarketDataProvider()
-    result = await fake.get_prices(["AAPL", "AAPL", "AAPL"])
-    assert set(result.keys()) == {"AAPL"}
-    assert result["AAPL"].staleness == "fetch_failed"  # no fixture configured
+    result = await fake.get_prices(["ZZZT", "ZZZT", "ZZZT"])
+    assert set(result.keys()) == {"ZZZT"}
+    assert result["ZZZT"].staleness == "fetch_failed"  # no fixture configured
 
 
 async def test_fake_market_returns_fetch_failed_when_fixture_source_raises() -> None:
@@ -141,10 +141,10 @@ async def test_fake_market_returns_fetch_failed_when_fixture_source_raises() -> 
         raise RuntimeError("simulated fixture-source failure")
 
     fake = FakeMarketDataProvider(fixture_source=bad_source)
-    result = await fake.get_prices(["AAPL", "MSFT"])
-    assert result["AAPL"].staleness == "fetch_failed"
+    result = await fake.get_prices(["ZZZT", "MSFT"])
+    assert result["ZZZT"].staleness == "fetch_failed"
     assert result["MSFT"].staleness == "fetch_failed"
-    assert result["AAPL"].price is None
+    assert result["ZZZT"].price is None
 
 
 async def test_fake_market_supports_sentinel_ticker() -> None:
@@ -167,9 +167,9 @@ async def test_fake_market_batch_returns_entry_per_input() -> None:
 
 async def test_fake_market_get_fundamentals_and_volume_implemented() -> None:
     fake = FakeMarketDataProvider()
-    f = await fake.get_fundamentals(["AAPL"])
-    v = await fake.get_volume(["AAPL"])
-    assert "AAPL" in f and "AAPL" in v
+    f = await fake.get_fundamentals(["ZZZT"])
+    v = await fake.get_volume(["ZZZT"])
+    assert "ZZZT" in f and "ZZZT" in v
 
 
 # --------- FakeNewsProvider behavior ---------
@@ -177,14 +177,14 @@ async def test_fake_market_get_fundamentals_and_volume_implemented() -> None:
 
 async def test_fake_news_returns_fixture_for_known_entity() -> None:
     fixture = NewsSlice(
-        entity="AAPL",
+        entity="ZZZT",
         headlines=("Apple beats earnings",),
         fetched_at=datetime.now(UTC),
         source="test",
     )
-    fake = FakeNewsProvider(fixtures={"AAPL": fixture})
-    result = await fake.get_headlines(["AAPL"])
-    assert result["AAPL"].headlines == ("Apple beats earnings",)
+    fake = FakeNewsProvider(fixtures={"ZZZT": fixture})
+    result = await fake.get_headlines(["ZZZT"])
+    assert result["ZZZT"].headlines == ("Apple beats earnings",)
 
 
 async def test_fake_news_returns_fetch_failed_for_unknown_entity() -> None:
@@ -203,8 +203,8 @@ async def test_fake_news_returns_empty_dict_for_empty_entity_list() -> None:
 
 async def test_fake_news_accepts_max_age_hours_keyword() -> None:
     fake = FakeNewsProvider()
-    result = await fake.get_headlines(["AAPL"], max_age_hours=24)
-    assert "AAPL" in result
+    result = await fake.get_headlines(["ZZZT"], max_age_hours=24)
+    assert "ZZZT" in result
 
 
 # --------- StalenessState typed-literal enforcement (REVIEW MEDIUM — Codex) ---------
