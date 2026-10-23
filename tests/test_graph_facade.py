@@ -211,6 +211,18 @@ DELEGATES: dict[str, str] = {
     "read_shock_event": "analytics",
     "read_shock_impact": "analytics",
     "read_signal_flips": "analytics",
+    # graph/replay_interview.py
+    "cycle_exists": "replay_interview",
+    "read_agent_decisions": "replay_interview",
+    "read_bracket_narratives_for_round": "replay_interview",
+    "read_completed_cycles": "replay_interview",
+    "read_cycle_entities": "replay_interview",
+    "read_cycle_seed": "replay_interview",
+    "read_cycle_status": "replay_interview",
+    "read_decision_narrative": "replay_interview",
+    "read_full_cycle_signals": "replay_interview",
+    "read_latest_cycle_id": "replay_interview",
+    "read_rationale_entries_for_round": "replay_interview",
 }
 
 

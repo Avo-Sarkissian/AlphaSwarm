@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from alphaswarm.errors import Neo4jWriteError
+from alphaswarm.graph import replay_interview as graph_replay_interview
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -717,7 +718,6 @@ async def test_read_cycle_entities_returns_entity_refs(mock_driver: MagicMock) -
 
 async def test_read_cycle_entities_tx_reads_name_and_type() -> None:
     from alphaswarm.episodes import EntityRef
-    from alphaswarm.graph import GraphStateManager
 
     result = MagicMock()
     result.__aiter__.return_value = [
@@ -727,7 +727,7 @@ async def test_read_cycle_entities_tx_reads_name_and_type() -> None:
     tx = MagicMock()
     tx.run = AsyncMock(return_value=result)
 
-    rows = await GraphStateManager._read_cycle_entities_tx(tx, "cycle-abc")
+    rows = await graph_replay_interview._read_cycle_entities_tx(tx, "cycle-abc")
     assert rows == [
         EntityRef("QQQX Robotics", "company"),
         EntityRef("Industrial Automation", "sector"),

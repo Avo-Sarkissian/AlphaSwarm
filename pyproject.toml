@@ -136,6 +136,7 @@ source_modules = [
     "alphaswarm.graph",
     "alphaswarm.graph.analytics",
     "alphaswarm.graph.manager",
+    "alphaswarm.graph.replay_interview",
     "alphaswarm.graph.rows",
     "alphaswarm.inference",
     "alphaswarm.inference.anthropic_provider",

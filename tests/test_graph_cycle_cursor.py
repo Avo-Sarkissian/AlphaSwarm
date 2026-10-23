@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
 
-from alphaswarm.graph.manager import _as_utc
+from alphaswarm.graph.replay_interview import _as_utc
 
 
 def test_naive_cursor_is_read_as_utc() -> None:

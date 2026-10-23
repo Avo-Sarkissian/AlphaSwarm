@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, TypedDict, TypeVar
+from typing import Any, Final, Literal, Protocol, TypedDict, TypeVar
 
 from alphaswarm.influence import BracketPivotRow, PivotAgentRow, ShockImpactRow
 
@@ -22,6 +22,7 @@ __all__ = [
     "BracketRoundRow",
     "CompletedCycleRow",
     "ConsensusSummaryRow",
+    "CycleSignalRow",
     "CycleStatus",
     "EntityImpactRow",
     "InfluenceEdgeRow",
@@ -193,3 +194,29 @@ class RationaleRoundRow(TypedDict):
     signal: str
     rationale: str
     round_num: int
+
+
+class CycleSignalRow(TypedDict):
+    """One (agent, round) signal for replay; graph-internal."""
+
+    agent_id: str
+    round_num: int
+    signal: str | None
+    confidence: float
+
+
+# ---------------------------------------------------------------------------
+# Shared Cypher fragments (used by more than one graph module)
+# ---------------------------------------------------------------------------
+
+# Completion rule for cycles written before Cycle.status existed
+# (docs/DECISIONS.md#adr-cycle-metrics): metrics stamped, or a round-3 decision.
+_LEGACY_COMPLETE: Final = (
+    "(c.metrics_recorded_at IS NOT NULL OR EXISTS { "
+    "MATCH (:Agent)-[:MADE]->(:Decision {cycle_id: c.cycle_id, round: 3}) })"
+)
+# The status a reader assumes: the stored one, else the legacy rule, so the
+# readers are right even before ensure_schema() has back-filled.
+_EFFECTIVE_STATUS: Final = f"coalesce(c.status, CASE WHEN {_LEGACY_COMPLETE} THEN 'complete' ELSE 'failed' END)"
+# read_latest_cycle_id's default; typed so the literal is not widened to str.
+_COMPLETE_ONLY: Final[tuple[CycleStatus, ...]] = ("complete",)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from alphaswarm.graph.manager import _EFFECTIVE_STATUS
+from alphaswarm.graph.rows import _EFFECTIVE_STATUS
 from tests.support.scripts import load_script
 
 
