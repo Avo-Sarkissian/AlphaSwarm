@@ -123,7 +123,7 @@ class GraphError(AlphaSwarmError):
     """A Neo4j operation failed.
 
     ``op`` names the GraphStateManager operation (for example
-    ``"write_decisions"``; None when the raise site does not say) so logs and
+    ``"persist_round"``; None when the raise site does not say) so logs and
     the UI can say what was being done without quoting driver text
     (docs/DECISIONS.md#adr-taskgroup-dispatch).
     """

@@ -179,7 +179,6 @@ source_modules = [
     "alphaswarm.types",
     "alphaswarm.utils",
     "alphaswarm.worker",
-    "alphaswarm.write_buffer",
     "alphaswarm.web",
     "alphaswarm.web.app",
     "alphaswarm.web.broadcaster",

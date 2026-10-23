@@ -1,6 +1,6 @@
 """Simulation pipeline for AlphaSwarm.
 
-Composes inject_seed, dispatch_wave, and write_decisions into:
+Composes inject_seed, dispatch_wave, and GraphStateManager.persist_round into:
 - run_round1(): Round 1 dispatch for a cycle run_simulation already seeded
 - run_simulation(): Full 3-round consensus cascade (Phase 7)
 
@@ -18,7 +18,7 @@ import math
 import random
 import re
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
@@ -27,7 +27,7 @@ import structlog
 from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS, dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
 from alphaswarm.context_formatter import format_market_context
-from alphaswarm.episodes import EpisodeRecord, compute_flip_type
+from alphaswarm.episodes import EpisodeRecord, compute_flip_type, match_entities, new_decision_ids
 from alphaswarm.errors import RoundFailedError
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
@@ -38,11 +38,11 @@ from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
 from alphaswarm.utils import sanitize_rationale
-from alphaswarm.write_buffer import WriteBuffer
 
 if TYPE_CHECKING:
     from alphaswarm.config import AppSettings, BracketConfig, SimulationSettings
-    from alphaswarm.graph import GraphStateManager, RankedPost
+    from alphaswarm.episodes import EntityRef
+    from alphaswarm.graph import GraphStateManager, PersistRoundResult, RankedPost
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
@@ -78,6 +78,7 @@ class Round1Result:
     agent_decisions: list[tuple[str, AgentDecision]]
     decision_ids: list[str] = dataclasses.field(default_factory=list)
     modifier_result: ParsedModifiersResult | None = None
+    citations_dropped: int = 0  # CITED targets that matched no Agent (r1_citations_dropped)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -704,6 +705,54 @@ def _raise_if_round_failed(
         raise RoundFailedError(round_num, failed, total, threshold_percent)
 
 
+async def _persist_round_records(
+    graph_manager: GraphStateManager,
+    cycle_id: str,
+    round_num: int,
+    decisions: Sequence[tuple[str, AgentDecision]],
+    *,
+    personas: Sequence[AgentPersona],
+    peer_contexts: Sequence[str | None] | None,
+    prev_decisions: Sequence[tuple[str, AgentDecision]] | None,
+    entities: Sequence[EntityRef],
+    control_ids: Collection[str] = (),
+) -> PersistRoundResult:
+    """Persist one round atomically through GraphStateManager.persist_round.
+
+    Builds the round's EpisodeRecords (peer context aligned with
+    ``personas``, flip type from ``prev_decisions``) and entity matches, then
+    writes Decisions, CITED, episodes and REFERENCES in one transaction
+    (docs/DECISIONS.md#p4-d-08). ``control_ids`` marks the seeded no-peer
+    holdout on its Decisions (docs/DECISIONS.md#adr-diverse-peer-context).
+    """
+    decision_ids = new_decision_ids(len(decisions))
+    peer_by_agent: dict[str, str] = {}
+    if peer_contexts is not None:
+        peer_by_agent = {p.id: (ctx or "") for p, ctx in zip(personas, peer_contexts, strict=True)}
+    prev_signal = {aid: d.signal for aid, d in prev_decisions} if prev_decisions else {}
+    episodes = [
+        EpisodeRecord(
+            decision_id=did,
+            agent_id=agent_id,
+            rationale=decision.rationale,
+            peer_context_received=peer_by_agent.get(agent_id, ""),
+            flip_type=compute_flip_type(prev_signal.get(agent_id), decision.signal).value,
+            round_num=round_num,
+            cycle_id=cycle_id,
+        )
+        for did, (agent_id, decision) in zip(decision_ids, decisions, strict=True)
+    ]
+    return await graph_manager.persist_round(
+        cycle_id,
+        round_num,
+        decisions,
+        decision_ids=decision_ids,
+        episodes=episodes,
+        entity_matches=match_entities(episodes, entities),
+        control_ids=control_ids,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Round 1 pipeline (Phase 6)
 # ---------------------------------------------------------------------------
@@ -722,6 +771,7 @@ async def run_round1(
     state_store: StateStore | None = None,
     market_context: str | None = None,
     worker_provider: InferenceProvider | None = None,
+    entities: Sequence[EntityRef] = (),
 ) -> Round1Result:
     """Execute the Round 1 simulation pipeline.
 
@@ -733,7 +783,7 @@ async def run_round1(
     5. dispatch_wave with peer_context=None (Round 1 = no peer influence)
     6. Positional assertion (dispatch results must match persona count)
     7. Pair agent IDs with decisions
-    8. write_decisions with round_num=1
+    8. persist_round with round_num=1 (one transaction)
     9. Cleanup: unload worker (inner finally), stop monitoring (outer finally)
 
     Args:
@@ -757,6 +807,8 @@ async def run_round1(
             model_manager.load_model/unload_model and the provider is forwarded
             to dispatch_wave. When None (default), preserves existing local
             OllamaProvider + model_manager load/unload behavior exactly.
+        entities: The cycle's entities (read once by run_simulation), matched
+            against rationales for REFERENCES edges.
 
     Returns:
         Round1Result with cycle_id, parsed_result, and agent_decisions.
@@ -829,17 +881,24 @@ async def run_round1(
             # ws-agent-states-not-emitted-mid-sim.
 
             # 8. Abort before persisting when too many agents failed, then
-            #    persist (Phase 11: capture returned decision_ids)
+            #    persist the round in one transaction
             _raise_if_round_failed(
                 1,
                 agent_decisions,
                 settings.governor.round_abort_failure_percent,
             )
-            round1_decision_ids = await graph_manager.write_decisions(
-                agent_decisions,
+            persisted = await _persist_round_records(
+                graph_manager,
                 cycle_id,
-                round_num=1,
+                1,
+                agent_decisions,
+                personas=personas,
+                peer_contexts=None,
+                prev_decisions=None,
+                entities=entities,
             )
+            round1_decision_ids = list(persisted.decision_ids)
+            round1_citations_dropped = persisted.citations_dropped
         finally:
             # 9a. Always unload worker model (inner finally)
             if _use_injected_worker:
@@ -864,6 +923,7 @@ async def run_round1(
         parsed_result=parsed_result,
         agent_decisions=agent_decisions,
         decision_ids=round1_decision_ids,
+        citations_dropped=round1_citations_dropped,
     )
 
 
@@ -1046,6 +1106,10 @@ async def run_simulation(
     # the end so A/B experiments read metrics with one Cypher query.
     sim_start = time.monotonic()
 
+    # Entities are read once per cycle and matched against every round's
+    # rationales inside persist_round (docs/DECISIONS.md#p11-d-09).
+    entities = await graph_manager.read_cycle_entities(cycle_id)
+
     # Round 1 dispatch (skip inject_seed since we already did it)
     r1_start = time.monotonic()
     round1_result = await run_round1(
@@ -1060,32 +1124,13 @@ async def run_simulation(
         pre_injected=(cycle_id, parsed_result),
         market_context=market_context_str,
         worker_provider=worker,
+        entities=entities,
     )
     r1_seconds = time.monotonic() - r1_start
     cycle_id = round1_result.cycle_id
 
     phase = SimulationPhase.ROUND_1
     logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
-
-    # Phase 11: Initialize WriteBuffer and load entity names cache once (D-01, D-09)
-    write_buffer = WriteBuffer(maxsize=200)
-    entity_names = [e.name for e in await graph_manager.read_cycle_entities(cycle_id)]
-
-    # Phase 11: Push Round 1 episodes to WriteBuffer
-    # (retroactive -- run_round1 already wrote decisions)
-    for did, (agent_id, decision) in zip(round1_result.decision_ids, round1_result.agent_decisions, strict=False):
-        record = EpisodeRecord(
-            decision_id=did,
-            agent_id=agent_id,
-            rationale=decision.rationale,
-            peer_context_received="",  # Round 1 has no peer context (Pitfall 3)
-            flip_type=compute_flip_type(None, decision.signal).value,
-            round_num=1,
-            cycle_id=cycle_id,
-        )
-        await write_buffer.push(record)
-    round1_flushed = await write_buffer.flush(graph_manager, entity_names)
-    logger.info("write_buffer_flushed", round_num=1, flushed=round1_flushed)
 
     # Phase 12: Write Round 1 Post nodes from Decision rationale (D-13)
     round1_post_ids = await graph_manager.write_posts(
@@ -1229,19 +1274,23 @@ async def run_simulation(
             # batch_dispatcher._safe_agent_inference. See debug session
             # ws-agent-states-not-emitted-mid-sim.
 
-            # Normalize peer contexts for episode storage
-            round2_peer_contexts_normalized: list[str] = [
-                ctx if ctx is not None else "" for ctx in round2_peer_contexts
-            ]
-
             _raise_if_round_failed(
                 2,
                 round2_decisions,
                 settings.governor.round_abort_failure_percent,
             )
-            round2_ids = await graph_manager.write_decisions(
-                round2_decisions, cycle_id, round_num=2, control_ids=control_ids
+            round2_persisted = await _persist_round_records(
+                graph_manager,
+                cycle_id,
+                2,
+                round2_decisions,
+                personas=personas,
+                peer_contexts=round2_peer_contexts,
+                prev_decisions=round1_result.agent_decisions,
+                entities=entities,
+                control_ids=control_ids,
             )
+            round2_ids = list(round2_persisted.decision_ids)
 
             # Phase 12: Write Round 2 Post nodes (D-12 step 2)
             round2_post_ids = await graph_manager.write_posts(
@@ -1250,30 +1299,6 @@ async def run_simulation(
                 cycle_id,
                 round_num=2,
             )
-
-            # Phase 11: Push Round 2 episodes to WriteBuffer
-            round1_map = {aid: dec for aid, dec in round1_result.agent_decisions}
-            for did, (agent_id, decision) in zip(round2_ids, round2_decisions, strict=False):
-                prev_signal = round1_map.get(agent_id)
-                prev_sig = prev_signal.signal if prev_signal else None
-                persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
-                peer_ctx = (
-                    round2_peer_contexts_normalized[persona_idx]
-                    if persona_idx is not None and persona_idx < len(round2_peer_contexts_normalized)
-                    else ""
-                )
-                record = EpisodeRecord(
-                    decision_id=did,
-                    agent_id=agent_id,
-                    rationale=decision.rationale,
-                    peer_context_received=peer_ctx,
-                    flip_type=compute_flip_type(prev_sig, decision.signal).value,
-                    round_num=2,
-                    cycle_id=cycle_id,
-                )
-                await write_buffer.push(record)
-            round2_flushed = await write_buffer.flush(graph_manager, entity_names)
-            logger.info("write_buffer_flushed", round_num=2, flushed=round2_flushed)
 
             # Compute influence edges after Round 2 (D-04: cumulative, up_to_round=2).
             # total_agents is the ACTIVE (non-PARSE_ERROR) decision count per the
@@ -1343,6 +1368,7 @@ async def run_simulation(
             )
             round3_summaries: tuple[BracketSummary, ...] = ()
             r3_seconds = 0.0
+            round3_citations_dropped = 0
 
             if settings.num_rounds >= 3:
                 # Round 3 (D-09: peer context from Round 2)
@@ -1429,18 +1455,24 @@ async def run_simulation(
                 # batch_dispatcher._safe_agent_inference. See debug session
                 # ws-agent-states-not-emitted-mid-sim.
 
-                round3_peer_contexts_normalized: list[str] = [
-                    ctx if ctx is not None else "" for ctx in round3_peer_contexts
-                ]
-
                 _raise_if_round_failed(
                     3,
                     round3_decisions,
                     settings.governor.round_abort_failure_percent,
                 )
-                round3_ids = await graph_manager.write_decisions(
-                    round3_decisions, cycle_id, round_num=3, control_ids=control_ids
+                round3_persisted = await _persist_round_records(
+                    graph_manager,
+                    cycle_id,
+                    3,
+                    round3_decisions,
+                    personas=personas,
+                    peer_contexts=round3_peer_contexts,
+                    prev_decisions=round2_decisions,
+                    entities=entities,
+                    control_ids=control_ids,
                 )
+                round3_ids = list(round3_persisted.decision_ids)
+                round3_citations_dropped = round3_persisted.citations_dropped
 
                 # Phase 12: Write Round 3 Post nodes
                 await graph_manager.write_posts(
@@ -1449,30 +1481,6 @@ async def run_simulation(
                     cycle_id,
                     round_num=3,
                 )
-
-                # Phase 11: Push Round 3 episodes to WriteBuffer
-                round2_map = {aid: dec for aid, dec in round2_decisions}
-                for did, (agent_id, decision) in zip(round3_ids, round3_decisions, strict=False):
-                    prev_signal = round2_map.get(agent_id)
-                    prev_sig = prev_signal.signal if prev_signal else None
-                    persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
-                    peer_ctx = (
-                        round3_peer_contexts_normalized[persona_idx]
-                        if persona_idx is not None and persona_idx < len(round3_peer_contexts_normalized)
-                        else ""
-                    )
-                    record = EpisodeRecord(
-                        decision_id=did,
-                        agent_id=agent_id,
-                        rationale=decision.rationale,
-                        peer_context_received=peer_ctx,
-                        flip_type=compute_flip_type(prev_sig, decision.signal).value,
-                        round_num=3,
-                        cycle_id=cycle_id,
-                    )
-                    await write_buffer.push(record)
-                round3_flushed = await write_buffer.flush(graph_manager, entity_names)
-                logger.info("write_buffer_flushed", round_num=3, flushed=round3_flushed)
 
                 # Compute influence edges after Round 3 so /api/edges/{cycle}?round=3
                 # returns a non-empty array (ITEM 2 of quick task 260512-jqn).
@@ -1612,8 +1620,14 @@ async def run_simulation(
     }
     if settings.num_rounds >= 3:
         rounds_run[3] = round3_decisions
+    citations_dropped = {
+        1: round1_result.citations_dropped,
+        2: round2_persisted.citations_dropped,
+        3: round3_citations_dropped,
+    }
     for n, decisions_n in rounds_run.items():
         cycle_metrics[f"r{n}_inference_errors"] = sum(1 for _, d in decisions_n if d.error_kind == "inference")
+        cycle_metrics[f"r{n}_citations_dropped"] = citations_dropped[n]
     cycle_metrics["final_round"] = max(rounds_run)
     try:
         await graph_manager.write_cycle_metrics(cycle_id, cycle_metrics)

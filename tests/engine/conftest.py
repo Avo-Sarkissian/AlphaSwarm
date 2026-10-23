@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Collection, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 from unittest.mock import MagicMock, create_autospec
 
@@ -31,7 +31,7 @@ from tests.engine.scenario import (
 )
 from tests.inference.fakes import DecisionFn, ScriptedProvider, default_decision_script
 from tests.support.controllers import ImmediateController
-from tests.support.graph_fakes import SCENARIO_ENTITIES
+from tests.support.graph_fakes import SCENARIO_ENTITIES, fake_persist_round
 
 __all__ = ["SCENARIO_CYCLE_ID"]  # re-exported for fixture users; canonical home is scenario.py
 
@@ -113,16 +113,6 @@ def fake_graph() -> MagicMock:
     graph = create_autospec(GraphStateManager, instance=True)
     graph.create_cycle_with_seed_event.return_value = SCENARIO_CYCLE_ID
 
-    def _write_decisions(
-        agent_decisions: list[tuple[str, AgentDecision]],
-        cycle_id: str,
-        round_num: int,
-        *,
-        decision_ids: list[str] | None = None,
-        control_ids: Collection[str] = (),
-    ) -> list[str]:
-        return [f"dec-r{round_num}-{i:03d}" for i in range(len(agent_decisions))]
-
     def _write_posts(
         agent_decisions: list[tuple[str, AgentDecision]],
         decision_ids: list[str],
@@ -134,9 +124,9 @@ def fake_graph() -> MagicMock:
     def _influence(cycle_id: str, up_to_round: int, total_agents: int) -> dict[str, float]:
         return influence_weights_from_writes(graph, up_to_round=up_to_round, total_agents=total_agents)
 
-    graph.write_decisions.side_effect = _write_decisions
     graph.write_posts.side_effect = _write_posts
     graph.read_cycle_entities.return_value = list(SCENARIO_ENTITIES)
+    graph.persist_round.side_effect = fake_persist_round
     graph.compute_influence_edges.side_effect = _influence
     graph.write_shock_event.return_value = "shock-0001"
     return graph

@@ -1,4 +1,4 @@
-"""write_decisions marks the seeded holdout as d.control (fast track; neo4j-test)."""
+"""persist_round marks the seeded holdout as d.control (fast track; neo4j-test)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import inspect
 import pytest
 from neo4j import AsyncDriver
 
+from alphaswarm.episodes import new_decision_ids
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.types import (
     AgentDecision,
@@ -62,7 +63,9 @@ async def test_control_ids_become_decision_properties(
     decisions = _three(all_personas)
     a, b, c = (agent_id for agent_id, _ in decisions)
 
-    await graph_manager_test.write_decisions(decisions, cycle_id, round_num=2, control_ids=[b])
+    await graph_manager_test.persist_round(
+        cycle_id, 2, decisions, decision_ids=new_decision_ids(3), episodes=[], entity_matches=[], control_ids=[b]
+    )
 
     assert await _control_flags(neo4j_test_driver, cycle_id) == {a: False, b: True, c: False}
 
@@ -74,6 +77,8 @@ async def test_default_marks_nobody(
 ) -> None:
     cycle_id = await _new_cycle(graph_manager_test)
 
-    await graph_manager_test.write_decisions(_three(all_personas), cycle_id, round_num=1)
+    await graph_manager_test.persist_round(
+        cycle_id, 1, _three(all_personas), decision_ids=new_decision_ids(3), episodes=[], entity_matches=[]
+    )
 
     assert set((await _control_flags(neo4j_test_driver, cycle_id)).values()) == {False}

@@ -763,6 +763,7 @@ class GraphStateManager:
         decision_ids: Sequence[str],
         episodes: Sequence[EpisodeRecord],
         entity_matches: Sequence[EntityMatch],
+        control_ids: Collection[str] = (),
     ) -> PersistRoundResult:
         """Write one round in a single transaction (docs/DECISIONS.md#p4-d-08).
 
@@ -770,12 +771,14 @@ class GraphStateManager:
         commit together or not at all. Fewer Decisions or episodes than
         passed raises Neo4jWriteError and rolls the round back; citations of
         unknown agents are counted and logged, never raised. Every Decision
-        is stored with control = false (no seeded holdout on this path;
-        docs/DECISIONS.md#adr-diverse-peer-context).
+        stores ``control``: true for the agents in ``control_ids`` (the seeded
+        no-peer holdout), false otherwise
+        (docs/DECISIONS.md#adr-diverse-peer-context).
         """
         if len(decision_ids) != len(decisions):
             raise ValueError(f"decision_ids length {len(decision_ids)} != decisions length {len(decisions)}")
         pairs = list(zip(decision_ids, decisions, strict=True))
+        control_set = frozenset(control_ids)
         decision_rows = [
             {
                 "decision_id": did,
@@ -784,7 +787,7 @@ class GraphStateManager:
                 "confidence": d.confidence,
                 "sentiment": d.sentiment,
                 "rationale": d.rationale,
-                "control": False,
+                "control": agent_id in control_set,
                 "error_kind": d.error_kind,
             }
             for did, (agent_id, d) in pairs
@@ -894,132 +897,6 @@ class GraphStateManager:
         return summary, tuple(dropped)
 
     # ------------------------------------------------------------------
-    # Decision write/read methods (Plan 02)
-    # ------------------------------------------------------------------
-
-    async def write_decisions(
-        self,
-        agent_decisions: list[tuple[str, AgentDecision]],
-        cycle_id: str,
-        round_num: int,
-        *,
-        decision_ids: list[str] | None = None,
-        control_ids: Collection[str] = (),
-    ) -> list[str]:
-        """Batch-write agent decisions via UNWIND. Per D-08, D-01, D-03.
-
-        Args:
-            agent_decisions: List of (agent_id, AgentDecision) tuples.
-            cycle_id: Current simulation cycle ID.
-            round_num: Current round number (1, 2, or 3).
-            decision_ids: Optional pre-generated decision IDs. If provided, must have
-                the same length as agent_decisions. If None, UUIDs are generated
-                internally (backward compatible). Pre-generating IDs allows the caller
-                to pass the same IDs to WriteBuffer.push() before Decision nodes exist
-                in Neo4j.
-            control_ids: Agents in the seeded no-peer holdout; their decisions get
-                d.control = true, every other decision false
-                (docs/DECISIONS.md#adr-diverse-peer-context).
-
-        Returns:
-            list[str]: The decision_id strings for each decision written.
-                Callers can pass these to WriteBuffer.push() to link EpisodeRecords.
-        """
-        if decision_ids is not None and len(decision_ids) != len(agent_decisions):
-            raise ValueError(
-                f"decision_ids length {len(decision_ids)} != agent_decisions length {len(agent_decisions)}"
-            )
-        ids = decision_ids if decision_ids is not None else [str(uuid.uuid4()) for _ in agent_decisions]
-        control_set = frozenset(control_ids)
-        params = [
-            {
-                "decision_id": did,
-                "agent_id": agent_id,
-                "signal": decision.signal.value,
-                "confidence": decision.confidence,
-                "sentiment": decision.sentiment,
-                "rationale": decision.rationale,
-                "cited_agents": list(decision.cited_agents),
-                "control": agent_id in control_set,
-            }
-            for did, (agent_id, decision) in zip(ids, agent_decisions, strict=True)
-        ]
-        created = await self._write(self._batch_write_decisions_tx, params, cycle_id, round_num, op="write_decisions")
-        # The MATCH on Agent/Cycle drops rows silently: on an empty database
-        # nothing is written and no error is raised. Fail loudly instead.
-        if created < len(params):
-            raise Neo4jWriteError(
-                f"Wrote {created} of {len(params)} decisions for cycle {cycle_id} round "
-                f"{round_num}: Agent or Cycle nodes are missing (was ensure_schema() run?)"
-            )
-        self._log.info(
-            "decisions_written",
-            cycle_id=cycle_id,
-            round_num=round_num,
-            count=len(agent_decisions),
-        )
-        return ids
-
-    @staticmethod
-    async def _batch_write_decisions_tx(
-        tx: AsyncManagedTransaction,
-        decisions: list[dict],  # type: ignore[type-arg]
-        cycle_id: str,
-        round_num: int,
-    ) -> int:
-        """Transaction function for UNWIND batch decision creation.
-
-        Two-statement split avoids the empty-UNWIND pitfall:
-        Statement 1: Decision nodes + MADE + FOR relationships.
-        Statement 2: CITED relationships (only if any citations exist).
-
-        Returns the number of Decision nodes created, which write_decisions
-        compares with its input.
-        """
-        # Statement 1: Create Decision nodes with MADE and FOR relationships
-        result = await tx.run(
-            """
-            UNWIND $decisions AS d
-            MATCH (a:Agent {id: d.agent_id})
-            MATCH (c:Cycle {cycle_id: $cycle_id})
-            CREATE (dec:Decision {
-                decision_id: d.decision_id,
-                cycle_id: $cycle_id,
-                round: $round_num,
-                signal: d.signal,
-                confidence: d.confidence,
-                sentiment: d.sentiment,
-                rationale: d.rationale,
-                control: d.control
-            })
-            CREATE (a)-[:MADE]->(dec)
-            CREATE (dec)-[:FOR]->(c)
-            RETURN count(dec) AS created
-            """,
-            decisions=decisions,
-            cycle_id=cycle_id,
-            round_num=round_num,
-        )
-        record = await result.single()
-        created = int(record["created"]) if record is not None else 0
-
-        # Statement 2: Create CITED relationships (only if any citations exist)
-        cited_params = [
-            {"decision_id": d["decision_id"], "cited_id": cid} for d in decisions for cid in d["cited_agents"]
-        ]
-        if cited_params:
-            await tx.run(
-                """
-                UNWIND $cited AS c
-                MATCH (dec:Decision {decision_id: c.decision_id})
-                MATCH (agent:Agent {id: c.cited_id})
-                CREATE (dec)-[:CITED]->(agent)
-                """,
-                cited=cited_params,
-            )
-        return created
-
-    # ------------------------------------------------------------------
     # Phase 12: Post nodes for social influence dynamics
     # ------------------------------------------------------------------
 
@@ -1037,7 +914,7 @@ class GraphStateManager:
 
         Args:
             agent_decisions: List of (agent_id, AgentDecision) tuples.
-            decision_ids: Pre-generated decision IDs from write_decisions(). Must match
+            decision_ids: The round's decision IDs from persist_round(). Must match
                 length of agent_decisions. PARSE_ERROR entries are skipped along with
                 their corresponding decision_id.
             cycle_id: Current simulation cycle ID.
@@ -1108,116 +985,8 @@ class GraphStateManager:
         )
 
     # ------------------------------------------------------------------
-    # Phase 11: RationaleEpisode writes, entity reads, narrative writes
+    # Entity reads and narrative writes
     # ------------------------------------------------------------------
-
-    async def write_rationale_episodes(
-        self,
-        records: list,  # list of EpisodeRecord or dicts with same fields
-    ) -> None:
-        """Batch-write RationaleEpisode nodes linked to Decision via HAS_EPISODE (D-04, D-07).
-
-        Called by WriteBuffer.flush() after write_decisions() ensures Decision nodes exist.
-        Single UNWIND transaction for all episodes in the batch.
-        """
-        if not records:
-            return
-        episodes = [
-            {
-                "decision_id": r.decision_id if hasattr(r, "decision_id") else r["decision_id"],
-                "rationale": r.rationale if hasattr(r, "rationale") else r["rationale"],
-                "peer_context_received": (
-                    r.peer_context_received if hasattr(r, "peer_context_received") else r["peer_context_received"]
-                ),
-                "flip_type": r.flip_type if hasattr(r, "flip_type") else r["flip_type"],
-                "round_num": r.round_num if hasattr(r, "round_num") else r["round_num"],
-                "cycle_id": r.cycle_id if hasattr(r, "cycle_id") else r["cycle_id"],
-            }
-            for r in records
-        ]
-        # episodes[0] is used only for this method's log/error context; each
-        # node is stamped per-record inside the tx (see below).
-        cycle_id = episodes[0]["cycle_id"]
-        round_num = episodes[0]["round_num"]
-        await self._write(self._batch_write_episodes_tx, episodes, op="write_rationale_episodes")
-        self._log.info(
-            "episodes_written",
-            cycle_id=cycle_id,
-            round_num=round_num,
-            count=len(episodes),
-        )
-
-    @staticmethod
-    async def _batch_write_episodes_tx(
-        tx: AsyncManagedTransaction,
-        episodes: list[dict],  # type: ignore[type-arg]
-    ) -> None:
-        """UNWIND batch create RationaleEpisode nodes linked to Decision nodes.
-
-        Each episode is stamped with its OWN round/cycle (ep.round_num /
-        ep.cycle_id), not batch-level values — a single flush could in principle
-        carry records from more than one round/cycle (U1).
-        """
-        await tx.run(
-            """
-            UNWIND $episodes AS ep
-            MATCH (d:Decision {decision_id: ep.decision_id})
-            CREATE (re:RationaleEpisode {
-                rationale: ep.rationale,
-                timestamp: datetime(),
-                peer_context_received: ep.peer_context_received,
-                flip_type: ep.flip_type,
-                round: ep.round_num,
-                cycle_id: ep.cycle_id
-            })
-            CREATE (d)-[:HAS_EPISODE]->(re)
-            """,
-            episodes=episodes,
-        )
-
-    async def write_narrative_edges(
-        self,
-        records: list,  # list of EpisodeRecord or dicts
-        entity_names: list[str],
-    ) -> None:
-        """Create REFERENCES edges between Decision and Entity nodes (D-08, D-09).
-
-        Python-side case-insensitive substring matching determines which decisions
-        reference which entities. Matched pairs are then written via UNWIND.
-        Entity names are passed as ORIGINAL casing (not lowercased) to match
-        Entity nodes in Neo4j (Pitfall 4).
-        """
-        if not records or not entity_names:
-            return
-        # Python-side matching (avoids N*M Cypher cross-product)
-        matches: list[dict] = []  # type: ignore[type-arg]
-        for r in records:
-            rationale = (r.rationale if hasattr(r, "rationale") else r["rationale"]).lower()
-            decision_id = r.decision_id if hasattr(r, "decision_id") else r["decision_id"]
-            for name in entity_names:
-                if name.lower() in rationale:
-                    matches.append({"decision_id": decision_id, "entity_name": name})
-        if not matches:
-            self._log.debug("no_entity_matches", record_count=len(records), entity_count=len(entity_names))
-            return
-        await self._write(self._batch_write_references_tx, matches, op="write_narrative_edges")
-        self._log.info("references_written", match_count=len(matches))
-
-    @staticmethod
-    async def _batch_write_references_tx(
-        tx: AsyncManagedTransaction,
-        matches: list[dict],  # type: ignore[type-arg]
-    ) -> None:
-        """UNWIND batch create REFERENCES edges from Decision to Entity."""
-        await tx.run(
-            """
-            UNWIND $matches AS m
-            MATCH (d:Decision {decision_id: m.decision_id})
-            MATCH (e:Entity {name: m.entity_name})
-            CREATE (d)-[:REFERENCES {match_type: "substring"}]->(e)
-            """,
-            matches=matches,
-        )
 
     async def read_cycle_entities(self, cycle_id: str) -> list[EntityRef]:
         """Entities the cycle MENTIONS, in their original casing (docs/DECISIONS.md#p11-d-09).

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 from alphaswarm.config import DEFAULT_BRACKETS, generate_personas
-from alphaswarm.episodes import EpisodeRecord, compute_flip_type
+from alphaswarm.episodes import compute_flip_type
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -22,6 +22,7 @@ from alphaswarm.types import (
     SeedEvent,
     SignalType,
 )
+from tests.support.graph_fakes import write_round
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
@@ -191,10 +192,25 @@ def _round_decisions(
     return tuple(out)
 
 
+def _with_error_kinds(
+    decisions: list[tuple[str, AgentDecision]],
+) -> list[tuple[str, AgentDecision]]:
+    """Give seeded parse errors an engine error_kind: the first by agent id is an
+    inference failure, the rest are parse failures, so every round has both kinds."""
+    failed = sorted(aid for aid, d in decisions if d.signal is SignalType.PARSE_ERROR)
+    first = failed[0] if failed else None
+    return [
+        (aid, d.model_copy(update={"error_kind": "inference" if aid == first else "parse"}))
+        if d.signal is SignalType.PARSE_ERROR
+        else (aid, d)
+        for aid, d in decisions
+    ]
+
+
 async def build_seeded_cycle(gm: GraphStateManager, *, num_rounds: int = 3) -> SeededCycle:
     """Write the seeded cycle through the same public calls ``run_simulation`` makes.
 
-    Order per round: write_decisions -> write_rationale_episodes -> write_narrative_edges
+    Order per round: persist_round (one transaction)
     -> compute_influence_edges (rounds >= 2, active-agent denominator). The shock is written
     after round 1, metrics after the last round. Post nodes are not written: no read model
     uses them.
@@ -208,34 +224,28 @@ async def build_seeded_cycle(gm: GraphStateManager, *, num_rounds: int = 3) -> S
 
     seed_event = SeedEvent(raw_rumor=SEED_RUMOR, entities=list(SEED_ENTITIES), overall_sentiment=OVERALL_SENTIMENT)
     cycle_id = await gm.create_cycle_with_seed_event(SEED_RUMOR, seed_event, num_rounds=num_rounds)
-    entity_names = [e.name for e in await gm.read_cycle_entities(cycle_id)]
+    entities = await gm.read_cycle_entities(cycle_id)
 
     decisions: dict[int, tuple[tuple[str, AgentDecision], ...]] = {}
-    previous: dict[str, SignalType] = {}
     for round_num in range(1, num_rounds + 1):
         if round_num == SHOCK_ROUND:
             await gm.write_shock_event(cycle_id, SHOCK_TEXT, SHOCK_ROUND)
-        rows = _round_decisions(rng, personas, round_num, intended[round_num], cites[round_num])
-        decision_ids = await gm.write_decisions(list(rows), cycle_id, round_num)
-        records = [
-            EpisodeRecord(
-                decision_id=decision_id,
-                agent_id=agent_id,
-                rationale=decision.rationale,
-                peer_context_received="" if round_num == 1 else PEER_CONTEXT_TEXT,
-                flip_type=compute_flip_type(previous.get(agent_id), decision.signal).value,
-                round_num=round_num,
-                cycle_id=cycle_id,
-            )
-            for decision_id, (agent_id, decision) in zip(decision_ids, rows, strict=True)
-        ]
-        await gm.write_rationale_episodes(records)
-        await gm.write_narrative_edges(records, entity_names)
+        rows = tuple(
+            _with_error_kinds(list(_round_decisions(rng, personas, round_num, intended[round_num], cites[round_num])))
+        )
+        await write_round(
+            gm,
+            cycle_id,
+            round_num,
+            rows,
+            prev=decisions.get(round_num - 1),  # None for round 1: no flips
+            entities=entities,
+            peer_context=PEER_CONTEXT_TEXT,  # write_round stores "" in round 1, as before
+        )
         if round_num >= 2:
             active = sum(1 for _, d in rows if d.signal is not SignalType.PARSE_ERROR)
             await gm.compute_influence_edges(cycle_id, up_to_round=round_num, total_agents=active)
         decisions[round_num] = rows
-        previous = {agent_id: d.signal for agent_id, d in rows}
 
     await gm.write_cycle_metrics(cycle_id, _metrics(decisions, num_rounds))
     await gm.set_cycle_status(cycle_id, "complete")  # mirrors run_simulation (docs/DECISIONS.md#adr-cycle-metrics)

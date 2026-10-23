@@ -29,14 +29,8 @@ TWENTY_PERCENT = {
 
 
 def _writes(graph: MagicMock) -> dict[int, Any]:
-    """write_decisions calls keyed by round.
-
-    The round comes from the keyword or positional round_num, like recorded_decisions.
-    """
-    return {
-        int(c.kwargs["round_num"] if "round_num" in c.kwargs else c.args[2]): c
-        for c in graph.write_decisions.await_args_list
-    }
+    """persist_round calls keyed by round (its second positional argument), like recorded_decisions."""
+    return {int(c.args[1]): c for c in graph.persist_round.await_args_list}
 
 
 def _metrics(graph: MagicMock) -> dict[str, Any]:
@@ -90,7 +84,7 @@ async def test_control_readers_see_no_peers_in_rounds_two_and_three(
 
     assert Counter(bracket_of[a] for a in control) == TWENTY_PERCENT
     assert frozenset(writes[3].kwargs["control_ids"]) == control
-    assert "control_ids" not in writes[1].kwargs
+    assert not writes[1].kwargs["control_ids"]  # Round 1 has no holdout
     for round_num in (2, 3):
         for call in round_calls(scripted_worker, round_num):
             if call.agent_id in control:

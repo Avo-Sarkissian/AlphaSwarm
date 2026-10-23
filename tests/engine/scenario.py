@@ -59,15 +59,14 @@ class RecordingStateStore(StateStore):
 
 
 def recorded_decisions(graph: MagicMock) -> dict[int, list[tuple[str, AgentDecision]]]:
-    """Decisions handed to the graph's decision-write API, keyed by round.
+    """Decisions handed to GraphStateManager.persist_round, keyed by round.
 
-    Today that API is write_decisions(agent_decisions, cycle_id, round_num=...).
-    When decision persistence moves to a per-round API, re-point this helper.
+    The engine calls persist_round(cycle_id, round_num, decisions, decision_ids=..., ...)
+    once per round (docs/DECISIONS.md#p4-d-08).
     """
     out: dict[int, list[tuple[str, AgentDecision]]] = {}
-    for call in graph.write_decisions.await_args_list:
-        round_num = call.kwargs["round_num"] if "round_num" in call.kwargs else call.args[2]
-        out[int(round_num)] = list(call.args[0])
+    for call in graph.persist_round.await_args_list:
+        out[int(call.args[1])] = list(call.args[2])
     return out
 
 

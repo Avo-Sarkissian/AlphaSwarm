@@ -72,14 +72,26 @@ def _citing(*cited: str) -> AgentDecision:
 
 async def _record_citations(graph: MagicMock) -> None:
     """Round 2 holds a self-citation; round 3 repeats a pair and names one agent twice."""
-    await graph.write_decisions([("quants_01", _citing("sell_side_01", "quants_01"))], "cycle", 2)
-    await graph.write_decisions(
+    await _persist(graph, 2, [("quants_01", _citing("sell_side_01", "quants_01"))])
+    await _persist(
+        graph,
+        3,
         [
             ("quants_01", _citing("sell_side_01")),
             ("degens_01", _citing("sell_side_01", "sell_side_01")),
         ],
+    )
+
+
+async def _persist(graph: MagicMock, round_num: int, decisions: list[tuple[str, AgentDecision]]) -> None:
+    """One round through the autospecced persist_round, the engine's only decision write."""
+    await graph.persist_round(
         "cycle",
-        3,
+        round_num,
+        decisions,
+        decision_ids=[f"dec-r{round_num}-{i}" for i in range(len(decisions))],
+        episodes=[],
+        entity_matches=[],
     )
 
 
