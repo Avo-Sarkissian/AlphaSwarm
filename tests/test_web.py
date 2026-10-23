@@ -1140,6 +1140,27 @@ def test_replay_cycles_503() -> None:
         assert data["detail"]["error"] == "graph_unavailable"
 
 
+def test_replay_cycles_lists_completed_cycles() -> None:
+    """GET /api/replay/cycles returns each completed cycle from the graph as a CycleItem."""
+    from unittest.mock import AsyncMock
+
+    row = {
+        "cycle_id": CYCLE_A,
+        "created_at": "2026-10-01T12:00:00+00:00",
+        "seed_rumor": "ZZZT weighs a sale of its QQQX unit",
+        "round_count": 2,
+        "status": "complete",
+    }
+    app = _make_test_app()
+    with TestClient(app) as client:
+        app.state.app_state.graph_manager = AsyncMock(read_completed_cycles=AsyncMock(return_value=[row]))
+        r = client.get("/api/replay/cycles")
+    assert r.status_code == 200
+    (cycle,) = r.json()["cycles"]
+    fields = ("cycle_id", "created_at", "seed_rumor", "round_count")
+    assert {key: cycle[key] for key in fields} == {key: row[key] for key in fields}
+
+
 def test_replay_start_503_without_neo4j() -> None:
     """POST /api/replay/start/{cycle_id} returns 503 when graph_manager is None."""
     with TestClient(_make_test_app()) as client:
