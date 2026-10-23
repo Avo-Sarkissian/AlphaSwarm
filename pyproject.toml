@@ -223,3 +223,8 @@ ignore_imports = [
     "alphaswarm.web.routes.advisory -> alphaswarm.advisory",
     "alphaswarm.web.routes.advisory -> alphaswarm.holdings.types",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Acyclic siblings — no import cycles between alphaswarm modules or subpackages"
+type = "acyclic_siblings"
+ancestors = ["alphaswarm"]

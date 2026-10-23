@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import subprocess
 import textwrap
+import tomllib
 from pathlib import Path
 
 
@@ -107,3 +108,51 @@ def test_pyproject_toml_contains_forbidden_contract_for_holdings() -> None:
     assert '"alphaswarm.web.routes.holdings"' not in contract_block, (
         "alphaswarm.web.routes.holdings must NOT appear in forbidden source_modules (D-04 whitelist)"
     )
+
+
+def _contracts() -> list[dict[str, object]]:
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    return list(data["tool"]["importlinter"]["contracts"])
+
+
+def test_pyproject_declares_the_acyclic_siblings_contract() -> None:
+    acyclic = [c for c in _contracts() if c.get("type") == "acyclic_siblings"]
+    assert len(acyclic) == 1
+    assert acyclic[0]["ancestors"] == ["alphaswarm"]
+    assert "ignore_imports" not in acyclic[0]
+
+
+def test_lint_imports_detects_a_synthetic_cycle(tmp_path: Path) -> None:
+    """The acyclic machinery fails on a two-module cycle (guards the contract type)."""
+    pkg = tmp_path / "fake_cycle"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "alpha.py").write_text("from fake_cycle import beta  # noqa: F401\n")
+    (pkg / "beta.py").write_text("from fake_cycle import alpha  # noqa: F401\n")
+    config = tmp_path / "importlinter.ini"
+    config.write_text(
+        textwrap.dedent(
+            """
+            [importlinter]
+            root_package = fake_cycle
+
+            [importlinter:contract:acyclic_synthetic]
+            name = Synthetic acyclic siblings (must fail)
+            type = acyclic_siblings
+            ancestors =
+                fake_cycle
+            """
+        ).strip()
+        + "\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{tmp_path}{os.pathsep}{env.get('PYTHONPATH', '')}"
+    result = subprocess.run(
+        ["uv", "run", "lint-imports", "--config", str(config)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
