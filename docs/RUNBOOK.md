@@ -200,7 +200,7 @@ that names a held company exercises the advisory. Then check:
 - [ ] Replay: start a past cycle; frames keep streaming (F-24); Forward stops at the cycle's real depth (F-12); live start is blocked during replay (B4). Reload the page during replay: the bar is still there and Exit replay works.
 - [ ] CycleHistory, Settings, Data Sources, and BracketDeepDive open as styled full-screen takeovers.
 - [ ] Double-clicking Run starts once (F-33).
-- [ ] Onboarding. `/api/health` answers from a 5 s cache, so an answer can be up to 5 s old: when a Re-check still shows the previous state, wait 5 s and press Re-check again.
+- [ ] Onboarding. `/api/health` caches its Neo4j, Ollama and alias probes for 5 s, so those components can be up to 5 s old (the `inference_config` component is read fresh on every request): when a Re-check still shows the previous state, wait 5 s and press Re-check again.
   - Stop Neo4j (`docker compose stop neo4j`, or `docker stop <name>` for a container you created yourself), clear the `localStorage` key `as_onboarding_v1_complete` and reload the page.
   - Click "Get started" and type a seed of at least 10 characters (or click an example). The step lists `neo4j` with its fix, and the run button reads "Fix the items above first" and stays disabled.
   - Start Neo4j again (`docker compose start neo4j`, or `docker start <name>`) and wait until it accepts connections, which takes several seconds: `docker compose ps` shows it `healthy`, or `docker logs <name>` ends with `Started.` for your own container. Press Re-check: the status reads "Backend ready" and "Run first cycle" is enabled.
