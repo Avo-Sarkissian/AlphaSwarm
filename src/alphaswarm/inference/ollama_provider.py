@@ -17,16 +17,38 @@ Local path calling shape (must stay identical to worker.py):
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Final
 
 import structlog
 
 from alphaswarm.inference.provider import InferenceProvider  # noqa: F401  (Protocol)
-from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
+from alphaswarm.inference.types import (
+    FinishReason,
+    InferenceMessage,
+    InferenceResult,
+    ProviderRole,
+    count_or_none,
+)
 from alphaswarm.ollama_client import OllamaClient
 from alphaswarm.ollama_models import OllamaModelManager
 
 logger = structlog.get_logger(component="ollama_provider")
+
+# Ollama's done_reason → normalized finish reason; "load"/"unload" (lifecycle
+# replies) and anything new map to "other" (docs/DECISIONS.md#adr-inference-telemetry).
+_DONE_REASONS: Final[Mapping[str, FinishReason]] = {"stop": "stop", "length": "length"}
+
+
+def _ns_to_ms(value: object) -> float | None:
+    ns = count_or_none(value)
+    return None if ns is None else ns / 1_000_000
+
+
+def _finish_reason(value: object) -> FinishReason | None:
+    if not isinstance(value, str):
+        return None
+    return _DONE_REASONS.get(value, "other")
 
 
 class OllamaProvider:
@@ -138,9 +160,9 @@ class OllamaProvider:
             max_tokens: Accepted for interface compatibility; has no effect.
 
         Returns:
-            ``InferenceResult`` with ``content``, ``model``, ``eval_count``,
-            and ``eval_duration_ns`` populated.  ``input_tokens`` /
-            ``output_tokens`` come from ``prompt_eval_count`` / ``eval_count``.
+            ``InferenceResult`` with content, model, token counts, prefill/decode/load
+            milliseconds and the normalized finish reason (``None`` where the server
+            omits a field).
         """
         # Resolve format (schema wins over json_mode)
         if response_schema is not None:
@@ -169,6 +191,10 @@ class OllamaProvider:
             model=self.model,
             # Token counts for telemetry and live TPS; local calls are never billed
             # (only cloud providers are wrapped by BudgetTrackingProvider).
-            input_tokens=getattr(resp, "prompt_eval_count", None),
-            output_tokens=getattr(resp, "eval_count", None),
+            input_tokens=count_or_none(getattr(resp, "prompt_eval_count", None)),
+            output_tokens=count_or_none(getattr(resp, "eval_count", None)),
+            prefill_ms=_ns_to_ms(getattr(resp, "prompt_eval_duration", None)),
+            decode_ms=_ns_to_ms(getattr(resp, "eval_duration", None)),
+            load_ms=_ns_to_ms(getattr(resp, "load_duration", None)),
+            finish_reason=_finish_reason(getattr(resp, "done_reason", None)),
         )
