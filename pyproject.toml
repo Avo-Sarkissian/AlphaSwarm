@@ -114,7 +114,6 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = [
     "alphaswarm.cli",
-    "alphaswarm.simulation",
     "alphaswarm.web.simulation_manager",
 ]
 ignore_errors = true
@@ -230,3 +229,13 @@ ignore_imports = [
 name = "Acyclic siblings — no import cycles between alphaswarm modules or subpackages"
 type = "acyclic_siblings"
 ancestors = ["alphaswarm"]
+
+[[tool.importlinter.contracts]]
+name = "Engine is provider-agnostic — simulation, rounds and peers never reach Ollama objects"
+type = "forbidden"
+source_modules = ["alphaswarm.simulation", "alphaswarm.rounds", "alphaswarm.peers"]
+forbidden_modules = [
+    "alphaswarm.inference.ollama_provider",
+    "alphaswarm.ollama_client",
+    "alphaswarm.ollama_models",
+]

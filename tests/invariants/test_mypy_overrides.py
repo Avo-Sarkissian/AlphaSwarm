@@ -14,7 +14,6 @@ PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 ALLOWED_OVERRIDES = frozenset(
     {
         "alphaswarm.cli",
-        "alphaswarm.simulation",
         "alphaswarm.web.simulation_manager",
     }
 )
