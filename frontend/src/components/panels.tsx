@@ -5,8 +5,50 @@
 
 import { sparkBars } from '../lib/spark';
 import { consensusLeader, tallySignals } from '../lib/tally';
+import type { FeedRow } from '../lib/rationaleFeed';
+import type { AgentView } from '../types';
 
-export function BracketList({ summaries, onClick }) {
+/** One row of the Brackets panel (wire field names, one bracket). */
+export interface BracketRow {
+  bracket: string;
+  display_name: string;
+  total: number;
+  buy_count: number;
+  sell_count: number;
+  hold_count: number;
+  /** Registry colour (`bracketSpec(key)?.color ?? 'var(--accent)'`). */
+  color: string;
+}
+
+export interface BracketListProps {
+  summaries: readonly BracketRow[];
+  onClick?: (row: BracketRow) => void;
+}
+
+/** Rows come from buildFeed (newest first, keyed by seq). */
+export interface RationaleFeedProps {
+  rows: readonly FeedRow[];
+  onAgentClick?: (agentId: string) => void;
+  onCiteClick?: (agentId: string) => void;
+}
+
+export interface KpiStripProps {
+  agents: readonly AgentView[];
+  tps: number;
+  mem: number;
+  slots: number;
+  slotsMax: number;
+  elapsed: number;
+  round: number;
+  numRounds: number;
+  tpsHistory?: readonly number[];
+}
+
+export interface ConsensusRingProps {
+  agents: readonly AgentView[];
+}
+
+export function BracketList({ summaries, onClick }: BracketListProps) {
   const isEmpty =
     !summaries ||
     summaries.length === 0 ||
@@ -37,9 +79,9 @@ export function BracketList({ summaries, onClick }) {
   );
 }
 
-export function RationaleFeed({ rows, onAgentClick, onCiteClick }) {
+export function RationaleFeed({ rows, onAgentClick, onCiteClick }: RationaleFeedProps) {
   // Highlight entity-style words
-  const render = (text) =>
+  const render = (text: string) =>
     text.split(/(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)/g).map((frag, i) =>
       /^(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)$/.test(frag) ? (
         <span key={i} className="highlight">{frag}</span>
@@ -81,7 +123,7 @@ export function RationaleFeed({ rows, onAgentClick, onCiteClick }) {
   );
 }
 
-export function KpiStrip({ agents, tps, tpsHistory = /** @type {number[]} */ ([]), mem, slots, slotsMax, elapsed, round, numRounds }) {
+export function KpiStrip({ agents, tps, tpsHistory = [], mem, slots, slotsMax, elapsed, round, numRounds }: KpiStripProps) {
   // Pending (null) and failed (parse_error) agents are never HOLD; the share is
   // over decided agents only (docs/DECISIONS.md#adr-streaming-state).
   const tally = tallySignals(agents);
@@ -91,7 +133,7 @@ export function KpiStrip({ agents, tps, tpsHistory = /** @type {number[]} */ ([]
   // fall back to the design default of 16 before the first real frame.
   const slotCap = slotsMax > 0 ? slotsMax : 16;
   const memCls = mem >= 90 ? 'crit' : mem >= 80 ? 'warn' : '';
-  const fmt = (s) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  const fmt = (s: number) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
   return (
     <div className="kpi-strip">
       <div className="kpi">
@@ -134,7 +176,7 @@ export function KpiStrip({ agents, tps, tpsHistory = /** @type {number[]} */ ([]
   );
 }
 
-export function ConsensusRing({ agents }) {
+export function ConsensusRing({ agents }: ConsensusRingProps) {
   const tally = tallySignals(agents);
   const lead = consensusLeader(tally);
   // Arcs span the whole roster, so agents still thinking leave a visible gap.

@@ -511,7 +511,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
               <span className="label">{agents.length} AGENTS · R{round}</span>
             </div>
             <div className="panel-body">
-              <BracketList summaries={summaries} onClick={(s: any) => {
+              <BracketList summaries={summaries} onClick={(s) => {
                 setUi(u => ({...u, bracketDeepDive: s}));
               }} />
             </div>
