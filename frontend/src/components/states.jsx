@@ -1,24 +1,30 @@
-// v2 states — idle, seeding, memory-paused, error.
+// v2 states — idle and seeding.
 // Idle and seeding are overlays inside the dashboard canvas (.canvas-wrap);
-// the shell stays visible around them. ErrorState replaces the dashboard when
-// the WebSocket gives up. MemoryPausedState is not mounted (a governor pause
-// shows a dismissible banner instead).
+// the shell stays visible around them. A lost or stalled WebSocket shows the
+// global ConnectionBanner instead of a takeover, and a governor pause shows a
+// dismissible banner.
 //
 // Lifted from AlphaSwarm-2/src/states.jsx (W2 Plan 41.6-02 task 2) and
-// converted to ES modules per D-03. Sourced design's BRACKETS reference is
-// replaced with the import from '../data' per D-14.
-import { useEffect, useState } from 'react';
+// converted to ES modules (docs/DECISIONS.md#p41-6-d-03). Sourced design's
+// BRACKETS reference is replaced with the import from '../data'
+// (docs/DECISIONS.md#p41-6-d-14).
 import { Icon } from './icons';
 import { BRACKETS } from '../data';
+import { fetchHealth } from '../api/health';
+import { usePolling } from '../hooks/usePolling';
+import { formatDuration } from '../lib/format';
+import { systemChecks } from '../lib/systemChecks';
 
 // ─── IDLE ─────────────────────────────────────────────────────────────
 // Overlay inside the dashboard canvas while idle: the topbar (seed, Run,
 // Settings, replay) stays usable above it. The seed is entered in
-// the topbar only. SystemCheck rows are static design copy until they are
-// fed from /api/health (docs/DECISIONS.md#kr-41-6-11); the Data sources row
-// says the feed is mocked (docs/DECISIONS.md#kr-41-1-02).
+// the topbar only. System-check rows come from /api/health components
+// (docs/DECISIONS.md#kr-41-6-11).
+/** @param {{ seed: string, numRounds: number, onShowHistory?: () => void }} props */
 export function IdleState({ seed, numRounds, onShowHistory }) {
   const totalPersonas = BRACKETS.reduce((sum, b) => sum + b.count, 0);
+  const { data: health, error } = usePolling({ key: 'health-idle', fetchFn: fetchHealth, intervalMs: 10_000 });
+  const rows = systemChecks(health, error, { personas: totalPersonas, brackets: BRACKETS.length });
   return (
     <div className="state-overlay">
       <div className="state-center idle-center">
@@ -44,150 +50,46 @@ export function IdleState({ seed, numRounds, onShowHistory }) {
           </button>
         )}
         <div className="idle-grid">
-          <SystemCheck label="Ollama" value="qwen3.6:35b-a3b-nvfp4 (MLX) · 64GB RAM" ok />
-          <SystemCheck label="Agents" value={`${totalPersonas} personas · ${BRACKETS.length} brackets`} ok />
-          <SystemCheck label="Data sources" value="mocked · pending live wire" ok />
-          <SystemCheck label="Storage" value="~/.alphaswarm" ok />
-        </div>
-        <div className="idle-hint label">
-          TIP · press <kbd>R</kbd> to run · <kbd>S</kbd> to seed · <kbd>?</kbd> for shortcuts
-        </div>
-      </div>
-    </div>
-  );
-}
-function SystemCheck({ label, value, ok }) {
-  return (
-    <div className="syscheck">
-      <span className={`syscheck-dot ${ok ? 'ok' : 'err'}`} />
-      <span className="label">{label}</span>
-      <span className="syscheck-val mono">{value}</span>
-    </div>
-  );
-}
-
-// ─── SEEDING ──────────────────────────────────────────────────────────
-// Overlay inside the dashboard canvas while seeding; the spawn timer is cosmetic
-// until it is replaced with honest phase text.
-export function SeedingState({ seed }) {
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    const iv = setInterval(() => setN(x => (x >= 100 ? 100 : x + 3)), 80);
-    return () => clearInterval(iv);
-  }, []);
-  return (
-    <div className="state-overlay">
-      <div className="state-center seeding-center">
-        <div className="state-kicker label" style={{color: 'var(--accent)'}}>
-          SEEDING · {String(n).padStart(3,'0')}/100
-        </div>
-        <div className="state-headline">Spawning agents…</div>
-        {seed && (
-          <div className="state-sub mono" style={{ fontSize: 11, opacity: 0.8 }}>
-            seed: "{seed}"
-          </div>
-        )}
-        <div className="seeding-bar">
-          <div className="seeding-bar-fill" style={{width: `${n}%`}} />
-        </div>
-        <div className="seeding-stream mono">
-          {BRACKETS.flatMap(b => {
-            const arr = [];
-            const prefix = { Institutions:'I', 'Sell-Side':'S', 'Event-Driven':'E', Quants:'Q', Degens:'D', Narrators:'N', Algos:'A', Macro:'M', Shorts:'X', Allocators:'L' }[b.display];
-            for (let i = 1; i <= b.count; i++) arr.push(`${prefix}-${String(i).padStart(2,'0')}`);
-            return arr;
-          }).slice(0, n).reverse().slice(0, 14).map((id, i) => (
-            <div key={id} className="seeding-line" style={{opacity: 1 - i*0.08}}>
-              <span style={{color: 'var(--buy)'}}>+ spawn </span>
-              <span style={{color: 'var(--accent)'}}>{id}</span>
-              <span style={{color: 'var(--text-3)'}}> · persona loaded · context primed</span>
-            </div>
+          {rows.map((r) => (
+            <SystemCheck key={r.label} {...r} />
           ))}
         </div>
       </div>
     </div>
   );
 }
-
-// ─── MEMORY PAUSED ────────────────────────────────────────────────────
-// Inference halted because RAM crossed threshold.
-// KR-41.1-04: GB legend literal stays as design placeholder (backend emits
-// percent only; no MB conversion available).
-export function MemoryPausedState({ pct, onResume }) {
-  const memPct = Math.max(0, Math.min(100, pct ?? 91));
+function SystemCheck({ label, value, state, fix }) {
   return (
-    <div className="state-overlay dim">
-      <div className="state-center mempaused-center">
-        <div className="mempaused-icon">
-          <svg viewBox="0 0 48 48" width="56" height="56" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="6" y="14" width="36" height="20" rx="2"/>
-            <path d="M14 14 V34 M22 14 V34 M30 14 V34 M38 14 V34"/>
-            <circle cx="24" cy="42" r="2" fill="currentColor"/>
-          </svg>
-        </div>
-        <div className="state-kicker label" style={{color: 'var(--sell)'}}>MEMORY CEILING · {memPct.toFixed(0)}%</div>
-        <div className="state-headline">Inference paused.</div>
-        <div className="state-sub">
-          RAM usage crossed the 90% threshold you set in settings.
-          Agents have checkpointed; resume when safe, or lower the concurrent-slots ceiling.
-        </div>
-        <div className="mempaused-meter">
-          <div className="mempaused-bar">
-            <div className="mempaused-fill" style={{width: `${memPct}%`}} />
-            <div className="mempaused-threshold" style={{left: '90%'}} />
-          </div>
-          <div className="mempaused-legend mono">
-            {/* KR-41.1-04: GB literal stays — backend emits percent only. */}
-            <span>43.7 / 48.0 GB</span>
-            <span style={{color: 'var(--sell)'}}>▲ threshold 90%</span>
-          </div>
-        </div>
-        <div className="state-actions">
-          <button className="btn primary" onClick={onResume}>Resume inference</button>
-          <button className="btn ghost">Lower slots to 6</button>
-          <button className="btn ghost">Adjust threshold</button>
-        </div>
-      </div>
+    <div className="syscheck" data-state={state}>
+      <span className={`syscheck-dot ${state}`} />
+      <span className="label">{label}</span>
+      <span className="syscheck-val mono">{value}</span>
+      {fix && <code className="syscheck-fix mono">{fix}</code>}
     </div>
   );
 }
 
-// ─── ERROR ────────────────────────────────────────────────────────────
-// KR-41.1-08: structured event log lines are design copy (no backend
-// structured error stream yet). Trigger comes from useConnection().reconnectFailed
-// in app_v2.tsx.
-export function ErrorState({ onRetry }) {
+// ─── SEEDING ──────────────────────────────────────────────────────────
+// While the phase is SEEDING the orchestrator parses the seed into entities
+// and persona modifiers, then market prices and headlines are fetched. There
+// is no per-agent progress at this stage, so none is shown.
+export function SeedingState({ seed, elapsedSeconds = 0 }) {
   return (
-    <div className="state-overlay dim">
-      <div className="state-center error-center">
-        <div className="error-glyph">
-          <svg viewBox="0 0 48 48" width="56" height="56" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M24 6 L42 38 H6 Z"/>
-            <path d="M24 18 V26 M24 30 V32"/>
-          </svg>
+    <div className="state-overlay">
+      <div className="state-center seeding-center">
+        <div className="state-kicker label" style={{ color: 'var(--accent)' }}>
+          SEEDING · {formatDuration(elapsedSeconds)}
         </div>
-        <div className="state-kicker label" style={{color: 'var(--sell)'}}>
-          RUNTIME ERROR · ollama-rpc
-        </div>
-        <div className="state-headline">Lost connection to Ollama.</div>
+        <div className="state-headline">Preparing the swarm…</div>
         <div className="state-sub">
-          Agent <span className="mono" style={{color:'var(--accent)'}}>M-06</span> returned a malformed response
-          on round 2. The swarm has been paused to preserve state.
+          The orchestrator is parsing the seed into entities and persona modifiers; market prices
+          and headlines are fetched next. Round 1 starts when both are done.
         </div>
-        <div className="error-log mono">
-          {/* KR-41.1-08: rows below are design copy — backend has no structured error stream. */}
-          <div><span className="log-time">09:42:18.203</span> <span style={{color:'var(--sell)'}}>ERROR</span> M-06 parse_error: expected JSON, got plaintext</div>
-          <div><span className="log-time">09:42:18.204</span> <span style={{color:'var(--accent)'}}>WARN</span>  retry 1/3 · backoff 250ms</div>
-          <div><span className="log-time">09:42:18.461</span> <span style={{color:'var(--sell)'}}>ERROR</span> M-06 parse_error: expected JSON, got plaintext</div>
-          <div><span className="log-time">09:42:18.462</span> <span style={{color:'var(--accent)'}}>WARN</span>  retry 2/3 · backoff 500ms</div>
-          <div><span className="log-time">09:42:18.968</span> <span style={{color:'var(--sell)'}}>ERROR</span> ollama_rpc: ECONNRESET</div>
-          <div><span className="log-time">09:42:18.969</span> <span style={{color:'var(--text-3)'}}>INFO</span>  swarm.pause(preserve=true)</div>
-        </div>
-        <div className="state-actions">
-          <button className="btn primary" onClick={onRetry}>Retry from checkpoint</button>
-          <button className="btn ghost">Quarantine M-06</button>
-          <button className="btn ghost">Open ollama logs</button>
-        </div>
+        {seed && (
+          <div className="state-sub mono" style={{ fontSize: 11, opacity: 0.8 }}>
+            seed: "{seed}"
+          </div>
+        )}
       </div>
     </div>
   );

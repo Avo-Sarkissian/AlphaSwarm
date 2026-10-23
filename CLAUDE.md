@@ -19,7 +19,7 @@
 - **State / Memory:** Neo4j Community 5.26 (Docker, loopback only) via the async `neo4j` driver (<6.0).
 - **Market data:** `yfinance` and RSS (`feedparser` + `httpx`) providers in `src/alphaswarm/ingestion/`. They never raise; failures become `fetch_failed` slices.
 - **Web Backend:** FastAPI + `uvicorn`, native WebSocket support, `httpx` for outbound calls.
-- **Web Frontend:** React + TypeScript, Vite build, D3 (d3-scale/selection/transition) for visualization primitives; deterministic SVG layout for the 100-agent "mirofish" graph (`docs/DECISIONS.md#kr-41-1-01` explains why d3-force was dropped).
+- **Web Frontend:** React + TypeScript, Vite build; React-rendered SVG with a deterministic layout and d3-scale for the 100-agent "mirofish" graph (`docs/DECISIONS.md#kr-41-1-01` explains why d3-force was dropped); fonts self-hosted via `@fontsource`; ESLint and knip gate the code.
 - **Validation / Config:** `pydantic`, `pydantic-settings`.
 - **Logging:** `structlog`, with a fail-closed PII redaction processor.
 - **Testing:** pytest with `pytest-socket` (network off by default; the `neo4j`, `live_network` and `ollama` markers opt in), `pytest-timeout` (60 s per test) and `hypothesis`; golden files under `tests/golden/`; vitest in `frontend/src/__tests__/` (node for pure tests; happy-dom + React Testing Library for hooks and components) and ESLint (`npm run lint`); golden WebSocket frames written by `tests/test_wire_contract.py` into `frontend/src/__tests__/fixtures/`.

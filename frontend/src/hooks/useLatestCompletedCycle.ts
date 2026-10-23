@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { apiFetch } from '../api/client';
-import type { CycleMeta } from '../types';
+import { listCycles } from '../api/replay';
 
-// Newest completed cycle from GET /api/replay/cycles (newest first), polled
-// every 5 s while at least one consumer is mounted. It is only the default
-// for report/advisory pickers (see lib/defaultCycle.ts); the live dashboard
+// Newest completed cycle from GET /api/replay/cycles?limit=1 (newest first),
+// polled every 5 s while at least one consumer is mounted. It is only a
+// fallback: report and advisory default to it (lib/defaultCycle.ts), the
+// interview when no cycle is on screen (lib/interview.ts); the live dashboard
 // keys everything on the frame's cycle_id.
 //
 // Module-level singleton: one interval shared by all consumers, so React
@@ -33,9 +33,9 @@ async function tick() {
   if (inFlight) return inFlight;
   inFlight = (async () => {
     try {
-      const data = await apiFetch<{ cycles: CycleMeta[] }>('/api/replay/cycles');
+      const page = await listCycles({ limit: 1 });
       state = {
-        cycleId: data?.cycles?.[0]?.cycle_id ?? null,
+        cycleId: page.cycles[0]?.cycle_id ?? null,
         loading: false,
         error: null,
       };

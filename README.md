@@ -10,7 +10,6 @@
 [![Neo4j](https://img.shields.io/badge/graph-Neo4j-brightgreen.svg)](https://neo4j.com/)
 [![React](https://img.shields.io/badge/frontend-React%20%2B%20TS-61dafb.svg)](https://react.dev/)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
-[![D3.js](https://img.shields.io/badge/viz-D3.js-f7931e.svg)](https://d3js.org/)
 
 Feed it a market rumor. Watch 100 AI agents (institutions, sell-side analysts, quants, degens, short sellers, and more) independently analyze it, observe each other's positions, and iteratively converge toward consensus. Inference runs locally through Ollama by default; OpenAI-compatible and Anthropic providers are strictly opt-in (see [Cloud inference](#cloud-inference-optional)).
 
@@ -29,7 +28,7 @@ they were removed.
 - **100 autonomous agents** across 10 market archetypes (v2 composition), each with its own biases and decision heuristics
 - **3-round iterative consensus** with independent analysis, peer influence, and final convergence producing measurable opinion shifts between rounds
 - **Dynamic influence topology** where agent-to-agent influence edges form organically from citation and agreement patterns via Neo4j graph
-- **React + FastAPI web dashboard** with D3 visualization, live WebSocket at 5Hz, 100-agent influence graph (deterministic layout), bracket panels, rationale feed, replay mode, and advisory panel
+- **React + FastAPI web dashboard** with a React-rendered SVG graph of the 100 agents (deterministic layout), live WebSocket at 5Hz, bracket panels, rationale feed, replay mode, and advisory panel
 - **Live graph memory** where Neo4j persists every decision, rationale episode, signal flip, and INFLUENCED_BY edge as queryable state
 - **Post-simulation capabilities** including click-to-interview any agent (multi-turn Q&A), replay past cycles from Neo4j state without re-inference, and ReACT-agent-generated market analysis reports
 - **Dynamic persona generation** where the orchestrator extracts entities from the seed rumor to inject situation-specific bracket modifiers
@@ -80,7 +79,7 @@ uv run alphaswarm web
 | **Influence Graph** | 100 agent nodes in deterministic SVG clusters, color-coded by signal (BUY/SELL/HOLD), with INFLUENCED_BY edges |
 | **Control Bar** | Seed input, Start/Stop buttons, live phase indicator, inject-shock drawer |
 | **Rationale Feed** | Real-time scrolling stream of agent reasoning with animated entry transitions |
-| **Bracket Panel** | Per-archetype sentiment bar charts (D3 SVG) updated after each round |
+| **Bracket Panel** | Per-archetype sentiment bar charts (SVG) updated after each round |
 | **Agent Interview Modal** | Click any agent post-simulation to open a multi-turn Q&A chat panel with restored persona |
 | **Replay Mode** | Cycle picker + round-by-round stepping to re-render past simulations from Neo4j (no re-inference) |
 | **Report Viewer** | Full-screen modal rendering the ReACT-generated markdown report (sanitized via DOMPurify) |
@@ -106,7 +105,7 @@ prompts live in `DEFAULT_BRACKETS` in `src/alphaswarm/config.py`.
 |                                                                 |
 |  +--------------+   +--------------+   +------------------+   |
 |  |   Ollama     |   |  Simulation  |   |  React + TS SPA  |   |
-|  |   27B/35B    |<->|   Engine     |-->|  (D3 viz, agent  |   |
+|  |   27B/35B    |<->|   Engine     |-->|  (SVG agent      |   |
 |  |   Models     |   |  (asyncio)   |   |   graph, replay) |   |
 |  +--------------+   +------+-------+   |                  |   |
 |         ^                  |           +--------^---------+   |
@@ -134,7 +133,7 @@ prompts live in `DEFAULT_BRACKETS` in `src/alphaswarm/config.py`.
 | Inference | Ollama (default): `qwen3.6:27b-nvfp4` orchestrator, `qwen3.6:35b-a3b-nvfp4` workers; optional cloud via OpenAI-compatible or Anthropic provider |
 | Graph State | Neo4j Community: cycle-scoped edges, UNWIND batch writes, async driver |
 | Web Backend | FastAPI + `uvicorn`, WebSocket broadcaster @ ~5Hz, drop-oldest backpressure |
-| Web Frontend | React + TypeScript + Vite, D3 (d3-scale/selection/transition), `marked` + DOMPurify for report render |
+| Web Frontend | React + TypeScript + Vite; React-rendered SVG, deterministic layout, d3-scale; `marked` + DOMPurify for report render |
 | Validation | Pydantic + pydantic-settings |
 | Logging | structlog (structured JSON with per-agent correlation IDs) |
 | Package Manager | uv |

@@ -15,23 +15,10 @@
 import { useState, useMemo } from 'react';
 import { Icon } from './icons';
 import { useEdgesCtx } from '../context/EdgesContext';
-import { normalizeBracketKey } from '../data';
+import { bracketSpec } from '../data';
 import { signalClass, signalColor, signalLabel } from '../lib/signals';
 import { consensusLeader, tallySignals } from '../lib/tally';
 import type { AgentView } from '../types';
-
-const BRACKET_COLORS: Record<string, string> = {
-  institutions: '#ffb84d',
-  sell_side: '#42d690',
-  event_driven: '#ff9d5c',
-  quants: '#6aa9ff',
-  degens: '#ff5b6b',
-  narrators: '#b080ff',
-  algos: '#8a93a0',
-  macro: '#5be7b8',
-  shorts: '#ff4d7a',
-  allocators: '#d4a843',
-};
 
 interface BracketDescriptor {
   bracket: string;
@@ -57,12 +44,11 @@ export function BracketDeepDive({
   onClose,
   onAgentInterview,
 }: BracketDeepDiveProps) {
-  // Defensive filter — caller is expected to have filtered already (D-13).
-  // normalizeBracketKey: descriptor.bracket is wire snake_case ('event_driven')
-  // while AgentView.bracket is PascalCase ('EventDriven') — bare toLowerCase()
-  // never matched multi-word brackets.
+  // Defensive filter — caller is expected to have filtered already
+  // (docs/DECISIONS.md#p41-6-d-13);
+  // agents arrive pre-filtered by wire key.
   const members = useMemo(
-    () => agents.filter((a) => normalizeBracketKey(a.bracket) === normalizeBracketKey(bracket.bracket)),
+    () => agents.filter((a) => a.bracket === bracket.bracket),
     [agents, bracket.bracket],
   );
   const [sortBy, setSortBy] = useState<SortKey>('confidence');
@@ -97,7 +83,7 @@ export function BracketDeepDive({
   }));
   const maxBucket = Math.max(...buckets.map((b) => b.count), 1);
 
-  const color = BRACKET_COLORS[bracket.bracket] ?? 'var(--accent)';
+  const color = bracketSpec(bracket.bracket)?.color ?? 'var(--accent)';
 
   // Edges of the round on screen (EdgesContext): source_id cites target_id, so
   // outDegree = citations this agent made, inDegree = times it was cited

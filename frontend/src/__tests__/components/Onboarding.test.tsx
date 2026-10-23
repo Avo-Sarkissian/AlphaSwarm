@@ -267,3 +267,17 @@ describe('Onboarding run gate', () => {
     expect(skip.disabled).toBe(true);
   });
 });
+
+describe('Onboarding round count', () => {
+  it('names the round count the frame reports', () => {
+    render(<Onboarding onComplete={vi.fn()} numRounds={2} />);
+    expect(screen.queryByText('2 rounds')).not.toBeNull();
+    expect(screen.queryByText(/across 2 rounds/)).not.toBeNull();
+    expect(screen.queryAllByText(/3 rounds/)).toHaveLength(0);
+  });
+
+  it('names no round count before the first frame', () => {
+    render(<Onboarding onComplete={vi.fn()} />);
+    expect(screen.queryAllByText(/\d rounds/)).toHaveLength(0);
+  });
+});

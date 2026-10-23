@@ -47,7 +47,7 @@ export function RunConfirmModal({
           <Icon name="bolt" />
           <span
             style={{
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: 'var(--font-mono)',
               fontSize: 11,
               letterSpacing: '0.12em',
               textTransform: 'uppercase',
@@ -89,7 +89,7 @@ export function RunConfirmModal({
               <span
                 style={{
                   color: 'var(--accent)',
-                  fontFamily: "'JetBrains Mono', monospace",
+                  fontFamily: 'var(--font-mono)',
                   fontSize: 11,
                   letterSpacing: '0.08em',
                   textTransform: 'uppercase',
@@ -108,7 +108,7 @@ export function RunConfirmModal({
               <span
                 style={{
                   color: 'var(--text)',
-                  fontFamily: "'JetBrains Mono', monospace",
+                  fontFamily: 'var(--font-mono)',
                   alignSelf: 'center',
                 }}
               >

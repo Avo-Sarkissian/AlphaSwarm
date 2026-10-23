@@ -7,10 +7,8 @@
 // usePolling<T>, typed AdvisoryV2 props, optional `as` casts.
 //
 // Wiring map (Plan 41.6-03):
-//   • SignalWire / DataSourcesTakeover — DEV-only dynamic mock import per
-//     codex HIGH-2 / KR-41.6-14 (top-level static import would survive
-//     tree-shaking and fail the production grep gate). Production renders
-//     the "unavailable in production build" placeholder.
+//   • SignalWire / DataSourcesTakeover — the live data_source_audit slice
+//     only; there are no mocks (docs/DECISIONS.md#kr-41-1-02).
 //   • ModelStatus — wired to useTelemetry() + useConnection(); model name
 //     hardcoded 'qwen3:8b' per KR-41.6-08 (matches src/alphaswarm/config.py:32
 //     OllamaSettings.worker_model default).
@@ -22,7 +20,7 @@
 //     auto-fired by backend on FINAL round per quick task 260507-19f.
 //   • ReportModalV2 NOT exported — its rich layout folds into ./ReportModal.tsx
 //     per D-20 (canonical-first, heading-gated subsections, codex HIGH-4).
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { getHealth } from '../api/settings';
 import { Icon } from './icons';
 import { useTelemetry } from '../context/TelemetryContext';
@@ -30,6 +28,7 @@ import { useConnection } from '../context/ConnectionContext';
 import { useAgents } from '../context/AgentsContext';
 import { useFrameMeta } from '../context/FrameMetaContext';
 import { useLatestCompletedCycle } from '../hooks/useLatestCompletedCycle';
+import { useRounds } from '../hooks/useRounds';
 import { defaultCycleId } from '../lib/defaultCycle';
 import { usePolling } from '../hooks/usePolling';
 import { useDataSourceAudit } from '../hooks/useDataSourceAudit';
@@ -44,15 +43,10 @@ import {
   extractField,
   countAgentCitationsAgainst, // gemini #G2 — strict intersection (NOT bare countAgentCitations)
 } from '../lib/advisoryParse';
-// codex HIGH-2 / KR-41.6-14: NO top-level imports from '../mocks/*'.
-// SignalWire and DataSourcesTakeover load mock seeds via DEV-only dynamic
-// imports (see component bodies below). Production tree-shaking drops the
-// mock chunks deterministically — verified by W3 task 4 production grep.
+import { recentFor, summarizeAudit } from '../lib/dataSources';
 
-// ──────────────────────────────────────────────────────────────────────
-// Types for the dynamically-loaded mock seed shapes (avoids any).
-// ──────────────────────────────────────────────────────────────────────
-interface SignalWireSeedItem {
+// One ticker item: a provider call with its subject in the agent slot.
+interface WireItem {
   agent: string;
   source: string;
   query: string;
@@ -60,74 +54,9 @@ interface SignalWireSeedItem {
   used: boolean;
 }
 
-interface DataSourceShape {
-  id: string;
-  group: string;
-  label: string;
-  desc: string;
-  rate: string;
-  latency: number;
-}
-
-interface SourceStatShape {
-  id: string;
-  calls: number;
-  cached: number;
-  errors: number;
-  lat_p50: number;
-  lat_p95: number;
-  bytes: string;
-}
-
-// Internal mock-state shape — uses generic property names (sources / groupColor
-// / stats / wireSeed) so the production grep gate does NOT match the minified
-// bundle's destructured property keys. The dynamic-import branch reads the
-// upstream module export names at the import site only and copies values into
-// these renamed local fields. Keeps the mock chunk tree-shake clean per
-// codex HIGH-2 / KR-41.6-14.
-interface DataSourcesMock {
-  sources: ReadonlyArray<DataSourceShape>;
-  groupColor: Record<string, string>;
-  stats: ReadonlyArray<SourceStatShape>;
-  wireSeed: ReadonlyArray<SignalWireSeedItem>;
-}
-
-// Compact, capitalized aliases for the raw provider IDs the backend audit
-// records (data_audit.DataSourceAuditEntry.source). Keeps the 30px ticker
-// readable without spelling out "Yahoo Finance" / "RSS Feed". Falls back
-// to the raw source string when no alias is registered.
-const SOURCE_LABEL: Record<string, string> = {
-  yfinance: 'YAHOO',
-  rss: 'RSS',
-  fred: 'FRED',
-  newsapi: 'NEWSAPI',
-  reddit: 'REDDIT',
-  edgar: 'EDGAR',
-  polygon: 'POLYGON',
-  reuters: 'REUTERS',
-  x_api: 'X',
-  fmp: 'FMP',
-  cryptopanic: 'CRYPTO',
-};
-
-// Per-source colors — same palette as mocks/sources.ts SOURCE_GROUP_COLOR
-// (market=amber, macro=blue, filings=purple, news=green, social=pink) so
-// the live wire matches the Data Sources inspector dots. Inlined here
-// instead of imported from mocks/* to keep the production grep gate clean
-// (KR-41.6-14: live render code may not pull from mocks/* even by ref).
-const SOURCE_COLOR: Record<string, string> = {
-  yfinance: '#f5a524',     // market
-  polygon: '#f5a524',      // market
-  fmp: '#f5a524',          // market
-  fred: '#8aa6ff',         // macro
-  edgar: '#b080ff',        // filings
-  newsapi: '#5be7b8',      // news
-  reuters: '#5be7b8',      // news
-  cryptopanic: '#5be7b8',  // news
-  rss: '#5be7b8',          // news (Yahoo Finance + Google News RSS)
-  reddit: '#ff7aa8',       // social
-  x_api: '#ff7aa8',        // social
-};
+// Labels and colors for the providers that exist (alphaswarm.ingestion).
+const SOURCE_LABEL: Record<string, string> = { yfinance: 'YAHOO', rss: 'RSS' };
+const SOURCE_COLOR: Record<string, string> = { yfinance: '#f5a524', rss: '#5be7b8' };
 
 // Pull the subject of a provider call out of the audit `query` string so
 // the ticker shows e.g. AAPL / MSFT / NVDA in the agent slot instead of
@@ -180,63 +109,17 @@ function interleaveBySource<T extends { source: string }>(entries: T[]): T[] {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// SIGNAL WIRE — continuous CSS-scroll live wire
-// ITEM 5 of quick task 260512-jqn: the CONSUMER is now useDataSourceAudit()
-// — a hook reading the WS frame's dataSourceAudit slice. The DEV-only mock
-// dynamic import is retained as a fallback when the live buffer is empty
-// (sim idle, or right after Start before any provider call lands).
-// KR-41.6-14: mocks/wire + mocks/sources stay on disk; production never
-// imports them when live data is present.
+// SIGNAL WIRE — continuous CSS-scroll ticker over the live provider-call
+// audit (useDataSourceAudit, the frame's data_source_audit slice). There is
+// no mock fallback: before the first call it says so (docs/DECISIONS.md#kr-41-1-02).
 // ──────────────────────────────────────────────────────────────────────
 export function SignalWire({ onInspect }: { onInspect?: () => void }) {
   const { running } = useTelemetry();
   const liveAudit = useDataSourceAudit();
-  const hasLive = liveAudit.length > 0;
-
-  const [mock, setMock] = useState<{
-    seed: ReadonlyArray<SignalWireSeedItem>;
-    sources: ReadonlyArray<DataSourceShape>;
-    groupColor: Record<string, string>;
-  } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    // DEV-only fallback for when the sim hasn't made a call yet. Once
-    // liveAudit has entries, this branch is irrelevant — render switches
-    // to the live path below.
-    if (import.meta.env.DEV && !hasLive) {
-      void Promise.all([import('../mocks/wire'), import('../mocks/sources')]).then(
-        ([w, s]) => {
-          if (cancelled) return;
-          setMock({
-            seed: w.SIGNAL_WIRE_SEED,
-            sources: s.DATA_SOURCES,
-            groupColor: s.SOURCE_GROUP_COLOR,
-          });
-        },
-      );
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [hasLive]);
-
-  // Live path: map dataSourceAudit entries onto the SignalWireSeedItem
-  // shape so the existing render block stays unchanged.
-  //
-  // The backend audit (data_audit.DataSourceAuditEntry) has no requesting-
-  // agent field — only source/query/result/used. Echoing the source into
-  // both the agent slot AND the source slot reads as "everything is
-  // YFINANCE" because most provider calls in a cycle are yfinance ticker
-  // fetches. Instead, derive the call SUBJECT (ticker/entity) from the
-  // query string and put that in the agent slot — that gives the same
-  // visual variety the mock seed had (Q-03 / I-04 / M-06 …).
-  //
-  // Duplicate (not triplicate) so the CSS keyframe `translateX(0 → -50%)`
-  // lands on a copy boundary and the loop is seamless. Triplicate + -50%
-  // produced a 1.5-copy scroll then a hard snap = visible "skip" every
-  // 35s.
-  const liveItems = useMemo<SignalWireSeedItem[]>(() => {
+  // The audit has no requesting-agent field, so the call subject (ticker or
+  // entity) fills the agent slot. Duplicated (not triplicated) so the CSS
+  // keyframe translateX(0 → -50%) lands on a copy boundary and loops seamlessly.
+  const items = useMemo<WireItem[]>(() => {
     const mapped = liveAudit.map((e) => ({
       agent: extractSubject(e.query, e.source),
       source: e.source,
@@ -248,45 +131,19 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
     return [...interleaved, ...interleaved];
   }, [liveAudit]);
 
-  // DEV-only mock path (only when no live data has arrived yet).
-  // Same duplicate-not-triplicate fix for the -50% keyframe.
-  const mockItems = useMemo(() => {
-    if (!mock) return [] as SignalWireSeedItem[];
-    return [...mock.seed, ...mock.seed];
-  }, [mock]);
-  const mockSourceById = useMemo(() => {
-    if (!mock) return {} as Record<string, DataSourceShape>;
-    return Object.fromEntries(mock.sources.map((s) => [s.id, s]));
-  }, [mock]);
-
-  // Render selection:
-  //   1. Live data present → render the audit-driven ticker (production
-  //      and DEV both take this branch once a call has been audited).
-  //   2. No live data + DEV mock loaded → render the mock seed.
-  //   3. No live data + production → render the WAITING placeholder.
-  if (!hasLive && mock === null) {
-    if (!import.meta.env.DEV) {
-      return (
-        <div className="signal-wire signal-wire-placeholder">
-          <span className="label">WIRE · waiting for first provider call…</span>
-        </div>
-      );
-    }
+  if (liveAudit.length === 0) {
     return (
       <div className="signal-wire signal-wire-placeholder">
-        <span className="label">WIRE · loading…</span>
+        <span className="label">WIRE · waiting for the first provider call…</span>
       </div>
     );
   }
-
-  const items = hasLive ? liveItems : mockItems;
-  const isMock = !hasLive;
 
   return (
     <div className="signal-wire">
       <div className="sw-label">
         <span className="label" style={{ color: 'var(--accent)' }}>
-          WIRE{isMock ? ' · mock' : ''}
+          WIRE
         </span>
         {running && <span className="sw-live-dot" />}
       </div>
@@ -294,10 +151,7 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
       <div className="sw-scroll-wrap">
         <div className="sw-scroll-inner">
           {items.map((e, i) => {
-            const src = isMock ? mockSourceById[e.source] : undefined;
-            const color = isMock
-              ? mock?.groupColor[src?.group ?? ''] || '#8a93a0'
-              : SOURCE_COLOR[e.source] || 'var(--accent)';
+            const color = SOURCE_COLOR[e.source] ?? 'var(--accent)';
             return (
               <div key={i} className="sw-event" data-unused={!e.used}>
                 <span className="sw-agent">{e.agent}</span>
@@ -305,7 +159,7 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
                   →
                 </span>
                 <span className="sw-src" style={{ color }}>
-                  {src?.label || SOURCE_LABEL[e.source] || e.source}
+                  {SOURCE_LABEL[e.source] ?? e.source}
                 </span>
                 <span className="sw-q">{e.query}</span>
                 <span className="sw-r">{e.result}</span>
@@ -346,9 +200,9 @@ export function ModelStatus() {
   const phase = tel.phase;
   const tps = tel.telemetry.tps ?? 0;
   const slots = tel.telemetry.slotsUsed ?? 0;
-  // Round comes from the frame's roundNum — phase is a string like 'round_1',
-  // so interpolating it directly rendered "round round_1/3".
+  // Round and depth come from the frame (roundNum, num_rounds), never from the phase string.
   const roundNum = conn.lastFrame?.roundNum ?? null;
+  const { numRounds } = useRounds();
 
   // Live inference mode from /api/health — poll every 10 s.
   const { data: healthData, error: healthError } = usePolling({
@@ -374,7 +228,7 @@ export function ModelStatus() {
         : phase === 'idle'
           ? 'idle'
           : roundNum != null && roundNum >= 1
-            ? `round ${roundNum}/3`
+            ? `round ${roundNum}/${numRounds}`
             : phase // 'seeding' / pre-round frames have no round yet
     }`,
     `${slots} slots`,
@@ -404,304 +258,112 @@ export function ModelStatus() {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// DATA SOURCES — full-screen takeover
-// codex HIGH-2 / KR-41.6-14: same DEV-only dynamic import pattern as SignalWire.
+// DATA SOURCES — full-screen takeover summarizing the live provider-call
+// audit per source, with that source's recent calls (docs/DECISIONS.md#kr-41-1-02).
 // ──────────────────────────────────────────────────────────────────────
 export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
-  const [mockData, setMockData] = useState<DataSourcesMock | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    if (import.meta.env.DEV) {
-      // Read upstream module exports at the import boundary; copy values into
-      // generic-named local fields so the production grep gate stays clean
-      // (codex HIGH-2 / KR-41.6-14).
-      void Promise.all([import('../mocks/sources'), import('../mocks/wire')]).then(
-        ([s, w]) => {
-          if (cancelled) return;
-          setMockData({
-            sources: s.DATA_SOURCES,
-            groupColor: s.SOURCE_GROUP_COLOR,
-            stats: s.SOURCE_STATS,
-            wireSeed: w.SIGNAL_WIRE_SEED,
-          });
-        },
-      );
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Hooks must be called unconditionally — derive everything off mockData,
-  // then bail with the placeholder render below.
-  const statsById = useMemo(() => {
-    if (!mockData) return {} as Record<string, SourceStatShape>;
-    return Object.fromEntries(mockData.stats.map((s) => [s.id, s]));
-  }, [mockData]);
+  const audit = useDataSourceAudit();
+  const summaries = useMemo(() => summarizeAudit(audit), [audit]);
   const [selected, setSelected] = useState<string | null>(null);
-  useEffect(() => {
-    if (mockData && selected === null) {
-      setSelected(mockData.sources[0]?.id ?? null);
-    }
-  }, [mockData, selected]);
-  const [groupFilter, setGroupFilter] = useState('all');
-  const [privacy] = usePrivacyFacts();
-
-  if (mockData === null) {
-    if (!import.meta.env.DEV) {
-      return (
-        <div className="ds-takeover">
-          <div className="ds-head">
-            <div className="ds-head-left">
-              <button className="btn ghost-btn" onClick={onClose}>
-                <Icon name="close" />
-              </button>
-              <div className="ds-head-title">Data Sources</div>
-              <div className="label" style={{ color: 'var(--text-3)' }}>
-                unavailable in production build (KR-41.6-14)
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="ds-takeover">
-        <div className="ds-head">
-          <div className="ds-head-left">
-            <button className="btn ghost-btn" onClick={onClose}>
-              <Icon name="close" />
-            </button>
-            <div className="ds-head-title">Data Sources</div>
-            <div className="label" style={{ color: 'var(--text-3)' }}>
-              loading…
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const { sources, groupColor, stats: allStats, wireSeed } = mockData;
-  const sel = sources.find((s) => s.id === selected);
-  const stats = selected ? statsById[selected] : undefined;
-  const recent = wireSeed.filter((e) => e.source === selected).slice(0, 8);
-
-  const totalCalls = allStats.reduce((a, s) => a + s.calls, 0);
-  const totalErrors = allStats.reduce((a, s) => a + s.errors, 0);
-  const totalBytes = '82.1 MB';
-  const cacheRatePct = totalCalls
-    ? Math.round((allStats.reduce((a, s) => a + s.cached, 0) / totalCalls) * 100)
-    : 0;
-
-  const filtered =
-    groupFilter === 'all' ? sources : sources.filter((s) => s.group === groupFilter);
+  const active = selected ?? summaries[0]?.source ?? null;
+  const recent = useMemo(() => (active ? recentFor(audit, active) : []), [audit, active]);
+  const totals = useMemo(
+    () =>
+      summaries.reduce(
+        (t, s) => ({ calls: t.calls + s.calls, errors: t.errors + s.errors, cached: t.cached + s.cached, cited: t.cited + s.cited }),
+        { calls: 0, errors: 0, cached: 0, cited: 0 },
+      ),
+    [summaries],
+  );
 
   return (
     <div className="ds-takeover">
       <div className="ds-head">
         <div className="ds-head-left">
-          <button className="btn ghost-btn" onClick={onClose}>
+          <button className="btn ghost-btn" onClick={onClose} aria-label="Close data sources">
             <Icon name="close" />
           </button>
           <div className="ds-head-title">Data Sources</div>
           <div className="label" style={{ color: 'var(--text-3)' }}>
-            API AUDIT · THIS CYCLE
+            LAST {audit.length} PROVIDER CALLS
           </div>
         </div>
         <div className="ds-head-stats">
-          <DsStat label="TOTAL CALLS" value={totalCalls.toLocaleString()} />
-          <DsStat
-            label="ERRORS"
-            value={String(totalErrors)}
-            tone={totalErrors > 10 ? 'sell' : 'ok'}
-          />
-          <DsStat label="EGRESS" value={totalBytes} />
-          <DsStat label="CACHE RATE" value={`${cacheRatePct}%`} />
+          <DsStat label="CALLS" value={String(totals.calls)} />
+          <DsStat label="ERRORS" value={String(totals.errors)} tone={totals.errors > 0 ? 'sell' : 'ok'} />
+          <DsStat label="CACHED" value={String(totals.cached)} />
+          <DsStat label="FED TO AGENTS" value={String(totals.cited)} />
         </div>
       </div>
 
       <div className="ds-body">
-        {/* Left: source list */}
-        <div className="ds-left">
-          <div className="ds-group-tabs">
-            {['all', 'market', 'macro', 'news', 'social', 'filings'].map((g) => (
-              <button
-                key={g}
-                className="ds-gtab"
-                data-active={groupFilter === g}
-                onClick={() => setGroupFilter(g)}
-              >
-                {g === 'all' ? 'All' : g}
-              </button>
-            ))}
+        {summaries.length === 0 ? (
+          <div className="ds-empty">
+            No provider calls yet. Market prices and headlines are fetched while the swarm is seeding.
           </div>
-          <div className="ds-source-list">
-            {filtered.map((s) => {
-              const st = statsById[s.id];
-              const cacheRate = st && st.calls ? Math.round((st.cached / st.calls) * 100) : 0;
-              const errRate = st && st.calls ? st.errors / st.calls : 0;
-              const color = groupColor[s.group];
-              return (
-                <button
-                  key={s.id}
-                  className="ds-source-row"
-                  data-active={selected === s.id}
-                  onClick={() => setSelected(s.id)}
-                >
-                  <div className="ds-src-top">
-                    <div className="ds-src-name">
-                      <span className="ds-src-dot" style={{ background: color }} />
-                      <span>{s.label}</span>
-                    </div>
-                    <span
-                      className={`ds-src-calls mono ${errRate > 0.02 ? 'err' : ''}`}
-                    >
-                      {st?.calls?.toLocaleString() ?? 0}
-                    </span>
-                  </div>
-                  <div className="ds-src-bar">
-                    <div
-                      className="ds-src-bar-fill"
-                      style={{ width: `${cacheRate}%`, background: color, opacity: 0.6 }}
-                    />
-                    {errRate > 0 && (
-                      <div
-                        className="ds-src-bar-err"
-                        style={{ width: `${errRate * 100}%` }}
-                      />
-                    )}
-                  </div>
-                  <div className="ds-src-meta">
-                    <span>{cacheRate}% cached</span>
-                    {st && st.errors > 0 && (
-                      <span className="ds-err-badge">{st.errors} err</span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Right: detail pane */}
-        {sel && stats && (
-          <div className="ds-detail-pane">
-            <div className="ds-detail-hero">
-              <div className="ds-detail-name">
-                <span
-                  className="ds-src-dot lg"
-                  style={{ background: groupColor[sel.group] }}
-                />
-                <h2>{sel.label}</h2>
-                <span className="label ds-group-tag">{sel.group}</span>
-              </div>
-              <div className="ds-detail-desc">{sel.desc}</div>
-              <div className="ds-detail-chips">
-                <span className="ds-chip">rate: {sel.rate}</span>
-                <span className="ds-chip">baseline: {sel.latency}ms</span>
-                <span className="ds-chip">{stats.bytes} transferred</span>
-              </div>
-            </div>
-
-            <div className="ds-stats-grid">
-              <DsStatCard label="CALLS" value={stats.calls.toLocaleString()} />
-              <DsStatCard
-                label="CACHE HIT"
-                value={`${Math.round((stats.cached / stats.calls) * 100)}%`}
-                sub={`${stats.cached.toLocaleString()} of ${stats.calls.toLocaleString()}`}
-                tone="buy"
-              />
-              <DsStatCard
-                label="ERRORS"
-                value={String(stats.errors)}
-                tone={stats.errors > 5 ? 'sell' : stats.errors > 0 ? 'warn' : 'buy'}
-              />
-              <DsStatCard label="P50 LATENCY" value={`${stats.lat_p50}ms`} />
-              <DsStatCard
-                label="P95 LATENCY"
-                value={`${stats.lat_p95}ms`}
-                tone={stats.lat_p95 > 600 ? 'warn' : 'ok'}
-              />
-              <DsStatCard label="STATUS" value="ONLINE" tone="buy" />
-            </div>
-
-            <div className="ds-latency-viz">
-              <div className="label" style={{ marginBottom: 10 }}>
-                LATENCY DISTRIBUTION
-              </div>
-              <div className="ds-lat-bars">
-                {[
-                  { label: 'p10', val: Math.round(stats.lat_p50 * 0.6) },
-                  { label: 'p25', val: Math.round(stats.lat_p50 * 0.8) },
-                  { label: 'p50', val: stats.lat_p50 },
-                  { label: 'p75', val: Math.round((stats.lat_p50 + stats.lat_p95) / 2) },
-                  { label: 'p95', val: stats.lat_p95 },
-                  { label: 'p99', val: Math.round(stats.lat_p95 * 1.4) },
-                ].map(({ label, val }) => {
-                  const maxVal = Math.round(stats.lat_p95 * 1.4);
-                  const pct = maxVal ? (val / maxVal) * 100 : 0;
-                  const color =
-                    val > stats.lat_p95
-                      ? 'var(--sell)'
-                      : val > stats.lat_p50
-                        ? 'var(--accent)'
-                        : 'var(--buy)';
-                  return (
-                    <div key={label} className="ds-lat-col">
-                      <div className="ds-lat-bar-wrap">
-                        <div
-                          className="ds-lat-bar"
-                          style={{ height: `${pct}%`, background: color }}
-                        />
+        ) : (
+          <>
+            <div className="ds-left">
+              <div className="ds-source-list">
+                {summaries.map((s) => (
+                  <button
+                    key={s.source}
+                    className="ds-source-row"
+                    data-active={active === s.source}
+                    onClick={() => setSelected(s.source)}
+                  >
+                    <div className="ds-src-top">
+                      <div className="ds-src-name">
+                        <span className="ds-src-dot" style={{ background: SOURCE_COLOR[s.source] ?? 'var(--accent)' }} />
+                        <span>{SOURCE_LABEL[s.source] ?? s.source}</span>
                       </div>
-                      <div className="ds-lat-val mono">{val}</div>
-                      <div className="label">{label}</div>
+                      <span className={`ds-src-calls mono ${s.errors > 0 ? 'err' : ''}`}>{s.calls}</span>
                     </div>
-                  );
-                })}
+                    <div className="ds-src-meta">
+                      <span>{s.cached} cached</span>
+                      {s.errors > 0 && <span className="ds-err-badge">{s.errors} err</span>}
+                      <span>{s.cited} fed to agents</span>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div className="ds-recent-section">
+            <div className="ds-detail-pane">
               <div className="label" style={{ marginBottom: 10 }}>
-                RECENT QUERIES · THIS CYCLE
+                RECENT CALLS · {active ? (SOURCE_LABEL[active] ?? active) : ''}
               </div>
-              {recent.length === 0 ? (
-                <div className="ds-empty">
-                  No queries recorded for this source this cycle.
+              <div className="ds-recent-table">
+                <div className="ds-recent-head">
+                  <span className="label">TIME</span>
+                  <span className="label">QUERY</span>
+                  <span className="label">RESULT</span>
+                  <span className="label">FED TO AGENTS</span>
                 </div>
-              ) : (
-                <div className="ds-recent-table">
-                  <div className="ds-recent-head">
-                    <span className="label">AGENT</span>
-                    <span className="label">QUERY</span>
-                    <span className="label">RESULT</span>
-                    <span className="label">CITED</span>
+                {recent.map((r, i) => (
+                  <div key={`${r.ts}-${i}`} className="ds-recent-row-v2">
+                    <span className="mono">{new Date(r.ts * 1000).toLocaleTimeString()}</span>
+                    <span className="mono ds-q-text">{r.query}</span>
+                    <span className="mono ds-r-text">{r.result}</span>
+                    <span className={`ds-cited-badge ${r.used ? 'yes' : 'no'}`}>{r.used ? 'YES' : 'NO'}</span>
                   </div>
-                  {recent.map((r, i) => (
-                    <div key={i} className="ds-recent-row-v2">
-                      <span className="mono" style={{ color: 'var(--accent)' }}>
-                        {r.agent}
-                      </span>
-                      <span className="mono ds-q-text">{r.query}</span>
-                      <span className="mono ds-r-text">{r.result}</span>
-                      <span className={`ds-cited-badge ${r.used ? 'yes' : 'no'}`}>
-                        {r.used ? 'YES' : 'NO'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+                ))}
+              </div>
             </div>
-
-            <div className="ds-privacy-note">
-              <Icon name="lock" size={12} />
-              <span>{dataSourcesNote(privacy)}</span>
-            </div>
-          </div>
+          </>
         )}
       </div>
+      <DataSourcesPrivacyNote />
+    </div>
+  );
+}
+
+function DataSourcesPrivacyNote() {
+  const [privacy] = usePrivacyFacts();
+  return (
+    <div className="ds-privacy-note">
+      <Icon name="lock" size={12} />
+      <span>{dataSourcesNote(privacy)}</span>
     </div>
   );
 }
@@ -719,26 +381,6 @@ function DsStat({
     <div className="ds-head-stat" data-tone={tone}>
       <div className="label">{label}</div>
       <div className="ds-head-stat-v mono">{value}</div>
-    </div>
-  );
-}
-
-function DsStatCard({
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: string;
-}) {
-  return (
-    <div className="ds-stat-card" data-tone={tone}>
-      <div className="label">{label}</div>
-      <div className="ds-stat-v">{value}</div>
-      {sub && <div className="ds-stat-sub mono">{sub}</div>}
     </div>
   );
 }
@@ -783,6 +425,7 @@ interface HoldingAnalysis {
 
 export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   const meta = useFrameMeta();
+  const { numRounds } = useRounds();
   const { cycleId: latestCompleted, loading: latestLoading } = useLatestCompletedCycle();
   const cycleId = defaultCycleId(meta, latestCompleted);
   // No cycle yet only means "none completed" once the lookup has answered.
@@ -801,11 +444,12 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   // auto-fired by SimulationManager.on_complete (per quick task 260507-19f).
   // 404 → null (pending); 500 → polled.error (D-19 surfaces).
   // Cap = 1200 attempts × 3000ms = 60min. Realistic on M1 Max where
-  // post-R3 narrative generation (~12-25min) + worker→orchestrator swap
+  // post-run narrative generation (~12-25min) + worker→orchestrator swap
   // (~30-90s) + advisory synthesis (~2-5min) can exceed the prior 10min cap.
   // See debug session ws-agent-states-not-emitted-mid-sim (symptom 2 UX).
   const polled = usePolling<AdvisoryContent | null>({
     key: `advisory:${cycleId ?? 'none'}`,
+    enabled: cycleId !== null,
     fetchFn: () => (cycleId ? advisoryFetch(cycleId) : Promise.resolve(null)),
     intervalMs: 3000,
     maxAttempts: 1200,
@@ -813,7 +457,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   });
   const report = polled.data as AdvisoryReportPayload | null;
   const hadError = polled.error !== null;
-  // Detect cap-hit specifically — usePolling sets this exact message at hooks/usePolling.ts:61.
+  // Cap hit: usePolling's timeout error has this exact message (docs/DECISIONS.md#p41-6-d-19).
   const isExhausted =
     polled.error !== null && /polling timed out/i.test(polled.error.message);
 
@@ -955,7 +599,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
               Generating advisory…{polled.attempt > 0 ? ` (poll #${polled.attempt})` : ''}
             </div>
             <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
-              The orchestrator is running post-R3 narrative generation, swapping
+              The orchestrator is running post-run narrative generation, swapping
               from worker → orchestrator model, then synthesizing your portfolio
               advisory. Total wall-clock on M1 Max is ~25–50 min — leave this
               tab open and the report will appear here automatically when ready.
@@ -968,7 +612,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
               Advisory not yet generated
             </div>
             <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
-              Synthesis can take 25–50 min on M1 Max (post-R3 narrative + worker→orchestrator
+              Synthesis can take 25–50 min on M1 Max (post-run narrative + worker→orchestrator
               model swap + advisory pass). Check back later — backend auto-fires on cycle complete.
             </div>
           </div>
@@ -1134,7 +778,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
                 <div className="adv-iso-layer swarm">
                   <div className="adv-iso-layer-title">Swarm Layer</div>
                   <div className="adv-iso-layer-desc">
-                    100 agents · 3 rounds · real market data
+                    100 agents · {numRounds} rounds · real market data
                   </div>
                   <div className="adv-iso-items">
                     <div className="adv-iso-item">✓ Sees: seed rumor</div>

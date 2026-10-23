@@ -51,9 +51,13 @@ export function fieldErrors(body: unknown): FieldError[] {
 }
 
 // The text to show for a failed request: the envelope's message, else the HTTP
-// status; for anything that is not an ApiError, its own message.
+// status; for anything that is not an ApiError, its own message. A timeout or
+// network failure (status 0, no body) carries readable text in Error.message
+// (src/api/client.ts request()).
 export function errorMessage(e: unknown): string {
-  if (e instanceof ApiError) return parseErrorEnvelope(e.body).message ?? `HTTP ${e.status}`;
+  if (e instanceof ApiError) {
+    return parseErrorEnvelope(e.body).message ?? (e.status === 0 ? e.message : `HTTP ${e.status}`);
+  }
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -66,12 +70,13 @@ function httpFailure(err: unknown): { status: unknown; body: unknown } | null {
 }
 
 /**
- * True when the request never reached the backend: fetch rejected with a
- * TypeError, or the Vite dev proxy answered backend_unreachable
- * (lib/backendUnreachable.ts).
+ * True when the request never reached the backend: fetch rejected (a raw
+ * TypeError, or request()'s network_error ApiError), or the Vite dev proxy
+ * answered backend_unreachable (lib/backendUnreachable.ts).
  */
 export function isBackendUnreachable(err: unknown): boolean {
   if (err instanceof TypeError) return true;
+  if (err instanceof ApiError && err.code === 'network_error') return true;
   const failure = httpFailure(err);
   return failure !== null && parseErrorEnvelope(failure.body).code === BACKEND_UNREACHABLE_CODE;
 }
@@ -87,6 +92,9 @@ export function formatApiError(err: unknown): string {
   if (failure) {
     const { code, message } = parseErrorEnvelope(failure.body);
     if (message) return message;
+    // Timeouts and network failures (status 0, no body) carry readable text
+    // in Error.message (src/api/client.ts request()).
+    if (failure.status === 0 && err instanceof Error && err.message) return err.message;
     const statusText = typeof failure.status === 'number' ? ` (HTTP ${failure.status})` : '';
     if (code) return `${code.replace(/_/g, ' ')}${statusText}`;
     return `Request failed${statusText}`;

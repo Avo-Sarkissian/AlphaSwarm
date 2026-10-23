@@ -228,7 +228,7 @@ Contents
   - Report and advisory reads resolve the final round inside Cypher with `coalesce(c.num_rounds, 3)`, because cycles from before 2026-10 that lack the property were all 3-round. The replay cycle list reports the same value as `round_count`.
   - Prompts describe the rounds that ran: the ReAct report prompt says "final round", and the eager narrative prompt names the agent's round count. The CLI summary uses the last round that ran and reports convergence only for 3-round runs, since it compares R1→R2 flips with R2→R3 flips.
   - With 2 rounds, the round-3 result fields are empty, and completed-cycle listing relies on `Cycle.metrics_recorded_at`.
-- **Rationale:** Most flips happen in Round 2, and 2 rounds save about a third of wall time. Keep the default at 3 until the A/B comparison is done and the frontend stops hardcoding "/3" (see BACKLOG).
+- **Rationale:** Most flips happen in Round 2, and 2 rounds save about a third of wall time. Keep the default at 3 until the 2-vs-3-round ablation is done. The UI reads `num_rounds` from the frame (`useRounds()`), so a 2-round run renders correctly end to end.
 
 ### <a id="adr-structured-output"></a>Structured outputs plus a 3-tier parser
 - **Decision:** Workers request JSON (the JSON schema `DECISION_JSON_SCHEMA` in `worker.py`) and still go through a 3-tier parser: JSON, then extraction, then PARSE_ERROR (`parsing.py`, INFRA-08). The brace scanner is string-aware since F-09.
@@ -391,8 +391,9 @@ Contents
   - Split React contexts (Connection, Telemetry, Agents, Rationales, Edges, FrameMeta) so 5 Hz frames do not re-render everything. Influence edges load once per (cycle, round, edges_version) through `EdgesContext`, keyed on the frame's cycle id, and every panel reads that one copy.
   - The lifecycle (idle, seeding, live, complete, replay) comes from the frame, so the shell, Run/Stop and the replay bar look the same after a reload; idle and seeding are overlays inside the canvas.
   - While the post-run advisory/report jobs hold the orchestrator (frame `jobs`), Run is disabled and reads "Report generating…" / "Advisory generating…": a new run would evict the orchestrator mid-report. The backend refuses the start with 409 `post_run_jobs_in_progress` anyway (decided Oct 2026 under the owner's delegation).
-  - Deterministic SVG agent layout instead of d3-force ([KR-41.1-01](#kr-41-1-01)).
-  - Design mocks are loaded only through DEV-only dynamic imports, and a production grep gate keeps them out of `dist` ([KR-41.6-14](#kr-41-6-14)).
+  - React-rendered SVG with a deterministic layout instead of d3-force ([KR-41.1-01](#kr-41-1-01)); `d3-scale` is the only D3 module. `d3-selection` and `d3-transition` were never imported and were removed (2026-10).
+  - No design mocks or placebo controls ship: the mock data, the dev Tweaks panel and handler-less buttons were deleted (2026-10). Every on-screen value comes from the frame, REST or config; an ESLint rule rejects a `<button>` without a handler and knip gates dead code in CI ([KR-41.6-14](#kr-41-6-14)).
+  - Fonts (IBM Plex Sans, JetBrains Mono) are self-hosted through `@fontsource`, which fits local-first.
   - Tests and lint (`frontend/TESTING.md`): vitest runs pure tests in node and hook/component tests on happy-dom with React Testing Library; backend-written golden frames pin the wire contract ([adr-ws-broadcaster](#adr-ws-broadcaster)); ESLint (typescript-eslint, react-hooks; jsx-a11y at `warn` until the accessibility pass) runs in CI. ESLint stays on 9.x while eslint-plugin-jsx-a11y supports nothing newer.
 - **History:** Textual TUI, then Vue 3 + D3 force graph, then a React port of the Claude Design UI, then the AlphaSwarm-2 Quant Terminal. See HISTORY.md.
 
@@ -449,8 +450,9 @@ Contents
 Every legacy `D-xx` reference found in live code (`src/`, `tests/`,
 `frontend/src/`, `pyproject.toml`, `.pre-commit-config.yaml`, `CLAUDE.md`) is
 listed under its originating phase. Paths drop the `src/alphaswarm/` prefix, and
-`fe/` stands for `frontend/src/`. Three hits are agent IDs, not decisions, and are
-excluded: `README.md:105` and `frontend/src/mocks/wire.ts:16,24`.
+`fe/` stands for `frontend/src/`. Three agent IDs shaped like `D-xx` (one in an
+older `README.md`, two in the mock wire data deleted in 2026-10) are not decisions
+and are not listed.
 Phase 26/29/30/31 CONTEXT docs were deleted from `.planning/` by the accidental
 commits `f5330a6` and `343669f`. Their decisions were recovered from git history.
 
@@ -535,9 +537,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 |---|---|---|---|
 | <a id="p10-d-02"></a>`D-02` | Rationale feed fed by top-influence agents after each round. Superseded by per-agent streaming push_rationale + 50-entry sliding window (260512-jqn ITEM 4). The end-of-round calls were removed then, and `_push_top_rationales` itself was deleted in 2026-10. | superseded | batch_dispatcher.py (`_safe_agent_inference`) |
 | <a id="p10-d-03"></a>`D-03` | Rationale feed entries truncated to ~50 chars by the producer (sanitize_rationale(max_len=50)). | active | batch_dispatcher.py (`_safe_agent_inference`, the producer); state.py (`RationaleEntry`) |
-| <a id="p10-d-04"></a>`D-04` | Feed shows newest first. | active | state.py:53 |
-| <a id="p10-d-05"></a>`D-05` | TPS computed from Ollama eval_count/eval_duration and accumulated in StateStore.update_tps. | active | state.py:214; worker.py:196 |
-| <a id="p10-d-08"></a>`D-08` | StateStore.set_bracket_summaries after each round; all 10 brackets always shown. | active | state.py:227 |
+| <a id="p10-d-04"></a>`D-04` | Feed shows newest first. Restored in the web UI (2026-10): the frontend sorts by the wire `seq` and keys rows by it. | active | fe/lib/rationaleFeed.ts; state.py:72 |
+| <a id="p10-d-05"></a>`D-05` | TPS computed from Ollama eval_count/eval_duration and accumulated in StateStore.update_tps. | active | state.py:216; worker.py:200 |
+| <a id="p10-d-08"></a>`D-08` | StateStore.set_bracket_summaries after each round; all 10 brackets always shown. | active | state.py:229 |
 
 ### Phase 11: Live graph memory
 
@@ -648,16 +650,16 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p32-d-12"></a>`D-12` | GET /api/replay/cycles is a real Neo4j query (completion now keyed on Cycle.metrics_recorded_at). | active | web/routes/replay.py:64 |
+| <a id="p32-d-12"></a>`D-12` | GET /api/replay/cycles is a real Neo4j query (completion now keyed on Cycle.metrics_recorded_at). | active | web/routes/replay.py:80 |
 
 ### Phase 34: Replay mode (web)
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p34-d-07"></a>`D-07` | ReplayManager holds the ReplayStore, cycle_id and round; created in the lifespan. | active | web/replay_manager.py:1; tests/test_web.py:1270 |
-| <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, builds ReplayStore, sets round 1, broadcasts. | active | web/replay_manager.py:125; web/routes/replay.py:38,101 |
-| <a id="p34-d-09"></a>`D-09` | replay_advance increments the round (capped at the cycle's real depth since F-12) and broadcasts. | active | web/replay_manager.py:193; web/routes/replay.py:46,175 |
-| <a id="p34-d-10"></a>`D-10` | POST /api/replay/stop ends the replay (ReplayManager inactive again) and never writes the live StateStore phase, which stays IDLE or COMPLETE. Revised 2026-10 (start set the live phase to REPLAY and stop set it to IDLE). | revised | web/replay_manager.py:267; web/routes/replay.py:54,128 |
+| <a id="p34-d-07"></a>`D-07` | ReplayManager holds the ReplayStore, cycle_id and round; created in the lifespan. | active | web/replay_manager.py:1; tests/test_web.py:1265 |
+| <a id="p34-d-08"></a>`D-08` | replay_start loads all signals, builds ReplayStore, sets round 1, broadcasts. | active | web/replay_manager.py:167; web/routes/replay.py:51,99 |
+| <a id="p34-d-09"></a>`D-09` | replay_advance increments the round (capped at the cycle's real depth since F-12) and broadcasts. | active | web/replay_manager.py:218; web/routes/replay.py:59,124 |
+| <a id="p34-d-10"></a>`D-10` | POST /api/replay/stop ends the replay (ReplayManager inactive again) and never writes the live StateStore phase, which stays IDLE or COMPLETE. Revised 2026-10 (start set the live phase to REPLAY and stop set it to IDLE). | revised | web/replay_manager.py:249; web/routes/replay.py:66,136 |
 | <a id="p34-d-11"></a>`D-11` | Broadcaster reads the replay snapshot instead of live state while replay is active. | active | web/broadcaster.py (`snapshot_to_json`); tests/test_broadcaster_frames.py |
 
 ### Phase 35: Agent interviews (web)
@@ -769,20 +771,20 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p41-6-d-03"></a>`D-03` | Convert the CDN-globals JSX design export to native ES modules. | active | fe/components/app_v2.tsx:4; fe/components/history.tsx:4; fe/components/icons.jsx:3; fe/components/panels.jsx:3; fe/components/settings.tsx:3; fe/components/states.jsx:8; fe/components/tweaks.jsx:3; fe/components/v2.tsx:5; fe/components/viz.jsx:3 |
+| <a id="p41-6-d-03"></a>`D-03` | Convert the CDN-globals JSX design export to native ES modules. | active | fe/components/app_v2.tsx:4; fe/components/icons.jsx:3; fe/components/panels.jsx:3; fe/components/settings.tsx:3; fe/components/states.jsx:8; fe/components/v2.tsx:5; fe/components/viz.jsx:3 |
 | <a id="p41-6-d-07"></a>`D-07` | App shell = split context providers (Connection, Telemetry, Agents, Rationales, Edges, FrameMeta); bracket bars derive from agents, BracketContext removed (Oct 2026). | revised | fe/App.tsx:1; fe/components/app_v2.tsx:4 |
-| <a id="p41-6-d-08"></a>`D-08` | AdvisoryV2: derive what the backend supports, stub the rest (stubs tracked as KRs). | active | fe/components/modals.jsx:9; fe/components/v2.tsx:17,748,820,848,1061; fe/lib/advisoryParse.ts:2,24,51 |
-| <a id="p41-6-d-09"></a>`D-09` | Render portfolio_outlook markdown via renderMarkdown(). | active | fe/components/v2.tsx:18,748,991; fe/lib/advisoryParse.ts:2,11; fe/lib/markdown.ts:3 |
-| <a id="p41-6-d-10"></a>`D-10` | AdvisoryV2 keeps four tabs; Holdings and Overview share items[]. | active | fe/components/v2.tsx:18,748,1029 |
+| <a id="p41-6-d-08"></a>`D-08` | AdvisoryV2: derive what the backend supports, stub the rest (stubs tracked as KRs). | active | fe/components/modals.jsx:9; fe/components/v2.tsx:15,390,464,492,705; fe/lib/advisoryParse.ts:2,24,51 |
+| <a id="p41-6-d-09"></a>`D-09` | Render portfolio_outlook markdown via renderMarkdown(). | active | fe/components/v2.tsx:16,390,635; fe/lib/advisoryParse.ts:2,11; fe/lib/markdown.ts:3 |
+| <a id="p41-6-d-10"></a>`D-10` | AdvisoryV2 keeps four tabs; Holdings and Overview share items[]. | active | fe/components/v2.tsx:16,390,673 |
 | <a id="p41-6-d-11"></a>`D-11` | interview_v2 is the canonical interview surface (real /api/interview). | active | fe/components/interview_v2.tsx:2; fe/components/modals.jsx:7 |
-| <a id="p41-6-d-12"></a>`D-12` | Onboarding first-run flow gated by a localStorage flag and /api/health components (lists what is down with its fix; Re-check; Skip to dashboard). | active | fe/App.tsx:2,22; fe/components/onboarding.tsx:1,138 |
-| <a id="p41-6-d-13"></a>`D-13` | bracket_deep full-screen view filtered from AgentsContext. | active | fe/components/bracket_deep.tsx:2,10,60 |
-| <a id="p41-6-d-14"></a>`D-14` | Design data file is reference only; keep just the BRACKETS constant. | active | fe/components/app_v2.tsx:4; fe/components/states.jsx:9; fe/data.ts:1 |
-| <a id="p41-6-d-19"></a>`D-19` | usePolling surfaces timeout as an Error so modals can show it. | active | fe/components/v2.tsx:802; fe/hooks/usePolling.ts:92 |
-| <a id="p41-6-d-20"></a>`D-20` | ReportModal: canonical markdown first; rich subsections only when a matching H2 heading parses. | active | fe/components/ReportModal.tsx:3,266; fe/components/modals.jsx:8; fe/components/v2.tsx:24,1240; fe/lib/advisoryParse.ts:3; fe/lib/markdown.ts:3 |
-| <a id="p41-6-d-21"></a>`D-21` | CycleHistory Compare button renders only when comparison data exists (currently never). | active | fe/components/history.tsx:1,12,103,168,177,290,318 |
-| <a id="p41-6-d-22"></a>`D-22` | Advisory stat relabelled HOLDINGS AFFECTED, read from affected/total counts. | active | fe/components/modals.jsx:9; fe/components/v2.tsx:18,749,874,1003 |
-| <a id="p41-6-d-23"></a>`D-23` | UI tweaks persist to localStorage; backend-owned settings (model, provider, keys) live on the backend only. | active | fe/api/settings.ts:4; fe/components/settings.tsx:5; fe/components/settings_inference.tsx:3; fe/lib/settingsState.ts:5 |
+| <a id="p41-6-d-12"></a>`D-12` | Onboarding first-run flow gated by a localStorage flag and /api/health components (lists what is down with its fix; Re-check; Skip to dashboard). | active | fe/App.tsx:2,25; fe/components/onboarding.tsx:1,145 |
+| <a id="p41-6-d-13"></a>`D-13` | bracket_deep full-screen view filtered from AgentsContext. | active | fe/components/bracket_deep.tsx:2,10,48 |
+| <a id="p41-6-d-14"></a>`D-14` | Design data file is reference only; keep just the BRACKETS constant. Now the single bracket registry `{key, display, count, color}` with wire snake_case keys, checked against the backend-generated `brackets.json` (2026-10). | active | fe/data.ts; fe/__tests__/lib/data.test.ts |
+| <a id="p41-6-d-19"></a>`D-19` | usePolling surfaces timeout as an Error so modals can show it. | active | fe/components/v2.tsx:445,460; fe/hooks/usePolling.ts:83 |
+| <a id="p41-6-d-20"></a>`D-20` | ReportModal: canonical markdown first; rich subsections only when a matching H2 heading parses. | active | fe/components/ReportModal.tsx:3,266; fe/components/modals.jsx:8; fe/components/v2.tsx:22,884; fe/lib/advisoryParse.ts:3; fe/lib/markdown.ts:3 |
+| <a id="p41-6-d-21"></a>`D-21` | CycleHistory Compare button renders only when comparison data exists. Superseded 2026-10: selection, Compare and CompareModal were deleted because no comparison feature exists. | superseded | — |
+| <a id="p41-6-d-22"></a>`D-22` | Advisory stat relabelled HOLDINGS AFFECTED, read from affected/total counts. | active | fe/components/modals.jsx:9; fe/components/v2.tsx:16,391,518,647 |
+| <a id="p41-6-d-23"></a>`D-23` | UI tweaks persist to localStorage; backend-owned settings (model, provider, keys) live on the backend only. Revised 2026-10: the tweaks had no effect and were removed; the only browser-stored value is the onboarding flag, written through `safeStorage`. | revised | fe/lib/safeStorage.ts; fe/App.tsx; fe/api/settings.ts:4 |
 
 ### Phase 999.3: Live memory telemetry
 
@@ -802,30 +804,30 @@ Status checked against current code.
 | ID | Accepted gap | Status (2026-10) | Referenced from |
 |---|---|---|---|
 | <a id="kr-41-1-01"></a>KR-41.1-01 | Agent graph uses the design's deterministic SVG layout, with no d3-force physics | active (deliberate design) | CLAUDE.md:22; fe/components/viz.jsx:4 |
-| <a id="kr-41-1-02"></a>KR-41.1-02 | Signal Wire and Data Sources render static mocks (no backend) | partial: Signal Wire is live via `data_source_audit` (260512-jqn ITEM 5) with a DEV-only mock fallback; Data Sources is still mock in DEV and a placeholder in prod | fe/components/states.jsx:19; fe/mocks/index.ts:5; fe/mocks/sources.ts:1; fe/mocks/wire.ts:1 |
-| <a id="kr-41-1-03"></a>KR-41.1-03 | Per-agent `flipped`, `roundLastSpoke`, `thinking` stubbed | partial: `thinking` is derived from `signal===null`; `flipped` and `roundLastSpoke` are still 0/null (frame.ts:180-181) | fe/adapter/frame.ts:180,181; fe/types.ts:25,26 |
-| <a id="kr-41-1-04"></a>KR-41.1-04 | Memory shown as percent, not MB; GB literals in MemoryPaused are design copy | active | fe/adapter/frame.ts:154; fe/components/states.jsx:114,140; fe/types.ts:44 |
-| <a id="kr-41-1-05"></a>KR-41.1-05 | Slot counts stubbed | **closed** (260512-jqn ITEM 3: `active_count`/`current_slots` on the wire) | fe/adapter/frame.ts:140; fe/types.ts:45,46; tests/test_state.py:126 |
-| <a id="kr-41-1-06"></a>KR-41.1-06 | Replay Rewind disabled (no endpoint) | open | fe/components/modals.jsx:122,148 |
-| <a id="kr-41-1-07"></a>KR-41.1-07 | CycleHistory consensus/flips/duration/shocks show "—" (`/api/replay/cycles` is minimal) | open; now cheap, because the Cycle node carries these metrics ([adr-cycle-metrics](#adr-cycle-metrics)) but `CycleItem` (`web/routes/replay.py:22-28`) does not expose them | fe/api/replay.ts:3; fe/components/history.tsx:9,158,269 |
-| <a id="kr-41-1-08"></a>KR-41.1-08 | Error log lines are design copy (no structured error stream) | open | fe/components/history.tsx:56; fe/components/modals.jsx:192,267; fe/components/states.jsx:156,178 |
+| <a id="kr-41-1-02"></a>KR-41.1-02 | Signal Wire and Data Sources render static mocks (no backend) | **closed** (2026-10): both read the live `data_source_audit` slice; `src/mocks/` and the DEV fallback were deleted | fe/components/v2.tsx; fe/lib/dataSources.ts |
+| <a id="kr-41-1-03"></a>KR-41.1-03 | Per-agent `flipped`, `roundLastSpoke`, `thinking` stubbed | partial: `thinking` is derived from `signal===null`; `flipped` and `roundLastSpoke` are still 0/null (frame.ts:151-152) | fe/adapter/frame.ts:151,152; fe/types.ts:26,27 |
+| <a id="kr-41-1-04"></a>KR-41.1-04 | Memory shown as percent, not MB; GB literals in MemoryPaused are design copy | active for the percent display; MemoryPausedState and its GB literals were deleted (2026-10) | fe/adapter/frame.ts; fe/types.ts |
+| <a id="kr-41-1-05"></a>KR-41.1-05 | Slot counts stubbed | **closed** (260512-jqn ITEM 3: `active_count`/`current_slots` on the wire) | fe/adapter/frame.ts:111; fe/types.ts:43,44; tests/test_state.py:126 |
+| <a id="kr-41-1-06"></a>KR-41.1-06 | Replay Rewind disabled (no endpoint) | open; the disabled Rewind button was removed (2026-10: no placebo controls) | fe/components/modals.jsx (ReplayBar) |
+| <a id="kr-41-1-07"></a>KR-41.1-07 | CycleHistory consensus/flips/duration/shocks show "—" (`/api/replay/cycles` is minimal) | **closed** (2026-10): the listing returns final counts, flips and duration and pages with `limit`/`before`; History renders them and dropped the shocks column | web/routes/replay.py; fe/components/history.tsx; fe/lib/cycles.ts |
+| <a id="kr-41-1-08"></a>KR-41.1-08 | Error log lines are design copy (no structured error stream) | **closed** (2026-10): the design-copy ErrorState was deleted; connection loss shows the frame-watchdog banner | fe/hooks/useWebSocket.ts; fe/components/ConnectionBanner.tsx |
 | <a id="kr-41-1-09"></a>KR-41.1-09 | Top Influencers ranked by confidence during live view | **closed** (2026-10): ranked by citations received (CITED BY, `rankInfluencers`) for the round on screen from round 2's edges on; an empty-state line before that, no confidence fallback | fe/lib/influence.ts; fe/components/app_v2.tsx |
-| <a id="kr-41-1-10"></a>KR-41.1-10 | Rationale `citations`/`sources` stubbed `[]` (RationaleEntry has no `cited_agents`) | open | fe/adapter/frame.ts:234,235; fe/components/app_v2.tsx:314; fe/types.ts:59,60 |
-| <a id="kr-41-1-11"></a>KR-41.1-11 | Interview is non-streaming (single POST) | open | fe/api/interview.ts:2; fe/components/interview_v2.tsx:2,9 |
-| <a id="kr-41-6-01"></a>KR-41.6-01 | AdvisoryV2 shares/basis/last/sentiment shown as "—" (not on AdvisoryItem) | open (holdings API has qty/cost_basis, so a client-side join could fill two of them) | fe/components/v2.tsx:848,1061,1071,1217; fe/lib/advisoryParse.ts:9 |
+| <a id="kr-41-1-10"></a>KR-41.1-10 | Rationale `citations`/`sources` stubbed `[]` (RationaleEntry has no `cited_agents`) | open | fe/adapter/frame.ts:197,198; fe/components/app_v2.tsx:304; fe/types.ts:57,58 |
+| <a id="kr-41-1-11"></a>KR-41.1-11 | Interview is non-streaming (single POST) | open | fe/api/interview.ts:2; fe/components/interview_v2.tsx:3,10 |
+| <a id="kr-41-6-01"></a>KR-41.6-01 | AdvisoryV2 shares/basis/last/sentiment shown as "—" (not on AdvisoryItem) | open (holdings API has qty/cost_basis, so a client-side join could fill two of them) | fe/components/v2.tsx:492,705,715,861; fe/lib/advisoryParse.ts:9 |
 | <a id="kr-41-6-02"></a>KR-41.6-02 | `new_features.jsx` (What-If Compare, Watch Mode, Multi-seed, Seed Suggestions) deferred; overflow items say "Coming in v6.x" | open (no code reference) | — |
-| <a id="kr-41-6-03"></a>KR-41.6-03 | InterviewV2 PERSONA filler removed; live response is canonical | closed (by design) | fe/components/interview_v2.tsx:2,6,173,230,333 |
+| <a id="kr-41-6-03"></a>KR-41.6-03 | InterviewV2 PERSONA filler removed; live response is canonical | closed (by design) | fe/components/interview_v2.tsx:3,7,227,330 |
 | <a id="kr-41-6-04"></a>KR-41.6-04 | Onboarding Ollama check is coarse (`/api/health` aggregate) | closed (Oct 2026: onboarding lists each /api/health component that is down with its fix) | fe/components/onboarding.tsx:1; fe/lib/health.ts |
-| <a id="kr-41-6-05"></a>KR-41.6-05 | AdvisoryV2 Risk tab is placeholder copy | open | fe/components/v2.tsx:1124 |
-| <a id="kr-41-6-06"></a>KR-41.6-06 | Backend-touching settings read-only ("Coming in v6.x") | partial: inference provider/model/key/limits are now editable (`settings_inference.tsx` → `/api/settings`); memory threshold, slots, and agent count are still read-only | fe/components/settings.tsx:12,177,183,189,301 |
-| <a id="kr-41-6-07"></a>KR-41.6-07 | CycleHistory Compare hidden (no comparison endpoint) | open | fe/components/history.tsx:14,104,168 |
-| <a id="kr-41-6-08"></a>KR-41.6-08 | ModelStatus chip hardcoded `qwen3:8b` | **closed**: the chip shows live inference mode and spend from `/api/health` (v2.tsx:347-387). The comments at v2.tsx:14-16 and app_v2.tsx:4 are stale | fe/components/app_v2.tsx:4; fe/components/v2.tsx:15 |
-| <a id="kr-41-6-09"></a>KR-41.6-09 | InterviewV2 stats panel partial (peer reads, shock impact, data sources have no source) | open | fe/components/interview_v2.tsx:2,16,280 |
-| <a id="kr-41-6-10"></a>KR-41.6-10 | AdvisoryV2 "agents" count is a regex heuristic over rationale text, strictly intersected with live IDs | active (heuristic) | fe/components/v2.tsx:19,846; fe/lib/advisoryParse.ts:51,66 |
-| <a id="kr-41-6-11"></a>KR-41.6-11 | IdleState SystemCheck rows are static copy | open | fe/components/states.jsx:18 |
-| <a id="kr-41-6-12"></a>KR-41.6-12 | ReportModal rich sections render only when an explicit `## Section` heading parses; otherwise omitted | active (policy) | fe/components/ReportModal.tsx:6,275; fe/components/v2.tsx:853; fe/lib/advisoryParse.ts:9 |
+| <a id="kr-41-6-05"></a>KR-41.6-05 | AdvisoryV2 Risk tab is placeholder copy | open | fe/components/v2.tsx:768 |
+| <a id="kr-41-6-06"></a>KR-41.6-06 | Backend-touching settings read-only ("Coming in v6.x") | partial: inference provider/model/key/limits are now editable (`settings_inference.tsx` → `/api/settings`); memory threshold, slots, and agent count are still read-only | fe/components/settings.tsx:9,110,122,294 |
+| <a id="kr-41-6-07"></a>KR-41.6-07 | CycleHistory Compare hidden (no comparison endpoint) | **closed** (won't do, 2026-10): selection, Compare and CompareModal were deleted | — |
+| <a id="kr-41-6-08"></a>KR-41.6-08 | ModelStatus chip hardcoded `qwen3:8b` | **closed**: the chip shows live inference mode and spend from `/api/health` (v2.tsx:207-247). The comments at v2.tsx:12-14 and app_v2.tsx:4 are stale | fe/components/app_v2.tsx:4; fe/components/v2.tsx:13 |
+| <a id="kr-41-6-09"></a>KR-41.6-09 | InterviewV2 stats panel partial (peer reads, shock impact, data sources have no source) | partial: the three "—" rows were removed (2026-10); out/in-degree remain; history comes from stored decisions | fe/components/interview_v2.tsx |
+| <a id="kr-41-6-10"></a>KR-41.6-10 | AdvisoryV2 "agents" count is a regex heuristic over rationale text, strictly intersected with live IDs | active (heuristic) | fe/components/v2.tsx:17,490; fe/lib/advisoryParse.ts:51,66 |
+| <a id="kr-41-6-11"></a>KR-41.6-11 | IdleState SystemCheck rows are static copy | **closed** (2026-10): rows come from `/api/health` components | fe/components/states.jsx; fe/lib/systemChecks.ts |
+| <a id="kr-41-6-12"></a>KR-41.6-12 | ReportModal rich sections render only when an explicit `## Section` heading parses; otherwise omitted | active (policy) | fe/components/ReportModal.tsx:6,275; fe/components/v2.tsx:497; fe/lib/advisoryParse.ts:9 |
 | <a id="kr-41-6-13"></a>KR-41.6-13 | BracketDeepDive influence counts only after the cycle ("—" live) | **closed** (2026-10): counts come from the shared EdgesContext for the round on screen, live from round 2's edges on; "—" only before they exist | fe/hooks/useCycleEdges.ts; fe/components/bracket_deep.tsx |
-| <a id="kr-41-6-14"></a>KR-41.6-14 | Mocks loaded only through DEV-only dynamic import; production grep gate keeps them out of `dist` | active (policy) | fe/components/app_v2.tsx:504; fe/components/v2.tsx:11,45,85,115,186,403,412,455; fe/hooks/useDataSourceAudit.ts:8 |
+| <a id="kr-41-6-14"></a>KR-41.6-14 | Mocks loaded only through DEV-only dynamic import; production grep gate keeps them out of `dist` | **obsolete** (2026-10): no mocks remain, so neither the DEV-only import nor the grep gate is needed | — |
 
 ---
 
@@ -846,13 +848,13 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-08"></a>F-08 | Round 2 equal weights meant every reader got the same peers; fixed with a stable per-reader jitter. The jitter is gone: seeded per-reader sampling ([adr-diverse-peer-context](#adr-diverse-peer-context)) disperses readers by construction | 7ae6a69 | simulation.py (peer_rng); tests/test_peer_selection.py (test_equal_weights_disperse_across_readers) |
 | <a id="f-09"></a>F-09 | JSON brace scanner ignored strings, so `}` in a rationale dropped the vote | 9748dd5 | parsing.py:48; tests/test_parsing.py:98 |
 | <a id="f-10"></a>F-10 | OpenAI strict schema kept min/max, got a 400, and silently fell back to json_object | c99d00b | inference/schema.py:25; tests/inference/test_schema.py:150 |
-| <a id="f-11"></a>F-11 | Failed cloud calls leaked TPM reservation (follow-up in 9312419: refund only on failure) | c99d00b, 9312419 | inference/rate_limit.py:297; tests/inference/test_rate_limit.py:276 |
-| <a id="f-12"></a>F-12 | Replay advanced 2-round cycles to an empty round 3 | 66d680f | web/replay_manager.py:177 |
-| <a id="f-13"></a>F-13 | Settings PUT carried the old vendor's API key to a new provider | 66d680f, 9312419 | web/routes/settings.py:248; tests/test_web_settings.py:103 |
-| <a id="f-14"></a>F-14 | Blank account cells crashed the holdings loader outside the 503 path | 902d7b5 | holdings/loader.py:166 |
-| <a id="f-15"></a>F-15 | Interview window trim lost a turn when summarization failed | 902d7b5 | interview.py:152 |
-| <a id="f-16"></a>F-16 | `usePolling` stacked overlapping requests | df2f26a | fe/hooks/usePolling.ts:58 |
-| <a id="f-17"></a>F-17 | A sysctl read failure returned GREEN and cleared a crisis; now fail-stale with a timeout | c567a2f | memory_monitor.py:121; tests/test_memory_monitor.py:268,279 |
+| <a id="f-11"></a>F-11 | Failed cloud calls leaked TPM reservation (follow-up in 9312419: refund only on failure) | c99d00b, 9312419 | inference/rate_limit.py:299; tests/inference/test_rate_limit.py:276 |
+| <a id="f-12"></a>F-12 | Replay advanced 2-round cycles to an empty round 3 | 66d680f | web/replay_manager.py:167 |
+| <a id="f-13"></a>F-13 | Settings PUT carried the old vendor's API key to a new provider | 66d680f, 9312419 | web/routes/settings.py:250; tests/test_web_settings.py:103 |
+| <a id="f-14"></a>F-14 | Blank account cells crashed the holdings loader outside the 503 path | 902d7b5 | holdings/loader.py:172 |
+| <a id="f-15"></a>F-15 | Interview window trim lost a turn when summarization failed | 902d7b5 | interview.py:157 |
+| <a id="f-16"></a>F-16 | `usePolling` stacked overlapping requests | df2f26a | fe/hooks/usePolling.ts:51 |
+| <a id="f-17"></a>F-17 | A sysctl read failure returned GREEN and cleared a crisis; now fail-stale with a timeout | c567a2f | memory_monitor.py:121; tests/test_memory_monitor.py:273,286 |
 | <a id="f-18"></a>F-18 | An unpriced model cost $0 under a spend cap; now priced at a conservative ceiling | f11aeee, cd5d35d | inference/budget.py:96,153,177; tests/inference/test_budget.py:89,96 |
 | <a id="f-19"></a>F-19 | Empty peer set still injected a "peers exist" block | 7ae6a69 | simulation.py:397; tests/test_simulation.py:162 |
 | <a id="f-20"></a>F-20 | Influence weights normalized by a count that included PARSE_ERROR agents | 7ae6a69 | simulation.py:1221 |
@@ -916,10 +918,10 @@ code. Their status is in BACKLOG.md.
 | <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:4,94,100,130; tests/test_web_report.py:11,177 |
 | <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:100; web/routes/advisory.py:5,268; web/routes/report.py:7,89,105,159,161,222,235,249; tests/test_web.py:71; tests/test_web_report.py:5,42,63,159,438 |
 | <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Fixed 2026-10: both writes go through `fsutil.atomic_write_text` (temp file, fsync, `os.replace`, owner-only) | fsutil.py; report.py:write_report; web/routes/advisory.py:8 |
-| <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,90; simulation.py:61; tests/test_rss_provider.py:134,152,493 |
-| <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/unit/test_holdings_route.py:18,217,259 |
-| <a id="t-41-6-13"></a>T-41.6-13 | XSS through interview responses. Rendered as plain text, not markdown | fe/components/interview_v2.tsx:20 |
-| <a id="t-260512-jqn-03"></a>T-260512-jqn-03 | Data-source audit buffer leaking raw bodies or env vars. Only bounded summary fields are recorded | data_audit.py:14,84; tests/test_data_audit.py:69 |
+| <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,89; simulation.py:56; tests/test_rss_provider.py:142,164,549 |
+| <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/unit/test_holdings_route.py:14,215,259 |
+| <a id="t-41-6-13"></a>T-41.6-13 | XSS through interview responses. Rendered as plain text, not markdown | fe/components/interview_v2.tsx:21 |
+| <a id="t-260512-jqn-03"></a>T-260512-jqn-03 | Data-source audit buffer leaking raw bodies or env vars. Only bounded summary fields are recorded | data_audit.py:14,83; tests/test_data_audit.py:68 |
 | <a id="t-260512-jqn-09"></a>T-260512-jqn-09 | Audit buffer mistaken for a compliance trail. It is a bounded in-memory UX ring buffer only | data_audit.py:10 |
 
 ---
@@ -959,8 +961,8 @@ implemented. MEM-01 is also cited in the superpowers spec.
 
 | ID | What it did | Referenced from |
 |---|---|---|
-| <a id="quick-260416-m8x"></a>260416-m8x | Tier-1 web fixes B4, B7, B8, B9, B10 | tests/test_web.py:1439 |
-| <a id="quick-260507-19f"></a>260507-19f | Removed the UI POST trigger for advisory. Synthesis is auto-fired by the backend on completion; the frontend only polls GET | fe/api/advisory.ts:2; fe/components/v2.tsx:22,801 |
+| <a id="quick-260416-m8x"></a>260416-m8x | Tier-1 web fixes B4, B7, B8, B9, B10 | tests/test_web.py:1426 |
+| <a id="quick-260507-19f"></a>260507-19f | Removed the UI POST trigger for advisory. Synthesis is auto-fired by the backend on completion; the frontend only polls GET | fe/api/advisory.ts:2; fe/components/v2.tsx:20,444 |
 | <a id="quick-260512-jqn"></a>260512-jqn | Six post-run follow-ups. ITEM 1: CSS for InterviewV2/Onboarding/BracketDeepDive takeovers. ITEM 2: Round 3 INFLUENCED_BY edges, so `/api/edges?round=3` works. ITEM 3: governor slots on the wire (closes KR-41.1-05). ITEM 4: rationale sliding window + per-agent streaming `push_rationale`. ITEM 5: live data-source audit feeding the Signal Wire. ITEM 6: advisory one-item-per-holding + sector enrichment | 48 refs across frame.ts, v2.tsx, RationalesContext.tsx, useDataSourceAudit.ts, styles.css, types.ts, advisory/engine.py, advisory/sector_map.py, batch_dispatcher.py, data_audit.py, ingestion/*_provider.py, simulation.py, state.py, web/app.py, web/broadcaster.py, and tests |
 | <a id="quick-260611-rlx"></a>260611-rlx | `think=False` in advisory synthesis; report auto-chained after advisory succeeds | tests/unit/test_advisory_route.py:224 |
 
@@ -1024,7 +1026,7 @@ them the same way (leave them, and strip them when the comment is next edited):
 | Tag family | Live lines | Example | Note |
 |---|---|---|---|
 | `Pitfall N` / `Research Pitfall N` | ~111 | `advisory/engine.py:8` "Pitfall 1: NEVER pass the PortfolioSnapshot… into a structlog" | Numbered per phase `*-RESEARCH.md`, so "Pitfall 1" means different things in different files. Almost every hit restates the pitfall inline; the few that only cited the file were rewritten to DECISIONS anchors when `.planning/` was removed |
-| `Plan NN-NN` / `Plan NN-NN task N` | ~70 | `fe/components/app_v2.tsx:50` "Plan 41.6-04 task 2 (W4)" | GSD plan and task numbers |
+| `Plan NN-NN` / `Plan NN-NN task N` | ~70 | `fe/components/app_v2.tsx:56` "Plan 41.6-04 task 2 (W4)" | GSD plan and task numbers |
 | `W1`..`W4` / `Wave N` | ~44 | `fe/App.tsx:3` "lands in Plan 41.6-04 (W4)" | GSD execution waves |
 | `ITEM n` | ~50 | `state.py:115` "ITEM 4 of quick task 260512-jqn" | Items of quick task 260512-jqn; see [§9](#quick-260512-jqn) |
 | `(Rule N)` deviation | 1 | `fe/api/simulation.ts:20` "Plan 41.1-03 deviation (Rule 1)" | GSD executor deviation rule |

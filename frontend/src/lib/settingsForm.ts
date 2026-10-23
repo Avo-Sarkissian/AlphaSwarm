@@ -5,7 +5,7 @@
 // localStorage. An empty api_key field means "keep the stored key".
 import { ApiError } from '../api/client';
 import type { ProviderPreset, ProviderType, RolePut, RoleView } from '../api/settings';
-import { fieldErrors, parseErrorEnvelope } from './apiError';
+import { fieldErrors, formatApiError } from './apiError';
 
 export interface RoleFormState {
   provider: ProviderType;
@@ -71,26 +71,12 @@ export function maskedKeyPlaceholder(keySet: boolean, last4: string | null): str
   return keySet ? `key set ••••${last4 ?? ''} — leave blank to keep` : 'enter API key';
 }
 
+// The shared formatter's text, plus the settings-specific 409 hint and the
+// fields a 422 rejected (so the user knows what to fix).
 export function extractErrorDetail(e: unknown): string {
-  if (e instanceof ApiError) {
-    if (e.status === 409) return 'Stop the running simulation first.';
-    const { message } = parseErrorEnvelope(e.body);
-    if (message) {
-      // A 422 names the fields it rejected; show them so the user knows what to fix.
-      const fields = fieldErrors(e.body).map((f) => (f.loc ? `${f.loc}: ${f.msg}` : f.msg));
-      return fields.length > 0 ? `${message} (${fields.join('; ')})` : message;
-    }
-    if (typeof e.body === 'object' && e.body !== null) {
-      const b = e.body as Record<string, unknown>;
-      if (typeof b['detail'] === 'string') return b['detail'];
-      try {
-        return JSON.stringify(b);
-      } catch {
-        /* fall through */
-      }
-    }
-    return `Error ${e.status}`;
-  }
-  if (e instanceof Error) return e.message;
-  return String(e);
+  if (e instanceof ApiError && e.status === 409) return 'Stop the running simulation first.';
+  const message = formatApiError(e);
+  if (!(e instanceof ApiError)) return message;
+  const fields = fieldErrors(e.body).map((f) => (f.loc ? `${f.loc}: ${f.msg}` : f.msg));
+  return fields.length > 0 ? `${message} (${fields.join('; ')})` : message;
 }

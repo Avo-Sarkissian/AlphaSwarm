@@ -93,11 +93,11 @@ describe('adaptSnapshot — live frame (mid round 2)', () => {
     expect(byId.institutions_01!.confidence).toBe(0.82);
   });
 
-  it('maps multi-word bracket ids to BracketKeys', () => {
+  it('maps multi-word bracket ids to wire bracket keys', () => {
     const byId = Object.fromEntries(frame.agents.map((a) => [a.id, a]));
-    expect(byId.sell_side_03!.bracket).toBe('SellSide');
+    expect(byId.sell_side_03!.bracket).toBe('sell_side');
     expect(byId.sell_side_03!.bracketDisplay).toBe('Sell-Side');
-    expect(byId.event_driven_05!.bracket).toBe('EventDriven');
+    expect(byId.event_driven_05!.bracket).toBe('event_driven');
   });
 
   it('keeps per-entry signal, round, seq and ts (seconds -> ms) on rationales', () => {
@@ -118,12 +118,11 @@ describe('adaptSnapshot — live frame (mid round 2)', () => {
     });
   });
 
-  it('maps bracket summaries and the derived consensus', () => {
+  it('maps bracket summaries', () => {
     expect(frame.bracketSummaries.map((b) => [b.bracket, b.display, b.total])).toEqual([
-      ['SellSide', 'Sell-Side', 10],
-      ['EventDriven', 'Event-Driven', 10],
+      ['sell_side', 'Sell-Side', 10],
+      ['event_driven', 'Event-Driven', 10],
     ]);
-    expect(frame.consensus).toBeCloseTo(-0.05, 10);
   });
 
   it('maps jobs, error, shocks and the audit log', () => {
@@ -215,7 +214,6 @@ describe('adaptSnapshot — defensive mapping', () => {
       bracketSummaries: [],
       rationales: [],
       dataSourceAudit: [],
-      consensus: null,
       lastError: null,
       pendingShock: null,
       appliedShocks: [],

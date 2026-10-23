@@ -7,41 +7,47 @@
 // connection is open for the entire session, even while Onboarding renders.
 import { useState } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
+import type { ConnectionStatus } from './hooks/useWebSocket';
 import { ConnectionProvider } from './context/ConnectionContext';
 import { EdgesProvider } from './context/EdgesContext';
 import { FrameProviders } from './context/FrameProviders';
 import { App as DashboardShell } from './components/app_v2';
+import { ConnectionBanner } from './components/ConnectionBanner';
 import { Onboarding } from './components/onboarding';
+import { safeStorage } from './lib/safeStorage';
 
 const ONBOARDING_FLAG = 'as_onboarding_v1_complete';
 
 export function App() {
   // useWebSocket() ABOVE the gate per Pitfall #6 — keeps WS open across onboarding.
-  const { connected, reconnectFailed, lastFrame } = useWebSocket();
+  const { connected, status, lastFrame } = useWebSocket();
 
   // Onboarding gate (D-12). Full Onboarding component arrives in W4.
   // codex LOW-9 + gemini #6: derive initial state from BOTH the dev-skip env var
-  // AND the persisted localStorage flag. Pure read; no localStorage writes during
+  // AND the persisted storage flag. Pure read; no storage writes during
   // the render path (no useEffect, no setItem in initializer).
   const [onboardingDone, setOnboardingDone] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
     const devSkip = import.meta.env.DEV && import.meta.env.VITE_SKIP_ONBOARDING === 'true';
-    const persisted = localStorage.getItem(ONBOARDING_FLAG) === 'true';
-    return devSkip || persisted;
+    return devSkip || safeStorage.get(ONBOARDING_FLAG) === 'true';
   });
+  // The seed typed during onboarding pre-fills the dashboard, so the topbar
+  // and SeedingState show what is actually running.
+  const [initialSeed, setInitialSeed] = useState<string>('');
   // codex LOW-9 + gemini #6 (preserved from W1 patch): the onboardingDone
   // initial state ALREADY honors VITE_SKIP_ONBOARDING=true via the useState
   // initializer above; the dev-skip path falls through to the dashboard render
   // automatically because onboardingDone === true at mount. We do NOT write
-  // localStorage during render — the localStorage.setItem below runs only inside
+  // storage during render — the safeStorage.set below runs only inside
   // the Onboarding onComplete event handler.
   if (!onboardingDone) {
     return (
       <Onboarding
-        onComplete={(_seed: string) => {
+        numRounds={lastFrame?.numRounds ?? null}
+        onComplete={(seed: string) => {
           // simStart was already fired inside Onboarding's Run handler — do NOT
-          // re-fire here. We only persist the gate flag and unmount Onboarding.
-          localStorage.setItem(ONBOARDING_FLAG, 'true');
+          // re-fire here. Persist the gate flag, keep the seed, unmount Onboarding.
+          safeStorage.set(ONBOARDING_FLAG, 'true');
+          setInitialSeed(seed);
           setOnboardingDone(true);
         }}
       />
@@ -50,32 +56,32 @@ export function App() {
 
   if (!lastFrame) {
     return (
-      <ConnectionProvider connected={connected} reconnectFailed={reconnectFailed} lastFrame={null}>
-        <AwaitingFrame connected={connected} reconnectFailed={reconnectFailed} />
+      <ConnectionProvider connected={connected} status={status} lastFrame={null}>
+        <AwaitingFrame status={status} />
       </ConnectionProvider>
     );
   }
 
   return (
-    <FrameProviders frame={lastFrame} connected={connected} reconnectFailed={reconnectFailed}>
+    <FrameProviders frame={lastFrame} connected={connected} status={status}>
+      <ConnectionBanner status={status} />
       <EdgesProvider>
-        <DashboardShell />
+        <DashboardShell initialSeed={initialSeed} />
       </EdgesProvider>
     </FrameProviders>
   );
 }
 
-function AwaitingFrame({ connected, reconnectFailed }: { connected: boolean; reconnectFailed: boolean }) {
-  const msg = reconnectFailed
-    ? 'WebSocket disconnected — check backend on :8000'
-    : connected
-    ? 'Connected — waiting for first simulation frame…'
-    : 'Connecting to WebSocket…';
+function AwaitingFrame({ status }: { status: ConnectionStatus }) {
+  const msg =
+    status === 'open'
+      ? 'Connected. Waiting for the first frame…'
+      : status === 'connecting'
+        ? 'Connecting to the backend…'
+        : 'Backend not reachable on :8000. Retrying…';
   return (
-    <div className="app" style={{
-      width: '100%', height: '100%', display: 'flex', alignItems: 'center',
-      justifyContent: 'center', background: 'var(--bg)', color: 'var(--text-2)',
-      fontFamily: "'JetBrains Mono', monospace", fontSize: 12, letterSpacing: '0.08em'
-    }}>{msg}</div>
+    <div className="app awaiting-frame" role="status">
+      {msg}
+    </div>
   );
 }

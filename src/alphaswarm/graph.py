@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, cast, get_args
 
 import structlog
@@ -139,10 +139,34 @@ class InfluenceEdgeRow(TypedDict):
 
 
 class CompletedCycleRow(TypedDict):
+    """One complete cycle with the run metrics stamped on its Cycle node.
+
+    Metric columns are None for cycles recorded before metrics existed
+    (docs/DECISIONS.md#adr-cycle-metrics).
+    """
+
     cycle_id: str
     created_at: str
     seed_rumor: str
     round_count: int
+    status: str
+    final_buy: int | None
+    final_sell: int | None
+    final_hold: int | None
+    total_flips: int | None
+    total_seconds: float | None
+    agent_count: int | None
+
+
+class AgentDecisionRow(TypedDict):
+    """One stored decision of one agent; signal is lowercase."""
+
+    round_num: int
+    signal: str
+    confidence: float
+    sentiment: float
+    rationale: str
+    cited_agents: list[str]
 
 
 class BracketRoundRow(TypedDict):
@@ -230,6 +254,35 @@ def _iso(value: object) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return "" if value is None else str(value)
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Read a naive cursor as UTC.
+
+    Cycle.created_at is a zoned DateTime; Neo4j compares it with a naive
+    (LocalDateTime) parameter as null, which would silently return no rows.
+    """
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
+
+
+def _opt_int(value: object) -> int | None:
+    """None stays None (metric not recorded); a stored number becomes an int."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    raise TypeError(f"expected a number, got {type(value).__name__}")
+
+
+def _opt_float(value: object) -> float | None:
+    """None stays None (metric not recorded); a stored number becomes a float."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    raise TypeError(f"expected a number, got {type(value).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -1256,6 +1309,71 @@ class GraphStateManager:
         )
         return [dict(record) async for record in result]
 
+    async def read_agent_decisions(self, cycle_id: str, agent_id: str) -> list[AgentDecisionRow]:
+        """All of one agent's stored decisions in a cycle, ascending by round.
+
+        Rounds appear as they are persisted, so a running cycle returns the
+        rounds finished so far (docs/DECISIONS.md#p14-d-06).
+
+        Raises:
+            Neo4jConnectionError: When Neo4j query fails.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                rows = await session.execute_read(
+                    self._read_agent_decisions_tx,
+                    cycle_id,
+                    agent_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read decisions for agent {agent_id} cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "agent_decisions_read",
+            cycle_id=cycle_id,
+            agent_id=agent_id,
+            count=len(rows),
+        )
+        return rows
+
+    @staticmethod
+    async def _read_agent_decisions_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        agent_id: str,
+    ) -> list[AgentDecisionRow]:
+        """Decisions plus the ids they CITED, one row per round."""
+        result = await tx.run(
+            """
+            MATCH (:Agent {id: $agent_id})-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            OPTIONAL MATCH (d)-[:CITED]->(cited:Agent)
+            WITH d, collect(cited.id) AS cited_ids
+            RETURN
+                d.round AS round_num,
+                d.signal AS signal,
+                d.confidence AS confidence,
+                d.sentiment AS sentiment,
+                d.rationale AS rationale,
+                cited_ids
+            ORDER BY d.round
+            """,
+            cycle_id=cycle_id,
+            agent_id=agent_id,
+        )
+        return [
+            AgentDecisionRow(
+                round_num=int(r["round_num"]),
+                signal=str(r["signal"]),
+                confidence=float(r["confidence"] or 0.0),
+                sentiment=float(r["sentiment"] or 0.0),
+                rationale=str(r["rationale"] or ""),
+                cited_agents=sorted(str(x) for x in r["cited_ids"]),
+            )
+            async for r in result
+        ]
+
     # ------------------------------------------------------------------
     # Phase 15: Report query tools
     # ------------------------------------------------------------------
@@ -2079,53 +2197,66 @@ class GraphStateManager:
         )
         return [dict(record) async for record in result]
 
-    async def read_completed_cycles(self, limit: int = 10) -> list[CompletedCycleRow]:
-        """Return completed cycles, most recent first (created_at as ISO-8601).
+    async def read_completed_cycles(
+        self,
+        limit: int = 20,
+        *,
+        before: datetime | None = None,
+    ) -> list[CompletedCycleRow]:
+        """Return complete cycles, newest first, one page at a time.
 
-        Used by CyclePickerScreen and CLI replay defaulting. LIMIT caps at 10.
+        *before* is the created_at of the previous page's last row; rows
+        strictly older than it are returned. A naive *before* is read as UTC.
         """
         try:
             async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
+                rows: list[CompletedCycleRow] = await session.execute_read(
                     self._read_completed_cycles_tx,
                     limit,
+                    _as_utc(before),
                 )
         except Neo4jError as exc:
             raise Neo4jConnectionError(
                 "Failed to read completed cycles",
                 original_error=exc,
             ) from exc
-        self._log.debug("read_completed_cycles", count=len(records))
-        return records
+        self._log.debug("completed_cycles_read", count=len(rows), paged=before is not None)
+        return rows
 
     @staticmethod
     async def _read_completed_cycles_tx(
         tx: AsyncManagedTransaction,
         limit: int,
+        before: datetime | None,
     ) -> list[CompletedCycleRow]:
-        """Transaction: return completed cycles, newest first.
+        """Complete cycles older than *before* (when set), newest first.
 
-        Completed = metrics were stamped at simulation end (covers 2-round
-        cycles under ALPHASWARM_NUM_ROUNDS=2), OR a Round 3 decision exists
-        (back-compat for cycles that predate metrics stamping).
-        round_count is surfaced so replay/UI can cap at the actual depth.
+        Completeness is the shared effective-status rule, so this list and the
+        job routes never disagree about a cycle. History columns come from the
+        metrics map run_simulation stamps on the Cycle node
+        (docs/DECISIONS.md#adr-cycle-metrics).
         """
         result = await tx.run(
-            """
+            f"""
             MATCH (c:Cycle)
-            WHERE c.metrics_recorded_at IS NOT NULL
-               OR EXISTS {
-                MATCH (:Agent)-[:MADE]->(d:Decision {cycle_id: c.cycle_id, round: 3})
-            }
+            WHERE {_EFFECTIVE_STATUS} = 'complete'
+              AND ($before IS NULL OR c.created_at < $before)
             RETURN
                 c.cycle_id AS cycle_id,
                 c.created_at AS created_at,
                 c.seed_rumor AS seed_rumor,
-                coalesce(c.num_rounds, 3) AS round_count
+                coalesce(c.num_rounds, 3) AS round_count,
+                c.final_buy AS final_buy,
+                c.final_sell AS final_sell,
+                c.final_hold AS final_hold,
+                c.r2_flips + coalesce(c.r3_flips, 0) AS total_flips,
+                c.total_seconds AS total_seconds,
+                c.agent_count AS agent_count
             ORDER BY c.created_at DESC
             LIMIT $limit
             """,
             limit=limit,
+            before=before,
         )
         return [
             CompletedCycleRow(
@@ -2133,6 +2264,13 @@ class GraphStateManager:
                 created_at=_iso(r["created_at"]),
                 seed_rumor=str(r["seed_rumor"] or ""),
                 round_count=int(r["round_count"]),
+                status="complete",
+                final_buy=_opt_int(r["final_buy"]),
+                final_sell=_opt_int(r["final_sell"]),
+                final_hold=_opt_int(r["final_hold"]),
+                total_flips=_opt_int(r["total_flips"]),
+                total_seconds=_opt_float(r["total_seconds"]),
+                agent_count=_opt_int(r["agent_count"]),
             )
             async for r in result
         ]

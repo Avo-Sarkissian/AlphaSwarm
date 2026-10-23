@@ -20,7 +20,7 @@ const ROUND_FAILED = {
 function banner(lastError: RunErrorView | null) {
   const frame: StateFrame = { ...base, lastError };
   return (
-    <ConnectionProvider connected reconnectFailed={false} lastFrame={frame}>
+    <ConnectionProvider connected status="open" lastFrame={frame}>
       <RunErrorBanner />
     </ConnectionProvider>
   );

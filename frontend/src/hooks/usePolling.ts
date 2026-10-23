@@ -4,9 +4,12 @@ export interface UsePollingOpts<T> {
   key: string;
   fetchFn: () => Promise<T>;
   intervalMs: number;
+  /** <= 0 disables polling (no fetch, no timeout error). */
   maxAttempts?: number;
   /** Stop the interval once a non-null result has landed (data is kept). */
   stopWhenData?: boolean;
+  /** false = do not poll at all, e.g. while there is no cycle id. Default true. */
+  enabled?: boolean;
 }
 
 export interface UsePollingResult<T> {
@@ -16,46 +19,36 @@ export interface UsePollingResult<T> {
   loading: boolean;
 }
 
-// key-driven polling hook. fetchFn is held in a ref so inline arrows
-// from callers do NOT restart the interval loop on every render.
+interface PollState<T> {
+  key: string;
+  data: T | null;
+  error: Error | null;
+  attempt: number;
+}
+
+// Key-driven polling. Results are stored together with the key they belong to,
+// so the first render under a new key never shows the previous key's data.
+// fetchFn is held in a ref so inline arrows do not restart the loop.
 export function usePolling<T>(opts: UsePollingOpts<T>): UsePollingResult<T> {
-  const { key, fetchFn, intervalMs, maxAttempts, stopWhenData } = opts;
+  const { key, fetchFn, intervalMs, maxAttempts, stopWhenData, enabled = true } = opts;
 
   const fnRef = useRef(fetchFn);
-  fnRef.current = fetchFn; // always latest without triggering effect
+  fnRef.current = fetchFn;
 
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<Error | null>(null);
-  const [attempt, setAttempt] = useState(0);
-
-  // Mirror of `data` readable from inside the interval closure — lets the
-  // timeout branch skip the error when a successful fetch already landed.
+  const [state, setState] = useState<PollState<T>>({ key, data: null, error: null, attempt: 0 });
+  // Mirror of the latest data readable from inside the interval closure.
   const dataRef = useRef<T | null>(null);
-  // Track the active key so a key change resets state (a new key must never
-  // render the previous key's data/error).
-  const keyRef = useRef(key);
 
   useEffect(() => {
-    if (keyRef.current !== key) {
-      keyRef.current = key;
-      dataRef.current = null;
-      setData(null);
-      setError(null);
-      setAttempt(0);
-    }
+    dataRef.current = null;
+    setState({ key, data: null, error: null, attempt: 0 });
 
-    // maxAttempts <= 0 means polling disabled — no fetch, no interval, and
-    // no spurious "polling timed out after 0 attempts" error.
-    if (typeof maxAttempts === 'number' && maxAttempts <= 0) {
-      return;
-    }
+    if (!enabled || (typeof maxAttempts === 'number' && maxAttempts <= 0)) return;
 
     let cancelled = false;
     let n = 0;
-    // In-flight guard: when fetchFn is slower than intervalMs, ticks would
-    // otherwise stack concurrent requests and let a slow earlier response
-    // clobber a newer one (out-of-order setData). Skip a tick while one is
-    // still running, so attempts are at-most-one-per-fetch-duration (F-16).
+    // In-flight guard: never stack requests when fetchFn is slower than the
+    // interval (docs/DECISIONS.md#f-16).
     let running = false;
 
     const tick = async () => {
@@ -65,21 +58,19 @@ export function usePolling<T>(opts: UsePollingOpts<T>): UsePollingResult<T> {
         const result = await fnRef.current();
         if (cancelled) return;
         dataRef.current = result;
-        setData(result);
-        setError(null);
+        setState((s) => ({ ...s, key, data: result, error: null }));
       } catch (e: unknown) {
         if (cancelled) return;
-        setError(e instanceof Error ? e : new Error(String(e)));
+        setState((s) => ({ ...s, key, error: e instanceof Error ? e : new Error(String(e)) }));
       } finally {
         running = false;
         if (!cancelled) {
           n += 1;
-          setAttempt(n);
+          setState((s) => ({ ...s, key, attempt: n }));
         }
       }
     };
 
-    // immediate first fetch
     void tick();
 
     const id = setInterval(() => {
@@ -89,11 +80,9 @@ export function usePolling<T>(opts: UsePollingOpts<T>): UsePollingResult<T> {
       }
       if (typeof maxAttempts === 'number' && n >= maxAttempts) {
         clearInterval(id);
-        // D-19: surface polling timeout as Error so consumers can render
-        // hadError — but only when no data ever landed (a cap hit with data
-        // present is success, not a timeout).
+        // docs/DECISIONS.md#p41-6-d-19: a cap hit without data is a timeout error.
         if (!cancelled && dataRef.current === null) {
-          setError(new Error(`polling timed out after ${maxAttempts} attempts`));
+          setState((s) => ({ ...s, key, error: new Error(`polling timed out after ${maxAttempts} attempts`) }));
         }
         return;
       }
@@ -104,12 +93,15 @@ export function usePolling<T>(opts: UsePollingOpts<T>): UsePollingResult<T> {
       cancelled = true;
       clearInterval(id);
     };
-  }, [key, intervalMs, maxAttempts, stopWhenData]);
+  }, [key, intervalMs, maxAttempts, stopWhenData, enabled]);
 
+  const current = state.key === key ? state : null;
+  const data = current?.data ?? null;
+  const error = current?.error ?? null;
   return {
     data,
     error,
-    attempt,
-    loading: data === null && error === null,
+    attempt: current?.attempt ?? 0,
+    loading: enabled && data === null && error === null,
   };
 }

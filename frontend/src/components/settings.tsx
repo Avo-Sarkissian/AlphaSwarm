@@ -3,8 +3,8 @@
 // Ported from AlphaSwarm-2/src/settings.jsx per D-03; .jsx → .tsx per codex HIGH-1.
 //
 // D-23 persistence policy:
-//   • UI tweaks (density / layout / theme / hintVisibility) persist to
-//     localStorage via normalizeSettingsUiState (codex MEDIUM-8).
+//   • Nothing in Settings is stored in the browser: the UI tweaks had no effect
+//     and were removed (docs/DECISIONS.md#p41-6-d-23).
 //   • Backend-owned values never touch localStorage. Read-only rows show the
 //     backend's live value or say where the value is configured (KR-41.6-06).
 //   • Privacy copy, the version and the live slot counts come from the backend
@@ -23,14 +23,8 @@ import {
   privacyLines,
   privacyMode,
 } from '../lib/privacyCopy';
-import {
-  normalizeSettingsUiState,
-  type SettingsUiState,
-} from '../lib/settingsState';
 import type { TelemetrySlice } from '../types';
 import { InferenceSettings } from './settings_inference';
-
-const SETTINGS_KEY = 'as_settings_ui_v1';
 
 // Until the memory governor first reports, the frame carries an idle placeholder
 // with 0 slots (docs/DECISIONS.md#p999-3-d-01). Nothing reports in cloud mode,
@@ -43,17 +37,6 @@ function slotsValue(telemetry: TelemetrySlice): string {
 }
 
 export function Settings({ onClose }: { onClose: () => void }) {
-  // Read + normalize on mount — defensive against stale storage that may carry
-  // backend keys from a future code path that accidentally merged them in.
-  const [uiState, setUiState] = useState<SettingsUiState>(() => {
-    if (typeof window === 'undefined') return {};
-    try {
-      const raw = localStorage.getItem(SETTINGS_KEY);
-      return normalizeSettingsUiState(raw ? JSON.parse(raw) : {});
-    } catch {
-      return {};
-    }
-  });
   const [section, setSection] = useState<
     'runtime' | 'model' | 'brackets' | 'keys' | 'storage' | 'privacy'
   >('runtime');
@@ -72,19 +55,6 @@ export function Settings({ onClose }: { onClose: () => void }) {
       cancelled = true;
     };
   }, []);
-
-  // On change: normalize before write — defense-in-depth even if a future code
-  // path accidentally tries to merge backend keys into uiState.
-  function persist(patch: Partial<SettingsUiState>) {
-    const next: SettingsUiState = { ...uiState, ...patch };
-    const safe = normalizeSettingsUiState(next);
-    setUiState(safe);
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(safe));
-    } catch {
-      // storage quota / SecurityError — silently ignore (UI tweaks are non-essential)
-    }
-  }
 
   const sections = [
     { k: 'runtime' as const, label: 'Runtime' },
@@ -137,81 +107,6 @@ export function Settings({ onClose }: { onClose: () => void }) {
         <div className="st-content">
           {section === 'runtime' && (
             <>
-              {/* UI tweak — density (persisted) */}
-              <SettingGroup
-                title="Display density"
-                desc="Controls panel padding and font scale. Persists to localStorage."
-              >
-                <div className="st-seg">
-                  {(['compact', 'cozy', 'spacious'] as const).map((d) => (
-                    <button
-                      key={d}
-                      data-active={uiState.density === d}
-                      onClick={() => persist({ density: d })}
-                    >
-                      {d}
-                    </button>
-                  ))}
-                </div>
-              </SettingGroup>
-
-              {/* UI tweak — layout (persisted) */}
-              <SettingGroup
-                title="Layout"
-                desc="Choose grid or rows for panels. Persists to localStorage."
-              >
-                <div className="st-seg">
-                  {(['grid', 'rows'] as const).map((l) => (
-                    <button
-                      key={l}
-                      data-active={uiState.layout === l}
-                      onClick={() => persist({ layout: l })}
-                    >
-                      {l}
-                    </button>
-                  ))}
-                </div>
-              </SettingGroup>
-
-              {/* UI tweak — theme (persisted) */}
-              <SettingGroup
-                title="Theme"
-                desc="Choose dark or light. Persists to localStorage."
-              >
-                <div className="st-seg">
-                  {(['dark', 'light'] as const).map((t) => (
-                    <button
-                      key={t}
-                      data-active={uiState.theme === t}
-                      onClick={() => persist({ theme: t })}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </SettingGroup>
-
-              {/* UI tweak — hint visibility (persisted) */}
-              <SettingGroup
-                title="First-run hints"
-                desc="Show or hide the on-canvas tip banner. Persists to localStorage."
-              >
-                <div className="st-seg">
-                  <button
-                    data-active={uiState.hintVisibility === true}
-                    onClick={() => persist({ hintVisibility: true })}
-                  >
-                    show
-                  </button>
-                  <button
-                    data-active={uiState.hintVisibility === false}
-                    onClick={() => persist({ hintVisibility: false })}
-                  >
-                    hide
-                  </button>
-                </div>
-              </SettingGroup>
-
               {/* Backend-touching: memory threshold — read-only, KR-41.6-06 */}
               <BackendRow
                 label="Memory ceiling"
@@ -358,7 +253,7 @@ const VALUE_STYLE = {
   background: 'var(--bg-3)',
   border: '1px solid var(--border)',
   color: 'var(--text-3)',
-  fontFamily: "'JetBrains Mono', monospace",
+  fontFamily: 'var(--font-mono)',
   fontSize: 11,
   borderRadius: 3,
 } as const;
