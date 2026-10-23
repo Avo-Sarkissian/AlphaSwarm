@@ -1,4 +1,9 @@
-"""ReplayManager: one replay session at a time (docs/DECISIONS.md#p34-d-07)."""
+"""ReplayManager: one replay session at a time over a ReplayStore.
+
+A round is read from Neo4j first and then shown in one synchronous step, so the
+5 Hz broadcaster never streams a half-loaded round
+(docs/DECISIONS.md#adr-replaystore-separate).
+"""
 
 from __future__ import annotations
 
