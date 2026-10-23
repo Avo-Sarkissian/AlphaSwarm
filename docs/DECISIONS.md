@@ -306,9 +306,9 @@ Contents
 - **Decision:**
   - Decisions are nodes ([p4-d-01](#p4-d-01)).
   - Citations are `(Decision)-[:CITED]->(Agent)`.
-  - INFLUENCED_BY is **Agent→Agent** with `{weight, cycle_id, round}`, created per round with CREATE, so readers must filter by round (`graph.py:1081-1109`).
+  - INFLUENCED_BY is **Agent→Agent** with `{weight, cycle_id, round}`, created per round with CREATE, so readers must filter by round (`graph/schema_writes.py`, `_write_influence_edges_tx`).
   - This supersedes Phase 4's planned Decision→Decision INFLUENCED_BY edge.
-  - Writes are UNWIND batches. Sessions are opened per method. 100 shared Agent nodes.
+  - Writes are UNWIND batches. Sessions are opened per operation, only inside `GraphStateManager._read`/`_write` (and `ensure_schema`'s DDL). 100 shared Agent nodes.
   - The `neo4j` driver is pinned below 6.0.
   - Since 2026-10, Post nodes, `AUTHORED`/`HAS_POST` and `(:Decision)-[:FOR]->(:Cycle)` are no longer written; existing ones remain as history and no reader uses them. `RationaleEpisode.rationale` is no longer written (readers use `d.rationale`).
   - The Cycle stores `num_rounds` ([adr-num-rounds](#adr-num-rounds)), `modifiers_json` (the per-cycle persona focus lines) and `prompt_template_hash` (sha256 of the static persona prompt pieces, `compute_prompt_template_hash`) at creation; interviews rebuild the persona from config plus `modifiers_json`.
@@ -316,6 +316,7 @@ Contents
   - REFERENCES link a decision to the cycle's own `(:Entity {name, type})` through `MENTIONS`, matched on whole tokens (`episodes.match_entities`, `match_type: "token"`); a name the cycle lists under two types is skipped. A seed that lists an entity twice still yields one REFERENCES edge per decision.
   - Schema: `decision_id_unique`; indexes `decision_cycle_round`, `decision_cycle`, `influenced_by_cycle_round`, `cycle_created`, `cycle_status`. `ensure_schema` drops `agent_id_idx`, `decision_id_idx`, `post_cycle_round`, `post_id_idx`, `episode_cycle_round` first (the constraint cannot coexist with the old plain index). It deletes no data: the retired `Agent.decision_narrative` property is removed only by `remove_legacy_properties()`, which the owner runs after a backup (`docs/RUNBOOK.md` §3).
   - While `decision_id_unique` does not exist yet, `ensure_schema` first counts duplicate decision ids (read-only). If there are any, it keeps `decision_id_idx` in place of the constraint, logs `decision_id_duplicates_found` with the count (never the ids) and continues; no data is deleted, and the constraint is created on the first start after the duplicates are resolved.
+  - **Module layout (Phase 5c).** `alphaswarm.graph` is a package. `manager.py` holds `GraphStateManager`, a facade that owns the driver, the `_read`/`_write` helpers and error mapping and delegates every other method in one line; `schema_writes.py` (schema and all writes), `analytics.py` (report, shock and influence-edge reads) and `replay_interview.py` (replay reads, cycle lookups, interview rows) own the Cypher; `rows.py` holds the TypedDict rows callers read. Influence weights and shock aggregation are pure functions in `alphaswarm/influence.py`; interview context is assembled in `alphaswarm/interview.py` from `AgentInterviewRows`; display glyphs live in `templates/report/_macros.j2`. An import-linter layers contract keeps the graph below interview, report, the engine, services and web.
 - **Rationale:** Cycle-scoped edges keep reads fast without pruning history.
 
 ### <a id="adr-cycle-metrics"></a>Cycle status lifecycle and per-cycle run metrics
@@ -388,7 +389,7 @@ Contents
   - `render_report` renders the Jinja section templates under `StrictUndefined`; `build_sections` returns the convergence and influence rows the UI charts. Files: `reports/{cycle_id}_report.json` (sections) then `reports/{cycle_id}_report.md`, both atomic.
   - `services.report.ReportService` wraps `report.generate_report` in the orchestrator lock and the provider lifecycle; the web report job runs through it (`JobRunner`), and `GET /api/report/{id}` returns the sections next to the markdown (`sections: null` for a report without a readable sidecar). The CLI `report` command runs the same service inside `open_runtime`.
 - **Rationale:** the ReAct loop spent up to ten orchestrator calls choosing among eight fixed queries and its text never reached the report (T5.1). **Superseded** the prompt-based ReAct loop (2026-10): one call now, measured with `ScriptedProvider` in `tests/test_report_pipeline.py`.
-- **Update (2026-10):** Report reads return typed rows (the row TypedDicts in `graph.py`, such as `ConsensusSummaryRow` and `ShockImpactRow`), and templates render under Jinja `StrictUndefined`. A template that reads a key its query does not return now fails the report instead of rendering a blank column. Free text goes through the `md_cell` filter (pipes escaped, whitespace collapsed) and numbers through `num` (fixed digits, "—" for a missing value).
+- **Update (2026-10):** Report reads return typed rows (the row TypedDicts in `graph/rows.py`, such as `ConsensusSummaryRow` and `ShockImpactRow`), and templates render under Jinja `StrictUndefined`. A template that reads a key its query does not return now fails the report instead of rendering a blank column. Free text goes through the `md_cell` filter (pipes escaped, whitespace collapsed) and numbers through `num` (fixed digits, "—" for a missing value).
   - Reads describe the final round ([adr-num-rounds](#adr-num-rounds)), and the timeline covers every round that ran. PARSE_ERROR has its own row in the consensus summary and its own column in the timeline, so the shares add up to 100%.
   - Failed (PARSE_ERROR) agents are excluded from dissenters, bracket stances and averages, entity impact, and shock pivots. A bracket where every agent failed has no majority ("—").
   - "Influence Weight" became `influence_share` = citations / active final-round agents, which is the [p8-d-01](#p8-d-01) edge weight.
@@ -514,14 +515,14 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p4-d-01"></a>`D-01` | A Decision is a node (Agent-[:MADE]->Decision-[:FOR]->Cycle) holding signal/confidence/sentiment/rationale, not a relationship. The `FOR` edge is no longer written (2026-10); decisions carry `cycle_id`. | active | graph.py:384 |
-| <a id="p4-d-03"></a>`D-03` | cited_agents stored as explicit (Decision)-[:CITED]->(Agent) edges (raw LLM output), separate from computed INFLUENCED_BY. | active | graph.py:384 |
+| <a id="p4-d-01"></a>`D-01` | A Decision is a node (Agent-[:MADE]->Decision-[:FOR]->Cycle) holding signal/confidence/sentiment/rationale, not a relationship. The `FOR` edge is no longer written (2026-10); decisions carry `cycle_id`. | active | graph/schema_writes.py (`persist_round`) |
+| <a id="p4-d-03"></a>`D-03` | cited_agents stored as explicit (Decision)-[:CITED]->(Agent) edges (raw LLM output), separate from computed INFLUENCED_BY. | active | graph/schema_writes.py (`persist_round`) |
 | <a id="p4-d-05"></a>`D-05` | Schema applied idempotently at startup via ensure_schema() (CREATE ... IF NOT EXISTS). Since 2026-10 a web server whose Neo4j was down or rejected the password at startup still starts; once the database answers, the first `/api/health` probe applies the schema (no restart for a database that was only stopped). | active | graph/manager.py (`ensure_schema`); services/runtime.py (`_prepare_graph`); web/routes/health.py; readiness.py |
-| <a id="p4-d-06"></a>`D-06` | All 100 Agent nodes seeded eagerly in ensure_schema() from persona config. | active | graph.py:112 |
+| <a id="p4-d-06"></a>`D-06` | All 100 Agent nodes seeded eagerly in ensure_schema() from persona config. | active | graph/schema_writes.py (`seed_agents`) |
 | <a id="p4-d-07"></a>`D-07` | Session-per-method: each GraphStateManager method opens its own short-lived async session; callers never manage sessions. Sessions are opened only by the `_read`/`_write` helpers (plus `ensure_schema`'s DDL), which apply `Neo4jSettings.query_timeout_s` through `unit_of_work` and map driver/server errors to the `GraphError` family (`Neo4jUnavailableError`, `Neo4jQueryError`, `Neo4jWriteError`). | active | graph/manager.py (`_read`, `_write`, `_map_graph_error`) |
 | <a id="p4-d-08"></a>`D-08` | Keep the GraphStateManager API minimal and batch writes via UNWIND (one transaction per round, not per agent). `persist_round` writes a round's Decisions, CITED, RationaleEpisodes and REFERENCES in one transaction; the round's influence edges (`compute_influence_edges`) still follow in their own transaction. Posts are no longer written (2026-10). | active | graph/schema_writes.py (`persist_round`) |
 | <a id="p4-d-09"></a>`D-09` | Pre-dynamic-topology peer ranking by static influence_weight_base (read_peer_decisions). Deleted with the dead _dispatch_round path in 2026-10. | superseded | — |
-| <a id="p4-d-10"></a>`D-10` | cycle_id is a uuid4. | active | graph.py:188 |
+| <a id="p4-d-10"></a>`D-10` | cycle_id is a uuid4. | active | graph/schema_writes.py (`create_cycle_with_seed_event`) |
 
 ### Phase 5: Seed injection and agent personas
 
@@ -552,10 +553,10 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p8-d-01"></a>`D-01` | INFLUENCED_BY weight = citations received / active agents (simple, interpretable). | active | graph.py:983,1020 |
-| <a id="p8-d-02"></a>`D-02` | Compute influence edges after each round so topology shapes the next round. R1 computation since removed (SWEEP B-5); R3 computation added (260512-jqn ITEM 2). | partial | graph.py:983,1066; rounds.py:run_round |
-| <a id="p8-d-03"></a>`D-03` | Every citation pair produces an edge; no threshold. Edge weight is the target's citation share. | active | graph.py:983 |
-| <a id="p8-d-04"></a>`D-04` | Weights are cumulative across rounds (round <= up_to_round). | active | graph.py:983,989,1065; rounds.py:run_round |
+| <a id="p8-d-01"></a>`D-01` | INFLUENCED_BY weight = citations received / active agents (simple, interpretable). | active | influence.py (`citation_weights`); graph/schema_writes.py (`compute_influence_edges`) |
+| <a id="p8-d-02"></a>`D-02` | Compute influence edges after each round so topology shapes the next round. R1 computation since removed (SWEEP B-5); R3 computation added (260512-jqn ITEM 2). | partial | graph/schema_writes.py (`compute_influence_edges`, `_read_citation_pairs_tx`); rounds.py:run_round |
+| <a id="p8-d-03"></a>`D-03` | Every citation pair produces an edge; no threshold. Edge weight is the target's citation share. | active | influence.py (`citation_weights`); graph/schema_writes.py (`compute_influence_edges`) |
+| <a id="p8-d-04"></a>`D-04` | Weights are cumulative across rounds (round <= up_to_round). | active | graph/schema_writes.py (`compute_influence_edges`, `_read_citation_pairs_tx`); rounds.py:run_round |
 | <a id="p8-d-05"></a>`D-05` | Cold start: when no citations exist, fall back to static influence_weight_base. The explicit fallback (sequential `read_peer_decisions` reads) was deleted with `_dispatch_round` in 2026-10. The production path (`build_peer_contexts`) always adds base reach to citation share, so with zero citations it samples by base reach alone ([adr-diverse-peer-context](#adr-diverse-peer-context)); no static ordering remains. | superseded | peers.py (`build_peer_contexts`) |
 | <a id="p8-d-06"></a>`D-06` | Bracket-diverse peer selection: top-1 from the top N brackets, then fill by weight. Superseded by seeded stratified sampling with a per-bracket cap ([adr-diverse-peer-context](#adr-diverse-peer-context)). | superseded | peers.py (select_diverse_peers) |
 | <a id="p8-d-07"></a>`D-07` | Bracket aggregation computed in memory from the round's decisions. | active | rounds.py:compute_bracket_summaries; state.py:38 |
@@ -584,9 +585,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 |---|---|---|---|
 | <a id="p11-d-01"></a>`D-01` | WriteBuffer queued per-agent episodes and flushed them after the decisions. Superseded: `persist_round` writes each round in one transaction and `write_buffer.py` is deleted. | superseded | graph/schema_writes.py (`persist_round`); episodes.py |
 | <a id="p11-d-02"></a>`D-02` | WriteBuffer was separate from GraphStateManager (queueing vs Cypher). Superseded with p11-d-01; the pure value objects live in `episodes.py`. | superseded | episodes.py |
-| <a id="p11-d-04"></a>`D-04` | RationaleEpisode linked 1:1 via (Decision)-[:HAS_EPISODE]->(RationaleEpisode). | active | graph.py:803 |
+| <a id="p11-d-04"></a>`D-04` | RationaleEpisode linked 1:1 via (Decision)-[:HAS_EPISODE]->(RationaleEpisode). | active | graph/schema_writes.py (`persist_round`); episodes.py |
 | <a id="p11-d-06"></a>`D-06` | flip_type enum stored on each episode (NONE for round 1). | active | types.py:75 |
-| <a id="p11-d-07"></a>`D-07` | Episode properties: rationale, timestamp, peer_context_received, flip_type, round, cycle_id. `rationale` is no longer written (2026-10); readers use `Decision.rationale`. | active | graph.py:803 |
+| <a id="p11-d-07"></a>`D-07` | Episode properties: rationale, timestamp, peer_context_received, flip_type, round, cycle_id. `rationale` is no longer written (2026-10); readers use `Decision.rationale`. | active | graph/schema_writes.py (`persist_round`); episodes.py |
 | <a id="p11-d-08"></a>`D-08` | Decision-[:REFERENCES]->Entity, matched in Python. Superseded 2026-10: whole-token, case-insensitive matching on the cycle's typed entities; ambiguous names skipped (`episodes.match_entities`). | superseded | graph.py:875; tests/neo4j/test_graph_integration.py (test_references_edges_case_insensitive); tests/neo4j/test_report_reads.py (test_entity_impact_counts_each_decision_once_for_the_cycles_own_entities) |
 | <a id="p11-d-09"></a>`D-09` | REFERENCES are written in the same transaction as the round's decisions (`persist_round`); the cycle's entities are read once before Round 1. | active | graph/schema_writes.py (`persist_round`); simulation.py (`run_simulation`) |
 | <a id="p11-d-10"></a>`D-10` | Post-simulation decision narrative per agent. Superseded 2026-10: stored on the agent's final-round Decision (`d.narrative`), never on the shared Agent node. | superseded | graph/schema_writes.py (`LEGACY_PROPERTY_CLEANUP`, `write_decision_narrative`); tests/neo4j/test_interview_context.py |
@@ -622,7 +623,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p14-d-04"></a>`D-04` | Interview system prompt = persona + decision narrative + per-round decisions (hybrid context). The persona is rebuilt with the cycle's stored modifiers (2026-10). | active | graph.py:1176 |
+| <a id="p14-d-04"></a>`D-04` | Interview system prompt = persona + decision narrative + per-round decisions (hybrid context). The persona is rebuilt with the cycle's stored modifiers (2026-10). | active | interview.py (`load_interview_context`, `interview_persona`); graph/replay_interview.py (`read_agent_interview_rows`) |
 | <a id="p14-d-05"></a>`D-05` | Strip JSON output instructions from the persona for conversational answers. | active | interview.py:59 |
 | <a id="p14-d-06"></a>`D-06` | Context reconstructed from Neo4j at session start: the graph returns the agent's rows (read_agent_interview_rows) and `interview.load_interview_context` rebuilds the persona from config plus Cycle.modifiers_json; unknown or off-roster agents raise AgentNotFoundError (404). | active | graph/replay_interview.py (`read_agent_interview_rows`); interview.py (`load_interview_context`) |
 | <a id="p14-d-08"></a>`D-08` | Interview history keeps up to 12 user/assistant pairs; past that the oldest 6 are summarized in one call. A turn is committed only after the provider answers. Revised 2026-10 (was a 10-pair window trimmed one pair per turn). | revised | interview.py:172,230 |
@@ -654,8 +655,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p28-d-07"></a>`D-07` | Per-round replay data (brackets, rationales) loaded on demand. | active | graph.py:2150,2205 |
-| <a id="p28-d-08"></a>`D-08` | read_full_cycle_signals() loads all rounds' signals in one query up front. | active | graph.py:2032 |
+| <a id="p28-d-07"></a>`D-07` | Per-round replay data (brackets, rationales) loaded on demand. | active | graph/replay_interview.py (`read_bracket_narratives_for_round`, `read_rationale_entries_for_round`) |
+| <a id="p28-d-08"></a>`D-08` | read_full_cycle_signals() loads all rounds' signals in one query up front. | active | graph/replay_interview.py (`read_full_cycle_signals`) |
 
 ### Phase 29: FastAPI skeleton and event-loop foundation
 
@@ -924,7 +925,7 @@ subjects, for example "remove hardcoded Neo4j password default (F1)". See
 
 | ID | Bug and fix | Referenced from |
 |---|---|---|
-| <a id="b1"></a>B1 | Shock injection was dead in the web UI: `consume_shock()` had no caller and there was no `write_shock_event`. Fixed in Phase 35.1: shock consumed before Rounds 2 and 3 and persisted as ShockEvent. Since 2026-10 shocks carry forward: every applied shock is appended to all later rounds' user message, oldest first (a Round 2 shock is still in Round 3), and recorded on the StateStore (`applied_shocks`). A shock posted once the last gated round has started gets 409 `shock_window_closed` instead of being accepted and never read | graph.py:2190; simulation.py:_run_simulation (shock consumption); rounds.py:run_round (shock gate); web/simulation_manager.py (`inject_shock`); tests/test_graph.py:1547; tests/engine/test_orchestration.py (test_shocks_are_written_once_and_carried_forward, test_shock_is_consumed_after_the_round_starts); tests/engine/test_round_runner.py (test_round_message_is_rumor_plus_active_shocks); tests/test_shock_window.py; tests/engine/test_scenarios.py:135 |
+| <a id="b1"></a>B1 | Shock injection was dead in the web UI: `consume_shock()` had no caller and there was no `write_shock_event`. Fixed in Phase 35.1: shock consumed before Rounds 2 and 3 and persisted as ShockEvent. Since 2026-10 shocks carry forward: every applied shock is appended to all later rounds' user message, oldest first (a Round 2 shock is still in Round 3), and recorded on the StateStore (`applied_shocks`). A shock posted once the last gated round has started gets 409 `shock_window_closed` instead of being accepted and never read | graph/schema_writes.py (`write_shock_event`); simulation.py:_run_simulation (shock consumption); rounds.py:run_round (shock gate); web/simulation_manager.py (`inject_shock`); tests/test_graph.py:1547; tests/engine/test_orchestration.py (test_shocks_are_written_once_and_carried_forward, test_shock_is_consumed_after_the_round_starts); tests/engine/test_round_runner.py (test_round_message_is_rumor_plus_active_shocks); tests/test_shock_window.py; tests/engine/test_scenarios.py:135 |
 | <a id="b4"></a>B4 | Replay could run on top of a live sim. Fixed with mutual exclusion: route returns 409 and `SimulationManager.start` raises `ReplayActiveError` | web/app.py:110; web/routes/replay.py:107,122; web/simulation_manager.py:120,131; tests/test_web.py:59,1380,1386,1407 |
 | <a id="b7"></a>B7 | ConnectionManager leaked dead clients. The writer `finally` now removes its own entries | web/connection_manager.py:56,75; tests/test_connection_manager.py |
 | <a id="b8"></a>B8 | `_on_task_done` race with `start()`. Phase reset now happens synchronously inside `_run` before the lock is released | web/simulation_manager.py:SimulationManager._run,_on_task_done; tests/test_web.py:1081,1380,1426,1492 |
@@ -950,7 +951,7 @@ code. Their status is in BACKLOG.md.
 
 | ID | Threat and mitigation | Referenced from |
 |---|---|---|
-| <a id="t-35-1-01"></a>T-35.1-01 | Cypher injection through shock text. All user input goes through parameters, never f-strings | graph.py:2008 |
+| <a id="t-35-1-01"></a>T-35.1-01 | Cypher injection through shock text. All user input goes through parameters, never f-strings | graph/schema_writes.py (`write_shock_event`) |
 | <a id="t-36-01"></a>T-36-01 | Path traversal through cycle_id. Since 2026-10 the `CycleId` path type and `CYCLE_ID_PATTERN` (`web/params.py`) validate it for report, advisory, replay, edges and interview, and malformed ids get 422 `validation_error` (was the `_CYCLE_ID_RE` regex guard) | web/params.py; tests/test_web_params.py |
 | <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:get_report; tests/test_report_routes.py:test_routes_use_async_filesystem_probes |
 | <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:100; web/routes/advisory.py:5,268; services/jobs.py:JobRunner; web/routes/report.py:get_report; tests/test_report_routes.py |
@@ -977,10 +978,10 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-infra-08"></a>INFRA-08 | Pydantic parsing with multi-tier fallback | parsing.py:3; tests/test_parsing.py:1 |
 | <a id="req-tui-03"></a>TUI-03 / TUI-04 / TUI-05 | Rationale stream / telemetry (RAM, TPS, slots) / bracket panel. The contracts survive in StateStore after the TUI was removed | No live references since 2026-10: the code cites [p10-d-02](#p10-d-02) (rationale stream), [p10-d-05](#p10-d-05) (TPS) and [p10-d-08](#p10-d-08) (bracket summaries) instead, in state.py, batch_dispatcher.py and worker.py |
 | <a id="req-graph-03"></a>GRAPH-03 | Decision→Entity REFERENCES edges | tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc) |
-| <a id="req-int-01"></a>INT-01 | Interview context reconstructed from Neo4j | graph.py:1176 |
-| <a id="req-report-02"></a>REPORT-02 | Cypher report tools (bracket, influence, entity, flips, posts) | graph.py:1276,1320,1359,1399,1454,1507,1553,1601 |
+| <a id="req-int-01"></a>INT-01 | Interview context reconstructed from Neo4j | graph/replay_interview.py (`read_agent_interview_rows`); interview.py (`load_interview_context`) |
+| <a id="req-report-02"></a>REPORT-02 | Cypher report tools (bracket, influence, entity, flips, posts) | graph/analytics.py:read_consensus_summary,read_round_timeline,read_bracket_narratives,read_key_dissenters,read_influence_leaders,read_signal_flips,read_entity_impact |
 | <a id="req-social-01"></a>SOCIAL-01 / SOCIAL-02 | Rationale posts as Post nodes / top-K posts in peer context (SOCIAL-02 ranking superseded, see [§2](#hist-read-post)) | SOCIAL-01: `write_posts` and its Post writes were deleted in 2026-10. SOCIAL-02: its ranking read (`read_ranked_posts`) and READ_POST writer (`write_read_post_edges`) were deleted in 2026-10 |
-| <a id="req-replay-01"></a>REPLAY-01 | Replay from Neo4j without re-inference | graph.py:2032,2150,2205; tests/test_graph.py:1555,1580,1602,1625 |
+| <a id="req-replay-01"></a>REPLAY-01 | Replay from Neo4j without re-inference | graph/replay_interview.py:read_full_cycle_signals,read_bracket_narratives_for_round,read_rationale_entries_for_round; tests/test_graph.py:1555,1580,1602,1625 |
 | <a id="req-vis-03"></a>VIS-03 | Edges endpoint for the web graph (Phase 31 ID) | tests/test_web.py:754 |
 | <a id="req-shock"></a>SHOCK-04 / SHOCK-05 | Phase 27-internal IDs (never added to REQUIREMENTS.md). SHOCK-04: `read_shock_event` / `read_shock_impact` (bracket deltas, pivot count, comparable agents) plus the old TUI bracket-panel delta mode. SHOCK-05: shock-impact report section (`11_shock_impact.j2`). Since 2026-10 `collect_report_data` reads the impact only when the cycle has a shock and `render_report` adds the section; this replaced `TOOL_TO_TEMPLATE['shock_impact']` and the CLI's pre-seeded `shock_impact` observation | SHOCK-04: graph/analytics.py:read_shock_event,read_shock_impact; tests/test_graph.py:1438,1459,1473,1514. SHOCK-05: report.py:SECTION_TEMPLATES,collect_report_data; tests/test_report.py:test_shock_impact_template_renders_bracket_delta_table,test_shock_impact_template_renders_pivot_list; tests/test_report_pipeline.py:test_collect_reads_shock_impact_only_when_a_shock_exists,test_render_skips_the_shock_section_without_a_shock |
 | <a id="req-be"></a>BE-01 / 03 / 04 / 08 / 09 / 10 | v5.0 web-backend IDs (definitions recovered from `git show 343669f^:.planning/...`). BE-01: FastAPI app whose lifespan owns the event loop, plus `/api/health`. BE-03: per-client WebSocket queue with drop-oldest and writer-task cleanup (ConnectionManager). BE-04: `/ws/state` 5 Hz snapshot stream (Phase 30). BE-08: `GET /api/replay/cycles` (real Neo4j query). BE-09: `POST /api/replay/start/{cycle_id}`. BE-10: `POST /api/replay/advance` (BE-09/10 began as Phase 32 stubs and were filled in by Phase 34) | BE-01: tests/test_web.py:102,226. BE-03: tests/test_connection_manager.py. BE-04: tests/test_web.py:356,735. BE-08..10: tests/test_web.py:1130 |
