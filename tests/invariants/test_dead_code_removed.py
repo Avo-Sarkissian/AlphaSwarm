@@ -17,14 +17,6 @@ def test_simulation_dead_helpers_are_gone() -> None:
         assert not hasattr(simulation, name), f"alphaswarm.simulation.{name} is back"
 
 
-def test_run_round1_requires_the_seeded_cycle() -> None:
-    from alphaswarm.simulation import run_round1
-
-    param = inspect.signature(run_round1).parameters["pre_injected"]
-    assert param.kind is inspect.Parameter.KEYWORD_ONLY
-    assert param.default is inspect.Parameter.empty
-
-
 def test_dead_graph_methods_are_gone() -> None:
     import alphaswarm.graph as graph
 
@@ -73,7 +65,7 @@ def test_cli_round1_report_helpers_are_gone() -> None:
     import alphaswarm.cli as cli
 
     assert not hasattr(cli, "_print_round1_report"), "run prints through _print_round_report"
-    assert not hasattr(cli, "_aggregate_brackets"), "use simulation.compute_bracket_summaries"
+    assert not hasattr(cli, "_aggregate_brackets"), "use rounds.compute_bracket_summaries"
 
 
 def test_stale_diagnose_script_is_gone() -> None:
@@ -104,3 +96,11 @@ def test_governor_protocol_alias_is_gone() -> None:
     import alphaswarm.governor as governor
 
     assert not hasattr(governor, "ResourceGovernorProtocol")
+
+
+def test_run_round1_was_replaced_by_run_round() -> None:
+    """docs/DECISIONS.md#adr-round-runner: one round implementation."""
+    import alphaswarm.simulation as simulation
+
+    for name in ("run_round1", "Round1Result"):
+        assert not hasattr(simulation, name), f"alphaswarm.simulation.{name} is back"

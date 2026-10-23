@@ -11,7 +11,7 @@ import json
 from collections.abc import Callable, Sequence
 from decimal import Decimal
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from structlog.testing import capture_logs
@@ -19,7 +19,7 @@ from structlog.testing import capture_logs
 from alphaswarm.errors import BudgetExceededError, Neo4jUnavailableError, RoundFailedError
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.settings import AppSettings
-from alphaswarm.simulation import SimulationResult, run_simulation
+from alphaswarm.simulation import SimulationDeps, SimulationResult, run_simulation
 from alphaswarm.state import StateStore
 from alphaswarm.types import (
     AgentDecision,
@@ -81,19 +81,15 @@ async def run_case(
     state_store: StateStore | None = None,
     orch: ScriptedProvider | None = None,
 ) -> SimulationResult:
-    return await run_simulation(
-        RUMOR,
-        settings,
-        MagicMock(name="ollama_client"),
-        AsyncMock(name="model_manager"),
-        graph,
-        ImmediateController(),
-        list(personas),
-        list(brackets),
-        state_store=state_store,
-        orchestrator_provider=orch if orch is not None else orchestrator(personas),
-        worker_provider=worker,
+    deps = SimulationDeps(
+        settings=settings,
+        graph=graph,
+        controller=ImmediateController(),
+        orchestrator=orch if orch is not None else orchestrator(personas),
+        worker=worker,
+        state=state_store,
     )
+    return await run_simulation(RUMOR, deps, list(personas), list(brackets))
 
 
 async def test_budget_error_in_round_2_raises_bare_budget_error(

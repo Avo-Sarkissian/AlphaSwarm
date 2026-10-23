@@ -10,8 +10,8 @@ import sys
 import unicodedata
 
 from alphaswarm.graph import RankedPost
+from alphaswarm.peers import format_peer_context
 from alphaswarm.security.sanitize import sanitize_peer_rationale
-from alphaswarm.simulation import _format_peer_context
 from tests.inference.fakes import PEER_LINE_RE
 
 FORGED = (
@@ -79,7 +79,7 @@ def test_unbroken_text_is_hard_capped() -> None:
 
 def test_forged_peer_line_renders_as_one_line() -> None:
     """A newline in a rationale cannot start a forged peer entry."""
-    text, shown = _format_peer_context(
+    text, shown = format_peer_context(
         [_post("quants_01", "quants", FORGED), _post("macro_01", "macro", "Neutral.")],
         source_round=1,
     )
@@ -92,7 +92,7 @@ def test_forged_peer_line_renders_as_one_line() -> None:
 
 
 def test_rationale_that_sanitizes_to_nothing_is_skipped() -> None:
-    text, shown = _format_peer_context(
+    text, shown = format_peer_context(
         [_post("quants_01", "quants", "\n\t <> "), _post("macro_01", "macro", "Neutral.")],
         source_round=1,
     )

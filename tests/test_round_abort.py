@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from alphaswarm.errors import RoundFailedError
-from alphaswarm.simulation import _raise_if_round_failed
+from alphaswarm.rounds import _raise_if_round_failed
 from alphaswarm.types import AgentDecision, SignalType
 
 

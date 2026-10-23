@@ -49,7 +49,7 @@ def format_market_context(packet: ContextPacket, *, budget: int = 4000) -> str |
         packet: The frozen ContextPacket assembled by run_simulation.
         budget: Maximum character length for the returned string. Greedy
             fill drops entities that would overflow the budget (never
-            truncates mid-block). Default 4000 matches _format_peer_context
+            truncates mid-block). Default 4000 matches format_peer_context
             and SHOCK_TEXT_MAX_LEN conventions.
 
     Returns:

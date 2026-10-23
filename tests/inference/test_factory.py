@@ -140,6 +140,12 @@ class TestBuildProvidersAllOllama:
     def test_worker_model(self) -> None:
         assert self.built.worker.model == "alphaswarm-worker"
 
+    def test_only_the_worker_cleans_state_before_loading(self) -> None:
+        assert isinstance(self.built.worker, OllamaProvider)
+        assert isinstance(self.built.orchestrator, OllamaProvider)
+        assert self.built.worker.clean_state_on_prepare is True
+        assert self.built.orchestrator.clean_state_on_prepare is False
+
 
 # ---------------------------------------------------------------------------
 # build_providers — mixed (Ollama orch + Anthropic worker)

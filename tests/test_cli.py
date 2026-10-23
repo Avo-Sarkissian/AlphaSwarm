@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from alphaswarm.inference.types import ProviderRole
+from alphaswarm.settings import AppSettings
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -20,6 +22,7 @@ from alphaswarm.types import (
     SeedEvent,
     SignalType,
 )
+from tests.inference.fakes import FakeInferenceProvider
 
 
 @pytest.fixture()
@@ -470,7 +473,7 @@ def test_shift_analysis_output(
 ) -> None:
     """_print_shift_analysis prints transition counts in two-column layout."""
     from alphaswarm.cli import _print_shift_analysis
-    from alphaswarm.simulation import ShiftMetrics
+    from alphaswarm.rounds import ShiftMetrics
 
     shift = ShiftMetrics(
         signal_transitions=(("BUY->SELL", 3), ("SELL->BUY", 2)),
@@ -494,7 +497,7 @@ def test_shift_analysis_no_flips(
 ) -> None:
     """_print_shift_analysis with total_flips=0 prints no-change message."""
     from alphaswarm.cli import _print_shift_analysis
-    from alphaswarm.simulation import ShiftMetrics
+    from alphaswarm.rounds import ShiftMetrics
 
     shift = ShiftMetrics(
         signal_transitions=(),
@@ -514,7 +517,7 @@ def test_shift_analysis_confidence_drift(
 ) -> None:
     """_print_shift_analysis prints confidence drift with signed delta values."""
     from alphaswarm.cli import _print_shift_analysis
-    from alphaswarm.simulation import ShiftMetrics
+    from alphaswarm.rounds import ShiftMetrics
 
     shift = ShiftMetrics(
         signal_transitions=(("BUY->SELL", 1),),
@@ -538,7 +541,7 @@ def test_simulation_summary_output(
 ) -> None:
     """_print_simulation_summary prints 'Simulation Complete' block with total flips."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
 
     r2_shifts = ShiftMetrics(
         signal_transitions=(("BUY->SELL", 3),),
@@ -553,7 +556,7 @@ def test_simulation_summary_output(
         agents_shifted=1,
     )
 
-    result = SimulationResult(
+    result = _result_from_round_fields(
         cycle_id="test-cycle",
         parsed_result=_MOCK_PARSED_RESULT,
         round1_decisions=(
@@ -595,7 +598,7 @@ def test_simulation_summary_convergence_yes(
 ) -> None:
     """When round2 flips > round3 flips, convergence = 'Yes (flips decreased between rounds)'."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
 
     r2_shifts = ShiftMetrics(
         signal_transitions=(("BUY->SELL", 5),),
@@ -610,7 +613,7 @@ def test_simulation_summary_convergence_yes(
         agents_shifted=2,
     )
 
-    result = SimulationResult(
+    result = _result_from_round_fields(
         cycle_id="test-cycle",
         parsed_result=_MOCK_PARSED_RESULT,
         round1_decisions=(),
@@ -636,7 +639,7 @@ def test_simulation_summary_convergence_no_increased(
 ) -> None:
     """When round2 flips < round3 flips, convergence = 'No (flips increased between rounds)'."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
 
     r2_shifts = ShiftMetrics(
         signal_transitions=(),
@@ -651,7 +654,7 @@ def test_simulation_summary_convergence_no_increased(
         agents_shifted=5,
     )
 
-    result = SimulationResult(
+    result = _result_from_round_fields(
         cycle_id="test-cycle",
         parsed_result=_MOCK_PARSED_RESULT,
         round1_decisions=(),
@@ -677,7 +680,7 @@ def test_simulation_summary_convergence_no_unchanged(
 ) -> None:
     """When round2 flips == round3 flips, convergence = 'No (flips unchanged between rounds)'."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
 
     r2_shifts = ShiftMetrics(
         signal_transitions=(),
@@ -692,7 +695,7 @@ def test_simulation_summary_convergence_no_unchanged(
         agents_shifted=3,
     )
 
-    result = SimulationResult(
+    result = _result_from_round_fields(
         cycle_id="test-cycle",
         parsed_result=_MOCK_PARSED_RESULT,
         round1_decisions=(),
@@ -718,7 +721,7 @@ def test_simulation_summary_final_bracket_table(
 ) -> None:
     """_print_simulation_summary prints 'Final Consensus Distribution' bracket table from Round 3."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
 
     r2_shifts = ShiftMetrics(
         signal_transitions=(),
@@ -733,7 +736,7 @@ def test_simulation_summary_final_bracket_table(
         agents_shifted=0,
     )
 
-    result = SimulationResult(
+    result = _result_from_round_fields(
         cycle_id="test-cycle",
         parsed_result=_MOCK_PARSED_RESULT,
         round1_decisions=(),
@@ -769,7 +772,7 @@ async def test_round_complete_handler_prints_report_and_shift(
 ) -> None:
     """The on_round_complete handler prints round report + shift analysis."""
     from alphaswarm.cli import _make_round_complete_handler
-    from alphaswarm.simulation import RoundCompleteEvent, ShiftMetrics
+    from alphaswarm.rounds import RoundCompleteEvent, ShiftMetrics
 
     handler = _make_round_complete_handler(_TEST_PERSONAS, _TEST_BRACKETS)
 
@@ -808,7 +811,7 @@ async def test_round_complete_handler_round1_no_shift(
 ) -> None:
     """Round 1 handler prints report but no shift analysis."""
     from alphaswarm.cli import _make_round_complete_handler
-    from alphaswarm.simulation import RoundCompleteEvent
+    from alphaswarm.rounds import RoundCompleteEvent
 
     handler = _make_round_complete_handler(_TEST_PERSONAS, _TEST_BRACKETS)
 
@@ -834,57 +837,46 @@ async def test_round_complete_handler_round1_no_shift(
     assert "Signal Transitions" not in captured.out
 
 
-async def test_run_pipeline_calls_run_simulation_with_callback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """_run_pipeline calls run_simulation with on_round_complete handler (D-17, D-14)."""
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+def _empty_simulation_result() -> Any:
+    from alphaswarm.simulation import SimulationResult
+    from alphaswarm.types import ParsedSeedResult, SeedEvent
 
-    # Create mock AppState
-    mock_app = MagicMock()
-    mock_app.graph_manager = AsyncMock()
-    mock_app.ollama_client = MagicMock()
-    mock_app.model_manager = AsyncMock()
-    mock_app.governor = AsyncMock()
-
-    mock_settings = MagicMock()
-    mock_settings.num_rounds = 3
-
-    # Create a minimal SimulationResult for the mock return
-    empty_shifts = ShiftMetrics(
-        signal_transitions=(),
-        total_flips=0,
-        bracket_confidence_delta=(),
-        agents_shifted=0,
+    seed = SeedEvent(raw_rumor="test rumor", entities=[], overall_sentiment=0.0)
+    return SimulationResult(
+        cycle_id="test-cycle",
+        parsed_result=ParsedSeedResult(seed_event=seed, parse_tier=1),
+        rounds=(),
     )
-    mock_result = MagicMock(spec=SimulationResult)
-    mock_result.round2_shifts = empty_shifts
-    mock_result.round3_shifts = empty_shifts
-    mock_result.round3_decisions = ()
-    mock_result.round3_summaries = ()
-    mock_result.cycle_id = "test-cycle"
 
-    mock_sim = AsyncMock(return_value=mock_result)
 
-    with patch("alphaswarm.cli.run_simulation", mock_sim, create=True):
-        from alphaswarm.cli import _run_pipeline
+def _pipeline_app() -> MagicMock:
+    app = MagicMock()
+    app.graph_manager = AsyncMock()
+    return app
 
-        # Need to reload to pick up the patched import
-        # Actually, _run_pipeline does `from alphaswarm.simulation import run_simulation`
-        # at function scope, so we need to patch the source module
-        pass
 
-    # Patch at the source module since _run_pipeline uses a local import
+def _fake_provider(role: ProviderRole) -> FakeInferenceProvider:
+    return FakeInferenceProvider(role, f"fake-{role.value}", scripted=[])
+
+
+async def test_run_pipeline_calls_run_simulation_with_callback() -> None:
+    """_run_pipeline passes an on_round_complete handler (docs/DECISIONS.md#p7-d-14)."""
+    mock_sim = AsyncMock(return_value=_empty_simulation_result())
     with patch("alphaswarm.simulation.run_simulation", mock_sim):
         from alphaswarm.cli import _run_pipeline
 
-        await _run_pipeline("test rumor", mock_settings, mock_app, _TEST_PERSONAS, _TEST_BRACKETS)
+        await _run_pipeline(
+            "test rumor",
+            AppSettings(_env_file=None),  # type: ignore[call-arg]
+            _pipeline_app(),
+            _TEST_PERSONAS,
+            _TEST_BRACKETS,
+            orchestrator_provider=_fake_provider(ProviderRole.ORCHESTRATOR),
+            worker_provider=_fake_provider(ProviderRole.WORKER),
+            controller=MagicMock(),
+        )
 
-    # Verify run_simulation was called with on_round_complete kwarg
-    assert mock_sim.called
-    call_kwargs = mock_sim.call_args.kwargs
-    assert "on_round_complete" in call_kwargs
-    assert callable(call_kwargs["on_round_complete"])
+    assert callable(mock_sim.call_args.kwargs["on_round_complete"])
 
 
 # ---------------------------------------------------------------------------
@@ -991,56 +983,32 @@ async def test_shock_impact_not_preseeded_when_no_shock_event() -> None:
 
 
 async def test_run_pipeline_constructs_providers() -> None:
-    """Phase 40 D-11: CLI _run_pipeline constructs real YFinance+RSS providers
-    and forwards them to run_simulation as kwargs.
-
-    Patches `alphaswarm.simulation.run_simulation` (not `alphaswarm.cli`) because
-    _run_pipeline performs a function-local `from alphaswarm.simulation import
-    run_simulation` — the source module is the correct patch target. Mirrors the
-    established pattern in test_run_pipeline_calls_run_simulation_with_callback.
-    """
+    """The CLI builds SimulationDeps with real yfinance and RSS providers
+    (docs/DECISIONS.md#adr-market-context)."""
     from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
 
-    # Minimal AppState surface — _run_pipeline only reads these attributes.
-    mock_app = MagicMock()
-    mock_app.graph_manager = AsyncMock()
-    mock_app.ollama_client = MagicMock()
-    mock_app.model_manager = AsyncMock()
-    mock_app.governor = AsyncMock()
-
-    mock_settings = MagicMock()
-    mock_settings.num_rounds = 3
-
-    # Minimal SimulationResult so the post-return _print_simulation_summary path
-    # (which accesses .round2_shifts, .round3_shifts, .round3_decisions, etc.)
-    # does not explode.
-    empty_shifts = ShiftMetrics(
-        signal_transitions=(),
-        total_flips=0,
-        bracket_confidence_delta=(),
-        agents_shifted=0,
-    )
-    mock_result = MagicMock(spec=SimulationResult)
-    mock_result.round2_shifts = empty_shifts
-    mock_result.round3_shifts = empty_shifts
-    mock_result.round3_decisions = ()
-    mock_result.round3_summaries = ()
-    mock_result.cycle_id = "test-cycle"
-
-    mock_sim = AsyncMock(return_value=mock_result)
-
+    orchestrator = _fake_provider(ProviderRole.ORCHESTRATOR)
+    worker = _fake_provider(ProviderRole.WORKER)
+    controller = MagicMock()
+    mock_sim = AsyncMock(return_value=_empty_simulation_result())
     with patch("alphaswarm.simulation.run_simulation", mock_sim):
         from alphaswarm.cli import _run_pipeline
 
-        await _run_pipeline("test rumor", mock_settings, mock_app, _TEST_PERSONAS, _TEST_BRACKETS)
+        await _run_pipeline(
+            "test rumor",
+            AppSettings(_env_file=None),  # type: ignore[call-arg]
+            _pipeline_app(),
+            _TEST_PERSONAS,
+            _TEST_BRACKETS,
+            orchestrator_provider=orchestrator,
+            worker_provider=worker,
+            controller=controller,
+        )
 
-    assert mock_sim.called
-    kwargs = mock_sim.call_args.kwargs
-    assert "market_provider" in kwargs
-    assert "news_provider" in kwargs
-    assert isinstance(kwargs["market_provider"], YFinanceMarketDataProvider)
-    assert isinstance(kwargs["news_provider"], RSSNewsProvider)
+    deps = mock_sim.call_args.kwargs["deps"]
+    assert isinstance(deps.market, YFinanceMarketDataProvider)
+    assert isinstance(deps.news, RSSNewsProvider)
+    assert (deps.orchestrator, deps.worker, deps.controller) == (orchestrator, worker, controller)
 
 
 @pytest.mark.parametrize("mode", ["context_fixture", "no_market_context"])
@@ -1051,7 +1019,6 @@ async def test_run_pipeline_point_in_time_runs_build_no_live_providers(mode: str
     from decimal import Decimal
 
     from alphaswarm.ingestion.fixture import build_fixture_packet
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
 
     packet = build_fixture_packet(
         event_id="evt-001",
@@ -1060,24 +1027,8 @@ async def test_run_pipeline_point_in_time_runs_build_no_live_providers(mode: str
         close=Decimal("123.45"),
         volume=1_000_000,
     )
-    run_kwargs: dict[str, object] = (
-        {"context_fixture": packet} if mode == "context_fixture" else {"market_context": False}
-    )
-    mock_app = MagicMock()
-    mock_app.graph_manager = AsyncMock()
-    mock_app.ollama_client = MagicMock()
-    mock_app.model_manager = AsyncMock()
-    mock_app.governor = AsyncMock()
-    mock_settings = MagicMock()
-    mock_settings.num_rounds = 3
-    empty_shifts = ShiftMetrics(signal_transitions=(), total_flips=0, bracket_confidence_delta=(), agents_shifted=0)
-    mock_result = MagicMock(spec=SimulationResult)
-    mock_result.round2_shifts = empty_shifts
-    mock_result.round3_shifts = empty_shifts
-    mock_result.round3_decisions = ()
-    mock_result.round3_summaries = ()
-    mock_result.cycle_id = "test-cycle"
-    mock_sim = AsyncMock(return_value=mock_result)
+    run_kwargs: dict[str, Any] = {"context_fixture": packet} if mode == "context_fixture" else {"market_context": False}
+    mock_sim = AsyncMock(return_value=_empty_simulation_result())
 
     with (
         patch("alphaswarm.simulation.run_simulation", mock_sim),
@@ -1086,19 +1037,28 @@ async def test_run_pipeline_point_in_time_runs_build_no_live_providers(mode: str
     ):
         from alphaswarm.cli import _run_pipeline
 
-        await _run_pipeline("test rumor", mock_settings, mock_app, _TEST_PERSONAS, _TEST_BRACKETS, **run_kwargs)
+        await _run_pipeline(
+            "test rumor",
+            AppSettings(_env_file=None),  # type: ignore[call-arg]
+            _pipeline_app(),
+            _TEST_PERSONAS,
+            _TEST_BRACKETS,
+            orchestrator_provider=_fake_provider(ProviderRole.ORCHESTRATOR),
+            worker_provider=_fake_provider(ProviderRole.WORKER),
+            controller=MagicMock(),
+            **run_kwargs,
+        )
 
     market_cls.assert_not_called()
     news_cls.assert_not_called()
-    kwargs = mock_sim.call_args.kwargs
-    assert kwargs["market_provider"] is None
-    assert kwargs["news_provider"] is None
-    assert kwargs["context_fixture"] is (packet if mode == "context_fixture" else None)
+    deps = mock_sim.call_args.kwargs["deps"]
+    assert (deps.market, deps.news) == (None, None)
+    assert deps.context_fixture is (packet if mode == "context_fixture" else None)
 
 
 def test_shift_analysis_uses_actual_agent_count(capsys: pytest.CaptureFixture[str]) -> None:
     from alphaswarm.cli import _print_shift_analysis
-    from alphaswarm.simulation import ShiftMetrics
+    from alphaswarm.rounds import ShiftMetrics
 
     shift = ShiftMetrics(
         signal_transitions=(("BUY->SELL", 2),),
@@ -1115,10 +1075,10 @@ def test_shift_analysis_uses_actual_agent_count(capsys: pytest.CaptureFixture[st
 
 def test_simulation_summary_for_two_rounds(capsys: pytest.CaptureFixture[str]) -> None:
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult
+    from alphaswarm.rounds import ShiftMetrics
 
     empty = ShiftMetrics(signal_transitions=(), total_flips=0, bracket_confidence_delta=(), agents_shifted=0)
-    result = SimulationResult(
+    result = _result_from_round_fields(
         cycle_id="test-cycle",
         parsed_result=_MOCK_PARSED_RESULT,
         round1_decisions=(),
@@ -1164,7 +1124,7 @@ def test_round_report_fallback_table_matches_engine_summaries(
 ) -> None:
     """Without precomputed summaries the round table equals the engine's summaries."""
     from alphaswarm.cli import _print_round_report
-    from alphaswarm.simulation import compute_bracket_summaries
+    from alphaswarm.rounds import compute_bracket_summaries
 
     _print_round_report(2, "c1", _MIXED_DECISIONS, _TEST_PERSONAS, _TEST_BRACKETS)
     fallback = capsys.readouterr().out
@@ -1185,7 +1145,8 @@ def test_simulation_summary_fallback_table_matches_engine_summaries(
 ) -> None:
     """An empty round3_summaries tuple renders the same table as computed summaries."""
     from alphaswarm.cli import _print_simulation_summary
-    from alphaswarm.simulation import ShiftMetrics, SimulationResult, compute_bracket_summaries
+    from alphaswarm.rounds import ShiftMetrics, compute_bracket_summaries
+    from alphaswarm.simulation import SimulationResult
 
     shifts = ShiftMetrics(
         signal_transitions=(),
@@ -1195,7 +1156,7 @@ def test_simulation_summary_fallback_table_matches_engine_summaries(
     )
 
     def _result(summaries: tuple[object, ...]) -> SimulationResult:
-        return SimulationResult(
+        return _result_from_round_fields(
             cycle_id="c1",
             parsed_result=_MOCK_PARSED_RESULT,
             round1_decisions=(),
@@ -1213,3 +1174,44 @@ def test_simulation_summary_fallback_table_matches_engine_summaries(
     computed = compute_bracket_summaries(_MIXED_DECISIONS, _TEST_PERSONAS, _TEST_BRACKETS)
     _print_simulation_summary(_result(computed), _TEST_PERSONAS, _TEST_BRACKETS, num_rounds=3)
     assert capsys.readouterr().out == fallback
+
+
+def _result_from_round_fields(
+    *,
+    cycle_id: str,
+    parsed_result: Any,
+    round1_decisions: Any = (),
+    round2_decisions: Any = (),
+    round3_decisions: Any = (),
+    round2_shifts: Any = None,
+    round3_shifts: Any = None,
+    round1_summaries: Any = (),
+    round2_summaries: Any = (),
+    round3_summaries: Any = (),
+) -> Any:
+    """A SimulationResult from per-round fields: one RoundOutcome per round
+    (docs/DECISIONS.md#p7-d-08). Keeps the printer tests independent of the result shape."""
+    from alphaswarm.rounds import RoundOutcome
+    from alphaswarm.simulation import SimulationResult
+
+    per_round = {
+        1: (round1_decisions, None, round1_summaries),
+        2: (round2_decisions, round2_shifts, round2_summaries),
+        3: (round3_decisions, round3_shifts, round3_summaries),
+    }
+    rounds = tuple(
+        RoundOutcome(
+            round_num=n,
+            decisions=tuple(decisions),
+            decision_ids=(),
+            exposures=(),
+            shift=shift,
+            bracket_summaries=tuple(summaries),
+            influence_weights={},
+            applied_shocks=(),
+            seconds=0.0,
+            metrics={},
+        )
+        for n, (decisions, shift, summaries) in per_round.items()
+    )
+    return SimulationResult(cycle_id=cycle_id, parsed_result=parsed_result, rounds=rounds)

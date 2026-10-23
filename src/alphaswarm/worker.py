@@ -23,7 +23,7 @@ from alphaswarm.types import AgentDecision, WorkerPersonaConfig
 if TYPE_CHECKING:
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
-    from alphaswarm.state import StateStore
+    from alphaswarm.state import StateSink
 
 logger = structlog.get_logger(component="worker")
 
@@ -57,7 +57,7 @@ DECISION_JSON_SCHEMA: dict = {  # type: ignore[type-arg]
 #
 # peer_context is our own agents' model output, which an RSS headline can steer in
 # Round 1, so it gets the same treatment: sanitized line by line in
-# simulation._format_peer_context, fenced in the user message below, and announced
+# peers.format_peer_context, fenced in the user message below, and announced
 # by the fixed PEER_CONTEXT_GUARD (docs/DECISIONS.md#adr-security-2026-08).
 UNTRUSTED_DATA_OPEN = "<untrusted_market_data>"
 UNTRUSTED_DATA_CLOSE = "</untrusted_market_data>"
@@ -138,7 +138,7 @@ class AgentWorker:
         self,
         persona: WorkerPersonaConfig,
         provider: InferenceProvider,
-        state_store: StateStore | None = None,
+        state_store: StateSink | None = None,
     ) -> None:
         self._persona = persona
         self._provider = provider
@@ -250,7 +250,7 @@ async def agent_worker(
     persona: WorkerPersonaConfig,
     governor: ConcurrencyController,
     provider: InferenceProvider,
-    state_store: StateStore | None = None,
+    state_store: StateSink | None = None,
 ) -> AsyncGenerator[AgentWorker, None]:
     """Async context manager for agent inference with semaphore guarding.
 
@@ -263,7 +263,7 @@ async def agent_worker(
         persona: Runtime persona config (WorkerPersonaConfig TypedDict).
         governor: ResourceGovernor for concurrency slot management.
         provider: InferenceProvider for LLM calls (local or cloud).
-        state_store: Optional StateStore for TPS metric collection (docs/DECISIONS.md#p10-d-05).
+        state_store: Optional StateSink for TPS metric collection (docs/DECISIONS.md#p10-d-05).
 
     Yields:
         AgentWorker -- call worker.infer() to run inference.

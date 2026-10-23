@@ -1,6 +1,6 @@
 """Fakes and helpers for code that talks to GraphStateManager.
 
-Shared by the engine scenarios (tests/engine/conftest.py), tests/test_simulation.py
+Shared by the engine scenarios (tests/engine/conftest.py), tests/simulation/
 and the seeded-cycle builder. Values are fictional.
 """
 

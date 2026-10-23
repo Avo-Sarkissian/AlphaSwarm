@@ -270,7 +270,7 @@ class ResourceGovernor:
         self._crisis_start = None
         self._consecutive_green_checks = 0
 
-        # Bug 4 fix: reset pool to baseline so Round 1 shrinkage doesn't degrade Round 2
+        # Bug 4 fix: each session starts at baseline; shrinks last the whole run (docs/DECISIONS.md#adr-round-runner)
         self._pool.reset(self._settings.baseline_parallel)
         self._active_count = 0
 

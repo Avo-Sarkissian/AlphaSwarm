@@ -6,7 +6,7 @@ from typing import Any
 
 import structlog
 
-from alphaswarm.simulation import RoundCompleteEvent
+from alphaswarm.rounds import RoundCompleteEvent
 from tests.engine.scenario import SCENARIO_CYCLE_ID, RunScenario
 
 

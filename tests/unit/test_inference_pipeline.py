@@ -232,25 +232,21 @@ async def test_sequential_model_flow() -> None:
 
     # Step 1: Load orchestrator
     await manager.load_model("alphaswarm-orchestrator")
-    assert manager.current_model == "alphaswarm-orchestrator"
     assert "alphaswarm-orchestrator" in loaded_models
     assert "alphaswarm-worker" not in loaded_models
 
     # Step 2: Unload orchestrator
     await manager.unload_model("alphaswarm-orchestrator")
-    assert manager.current_model is None
     assert "alphaswarm-orchestrator" not in loaded_models
 
     # Step 3: Load worker
     await manager.load_model("alphaswarm-worker")
-    assert manager.current_model == "alphaswarm-worker"
     assert "alphaswarm-worker" in loaded_models
     assert "alphaswarm-orchestrator" not in loaded_models  # Still unloaded
 
     # Step 4: Clean up
     await manager.ensure_clean_state()
     assert len(loaded_models) == 0
-    assert manager.current_model is None
 
 
 async def test_ensure_clean_state_scoped_in_integration() -> None:

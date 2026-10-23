@@ -92,23 +92,24 @@ async def test_verify_loaded(model_manager: Any, mock_raw_client: AsyncMock) -> 
 
 
 async def test_sequential_load(model_manager: Any, mock_ollama_client: MagicMock, mock_raw_client: AsyncMock) -> None:
-    """Load orchestrator -> verify -> unload -> verify -> load worker -> verify."""
-    # ps() is only called by is_model_loaded() inside load_model(),
-    # NOT by unload_model(). So we need exactly 2 side effects.
+    """Load orchestrator -> unload it -> load worker; ps() verifies each load."""
     mock_raw_client.ps = AsyncMock(
         side_effect=[
-            _make_ps_response(["alphaswarm-orchestrator"]),  # load_model("orch") -> is_model_loaded
-            _make_ps_response(["alphaswarm-worker"]),  # load_model("worker") -> is_model_loaded
+            _make_ps_response(["alphaswarm-orchestrator"]),
+            _make_ps_response(["alphaswarm-worker"]),
         ]
     )
     await model_manager.load_model("alphaswarm-orchestrator")
-    assert model_manager.current_model == "alphaswarm-orchestrator"
-
     await model_manager.unload_model("alphaswarm-orchestrator")
-    assert model_manager.current_model is None
-
     await model_manager.load_model("alphaswarm-worker")
-    assert model_manager.current_model == "alphaswarm-worker"
+
+    calls = [(c.kwargs["model"], c.kwargs["keep_alive"]) for c in mock_ollama_client.chat.await_args_list]
+    assert calls == [
+        ("alphaswarm-orchestrator", "5m"),
+        ("alphaswarm-orchestrator", 0),
+        ("alphaswarm-worker", "5m"),
+    ]
+    assert mock_raw_client.ps.await_count == 2
 
 
 async def test_load_failure_raises_model_load_error(
@@ -207,3 +208,10 @@ async def test_ensure_clean_state_ignores_entries_without_a_name(
     mock_raw_client.ps = AsyncMock(return_value=response)
     await model_manager.ensure_clean_state()
     assert [c.kwargs["model"] for c in mock_ollama_client.chat.call_args_list] == ["alphaswarm-worker"]
+
+
+def test_model_manager_no_longer_tracks_a_current_model() -> None:
+    """current_model was write-only bookkeeping; ps() is the source of truth."""
+    from alphaswarm.ollama_models import OllamaModelManager
+
+    assert not hasattr(OllamaModelManager, "current_model")

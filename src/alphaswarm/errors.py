@@ -176,6 +176,21 @@ class RoundFailedError(AlphaSwarmError):
         self.threshold_percent = threshold_percent
 
 
+class RoundAlignmentError(AlphaSwarmError):
+    """dispatch_wave returned a different number of decisions than personas.
+
+    run_round raises it before anything is persisted: pairing decisions with agents
+    by position would silently attach them to the wrong agents
+    (docs/DECISIONS.md#adr-round-runner).
+    """
+
+    def __init__(self, round_num: int, *, expected: int, actual: int) -> None:
+        super().__init__(f"round {round_num}: dispatch returned {actual} decisions for {expected} personas")
+        self.round_num = round_num
+        self.expected = expected
+        self.actual = actual
+
+
 class InferenceConfigError(AlphaSwarmError):
     """The persisted inference configuration could not be loaded or built."""
 

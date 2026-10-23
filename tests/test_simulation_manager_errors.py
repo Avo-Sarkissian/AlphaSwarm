@@ -19,6 +19,7 @@ from alphaswarm.errors import (
     BudgetExceededError,
     InferenceConfigError,
     InferenceConfigIncompleteError,
+    Neo4jUnavailableError,
     RoundFailedError,
     run_error_from_exception,
 )
@@ -299,6 +300,32 @@ async def test_cloud_role_without_api_key_points_at_settings(
     )
     assert all(event != "inference_config_invalid" for _level, event, _kw in recorded_log.calls)
     assert store.snapshot().phase is SimulationPhase.IDLE
+
+
+async def test_run_without_a_graph_manager_fails_as_graph_unavailable(
+    recorded_log: _RecordingLog,
+) -> None:
+    """An AppState built without Neo4j has no graph manager, so the run fails before
+    seeding with a graph_unavailable RunError, not an internal error."""
+    store = StateStore()
+    app_state = MagicMock()
+    app_state.state_store = store
+    app_state.graph_manager = None
+    sm = SimulationManager(app_state, brackets=[])
+
+    with _patched_run(AsyncMock()) as run_mock:
+        await sm.start(SEED)
+        with pytest.raises(Neo4jUnavailableError) as exc_info:
+            await _finish(sm)
+
+    run_mock.assert_not_awaited()
+    assert exc_info.value.op == "simulation_start"
+    err = store.last_error
+    assert err is not None
+    assert (err.code, err.round_num) == ("graph_unavailable", None)
+    assert store.snapshot().phase is SimulationPhase.IDLE
+    level, kwargs = recorded_log.find("simulation_run_failed")
+    assert (level, kwargs["error_code"]) == ("error", "graph_unavailable")
 
 
 async def test_failure_is_logged_with_exc_info_even_if_the_store_rejects_it(

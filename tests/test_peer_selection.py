@@ -16,15 +16,10 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from alphaswarm.inference.types import ProviderRole
+from alphaswarm.peers import build_peer_contexts, compute_exposure_metrics, peer_rng, select_diverse_peers
 from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.settings import SimulationSettings
-from alphaswarm.simulation import (
-    _build_diverse_peer_contexts,
-    _peer_and_provenance_metrics,
-    compute_exposure_metrics,
-    peer_rng,
-    select_diverse_peers,
-)
+from alphaswarm.simulation import _peer_and_provenance_metrics
 from alphaswarm.types import AgentDecision, AgentPersona, BracketType, SignalType
 from tests.inference.fakes import FakeInferenceProvider
 
@@ -97,7 +92,8 @@ def _build(
 ) -> tuple[list[str | None], list[tuple[str, ...]]]:
     kwargs.setdefault("sim", SimulationSettings())
     kwargs.setdefault("run_seed", RUN_SEED)
-    return _build_diverse_peer_contexts(list(personas), list(decisions), source_round, **kwargs)
+    result = build_peer_contexts(list(personas), list(decisions), source_round, **kwargs)
+    return list(result.contexts), list(result.exposures)
 
 
 class TestComputeExposureMetrics:
@@ -228,7 +224,7 @@ class TestBuildDiversePeerContexts:
             captured.append({"agent_id": agent_id, "weights": dict(influence_weights), **kwargs})
             return []
 
-        monkeypatch.setattr("alphaswarm.simulation.select_diverse_peers", fake_select)
+        monkeypatch.setattr("alphaswarm.peers.select_diverse_peers", fake_select)
         sim = SimulationSettings(personal_boost=0.05, peer_limit=7, min_brackets=2, bracket_cap=2)
 
         contexts, exposures = _build(SMALL_PERSONAS, _decisions(SMALL_PERSONAS, cited=("degens_01",)), 2, sim=sim)

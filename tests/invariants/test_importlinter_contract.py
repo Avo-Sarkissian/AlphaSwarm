@@ -163,3 +163,22 @@ def test_lint_imports_detects_a_synthetic_cycle(tmp_path: Path) -> None:
     assert result.returncode != 0, output
     assert "Synthetic acyclic siblings (must fail) BROKEN" in result.stdout, output
     assert "Contracts: 0 kept, 1 broken." in result.stdout, output
+
+
+def test_pyproject_declares_the_engine_contract() -> None:
+    engine = [
+        c
+        for c in _contracts()
+        if c.get("type") == "forbidden" and "alphaswarm.ollama_client" in c.get("forbidden_modules", [])  # type: ignore[operator]
+    ]
+    assert len(engine) == 1
+    assert set(engine[0]["source_modules"]) == {  # type: ignore[arg-type]
+        "alphaswarm.simulation",
+        "alphaswarm.rounds",
+        "alphaswarm.peers",
+    }
+    assert set(engine[0]["forbidden_modules"]) == {  # type: ignore[arg-type]
+        "alphaswarm.inference.ollama_provider",
+        "alphaswarm.ollama_client",
+        "alphaswarm.ollama_models",
+    }

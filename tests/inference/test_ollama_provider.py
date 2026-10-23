@@ -349,3 +349,45 @@ async def test_model_kwarg_forwarded_to_client() -> None:
     await p.chat([{"role": "user", "content": "x"}])
     assert fc.kwargs is not None
     assert fc.kwargs["model"] == "alphaswarm-worker"
+
+
+class _CleaningManager(_NoopManager):
+    """Records ensure_clean_state alongside loads, in call order."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[str] = []
+
+    async def ensure_clean_state(self) -> None:
+        self.events.append("ensure_clean_state")
+
+    async def load_model(self, model: str) -> None:
+        self.events.append(f"load:{model}")
+        await super().load_model(model)
+
+
+async def test_worker_prepare_cleans_state_before_loading() -> None:
+    mgr = _CleaningManager()
+    p = OllamaProvider(
+        ProviderRole.WORKER,
+        "alphaswarm-worker",
+        _FakeOllama(),  # type: ignore[arg-type]
+        mgr,  # type: ignore[arg-type]
+        clean_state_on_prepare=True,
+    )
+    await p.prepare()
+    assert mgr.events == ["ensure_clean_state", "load:alphaswarm-worker"]
+
+
+async def test_orchestrator_prepare_never_cleans_state() -> None:
+    """A report's orchestrator must not evict an interview's worker."""
+    mgr = _CleaningManager()
+    p = OllamaProvider(
+        ProviderRole.ORCHESTRATOR,
+        "alphaswarm-orchestrator",
+        _FakeOllama(),  # type: ignore[arg-type]
+        mgr,  # type: ignore[arg-type]
+    )
+    await p.prepare()
+    assert p.clean_state_on_prepare is False
+    assert mgr.events == ["load:alphaswarm-orchestrator"]

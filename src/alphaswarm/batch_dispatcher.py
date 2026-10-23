@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.settings import GovernorSettings
-    from alphaswarm.state import StateStore
+    from alphaswarm.state import StateSink
     from alphaswarm.types import WorkerPersonaConfig
 
 log = structlog.get_logger(component="batch_dispatcher")
@@ -59,7 +59,7 @@ async def _safe_agent_inference(
     market_context: str | None,
     jitter_min: float,
     jitter_max: float,
-    state_store: StateStore | None = None,
+    state_store: StateSink | None = None,
     round_num: int = 0,
     own_prior: str | None = None,
 ) -> AgentDecision:
@@ -174,7 +174,7 @@ async def dispatch_wave(
     peer_context: str | None = None,
     peer_contexts: list[str | None] | None = None,
     market_context: str | None = None,
-    state_store: StateStore | None = None,
+    state_store: StateSink | None = None,
     round_num: int = 0,
     own_priors: Sequence[str | None] | None = None,
 ) -> list[AgentDecision]:
@@ -201,7 +201,7 @@ async def dispatch_wave(
         market_context: Optional grounded market context block. Applied to every
             agent identically per Phase 40 D-07 (scalar, same block for all 100
             agents). Round 1 only (docs/DECISIONS.md#adr-market-context).
-        state_store: Optional StateStore for TPS metric collection (docs/DECISIONS.md#p10-d-05).
+        state_store: Optional StateSink for TPS metric collection (docs/DECISIONS.md#p10-d-05).
             Threaded through to AgentWorker.infer() via agent_worker context manager.
         own_priors: Optional per-agent own-prior lines (same length as personas).
 
