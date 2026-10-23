@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
+from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
 from alphaswarm.inference.budget import DEFAULT_PRICING, BudgetMeter, BudgetTrackingProvider
 from alphaswarm.inference.concurrency import ConcurrencyController
@@ -370,10 +371,6 @@ def build_controller(
         ``RateLimitController`` for cloud workers.
     """
     if cfg.worker.provider == ProviderType.OLLAMA:
-        # Lazy import avoids circular dependency:
-        # inference.__init__ → factory → governor → inference.concurrency → inference.__init__
-        from alphaswarm.governor import ResourceGovernor  # noqa: PLC0415
-
         return ResourceGovernor(governor_settings, state_store=state_store)
 
     # Cloud path: look up limits for the worker's provider, fall back to defaults
