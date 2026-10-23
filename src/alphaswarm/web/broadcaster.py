@@ -16,9 +16,9 @@ import time
 from dataclasses import dataclass
 from typing import Final, Protocol
 
-import psutil
 import structlog
 
+from alphaswarm.memory_monitor import memory_used_percent
 from alphaswarm.state import ReplayStore, StateStore
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.wire import build_frame
@@ -48,11 +48,15 @@ class ReplaySource(Protocol):
 
 
 def _host_memory_percent() -> float:
-    """Live host RAM %, read fresh every tick (psutil does not cache)."""
+    """Live RAM %, read fresh every tick from the governor's memory signal.
+
+    memory_monitor.memory_used_percent is the same source the governor uses
+    (docs/DECISIONS.md#p3-d-12), so the overlay shows what the governor sees.
+    """
     try:
-        return float(psutil.virtual_memory().percent)
-    except Exception:  # pragma: no cover -- macOS host_statistics64 does not raise
-        log.warning("psutil_read_failed")
+        return memory_used_percent()
+    except Exception:  # pragma: no cover -- the kernel read and psutil do not raise
+        log.warning("memory_read_failed")
         return 0.0
 
 

@@ -42,7 +42,7 @@ class _Connections:
 
 @pytest.fixture(autouse=True)
 def _host_memory(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("alphaswarm.web.broadcaster.psutil.virtual_memory", lambda: SimpleNamespace(percent=50.0))
+    monkeypatch.setattr("alphaswarm.web.broadcaster.memory_used_percent", lambda: 50.0)
 
 
 def _tick(store: StateStore, conns: _Connections, state: BroadcastState, now: float, replay: Any = None) -> bool:
