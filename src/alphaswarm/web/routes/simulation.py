@@ -1,18 +1,17 @@
-"""Simulation control endpoints for AlphaSwarm web server."""
+"""Simulation control endpoints: start, stop, shock.
+
+Manager conflicts (already running, replay active, post-run jobs, no run, shock
+window closed, shock already queued) are mapped to 409 in web/errors.py; inputs
+are validated by the types in web/params.py (docs/DECISIONS.md#adr-background-tasks).
+"""
 
 from __future__ import annotations
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request, status
 from pydantic import BaseModel
 
-from alphaswarm.web.params import ShockText
-from alphaswarm.web.simulation_manager import (
-    NoSimulationRunningError,
-    ReplayActiveError,
-    ShockAlreadyQueuedError,
-    SimulationAlreadyRunningError,
-)
+from alphaswarm.web.params import SeedText, ShockText
 
 log = structlog.get_logger(component="web.simulation")
 
@@ -20,9 +19,9 @@ router = APIRouter()
 
 
 class SimulateStartRequest(BaseModel):
-    """Request body for POST /simulate/start."""
+    """Request body for POST /simulate/start (10-2000 characters after stripping)."""
 
-    seed: str
+    seed: SeedText
 
 
 class SimulateStartResponse(BaseModel):
@@ -57,79 +56,27 @@ class SimulateShockResponse(BaseModel):
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def simulate_start(body: SimulateStartRequest, request: Request) -> SimulateStartResponse:
-    """Start a simulation run.
-
-    Returns 202 Accepted when the simulation is queued.
-    Returns 409 Conflict when a simulation is already running.
-    """
-    sim_manager = request.app.state.sim_manager
-
-    try:
-        await sim_manager.start(body.seed)
-    except SimulationAlreadyRunningError as exc:
-        log.warning("simulate_start_rejected", reason="already_running")
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "simulation_already_running", "message": str(exc)},
-        ) from exc
-    except ReplayActiveError as exc:
-        log.warning("simulate_start_rejected", reason="replay_active")
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "replay_active", "message": str(exc)},
-        ) from exc
-
+    """202 when queued; 409 when a run, a replay or post-run jobs are active; 422 bad seed."""
+    await request.app.state.sim_manager.start(body.seed)
     log.info("simulate_start_accepted", seed_length=len(body.seed))
-    return SimulateStartResponse(
-        status="accepted",
-        message="Simulation started",
-    )
+    return SimulateStartResponse(status="accepted", message="Simulation started")
 
 
 @router.post("/simulate/stop", response_model=SimulateStopResponse)
 async def simulate_stop(request: Request) -> SimulateStopResponse:
-    """Stop a running simulation.
-
-    Returns 200 when the simulation is cancelled.
-    Returns 409 Conflict when no simulation is running.
-    """
-    sim_manager = request.app.state.sim_manager
-    try:
-        sim_manager.stop()
-    except NoSimulationRunningError as exc:
-        log.warning("simulate_stop_rejected", reason="not_running")
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "no_simulation_running", "message": str(exc)},
-        ) from exc
+    """200 when the run is cancelled; 409 no_simulation_running otherwise."""
+    request.app.state.sim_manager.stop()
     log.info("simulate_stop_accepted")
     return SimulateStopResponse(status="stopped")
 
 
-@router.post(
-    "/simulate/shock",
-    response_model=SimulateShockResponse,
-)
+@router.post("/simulate/shock", response_model=SimulateShockResponse)
 async def simulate_shock(body: SimulateShockRequest, request: Request) -> SimulateShockResponse:
     """Queue a shock for the next simulation round.
 
     200 when queued; 409 when no run is active, the shock window is closed, or a
     shock is already queued; 422 bad length.
     """
-    sim_manager = request.app.state.sim_manager
-    try:
-        sim_manager.inject_shock(body.shock_text)
-    except NoSimulationRunningError as exc:
-        log.warning("simulate_shock_rejected", reason="not_running")
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "no_simulation_running", "message": str(exc)},
-        ) from exc
-    except ShockAlreadyQueuedError as exc:
-        log.warning("simulate_shock_rejected", reason="already_queued")
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "shock_already_queued", "message": str(exc)},
-        ) from exc
+    request.app.state.sim_manager.inject_shock(body.shock_text)
     log.info("simulate_shock_accepted", shock_length=len(body.shock_text))
     return SimulateShockResponse(status="queued", message="Shock queued for next round")
