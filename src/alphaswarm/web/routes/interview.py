@@ -15,12 +15,11 @@ import structlog
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from alphaswarm.config import load_inference_config
-from alphaswarm.errors import AgentNotFoundError
+from alphaswarm.errors import INFERENCE_CONFIG_INCOMPLETE_MESSAGE, AgentNotFoundError
 from alphaswarm.inference.factory import build_providers
 from alphaswarm.interview import InterviewEngine, ensure_decision_narrative
 from alphaswarm.web.errors import ApiError
-from alphaswarm.web.guards import require_complete_cycle, require_graph
+from alphaswarm.web.guards import load_inference_config_or_422, require_complete_cycle, require_graph
 from alphaswarm.web.params import CYCLE_ID_PATTERN
 
 if TYPE_CHECKING:
@@ -74,8 +73,10 @@ async def interview_agent(
 
     409 simulation_running during a run; 404 no_completed_cycle when no cycle is
     complete; 404 cycle_not_found / 422 cycle_not_ready for an explicit cycle;
-    404 agent_not_found when the cycle has no context for the agent. The
-    per-session lock serializes engine creation and ask() for one conversation.
+    404 agent_not_found when the cycle has no context for the agent; 422
+    inference_config_invalid when the stored inference config cannot be loaded or
+    a cloud worker lacks its API key or base URL. The per-session lock serializes
+    engine creation and ask() for one conversation.
     """
     app_state = request.app.state.app_state
     sim_manager = request.app.state.sim_manager
@@ -117,12 +118,17 @@ async def interview_agent(
                         "agent_not_found",
                         f"No interview context for agent {agent_id}",
                     ) from exc
-                cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
-                built = build_providers(
-                    cfg,
-                    ollama_client=app_state.ollama_client,
-                    ollama_model_manager=app_state.model_manager,
-                )
+                cfg = await load_inference_config_or_422(app_state)
+                try:
+                    built = build_providers(
+                        cfg,
+                        ollama_client=app_state.ollama_client,
+                        ollama_model_manager=app_state.model_manager,
+                    )
+                except ValueError as exc:
+                    # The file loads, but a cloud role lacks its API key or base
+                    # URL, so the fix is in Settings (docs/DECISIONS.md#adr-local-first-inference).
+                    raise ApiError(422, "inference_config_invalid", INFERENCE_CONFIG_INCOMPLETE_MESSAGE) from exc
                 # First interview of (cycle, agent) generates and stores the
                 # narrative once (docs/DECISIONS.md#p11-d-11).
                 context = await ensure_decision_narrative(graph, built.worker, context, cycle_id=cycle_id)
