@@ -47,40 +47,38 @@ def test_create_app_state_publishes_the_configured_round_count(
     assert app_state.state_store.snapshot().num_rounds == 2
 
 
-def test_main_entry_point(
+def test_main_entry_point_prints_help(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Entry point prints startup banner with correct values when no subcommand given."""
-    clear_alphaswarm_env(monkeypatch)
-    # Set sys.argv to simulate no-args invocation (banner mode)
+    """`python -m alphaswarm` without a subcommand prints help and exits 0."""
     monkeypatch.setattr("sys.argv", ["alphaswarm"])
 
     from alphaswarm.__main__ import main
 
-    main()
+    main()  # returns normally: exit code 0
     captured = capsys.readouterr()
-
-    from alphaswarm import __version__
-
-    assert f"AlphaSwarm v{__version__}" in captured.out
-    assert "Agents: 100 across 10 brackets" in captured.out
-    # hermetic_env keeps .env out of AppSettings, so the defaults are exact.
-    assert "Orchestrator: qwen3.6:27b-nvfp4" in captured.out
-    assert "Workers: qwen3.6:35b-a3b-nvfp4" in captured.out
+    assert captured.out.startswith("usage: alphaswarm")
+    assert captured.err == ""
 
 
-def test_main_invalid_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Invalid config causes sys.exit(1) in banner mode."""
+def test_main_invalid_config_exits_2(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A settings validation error inside a subcommand exits 2 with one line."""
+    from alphaswarm import cli
+
     monkeypatch.setenv("ALPHASWARM_LOG_LEVEL", "INVALID")
-    # Set sys.argv to simulate no-args invocation (banner mode)
-    monkeypatch.setattr("sys.argv", ["alphaswarm"])
-
-    from alphaswarm.__main__ import main
-
+    monkeypatch.setattr(cli, "_handle_inject", lambda rumor: AppSettings())
+    monkeypatch.setattr(
+        "sys.argv",
+        ["alphaswarm", "inject", "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."],
+    )
     with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 1
+        cli.main()
+    assert exc_info.value.code == 2
+    assert capsys.readouterr().err.startswith("Configuration error:")
 
 
 async def test_governor_stub_async() -> None:

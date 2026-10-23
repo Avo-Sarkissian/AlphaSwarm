@@ -1,11 +1,8 @@
-"""CLI entry point for AlphaSwarm with subcommand routing.
+"""AlphaSwarm command line: ``alphaswarm inject|run|report|web``.
 
-Usage:
-    python -m alphaswarm                  # Print startup banner (legacy)
-    python -m alphaswarm inject "rumor"   # Inject a seed rumor
-    python -m alphaswarm run "rumor"      # Run a full simulation (ALPHASWARM_NUM_ROUNDS)
-    python -m alphaswarm run "rumor" --context-fixture PATH  # point-in-time market block
-    python -m alphaswarm run "rumor" --no-market-context     # no market block, no live fetch
+stdout carries only command output (tables, paths, help); logs go to stderr.
+Exit codes: 0 success, 1 runtime failure, 2 usage or configuration error,
+130 interrupted. ``-v`` prints tracebacks (docs/DECISIONS.md#adr-cli-ux).
 """
 
 from __future__ import annotations
@@ -13,18 +10,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import dataclasses
+import inspect
 import sys
-from collections.abc import Awaitable, Callable
+import traceback
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
-import structlog
+from pydantic import ValidationError
 
-from alphaswarm import __version__
+from alphaswarm.errors import InferenceConfigError
 from alphaswarm.fsutil import atomic_write_text
 from alphaswarm.ingestion.fixture import load_context_fixture
 from alphaswarm.logging import configure_logging
-from alphaswarm.personas import generate_personas, load_bracket_configs
+from alphaswarm.personas import load_bracket_configs
 from alphaswarm.readiness import NEO4J_FIX
 from alphaswarm.services.runtime import close_operation, open_runtime, open_simulation
 from alphaswarm.settings import AppSettings
@@ -39,39 +38,6 @@ if TYPE_CHECKING:
     from alphaswarm.simulation import SimulationResult
     from alphaswarm.state import BracketSummary
     from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, ParsedSeedResult
-
-logger = structlog.get_logger(component="cli")
-
-BANNER = """
-============================================================
-  AlphaSwarm v{version}
-  Agents: {agents} across {brackets} brackets
-  Orchestrator: {orchestrator}
-  Workers: {worker}
-============================================================
-""".strip()
-
-
-def _print_banner() -> None:
-    """Load settings, brackets, personas and print the startup banner."""
-    try:
-        settings = AppSettings()
-    except Exception as e:
-        print(f"Configuration error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    brackets = load_bracket_configs()
-    personas = generate_personas(brackets)
-
-    print(
-        BANNER.format(
-            version=__version__,
-            agents=len(personas),
-            brackets=len(brackets),
-            orchestrator=settings.ollama.orchestrator_model,
-            worker=settings.ollama.worker_model,
-        )
-    )
 
 
 def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> None:
@@ -510,20 +476,52 @@ def _context_fixture_arg(value: str) -> ContextPacket:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
-def main() -> None:
-    """CLI entry point with argparse subcommand routing."""
+# ---------------------------------------------------------------------------
+# Entry points: one parser, one runner, fixed exit codes
+# (docs/DECISIONS.md#adr-cli-ux)
+# ---------------------------------------------------------------------------
+
+EXIT_OK: Final = 0
+EXIT_FAILURE: Final = 1
+EXIT_USAGE: Final = 2
+EXIT_INTERRUPTED: Final = 130
+
+#: Exceptions that mean "fix the configuration"; they exit with EXIT_USAGE.
+CONFIG_ERRORS: Final[tuple[type[BaseException], ...]] = (ValidationError, InferenceConfigError)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The ``alphaswarm`` parser; ``-v`` is accepted before or after the subcommand.
+
+    The flag's default is SUPPRESS so a subcommand parser never resets a ``-v``
+    given before it; read it with ``getattr(args, "verbose", False)``. (The
+    parent's action object is shared, so ``set_defaults`` would leak into it.)
+    """
+    verbose = argparse.ArgumentParser(add_help=False)
+    verbose.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="print the full traceback when a command fails",
+    )
     parser = argparse.ArgumentParser(
         prog="alphaswarm",
-        description="AlphaSwarm: Multi-agent financial simulation engine",
+        description="AlphaSwarm: multi-agent financial simulation engine",
+        parents=[verbose],
     )
-    subparsers = parser.add_subparsers(dest="command")
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
-    inject_parser = subparsers.add_parser("inject", help="Inject a seed rumor")
-    inject_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
+    inject = sub.add_parser("inject", parents=[verbose], help="Parse a seed rumor and store the cycle")
+    inject.add_argument("rumor", type=str, help="Natural-language seed rumor text")
 
-    run_parser = subparsers.add_parser("run", help="Run a full simulation (ALPHASWARM_NUM_ROUNDS=2|3 rounds)")
-    run_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
-    context = run_parser.add_mutually_exclusive_group()
+    run = sub.add_parser(
+        "run",
+        parents=[verbose],
+        help="Run a full simulation (ALPHASWARM_NUM_ROUNDS=2|3 rounds)",
+    )
+    run.add_argument("rumor", type=str, help="Natural-language seed rumor text")
+    context = run.add_mutually_exclusive_group()
     context.add_argument(
         "--context-fixture",
         type=_context_fixture_arg,
@@ -537,96 +535,92 @@ def main() -> None:
         help="send no market block at all (no live fetches)",
     )
 
-    report_parser = subparsers.add_parser("report", help="Generate post-simulation analysis report")
-    report_parser.add_argument(
+    report = sub.add_parser("report", parents=[verbose], help="Generate the post-simulation report")
+    report.add_argument(
         "--cycle",
         type=str,
         default=None,
         help="Cycle ID to report on (defaults to the most recent complete cycle)",
     )
-    report_parser.add_argument(
-        "--output",
-        type=str,
-        default=None,
-        help="Also write the markdown to this path",
-    )
+    report.add_argument("--output", type=str, default=None, help="Also write the markdown to this path")
 
-    web_parser = subparsers.add_parser("web", help="Start web UI server")
-    web_parser.add_argument(
-        "--host",
-        type=str,
-        default="127.0.0.1",
-        help="Bind address (default: 127.0.0.1)",
-    )
-    web_parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Port number (default: 8000)",
-    )
+    web = sub.add_parser("web", parents=[verbose], help="Start the web UI server")
+    web.add_argument("--host", type=str, default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
+    web.add_argument("--port", type=int, default=8000, help="Port number (default: 8000)")
+    return parser
 
-    args = parser.parse_args()
 
-    if args.command == "inject":
-        try:
-            asyncio.run(_handle_inject(args.rumor))
-        except KeyboardInterrupt:
-            print("\nAborted.", file=sys.stderr)
-            sys.exit(1)
-        except Exception as e:
-            logger.error("inject_failed", error=str(e))
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
-    elif args.command == "run":
-        try:
-            run_kwargs: dict[str, Any] = {}
-            if args.context_fixture is not None:
-                run_kwargs["context_fixture"] = args.context_fixture
-            elif args.no_market_context:
-                run_kwargs["market_context"] = False
-            _handle_run(args.rumor, **run_kwargs)
-        except KeyboardInterrupt:
-            print("\nAborted.", file=sys.stderr)
-            sys.exit(1)
-        except Exception as e:
-            logger.error("run_failed", error=str(e))
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
-    elif args.command == "report":
-        try:
-            asyncio.run(_handle_report(args.cycle, args.output))
-        except KeyboardInterrupt:
-            print("\nAborted.", file=sys.stderr)
-            sys.exit(1)
-        except Exception as e:
-            logger.error("report_failed", error=str(e))
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
-    elif args.command == "web":
-        try:
-            _handle_web(args.host, args.port)
-        except KeyboardInterrupt:
-            print("\nAborted.", file=sys.stderr)
-            sys.exit(1)
-        except Exception as e:
-            logger.error("web_failed", error=str(e))
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
-    else:
-        _print_banner()
+def _invoke(handler: Callable[..., object], *args: object, **kwargs: object) -> None:
+    """Call a subcommand handler; a coroutine it returns runs in a fresh event loop."""
+    result = handler(*args, **kwargs)
+    if inspect.iscoroutine(result):
+        asyncio.run(result)
+
+
+def _run_context_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    """Keyword arguments for ``_handle_run``; a plain run passes none."""
+    if args.context_fixture is not None:
+        return {"context_fixture": args.context_fixture}
+    if args.no_market_context:
+        return {"market_context": False}
+    return {}
+
+
+def _run_command(name: str, call: Callable[[], None], *, verbose: bool) -> int:
+    """Run one subcommand and map its outcome to an exit code.
+
+    Everything printed here goes to stderr; stdout stays the command's own.
+    The code that failed logs its own error, so this boundary only prints.
+    A SystemExit raised by a handler on purpose is not caught: it keeps its code.
+    """
+    try:
+        call()
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        return EXIT_INTERRUPTED
+    except CONFIG_ERRORS as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        if verbose:
+            traceback.print_exc(file=sys.stderr)
+        return EXIT_USAGE
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        if verbose:
+            traceback.print_exc(file=sys.stderr)
+        else:
+            print(f"'{name}' failed; re-run with -v for the full traceback.", file=sys.stderr)
+        return EXIT_FAILURE
+    return EXIT_OK
+
+
+def run_cli(argv: Sequence[str] | None = None) -> int:
+    """Parse *argv* (default: ``sys.argv[1:]``), run the subcommand, return its exit code."""
+    parser = build_parser()
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:  # --help exits 0, a usage error 2
+        return exc.code if isinstance(exc.code, int) else EXIT_USAGE
+    if args.command is None:
+        parser.print_help()
+        return EXIT_OK
+    commands: dict[str, Callable[[], None]] = {
+        "inject": lambda: _invoke(_handle_inject, args.rumor),
+        "run": lambda: _invoke(_handle_run, args.rumor, **_run_context_kwargs(args)),
+        "report": lambda: _invoke(_handle_report, args.cycle, args.output),
+        "web": lambda: _invoke(_handle_web, args.host, args.port),
+    }
+    return _run_command(args.command, commands[args.command], verbose=getattr(args, "verbose", False))
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Console-script entry point for ``alphaswarm``."""
+    code = run_cli(argv)
+    if code != EXIT_OK:
+        sys.exit(code)
 
 
 def main_web() -> None:
-    """Direct entry point for 'start' console script — launches the web UI.
-
-    Replaces main_tui: the TUI was retired by the v5.0 web-first decision.
-    """
-    try:
-        _handle_web("127.0.0.1", 8000)
-    except KeyboardInterrupt:
-        print("\nAborted.", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        logger.error("web_failed", error=str(e))
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    """Console-script entry point for ``start``: the web UI on 127.0.0.1:8000."""
+    code = _run_command("web", lambda: _invoke(_handle_web, "127.0.0.1", 8000), verbose=False)
+    if code != EXIT_OK:
+        sys.exit(code)

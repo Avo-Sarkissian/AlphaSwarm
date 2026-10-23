@@ -83,7 +83,7 @@ Contents
 - **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`).
 - **Rationale:** A per-request `num_ctx` makes Ollama silently reload the model.
 - **Caveats:**
-  - `OllamaSettings.worker_model` and `orchestrator_model` are only displayed in the CLI banner (`cli.py:_print_banner`). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
+  - `OllamaSettings.worker_model` and `orchestrator_model` are no longer read anywhere (the CLI banner that displayed them was removed; see [adr-cli-ux](#adr-cli-ux)). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
   - `OllamaSettings.num_parallel` and `max_loaded_models` are never read, so they are dead config. The real values are Ollama server environment variables (see RUNBOOK).
 
 ### <a id="adr-think-off"></a>Orchestrator reasoning ("think") is off everywhere
@@ -406,10 +406,12 @@ Contents
   - Cycle ids are validated by the `CycleId` uuid4 path type (`web/params.py`); malformed ids return 422 `validation_error` (T-36-01). Every error uses the envelope from `web/errors.py`.
   - The report modal polls only on 409 `report_generation_in_progress`; `usePolling` keeps at most one request in flight (F-16) and surfaces timeouts ([p41-6-d-19](#p41-6-d-19)).
 
-### <a id="adr-cli-ux"></a>CLI: stdout for output, stderr for logs
+### <a id="adr-cli-ux"></a>CLI: stdout for output, stderr for logs, fixed exit codes
 - **Decision:**
   - structlog writes to the `sys.stderr` current at each write; stdout carries only command output (tables, report paths, help).
-- **Rationale:** JSON log lines interleaved with the CLI's tables on stdout, so piping a command captured both.
+  - Every subcommand runs through `cli._run_command`. Exit codes: `0` success, `1` runtime failure, `2` usage or configuration error (argparse errors, `pydantic.ValidationError` from settings, `InferenceConfigError`), `130` interrupted (Ctrl-C). Tracebacks print only with `-v/--verbose`, accepted before or after the subcommand. Bare `alphaswarm` prints help and exits 0. A handler that raises `SystemExit` on purpose (after printing its own message) keeps its exit code.
+- **Rationale:** JSON log lines interleaved with the CLI's tables on stdout, so piping a command captured both. Every failure, Ctrl-C included, exited 1 without a traceback, and bare `alphaswarm` printed a banner.
+- **Not chosen:** logging from the runner. It would run before logging is configured for configuration errors and land on stdout; the code that failed logs its own error.
 
 ### <a id="adr-web-lifespan"></a>Web process shape
 - **Decision:**

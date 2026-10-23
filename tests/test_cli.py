@@ -118,43 +118,6 @@ def test_print_injection_summary_outputs_entity_names(
     assert "Semiconductors" in captured.out
 
 
-def test_print_banner_outputs_alphaswarm_version(
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """_print_banner outputs 'AlphaSwarm v' to stdout."""
-    from alphaswarm.cli import _print_banner
-
-    # Mock AppSettings to avoid .env dependency
-    mock_settings = MagicMock()
-    mock_settings.ollama.orchestrator_model = "qwen3.5:32b"
-    mock_settings.ollama.worker_model = "qwen3.5:7b"
-
-    with (
-        patch("alphaswarm.cli.AppSettings", return_value=mock_settings),
-        patch("alphaswarm.cli.load_bracket_configs") as mock_brackets,
-        patch("alphaswarm.cli.generate_personas") as mock_personas,
-    ):
-        mock_brackets.return_value = [MagicMock()] * 10
-        mock_personas.return_value = [MagicMock()] * 100
-        _print_banner()
-
-    captured = capsys.readouterr()
-    assert "AlphaSwarm v" in captured.out
-
-
-def test_main_no_args_calls_print_banner(monkeypatch: pytest.MonkeyPatch) -> None:
-    """main() with no args calls _print_banner logic."""
-    from alphaswarm.cli import main
-
-    monkeypatch.setattr("sys.argv", ["alphaswarm"])
-
-    with patch("alphaswarm.cli._print_banner") as mock_banner:
-        main()
-
-    mock_banner.assert_called_once()
-
-
 def test_main_inject_calls_asyncio_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """main() with inject args calls asyncio.run."""
     from alphaswarm.cli import main
@@ -184,7 +147,7 @@ def test_main_inject_failure_prints_error_to_stderr(
         coro.close()
         raise Exception("Connection failed")
 
-    with patch("alphaswarm.cli.asyncio") as mock_asyncio, patch("alphaswarm.cli.logger"):
+    with patch("alphaswarm.cli.asyncio") as mock_asyncio:
         mock_asyncio.run.side_effect = _close_then_fail
         with pytest.raises(SystemExit) as exc_info:
             main()
