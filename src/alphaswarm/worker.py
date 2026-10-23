@@ -29,6 +29,7 @@ from alphaswarm.types import AgentDecision, WorkerPersonaConfig
 if TYPE_CHECKING:
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
+    from alphaswarm.inference.types import InferenceMessage
     from alphaswarm.state import StateSink
     from alphaswarm.telemetry import RoundTelemetry
 
@@ -135,6 +136,19 @@ def _fence_peer_context(peer_context: str) -> str:
     )
 
 
+def _persona_messages(persona: WorkerPersonaConfig) -> list[InferenceMessage]:
+    """The persona as system messages: the bracket-shared block, then the agent's
+    own modifier and header (one message when the persona carries no split)."""
+    prompt = persona["system_prompt"]
+    split = persona.get("shared_prompt_chars", 0)
+    if 0 < split < len(prompt):
+        return [
+            {"role": "system", "content": prompt[:split]},
+            {"role": "system", "content": prompt[split:]},
+        ]
+    return [{"role": "system", "content": prompt}]
+
+
 class AgentWorker:
     """Typed worker interface for agent inference.
 
@@ -169,7 +183,7 @@ class AgentWorker:
     ) -> AgentDecision:
         """Run inference for this agent and return a parsed AgentDecision.
 
-        Constructs the message list from persona system_prompt + user message,
+        Constructs the message list (guards, persona shared block, agent text, user message),
         calls InferenceProvider.chat() with response_schema=DECISION_JSON_SCHEMA
         and temperature from persona config, then pipes the response through
         parse_agent_decision().
@@ -197,15 +211,16 @@ class AgentWorker:
             # blocks, before the rumor.
             user_message = f"{own_prior}\n\n{user_message}"
 
-        from alphaswarm.inference.types import InferenceMessage
-
-        messages: list[InferenceMessage] = [
-            {"role": "system", "content": self._persona["system_prompt"]},
-        ]
+        # Fixed guards first, then the persona's shared block, then the agent's own
+        # text, so consecutive calls share a KV prefix (docs/DECISIONS.md#adr-prefix-reuse).
+        # Only texts we author are system messages; market data and peers stay
+        # fenced in the user message (docs/DECISIONS.md#adr-security-2026-08).
+        messages: list[InferenceMessage] = []
         if market_context:
             messages.append({"role": "system", "content": MARKET_CONTEXT_GUARD})
         if peer_context:
             messages.append({"role": "system", "content": PEER_CONTEXT_GUARD})
+        messages.extend(_persona_messages(self._persona))
         # Untrusted blocks are prepended to the single user message rather than sent
         # as extra user messages: some OpenAI-compatible backends reject consecutive
         # same-role turns. Order: market data, peers, then the rumor

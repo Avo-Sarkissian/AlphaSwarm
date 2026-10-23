@@ -54,10 +54,10 @@ async def test_rounds_two_and_three_carry_the_own_prior(
             assert marker in user
             assert user.index(PEER_FENCE_CLOSE) < user.index(marker) < user.index(SCENARIO_RUMOR)
             system_contents = [m["content"] for m in call.messages if m["role"] == "system"]
-            # The persona prompt, then the fixed PEER_CONTEXT_GUARD; the peer text itself is
-            # fenced in the user message.
-            assert system_contents[1] == PEER_CONTEXT_GUARD
-            assert len(system_contents) == 2
+            # The fixed PEER_CONTEXT_GUARD, then the persona's shared block and its own
+            # text; the peer text itself is fenced in the user message.
+            assert system_contents[0] == PEER_CONTEXT_GUARD
+            assert len(system_contents) == 3
             assert all(marker not in c for c in system_contents)
     assert len(round_calls(scripted_worker, 1)) == 100
     assert all("position: " not in c.messages[-1]["content"] for c in round_calls(scripted_worker, 1))

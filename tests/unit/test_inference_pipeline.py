@@ -141,9 +141,9 @@ async def test_inference_with_peer_context(
     # Verify peer context was included in messages
     call_kwargs = mock_client_success._client.chat.call_args.kwargs
     messages = call_kwargs.get("messages")
-    # 3 messages: persona, the fixed peer guard, the user message with the fenced peers
+    # 3 messages: the fixed peer guard, the persona, the user message with the fenced peers
     assert len(messages) == 3
-    assert messages[1]["content"] == PEER_CONTEXT_GUARD
+    assert messages[0]["content"] == PEER_CONTEXT_GUARD
     assert "macro_01: SELL" in messages[2]["content"]
 
 
