@@ -1,6 +1,5 @@
 // Dashboard grid: brackets and influencers, the agent canvas with KPIs, the rationale feed.
-import { useMemo, useState } from 'react';
-import type { MouseEvent } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { useAgents } from '../../context/AgentsContext';
 import { useConnection } from '../../context/ConnectionContext';
@@ -10,34 +9,12 @@ import { useTelemetry } from '../../context/TelemetryContext';
 import { useRound, useRounds } from '../../hooks/useRounds';
 import { useSampleHistory } from '../../hooks/useSampleHistory';
 import { lifecycleOf } from '../../lib/lifecycle';
-import { signalClass, signalLabel } from '../../lib/signals';
 import type { AgentView } from '../../types';
+import { GraphPane } from './GraphPane';
 import { BracketList, ConsensusRing, KpiStrip, RationaleFeed, type BracketRow } from './panels';
 import { IdleState, SeedingState } from './StateOverlays';
 import { useBracketRows, useFeedRows, useTopInfluencers } from './useDashboardData';
-import { Viz } from './Viz';
 import type { VizLayout } from './vizLayout';
-
-interface TooltipInfo {
-  agent: AgentView;
-  x: number;
-  y: number;
-}
-
-function Tooltip({ info }: { info: TooltipInfo | null }) {
-  const { finalRound } = useRounds();
-  if (!info) return null;
-  const { agent, x, y } = info;
-  return (
-    <div className="tooltip" style={{ left: x + 14, top: y + 14 }}>
-      <div className="t-head">{agent.id} <span style={{color:'var(--text-3)', fontSize:10}}>· {agent.bracketDisplay}</span></div>
-      <div className="t-row"><span>Signal</span><strong className={signalClass(agent.signal)} style={{padding:'1px 5px'}}>{signalLabel(agent.signal)}</strong></div>
-      <div className="t-row"><span>Confidence</span><strong>{(agent.confidence*100).toFixed(0)}%</strong></div>
-      <div className="t-row"><span>Flipped R1→R{finalRound}</span><strong>{agent.flipped ? 'Yes' : 'No'}</strong></div>
-      <div style={{marginTop:6, fontSize:10, color:'var(--text-3)'}}>Click to interview →</div>
-    </div>
-  );
-}
 
 function Legend() {
   return (
@@ -50,6 +27,18 @@ function Legend() {
       <div className="legend-row"><span className="chip-line" /> Influence edge</div>
     </div>
   );
+}
+
+/**
+ * A stable function that always calls the latest `fn`, so a memoized child does
+ * not re-render when the parent passes a new inline callback.
+ */
+function useLatestCallback<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  const ref = useRef(fn);
+  useLayoutEffect(() => {
+    ref.current = fn;
+  });
+  return useCallback((...args: A) => ref.current(...args), []);
 }
 
 export interface DashboardProps {
@@ -89,15 +78,9 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
 
   const [layout, setLayout] = useState<VizLayout>('force');
   const [hintsDismissed, setHintsDismissed] = useState(false);
-  const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
-  const onAgentHover = (agent: AgentView | null, e?: MouseEvent<SVGElement>) => {
-    if (!agent || !e) { setTooltip(null); return; }
-    const wrap = e.currentTarget.closest('.canvas-wrap');
-    if (!wrap) return;
-    const rect = wrap.getBoundingClientRect();
-    setTooltip({ agent, x: e.clientX - rect.left, y: e.clientY - rect.top });
-  };
-  const onAgentClick = (agent: { id: string }) => onInterview(agent.id);
+  const openAgent = useLatestCallback((agent: AgentView) => onInterview(agent.id));
+  const interview = useLatestCallback((agentId: string) => onInterview(agentId));
+  const openBracket = useLatestCallback((row: BracketRow) => onOpenBracket(row));
 
   return (
     <div className="main">
@@ -109,7 +92,7 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
             <span className="label">{agents.length} AGENTS · R{round}</span>
           </div>
           <div className="panel-body">
-            <BracketList summaries={summaries} onClick={onOpenBracket} />
+            <BracketList summaries={summaries} onClick={openBracket} />
           </div>
         </div>
 
@@ -155,18 +138,9 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
         </div>
 
         <div className="canvas-wrap">
-          <Viz
-            agents={agents}
-            edges={edgePairs}
-            layout={layout}
-            direction="a"
-            highlightId={tooltip?.agent.id}
-            onAgentHover={onAgentHover}
-            onAgentClick={onAgentClick}
-          />
+          <GraphPane agents={agents} edges={edgePairs} layout={layout} onAgentClick={openAgent} />
           <ConsensusRing agents={agents} />
           <Legend />
-          <Tooltip info={tooltip} />
 
           {!hintsDismissed && (
             <div className="first-hint">
@@ -212,8 +186,8 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
           <div className="panel-body">
             <RationaleFeed
               rows={feedRows}
-              onAgentClick={onInterview}
-              onCiteClick={onInterview}
+              onAgentClick={interview}
+              onCiteClick={interview}
             />
           </div>
         </div>
