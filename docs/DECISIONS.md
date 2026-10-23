@@ -56,7 +56,8 @@ Contents
   - Config lives in the gitignored `.secrets/inference.json`. It is edited through
     the Settings UI or `GET/PUT /api/settings`.
   - `AuthError` and `BudgetExceededError` are never swallowed. One deliberate limit: in an advisory job they are logged with their traceback and recorded for GET, but they do not stop the post-run report ([adr-advisory-pipeline](#adr-advisory-pipeline)).
-  - The inference config's load error (ValueError/OSError) can quote the file path and raw values, API keys included. The run (`SimulationManager._run`), the report and advisory jobs (`web/guards.py:job_config_error`) and the advisory gate (`web/guards.py:load_inference_config_or_422`) log only its type and fail with a fixed message: an `InferenceConfigError` raised `from None`, or 422 `inference_config_invalid` (2026-10).
+  - The inference config's load error (ValueError/OSError) can quote the file path; a strict-model rejection (`errors.InferenceConfigFileError`) names key paths and error types, never a value, since the file holds API keys. The run (`SimulationManager._run`), the report and advisory jobs (`web/guards.py:job_config_error`) and the advisory gate (`web/guards.py:load_inference_config_or_422`) log only its type and fail with a fixed message: an `InferenceConfigError` raised `from None`, or 422 `inference_config_invalid` (2026-10).
+  - The stored config is strict (unknown keys, zero limits, negative cap are rejected); an invalid file is never rewritten; `/api/health`'s `inference_config` component names the rejected keys (no values) and runs refuse to start until it is fixed or moved aside (2026-10).
 - **Note:** CLAUDE.md's old "No cloud APIs" rule predates this. The correct reading is "local by default".
 
 ### <a id="adr-model-stack"></a>Model stack: MLX Qwen 3.6 pair (decided 2026-06-11)
@@ -601,10 +602,10 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p14-d-04"></a>`D-04` | Interview system prompt = persona + decision narrative + per-round decisions (hybrid context). The persona is rebuilt with the cycle's stored modifiers (2026-10). | active | graph.py:1176 |
 | <a id="p14-d-05"></a>`D-05` | Strip JSON output instructions from the persona for conversational answers. | active | interview.py:59 |
 | <a id="p14-d-06"></a>`D-06` | Context reconstructed from Neo4j at session start (read_agent_interview_context); persona rebuilt from config plus Cycle.modifiers_json; unknown or off-roster agents raise AgentNotFoundError (404). | active | graph.py:1176,1202 |
-| <a id="p14-d-08"></a>`D-08` | 10-turn sliding window. | active | interview.py:72 |
-| <a id="p14-d-09"></a>`D-09` | Dropped turns summarised into a prepended system message. | active | interview.py:73 |
-| <a id="p14-d-10"></a>`D-10` | Summary produced by the same worker model. | active | interview.py:74 |
-| <a id="p14-d-13"></a>`D-13` | Interviews bypass the governor. Originally OllamaClient.chat directly; now the worker InferenceProvider. | partial | interview.py:75 |
+| <a id="p14-d-08"></a>`D-08` | Interview history keeps up to 12 user/assistant pairs; past that the oldest 6 are summarized in one call. A turn is committed only after the provider answers. Revised 2026-10 (was a 10-pair window trimmed one pair per turn). | revised | interview.py:172,230 |
+| <a id="p14-d-09"></a>`D-09` | Dropped turns summarised into a prepended system message. | active | interview.py:216 |
+| <a id="p14-d-10"></a>`D-10` | Summary produced by the same worker model. | active | interview.py:259 |
+| <a id="p14-d-13"></a>`D-13` | Interviews bypass the governor. Originally OllamaClient.chat directly; now the worker InferenceProvider. | partial | interview.py:228 |
 
 ### Phase 15: Post-simulation report (ReAct)
 
@@ -865,7 +866,7 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-12"></a>F-12 | Replay advanced 2-round cycles to an empty round 3 | 66d680f | web/replay_manager.py:167 |
 | <a id="f-13"></a>F-13 | Settings PUT carried the old vendor's API key to a new provider | 66d680f, 9312419 | web/routes/settings.py:248; tests/test_web_settings.py:103 |
 | <a id="f-14"></a>F-14 | Blank account cells crashed the holdings loader outside the 503 path | 902d7b5 | holdings/loader.py:166 |
-| <a id="f-15"></a>F-15 | Interview window trim lost a turn when summarization failed | 902d7b5 | interview.py:152 |
+| <a id="f-15"></a>F-15 | Interview window trim lost a turn when summarization failed | 902d7b5 | interview.py:265 |
 | <a id="f-16"></a>F-16 | `usePolling` stacked overlapping requests | df2f26a | fe/hooks/usePolling.ts:51 |
 | <a id="f-17"></a>F-17 | A sysctl read failure returned GREEN and cleared a crisis; now fail-stale with a timeout | c567a2f | memory_monitor.py:133; tests/test_memory_monitor.py:268,279 |
 | <a id="f-18"></a>F-18 | An unpriced model cost $0 under a spend cap; now priced at a conservative ceiling | f11aeee, cd5d35d | inference/budget.py:96,153,177; tests/inference/test_budget.py:89,96 |
