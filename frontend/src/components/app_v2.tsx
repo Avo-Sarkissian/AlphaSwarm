@@ -234,7 +234,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
   // Live data via 6-context tree (W1 Plan 01 wiring).
   const { agents } = useAgents();
   const { rationales } = useRationales();
-  const { connected } = useConnection();
+  const { connected, lastFrame } = useConnection();
   const tel = useTelemetry();
   const meta = useFrameMeta();
   const lifecycle = lifecycleOf(meta);
@@ -245,6 +245,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
     [edges],
   );
   const phase = tel.phase;
+  const shockWindowOpen = lastFrame?.shockWindowOpen ?? false;
   const tps = tel.telemetry.tps;
   const tpsHistory = useSampleHistory(tps, tel.ts);
   const memMb = tel.telemetry.memMb;
@@ -421,7 +422,12 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
 
         <div className="topbar-divider" />
 
-        <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, shockOpen: !u.shockOpen}))} title="Inject shock event">
+        <button
+          className="btn ghost-btn"
+          onClick={() => setUi(u => ({...u, shockOpen: !u.shockOpen}))}
+          disabled={!shockWindowOpen}
+          title={shockWindowOpen ? 'Inject shock event' : 'Shock window closed: a shock can only reach a later round'}
+        >
           <Icon name="bolt" />
         </button>
         <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, cyclePickerOpen: true}))} title="Watch / replay">

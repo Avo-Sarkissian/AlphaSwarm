@@ -11,33 +11,33 @@ import { useState, useEffect } from 'react';
 import { Icon } from './icons';
 import { simShock } from '../api/simulation';
 import { listCycles, replayAdvance, replayStop } from '../api/replay';
+import { useConnection } from '../context/ConnectionContext';
 import { useFrameMeta } from '../context/FrameMetaContext';
 import { useRounds } from '../hooks/useRounds';
 import { formatApiError } from '../lib/apiError';
+import { SHOCK_MAX_CHARS, SHOCK_MIN_CHARS, shockLengthError, shockTargetRound } from '../lib/shock';
 import { InlineError } from './InlineError';
 
 // ─── ShockDrawer ─────────────────────────────────────────────────────────
-// Backend body: { shock_text: string }. The drawer builds the string from
-// the selected preset / free-text input.
+// POST /api/simulate/shock { shock_text }. Open only while a later gated
+// round is left; length limits mirror the backend ShockText (lib/shock.ts).
 
 export function ShockDrawer({ onClose }) {
-  const { phase } = useFrameMeta();
-  const { finalRound } = useRounds();
+  const { lastFrame } = useConnection();
+  const windowOpen = lastFrame?.shockWindowOpen ?? false;
+  const pending = lastFrame?.pendingShock ?? null;
+  // round_num still holds the previous run's last round while seeding (docs/DECISIONS.md#b1).
+  const roundNum = lastFrame?.phase === 'seeding' ? null : lastFrame?.roundNum ?? null;
+  const target = shockTargetRound(roundNum, lastFrame?.numRounds ?? 0, windowOpen);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
-  // Rounds 2..finalRound are gated, so a shock queued while seeding or during
-  // round k lands before round k + 1 and stays in every later round
-  // (docs/DECISIONS.md#b1). The round comes from the phase, as in the
-  // backend's shock window: round_num still holds the previous run's last
-  // round while seeding.
-  const phaseRound = /^round_(\d+)$/.exec(phase);
-  const landsBefore = phase === 'seeding' ? 2 : phaseRound ? Number(phaseRound[1]) + 1 : null;
-  const label =
-    landsBefore !== null && landsBefore <= finalRound
-      ? `Shock Injection · lands before round ${landsBefore} and stays active after`
-      : 'Shock Injection · window closed: no later round left to reach';
+  const closed = target === null;
+  const trimmed = text.trim();
+  const lengthError = shockLengthError(text);
+  const canInject =
+    !closed && pending === null && !busy && trimmed.length >= SHOCK_MIN_CHARS && lengthError === null;
 
   const presets = [
     'DOJ files formal antitrust complaint',
@@ -47,20 +47,23 @@ export function ShockDrawer({ onClose }) {
   ];
 
   async function onInject() {
-    const shockText = text.trim();
-    if (!shockText || busy) return;
+    if (!canInject) return;
     setBusy(true);
     setErr(null);
     try {
-      await simShock(shockText);
+      await simShock(trimmed);
     } catch (e) {
       setErr(formatApiError(e));
       setBusy(false);
-      return; // don't close on error — user can retry
+      return; // stay open so the user sees why
     }
     setBusy(false);
     onClose();
   }
+
+  const label = closed
+    ? 'Shock injection · window closed: no later round left to reach'
+    : `Shock injection · lands before round ${target} and stays active after`;
 
   return (
     <div className="shock-drawer">
@@ -68,17 +71,23 @@ export function ShockDrawer({ onClose }) {
         <Icon name="bolt" size={14} />
         <span className="label" style={{ color: 'var(--sell)' }}>{label}</span>
         <div className="sp" />
-        <button className="btn ghost" onClick={onClose}>
+        <button className="btn ghost" onClick={onClose} aria-label="Close shock drawer">
           <Icon name="close" />
         </button>
       </div>
+      {pending && (
+        <div className="label" style={{ marginBottom: 10, color: 'var(--accent)' }}>
+          Queued for the next round: "{pending}"
+        </div>
+      )}
       <div className="seed-input" style={{ marginBottom: 10 }}>
         <span className="prefix">⚡</span>
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Disruptive event text…"
-          disabled={busy}
+          maxLength={SHOCK_MAX_CHARS}
+          disabled={busy || closed}
         />
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
@@ -88,38 +97,24 @@ export function ShockDrawer({ onClose }) {
             className="btn ghost"
             style={{ fontSize: 10, height: 26 }}
             onClick={() => setText(p)}
-            disabled={busy}
+            disabled={busy || closed}
           >
-            {p.length > 40 ? p.slice(0, 40) + '…' : p}
+            {p}
           </button>
         ))}
       </div>
       {err && (
-        <div
-          className="shock-error"
-          style={{
-            color: 'var(--sell)',
-            fontSize: 11,
-            marginBottom: 8,
-            fontFamily: 'JetBrains Mono, monospace',
-          }}
-        >
+        <div className="shock-error" role="alert" style={{ color: 'var(--sell)', fontSize: 11, marginBottom: 8 }}>
           {err}
         </div>
       )}
       <div className="hflex">
-        <span className="label">
-          Impact preview · ~{Math.floor(20 + text.length * 0.7)} agents re-evaluate
-        </span>
+        <span className="label">{lengthError ?? `${trimmed.length}/${SHOCK_MAX_CHARS}`}</span>
         <div className="sp" />
         <button className="btn" onClick={onClose} disabled={busy}>
           Cancel
         </button>
-        <button
-          className="btn primary"
-          onClick={onInject}
-          disabled={busy || !text.trim()}
-        >
+        <button className="btn primary" onClick={onInject} disabled={!canInject}>
           <Icon name="bolt" /> {busy ? 'Injecting…' : 'Inject'}
         </button>
       </div>
