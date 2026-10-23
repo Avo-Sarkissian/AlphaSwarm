@@ -555,6 +555,12 @@ class AppSettings(BaseSettings):
     # pydantic-settings v2 coerces string env values to pathlib.Path automatically.
     holdings_csv_path: Path = Path("Schwab/holdings.csv")
 
+    # Curated ticker -> sector map for the advisory (owner data, gitignored). Relative
+    # paths resolve against PROJECT_ROOT; when the file is missing the fictional
+    # examples/sector_map.example.json is used (docs/DECISIONS.md#adr-holdings-isolation).
+    # Env ALPHASWARM_SECTOR_MAP_PATH.
+    sector_map_path: Path = Path("data/sector_map.local.json")
+
     # Runtime inference config (provider choice, cloud API keys), written by the
     # Settings UI. Injectable so tests point it at a temp file and never read the
     # operator's real one (docs/DECISIONS.md#adr-tests-scoped-cleanup). Env var:

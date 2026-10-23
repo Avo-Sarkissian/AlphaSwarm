@@ -33,7 +33,11 @@ if TYPE_CHECKING:
 # otherwise AppSettings falls back to the operator's real .secrets/inference.json
 # and Schwab/holdings.csv (relative to the repo root, where pytest runs).
 HERMETIC_PRESERVED_ENV: Final[frozenset[str]] = frozenset(
-    {"ALPHASWARM_INFERENCE_CONFIG_PATH", "ALPHASWARM_HOLDINGS_CSV_PATH"}
+    {
+        "ALPHASWARM_INFERENCE_CONFIG_PATH",
+        "ALPHASWARM_HOLDINGS_CSV_PATH",
+        "ALPHASWARM_SECTOR_MAP_PATH",
+    }
 )
 
 
@@ -51,7 +55,8 @@ def hermetic_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     Removes every ALPHASWARM_* variable, stops AppSettings from reading .env,
     points the inference config at a temp file that does not exist yet (so
     load_inference_config returns the local defaults), and points the holdings
-    CSV at a path that never exists (so no test can load the real portfolio).
+    CSV and the advisory sector map at paths that never exist (so no test can
+    load the real portfolio or the owner's local sector map).
     Yields the inference config path and restores everything on exit
     (docs/DECISIONS.md#adr-tests-scoped-cleanup).
     """
@@ -63,6 +68,7 @@ def hermetic_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     config_path = hermetic_dir / "inference.json"
     os.environ["ALPHASWARM_INFERENCE_CONFIG_PATH"] = str(config_path)
     os.environ["ALPHASWARM_HOLDINGS_CSV_PATH"] = str(hermetic_dir / "no-holdings.csv")
+    os.environ["ALPHASWARM_SECTOR_MAP_PATH"] = str(hermetic_dir / "no-sector-map.json")
     AppSettings.model_config["env_file"] = None
     try:
         yield config_path

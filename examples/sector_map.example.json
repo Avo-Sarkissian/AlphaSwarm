@@ -1,0 +1,14 @@
+{
+  "description": "Fictional example sector map (made-up tickers). Copy it to data/sector_map.local.json (gitignored) and replace the entries with your own holdings; see docs/SECURITY.md.",
+  "tickers": {
+    "ZZZT": {"sector": "Industrial Automation", "region_exposure": "US", "supply_chain_sensitivity": "high", "macro_beta": 0.9},
+    "QQQX": {"sector": "Robotics", "region_exposure": "global", "supply_chain_sensitivity": "high", "macro_beta": 1.0},
+    "XQZW": {"sector": "Semiconductors", "region_exposure": "Asia", "supply_chain_sensitivity": "high", "macro_beta": 0.95},
+    "ZQXY": {"sector": "Consumer Staples", "region_exposure": "US", "supply_chain_sensitivity": "low", "macro_beta": 0.4},
+    "QZZX": {"sector": "Cash Equivalents", "region_exposure": "cash", "supply_chain_sensitivity": "low", "macro_beta": 0.0}
+  },
+  "aliases": {
+    "zzzt holdings": "ZZZT",
+    "qqqx robotics": "QQQX"
+  }
+}
