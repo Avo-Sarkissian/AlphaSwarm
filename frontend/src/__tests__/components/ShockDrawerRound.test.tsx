@@ -3,7 +3,7 @@
 // and num_rounds, so a 2-round run never shows a round 3.
 import { cleanup } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ShockDrawer } from '../../components/modals';
+import { ShockDrawer } from '../../components/ShockDrawer';
 import { renderAt } from '../helpers/lifecycleFrames';
 
 afterEach(cleanup);

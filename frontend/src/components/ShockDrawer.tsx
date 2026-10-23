@@ -1,28 +1,19 @@
-// Modals: ShockDrawer + ReplayBar — real-wired.
-//
-// Lifted from frontend-react-archive/src/components/modals.jsx (Phase 41.1 + 41.2
-// per Plan 41.6-03 task 3). Pure JSX (no TS syntax) per codex HIGH-1 — file
-// extension stays .jsx. The other modals from AlphaSwarm-2/src/modals.jsx
-// (InterviewModal / ReportModal / AdvisoryModal) are NOT lifted in W3:
-//   • InterviewModal — superseded by W4 InterviewV2 (D-11)
-//   • ReportModal    — superseded by ./ReportModal.tsx (Phase 41.2 D-04 + D-20 rich)
-//   • AdvisoryModal  — superseded by AdvisoryV2 in ./v2.tsx (D-08 / D-22)
+// Shock injection drawer: queue one market shock for the next gated round.
 import { useState } from 'react';
 import { Icon } from './icons';
 import { simShock } from '../api/simulation';
-import { replayAdvance, replayStop } from '../api/replay';
 import { useConnection } from '../context/ConnectionContext';
-import { useFrameMeta } from '../context/FrameMetaContext';
-import { useRounds } from '../hooks/useRounds';
 import { formatApiError } from '../lib/apiError';
 import { SHOCK_MAX_CHARS, SHOCK_MIN_CHARS, shockLengthError, shockTargetRound } from '../lib/shock';
-import { InlineError } from './InlineError';
 
-// ─── ShockDrawer ─────────────────────────────────────────────────────────
 // POST /api/simulate/shock { shock_text }. Open only while a later gated
 // round is left; length limits mirror the backend ShockText (lib/shock.ts).
 
-export function ShockDrawer({ onClose }) {
+export interface ShockDrawerProps {
+  onClose: () => void;
+}
+
+export function ShockDrawer({ onClose }: ShockDrawerProps) {
   const { lastFrame } = useConnection();
   const windowOpen = lastFrame?.shockWindowOpen ?? false;
   const pending = lastFrame?.pendingShock ?? null;
@@ -31,7 +22,7 @@ export function ShockDrawer({ onClose }) {
   const target = shockTargetRound(roundNum, lastFrame?.numRounds ?? 0, windowOpen);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
+  const [err, setErr] = useState<string | null>(null);
 
   const closed = target === null;
   const trimmed = text.trim();
@@ -118,62 +109,6 @@ export function ShockDrawer({ onClose }) {
           <Icon name="bolt" /> {busy ? 'Injecting…' : 'Inject'}
         </button>
       </div>
-    </div>
-  );
-}
-
-// ─── ReplayBar ───────────────────────────────────────────────────────────
-// Driven entirely by the frame (mode === 'replay' decides whether the app
-// mounts it), so it survives a page reload: the backend replay is the source
-// of truth, not local UI state. Forward and exit only; there is no rewind
-// endpoint (docs/DECISIONS.md#kr-41-1-06).
-export function ReplayBar() {
-  const { cycleId } = useFrameMeta();
-  const { rounds, numRounds, currentRound } = useRounds();
-  const round = currentRound ?? 1;
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-
-  async function run(action) {
-    if (busy) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      await action();
-    } catch (e) {
-      setErr(formatApiError(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="replay-bar">
-      <div className="label" style={{ color: 'var(--accent)' }}>
-        <Icon name="replay" size={11} /> REPLAY · {cycleId ?? ''}
-      </div>
-      <div className="replay-track">
-        <div className="replay-fill" style={{ width: `${(round / numRounds) * 100}%` }} />
-        <div className="replay-ticks">
-          {['SEED', ...rounds.map((r) => `R${r}`)].map((t, i) => (
-            <span key={t} style={{ color: i <= round ? 'var(--accent)' : 'var(--text-3)' }}>
-              {t}
-            </span>
-          ))}
-        </div>
-      </div>
-      <button
-        className="btn ghost"
-        aria-label="Next round"
-        onClick={() => run(replayAdvance)}
-        disabled={busy || round >= numRounds}
-      >
-        <Icon name="forward" />
-      </button>
-      <button className="btn" onClick={() => run(replayStop)} disabled={busy}>
-        Exit replay
-      </button>
-      <InlineError error={err} onDismiss={() => setErr(null)} />
     </div>
   );
 }

@@ -48,9 +48,10 @@ import { bracketTallies } from '../lib/tally';
 import { phaseLabelFor } from '../lib/phase';
 import { useRound, useRounds } from '../hooks/useRounds';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
-// modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
+// ShockDrawer.tsx, ReplayBar.tsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
 import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from './v2';
-import { ShockDrawer, ReplayBar } from './modals';
+import { ShockDrawer } from './ShockDrawer';
+import { ReplayBar } from './ReplayBar';
 import { ReportModal } from './ReportModal';
 import { CycleHistory } from './history';
 import { Settings } from './settings';

@@ -19,14 +19,8 @@ const FILES: readonly string[] = walk(SRC)
   .map((file) => relative(SRC, file).split(sep).join('/'))
   .sort();
 
-// JavaScript files still waiting for their TypeScript conversion. Remove an
-// entry in the commit that converts the file.
-const PENDING_JS: readonly string[] = [
-  'components/modals.jsx',
-];
-
 describe('frontend structure', () => {
-  it('has no JavaScript sources beyond the pending conversions', () => {
-    expect(FILES.filter((file) => /\.jsx?$/.test(file))).toEqual([...PENDING_JS].sort());
+  it('has no JavaScript sources', () => {
+    expect(FILES.filter((file) => /\.jsx?$/.test(file))).toEqual([]);
   });
 });

@@ -2,7 +2,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App as DashboardShell } from '../../components/app_v2';
-import { ShockDrawer } from '../../components/modals';
+import { ShockDrawer } from '../../components/ShockDrawer';
 import wsSnapshot from '../fixtures/ws_snapshot.json';
 import { ensureResizeObserver, stubFetch } from '../helpers/fetchStub';
 import { renderShell } from '../helpers/renderShell';
