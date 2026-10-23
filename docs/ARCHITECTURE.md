@@ -63,7 +63,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `advisory/`: synthesis, prompt, sector map, types.
   - `holdings/`: CSV loader and types. Only `advisory` and `web.routes.{holdings,advisory}` may import it; import-linter enforces this.
 - **State and observability**
-  - `state.py`: StateStore, ReplayStore, snapshot dataclasses.
+  - `state.py`: StateStore, ReplayStore, snapshot dataclasses, and the `StateSink` protocol: the StateStore methods the engine (`run_simulation`, `run_round`, `dispatch_wave`, `AgentWorker`) writes through. `StateStore` satisfies it; web-only calls such as `set_last_error` stay off it ([adr-round-runner](DECISIONS.md#adr-round-runner)).
   - `data_audit.py`.
   - `readiness.py`: bounded Neo4j, Ollama and model-alias probes (1 s timeouts, never raising) shared by `/api/health`; each returns a `ComponentStatus` that names the fix for a failure (a password error is told apart from a stopped database).
   - `logging.py`: structlog plus the fail-closed PII redaction processor.
