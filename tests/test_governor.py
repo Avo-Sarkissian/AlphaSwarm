@@ -586,7 +586,7 @@ class TestGovernorLogging:
             assert call_kwargs.kwargs == {
                 "old_state": GovernorState.RUNNING.value,
                 "new_state": GovernorState.THROTTLED.value,
-                "reason": "sysctl=green, psutil=85.0%",
+                "reason": "pressure=green, used=85.0%",
             }
 
 

@@ -172,7 +172,7 @@ class TokenPool:
 class ResourceGovernor:
     """Dynamic concurrency governor with Queue-based TokenPool and state machine.
 
-    Monitors dual memory signals (psutil + macOS sysctl) and adjusts concurrency
+    Monitors dual memory signals (kernel used % + pressure) and adjusts concurrency
     slots dynamically. Implements 5-state machine: RUNNING, THROTTLED, PAUSED,
     CRISIS, RECOVERING.
 
@@ -478,7 +478,7 @@ class ResourceGovernor:
         """
         self._peak_memory_percent = max(self._peak_memory_percent, reading.used_percent)
         old_state = self._state
-        reason = f"sysctl={reading.pressure_level.value}, psutil={reading.used_percent:.1f}%"
+        reason = f"pressure={reading.pressure_level.value}, used={reading.used_percent:.1f}%"
 
         if self._state == GovernorState.RUNNING:
             await self._handle_running(reading)

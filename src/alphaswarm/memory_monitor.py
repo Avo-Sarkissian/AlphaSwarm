@@ -1,22 +1,30 @@
-"""Dual-signal memory monitoring for macOS (psutil + sysctl kernel pressure).
+"""Memory signals for the governor: macOS kernel counters, psutil elsewhere.
 
-Phase 3: Reads both psutil virtual_memory percent and macOS
-kern.memorystatus_vm_pressure_level via sysctl to provide a combined
-MemoryReading with threshold-aware properties.
+On macOS both numbers come straight from the kernel through ``sysctlbyname``
+(ctypes, about 2 microseconds, no subprocess):
 
-Key design: sysctl kernel pressure is the MASTER signal. If it reports
-YELLOW or RED, the system is in CRISIS regardless of psutil readings.
-psutil-based zones (throttle, pause) only apply when kernel says GREEN.
+- used % = 100 - ``kern.memorystatus_level`` (the kernel's "memory available" %),
+- pressure = ``kern.memorystatus_vm_pressure_level`` (1 green, 2 yellow, 4 red).
+
+psutil's ``virtual_memory().percent`` counts cached and compressed pages as used
+(61.7% at idle while the kernel reported 77% available), so it is only the
+fallback: on Linux/CI, or for one reading when the kernel call fails
+(docs/DECISIONS.md#p3-d-12). Kernel pressure stays the master signal: YELLOW or
+RED is a crisis whatever the percentage says (docs/DECISIONS.md#p3-d-13).
 """
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
+import ctypes
+import ctypes.util
 import enum
+import functools
+import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Final, Literal, Protocol, runtime_checkable
 
 import psutil
 import structlog
@@ -26,32 +34,70 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(component="memory_monitor")
 
+MEMORY_LEVEL_SYSCTL: Final = "kern.memorystatus_level"
+PRESSURE_LEVEL_SYSCTL: Final = "kern.memorystatus_vm_pressure_level"
+
+SignalSource = Literal["kernel", "psutil"]
+
 
 class PressureLevel(enum.StrEnum):
-    """macOS kernel memory pressure level from sysctl."""
+    """macOS kernel memory pressure level."""
 
     GREEN = "green"
     YELLOW = "yellow"
     RED = "red"
 
 
-# Maps sysctl kern.memorystatus_vm_pressure_level integer to PressureLevel.
-# Unknown values fall back to GREEN (fail-open per D-12).
-_SYSCTL_PRESSURE_MAP: dict[int, PressureLevel] = {
+# kern.memorystatus_vm_pressure_level values. Unknown values map to GREEN
+# (fail-open, docs/DECISIONS.md#p3-d-12); a failed READ is fail-stale instead.
+_SYSCTL_PRESSURE_MAP: Final[dict[int, PressureLevel]] = {
     1: PressureLevel.GREEN,
     2: PressureLevel.YELLOW,
     4: PressureLevel.RED,
 }
 
 
+@functools.cache
+def _libc() -> ctypes.CDLL:
+    return ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+
+
+def _sysctl_int(name: str) -> int:
+    """Read a 32-bit integer sysctl through ``sysctlbyname`` (macOS only).
+
+    Raises OSError when the call fails (unknown name, sandbox, size mismatch).
+    """
+    value = ctypes.c_int(0)
+    size = ctypes.c_size_t(ctypes.sizeof(value))
+    rc = _libc().sysctlbyname(name.encode("ascii"), ctypes.byref(value), ctypes.byref(size), None, ctypes.c_size_t(0))
+    if rc != 0:
+        raise OSError(ctypes.get_errno(), f"sysctlbyname({name}) failed")
+    return int(value.value)
+
+
+def _psutil_used_percent() -> float:
+    return float(psutil.virtual_memory().percent)
+
+
+def memory_used_percent() -> float:
+    """Used-memory % from the same source the governor uses (sync, microseconds).
+
+    For the UI overlay and /api/health, so they show what the governor sees.
+    """
+    if sys.platform == "darwin":
+        with contextlib.suppress(OSError):
+            level = _sysctl_int(MEMORY_LEVEL_SYSCTL)
+            if 0 <= level <= 100:
+                return float(100 - level)
+    return _psutil_used_percent()
+
+
 @dataclass(frozen=True)
 class MemoryReading:
-    """Immutable snapshot of memory state with threshold-aware properties.
+    """One combined reading with threshold-aware properties.
 
-    CRITICAL: Dual-signal precedence (addresses review concern #3).
-    sysctl kernel pressure is MASTER. If pressure_level is YELLOW or RED,
-    the system is in CRISIS regardless of psutil. The psutil-based zones
-    (throttle, pause) only apply when pressure_level is GREEN.
+    Kernel pressure is the master signal: YELLOW or RED is a crisis, and the
+    percentage zones (throttle, pause) only apply while the kernel says GREEN.
     """
 
     used_percent: float
@@ -63,28 +109,18 @@ class MemoryReading:
 
     @property
     def is_crisis(self) -> bool:
-        """True when kernel reports YELLOW or RED -- master signal, checked FIRST."""
         return self.pressure_level in (PressureLevel.YELLOW, PressureLevel.RED)
 
     @property
     def is_throttle_zone(self) -> bool:
-        """True when psutil >= throttle threshold AND kernel says GREEN.
-
-        sysctl is master: if crisis, this returns False even if psutil is high.
-        """
         return not self.is_crisis and self.used_percent >= self.throttle_threshold
 
     @property
     def is_pause_zone(self) -> bool:
-        """True when psutil >= pause threshold AND kernel says GREEN.
-
-        sysctl is master: if crisis, this returns False even if psutil is high.
-        """
         return not self.is_crisis and self.used_percent >= self.pause_threshold
 
     @property
     def is_scale_up_eligible(self) -> bool:
-        """True when psutil < scale_up threshold AND kernel says GREEN."""
         return (
             not self.is_crisis
             and self.used_percent < self.scale_up_threshold
@@ -94,84 +130,84 @@ class MemoryReading:
 
 @runtime_checkable
 class MemoryReader(Protocol):
-    """Anything that produces a combined MemoryReading.
-
-    ResourceGovernor depends on this protocol rather than on MemoryMonitor, so
-    tests can drive the real state machine with scripted readings
-    (docs/DECISIONS.md#adr-governor).
-    """
+    """Anything that produces a combined MemoryReading (contracts C-TEST-15)."""
 
     async def read_combined(self) -> MemoryReading: ...
 
 
 class MemoryMonitor:
-    """Reads dual memory signals: psutil percent + macOS sysctl pressure level.
+    """Reads used % and kernel pressure; never spawns a subprocess.
 
-    Constructor takes GovernorSettings for threshold values used in MemoryReading.
-    All reads are async to avoid blocking the event loop.
+    ``kernel=None`` picks the kernel signal on macOS and psutil elsewhere.
+    ``sysctl`` and ``psutil_percent`` are seams for tests.
     """
 
-    def __init__(self, settings: GovernorSettings) -> None:
+    def __init__(
+        self,
+        settings: GovernorSettings,
+        *,
+        kernel: bool | None = None,
+        sysctl: Callable[[str], int] = _sysctl_int,
+        psutil_percent: Callable[[], float] = _psutil_used_percent,
+    ) -> None:
         self._settings = settings
-        # Last successfully-read pressure level, for fail-stale on a failed read.
+        self._kernel = (sys.platform == "darwin") if kernel is None else kernel
+        self._sysctl = sysctl
+        self._psutil_percent = psutil_percent
+        # Last successfully-read pressure level, for fail-stale reads (F-17).
         self._last_pressure: PressureLevel = PressureLevel.GREEN
+        self._warned: set[str] = set()
 
-    async def read_psutil_percent(self) -> float:
-        """Read psutil virtual_memory percent (0-100)."""
-        return float(psutil.virtual_memory().percent)
+    @property
+    def signal_source(self) -> SignalSource:
+        return "kernel" if self._kernel else "psutil"
+
+    def _warn_once(self, event: str, **context: object) -> None:
+        """Log a degraded read once per monitor, not every 2 s (T11.3 step 3)."""
+        if event not in self._warned:
+            self._warned.add(event)
+            log.warning(event, **context)
+
+    async def read_used_percent(self) -> float:
+        if self._kernel:
+            try:
+                level = self._sysctl(MEMORY_LEVEL_SYSCTL)
+            except OSError as exc:
+                self._warn_once(
+                    "memory_level_read_failed",
+                    sysctl=MEMORY_LEVEL_SYSCTL,
+                    errno=exc.errno,
+                    fallback="psutil",
+                )
+            else:
+                if 0 <= level <= 100:
+                    return float(100 - level)
+                self._warn_once("memory_level_rejected", value=level, fallback="psutil")
+        return self._psutil_percent()
 
     async def read_macos_pressure(self) -> PressureLevel:
-        """Read macOS kernel memory pressure via sysctl.
-
-        sysctl is the MASTER crisis signal, so a FAILED read must NOT be
-        reported as GREEN: that would clear an active YELLOW/RED crisis and
-        trigger premature recovery / scale-up — exactly when fork/exec is most
-        likely to fail (under real memory pressure). On failure we fail-STALE:
-        return the last successfully-read level (GREEN only before any success).
-        The independent psutil throttle/pause zones remain a secondary net for
-        the rare cold-spike-during-failure case. A 2s timeout bounds a hung
-        sysctl so a stuck subprocess cannot wedge the monitor loop. (F-17)
-        """
-        proc: asyncio.subprocess.Process | None = None
+        if not self._kernel:
+            return PressureLevel.GREEN
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "sysctl",
-                "-n",
-                "kern.memorystatus_vm_pressure_level",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
-            value = int(stdout.decode().strip())
-            level = _SYSCTL_PRESSURE_MAP.get(value, PressureLevel.GREEN)
-            self._last_pressure = level
-            return level
-        except Exception:
-            log.warning(
-                "sysctl_pressure_read_failed_fail_stale",
+            raw = self._sysctl(PRESSURE_LEVEL_SYSCTL)
+        except OSError as exc:
+            # Fail-stale: a failed read must not clear an active crisis (F-17).
+            self._warn_once(
+                "pressure_level_read_failed",
+                sysctl=PRESSURE_LEVEL_SYSCTL,
+                errno=exc.errno,
                 last_pressure=self._last_pressure.value,
             )
             return self._last_pressure
-        finally:
-            # Reap the child on ANY exit — timeout, parse error, OR cancellation.
-            # CancelledError is a BaseException and bypasses `except Exception`,
-            # so without this finally a cancelled communicate() would orphan the
-            # sysctl subprocess (U2). Runs on the success path too (no-op once
-            # communicate() has reaped it).
-            if proc is not None and proc.returncode is None:
-                proc.kill()
-                with contextlib.suppress(Exception):
-                    await proc.wait()
+        level = _SYSCTL_PRESSURE_MAP.get(raw, PressureLevel.GREEN)
+        self._last_pressure = level
+        return level
 
     async def read_combined(self) -> MemoryReading:
-        """Read both psutil and sysctl signals, return combined MemoryReading.
-
-        Thresholds are sourced from GovernorSettings.
-        """
-        psutil_pct = await self.read_psutil_percent()
+        used = await self.read_used_percent()
         pressure = await self.read_macos_pressure()
         return MemoryReading(
-            used_percent=psutil_pct,
+            used_percent=used,
             pressure_level=pressure,
             timestamp=time.monotonic(),
             throttle_threshold=self._settings.memory_throttle_percent,

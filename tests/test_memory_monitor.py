@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+import sys
 
 import pytest
 from pydantic import ValidationError
@@ -230,132 +230,139 @@ class TestMemoryReading:
         assert r.is_throttle_zone is True
 
 
-# ---------------------------------------------------------------------------
-# MemoryMonitor
-# ---------------------------------------------------------------------------
-
-
-class TestMemoryMonitor:
-    """Test MemoryMonitor methods with mocked psutil and sysctl."""
-
-    @pytest.fixture()
-    def settings(self) -> GovernorSettings:
-        return GovernorSettings()
-
-    async def test_read_psutil_percent_returns_float(self, settings: GovernorSettings) -> None:
-        monitor = MemoryMonitor(settings)
-        mock_vmem = MagicMock()
-        mock_vmem.percent = 72.5
-        with patch("alphaswarm.memory_monitor.psutil") as mock_psutil:
-            mock_psutil.virtual_memory.return_value = mock_vmem
-            result = await monitor.read_psutil_percent()
-        assert result == 72.5
-        assert isinstance(result, float)
-
-    async def test_read_macos_pressure_green_on_sysctl_1(self, settings: GovernorSettings) -> None:
-        monitor = MemoryMonitor(settings)
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"1\n", b"")
-        mock_proc.returncode = 0
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await monitor.read_macos_pressure()
-        assert result == PressureLevel.GREEN
-
-    async def test_read_macos_pressure_yellow_on_sysctl_2(self, settings: GovernorSettings) -> None:
-        monitor = MemoryMonitor(settings)
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"2\n", b"")
-        mock_proc.returncode = 0
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await monitor.read_macos_pressure()
-        assert result == PressureLevel.YELLOW
-
-    async def test_read_macos_pressure_red_on_sysctl_4(self, settings: GovernorSettings) -> None:
-        monitor = MemoryMonitor(settings)
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"4\n", b"")
-        mock_proc.returncode = 0
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await monitor.read_macos_pressure()
-        assert result == PressureLevel.RED
-
-    async def test_read_macos_pressure_green_on_subprocess_failure_cold(self, settings: GovernorSettings) -> None:
-        """F-17 fail-stale: a failed read before any success returns GREEN
-        (the cold-start default)."""
-        monitor = MemoryMonitor(settings)
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=OSError("sysctl not found"),
-        ):
-            result = await monitor.read_macos_pressure()
-        assert result == PressureLevel.GREEN
-
-    async def test_read_macos_pressure_failure_preserves_last_crisis(self, settings: GovernorSettings) -> None:
-        """F-17 fail-stale: a failed read after a RED reading must NOT clear the
-        crisis — it returns the last successfully-read level, not GREEN."""
-        monitor = MemoryMonitor(settings)
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"4\n", b"")  # RED
-        mock_proc.returncode = 0
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            assert await monitor.read_macos_pressure() == PressureLevel.RED
-        # Now the next read fails — must stay RED, not fall open to GREEN.
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=OSError("fork failed under pressure"),
-        ):
-            result = await monitor.read_macos_pressure()
-        assert result == PressureLevel.RED
-
-    async def test_read_macos_pressure_reaps_child_on_cancel(self, settings: GovernorSettings) -> None:
-        """U2: a cancellation mid-communicate() must still reap the sysctl child.
-        CancelledError is a BaseException and bypasses `except Exception`, so the
-        finally must kill the still-running process rather than orphan it."""
-        monitor = MemoryMonitor(settings)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = None  # still running when cancelled
-        mock_proc.communicate.side_effect = asyncio.CancelledError()
-        mock_proc.kill = MagicMock()
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            pytest.raises(asyncio.CancelledError),
-        ):
-            await monitor.read_macos_pressure()
-        mock_proc.kill.assert_called_once()
-
-    async def test_read_macos_pressure_green_on_unknown_value(self, settings: GovernorSettings) -> None:
-        """Unknown sysctl value (e.g. 99) returns GREEN (fail-open)."""
-        monitor = MemoryMonitor(settings)
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"99\n", b"")
-        mock_proc.returncode = 0
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await monitor.read_macos_pressure()
-        assert result == PressureLevel.GREEN
-
-    async def test_read_combined_returns_memory_reading(self, settings: GovernorSettings) -> None:
-        monitor = MemoryMonitor(settings)
-        mock_vmem = MagicMock()
-        mock_vmem.percent = 65.0
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"1\n", b"")
-        mock_proc.returncode = 0
-        with (
-            patch("alphaswarm.memory_monitor.psutil") as mock_psutil,
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-        ):
-            mock_psutil.virtual_memory.return_value = mock_vmem
-            result = await monitor.read_combined()
-        assert isinstance(result, MemoryReading)
-        assert result.used_percent == 65.0
-        assert result.pressure_level == PressureLevel.GREEN
-        assert result.throttle_threshold == 80.0
-        assert result.pause_threshold == 90.0
-        assert result.scale_up_threshold == 60.0
-
-
 def test_memory_reading_names_the_figure_used_percent() -> None:
     """The figure is the kernel's on macOS (docs/DECISIONS.md#p3-d-12), so the name is neutral."""
     from dataclasses import fields
 
     assert [f.name for f in fields(MemoryReading)][0] == "used_percent"
+
+
+# ---------------------------------------------------------------------------
+# Kernel signal via ctypes, psutil fallback (T11.3; docs/DECISIONS.md#p3-d-12)
+# ---------------------------------------------------------------------------
+
+
+class _FakeSysctl:
+    """Scripted sysctlbyname: values or OSError per name, consumed in order."""
+
+    def __init__(self, script: dict[str, list[int | OSError]]) -> None:
+        self._script = {name: list(items) for name, items in script.items()}
+        self.calls: list[str] = []
+
+    def __call__(self, name: str) -> int:
+        self.calls.append(name)
+        items = self._script[name]
+        item = items.pop(0) if len(items) > 1 else items[0]
+        if isinstance(item, OSError):
+            raise item
+        return item
+
+
+def _monitor(script: dict[str, list[int | OSError]], *, psutil_value: float = 61.7):
+
+    fake = _FakeSysctl(script)
+    monitor = MemoryMonitor(GovernorSettings(), kernel=True, sysctl=fake, psutil_percent=lambda: psutil_value)
+    return monitor, fake
+
+
+class TestKernelSignal:
+    async def test_used_percent_is_100_minus_memorystatus_level(self) -> None:
+        monitor, _ = _monitor({"kern.memorystatus_level": [77]})
+        assert await monitor.read_used_percent() == 23.0
+        assert monitor.signal_source == "kernel"
+
+    @pytest.mark.parametrize(
+        ("raw", "level"),
+        [(1, PressureLevel.GREEN), (2, PressureLevel.YELLOW), (4, PressureLevel.RED), (99, PressureLevel.GREEN)],
+    )
+    async def test_pressure_levels_map(self, raw: int, level: PressureLevel) -> None:
+        monitor, _ = _monitor({"kern.memorystatus_vm_pressure_level": [raw]})
+        assert await monitor.read_macos_pressure() is level
+
+    async def test_pressure_read_failure_is_fail_stale(self) -> None:
+        """F-17: a failed read after RED stays RED instead of clearing the crisis."""
+        monitor, _ = _monitor({"kern.memorystatus_vm_pressure_level": [4, OSError(1, "denied")]})
+        assert await monitor.read_macos_pressure() is PressureLevel.RED
+        assert await monitor.read_macos_pressure() is PressureLevel.RED
+
+    async def test_level_failure_falls_back_to_psutil_and_warns_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        events: list[str] = []
+
+        class _RecordingLog:
+            def warning(self, event: str, **context: object) -> None:
+                events.append(event)
+
+        # A recording stand-in instead of capture_logs: structlog caches loggers
+        # once configure_logging() has run elsewhere in the session.
+        monkeypatch.setattr("alphaswarm.memory_monitor.log", _RecordingLog())
+        monitor, _ = _monitor({"kern.memorystatus_level": [OSError(1, "denied")]}, psutil_value=64.0)
+        values = [await monitor.read_used_percent() for _ in range(3)]
+        assert values == [64.0, 64.0, 64.0]
+        assert events.count("memory_level_read_failed") == 1
+
+    async def test_out_of_range_level_falls_back_to_psutil(self) -> None:
+        monitor, _ = _monitor({"kern.memorystatus_level": [140]}, psutil_value=55.5)
+        assert await monitor.read_used_percent() == 55.5
+
+    async def test_read_combined_carries_thresholds_and_both_signals(self) -> None:
+        monitor, _ = _monitor({"kern.memorystatus_level": [30], "kern.memorystatus_vm_pressure_level": [2]})
+        r = await monitor.read_combined()
+        assert (r.used_percent, r.pressure_level) == (70.0, PressureLevel.YELLOW)
+        assert (r.throttle_threshold, r.pause_threshold, r.scale_up_threshold) == (80.0, 90.0, 60.0)
+
+    async def test_non_macos_uses_psutil_and_never_calls_sysctl(self) -> None:
+        """Review Focus 2: glibc has no sysctlbyname; Linux/CI must never touch it."""
+
+        def _explode(name: str) -> int:
+            raise AssertionError(f"sysctl called off macOS: {name}")
+
+        monitor = MemoryMonitor(GovernorSettings(), kernel=False, sysctl=_explode, psutil_percent=lambda: 48.0)
+        r = await monitor.read_combined()
+        assert (r.used_percent, r.pressure_level) == (48.0, PressureLevel.GREEN)
+        assert monitor.signal_source == "psutil"
+
+    def test_default_signal_follows_platform(self, monkeypatch: pytest.MonkeyPatch) -> None:
+
+        monkeypatch.setattr("alphaswarm.memory_monitor.sys.platform", "linux")
+        assert MemoryMonitor(GovernorSettings()).signal_source == "psutil"
+        monkeypatch.setattr("alphaswarm.memory_monitor.sys.platform", "darwin")
+        assert MemoryMonitor(GovernorSettings()).signal_source == "kernel"
+
+    async def test_reads_never_spawn_a_subprocess(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """P6.4 verify: zero sysctl subprocesses during a run (was ~1,800 forks per hour)."""
+        import subprocess
+
+        async def _no_exec(*args: object, **kwargs: object) -> None:
+            raise AssertionError("subprocess spawned")
+
+        def _no_popen(*args: object, **kwargs: object) -> None:
+            raise AssertionError("subprocess spawned")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _no_exec)
+        monkeypatch.setattr(subprocess, "Popen", _no_popen)
+        monitor, fake = _monitor({"kern.memorystatus_level": [70], "kern.memorystatus_vm_pressure_level": [1]})
+        for _ in range(50):
+            await monitor.read_combined()
+        assert len(fake.calls) == 100
+
+    @pytest.mark.skipif(sys.platform != "darwin", reason="real sysctlbyname exists only on macOS")
+    async def test_real_kernel_read_on_macos(self) -> None:
+        from alphaswarm.memory_monitor import memory_used_percent
+
+        monitor = MemoryMonitor(GovernorSettings())
+        r = await monitor.read_combined()
+        assert monitor.signal_source == "kernel"
+        assert 0.0 <= r.used_percent <= 100.0
+        assert 0.0 <= memory_used_percent() <= 100.0
+
+    def test_memory_used_percent_falls_back_off_macos(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from types import SimpleNamespace
+
+        from alphaswarm.memory_monitor import memory_used_percent
+
+        monkeypatch.setattr("alphaswarm.memory_monitor.sys.platform", "linux")
+        monkeypatch.setattr(
+            "alphaswarm.memory_monitor.psutil.virtual_memory",
+            lambda: SimpleNamespace(percent=42.0),
+        )
+        assert memory_used_percent() == 42.0
