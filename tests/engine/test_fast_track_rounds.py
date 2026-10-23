@@ -57,7 +57,9 @@ async def test_rounds_two_and_three_carry_the_own_prior(
             user = call.messages[-1]["content"]
             assert marker in user and user.index(marker) < user.index(SCENARIO_RUMOR)
             system_contents = [m["content"] for m in call.messages if m["role"] == "system"]
-            assert len(system_contents) == 2  # persona prompt + peer context
+            # The persona prompt, then the peer block, which still travels as a system message (a
+            # known defect; its fix leaves a fixed guard in that slot, so the count stays 2).
+            assert len(system_contents) == 2
             assert all(marker not in c for c in system_contents)
     assert len(round_calls(scripted_worker, 1)) == 100
     assert all("position: " not in c.messages[-1]["content"] for c in round_calls(scripted_worker, 1))
