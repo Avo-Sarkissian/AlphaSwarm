@@ -12,6 +12,7 @@ from alphaswarm.errors import Neo4jWriteError
 from alphaswarm.graph import GraphStateManager, PersistRoundResult
 from alphaswarm.types import AgentDecision, AgentPersona, EntityType, SeedEntity, SeedEvent, SignalType
 from tests.conftest import NEO4J_TEST_DATABASE
+from tests.support.mini_cycle import cypher
 
 pytestmark = pytest.mark.neo4j
 
@@ -176,3 +177,36 @@ async def test_error_kind_is_persisted(
         )
         kinds = {r["id"]: r["kind"] async for r in result}
     assert kinds == {ids[0]: "inference", ids[1]: "parse", ids[2]: None}
+
+
+async def test_persist_round_writes_parse_tier(graph_manager_test: GraphStateManager) -> None:
+    gm = graph_manager_test
+    cycle_id = await gm.create_cycle_with_seed_event(RUMOR, SEED, num_rounds=3)
+    decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.6, parse_tier=1)),
+        ("quants_02", AgentDecision(signal=SignalType.SELL, confidence=0.4, parse_tier=2)),
+        (
+            "quants_03",
+            AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, error_kind="parse", parse_tier=3),
+        ),
+        ("quants_04", AgentDecision(signal=SignalType.PARSE_ERROR, confidence=0.0, error_kind="inference")),
+    ]
+    await gm.persist_round(
+        cycle_id,
+        1,
+        decisions,
+        decision_ids=new_decision_ids(len(decisions)),
+        episodes=[],
+        entity_matches=[],
+    )
+    rows = await cypher(
+        gm,
+        "MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cid}) RETURN a.id AS id, d.parse_tier AS tier",
+        cid=cycle_id,
+    )
+    assert {r["id"]: r["tier"] for r in rows} == {
+        "quants_01": 1,
+        "quants_02": 2,
+        "quants_03": 3,
+        "quants_04": None,
+    }

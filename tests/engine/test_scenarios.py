@@ -244,3 +244,12 @@ async def test_each_round_is_persisted_from_its_own_rationales_peers_and_counts(
         previous = {agent_id: decision.signal for agent_id, decision in decisions}
     metrics = dict(fake_graph.write_cycle_metrics.await_args.args[1])
     assert [metrics[f"r{n}_citations_dropped"] for n in (1, 2, 3)] == [1, 2, 3]
+
+
+async def test_parse_tiers_reach_the_cycle_metrics(run_scenario: RunScenario, fake_graph: MagicMock) -> None:
+    await run_scenario()
+    metrics = _metrics(fake_graph)
+    for n in (1, 2, 3):
+        assert metrics[f"r{n}_parse_tier1"] == 100
+        assert metrics[f"r{n}_parse_tier2"] == 0
+        assert metrics[f"r{n}_parse_tier3"] == 0

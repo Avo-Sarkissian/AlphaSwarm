@@ -1,41 +1,35 @@
-"""Advisory synthesis engine — single orchestrator LLM call over prefetched swarm data.
+"""ADVIS-01 synthesis engine: one orchestrator call over prefetched swarm data.
 
-Lifecycle note: this module does NOT load or unload the orchestrator model.
-The model load/unload is handled by the caller
-(alphaswarm.web.routes.advisory._run_advisory_synthesis,
-docs/DECISIONS.md#p41-d-08) so the library stays infrastructure-free and
-unit-testable with Fakes.
+Lifecycle: this module never loads or unloads a model; its caller, the
+advisory job, owns prepare/teardown (docs/DECISIONS.md#p41-d-08).
+
+The orchestrator writes only ``AdvisoryLLMOutput`` (outlook + conviction items),
+decoded through ``chat_structured`` with the tickers restricted to the ones in
+the prompt and temperature 0.2; ``assemble_advisory_report`` builds everything
+else server-side (docs/DECISIONS.md#adr-advisory-pipeline).
 
 Pitfall 1: NEVER pass the PortfolioSnapshot or Holding objects into a structlog
-event_dict. Log only scalar metadata (cycle_id, holdings_count, affected).
-Pitfall 2: NEVER json.dumps over raw Decimal. All holdings values are stringified
-before prompt construction.
-Pitfall 3: one bounded retry on ValidationError; second failure raises.
-Pitfall 4: NEVER log or forward str(ValidationError): it echoes the model's input
-values, which can include tickers or a cost basis. Use validation_error_summary().
+event_dict. Log only scalar metadata (cycle_id, counts, hallucinated tickers).
+Pitfall 2: NEVER json.dumps over raw Decimal.
 """
 
 from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
-from pydantic import ValidationError
 
 from alphaswarm.advisory.prompt import build_advisory_prompt
 from alphaswarm.advisory.sector_map import EMPTY_SECTOR_MAP, UNKNOWN_SECTOR, SectorMap
-from alphaswarm.advisory.types import AdvisoryItem, AdvisoryReport
+from alphaswarm.advisory.types import AdvisoryItem, AdvisoryLLMOutput, AdvisoryReport, AdvisoryStats
 from alphaswarm.holdings.types import PortfolioSnapshot
-from alphaswarm.inference.types import InferenceMessage
-from alphaswarm.logging import (
-    validation_error_details,
-    validation_error_location,
-    validation_error_summary,
-)
+from alphaswarm.inference.schema import to_portable_schema
+from alphaswarm.inference.structured import chat_structured
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
@@ -102,6 +96,113 @@ def _ticker_entries(portfolio: PortfolioSnapshot) -> list[dict[str, str]]:
     return [{"ticker": display} for display in display_by_ticker.values()]
 
 
+ADVISORY_TEMPERATURE: Final = 0.2
+ADVISORY_MAX_TOKENS: Final = 3000
+_PLACEHOLDER_CONFIDENCE: Final = 0.30
+_PLACEHOLDER_RATIONALE: Final = "Swarm produced no strong directional view this cycle."
+
+
+def advisory_llm_schema(tickers: Sequence[str]) -> dict[str, Any]:
+    """AdvisoryLLMOutput's schema with ``items[].ticker`` restricted to *tickers*."""
+    allowed = sorted({ticker.upper() for ticker in tickers})
+    if not allowed:
+        raise ValueError("the advisory prompt must contain at least one ticker")
+    schema = to_portable_schema(AdvisoryLLMOutput.model_json_schema())
+    schema["properties"]["items"]["items"]["properties"]["ticker"] = {
+        "type": "string",
+        "enum": allowed,
+    }
+    return schema
+
+
+def assemble_advisory_report(
+    *,
+    cycle_id: str,
+    portfolio: PortfolioSnapshot,
+    llm: AdvisoryLLMOutput,
+    generated_at: datetime | None = None,
+) -> AdvisoryReport:
+    """Build the advisory the user sees from the model's conviction items.
+
+    Keeps only held tickers (the model can still emit others), keeps the
+    highest-confidence item per ticker in the portfolio's casing, sets exposure
+    to the aggregated cost basis, pads every other holding as a HOLD@0.30
+    placeholder (docs/DECISIONS.md#sweep-b-7), ranks by confidence x exposure /
+    total cost basis with placeholders last (docs/DECISIONS.md#p41-d-07) and
+    computes stats over conviction items only.
+    """
+    cost_by_ticker: dict[str, Decimal] = {}
+    display_ticker: dict[str, str] = {}
+    for holding in portfolio.holdings:
+        key = holding.ticker.upper()
+        cost = holding.cost_basis if holding.cost_basis is not None else Decimal("0")
+        cost_by_ticker[key] = cost_by_ticker.get(key, Decimal("0")) + cost
+        display_ticker.setdefault(key, holding.ticker)
+    total_cost = sum(cost_by_ticker.values(), Decimal("0"))
+    # A negative aggregate would invert the ranking (docs/DECISIONS.md#f-29).
+    denominator = total_cost if total_cost > 0 else Decimal("1")
+
+    kept: dict[str, AdvisoryItem] = {}
+    dropped: list[str] = []
+    for item in llm.items:
+        key = item.ticker.upper()
+        exposure = cost_by_ticker.get(key)
+        if exposure is None:
+            dropped.append(key)
+            continue
+        previous = kept.get(key)
+        if previous is not None and previous.confidence >= item.confidence:
+            continue
+        # Portfolio casing, so kept and padded items agree (docs/DECISIONS.md#f-30).
+        kept[key] = AdvisoryItem(
+            ticker=display_ticker[key],
+            consensus_signal=item.signal,
+            confidence=item.confidence,
+            rationale_summary=item.rationale,
+            position_exposure=exposure,
+            source="swarm",
+            risk=item.risk,
+            upside=item.upside,
+        )
+    if dropped:
+        # Pitfall 1: ticker symbols of NON-held names only; never qty or cost basis.
+        log.warning(
+            "advisory_hallucinated_tickers_dropped",
+            cycle_id=cycle_id,
+            count=len(dropped),
+            tickers=dropped,
+        )
+
+    placeholders = [
+        AdvisoryItem(
+            ticker=display_ticker[key],
+            consensus_signal="HOLD",
+            confidence=_PLACEHOLDER_CONFIDENCE,
+            rationale_summary=_PLACEHOLDER_RATIONALE,
+            position_exposure=exposure,
+            source="placeholder",
+        )
+        for key, exposure in cost_by_ticker.items()
+        if key not in kept
+    ]
+
+    def _score(item: AdvisoryItem) -> float:
+        return float(item.confidence) * (float(item.position_exposure) / float(denominator))
+
+    conviction = sorted(kept.values(), key=_score, reverse=True)
+    ranked = tuple(conviction + sorted(placeholders, key=_score, reverse=True))
+    return AdvisoryReport(
+        cycle_id=cycle_id,
+        generated_at=generated_at if generated_at is not None else datetime.now(UTC),
+        portfolio_outlook=llm.portfolio_outlook,
+        items=ranked,
+        total_holdings=len(cost_by_ticker),
+        affected_holdings=sum(1 for item in conviction if item.consensus_signal != "HOLD" or item.confidence > 0.4),
+        stats=AdvisoryStats.from_items(ranked),
+        holdings_as_of=portfolio.as_of,
+    )
+
+
 async def synthesize(
     *,
     cycle_id: str,
@@ -110,13 +211,14 @@ async def synthesize(
     provider: InferenceProvider,
     sector_map: SectorMap | None = None,
 ) -> AdvisoryReport:
-    """Prefetch swarm data, call orchestrator once, parse + rank.
+    """Prefetch swarm data, call the orchestrator once, assemble the advisory.
 
     *sector_map* comes from load_sector_map(settings.sector_map_path); None uses
     EMPTY_SECTOR_MAP (every holding gets the 'unknown' sector).
 
     Raises:
-        pydantic.ValidationError: if the LLM returns a malformed payload twice.
+        StructuredOutputError: if the orchestrator returns an invalid reply twice.
+        ValueError: if the portfolio holds no tickers (the loader never returns one).
         Any exception from graph_manager or the provider propagates unchanged so the
         advisory job's done-callback can record it in app.state.advisory_generation_error
         (docs/DECISIONS.md#p41-d-13).
@@ -143,14 +245,6 @@ async def synthesize(
         seed_rumor = await graph_manager.read_cycle_seed(cycle_id) or ""
     except Exception:  # noqa: BLE001 - synthesize still runs without seed text
         log.warning("advisory_seed_fetch_failed", cycle_id=cycle_id)
-
-    _total_cb = sum((h.cost_basis if h.cost_basis is not None else Decimal("0")) for h in portfolio.holdings)
-    # The ranking denominator must be POSITIVE (docs/DECISIONS.md#p41-d-07). The old
-    # `or Decimal("1")` only caught a falsy (zero) sum; a NEGATIVE aggregate
-    # (data-entry error or a credit/short lot) is truthy and would divide positive
-    # exposures by a negative number, inverting the advisory ranking
-    # (docs/DECISIONS.md#f-29).
-    total_cost_basis = _total_cb if _total_cb > 0 else Decimal("1")
 
     # read_entity_impact rows carry entity_name + avg_sentiment. Collapse them to
     # {ticker: impact}, using avg_sentiment as the bounded [-1, 1] directional
@@ -189,148 +283,23 @@ async def synthesize(
         top_holdings=top_holdings,
     )
 
-    report = await _infer_with_retry(
-        provider=provider,
-        messages=messages,
+    result = await chat_structured(
+        provider,
+        messages,
+        AdvisoryLLMOutput,
+        schema=advisory_llm_schema([str(h["ticker"]) for h in top_holdings]),
+        temperature=ADVISORY_TEMPERATURE,
+        max_tokens=ADVISORY_MAX_TOKENS,
     )
-
-    # Coverage is keyed by unique upper-cased ticker, not by Holding row: the
-    # portfolio holds one Holding per lot, and a ticker can sit in two accounts.
-    # Aggregate cost basis across lots per ticker.
-    cost_by_ticker: dict[str, Decimal] = {}
-    display_ticker: dict[str, str] = {}
-    for h in portfolio.holdings:
-        ticker_up = h.ticker.upper()
-        cost = h.cost_basis if h.cost_basis is not None else Decimal("0")
-        cost_by_ticker[ticker_up] = cost_by_ticker.get(ticker_up, Decimal("0")) + cost
-        display_ticker.setdefault(ticker_up, h.ticker)
-
-    # Keep only LLM items for tickers the user actually owns — the LLM can
-    # hallucinate positions (with invented exposure) for tickers in the seed.
-    # Dedupe LLM repeats per ticker (keep highest confidence) and overwrite
-    # position_exposure with the aggregated ACTUAL cost basis.
-    kept_by_ticker: dict[str, AdvisoryItem] = {}
-    dropped_tickers: list[str] = []
-    for it in report.items:
-        ticker_up = it.ticker.upper()
-        actual_exposure = cost_by_ticker.get(ticker_up)
-        if actual_exposure is None:
-            dropped_tickers.append(ticker_up)
-            continue
-        prev = kept_by_ticker.get(ticker_up)
-        if prev is not None and prev.confidence >= it.confidence:
-            continue
-        # Normalize the ticker to the portfolio's canonical casing — the LLM
-        # may echo a different case ("zzzt") than the user's CSV, which would
-        # make kept (conviction) and padded (HOLD) items disagree on casing for
-        # the same position and break ticker-keyed lookups/dedupe
-        # (docs/DECISIONS.md#f-30).
-        # display_ticker[ticker_up] is guaranteed present because actual_exposure
-        # (from cost_by_ticker, populated in the same loop) is not None here.
-        kept_by_ticker[ticker_up] = it.model_copy(
-            update={
-                "ticker": display_ticker[ticker_up],
-                "position_exposure": actual_exposure,
-            }
-        )
-    if dropped_tickers:
-        # Pitfall 1: scalar-only logging — ticker symbols are fine, never
-        # qty/cost_basis/account fields.
-        log.warning(
-            "advisory_hallucinated_tickers_dropped",
-            cycle_id=cycle_id,
-            count=len(dropped_tickers),
-            tickers=dropped_tickers,
-        )
-
-    # Pad: every unique ticker NOT covered by a kept LLM item becomes a
-    # HOLD@0.30 placeholder so the frontend Holdings tab still shows the full
-    # portfolio. The user explicitly asked for one-item-per-holding rendering
-    # (docs/DECISIONS.md#quick-260512-jqn) — we keep the contract, we just stop
-    # spending LLM tokens on it.
-    conviction_items: list[AdvisoryItem] = list(kept_by_ticker.values())
-    padded_items: list[AdvisoryItem] = [
-        AdvisoryItem(
-            ticker=display_ticker[ticker_up],
-            consensus_signal="HOLD",
-            confidence=0.30,
-            rationale_summary="Swarm produced no strong directional view this cycle.",
-            position_exposure=exposure,
-        )
-        for ticker_up, exposure in cost_by_ticker.items()
-        if ticker_up not in kept_by_ticker
-    ]
-
-    # Rerank by score = confidence × (exposure / total_cost_basis), desc
-    # (docs/DECISIONS.md#p41-d-07).
-    # Padded placeholders sort AFTER conviction items regardless of score —
-    # effective sort key is (is_padded, -score).
-    def _score(it: AdvisoryItem) -> float:
-        return float(it.confidence) * (float(it.position_exposure) / float(total_cost_basis))
-
-    conviction_items.sort(key=_score, reverse=True)
-    padded_items.sort(key=_score, reverse=True)
-    ranked = tuple(conviction_items + padded_items)
-
-    # `affected_holdings` counts only items the LLM had real conviction on —
-    # NOT the server-padded HOLD placeholders.
-    affected_count = sum(1 for it in conviction_items if it.consensus_signal != "HOLD" or it.confidence > 0.4)
-
-    final = report.model_copy(
-        update={
-            "cycle_id": cycle_id,  # never trust the LLM-echoed value
-            "items": ranked,
-            "total_holdings": len(cost_by_ticker),  # unique tickers, not lots
-            "affected_holdings": affected_count,
-            "generated_at": datetime.now(UTC),
-        }
-    )
-
+    report = assemble_advisory_report(cycle_id=cycle_id, portfolio=portfolio, llm=result.value)
     log.info(
         "advisory_synthesize_complete",
         cycle_id=cycle_id,
-        total=len(cost_by_ticker),
-        affected=affected_count,
-        llm_items=len(report.items),
-        dropped_items=len(dropped_tickers),
-        padded_items=len(padded_items),
+        total=report.total_holdings,
+        affected=report.affected_holdings,
+        llm_items=len(result.value.items),
+        padded_items=report.stats.placeholder_count if report.stats is not None else 0,
+        parse_tier=result.parse_tier,
+        attempts=result.attempts,
     )
-    return final
-
-
-def _retry_feedback(exc: ValidationError) -> str:
-    """Which fields failed and why, without echoing the values the model sent."""
-    errors = validation_error_details(exc)
-    return "\n".join(f"- {validation_error_location(error)}: {error['msg']}" for error in errors[:10])
-
-
-async def _infer_with_retry(
-    *,
-    provider: InferenceProvider,
-    messages: list[InferenceMessage],
-) -> AdvisoryReport:
-    """Call the orchestrator with json_mode=True; retry once on ValidationError.
-
-    Pitfall 3: bounded retry. On the second ValidationError we raise.
-    """
-    result = await provider.chat(messages, json_mode=True)
-    content = result.content or "{}"
-
-    try:
-        return AdvisoryReport.model_validate_json(content)
-    except ValidationError as first_err:
-        log.warning("advisory_validation_retry", **validation_error_summary(first_err))
-        retry_messages: list[InferenceMessage] = [
-            *messages,
-            {
-                "role": "user",
-                "content": (
-                    "Your previous response failed validation:\n"
-                    f"{_retry_feedback(first_err)}\n"
-                    "Return ONLY the JSON object matching the schema."
-                ),
-            },
-        ]
-        retry_result = await provider.chat(retry_messages, json_mode=True)
-        retry_content = retry_result.content or "{}"
-        return AdvisoryReport.model_validate_json(retry_content)
+    return report

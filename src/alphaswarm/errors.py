@@ -82,6 +82,21 @@ class AuthError(InferenceError):
     """
 
 
+class StructuredOutputError(InferenceError):
+    """chat_structured exhausted every parse tier and retry.
+
+    ``parse_tier`` is always 3 and ``attempts`` is the number of model calls
+    made. Callers choose the fallback: the report degrades to tables only, the
+    seed and modifiers fall back to their static defaults, the advisory job
+    fails (docs/DECISIONS.md#adr-structured-output).
+    """
+
+    def __init__(self, message: str, *, provider: str, model: str, attempts: int) -> None:
+        super().__init__(message, provider=provider, model=model)
+        self.parse_tier: Literal[3] = 3
+        self.attempts = attempts
+
+
 class BudgetExceededError(Exception):
     """Raised when cumulative spend would exceed the configured cap.
 

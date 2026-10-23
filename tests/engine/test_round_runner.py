@@ -173,6 +173,9 @@ async def test_round_outcome_is_frozen_and_aligned(
         "r1_parse_errors",
         "r1_inference_errors",
         "r1_citations_dropped",
+        "r1_parse_tier1",
+        "r1_parse_tier2",
+        "r1_parse_tier3",
     }
 
 

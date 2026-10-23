@@ -7,6 +7,21 @@ to depend on alphaswarm.holdings. Do NOT add alphaswarm.advisory to that list.
 """
 
 from alphaswarm.advisory.engine import synthesize
-from alphaswarm.advisory.types import AdvisoryItem, AdvisoryReport, Signal
+from alphaswarm.advisory.types import (
+    AdvisoryItem,
+    AdvisoryLLMItem,
+    AdvisoryLLMOutput,
+    AdvisoryReport,
+    AdvisoryStats,
+    Signal,
+)
 
-__all__ = ["AdvisoryItem", "AdvisoryReport", "Signal", "synthesize"]
+__all__ = [
+    "AdvisoryItem",
+    "AdvisoryLLMItem",
+    "AdvisoryLLMOutput",
+    "AdvisoryReport",
+    "AdvisoryStats",
+    "Signal",
+    "synthesize",
+]

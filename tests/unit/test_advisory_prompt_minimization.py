@@ -108,12 +108,12 @@ async def test_no_quantity_or_cost_basis_reaches_the_prompt() -> None:
         assert value not in joined
 
 
-async def test_schema_asks_for_a_zero_exposure_placeholder() -> None:
+async def test_schema_never_asks_for_exposure_or_cost_basis() -> None:
     system = (await _prompt_messages())[0]["content"]
-    assert '"position_exposure": "0"' in system
+    assert "position_exposure" not in system
     assert "cost_basis" not in system
 
 
 def test_worked_example_uses_a_placeholder_ticker() -> None:
     assert '"ticker": "ZZZT"' in _WORKED_EXAMPLE
-    assert '"position_exposure": "0"' in _WORKED_EXAMPLE
+    assert "position_exposure" not in _WORKED_EXAMPLE

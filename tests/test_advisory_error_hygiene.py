@@ -62,6 +62,22 @@ _VALID = json.dumps(
     }
 )
 _VALUES = ("ZZZT", "12.3456", "1234.56")
+# The orchestrator's reply model (AdvisoryLLMOutput): an unparsable confidence and
+# a signal outside the enum, both carrying fictional position values.
+_INVALID_LLM_REPLY = json.dumps(
+    {
+        "portfolio_outlook": "x",
+        "items": [
+            {
+                "ticker": "ZZZT",
+                "signal": "BUY 1234.56 USD",
+                "confidence": "12.3456 shares",
+                "rationale": "x",
+            }
+        ],
+        "ZZZT": "an invented top-level key",
+    }
+)
 
 
 def _validation_error() -> ValidationError:
@@ -148,7 +164,7 @@ async def test_retry_prompt_names_locations_not_values() -> None:
         role=ProviderRole.ORCHESTRATOR,
         model="test-orch",
         scripted=[
-            InferenceResult(content=_INVALID, model="test-orch"),
+            InferenceResult(content=_INVALID_LLM_REPLY, model="test-orch"),
             InferenceResult(content=_VALID, model="test-orch"),
         ],
     )
@@ -164,9 +180,9 @@ async def test_retry_prompt_names_locations_not_values() -> None:
         provider=provider,
     )
     retry = provider.calls[1]["messages"][-1]["content"]
-    assert retry.startswith("Your previous response failed validation:")
-    assert "items.0.position_exposure" in retry
-    for value in ("1234.56 USD", "12.3456", "ZZZT"):
+    assert retry.startswith("Your previous reply did not match the required JSON schema.")
+    assert "items.0.confidence" in retry and "items.0.signal" in retry
+    for value in ("1234.56", "12.3456", "ZZZT"):
         assert value not in retry
 
 

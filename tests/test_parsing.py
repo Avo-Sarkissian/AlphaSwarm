@@ -9,12 +9,10 @@ Tests verify:
 
 from __future__ import annotations
 
-import json as json_mod
-
 import pytest
 from pydantic import ValidationError
 
-from alphaswarm.types import AgentDecision, BracketType, SignalType
+from alphaswarm.types import AgentDecision, SignalType
 
 # --- AgentDecision model tests (no parsing module needed) ---
 
@@ -42,11 +40,11 @@ def test_agent_decision_defaults() -> None:
 
 
 def test_agent_decision_validation_bounds() -> None:
-    """AgentDecision rejects out-of-bounds confidence and sentiment."""
+    """Out-of-range numbers are clamped (docs/DECISIONS.md#adr-structured-output); unknown signals still fail."""
+    assert AgentDecision(signal=SignalType.BUY, confidence=1.2).confidence == 1.0
+    assert AgentDecision(signal=SignalType.BUY, confidence=0.5, sentiment=2.0).sentiment == 1.0
     with pytest.raises(ValidationError):
-        AgentDecision(signal=SignalType.BUY, confidence=1.5)
-    with pytest.raises(ValidationError):
-        AgentDecision(signal=SignalType.BUY, confidence=0.5, sentiment=2.0)
+        AgentDecision.model_validate({"signal": "strong_buy", "confidence": 0.5})
 
 
 def test_agent_decision_parse_error_signal() -> None:
@@ -138,255 +136,13 @@ def test_tier3_parse_error() -> None:
 
 
 def test_tier3_invalid_json_values() -> None:
-    """Tier 3: JSON is valid but field values fail Pydantic validation."""
+    """Tier 3: JSON is valid but a value cannot be normalised (unknown signal)."""
     from alphaswarm.parsing import parse_agent_decision
 
-    raw = '{"signal": "buy", "confidence": 5.0}'  # confidence > 1.0
+    raw = '{"signal": "strong_buy", "confidence": 0.5}'
     result = parse_agent_decision(raw)
     assert result.signal == SignalType.PARSE_ERROR
     assert result.confidence == 0.0
-
-
-# --- parse_seed_event tests ---
-
-
-def test_seed_parse_tier1_valid_json() -> None:
-    """Tier 1: Valid JSON with entities returns ParsedSeedResult with parse_tier=1."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 0.95, "sentiment": 0.8}], "overall_sentiment": 0.6}'
-    result = parse_seed_event(raw, original_rumor="NVIDIA quantum breakthrough")
-    assert result.parse_tier == 1
-    assert result.seed_event.raw_rumor == "NVIDIA quantum breakthrough"
-    assert len(result.seed_event.entities) == 1
-    assert result.seed_event.entities[0].name == "NVIDIA"
-    assert result.seed_event.overall_sentiment == 0.6
-
-
-def test_seed_parse_tier1_no_raw_rumor_in_json() -> None:
-    """Tier 1: JSON without raw_rumor field still parses (raw_rumor comes from parameter)."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [], "overall_sentiment": 0.0}'
-    result = parse_seed_event(raw, original_rumor="my rumor")
-    assert result.parse_tier == 1
-    assert result.seed_event.raw_rumor == "my rumor"
-
-
-def test_seed_parse_tier2_code_fenced_json() -> None:
-    """Tier 2: Code-fenced JSON extracts correctly."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '```json\n{"entities": [{"name": "QQQX", "type": "company", "relevance": 0.8, "sentiment": -0.3}], "overall_sentiment": -0.2}\n```'
-    result = parse_seed_event(raw, original_rumor="Tesla rumor")
-    assert result.parse_tier == 2
-    assert result.seed_event.entities[0].name == "QQQX"
-
-
-def test_seed_parse_tier2_embedded_in_prose() -> None:
-    """Tier 2: JSON embedded in prose text extracts via regex."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = 'Here is my analysis:\n{"entities": [{"name": "Apple", "type": "company", "relevance": 0.7, "sentiment": 0.4}], "overall_sentiment": 0.3}\nThat is all.'
-    result = parse_seed_event(raw, original_rumor="Apple rumor")
-    assert result.parse_tier == 2
-    assert len(result.seed_event.entities) == 1
-
-
-def test_seed_parse_tier3_garbage_input() -> None:
-    """Tier 3: Complete garbage returns parse_tier=3 with empty entities."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = "I don't know what to say about this rumor at all"
-    result = parse_seed_event(raw, original_rumor="original")
-    assert result.parse_tier == 3
-    assert result.seed_event.entities == []
-    assert result.seed_event.overall_sentiment == 0.0
-    assert result.seed_event.raw_rumor == "original"
-
-
-def test_seed_parse_tier3_empty_string() -> None:
-    """Tier 3: Empty string returns parse_tier=3."""
-    from alphaswarm.parsing import parse_seed_event
-
-    result = parse_seed_event("", original_rumor="rumor")
-    assert result.parse_tier == 3
-    assert result.seed_event.entities == []
-
-
-def test_seed_parse_adversarial_multiple_json() -> None:
-    """Adversarial: Multiple JSON objects -- does not crash, returns valid result."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [{"name": "A", "type": "company", "relevance": 0.5, "sentiment": 0.1}], "overall_sentiment": 0.2} {"entities": [{"name": "B", "type": "sector", "relevance": 0.3, "sentiment": -0.1}], "overall_sentiment": -0.1}'
-    result = parse_seed_event(raw, original_rumor="test")
-    # Must not crash; graceful fallback is acceptable
-    assert result.parse_tier in (1, 2, 3)
-    assert result.seed_event.raw_rumor == "test"
-
-
-def test_seed_parse_adversarial_truncated_json() -> None:
-    """Adversarial: Truncated JSON falls to Tier 3."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [{"name": "NVIDIA"'
-    result = parse_seed_event(raw, original_rumor="test")
-    assert result.parse_tier == 3
-
-
-def test_seed_parse_adversarial_unknown_entity_type() -> None:
-    """Adversarial: Unknown entity type skips invalid entity, keeps valid ones."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8}, {"name": "Paris", "type": "location", "relevance": 0.5, "sentiment": 0.0}], "overall_sentiment": 0.5}'
-    result = parse_seed_event(raw, original_rumor="test")
-    assert result.parse_tier in (1, 2)
-    # Valid entity kept, invalid skipped
-    assert len(result.seed_event.entities) == 1
-    assert result.seed_event.entities[0].name == "NVIDIA"
-
-
-def test_seed_parse_adversarial_null_fields() -> None:
-    """Adversarial: Null entities field falls to Tier 3."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": null, "overall_sentiment": 0.5}'
-    result = parse_seed_event(raw, original_rumor="test")
-    assert result.parse_tier == 3
-
-
-def test_seed_parse_adversarial_out_of_range_values() -> None:
-    """Adversarial: Out-of-range relevance/sentiment in entities -- bad entities skipped."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 1.5, "sentiment": 0.8}, {"name": "AMD", "type": "company", "relevance": 0.7, "sentiment": 0.5}], "overall_sentiment": 0.4}'
-    result = parse_seed_event(raw, original_rumor="test")
-    # NVIDIA entity has relevance=1.5 (out of range) -> skipped; AMD is valid
-    assert result.parse_tier in (1, 2)
-    assert len(result.seed_event.entities) == 1
-    assert result.seed_event.entities[0].name == "AMD"
-
-
-def test_seed_parse_adversarial_duplicate_entities() -> None:
-    """Adversarial: Duplicate entities (same name twice) do not crash."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8}, {"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8}], "overall_sentiment": 0.5}'
-    result = parse_seed_event(raw, original_rumor="test")
-    assert result.parse_tier in (1, 2)
-    assert len(result.seed_event.entities) == 2
-
-
-def test_seed_parse_adversarial_extra_prose_with_braces() -> None:
-    """Adversarial: Prose with stray braces before actual JSON."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = 'I think {the market} will... {"entities": [{"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8}], "overall_sentiment": 0.5}'
-    result = parse_seed_event(raw, original_rumor="test")
-    # Should eventually find valid JSON via regex
-    assert result.parse_tier in (1, 2, 3)
-    # If it parses, entities should be present
-    if result.parse_tier in (1, 2):
-        assert len(result.seed_event.entities) >= 1
-
-
-def test_seed_parse_adversarial_extra_fields_tolerated() -> None:
-    """Adversarial: JSON with extra fields (e.g. reasoning) is tolerated."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 0.9, "sentiment": 0.8, "reasoning": "leading chip maker"}], "overall_sentiment": 0.5, "summary": "bullish"}'
-    result = parse_seed_event(raw, original_rumor="test")
-    assert result.parse_tier in (1, 2)
-    assert result.seed_event.entities[0].name == "NVIDIA"
-
-
-def test_seed_parse_raw_rumor_always_from_parameter() -> None:
-    """raw_rumor from LLM output is ALWAYS overridden by the original_rumor parameter."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"raw_rumor": "LLM fabricated rumor", "entities": [], "overall_sentiment": 0.0}'
-    result = parse_seed_event(raw, original_rumor="the real rumor")
-    assert result.seed_event.raw_rumor == "the real rumor"
-
-
-def test_seed_parse_adversarial_out_of_range_overall_sentiment() -> None:
-    """Adversarial: Out-of-range overall_sentiment falls to Tier 3."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [], "overall_sentiment": 5.0}'
-    result = parse_seed_event(raw, original_rumor="test")
-    assert result.parse_tier == 3
-
-
-# --- Phase 13: parse_modifier_response tests ---
-
-
-def _make_full_modifier_json() -> str:
-    """Helper: build valid JSON with all 10 BracketType keys."""
-    return json_mod.dumps({bt.value: f"modifier for {bt.value}" for bt in BracketType})
-
-
-def test_parse_modifiers_tier1() -> None:
-    """Tier 1: direct JSON parse with all 10 keys succeeds."""
-    from alphaswarm.parsing import parse_modifier_response
-
-    raw = _make_full_modifier_json()
-    result = parse_modifier_response(raw)
-    assert result.parse_tier == 1
-    assert len(result.modifiers) == 10
-    for bt in BracketType:
-        assert bt in result.modifiers
-        assert f"modifier for {bt.value}" in result.modifiers[bt]
-
-
-def test_parse_modifiers_tier2() -> None:
-    """Tier 2: JSON wrapped in code fence is extracted."""
-    from alphaswarm.parsing import parse_modifier_response
-
-    raw = f"```json\n{_make_full_modifier_json()}\n```"
-    result = parse_modifier_response(raw)
-    assert result.parse_tier == 2
-    assert len(result.modifiers) == 10
-
-
-def test_parse_modifiers_tier3_fallback() -> None:
-    """Tier 3: garbage text falls back to static BRACKET_MODIFIERS[bracket][0]."""
-    from alphaswarm.parsing import parse_modifier_response
-    from alphaswarm.personas import BRACKET_MODIFIERS
-
-    result = parse_modifier_response("this is not json at all")
-    assert result.parse_tier == 3
-    assert len(result.modifiers) == 10
-    for bt in BracketType:
-        assert result.modifiers[bt] == BRACKET_MODIFIERS[bt][0]
-
-
-def test_parse_modifiers_partial_fallback() -> None:
-    """Partial JSON: present keys use generated value, missing keys use static fallback."""
-    from alphaswarm.parsing import parse_modifier_response
-    from alphaswarm.personas import BRACKET_MODIFIERS
-
-    partial = {bt.value: f"custom {bt.value}" for bt in list(BracketType)[:7]}
-    result = parse_modifier_response(json_mod.dumps(partial))
-    assert result.parse_tier == 1  # Valid JSON, just missing some keys
-    assert len(result.modifiers) == 10
-    # First 7 brackets have custom modifiers
-    for bt in list(BracketType)[:7]:
-        assert result.modifiers[bt] == f"custom {bt.value}"
-    # Last 3 brackets fall back to static
-    for bt in list(BracketType)[7:]:
-        assert result.modifiers[bt] == BRACKET_MODIFIERS[bt][0]
-
-
-def test_parse_modifiers_case_insensitive() -> None:
-    """Keys with mixed case are normalized to lowercase before BracketType lookup."""
-    from alphaswarm.parsing import parse_modifier_response
-
-    mixed_case = {bt.value.upper(): f"upper {bt.value}" for bt in BracketType}
-    result = parse_modifier_response(json_mod.dumps(mixed_case))
-    assert result.parse_tier == 1
-    for bt in BracketType:
-        assert result.modifiers[bt] == f"upper {bt.value}"
 
 
 def test_parse_logs_tier_used() -> None:

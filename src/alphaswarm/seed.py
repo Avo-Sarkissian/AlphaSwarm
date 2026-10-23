@@ -11,16 +11,29 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 import structlog
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from alphaswarm.parsing import parse_modifier_response, parse_seed_event
-from alphaswarm.personas import compute_prompt_template_hash, load_bracket_configs
-from alphaswarm.prompts.modifiers import MODIFIER_GENERATION_PROMPT, build_modifier_user_message
+from alphaswarm.errors import StructuredOutputError
+from alphaswarm.inference.structured import chat_structured
+from alphaswarm.personas import BRACKET_MODIFIERS, compute_prompt_template_hash, load_bracket_configs
+from alphaswarm.prompts.modifiers import (
+    MODIFIER_GENERATION_PROMPT,
+    build_modifier_user_message,
+    truncate_modifier,
+)
+from alphaswarm.types import (
+    BracketType,
+    ParsedModifiersResult,
+    ParsedSeedResult,
+    SeedEntity,
+    SeedEvent,
+    normalize_signed_unit,
+)
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.settings import AppSettings
-    from alphaswarm.types import ParsedModifiersResult, ParsedSeedResult, SeedEvent
 
 logger = structlog.get_logger(component="seed")
 
@@ -42,6 +55,102 @@ ORCHESTRATOR_SYSTEM_PROMPT = (
     "\n"
     'Respond with JSON: {"entities": [...], "overall_sentiment": float}'
 )
+
+
+class SeedLLMOutput(BaseModel):
+    """The orchestrator's seed reply.
+
+    Lenient on purpose: extra keys are ignored, an entity that fails validation
+    is dropped instead of failing the reply, and numbers are clamped by the
+    ``SeedEntity`` validators (docs/DECISIONS.md#adr-structured-output).
+    ``overall_sentiment`` carries ``SeedEvent``'s range: clamping cannot fix
+    NaN, so it must fail here, where chat_structured retries and falls back,
+    and never later in ``to_seed_event``.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    entities: list[SeedEntity]
+    overall_sentiment: float = Field(ge=-1.0, le=1.0)
+
+    @field_validator("entities", mode="before")
+    @classmethod
+    def _drop_invalid_entities(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value  # null or a non-list fails validation and triggers the retry
+        kept: list[SeedEntity] = []
+        for item in value:
+            try:
+                kept.append(SeedEntity.model_validate(item))
+            except ValidationError:
+                continue
+        return kept
+
+    @field_validator("overall_sentiment", mode="before")
+    @classmethod
+    def _clamp_sentiment(cls, value: object) -> object:
+        return normalize_signed_unit(value)
+
+    def to_seed_event(self, raw_rumor: str) -> SeedEvent:
+        """Domain event; ``raw_rumor`` always comes from the caller, never the model."""
+        return SeedEvent(
+            raw_rumor=raw_rumor,
+            entities=list(self.entities),
+            overall_sentiment=self.overall_sentiment,
+        )
+
+
+def static_modifiers() -> dict[BracketType, str]:
+    """Each bracket's first static modifier: the tier-3 fallback (docs/DECISIONS.md#p13-d-07)."""
+    return {bracket: (BRACKET_MODIFIERS.get(bracket) or [""])[0] for bracket in BracketType}
+
+
+class ModifiersLLMOutput(BaseModel):
+    """The orchestrator's modifier reply: one short persona modifier per bracket.
+
+    Keys are case-insensitive, extra keys are ignored and a missing or
+    non-string value becomes "" so that bracket falls back to its static
+    modifier (docs/DECISIONS.md#p13-d-08).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    institutions: str = ""
+    sell_side: str = ""
+    event_driven: str = ""
+    quants: str = ""
+    degens: str = ""
+    narrators: str = ""
+    algos: str = ""
+    macro: str = ""
+    shorts: str = ""
+    allocators: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lower_case_keys(cls, data: object) -> object:
+        if isinstance(data, dict):
+            return {(key.strip().lower() if isinstance(key, str) else key): value for key, value in data.items()}
+        return data
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _text_or_empty(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else ""
+
+    def to_modifiers(self) -> tuple[dict[BracketType, str], list[str]]:
+        """Bracket -> truncated modifier, plus the bracket values that fell back."""
+        fallback = static_modifiers()
+        modifiers: dict[BracketType, str] = {}
+        fell_back: list[str] = []
+        for bracket in BracketType:
+            text = getattr(self, bracket.value)
+            if text:
+                modifiers[bracket] = truncate_modifier(text)
+            else:
+                modifiers[bracket] = fallback[bracket]
+                fell_back.append(bracket.value)
+        return modifiers, fell_back
 
 
 async def inject_seed(
@@ -74,27 +183,28 @@ async def inject_seed(
     # 1. Load orchestrator model (per D-07)
     await orchestrator.prepare()
     try:
-        # 2. Chat with json_mode=True, think=False (think=True added ~265s/call
-        # with marginal quality gain on this workload; see
-        # docs/DECISIONS.md#adr-think-off for revisit triggers and how to flip back).
-        inference_result = await orchestrator.chat(
-            messages=[
-                {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT},
-                {"role": "user", "content": rumor},
-            ],
-            json_mode=True,
-        )
-
-        # 3. Parse with 3-tier fallback (per D-06), returns ParsedSeedResult
-        raw_content = inference_result.content
-        parsed_result = parse_seed_event(raw_content, rumor)
-
-        # Log warning on fallback (addresses review concern #1: silent parse failure)
-        if parsed_result.parse_tier == 3:
-            logger.warning(
-                "seed_parse_used_fallback",
+        # 2-3. One schema-constrained call with parse fallbacks and one retry
+        # (docs/DECISIONS.md#adr-structured-output); think=False stays inside the
+        # Ollama adapter (docs/DECISIONS.md#adr-think-off).
+        try:
+            structured = await chat_structured(
+                orchestrator,
+                [
+                    {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT},
+                    {"role": "user", "content": rumor},
+                ],
+                SeedLLMOutput,
+            )
+        except StructuredOutputError:
+            logger.warning("seed_parse_used_fallback", parse_tier=3)
+            parsed_result = ParsedSeedResult(
+                seed_event=SeedEvent(raw_rumor=rumor, entities=[], overall_sentiment=0.0),
                 parse_tier=3,
-                raw_preview=raw_content[:300],
+            )
+        else:
+            parsed_result = ParsedSeedResult(
+                seed_event=structured.value.to_seed_event(rumor),
+                parse_tier=structured.parse_tier,
             )
 
         # 4. Generate modifiers while the orchestrator is still loaded, BEFORE
@@ -140,45 +250,31 @@ async def generate_modifiers(
     seed_event: SeedEvent,
     orchestrator: InferenceProvider,
 ) -> ParsedModifiersResult:
-    """Generate entity-aware bracket modifiers via orchestrator LLM (D-04, D-05, D-06).
+    """Generate entity-aware bracket modifiers via the orchestrator (docs/DECISIONS.md#p13-d-04).
 
-    Makes a single JSON-mode chat call to the orchestrator (which must already
-    be loaded) and parses the response with 3-tier fallback.
-
-    Args:
-        seed_event: Parsed seed event with entities and raw_rumor.
-        orchestrator: Active InferenceProvider for the orchestrator role.
-            The model must already be loaded (prepare() must have been called).
-
-    Returns:
-        ParsedModifiersResult with modifiers dict and parse_tier.
+    One ``chat_structured`` call in the seed's orchestrator session
+    (docs/DECISIONS.md#p13-d-06); a reply that never validates falls back to
+    the static modifiers (tier 3, docs/DECISIONS.md#p13-d-07).
     """
-    user_message = build_modifier_user_message(seed_event)
-
     logger.info("modifier_generation_start", entity_count=len(seed_event.entities))
-
-    inference_result = await orchestrator.chat(
-        messages=[
-            {"role": "system", "content": MODIFIER_GENERATION_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        json_mode=True,
+    try:
+        result = await chat_structured(
+            orchestrator,
+            [
+                {"role": "system", "content": MODIFIER_GENERATION_PROMPT},
+                {"role": "user", "content": build_modifier_user_message(seed_event)},
+            ],
+            ModifiersLLMOutput,
+        )
+    except StructuredOutputError:
+        logger.warning("modifier_generation_fallback", parse_tier=3)
+        return ParsedModifiersResult(modifiers=static_modifiers(), parse_tier=3)
+    modifiers, fell_back = result.value.to_modifiers()
+    for bracket_value in fell_back:
+        logger.warning("modifier_bracket_fallback", bracket=bracket_value, reason="missing_or_invalid")
+    logger.info(
+        "modifier_generation_complete",
+        parse_tier=result.parse_tier,
+        modifier_count=len(modifiers) - len(fell_back),
     )
-
-    raw_content = inference_result.content
-    result = parse_modifier_response(raw_content)
-
-    if result.parse_tier == 3:
-        logger.warning(
-            "modifier_generation_fallback",
-            parse_tier=3,
-            raw_preview=raw_content[:300],
-        )
-    else:
-        logger.info(
-            "modifier_generation_complete",
-            parse_tier=result.parse_tier,
-            modifier_count=len(result.modifiers),
-        )
-
-    return result
+    return ParsedModifiersResult(modifiers=modifiers, parse_tier=result.parse_tier)

@@ -1,10 +1,8 @@
-"""RED tests for Task 5B: advisory/report/interview engines accept InferenceProvider.
+"""RED tests for Task 5B: advisory/interview engines accept InferenceProvider.
 
 All tests here are RED until:
   - advisory/engine.py synthesize() accepts `provider: InferenceProvider` instead of
     `ollama_client` + `orchestrator_model`.
-  - report.py ReportEngine.__init__ accepts `provider: InferenceProvider` instead of
-    `ollama_client` + `model`.
   - interview.py InterviewEngine.__init__ accepts `provider: InferenceProvider` instead of
     `ollama_client` + `model`.
   - Each routes file builds an OllamaProvider and passes it to the engine.
@@ -173,71 +171,6 @@ class TestAdvisoryEngineAcceptsProvider:
         # Two calls: initial + retry
         assert len(fake_provider.calls) == 2
         assert report.cycle_id == "c1"
-
-
-# ---------------------------------------------------------------------------
-# RED-2: ReportEngine accepts InferenceProvider
-# ---------------------------------------------------------------------------
-
-
-class TestReportEngineAcceptsProvider:
-    """ReportEngine must accept `provider: InferenceProvider` instead of ollama_client + model."""
-
-    async def test_report_engine_init_with_provider(self) -> None:
-        """ReportEngine(provider=..., tools=...) must work — RED until migrated."""
-        from alphaswarm.report import ReportEngine
-
-        fake_provider = FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR,
-            model="test-orch",
-            scripted=[_make_result("THOUGHT: Done\nACTION: FINAL_ANSWER\nINPUT: {}")],
-        )
-
-        # This will raise TypeError until ReportEngine accepts `provider`
-        engine = ReportEngine(
-            provider=fake_provider,
-            tools={},
-        )
-        assert engine is not None
-
-    async def test_report_engine_routes_through_provider(self) -> None:
-        """ReportEngine.run() must call provider.chat() not OllamaClient.chat() — RED."""
-        from alphaswarm.report import ReportEngine
-
-        fake_provider = FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR,
-            model="test-orch",
-            scripted=[_make_result("THOUGHT: Done\nACTION: FINAL_ANSWER\nINPUT: {}")],
-        )
-
-        engine = ReportEngine(
-            provider=fake_provider,
-            tools={},
-        )
-        await engine.run("cycle1")
-
-        assert len(fake_provider.calls) == 1
-
-    async def test_report_engine_plain_chat_no_schema(self) -> None:
-        """ReportEngine must use plain chat (no json_mode, no schema) — RED until migrated."""
-        from alphaswarm.report import ReportEngine
-
-        fake_provider = FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR,
-            model="test-orch",
-            scripted=[_make_result("THOUGHT: Done\nACTION: FINAL_ANSWER\nINPUT: {}")],
-        )
-
-        engine = ReportEngine(
-            provider=fake_provider,
-            tools={},
-        )
-        await engine.run("cycle1")
-
-        call = fake_provider.calls[0]
-        # ReportEngine uses plain text chat — no json_mode, no schema
-        assert call.get("json_mode") is False
-        assert call.get("response_schema") is None
 
 
 # ---------------------------------------------------------------------------
@@ -415,73 +348,3 @@ class TestAdvisoryRouteBuildsProvider:
         assert prepare_called == [True], "provider.prepare() not called"
         assert teardown_called == [True], "provider.teardown() not called in finally"
         assert (tmp_path / "advisory" / "c1_advisory.json").is_file()
-
-
-# ---------------------------------------------------------------------------
-# RED-5: _run_report_generation uses build_providers
-# ---------------------------------------------------------------------------
-
-
-class TestReportRouteBuildsProvider:
-    """_run_report_generation must use build_providers and call provider.prepare/teardown."""
-
-    async def test_run_report_calls_provider_prepare_and_teardown(
-        self,
-        tmp_path: Any,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """_run_report_generation must call provider.prepare() and provider.teardown()
-        via the build_providers seam (honours InferenceConfig, not hardcoded Ollama)."""
-        from unittest.mock import patch
-
-        import alphaswarm.web.routes.report as report_module
-
-        monkeypatch.chdir(tmp_path)
-
-        prepare_called: list[bool] = []
-        teardown_called: list[bool] = []
-
-        class _FakeProvider:
-            role = ProviderRole.ORCHESTRATOR
-            model = "orch"
-
-            async def prepare(self) -> None:
-                prepare_called.append(True)
-
-            async def teardown(self) -> None:
-                teardown_called.append(True)
-
-            async def aclose(self) -> None:
-                pass
-
-            async def chat(self, messages: Any, **kwargs: Any) -> InferenceResult:
-                return _make_result("THOUGHT: Done\nACTION: FINAL_ANSWER\nINPUT: {}")
-
-        from alphaswarm.inference.budget import BudgetMeter
-        from alphaswarm.inference.factory import BuiltProviders
-
-        fake_provider = _FakeProvider()
-        fake_built = BuiltProviders(
-            orchestrator=fake_provider,  # type: ignore[arg-type]
-            worker=fake_provider,  # type: ignore[arg-type]
-            budget_meter=BudgetMeter(None, {}),
-        )
-
-        from types import SimpleNamespace
-
-        app_state = SimpleNamespace(
-            settings=route_test_settings(tmp_path),  # the report is written under tmp_path
-            graph_manager=AsyncMock(),
-            ollama_client=MagicMock(),
-            model_manager=AsyncMock(),
-        )
-        app_state.graph_manager.read_shock_event = AsyncMock(return_value=None)
-
-        with (
-            patch.object(report_module, "build_providers", return_value=fake_built),
-            patch.object(report_module, "load_inference_config", return_value=MagicMock()),
-        ):
-            await report_module._run_report_generation(app_state, "c1")  # type: ignore[arg-type]
-
-        assert prepare_called == [True], "provider.prepare() not called"
-        assert teardown_called == [True], "provider.teardown() not called in finally"

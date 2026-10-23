@@ -3,8 +3,8 @@
 These tests replace the OllamaClient/OllamaModelManager mocks with
 FakeInferenceProvider, verifying that:
 - inject_seed calls provider.prepare() then provider.teardown() (lifecycle)
-- inference is routed through provider.chat() with json_mode=True
-- generate_modifiers calls provider.chat() with json_mode=True
+- inference is routed through chat_structured (schema-constrained provider.chat())
+- generate_modifiers goes through chat_structured
 - behaviour (prompts, parsing, return values) is identical to the old path
 """
 
@@ -228,11 +228,11 @@ async def test_inject_seed_routes_inference_through_provider(
     assert len(provider.calls) == 1
 
 
-async def test_inject_seed_chat_uses_json_mode(
+async def test_inject_seed_chat_uses_seed_schema(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
 ) -> None:
-    """inject_seed passes json_mode=True to provider.chat()."""
+    """inject_seed passes SeedLLMOutput's response schema to provider.chat()."""
     from alphaswarm.seed import inject_seed
 
     provider = _make_seed_provider()
@@ -245,7 +245,7 @@ async def test_inject_seed_chat_uses_json_mode(
     )
 
     call = provider.calls[0]
-    assert call["json_mode"] is True
+    assert "entities" in call["response_schema"]["properties"]
 
 
 async def test_inject_seed_chat_messages_shape(
@@ -331,7 +331,10 @@ async def test_inject_seed_logs_warning_on_tier3(
     provider = FakeInferenceProvider(
         ProviderRole.ORCHESTRATOR,
         "alphaswarm-orchestrator",
-        scripted=[InferenceResult(content="not valid json", model="alphaswarm-orchestrator")],
+        scripted=[
+            InferenceResult(content="not valid json", model="alphaswarm-orchestrator"),
+            InferenceResult(content="not valid json", model="alphaswarm-orchestrator"),
+        ],
     )
 
     with patch("alphaswarm.seed.logger") as mock_logger:
@@ -375,8 +378,8 @@ async def test_generate_modifiers_calls_provider_chat() -> None:
     assert len(provider.calls) == 1
 
 
-async def test_generate_modifiers_uses_json_mode() -> None:
-    """generate_modifiers passes json_mode=True to provider.chat()."""
+async def test_generate_modifiers_uses_the_modifier_schema() -> None:
+    """generate_modifiers passes ModifiersLLMOutput's response schema to provider.chat()."""
     from alphaswarm.seed import generate_modifiers
 
     provider = FakeInferenceProvider(
@@ -387,7 +390,7 @@ async def test_generate_modifiers_uses_json_mode() -> None:
 
     await generate_modifiers(_make_seed_event(), provider)
 
-    assert provider.calls[0]["json_mode"] is True
+    assert "quants" in provider.calls[0]["response_schema"]["properties"]
 
 
 async def test_generate_modifiers_returns_parsed_modifiers_result() -> None:

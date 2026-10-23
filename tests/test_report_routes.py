@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,10 +19,13 @@ from fastapi.testclient import TestClient
 
 import alphaswarm.web.guards as guards_module
 import alphaswarm.web.routes.report as report_module
-from alphaswarm.errors import InferenceConfigError, Neo4jUnavailableError
+from alphaswarm.errors import AuthError, InferenceConfigError, Neo4jUnavailableError
+from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.state import JobStatus, StateStore
 from alphaswarm.web.routes.report import router as report_router
+from tests.inference.fakes import FakeInferenceProvider
 from tests.support.log_capture import RenderedLog
+from tests.support.report_fakes import REPORT_CYCLE, FakeReportGraph
 from tests.support.web_app import (
     CYCLE_A,
     CYCLE_B,
@@ -315,3 +319,87 @@ async def test_done_callback_cancelled_records_failure() -> None:
     recorded = app.state.report_generation_error[CYCLE_A]
     assert recorded["message"] == "Report generation was cancelled"
     assert app.state.app_state.state_store.job_statuses().report.state == "failed"
+
+
+class _LifecycleProvider(FakeInferenceProvider):
+    """Orchestrator fake that records the provider lifecycle around its chat calls."""
+
+    def __init__(self, scripted: Any, events: list[str]) -> None:
+        super().__init__(ProviderRole.ORCHESTRATOR, "fake-orch", scripted=scripted)
+        self.events = events
+
+    async def prepare(self) -> None:
+        self.events.append("prepare")
+
+    async def teardown(self) -> None:
+        self.events.append("teardown")
+
+    async def aclose(self) -> None:
+        self.events.append("aclose")
+
+
+def _generation_state(tmp_path: Path, provider: FakeInferenceProvider, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(report_module, "load_inference_config", lambda _settings: object())
+    monkeypatch.setattr(report_module, "build_providers", lambda *_a, **_k: SimpleNamespace(orchestrator=provider))
+    return SimpleNamespace(
+        settings=route_test_settings(tmp_path),
+        graph_manager=FakeReportGraph(),
+        ollama_client=object(),
+        model_manager=object(),
+    )
+
+
+async def test_generation_writes_the_report_between_prepare_and_teardown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The background job prepares the orchestrator, writes the markdown plus its
+    sections sidecar through report.generate_report, then tears the provider down."""
+    events: list[str] = []
+    narrative = json.dumps({"summary": "Consensus ended BUY.", "moments": [], "dissent": [], "followups": []})
+
+    def _reply(**_: object) -> InferenceResult:
+        events.append("chat")
+        return InferenceResult(content=narrative, model="fake-orch")
+
+    provider = _LifecycleProvider(_reply, events)
+    app_state = _generation_state(tmp_path, provider, monkeypatch)
+    cycle_id = REPORT_CYCLE
+    await _REAL_GENERATION(app_state, cycle_id)
+    assert events == ["prepare", "chat", "teardown", "aclose"]
+    assert (
+        (tmp_path / "reports" / f"{cycle_id}_report.md")
+        .read_text(encoding="utf-8")
+        .startswith("# Post-Simulation Analysis Report")
+    )
+    assert (tmp_path / "reports" / f"{cycle_id}_report.json").is_file()
+
+
+async def test_generation_tears_down_when_the_provider_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    def _boom(**_: object) -> InferenceResult:
+        raise AuthError("bad key", provider="anthropic", model="claude-test")
+
+    provider = _LifecycleProvider(_boom, events)
+    app_state = _generation_state(tmp_path, provider, monkeypatch)
+    with pytest.raises(AuthError):
+        await _REAL_GENERATION(app_state, REPORT_CYCLE)
+    assert events == ["prepare", "teardown", "aclose"]
+    assert not (tmp_path / "reports").exists()
+
+
+def test_get_report_uses_async_filesystem() -> None:
+    """Static check: the GET route must NOT call synchronous Path.exists/Path.stat
+    inside the async handler. Verifies we use aiofiles.os.* instead (docs/DECISIONS.md#t-36-14)."""
+    from alphaswarm.web.routes import report as report_module
+
+    src = inspect.getsource(report_module.get_report)
+    # Must use async filesystem helpers.
+    assert "aiofiles.os" in src, "GET handler must use aiofiles.os for non-blocking I/O"
+    # Must NOT use blocking stdlib filesystem calls on the Path object directly.
+    assert ".exists()" not in src, "Do not use Path.exists() in async handler"
+    assert ".stat()" not in src, "Do not use Path.stat() in async handler"

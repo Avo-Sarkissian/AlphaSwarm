@@ -18,8 +18,9 @@ PERSONAS = generate_personas(list(DEFAULT_BRACKETS))
 AGENT_IDS = [p.id for p in PERSONAS]
 
 _rationales = st.text(alphabet=st.characters(blacklist_characters="`", blacklist_categories=("Cs",)), max_size=200)
-# error_kind is engine-owned: the parser sets "parse" for a parse-error signal and None
-# otherwise (docs/DECISIONS.md#adr-structured-output), so only consistent decisions round-trip.
+# error_kind and parse_tier are engine-owned: the parser sets ("parse", 3) for a parse-error
+# signal and (None, <tier parsed at>) otherwise (docs/DECISIONS.md#adr-structured-output),
+# so only consistent decisions round-trip, at the tier of the path that parsed them.
 decisions = st.builds(
     AgentDecision,
     signal=st.sampled_from(list(SignalType)),
@@ -44,8 +45,12 @@ def test_parse_agent_decision_never_raises(raw: str) -> None:
 @given(decision=decisions)
 def test_parse_agent_decision_round_trips_plain_and_fenced_json(decision: AgentDecision) -> None:
     payload = decision.model_dump_json()
-    assert parse_agent_decision(payload) == decision
-    assert parse_agent_decision(f"Sure.\n```json\n{payload}\n```\nDone.") == decision
+    assert parse_agent_decision(payload) == _at_tier(decision, 1)
+    assert parse_agent_decision(f"Sure.\n```json\n{payload}\n```\nDone.") == _at_tier(decision, 2)
+
+
+def _at_tier(decision: AgentDecision, tier: int) -> AgentDecision:
+    return decision.model_copy(update={"parse_tier": 3 if decision.signal is SignalType.PARSE_ERROR else tier})
 
 
 @settings(max_examples=100, deadline=None)

@@ -91,7 +91,7 @@ Contents
 - **Rationale:** The 2026-05-06 probe on qwen3.6:27b measured 274.6 s per call with thinking against 9.5 s without. Both produced valid JSON, and neither output was clearly better. With 11.3 t/s MLX decode, thinking also pushed advisory past the 600 s timeout (quick task 260611-rlx).
 - **Where:**
   - Enforced: `inference/ollama_provider.py:162` (documented at `:12` and `:129`).
-  - Rationale comments only: `seed.py:66-68`, `tests/test_seed_pipeline.py:87-89`, `modelfiles/Modelfile.orchestrator:16-17`.
+  - Rationale comments only: `seed.py:inject_seed`, `tests/test_seed_pipeline.py:test_inject_seed_calls_chat_with_seed_schema`, `modelfiles/Modelfile.orchestrator:16-17`.
 - **Revisit:**
   - Triggers: complaints about consensus quality, or missed divergence flags.
   - How to test: `InferenceProvider.chat` has no `think` parameter today (`inference/provider.py:60`), so an A/B run needs a small change first, for example an optional `think` argument on `OllamaProvider.chat` used by one call site. No model reload is needed.
@@ -237,13 +237,14 @@ Contents
   - Round 1 is the uninfluenced prior and should not be touched.
   - `num_rounds` is stamped on the Cycle when it is created (`create_cycle_with_seed_event`), so running and failed cycles carry it too. The completion metrics write the same value.
   - Report and advisory reads resolve the final round inside Cypher with `coalesce(c.num_rounds, 3)`, because cycles from before 2026-10 that lack the property were all 3-round. The replay cycle list reports the same value as `round_count`.
-  - Prompts describe the rounds that ran: the ReAct report prompt says "final round", and the lazy narrative prompt (generated on first interview) names the agent's round count. The CLI summary uses the last round that ran and reports convergence only for 3-round runs, since it compares R1→R2 flips with R2→R3 flips.
+  - Prompts describe the rounds that ran: the report's narrative data carries `final_round` (and the report header the round count), and the lazy narrative prompt (generated on first interview) names the agent's round count. The CLI summary uses the last round that ran and reports convergence only for 3-round runs, since it compares R1→R2 flips with R2→R3 flips.
   - With 2 rounds, the round-3 result fields are empty, and completed-cycle listing relies on `Cycle.status` ([adr-cycle-metrics](#adr-cycle-metrics)).
 - **Rationale:** Most flips happen in Round 2, and 2 rounds save about a third of wall time. Keep the default at 3 until the 2-vs-3-round ablation is done. The UI reads `num_rounds` from the frame (`useRounds()`), so a 2-round run renders correctly end to end.
 
 ### <a id="adr-structured-output"></a>Structured outputs plus a 3-tier parser
 - **Decision:** Workers request JSON (the JSON schema `DECISION_JSON_SCHEMA` in `worker.py`) and still go through a 3-tier parser: JSON, then extraction, then PARSE_ERROR (`parsing.py`, INFRA-08). The brace scanner is string-aware since F-09.
 - **Rationale:** The MLX runner relies on prompt adherence rather than hard grammar enforcement, so the prompt must spell out the keys. Never trust format=schema alone.
+- **Orchestrator replies** (seed, modifiers, report narrative, advisory) go through inference.structured.chat_structured: the output model's portable JSON schema as response_schema, tier-2 candidate extraction, one retry carrying field errors but never input values, then StructuredOutputError. Boundary validators normalise "BUY" and percentage confidences. Worker decisions keep DECISION_JSON_SCHEMA and parse_agent_decision, now recording parse_tier (r{n}_parse_tier1..3). Clamping cannot fix NaN, so every number on an LLM-facing model keeps its range: a NaN then fails inside chat_structured, where it is retried, instead of later in a domain model (`SeedLLMOutput.overall_sentiment`, 2026-10).
 
 ### <a id="adr-governor"></a>Memory-aware ResourceGovernor
 - **Decision:**
@@ -348,7 +349,7 @@ Contents
   3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)). Tracebacks are rendered without local variables in both modes (JSON: `ExceptionDictTransformer(show_locals=False)`; console: structlog's plain-text `format_exc_info`), so frames never leak keys or portfolio objects, and both render before the redactor, so it also scrubs the traceback text (2026-10). Since 2026-10 the redactor also replaces API-key shapes (`sk-…`, `nvapi-…`, `Bearer …`) in every logged string at any depth, whatever its key, because free-text error fields, exception text and bridged stdlib messages can carry a key past the key-name rules.
   4. Holdings are loaded into memory at lifespan startup (`PortfolioCache`, re-read when the CSV changes) and never persisted ([p39-d-07](#p39-d-07)).
   5. The owner's curated sector map lives in the gitignored `data/sector_map.local.json`; the repository ships only the fictional `examples/sector_map.example.json`. `scripts/ticker_scan.py` (count-only) checks that `src/`, `tests/` and `frontend/src/` name none of the owner's tickers (2026-10).
-  6. Validation errors (2026-10): `str()` and `repr()` of a pydantic `ValidationError`, and so its rendered traceback, echo the input values, which on the advisory path can be tickers or a cost basis. Wherever the advisory logs a failure with a `ValidationError` on its cause or context chain (the job's failure line, the done-callback, the post-run pipeline, the retry warning), it logs `alphaswarm.logging.validation_error_summary` instead: the error count, up to ten dotted locations (an extra key's own name masked) and the sorted error types, never `exc_info`. The retry prompt names locations and pydantic's messages, never the values, and HTTP bodies name the exception class only.
+  6. Validation errors (2026-10): `str()` and `repr()` of a pydantic `ValidationError`, and so its rendered traceback, echo the input values, which on the advisory path can be tickers or a cost basis. Wherever the advisory logs a failure with a `ValidationError` on its cause or context chain (the job's failure line, the done-callback, the post-run pipeline), it logs `alphaswarm.logging.validation_error_summary` instead: the error count, up to ten dotted locations (an extra key's own name masked) and the sorted error types, never `exc_info`. `chat_structured` logs only a problem count per invalid reply, and its correction turn names locations and pydantic's messages, never the values or the rejected reply. A reply that never validates raises `StructuredOutputError`, whose message names only the output model and the attempt count and whose chain holds no `ValidationError`. HTTP bodies name the exception class only.
 - **Rationale:** Uncontaminated consensus, plus privacy for real brokerage data.
 - **Gate:** `uv run lint-imports` runs in the CI `lint` job and as a pre-commit hook, and `tests/invariants/test_importlinter_contract.py` runs it inside pytest. Ruff, mypy and vulture are gated in the same job.
 
@@ -368,9 +369,10 @@ Contents
 
 ### <a id="adr-advisory-pipeline"></a>Advisory synthesis
 - **Decision:**
-  - Prefetch swarm data in parallel, then make one orchestrator call ([p41-d-04](#p41-d-04), [p41-d-05](#p41-d-05)).
+  - Prefetch swarm data in parallel, then make one orchestrator call, decoded through `chat_structured` into `AdvisoryLLMOutput` with the tickers restricted to the prompt's ([p41-d-04](#p41-d-04), [p41-d-05](#p41-d-05), [p41-d-06](#p41-d-06)).
   - Relevance scoring uses a curated ticker→sector map read per run from `data/sector_map.local.json` (fallback: the fictional example; invalid file: empty map) plus an entity-impact join. Entity names resolve only to held tickers, and the `unknown` sector never earns a seed bonus (F-07, F-28; 2026-10).
-  - The LLM receives only the top 15 held tickers by relevance, one entry per ticker with sector tags; quantities and cost basis stay server-side (2026-10, [p41-d-05](#p41-d-05)). Every other holding is padded server-side as HOLD@0.30 (SWEEP B-7), so items[] has exactly one entry per holding.
+  - The LLM receives only the top 15 held tickers by relevance, one entry per ticker with sector tags; quantities and cost basis stay server-side (2026-10, [p41-d-05](#p41-d-05)).
+  - Every holding without a conviction item is padded server-side as HOLD@0.30 and marked source=placeholder; overview stats exclude placeholders (SWEEP B-7). items[] has exactly one entry per holding.
   - Unknown tickers default to `macro_beta` 0.5 (SWEEP B-8).
   - Ranking: confidence × exposure / total basis.
   - Output goes to `advisory/{cycle_id}_advisory.json`, served by a 202 + polling + done-callback API. Files are written atomically as owner-only (0600) and only the newest `ALPHASWARM_ADVISORY_KEEP_LAST` (default 20) are kept, because they hold cost-basis exposure (2026-10, SPEC T7.4).
@@ -379,13 +381,13 @@ Contents
   - Failure logging (2026-10): the job's own line (`advisory_generation_failed`) carries the exception class (and, for a validation error, the `validation_error_summary` fields), never a traceback. The done-callback (`advisory_task_exception_recorded`) and the post-run pipeline (`auto_advisory_failed`) log the traceback, except when a pydantic `ValidationError` is anywhere on the exception's cause or context chain: then they log `exc_type` plus `validation_error_summary` fields and no `exc_info` ([adr-holdings-isolation](#adr-holdings-isolation), item 6). Other exceptions keep their traceback, message included, for diagnosis; the redactor scrubs key shapes and holdings-named fields from it, not arbitrary text.
   - Runs only when the orchestrator is local or `allow_cloud_advisory` is true in the inference config. Local means all three of: provider Ollama; not an Ollama cloud model (any dash- or colon-separated part of the name or tag that is exactly `cloud`, e.g. `gpt-oss:120b-cloud`, `glm-4.6:cloud`, `foo-cloud:latest`; this over-blocks a few odd local names on purpose); and a loopback Ollama server (`localhost`, 127.0.0.0/8 or `::1`). The server checked is read from the shared `OllamaClient` itself (`OllamaClient.base_url`, the httpx host after ollama resolved `AppSettings.ollama.base_url` or `OLLAMA_HOST`), so the check and the connection read the same value. A non-loopback `base_url` on the orchestrator role also counts as remote, even though `OllamaProvider` ignores it today. Anything unparseable, and host spellings such as 0.0.0.0, `127.1` or `0x7f000001`, fail closed (`inference/factory.py:advisory_block_reason`, 2026-10-21); the refusal log carries `reason` (`cloud_provider`, `role_base_url_remote`, `cloud_model`, `remote_host`, `remote_model`). A name cannot reveal an alias whose Modelfile is `FROM` a cloud model, and the default `alphaswarm-orchestrator` is such an alias, so before synthesis the job also asks the server (`OllamaClient.is_remote_model`, raw `/api/show`; newer servers set `remote_host`/`remote_model` for cloud models) and refuses when it reports a remote model or the request fails. The `OllamaClient` httpx client sets `trust_env=False` (an `HTTP_PROXY`/`ALL_PROXY` or macOS system proxy gets no localhost bypass in httpx and would receive the prompt) and `follow_redirects=False`. The opt-in is the **Allow cloud advisory** checkbox in Settings → Model (`PUT /api/settings` `allow_cloud_advisory`; omitted or null keeps the stored value), saved in the inference config. The checkbox is shown when the orchestrator looks off this machine from its settings, or when the opt-in is already on so it can be cleared; for what the settings cannot show (an alias of a cloud model, a remote `OLLAMA_HOST`) the key is set in `.secrets/inference.json`. With the opt-in on, the UI never says the holdings stay on this machine, because the opt-in also skips the host and `/api/show` checks. Otherwise the POST returns 409 `cloud_advisory_disabled` before the holdings are read, the job refuses as well, and the post-run pipeline skips the advisory and logs `auto_advisory_skipped_cloud` (T7.2, 2026-10). The POST route and the pipeline share `web/routes/advisory.py:advisory_refusal`, which records the refusal, so GET returns `cloud_advisory_disabled` instead of a pending 404. An unreadable inference config fails closed with 422 `inference_config_invalid`; the post-run pipeline then skips the advisory the same way (recorded, so GET returns `inference_config_invalid`) and still runs the report.
 
-### <a id="adr-report-react"></a>Report: prompt-based ReAct producing markdown
+### <a id="adr-report-react"></a>Report: deterministic data plus one grounded narrative call
 - **Decision:**
-  - The loop uses literal `ACTION:`/`INPUT:` lines, a hard iteration cap, and duplicate-call detection.
-  - Tools are Cypher reads.
-  - Output is Jinja2 → markdown at `reports/{cycle_id}_report.md`.
-  - An invariant test asserts that every tool named in the prompt exists in the dispatch registry (F-06, `tests/test_report.py:28`).
-- **Rationale:** Ollama's native tool calling was unreliable for Qwen models (2026-03 research). Markdown replaced the HTML export that was lost (see [§2](#2-historical-decisions-no-longer-in-code)).
+  - `report.collect_report_data` runs every report read concurrently with the cycle id bound server-side; the model never chooses a query or a cycle.
+  - One orchestrator call through `chat_structured` writes the executive summary, key moments, dissent and follow-ups (`ReportNarrativeLLMOutput`); list items naming agents absent from the data are dropped. A reply that never validates yields a tables-only report.
+  - `render_report` renders the Jinja section templates under `StrictUndefined`; `build_sections` returns the convergence and influence rows the UI charts. Files: `reports/{cycle_id}_report.json` (sections) then `reports/{cycle_id}_report.md`, both atomic.
+  - CLI and web call `report.generate_report` directly until `services.report.ReportService` lands.
+- **Rationale:** the ReAct loop spent up to ten orchestrator calls choosing among eight fixed queries and its text never reached the report (T5.1). **Superseded** the prompt-based ReAct loop (2026-10): one call now, measured with `ScriptedProvider` in `tests/test_report_pipeline.py`.
 - **Update (2026-10):** Report reads return typed rows (the row TypedDicts in `graph.py`, such as `ConsensusSummaryRow` and `ShockImpactRow`), and templates render under Jinja `StrictUndefined`. A template that reads a key its query does not return now fails the report instead of rendering a blank column. Free text goes through the `md_cell` filter (pipes escaped, whitespace collapsed) and numbers through `num` (fixed digits, "—" for a missing value).
   - Reads describe the final round ([adr-num-rounds](#adr-num-rounds)), and the timeline covers every round that ran. PARSE_ERROR has its own row in the consensus summary and its own column in the timeline, so the shares add up to 100%.
   - Failed (PARSE_ERROR) agents are excluded from dissenters, bracket stances and averages, entity impact, and shock pivots. A bracket where every agent failed has no majority ("—").
@@ -393,7 +395,7 @@ Contents
   - Signals in the typed report rows are upper-case (`BUY`, `SELL`, `HOLD`). Replay rows stay lower-case because they map onto `SignalType`.
   - The shock section analyses only the earliest shock of a cycle. A second shock queued before Round 3 is not analysed.
   - Entity impact counts only the cycle's own `MENTIONS` entities, once per (entity, decision) pair ([p11-d-08](#p11-d-08)).
-  - The `social_post_reach` tool, its template (`08_social_post_reach.j2`), the prompt line and both registry entries were removed: READ_POST edges have not been written since June 2026, so the section was always empty. The prompt lists 7 tools and describes the *final* round.
+  - The `social_post_reach` section (its tool, template `08_social_post_reach.j2`, prompt line and registry entries) was removed: READ_POST edges have not been written since June 2026, so the section was always empty.
 
 ### <a id="adr-background-tasks"></a>Long LLM jobs: 202 + background task + polling
 - **Decision:** Report and advisory POSTs return 202 and run `asyncio` tasks.
@@ -523,8 +525,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p5-d-06"></a>`D-06` | Seed parsing uses parse_seed_event() with the same 3-tier fallback as agent decisions (JSON -> extraction -> error). | active | seed.py:78 |
-| <a id="p5-d-07"></a>`D-07` | Seed injection owns its orchestrator lifecycle (prepare -> extract -> always tear down in finally). | active | seed.py:5,63,115 |
+| <a id="p5-d-06"></a>`D-06` | Seed parsing goes through chat_structured(SeedLLMOutput); invalid entities are dropped and values clamped; tier 3 = empty SeedEvent. Revised 2026-10 (was parse_seed_event() with the agent decisions' 3-tier fallback). | revised | seed.py:SeedLLMOutput,inject_seed |
+| <a id="p5-d-07"></a>`D-07` | Seed injection owns its orchestrator lifecycle (prepare -> extract -> always tear down in finally). | active | seed.py:inject_seed |
 
 ### Phase 7: Rounds 2-3: peer influence and consensus
 
@@ -605,11 +607,11 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p13-d-01"></a>`D-01` | Orchestrator generates one entity-aware modifier per bracket from the seed. | active | seed.py:generate_modifiers; simulation.py:_run_simulation |
 | <a id="p13-d-02"></a>`D-02` | Generated modifier replaced the static one for all agents in a bracket. Superseded: static round-robin modifier always applies; generated text is layered on as a 'this cycle' focus line (personas.py:generate_personas). | superseded | personas.py:generate_personas; simulation.py:_run_simulation |
 | <a id="p13-d-04"></a>`D-04` | Modifier prompt inputs: all extracted entities plus the raw rumor. | active | prompts/modifiers.py:MODIFIER_GENERATION_PROMPT,build_modifier_user_message; seed.py:generate_modifiers |
-| <a id="p13-d-05"></a>`D-05` | Output is a flat JSON dict keyed by bracket value; exactly 10 keys for a full parse. | active | prompts/modifiers.py:MODIFIER_GENERATION_PROMPT; seed.py:generate_modifiers; parsing.py:268 |
+| <a id="p13-d-05"></a>`D-05` | Output is a flat JSON dict keyed by bracket value, decoded as ModifiersLLMOutput: one field per bracket key, keys case-insensitive. Revised 2026-10 (a full parse needed exactly 10 keys; a missing key now falls back per bracket, [p13-d-08](#p13-d-08)). | revised | prompts/modifiers.py:MODIFIER_GENERATION_PROMPT; seed.py:ModifiersLLMOutput,generate_modifiers |
 | <a id="p13-d-06"></a>`D-06` | Modifier generation runs in the same orchestrator session as seed parsing (no reload). | active | seed.py:inject_seed,generate_modifiers; simulation.py:_run_simulation |
-| <a id="p13-d-07"></a>`D-07` | Total parse failure falls back to static modifiers with a warning. | active | parsing.py:268,335 |
-| <a id="p13-d-08"></a>`D-08` | Partial failure falls back per bracket. | active | parsing.py:268,277,294 |
-| <a id="p13-d-09"></a>`D-09` | ParsedModifiersResult carries parse_tier for observability. | active | types.py:131 |
+| <a id="p13-d-07"></a>`D-07` | Total parse failure falls back to static modifiers with a warning. | active | seed.py:static_modifiers,generate_modifiers |
+| <a id="p13-d-08"></a>`D-08` | Partial failure falls back per bracket. | active | seed.py:ModifiersLLMOutput.to_modifiers |
+| <a id="p13-d-09"></a>`D-09` | ParsedModifiersResult carries parse_tier for observability. | active | types.py:ParsedModifiersResult |
 | <a id="p13-d-10"></a>`D-10` | Sanitise entity names at injection time; stored SeedEntity names stay untouched. | active | prompts/modifiers.py:build_modifier_user_message |
 | <a id="p13-d-11"></a>`D-11` | Sanitisation: truncate to 100 chars, strip control/format characters, keep normal punctuation. | active | security/sanitize.py:sanitize_entity_name |
 | <a id="p13-d-12"></a>`D-12` | sanitize_entity_name() helper; raw rumor goes in a clearly labelled block. | active | security/sanitize.py:sanitize_entity_name; prompts/modifiers.py:build_modifier_user_message |
@@ -630,15 +632,15 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p15-d-01"></a>`D-01` | ReAct uses literal ACTION:/INPUT: lines parsed by regex, not native tool calling (Ollama tool calling was unreliable for Qwen). | active | report.py:58,85,165 |
-| <a id="p15-d-02"></a>`D-02` | FINAL_ANSWER is a reserved tool that ends the loop. | active | report.py:118,171 |
-| <a id="p15-d-03"></a>`D-03` | Hard iteration cap plus duplicate (tool, input) detection. | active | report.py:119,120,176 |
-| <a id="p15-d-04"></a>`D-04` | CLI `report` subcommand. The web route and auto-chain after advisory were added later. | partial | cli.py:652 |
+| <a id="p15-d-01"></a>`D-01` | ReAct with literal ACTION:/INPUT: lines. Superseded by deterministic reads plus one chat_structured narrative call (adr-report-react). | superseded | report.py (history) |
+| <a id="p15-d-02"></a>`D-02` | FINAL_ANSWER ended the ReAct loop. Superseded: there is no loop (adr-report-react). | superseded | report.py (history) |
+| <a id="p15-d-03"></a>`D-03` | Hard iteration cap plus duplicate-call detection. Superseded: one call, at most one validated retry (adr-structured-output). | superseded | report.py (history) |
+| <a id="p15-d-04"></a>`D-04` | CLI `report` subcommand. The web route and auto-chain after advisory were added later. | partial | cli.py:_handle_report |
 | <a id="p15-d-05"></a>`D-05` | Sentinel file .alphaswarm/last_report.json for TUI polling. Had no reader once the TUI was retired; the `write_sentinel` writer was deleted in 2026-10. | superseded | — |
-| <a id="p15-d-07"></a>`D-07` | Fixed report section order. | active | report.py:246 |
-| <a id="p15-d-10"></a>`D-10` | Reports written to ./reports/{cycle_id}_report.md. | active | cli.py:652,794; report.py:337 |
-| <a id="p15-d-11"></a>`D-11` | Async file write via aiofiles. Revised: `write_report` writes atomically off the event loop, `asyncio.to_thread(atomic_write_text, ...)` (temp file + fsync + os.replace, BACKLOG 1.11), and report.py no longer uses aiofiles. | revised | report.py (`write_report`) |
-| <a id="p15-d-12"></a>`D-12` | Report engine does not manage model lifecycle; the caller does. | active | cli.py:652,690,743; report.py:122 |
+| <a id="p15-d-07"></a>`D-07` | Fixed report section order. | active | report.py:SECTION_TEMPLATES |
+| <a id="p15-d-10"></a>`D-10` | Reports written to ./reports/{cycle_id}_report.md, next to a `{cycle_id}_report.json` sections sidecar (2026-10). | active | report.py:generate_report; cli.py:_handle_report; web/routes/report.py:_run_report_generation |
+| <a id="p15-d-11"></a>`D-11` | Async file write via aiofiles. Revised: `write_report_files` writes the sections sidecar, then the markdown, atomically off the event loop (`generate_report` runs it through `asyncio.to_thread`; temp file + fsync + os.replace, BACKLOG 1.11), and report.py no longer uses aiofiles. | revised | report.py:write_report_files,generate_report |
+| <a id="p15-d-12"></a>`D-12` | Report code does not manage the model lifecycle; the caller (the CLI `report` command, the web report job) prepares, tears down and closes the provider around `generate_report`. | active | report.py:generate_report; cli.py:_handle_report; web/routes/report.py:_run_report_generation |
 
 ### Phase 26: Shock injection core
 
@@ -706,10 +708,10 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p36-d-01"></a>`D-01` | POST /api/report/{cycle_id}/generate returns 202 and runs a background task for any complete cycle while no simulation runs. Revised 2026-10: the phase == COMPLETE gate is gone. | revised | web/routes/report.py:59,109; tests/test_report_routes.py |
+| <a id="p36-d-01"></a>`D-01` | POST /api/report/{cycle_id}/generate returns 202 and runs a background task for any complete cycle while no simulation runs. Revised 2026-10: the phase == COMPLETE gate is gone. | revised | web/routes/report.py:generate_report,start_report_job; tests/test_report_routes.py |
 | <a id="p36-d-02"></a>`D-02` | 409 if a report task is already running (single orchestrator user). | active | web/app.py:178; web/guards.py:require_orchestrator_free; tests/test_report_routes.py |
-| <a id="p36-d-03"></a>`D-03` | Web report path mirrors the CLI sequence and file locations. | active | web/routes/report.py:188,228; tests/test_web_report.py:44 |
-| <a id="p36-d-05"></a>`D-05` | GET /api/report/{cycle_id} reads the markdown file; the filesystem is the source of truth: 404 = no report, 409 report_generation_in_progress while that cycle's job runs, 500 after a recorded failure. Revised 2026-10 (404 also meant "still generating"). | revised | web/routes/report.py:51,71 |
+| <a id="p36-d-03"></a>`D-03` | Web report path mirrors the CLI sequence and file locations. | active | web/routes/report.py:_run_report_generation; tests/test_report_routes.py:test_generation_writes_the_report_between_prepare_and_teardown |
+| <a id="p36-d-05"></a>`D-05` | GET /api/report/{cycle_id} reads the markdown file; the filesystem is the source of truth: 404 = no report, 409 report_generation_in_progress while that cycle's job runs, 500 after a recorded failure. Revised 2026-10 (404 also meant "still generating"). | revised | web/routes/report.py:get_report |
 
 ### Phase 37: Isolation foundation + provider scaffolding
 
@@ -780,12 +782,12 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p41-d-03"></a>`D-03` | Original: the orchestrator decides which holdings are affected and omits the rest. Superseded by one item per holding with server-side HOLD padding (260512-jqn ITEM 6, SWEEP B-7). | superseded | tests/unit/test_advisory.py:228 |
-| <a id="p41-d-04"></a>`D-04` | Prefetch all swarm data from Neo4j in parallel (asyncio.gather) before the single LLM call. | active | advisory/engine.py:109 |
-| <a id="p41-d-05"></a>`D-05` | One orchestrator call with swarm data plus the held tickers; this is the only place holdings enter a prompt. The prompt gets one entry per ticker with sector tags, never quantities, cost basis or account data; the engine adds the cost-basis exposure afterwards. Revised 2026-10 (the prompt carried each holding's ticker, quantity and cost basis). | revised | advisory/engine.py (`_ticker_entries`); tests/invariants/test_holdings_isolation.py (rendered-prompt canary) |
-| <a id="p41-d-06"></a>`D-06` | AdvisoryItem schema (ticker, consensus_signal, confidence, rationale_summary, position_exposure). | active | advisory/prompt.py:88; advisory/types.py:18 |
-| <a id="p41-d-07"></a>`D-07` | Rank by confidence x (exposure / total cost basis); denominator must be positive (F-29). | active | advisory/engine.py:138,255 |
-| <a id="p41-d-08"></a>`D-08` | Route owns orchestrator load/unload in try/finally; advisory never runs concurrently with report generation (bidirectional 409). | active | advisory/engine.py:6; web/app.py:104; web/routes/advisory.py:105,334 |
+| <a id="p41-d-03"></a>`D-03` | Original: the orchestrator decides which holdings are affected and omits the rest. Superseded by one item per holding with server-side HOLD padding (260512-jqn ITEM 6, SWEEP B-7). | superseded | tests/unit/test_advisory.py:test_ticker_join_filters_unmatched |
+| <a id="p41-d-04"></a>`D-04` | Prefetch all swarm data from Neo4j in parallel (asyncio.gather) before the single LLM call. | active | advisory/engine.py:synthesize |
+| <a id="p41-d-05"></a>`D-05` | One orchestrator call with swarm data plus aggregated per-ticker holdings rows (ticker and sector enrichment; no quantity or cost basis), decoded through chat_structured with tickers restricted to the prompt's holdings at temperature 0.2. Still the only place holdings enter a prompt. | active | advisory/engine.py:_ticker_entries,advisory_llm_schema,synthesize; advisory/prompt.py:build_advisory_prompt; tests/invariants/test_holdings_isolation.py (rendered-prompt canary) |
+| <a id="p41-d-06"></a>`D-06` | The orchestrator writes AdvisoryLLMOutput (portfolio_outlook + items: ticker, signal, confidence, rationale, risk, upside); the engine assembles AdvisoryItem (adds position_exposure, source = swarm \| placeholder) and AdvisoryReport (totals, stats over conviction items, holdings_as_of). Revised 2026-10 (the orchestrator wrote the AdvisoryItem fields itself). | revised | advisory/types.py (`AdvisoryLLMOutput`); advisory/types.py (`AdvisoryItem`); advisory/engine.py (`assemble_advisory_report`) |
+| <a id="p41-d-07"></a>`D-07` | Rank by confidence x (exposure / total cost basis); denominator must be positive (F-29). | active | advisory/engine.py (`assemble_advisory_report`) |
+| <a id="p41-d-08"></a>`D-08` | Route owns orchestrator load/unload in try/finally; advisory never runs concurrently with report generation (bidirectional 409). | active | advisory/engine.py (module docstring); web/routes/advisory.py:_run_advisory_synthesis; web/guards.py:require_orchestrator_free |
 | <a id="p41-d-09"></a>`D-09` | POST /api/advisory/{cycle_id} returns 202 and spawns a background task. | active | web/routes/advisory.py:86,98 |
 | <a id="p41-d-10"></a>`D-10` | GET reads advisory/{cycle_id}_advisory.json: 200 ready, 409 advisory_generation_in_progress while generating, 500 recorded failure or refusal, 404 absent. Revised 2026-10 (404 meant "still generating"). | revised | web/routes/advisory.py:196 |
 | <a id="p41-d-12"></a>`D-12` | Cycle ids use the shared CycleId uuid4 type (web/params.py); malformed ids return 422 validation_error. Revised 2026-10 (was a regex guard shared with the report route, 400 invalid_cycle_id). | revised | web/params.py; web/routes/advisory.py:161,196 |
@@ -876,10 +878,10 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-03"></a>F-03 | Shock-impact aggregation used uppercase keys, so every value was zero and HOLD | 6ced8a8 | — |
 | <a id="f-04"></a>F-04 | `TokenPool.grow()` ignored crisis debt, so concurrency exceeded the limit right after recovery | 78744f6 | governor.py:90; tests/test_governor.py:73 |
 | <a id="f-05"></a>F-05 | Anthropic provider defaulted to max_tokens=1024, truncating orchestrator output (now 8192 orchestrator / 2048 worker) | c99d00b | inference/factory.py:130 |
-| <a id="f-06"></a>F-06 | ReAct prompt tool names did not match the registry, so the consensus and flip sections were always missing | 90dd0f9 | tests/test_report.py:28 |
-| <a id="f-07"></a>F-07 | Advisory read the wrong entity-impact keys, so relevance ranking was dead; added `resolve_ticker` | 3d65f99 | advisory/engine.py:147; advisory/sector_map.py:187; tests/unit/test_advisory.py:621,625,638 |
+| <a id="f-06"></a>F-06 | ReAct prompt tool names did not match the registry, so the consensus and flip sections were always missing | 90dd0f9 | — (the ReAct loop and its registry were deleted in 2026-10; `SECTION_TEMPLATES` renders every section, [adr-report-react](#adr-report-react)) |
+| <a id="f-07"></a>F-07 | Advisory read the wrong entity-impact keys, so relevance ranking was dead; added `resolve_ticker` | 3d65f99 | advisory/engine.py:synthesize; advisory/sector_map.py:187; tests/unit/test_advisory.py:test_enrich_holdings_entity_impact_drives_ranking |
 | <a id="f-08"></a>F-08 | Round 2 equal weights meant every reader got the same peers; fixed with a stable per-reader jitter. The jitter is gone: seeded per-reader sampling ([adr-diverse-peer-context](#adr-diverse-peer-context)) disperses readers by construction | 7ae6a69 | peers.py (peer_rng); tests/test_peer_selection.py (test_equal_weights_disperse_across_readers) |
-| <a id="f-09"></a>F-09 | JSON brace scanner ignored strings, so `}` in a rationale dropped the vote | 9748dd5 | parsing.py:48; tests/test_parsing.py:98 |
+| <a id="f-09"></a>F-09 | JSON brace scanner ignored strings, so `}` in a rationale dropped the vote | 9748dd5 | inference/structured.py:json_object_candidates (shared by parsing.py and chat_structured since 2026-10); tests/test_parsing.py:test_tier2_brace_in_rationale_with_trailing_brace |
 | <a id="f-10"></a>F-10 | OpenAI strict schema kept min/max, got a 400, and silently fell back to json_object | c99d00b | inference/schema.py:25; tests/inference/test_schema.py:150 |
 | <a id="f-11"></a>F-11 | Failed cloud calls leaked TPM reservation (follow-up in 9312419: refund only on failure) | c99d00b, 9312419 | inference/rate_limit.py:297; tests/inference/test_rate_limit.py:271 |
 | <a id="f-12"></a>F-12 | Replay advanced 2-round cycles to an empty round 3 | 66d680f | web/replay_manager.py:167 |
@@ -898,9 +900,9 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-25"></a>F-25 | Inference config save was not atomic (now temp file + `os.replace`) | 902d7b5 | inference/config.py:save_inference_config |
 | <a id="f-26"></a>F-26 | `/replay/start` skipped the cycle_id guard | 66d680f | web/routes/replay.py:112 |
 | <a id="f-27"></a>F-27 | A binary WS frame dropped the connection | 66d680f | web/routes/websocket.py:89 |
-| <a id="f-28"></a>F-28 | Sector seed-match used bare substrings (false positives) | 35471d4 | advisory/engine.py:65 |
-| <a id="f-29"></a>F-29 | A negative aggregate cost basis inverted the ranking | 35471d4 | advisory/engine.py:141 |
-| <a id="f-30"></a>F-30 | Inconsistent ticker casing across items | 35471d4 | advisory/engine.py:218 |
+| <a id="f-28"></a>F-28 | Sector seed-match used bare substrings (false positives) | 35471d4 | advisory/engine.py:_enrich_holdings |
+| <a id="f-29"></a>F-29 | A negative aggregate cost basis inverted the ranking | 35471d4 | advisory/engine.py (`assemble_advisory_report`) |
+| <a id="f-30"></a>F-30 | Inconsistent ticker casing across items | 35471d4 | advisory/engine.py (`assemble_advisory_report`) |
 | <a id="f-31"></a>F-31 | Inverted governor thresholds passed validation | 902d7b5 | settings.py:GovernorSettings |
 | <a id="f-32"></a>F-32 | A failed unload aborted `ensure_clean_state`, risking the two-model invariant | 66d680f | ollama_models.py:OllamaModelManager.unload_model, OllamaModelManager.ensure_clean_state |
 | <a id="f-33"></a>F-33 | Double-click could start two simulations | df2f26a | fe/hooks/useRunGate.tsx:51 |
@@ -934,9 +936,9 @@ code. Their status is in BACKLOG.md.
 
 | ID | Item and resolution | Referenced from |
 |---|---|---|
-| <a id="sweep-b-1"></a>SWEEP B-1 | 19 `test_report.py` failures against the removed `assemble_html()`. Tests rewritten against `ReportAssembler.assemble()` (markdown) | tests/test_report.py:406 |
+| <a id="sweep-b-1"></a>SWEEP B-1 | 19 `test_report.py` failures against the removed `assemble_html()`. Tests rewritten against `ReportAssembler.assemble()` (markdown) | — (`ReportAssembler.assemble()` was deleted with the ReAct loop in 2026-10, [adr-report-react](#adr-report-react)) |
 | <a id="sweep-b-5"></a>SWEEP B-5 | Round 1 can never produce citations, so its influence-edge computation was dead work. Removed | rounds.py:run_round (influence edges only when a previous round exists) |
-| <a id="sweep-b-7"></a>SWEEP B-7 | Advisory prompt over-emitted boilerplate HOLD items. Non-top holdings are no longer sent to the LLM and are padded server-side as HOLD@0.30 | advisory/engine.py (`synthesize`); advisory/prompt.py (`build_advisory_prompt`); tests/test_advisory_synthesize.py (`test_prompt_instructs_conviction_items_only`); tests/unit/test_advisory.py |
+| <a id="sweep-b-7"></a>SWEEP B-7 | Advisory prompt over-emitted boilerplate HOLD items. Non-top holdings are no longer sent to the LLM; every holding without a conviction item is padded server-side as HOLD@0.30, marked source=placeholder and left out of the overview stats (2026-10) | advisory/engine.py (`synthesize`); advisory/engine.py (`assemble_advisory_report`); advisory/types.py (`AdvisoryItem`); advisory/prompt.py (`build_advisory_prompt`); tests/test_advisory_synthesize.py (`test_prompt_instructs_conviction_items_only`); tests/unit/test_advisory.py |
 | <a id="sweep-b-8"></a>SWEEP B-8 | Unknown tickers had `macro_beta=0`, so they could never rank. Default raised to 0.5 | advisory/sector_map.py:175; tests/test_advisory_synthesize.py:75,164 |
 | <a id="sweep-3-3"></a>SWEEP §3.3 | Structural peer-context bias: every agent saw the same authority top-10. Fixed by [adr-diverse-peer-context](#adr-diverse-peer-context) | peers.py:select_diverse_peers,build_peer_contexts; rounds.py:run_round |
 
@@ -948,9 +950,9 @@ code. Their status is in BACKLOG.md.
 |---|---|---|
 | <a id="t-35-1-01"></a>T-35.1-01 | Cypher injection through shock text. All user input goes through parameters, never f-strings | graph.py:2008 |
 | <a id="t-36-01"></a>T-36-01 | Path traversal through cycle_id. Since 2026-10 the `CycleId` path type and `CYCLE_ID_PATTERN` (`web/params.py`) validate it for report, advisory, replay, edges and interview, and malformed ids get 422 `validation_error` (was the `_CYCLE_ID_RE` regex guard) | web/params.py; tests/test_web_params.py |
-| <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:4,94,100,130; tests/test_web_report.py:21 |
-| <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:100; web/routes/advisory.py:5,268; web/routes/report.py:7,89,105,159,161,222,235,249; tests/test_web.py:71; tests/test_report_routes.py:87,286 |
-| <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Fixed 2026-10: both writes go through `fsutil.atomic_write_text` (temp file, fsync, `os.replace`, owner-only) | fsutil.py; report.py:write_report; web/routes/advisory.py:8 |
+| <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:get_report; tests/test_report_routes.py:test_get_report_uses_async_filesystem |
+| <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:100; web/routes/advisory.py:5,268; web/routes/report.py:_on_report_task_done,_record_report_failure,get_report; tests/test_web.py:71; tests/test_report_routes.py |
+| <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Fixed 2026-10: both writes go through `fsutil.atomic_write_text` (temp file, fsync, `os.replace`, owner-only) | fsutil.py; report.py:write_report_files; web/routes/advisory.py:8 |
 | <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,89; simulation.py:_TICKER_RE; tests/test_rss_provider.py:142,164,549 |
 | <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/unit/test_holdings_route.py:14,215,259 |
 | <a id="t-41-6-13"></a>T-41.6-13 | XSS through interview responses. Rendered as plain text, not markdown | fe/components/interview_v2.tsx:21 |
@@ -978,7 +980,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-social-01"></a>SOCIAL-01 / SOCIAL-02 | Rationale posts as Post nodes / top-K posts in peer context (SOCIAL-02 ranking superseded, see [§2](#hist-read-post)) | SOCIAL-01: `write_posts` and its Post writes were deleted in 2026-10. SOCIAL-02: its ranking read (`read_ranked_posts`) and READ_POST writer (`write_read_post_edges`) were deleted in 2026-10 |
 | <a id="req-replay-01"></a>REPLAY-01 | Replay from Neo4j without re-inference | graph.py:2032,2150,2205; tests/test_graph.py:1555,1580,1602,1625 |
 | <a id="req-vis-03"></a>VIS-03 | Edges endpoint for the web graph (Phase 31 ID) | tests/test_web.py:754 |
-| <a id="req-shock"></a>SHOCK-04 / SHOCK-05 | Phase 27-internal IDs (never added to REQUIREMENTS.md). SHOCK-04: `read_shock_event` / `read_shock_impact` (bracket deltas, pivot count, comparable agents) plus the old TUI bracket-panel delta mode. SHOCK-05: shock-impact report section (`11_shock_impact.j2`, `TOOL_TO_TEMPLATE['shock_impact']`, CLI pre-seeding of the `shock_impact` observation) | SHOCK-04: graph.py:1683; tests/test_graph.py:1438,1459,1473,1514. SHOCK-05: tests/test_cli.py:893,943; tests/test_report.py:517,522,533,562,612,633 |
+| <a id="req-shock"></a>SHOCK-04 / SHOCK-05 | Phase 27-internal IDs (never added to REQUIREMENTS.md). SHOCK-04: `read_shock_event` / `read_shock_impact` (bracket deltas, pivot count, comparable agents) plus the old TUI bracket-panel delta mode. SHOCK-05: shock-impact report section (`11_shock_impact.j2`). Since 2026-10 `collect_report_data` reads the impact only when the cycle has a shock and `render_report` adds the section; this replaced `TOOL_TO_TEMPLATE['shock_impact']` and the CLI's pre-seeded `shock_impact` observation | SHOCK-04: graph.py:read_shock_event,read_shock_impact; tests/test_graph.py:1438,1459,1473,1514. SHOCK-05: report.py:SECTION_TEMPLATES,collect_report_data; tests/test_report.py:test_shock_impact_template_renders_bracket_delta_table,test_shock_impact_template_renders_pivot_list; tests/test_report_pipeline.py:test_collect_reads_shock_impact_only_when_a_shock_exists,test_render_skips_the_shock_section_without_a_shock |
 | <a id="req-be"></a>BE-01 / 03 / 04 / 08 / 09 / 10 | v5.0 web-backend IDs (definitions recovered from `git show 343669f^:.planning/...`). BE-01: FastAPI app whose lifespan owns the event loop, plus `/api/health`. BE-03: per-client WebSocket queue with drop-oldest and writer-task cleanup (ConnectionManager). BE-04: `/ws/state` 5 Hz snapshot stream (Phase 30). BE-08: `GET /api/replay/cycles` (real Neo4j query). BE-09: `POST /api/replay/start/{cycle_id}`. BE-10: `POST /api/replay/advance` (BE-09/10 began as Phase 32 stubs and were filled in by Phase 34) | BE-01: tests/test_web.py:102,226. BE-03: tests/test_connection_manager.py. BE-04: tests/test_web.py:356,735. BE-08..10: tests/test_web.py:1130 |
 | <a id="req-isol"></a>ISOL-01..07 | v6.0 isolation: stdlib holdings types (01), frozen ingestion models (02), import contract (03), PII redaction (04), provider protocols (05), socket gate (06), four-surface canary (07) | see the `ISOL-` lines in `holdings/`, `ingestion/`, `logging.py`, `tests/invariants/`, `tests/test_network_gate.py` |
 | <a id="req-ingest"></a>INGEST-01 / 02 | yfinance provider / RSS provider | ingestion/__init__.py:9; ingestion/yfinance_provider.py:1; ingestion/rss_provider.py:1; tests/... |
@@ -996,7 +998,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 |---|---|---|
 | <a id="quick-260416-m8x"></a>260416-m8x | Tier-1 web fixes B4, B7, B8, B9, B10 | tests/test_web.py:1379 |
 | <a id="quick-260507-19f"></a>260507-19f | Removed the UI POST trigger for advisory. Synthesis is auto-fired by the backend on completion; the frontend only polls GET | fe/api/advisory.ts:2; fe/components/v2.tsx:20,444 |
-| <a id="quick-260512-jqn"></a>260512-jqn | Six post-run follow-ups. ITEM 1: CSS for InterviewV2/Onboarding/BracketDeepDive takeovers. ITEM 2: Round 3 INFLUENCED_BY edges, so `/api/edges?round=3` works. ITEM 3: governor slots on the wire (closes KR-41.1-05). ITEM 4: rationale sliding window + per-agent streaming `push_rationale`. ITEM 5: live data-source audit feeding the Signal Wire. ITEM 6: advisory one-item-per-holding + sector enrichment | 48 refs across frame.ts, v2.tsx, RationalesContext.tsx, useDataSourceAudit.ts, styles.css, types.ts, advisory/engine.py, advisory/sector_map.py, batch_dispatcher.py, data_audit.py, ingestion/*_provider.py, simulation.py, state.py, web/app.py, web/broadcaster.py, and tests |
+| <a id="quick-260512-jqn"></a>260512-jqn | Six post-run follow-ups. ITEM 1: CSS for InterviewV2/Onboarding/BracketDeepDive takeovers. ITEM 2: Round 3 INFLUENCED_BY edges, so `/api/edges?round=3` works. ITEM 3: governor slots on the wire (closes KR-41.1-05). ITEM 4: rationale sliding window + per-agent streaming `push_rationale`. ITEM 5: live data-source audit feeding the Signal Wire. ITEM 6: advisory one-item-per-holding + sector enrichment | 33 refs (2026-10) across frame.ts, v2.tsx, RationalesContext.tsx, styles.css, types.ts, batch_dispatcher.py, data_audit.py, ingestion/*_provider.py, state.py, web/app.py, and tests. ITEM 6 is now uncited: the padding lives in advisory/engine.py (`assemble_advisory_report`, [sweep-b-7](#sweep-b-7)) |
 | <a id="quick-260611-rlx"></a>260611-rlx | `think=False` in advisory synthesis; report auto-chained after advisory succeeds | tests/unit/test_advisory_route.py:224 |
 
 ---
@@ -1058,7 +1060,7 @@ them the same way (leave them, and strip them when the comment is next edited):
 
 | Tag family | Live lines | Example | Note |
 |---|---|---|---|
-| `Pitfall N` / `Research Pitfall N` | ~111 | `advisory/engine.py:8` "Pitfall 1: NEVER pass the PortfolioSnapshot… into a structlog" | Numbered per phase `*-RESEARCH.md`, so "Pitfall 1" means different things in different files. Almost every hit restates the pitfall inline; the few that only cited the file were rewritten to DECISIONS anchors when `.planning/` was removed |
+| `Pitfall N` / `Research Pitfall N` | ~111 | `advisory/engine.py` (module docstring) "Pitfall 1: NEVER pass the PortfolioSnapshot… into a structlog" | Numbered per phase `*-RESEARCH.md`, so "Pitfall 1" means different things in different files. Almost every hit restates the pitfall inline; the few that only cited the file were rewritten to DECISIONS anchors when `.planning/` was removed |
 | `Plan NN-NN` / `Plan NN-NN task N` | ~70 | `fe/components/app_v2.tsx:56` "Plan 41.6-04 task 2 (W4)" | GSD plan and task numbers |
 | `W1`..`W4` / `Wave N` | ~44 | `fe/App.tsx:3` "lands in Plan 41.6-04 (W4)" | GSD execution waves |
 | `ITEM n` | ~50 | `state.py:115` "ITEM 4 of quick task 260512-jqn" | Items of quick task 260512-jqn; see [§9](#quick-260512-jqn) |

@@ -177,6 +177,12 @@ class CanaryFakeOllamaClient:
     """
 
     def __init__(self, *, prompt_sink: list[str], canned_content: str) -> None:
+        from alphaswarm.inference.types import ProviderRole
+
+        # role and model complete the protocol; chat_structured names the model
+        # in StructuredOutputError.
+        self.role = ProviderRole.ORCHESTRATOR
+        self.model = "canary-fake"
         self._prompt_sink = prompt_sink
         self._canned = canned_content
 

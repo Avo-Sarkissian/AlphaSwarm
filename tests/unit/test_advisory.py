@@ -17,6 +17,7 @@ import structlog
 from pydantic import ValidationError
 
 from alphaswarm.advisory import AdvisoryItem, AdvisoryReport, synthesize
+from alphaswarm.errors import StructuredOutputError
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from tests.inference.fakes import FakeInferenceProvider
@@ -74,17 +75,17 @@ class FakeGraphManager:
 
 
 def _valid_advisory_payload(items: list[dict[str, Any]], *, total: int = 5) -> str:
-    """Build a JSON payload matching the AdvisoryReport schema."""
-    return json.dumps(
+    """Build an AdvisoryLLMOutput reply; legacy item keys map onto the LLM keys."""
+    llm_items = [
         {
-            "cycle_id": "unit_cycle",
-            "generated_at": "2026-04-19T22:00:00+00:00",
-            "portfolio_outlook": "Swarm is mildly bullish on AI infra names.",
-            "items": items,
-            "total_holdings": total,
-            "affected_holdings": len(items),
+            "ticker": item["ticker"],
+            "signal": item.get("signal", item.get("consensus_signal")),
+            "confidence": item["confidence"],
+            "rationale": item.get("rationale", item.get("rationale_summary", "")) or "No rationale.",
         }
-    )
+        for item in items
+    ]
+    return json.dumps({"portfolio_outlook": "Swarm is mildly bullish on AI infra names.", "items": llm_items})
 
 
 def _portfolio(ticker_to_cost: dict[str, str]) -> PortfolioSnapshot:
@@ -336,40 +337,11 @@ async def test_synthesize_retry_on_validation_error() -> None:
     assert report.affected_holdings == 0
     assert len(fake_provider.calls) == 2  # initial + retry
 
-    # The retry message carries the validation error text for the model to correct
+    # The retry carries chat_structured's correction turn (field locations, never values).
     retry_messages = fake_provider.calls[1]["messages"]
-    assert any("failed validation" in m["content"] for m in retry_messages if m["role"] == "user")
-
-
-async def test_infer_with_retry_passes_json_mode() -> None:
-    """Both the initial chat and the validation-retry chat must pass json_mode=True.
-
-    The provider interface replaced OllamaClient.chat(format='json', think=False)
-    with provider.chat(messages, json_mode=True). OllamaProvider forwards
-    think=False internally; the synthesize() boundary contracts on json_mode=True
-    for both calls.
-    """
-    portfolio = _portfolio({"ZZZT": "100"})
-    malformed = '{"cycle_id": "unit_cycle", "oops": true}'  # missing required fields
-    valid = _valid_advisory_payload(items=[], total=1)
-
-    fake_graph = FakeGraphManager()
-    fake_provider = FakeInferenceProvider(
-        role=ProviderRole.ORCHESTRATOR,
-        model="test-orch",
-        scripted=[_make_result(malformed), _make_result(valid)],
-    )
-
-    await synthesize(
-        cycle_id="unit_cycle",
-        portfolio=portfolio,
-        graph_manager=fake_graph,  # type: ignore[arg-type]
-        provider=fake_provider,
-    )
-
-    # Both chat calls (initial + validation-retry) request JSON output.
-    assert len(fake_provider.calls) == 2
-    assert all(call["json_mode"] is True for call in fake_provider.calls)
+    assert retry_messages[-1]["role"] == "user"
+    assert "did not match the required JSON schema" in retry_messages[-1]["content"]
+    assert "portfolio_outlook" in retry_messages[-1]["content"]
 
 
 async def test_synthesize_retry_then_fail() -> None:
@@ -384,7 +356,7 @@ async def test_synthesize_retry_then_fail() -> None:
         scripted=[_make_result(bad1), _make_result(bad2)],
     )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(StructuredOutputError):
         await synthesize(
             cycle_id="unit_cycle",
             portfolio=portfolio,

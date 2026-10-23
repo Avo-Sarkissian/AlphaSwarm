@@ -78,12 +78,12 @@ async def test_inject_seed_loads_orchestrator_model(
     assert prepare_calls == ["prepare"]
 
 
-async def test_inject_seed_calls_chat_with_json_mode(
+async def test_inject_seed_calls_chat_with_seed_schema(
     mock_settings: MagicMock,
     fake_provider: FakeInferenceProvider,
     mock_graph_manager: AsyncMock,
 ) -> None:
-    """inject_seed calls provider.chat() with json_mode=True.
+    """inject_seed calls provider.chat() with SeedLLMOutput's response schema.
 
     think=False: think=True added ~265s/call with marginal quality gain on
     this workload. See docs/DECISIONS.md#adr-think-off for revisit triggers
@@ -100,7 +100,7 @@ async def test_inject_seed_calls_chat_with_json_mode(
 
     assert len(fake_provider.calls) == 1
     call = fake_provider.calls[0]
-    assert call["json_mode"] is True
+    assert set(call["response_schema"]["properties"]) == {"entities", "overall_sentiment"}
 
 
 async def test_inject_seed_calls_create_cycle_with_seed_event(
@@ -212,7 +212,11 @@ async def test_inject_seed_logs_warning_on_parse_tier_3(
             InferenceResult(
                 content="This is not valid JSON at all",
                 model="alphaswarm-orchestrator",
-            )
+            ),
+            InferenceResult(
+                content="This is not valid JSON at all",
+                model="alphaswarm-orchestrator",
+            ),
         ],
     )
 

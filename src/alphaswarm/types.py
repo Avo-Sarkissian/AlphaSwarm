@@ -3,10 +3,52 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 from enum import Enum
-from typing import Literal, TypedDict
+from typing import Final, Literal, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# Lenient boundary normalisation (docs/DECISIONS.md#adr-structured-output):
+# recoverable model output ("BUY", confidence 85) is normalised instead of
+# being discarded as a parse error. Non-numbers pass through for pydantic.
+_PERCENT_FLOOR: Final = 1.5
+
+
+def _as_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        return None
+    try:
+        number = float(value)
+    except (ValueError, OverflowError):  # OverflowError: an int too large for a float
+        return None
+    return None if math.isnan(number) else number
+
+
+def normalize_token(value: object) -> object:
+    """Strip and lower-case strings ("  BUY " -> "buy"); other values unchanged."""
+    return value.strip().lower() if isinstance(value, str) else value
+
+
+def normalize_unit_interval(value: object) -> object:
+    """Map a confidence-like number into [0, 1].
+
+    Values in (1.5, 100] are read as percentages (85 -> 0.85); anything else is
+    clamped. Non-numeric values, booleans and NaN are returned unchanged.
+    """
+    number = _as_number(value)
+    if number is None:
+        return value
+    if _PERCENT_FLOOR < number <= 100.0:
+        number /= 100.0
+    return max(0.0, min(1.0, number))
+
+
+def normalize_signed_unit(value: object) -> object:
+    """Clamp a sentiment-like number to [-1, 1]; non-numbers unchanged."""
+    number = _as_number(value)
+    return value if number is None else max(-1.0, min(1.0, number))
+
 
 # Engine-owned classification of a failed decision (docs/DECISIONS.md#adr-taskgroup-dispatch):
 # "inference" = the model call raised, "parse" = tier-3 parse fallback,
@@ -121,6 +163,21 @@ class SeedEntity(BaseModel, frozen=True):
     relevance: float = Field(ge=0.0, le=1.0)
     sentiment: float = Field(ge=-1.0, le=1.0)
 
+    @field_validator("type", mode="before")
+    @classmethod
+    def _normalise_type(cls, value: object) -> object:
+        return normalize_token(value)
+
+    @field_validator("relevance", mode="before")
+    @classmethod
+    def _normalise_relevance(cls, value: object) -> object:
+        return normalize_unit_interval(value)
+
+    @field_validator("sentiment", mode="before")
+    @classmethod
+    def _normalise_sentiment(cls, value: object) -> object:
+        return normalize_signed_unit(value)
+
 
 class SeedEvent(BaseModel, frozen=True):
     """Structured seed rumor with extracted entities and aggregate sentiment."""
@@ -129,10 +186,15 @@ class SeedEvent(BaseModel, frozen=True):
     entities: list[SeedEntity]
     overall_sentiment: float = Field(ge=-1.0, le=1.0)
 
+    @field_validator("overall_sentiment", mode="before")
+    @classmethod
+    def _normalise_overall_sentiment(cls, value: object) -> object:
+        return normalize_signed_unit(value)
+
 
 @dataclasses.dataclass(frozen=True)
 class ParsedSeedResult:
-    """Result of parse_seed_event() with parse-tier observability.
+    """Result of seed extraction (seed.inject_seed) with parse-tier observability.
 
     Addresses review concern: Tier-3 fallback returning empty SeedEvent was
     indistinguishable from genuine "no entities found". parse_tier makes the
@@ -172,6 +234,24 @@ class AgentDecision(BaseModel, frozen=True):
     cited_agents: list[str] = Field(default_factory=list)
     # Never part of the LLM-facing schema; set by the parser or the dispatcher.
     error_kind: ErrorKind | None = None
+    # Engine-owned like error_kind (docs/DECISIONS.md#adr-structured-output): 1 direct
+    # JSON, 2 extracted, 3 parser fallback; None when the parser did not produce the decision.
+    parse_tier: Literal[1, 2, 3] | None = None
+
+    @field_validator("signal", mode="before")
+    @classmethod
+    def _normalise_signal(cls, value: object) -> object:
+        return normalize_token(value)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalise_confidence(cls, value: object) -> object:
+        return normalize_unit_interval(value)
+
+    @field_validator("sentiment", mode="before")
+    @classmethod
+    def _normalise_sentiment(cls, value: object) -> object:
+        return normalize_signed_unit(value)
 
 
 class SimulationPhase(str, Enum):

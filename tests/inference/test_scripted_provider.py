@@ -75,7 +75,9 @@ async def test_decision_call_returns_llm_fields_only_and_counts_rounds() -> None
         "rationale",
         "cited_agents",
     }
-    assert parse_agent_decision(second.content) == default_decision_script("quants_02", 2, calls[1])
+    scripted = default_decision_script("quants_02", 2, calls[1])
+    # The script carries no engine fields; the parser stamps tier 1 on direct JSON.
+    assert parse_agent_decision(second.content) == scripted.model_copy(update={"parse_tier": 1})
     assert len(worker.calls) == 2  # inherited FakeInferenceProvider recording still works
 
 

@@ -21,12 +21,7 @@ from pydantic import BaseModel
 
 from alphaswarm.inference.config import load_inference_config
 from alphaswarm.inference.factory import build_providers
-from alphaswarm.report import (
-    ReportAssembler,
-    ReportEngine,
-    ToolObservation,
-    write_report,
-)
+from alphaswarm.report import generate_report as write_cycle_report
 from alphaswarm.state import JobStatus
 from alphaswarm.web.errors import ApiError
 from alphaswarm.web.guards import (
@@ -187,8 +182,8 @@ def _on_report_task_done(task: asyncio.Task[Any], cycle_id: str, app: FastAPI) -
 async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     """Background task mirroring cli.py's _handle_report sequence (docs/DECISIONS.md#p36-d-03).
 
-    Sequence: provider.prepare -> ReportEngine.run -> ReportAssembler.assemble ->
-    write_report. provider.teardown/aclose happens in finally
+    Sequence: provider.prepare -> report.generate_report (one narrative call, then the
+    sections sidecar and the markdown). provider.teardown/aclose happens in finally
     even when generation raises (prevents leaked model lock / cloud client leak).
 
     Started by POST /api/report/{id}/generate and by the post-run pipeline; the
@@ -201,8 +196,8 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     per report run) which bounds each report generation to its own spend cap. An
     invalid config fails the job with a fixed InferenceConfigError (job_config_error).
 
-    write_report replaces the file atomically, so GET never reads a partial report
-    (docs/DECISIONS.md#adr-background-tasks).
+    report.generate_report writes the ``.json`` sidecar then the markdown, each atomically,
+    so GET never reads a partial report (docs/DECISIONS.md#adr-background-tasks).
     """
     # The job runs in its own task (start_report_job), so the binding is task-local
     # (docs/DECISIONS.md#adr-security-2026-08).
@@ -228,57 +223,13 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     try:
         await provider.prepare()
 
-        # Exact tool registry from cli.py:716-725 (D-03: mirror CLI behavior).
-        tools: dict[str, object] = {
-            "bracket_summary": lambda **kw: gm.read_consensus_summary(
-                kw.get("cycle_id", cycle_id),
-            ),
-            "round_timeline": lambda **kw: gm.read_round_timeline(
-                kw.get("cycle_id", cycle_id),
-            ),
-            "bracket_narratives": lambda **kw: gm.read_bracket_narratives(
-                kw.get("cycle_id", cycle_id),
-            ),
-            "key_dissenters": lambda **kw: gm.read_key_dissenters(
-                kw.get("cycle_id", cycle_id),
-            ),
-            "influence_leaders": lambda **kw: gm.read_influence_leaders(
-                kw.get("cycle_id", cycle_id),
-            ),
-            "signal_flip_analysis": lambda **kw: gm.read_signal_flips(
-                kw.get("cycle_id", cycle_id),
-            ),
-            "entity_impact": lambda **kw: gm.read_entity_impact(
-                kw.get("cycle_id", cycle_id),
-            ),
-        }
-
-        # Phase 27 pre-seed: include shock_impact observation if a ShockEvent exists
-        # (mirrors cli.py:727-731).
-        shock_event = await gm.read_shock_event(cycle_id)
-        pre_seeded: list[ToolObservation] | None = None
-        if shock_event is not None:
-            shock_impact = await gm.read_shock_impact(cycle_id)
-            pre_seeded = [
-                ToolObservation(
-                    tool_name="shock_impact",
-                    tool_input={"cycle_id": cycle_id},
-                    result=shock_impact,
-                ),
-            ]
-
-        engine = ReportEngine(
+        result = await write_cycle_report(
+            gm=gm,
             provider=provider,
-            tools=tools,  # type: ignore[arg-type]
-            pre_seeded_observations=pre_seeded,
+            cycle_id=cycle_id,
+            reports_dir=reports_dir(app_state),
         )
-        observations = await engine.run(cycle_id)
-
-        assembler = ReportAssembler()
-        content = assembler.assemble(observations, cycle_id)
-
-        output_path = reports_dir(app_state) / f"{cycle_id}_report.md"
-        await write_report(output_path, content)
+        output_path = result.path
 
         log.info(
             "report_generation_complete",
