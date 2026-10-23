@@ -11,7 +11,7 @@ import time
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal, Protocol
 
 from alphaswarm.data_audit import DataSourceAuditBuffer, DataSourceAuditEntry
 from alphaswarm.errors import RunError
@@ -535,3 +535,41 @@ class ReplayStore:
             # A replayed cycle is complete, so round r's edges exist once r >= 2.
             edges_version=max(0, self._current_round - 1),
         )
+
+
+class StateSink(Protocol):
+    """What the engine writes to live state (docs/DECISIONS.md#adr-round-runner).
+
+    Exactly the StateStore methods run_simulation, run_round, dispatch_wave and
+    AgentWorker call. Web-side calls (set_last_error, set_pending_shock,
+    set_job_status) are deliberately not part of it; a plan that adds an
+    engine -> store call extends this protocol.
+    """
+
+    async def set_phase(self, phase: SimulationPhase) -> None: ...
+
+    async def set_round(self, round_num: int) -> None: ...
+
+    async def update_agent_state(self, agent_id: str, signal: SignalType, confidence: float) -> None: ...
+
+    async def push_rationale(self, entry: RationaleEntry) -> None: ...
+
+    async def set_bracket_summaries(self, summaries: tuple[BracketSummary, ...]) -> None: ...
+
+    def update_tps(self, eval_count: int, eval_duration_ns: int) -> None: ...
+
+    async def set_cycle(self, cycle_id: str | None) -> None: ...
+
+    def set_num_rounds(self, n: int) -> None: ...
+
+    def bump_edges_version(self) -> None: ...
+
+    async def begin_run(self, agent_ids: Sequence[str]) -> None: ...
+
+    def record_applied_shock(self, text: str, round_num: int) -> None: ...
+
+
+if TYPE_CHECKING:
+
+    def _store_is_a_sink(store: StateStore) -> StateSink:
+        return store  # mypy proves StateStore satisfies StateSink
