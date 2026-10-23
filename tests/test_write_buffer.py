@@ -141,7 +141,6 @@ def test_episode_record_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_buffer_push_and_drain() -> None:
     buf = WriteBuffer(maxsize=10)
     r1 = make_record(decision_id="d1")
@@ -154,13 +153,11 @@ async def test_buffer_push_and_drain() -> None:
     assert drained[1].decision_id == "d2"
 
 
-@pytest.mark.asyncio
 async def test_buffer_drain_empty_queue_returns_empty_list() -> None:
     buf = WriteBuffer(maxsize=10)
     assert buf.drain() == []
 
 
-@pytest.mark.asyncio
 async def test_buffer_drain_empties_queue() -> None:
     buf = WriteBuffer(maxsize=10)
     await buf.push(make_record())
@@ -168,7 +165,6 @@ async def test_buffer_drain_empties_queue() -> None:
     assert buf.drain() == []
 
 
-@pytest.mark.asyncio
 async def test_buffer_full_drops_oldest() -> None:
     buf = WriteBuffer(maxsize=2)
     r1 = make_record(decision_id="old-1")
@@ -189,7 +185,6 @@ async def test_buffer_full_drops_oldest() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_buffer_flush_returns_zero_on_empty() -> None:
     buf = WriteBuffer(maxsize=10)
     mock_gm = MagicMock()
@@ -199,7 +194,6 @@ async def test_buffer_flush_returns_zero_on_empty() -> None:
     mock_gm.write_narrative_edges.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_buffer_flush_calls_graph_manager_and_returns_count() -> None:
     buf = WriteBuffer(maxsize=10)
     r1 = make_record(decision_id="d1")
@@ -218,7 +212,6 @@ async def test_buffer_flush_calls_graph_manager_and_returns_count() -> None:
     mock_gm.write_narrative_edges.assert_called_once()
 
 
-@pytest.mark.asyncio
 async def test_buffer_flush_passes_records_to_write_rationale_episodes() -> None:
     buf = WriteBuffer(maxsize=10)
     r1 = make_record(decision_id="d1")
@@ -236,7 +229,6 @@ async def test_buffer_flush_passes_records_to_write_rationale_episodes() -> None
     assert records_passed[0].decision_id == "d1"
 
 
-@pytest.mark.asyncio
 async def test_buffer_flush_passes_entity_names_to_write_narrative_edges() -> None:
     buf = WriteBuffer(maxsize=10)
     await buf.push(make_record())

@@ -21,7 +21,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import httpx
-import pytest
 
 from alphaswarm.config import InferenceConfig, ProviderType, RoleConfig
 from alphaswarm.inference.budget import BudgetTrackingProvider
@@ -100,7 +99,6 @@ def _make_provider(
 class TestOpenRouter:
     """OpenRouter uses the OpenAI-compatible interface with extra routing headers."""
 
-    @pytest.mark.asyncio
     async def test_openrouter_request_url_and_headers_and_schema(self) -> None:
         """
         Wire assertions:
@@ -178,7 +176,6 @@ class TestGeminiTrailingSlashAndDowngrade:
     - Adapter sets _no_strict=True and retries with json_object → succeeds
     """
 
-    @pytest.mark.asyncio
     async def test_gemini_trailing_slash_no_double_slash_in_url(self) -> None:
         """Both request URLs must not contain '//' after the host."""
         seen_urls: list[str] = []
@@ -211,7 +208,6 @@ class TestGeminiTrailingSlashAndDowngrade:
             assert url == expected_url, f"URL contains double-slash or is wrong: {url!r}"
             assert "//" not in url.split("://", 1)[1], f"double-slash in path: {url!r}"
 
-    @pytest.mark.asyncio
     async def test_gemini_downgrade_second_request_uses_json_object(self) -> None:
         """The retry (second) request body must use response_format.type == 'json_object'."""
         captured_bodies: list[dict[str, Any]] = []
@@ -241,7 +237,6 @@ class TestGeminiTrailingSlashAndDowngrade:
         got_rf = captured_bodies[1].get("response_format", {})
         assert got_rf.get("type") == "json_object", f"expected json_object on downgrade retry, got: {got_rf}"
 
-    @pytest.mark.asyncio
     async def test_gemini_downgrade_sets_no_strict_flag(self) -> None:
         """After a successful downgrade, provider._no_strict must be True."""
         call_count: list[int] = [0]
@@ -266,7 +261,6 @@ class TestGeminiTrailingSlashAndDowngrade:
 
         assert provider._no_strict is True, "_no_strict must be True after a successful strict-downgrade"
 
-    @pytest.mark.asyncio
     async def test_gemini_downgrade_result_parses_to_valid_decision(self) -> None:
         """The final result from the downgraded call must parse to a valid decision."""
 
@@ -305,7 +299,6 @@ class TestGeminiTrailingSlashAndDowngrade:
 class TestNvidiaNim:
     """NVIDIA NIM supports standard OpenAI-compat json_schema — no downgrade needed."""
 
-    @pytest.mark.asyncio
     async def test_nvidia_nim_url_and_decision_and_tokens(self) -> None:
         """
         Wire assertions:

@@ -85,7 +85,6 @@ class _FakeGraphManager:
 class TestAdvisoryEngineAcceptsProvider:
     """synthesize() must accept `provider: InferenceProvider` and route chat through it."""
 
-    @pytest.mark.asyncio
     async def test_synthesize_accepts_provider_kwarg(self) -> None:
         """synthesize() must accept `provider` kwarg (InferenceProvider) — RED until migrated."""
         from alphaswarm.advisory import synthesize
@@ -107,7 +106,6 @@ class TestAdvisoryEngineAcceptsProvider:
 
         assert report.cycle_id == "c1"
 
-    @pytest.mark.asyncio
     async def test_synthesize_routes_through_provider_chat(self) -> None:
         """synthesize() must call provider.chat() (not OllamaClient) — RED until migrated."""
         from alphaswarm.advisory import synthesize
@@ -129,7 +127,6 @@ class TestAdvisoryEngineAcceptsProvider:
         # Provider must have been called exactly once (no retry needed for valid payload)
         assert len(fake_provider.calls) == 1
 
-    @pytest.mark.asyncio
     async def test_synthesize_passes_json_mode_to_provider(self) -> None:
         """synthesize() must pass json_mode=True (was format='json') — RED until migrated."""
         from alphaswarm.advisory import synthesize
@@ -152,7 +149,6 @@ class TestAdvisoryEngineAcceptsProvider:
         # Must pass json_mode=True (format="json" migrated) OR response_schema set
         assert call.get("json_mode") is True or call.get("response_schema") is not None
 
-    @pytest.mark.asyncio
     async def test_synthesize_retry_uses_provider(self) -> None:
         """Retry on ValidationError must also use provider.chat() — RED until migrated."""
         from alphaswarm.advisory import synthesize
@@ -187,7 +183,6 @@ class TestAdvisoryEngineAcceptsProvider:
 class TestReportEngineAcceptsProvider:
     """ReportEngine must accept `provider: InferenceProvider` instead of ollama_client + model."""
 
-    @pytest.mark.asyncio
     async def test_report_engine_init_with_provider(self) -> None:
         """ReportEngine(provider=..., tools=...) must work — RED until migrated."""
         from alphaswarm.report import ReportEngine
@@ -205,7 +200,6 @@ class TestReportEngineAcceptsProvider:
         )
         assert engine is not None
 
-    @pytest.mark.asyncio
     async def test_report_engine_routes_through_provider(self) -> None:
         """ReportEngine.run() must call provider.chat() not OllamaClient.chat() — RED."""
         from alphaswarm.report import ReportEngine
@@ -224,7 +218,6 @@ class TestReportEngineAcceptsProvider:
 
         assert len(fake_provider.calls) == 1
 
-    @pytest.mark.asyncio
     async def test_report_engine_plain_chat_no_schema(self) -> None:
         """ReportEngine must use plain chat (no json_mode, no schema) — RED until migrated."""
         from alphaswarm.report import ReportEngine
@@ -290,7 +283,6 @@ class TestInterviewEngineAcceptsProvider:
         engine = InterviewEngine(context=ctx, provider=fake_provider)
         assert engine is not None
 
-    @pytest.mark.asyncio
     async def test_interview_engine_routes_through_provider(self) -> None:
         """InterviewEngine.ask() must call provider.chat() — RED until migrated."""
         from alphaswarm.interview import InterviewEngine
@@ -308,7 +300,6 @@ class TestInterviewEngineAcceptsProvider:
         assert result == "I bought because fundamentals were strong."
         assert len(fake_provider.calls) == 1
 
-    @pytest.mark.asyncio
     async def test_interview_engine_plain_chat_no_schema(self) -> None:
         """InterviewEngine uses plain chat (no json_mode, no schema) — RED until migrated."""
         from alphaswarm.interview import InterviewEngine
@@ -327,7 +318,6 @@ class TestInterviewEngineAcceptsProvider:
         assert call.get("json_mode") is False
         assert call.get("response_schema") is None
 
-    @pytest.mark.asyncio
     async def test_interview_engine_sliding_window_uses_provider(self) -> None:
         """Window trim summary generation must also use provider.chat() — RED until migrated."""
         from alphaswarm.interview import InterviewEngine
@@ -357,7 +347,6 @@ class TestInterviewEngineAcceptsProvider:
 class TestAdvisoryRouteBuildsProvider:
     """_run_advisory_synthesis must use build_providers and call provider.prepare/teardown."""
 
-    @pytest.mark.asyncio
     async def test_run_advisory_calls_provider_prepare_and_teardown(
         self,
         tmp_path: Path,
@@ -436,7 +425,6 @@ class TestAdvisoryRouteBuildsProvider:
 class TestReportRouteBuildsProvider:
     """_run_report_generation must use build_providers and call provider.prepare/teardown."""
 
-    @pytest.mark.asyncio
     async def test_run_report_calls_provider_prepare_and_teardown(
         self,
         tmp_path: Any,

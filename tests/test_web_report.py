@@ -34,7 +34,6 @@ def test_get_report_uses_async_filesystem() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_report_generation_pipeline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -125,7 +124,6 @@ async def test_report_generation_pipeline(
     ]
 
 
-@pytest.mark.asyncio
 async def test_report_generation_unloads_on_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

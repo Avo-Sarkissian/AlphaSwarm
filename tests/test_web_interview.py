@@ -6,7 +6,6 @@ import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -306,7 +305,6 @@ def test_interview_session_reuse() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_interview_concurrent_same_agent_serializes() -> None:
     """Two concurrent POSTs for same agent_id both complete; engine.ask never runs in parallel."""
     from unittest.mock import AsyncMock, MagicMock, patch
@@ -397,7 +395,6 @@ async def test_interview_sessions_cleared_on_new_simulation() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_interview_provider_aclose_called_on_session_clear() -> None:
     """on_start clears sessions AND calls aclose() on each session's provider.
 
@@ -448,7 +445,6 @@ async def test_interview_provider_aclose_called_on_session_clear() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_interview_provider_aclose_failure_isolated() -> None:
     """A failing aclose() on one provider does not prevent the sessions dict from clearing."""
     from unittest.mock import AsyncMock, MagicMock, patch

@@ -82,7 +82,6 @@ def test_init_stores_driver_and_database(mock_driver: MagicMock) -> None:
     assert gsm._database == "testdb"
 
 
-@pytest.mark.asyncio()
 async def test_ensure_schema_runs_all_statements(mock_driver: MagicMock) -> None:
     """ensure_schema runs all SCHEMA_STATEMENTS then calls seed_agents."""
     from alphaswarm.graph import SCHEMA_STATEMENTS, GraphStateManager
@@ -99,7 +98,6 @@ async def test_ensure_schema_runs_all_statements(mock_driver: MagicMock) -> None
     mock_seed.assert_awaited_once()
 
 
-@pytest.mark.asyncio()
 async def test_seed_agents_transforms_personas_to_dicts(
     mock_driver: MagicMock,
     sample_personas_for_graph: list[AgentPersona],
@@ -127,7 +125,6 @@ async def test_seed_agents_transforms_personas_to_dicts(
     assert agents_param[1]["bracket"] == "degens"
 
 
-@pytest.mark.asyncio()
 async def test_close_calls_driver_close(mock_driver: MagicMock) -> None:
     """close() calls driver.close()."""
     from alphaswarm.graph import GraphStateManager
@@ -180,7 +177,6 @@ def sample_agent_decisions() -> list[tuple[str, AgentDecision]]:
     ]
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_single_transaction(
     mock_driver: MagicMock,
     sample_agent_decisions: list[tuple[str, AgentDecision]],
@@ -197,7 +193,6 @@ async def test_write_decisions_single_transaction(
     session.execute_write.assert_awaited_once()
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_generates_client_side_uuids(
     mock_driver: MagicMock,
     sample_agent_decisions: list[tuple[str, AgentDecision]],
@@ -219,7 +214,6 @@ async def test_write_decisions_generates_client_side_uuids(
         assert re.match(uuid4_pattern, p["decision_id"]), f"Not a valid UUID4: {p['decision_id']}"
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_transforms_signal_to_value(
     mock_driver: MagicMock,
 ) -> None:
@@ -248,7 +242,6 @@ async def test_write_decisions_transforms_signal_to_value(
     assert params[0]["signal"] == "buy"
 
 
-@pytest.mark.asyncio()
 async def test_batch_write_tx_skips_cited_when_empty() -> None:
     """_batch_write_decisions_tx calls tx.run once when all cited_agents are empty."""
     from alphaswarm.graph import GraphStateManager
@@ -283,7 +276,6 @@ async def test_batch_write_tx_skips_cited_when_empty() -> None:
     assert created == 2
 
 
-@pytest.mark.asyncio()
 async def test_batch_write_tx_creates_cited_when_present() -> None:
     """_batch_write_decisions_tx calls tx.run twice when cited_agents are non-empty."""
     from alphaswarm.graph import GraphStateManager
@@ -308,7 +300,6 @@ async def test_batch_write_tx_creates_cited_when_present() -> None:
     assert tx.run.await_count == 2
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_wraps_neo4j_error(
     mock_driver: MagicMock,
 ) -> None:
@@ -358,7 +349,6 @@ def test_schema_statements_includes_entity_constraint() -> None:
     assert len(entity_constraints) == 1, "Expected exactly one entity uniqueness constraint"
 
 
-@pytest.mark.asyncio()
 async def test_create_cycle_with_seed_event_single_transaction(
     mock_driver: MagicMock,
     sample_seed_event_for_graph: SeedEvent,
@@ -374,7 +364,6 @@ async def test_create_cycle_with_seed_event_single_transaction(
     session.execute_write.assert_awaited_once()
 
 
-@pytest.mark.asyncio()
 async def test_create_cycle_with_seed_event_returns_uuid(
     mock_driver: MagicMock,
     sample_seed_event_for_graph: SeedEvent,
@@ -390,7 +379,6 @@ async def test_create_cycle_with_seed_event_returns_uuid(
     assert re.match(uuid4_pattern, cycle_id), f"Not a valid UUID4: {cycle_id}"
 
 
-@pytest.mark.asyncio()
 async def test_create_cycle_with_seed_event_wraps_neo4j_error(
     mock_driver: MagicMock,
     sample_seed_event_for_graph: SeedEvent,
@@ -412,7 +400,6 @@ async def test_create_cycle_with_seed_event_wraps_neo4j_error(
     assert exc_info.value.original_error is original_exc
 
 
-@pytest.mark.asyncio()
 async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
     """Transaction function skips Entity UNWIND when entities list is empty."""
     from alphaswarm.graph import GraphStateManager
@@ -437,7 +424,6 @@ async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_compute_influence_edges_reads_citations(mock_driver: MagicMock) -> None:
     """compute_influence_edges reads CITED pairs, computes weights, writes INFLUENCED_BY."""
     # Rev: [HIGH] Test uses pair-aware data (source_id, target_id) not flat counts
@@ -460,7 +446,6 @@ async def test_compute_influence_edges_reads_citations(mock_driver: MagicMock) -
     session.execute_write.assert_awaited_once()  # INFLUENCED_BY edges written
 
 
-@pytest.mark.asyncio()
 async def test_influence_weights_cumulative_across_rounds(mock_driver: MagicMock) -> None:
     """compute_influence_edges with up_to_round=2 reads citations from rounds 1 and 2."""
     from alphaswarm.graph import GraphStateManager
@@ -481,7 +466,6 @@ async def test_influence_weights_cumulative_across_rounds(mock_driver: MagicMock
     assert weights["degens_01"] == pytest.approx(0.2)  # 2 unique citers / 10
 
 
-@pytest.mark.asyncio()
 async def test_compute_influence_edges_zero_citations(mock_driver: MagicMock) -> None:
     """compute_influence_edges with zero citations returns empty dict and skips write."""
     from alphaswarm.graph import GraphStateManager
@@ -494,7 +478,6 @@ async def test_compute_influence_edges_zero_citations(mock_driver: MagicMock) ->
     session.execute_write.assert_not_awaited()
 
 
-@pytest.mark.asyncio()
 async def test_write_influence_edges_tx_empty_edges() -> None:
     """_write_influence_edges_tx with empty edges list does not call tx.run."""
     from alphaswarm.graph import GraphStateManager
@@ -509,7 +492,6 @@ async def test_write_influence_edges_tx_empty_edges() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_returns_decision_ids(
     mock_driver: MagicMock,
     sample_agent_decisions: list[tuple[str, AgentDecision]],
@@ -532,7 +514,6 @@ async def test_write_decisions_returns_decision_ids(
         assert re.match(uuid4_pattern, did), f"Not a valid UUID4: {did}"
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_accepts_pregenerated_ids(
     mock_driver: MagicMock,
     sample_agent_decisions: list[tuple[str, AgentDecision]],
@@ -554,7 +535,6 @@ async def test_write_decisions_accepts_pregenerated_ids(
     assert [p["decision_id"] for p in params] == pre_ids
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_raises_on_mismatched_ids(
     mock_driver: MagicMock,
     sample_agent_decisions: list[tuple[str, AgentDecision]],
@@ -569,7 +549,6 @@ async def test_write_decisions_raises_on_mismatched_ids(
         await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1, decision_ids=wrong_ids)
 
 
-@pytest.mark.asyncio()
 async def test_write_rationale_episodes(mock_driver: MagicMock) -> None:
     """write_rationale_episodes calls execute_write once with episode data."""
     from alphaswarm.graph import GraphStateManager
@@ -611,7 +590,6 @@ async def test_write_rationale_episodes(mock_driver: MagicMock) -> None:
     assert episodes_param[1]["flip_type"] == "buy_to_sell"
 
 
-@pytest.mark.asyncio()
 async def test_write_rationale_episodes_empty_is_noop(mock_driver: MagicMock) -> None:
     """write_rationale_episodes with empty list does not open a session."""
     from alphaswarm.graph import GraphStateManager
@@ -621,7 +599,6 @@ async def test_write_rationale_episodes_empty_is_noop(mock_driver: MagicMock) ->
     mock_driver.session.assert_not_called()
 
 
-@pytest.mark.asyncio()
 async def test_write_narrative_edges_case_insensitive(mock_driver: MagicMock) -> None:
     """write_narrative_edges matches entity names case-insensitively."""
     from alphaswarm.graph import GraphStateManager
@@ -654,7 +631,6 @@ async def test_write_narrative_edges_case_insensitive(mock_driver: MagicMock) ->
     assert matches_param[0]["decision_id"] == "dec-001"
 
 
-@pytest.mark.asyncio()
 async def test_write_narrative_edges_original_casing(mock_driver: MagicMock) -> None:
     """write_narrative_edges preserves original entity name casing in the matched pairs."""
     from alphaswarm.graph import GraphStateManager
@@ -684,7 +660,6 @@ async def test_write_narrative_edges_original_casing(mock_driver: MagicMock) -> 
     assert matches_param[0]["entity_name"] == "NVIDIA"
 
 
-@pytest.mark.asyncio()
 async def test_write_narrative_edges_no_match_skips_write(mock_driver: MagicMock) -> None:
     """write_narrative_edges skips execute_write when no entities match rationales."""
     from alphaswarm.graph import GraphStateManager
@@ -711,7 +686,6 @@ async def test_write_narrative_edges_no_match_skips_write(mock_driver: MagicMock
     session.execute_write.assert_not_awaited()
 
 
-@pytest.mark.asyncio()
 async def test_write_narrative_edges_empty_is_noop(mock_driver: MagicMock) -> None:
     """write_narrative_edges with empty records or entity_names is a no-op."""
     from alphaswarm.graph import GraphStateManager
@@ -739,7 +713,6 @@ async def test_write_narrative_edges_empty_is_noop(mock_driver: MagicMock) -> No
     session.execute_write.assert_not_awaited()
 
 
-@pytest.mark.asyncio()
 async def test_write_decision_narratives(mock_driver: MagicMock) -> None:
     """write_decision_narratives calls execute_write with narratives list."""
     from alphaswarm.graph import GraphStateManager
@@ -761,7 +734,6 @@ async def test_write_decision_narratives(mock_driver: MagicMock) -> None:
     assert narratives_param[0]["agent_id"] == "quants_01"
 
 
-@pytest.mark.asyncio()
 async def test_write_decision_narratives_empty_is_noop(mock_driver: MagicMock) -> None:
     """write_decision_narratives with empty list does not open a session."""
     from alphaswarm.graph import GraphStateManager
@@ -823,7 +795,6 @@ def test_ranked_post_dataclass_frozen() -> None:
         rp.content = "new"  # type: ignore[misc]
 
 
-@pytest.mark.asyncio()
 async def test_write_posts_creates_post_nodes(mock_driver: MagicMock) -> None:
     """write_posts creates Post nodes with correct params and returns post_ids."""
     from alphaswarm.graph import GraphStateManager
@@ -856,7 +827,6 @@ async def test_write_posts_creates_post_nodes(mock_driver: MagicMock) -> None:
     assert re.match(uuid4_pattern, result[0])
 
 
-@pytest.mark.asyncio()
 async def test_write_posts_skip_parse_error(mock_driver: MagicMock) -> None:
     """write_posts filters out PARSE_ERROR decisions."""
     from alphaswarm.graph import GraphStateManager
@@ -880,7 +850,6 @@ async def test_write_posts_skip_parse_error(mock_driver: MagicMock) -> None:
     assert len(result) == 1
 
 
-@pytest.mark.asyncio()
 async def test_write_posts_empty_list(mock_driver: MagicMock) -> None:
     """write_posts with empty list does not call execute_write."""
     from alphaswarm.graph import GraphStateManager
@@ -894,7 +863,6 @@ async def test_write_posts_empty_list(mock_driver: MagicMock) -> None:
     assert result == []
 
 
-@pytest.mark.asyncio()
 async def test_write_posts_wraps_neo4j_error(mock_driver: MagicMock) -> None:
     """write_posts wraps Neo4jError as Neo4jWriteError."""
     from neo4j.exceptions import Neo4jError
@@ -917,7 +885,6 @@ async def test_write_posts_wraps_neo4j_error(mock_driver: MagicMock) -> None:
     assert exc_info.value.original_error is original_exc
 
 
-@pytest.mark.asyncio()
 async def test_write_posts_all_parse_error_is_noop(mock_driver: MagicMock) -> None:
     """write_posts with all PARSE_ERROR decisions does not call execute_write."""
     from alphaswarm.graph import GraphStateManager
@@ -937,7 +904,6 @@ async def test_write_posts_all_parse_error_is_noop(mock_driver: MagicMock) -> No
     assert result == []
 
 
-@pytest.mark.asyncio()
 @pytest.mark.parametrize("id_count", [1, 3], ids=["fewer_ids", "more_ids"])
 async def test_write_posts_raises_on_mismatched_ids(mock_driver: MagicMock, id_count: int) -> None:
     """write_posts refuses decision_ids that do not pair one-to-one with the decisions.
@@ -965,7 +931,6 @@ async def test_write_posts_raises_on_mismatched_ids(mock_driver: MagicMock, id_c
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_read_shock_event_returns_dict_when_exists(mock_driver: MagicMock) -> None:
     """Phase 27 SHOCK-04 — read_shock_event returns dict when ShockEvent exists for cycle."""
     from alphaswarm.graph import GraphStateManager
@@ -986,7 +951,6 @@ async def test_read_shock_event_returns_dict_when_exists(mock_driver: MagicMock)
     session.execute_read.assert_awaited_once()
 
 
-@pytest.mark.asyncio()
 async def test_read_shock_event_returns_none_when_no_shock(mock_driver: MagicMock) -> None:
     """Phase 27 SHOCK-04 — read_shock_event returns None when no ShockEvent exists."""
     from alphaswarm.graph import GraphStateManager
@@ -1005,7 +969,6 @@ async def test_read_shock_event_returns_none_when_no_shock(mock_driver: MagicMoc
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_read_full_cycle_signals(
     mock_driver: MagicMock,
     sample_personas_for_graph: list,
@@ -1032,7 +995,6 @@ async def test_read_full_cycle_signals(
     assert result[("degens_01", 1)] == AgentState(signal=SignalType.HOLD, confidence=0.4)
 
 
-@pytest.mark.asyncio()
 async def test_read_completed_cycles(
     mock_driver: MagicMock,
     sample_personas_for_graph: list,
@@ -1061,7 +1023,6 @@ async def test_read_completed_cycles(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_write_shock_event_creates_node_and_edge(mock_driver: MagicMock) -> None:
     """write_shock_event calls execute_write with (tx_fn, cycle_id, shock_id, shock_text, injected_before_round)."""
     from alphaswarm.graph import GraphStateManager
@@ -1084,7 +1045,6 @@ async def test_write_shock_event_creates_node_and_edge(mock_driver: MagicMock) -
     assert call_args[0][4] == 2
 
 
-@pytest.mark.asyncio()
 async def test_write_shock_event_returns_uuid4(mock_driver: MagicMock) -> None:
     """write_shock_event returns a UUID4 string shock_id."""
     from alphaswarm.graph import GraphStateManager
@@ -1101,7 +1061,6 @@ async def test_write_shock_event_returns_uuid4(mock_driver: MagicMock) -> None:
     assert re.fullmatch(uuid4_pattern, shock_id) is not None, f"shock_id {shock_id!r} is not a valid UUID4"
 
 
-@pytest.mark.asyncio()
 async def test_write_shock_event_wraps_driver_errors(mock_driver: MagicMock) -> None:
     """Neo4jError from the driver is wrapped in Neo4jWriteError."""
     from neo4j.exceptions import Neo4jError
@@ -1135,7 +1094,6 @@ def test_schema_includes_shock_id_unique_constraint() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_verify_connectivity_delegates_to_the_driver(mock_driver: MagicMock) -> None:
     from alphaswarm.graph import GraphStateManager
 
@@ -1144,7 +1102,6 @@ async def test_verify_connectivity_delegates_to_the_driver(mock_driver: MagicMoc
     mock_driver.verify_connectivity.assert_awaited_once()
 
 
-@pytest.mark.asyncio()
 async def test_verify_connectivity_propagates_driver_errors(mock_driver: MagicMock) -> None:
     from neo4j.exceptions import ServiceUnavailable
 
@@ -1155,7 +1112,6 @@ async def test_verify_connectivity_propagates_driver_errors(mock_driver: MagicMo
         await GraphStateManager(driver=mock_driver, personas=[]).verify_connectivity()
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_raises_when_rows_are_dropped(
     mock_driver: MagicMock,
     sample_agent_decisions: list[tuple[str, AgentDecision]],
@@ -1171,7 +1127,6 @@ async def test_write_decisions_raises_when_rows_are_dropped(
         await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1)
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_with_no_rows_writes_nothing_and_succeeds(
     mock_driver: MagicMock,
 ) -> None:
@@ -1183,7 +1138,6 @@ async def test_write_decisions_with_no_rows_writes_nothing_and_succeeds(
     assert await gsm.write_decisions([], "test-cycle-id", 1) == []
 
 
-@pytest.mark.asyncio()
 async def test_batch_write_tx_returns_the_cypher_created_count() -> None:
     from alphaswarm.graph import GraphStateManager
 
@@ -1205,7 +1159,6 @@ async def test_batch_write_tx_returns_the_cypher_created_count() -> None:
     assert "RETURN count(dec) AS created" in tx.run.await_args_list[0].args[0]
 
 
-@pytest.mark.asyncio()
 async def test_compute_influence_edges_skips_when_no_active_agents(mock_driver: MagicMock) -> None:
     """A fully failed round must not divide by zero (docs/DECISIONS.md#p8-d-01)."""
     from alphaswarm.graph import GraphStateManager

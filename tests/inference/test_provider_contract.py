@@ -32,7 +32,6 @@ from tests.inference.fakes import FakeInferenceProvider, ScriptedProvider
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_fake_provider_satisfies_protocol_and_records() -> None:
     fake = FakeInferenceProvider(
         ProviderRole.WORKER,
@@ -48,7 +47,6 @@ async def test_fake_provider_satisfies_protocol_and_records() -> None:
     assert fake.calls[0]["response_schema"] == {"type": "object"}
 
 
-@pytest.mark.asyncio
 async def test_fake_provider_records_all_kwargs() -> None:
     fake = FakeInferenceProvider(
         ProviderRole.ORCHESTRATOR,
@@ -72,7 +70,6 @@ async def test_fake_provider_records_all_kwargs() -> None:
     assert call["response_schema"] is None
 
 
-@pytest.mark.asyncio
 async def test_fake_provider_exhausted_raises_assertion() -> None:
     fake = FakeInferenceProvider(
         ProviderRole.WORKER,
@@ -83,7 +80,6 @@ async def test_fake_provider_exhausted_raises_assertion() -> None:
         await fake.chat([{"role": "user", "content": "hi"}])
 
 
-@pytest.mark.asyncio
 async def test_fake_provider_callable_scripted() -> None:
     def make_result(**_: object) -> InferenceResult:
         return InferenceResult(content="dynamic", model="fake")
@@ -93,7 +89,6 @@ async def test_fake_provider_callable_scripted() -> None:
     assert out.content == "dynamic"
 
 
-@pytest.mark.asyncio
 async def test_fake_provider_noop_lifecycle() -> None:
     fake = FakeInferenceProvider(
         ProviderRole.WORKER,

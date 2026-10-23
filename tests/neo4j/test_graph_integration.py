@@ -29,7 +29,6 @@ async def _new_cycle(gm: GraphStateManager, rumor: str) -> str:
     return await gm.create_cycle_with_seed_event(rumor, seed, num_rounds=3)
 
 
-@pytest.mark.asyncio()
 async def test_ensure_schema_idempotent(graph_manager_test: GraphStateManager) -> None:
     """ensure_schema can be called twice without errors. Constraints and indexes exist."""
     # graph_manager_test fixture already called ensure_schema once; call again
@@ -59,7 +58,6 @@ async def test_ensure_schema_idempotent(graph_manager_test: GraphStateManager) -
         )
 
 
-@pytest.mark.asyncio()
 async def test_seed_agents_creates_100_nodes(graph_manager_test: GraphStateManager) -> None:
     """ensure_schema seeds all 100 agents."""
     async with graph_manager_test._driver.session(database="neo4j") as session:
@@ -68,7 +66,6 @@ async def test_seed_agents_creates_100_nodes(graph_manager_test: GraphStateManag
         assert record["c"] == 100
 
 
-@pytest.mark.asyncio()
 async def test_seed_agents_idempotent(graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]) -> None:
     """Calling seed_agents again does not create duplicates (MERGE)."""
     await graph_manager_test.seed_agents(all_personas)
@@ -79,7 +76,6 @@ async def test_seed_agents_idempotent(graph_manager_test: GraphStateManager, all
         assert record["c"] == 100
 
 
-@pytest.mark.asyncio()
 async def test_create_cycle_returns_uuid(graph_manager_test: GraphStateManager) -> None:
     """create_cycle_with_seed_event returns a valid uuid4 and persists the Cycle node."""
     cycle_id = await _new_cycle(graph_manager_test, "Test rumor")
@@ -97,7 +93,6 @@ async def test_create_cycle_returns_uuid(graph_manager_test: GraphStateManager) 
         assert record["sr"] == "Test rumor"
 
 
-@pytest.mark.asyncio()
 async def test_batch_write_100_decisions(
     graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
@@ -129,7 +124,6 @@ async def test_batch_write_100_decisions(
         assert record["c"] == 100
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_creates_cited_relationships(
     graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
@@ -170,7 +164,6 @@ async def test_write_decisions_creates_cited_relationships(
         assert record["c"] == 1
 
 
-@pytest.mark.asyncio()
 async def test_write_decisions_empty_citations_still_persists(
     graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
@@ -216,7 +209,6 @@ async def test_write_decisions_empty_citations_still_persists(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_complete_reasoning_arc(
     graph_manager_test: GraphStateManager, all_personas: list[AgentPersona], sample_seed_event
 ) -> None:
@@ -313,7 +305,6 @@ async def test_complete_reasoning_arc(
     assert "NVIDIA" in records_list[0]["referenced_entities"]
 
 
-@pytest.mark.asyncio()
 async def test_references_edges_case_insensitive(
     graph_manager_test: GraphStateManager, all_personas: list[AgentPersona], sample_seed_event
 ) -> None:
@@ -372,7 +363,6 @@ async def test_references_edges_case_insensitive(
     assert "NVIDIA" in entities  # Original casing preserved, not "nvidia"
 
 
-@pytest.mark.asyncio()
 async def test_write_decision_narratives_integration(
     graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
@@ -395,7 +385,6 @@ async def test_write_decision_narratives_integration(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_write_posts_filters_parse_error_integration(
     graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:

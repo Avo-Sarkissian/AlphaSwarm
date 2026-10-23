@@ -100,7 +100,6 @@ def mock_graph_manager() -> AsyncMock:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_calls_prepare_on_provider(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -124,7 +123,6 @@ async def test_inject_seed_calls_prepare_on_provider(
     prepare_spy.assert_awaited_once()
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_calls_teardown_on_provider(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -148,7 +146,6 @@ async def test_inject_seed_calls_teardown_on_provider(
     teardown_spy.assert_awaited_once()
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_calls_teardown_on_error(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -177,7 +174,6 @@ async def test_inject_seed_calls_teardown_on_error(
     teardown_spy.assert_awaited_once()
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_prepare_before_teardown(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -213,7 +209,6 @@ async def test_inject_seed_prepare_before_teardown(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_routes_inference_through_provider(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -233,7 +228,6 @@ async def test_inject_seed_routes_inference_through_provider(
     assert len(provider.calls) == 1
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_chat_uses_json_mode(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -254,7 +248,6 @@ async def test_inject_seed_chat_uses_json_mode(
     assert call["json_mode"] is True
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_chat_messages_shape(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -283,7 +276,6 @@ async def test_inject_seed_chat_messages_shape(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_returns_cycle_id_and_parsed_result(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -306,7 +298,6 @@ async def test_inject_seed_returns_cycle_id_and_parsed_result(
     assert modifier_result is None
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_parsed_entities(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -330,7 +321,6 @@ async def test_inject_seed_parsed_entities(
     assert entities[1].name == "Semiconductors"
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_logs_warning_on_tier3(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,
@@ -370,7 +360,6 @@ def _make_seed_event() -> SeedEvent:
     )
 
 
-@pytest.mark.asyncio()
 async def test_generate_modifiers_calls_provider_chat() -> None:
     """generate_modifiers calls provider.chat() exactly once."""
     from alphaswarm.config import generate_modifiers
@@ -386,7 +375,6 @@ async def test_generate_modifiers_calls_provider_chat() -> None:
     assert len(provider.calls) == 1
 
 
-@pytest.mark.asyncio()
 async def test_generate_modifiers_uses_json_mode() -> None:
     """generate_modifiers passes json_mode=True to provider.chat()."""
     from alphaswarm.config import generate_modifiers
@@ -402,7 +390,6 @@ async def test_generate_modifiers_uses_json_mode() -> None:
     assert provider.calls[0]["json_mode"] is True
 
 
-@pytest.mark.asyncio()
 async def test_generate_modifiers_returns_parsed_modifiers_result() -> None:
     """generate_modifiers returns ParsedModifiersResult with all 10 brackets."""
     from alphaswarm.config import generate_modifiers
@@ -421,7 +408,6 @@ async def test_generate_modifiers_returns_parsed_modifiers_result() -> None:
     assert BracketType.INSTITUTIONS in result.modifiers
 
 
-@pytest.mark.asyncio()
 async def test_generate_modifiers_chat_messages_shape() -> None:
     """generate_modifiers sends [system, user] messages."""
     from alphaswarm.config import generate_modifiers
@@ -447,7 +433,6 @@ async def test_generate_modifiers_chat_messages_shape() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
 async def test_inject_seed_passes_provider_to_modifier_generator(
     mock_settings: MagicMock,
     mock_graph_manager: AsyncMock,

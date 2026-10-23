@@ -395,17 +395,14 @@ class TestBudgetTrackingProviderDelegation:
         wrapper, _, _ = _make_wrapped()
         assert wrapper.is_local() is False
 
-    @pytest.mark.asyncio
     async def test_prepare_delegated(self) -> None:
         wrapper, _, inner = _make_wrapped()
         await wrapper.prepare()  # should not raise
 
-    @pytest.mark.asyncio
     async def test_teardown_delegated(self) -> None:
         wrapper, _, inner = _make_wrapped()
         await wrapper.teardown()  # should not raise
 
-    @pytest.mark.asyncio
     async def test_aclose_delegated(self) -> None:
         wrapper, _, inner = _make_wrapped()
         await wrapper.aclose()  # should not raise
@@ -416,7 +413,6 @@ class TestBudgetTrackingProviderDelegation:
 
 
 class TestBudgetTrackingProviderChat:
-    @pytest.mark.asyncio
     async def test_chat_records_cost(self) -> None:
         wrapper, meter, _ = _make_wrapped()
         assert meter.spent() == Decimal("0")
@@ -425,14 +421,12 @@ class TestBudgetTrackingProviderChat:
         # 1M input @ $1/MTok + 1M output @ $2/MTok = $3
         assert meter.spent() == Decimal("3.00")
 
-    @pytest.mark.asyncio
     async def test_chat_delegates_to_inner(self) -> None:
         wrapper, _, inner = _make_wrapped()
         await wrapper.chat([{"role": "user", "content": "test"}])
         assert len(inner.calls) == 1
         assert inner.calls[0]["messages"] == [{"role": "user", "content": "test"}]
 
-    @pytest.mark.asyncio
     async def test_check_raises_before_second_call_when_at_cap(self) -> None:
         # Cap = $3, first call costs $3, second should raise before dispatch
         wrapper, meter, inner = _make_wrapped(
@@ -446,7 +440,6 @@ class TestBudgetTrackingProviderChat:
         # Inner should only have been called once
         assert len(inner.calls) == 1
 
-    @pytest.mark.asyncio
     async def test_check_raises_when_over_cap_from_start(self) -> None:
         # Meter already over cap before any chat
         meter = BudgetMeter(cap_usd=Decimal("1.00"), pricing=_PRICING)
@@ -462,7 +455,6 @@ class TestBudgetTrackingProviderChat:
             await wrapper.chat([{"role": "user", "content": "blocked"}])
         assert len(inner.calls) == 0  # inner never called
 
-    @pytest.mark.asyncio
     async def test_no_cap_never_raises(self) -> None:
         wrapper, meter, _ = _make_wrapped(
             cap=None,
