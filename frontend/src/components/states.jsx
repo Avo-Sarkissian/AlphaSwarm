@@ -1,12 +1,13 @@
-// v2 states — idle, seeding, memory-paused.
+// v2 states — idle and seeding.
 // Idle and seeding are overlays inside the dashboard canvas (.canvas-wrap);
 // the shell stays visible around them. A lost or stalled WebSocket shows the
-// global ConnectionBanner instead of a takeover. MemoryPausedState is not
-// mounted (a governor pause shows a dismissible banner instead).
+// global ConnectionBanner instead of a takeover, and a governor pause shows a
+// dismissible banner.
 //
 // Lifted from AlphaSwarm-2/src/states.jsx (W2 Plan 41.6-02 task 2) and
-// converted to ES modules per D-03. Sourced design's BRACKETS reference is
-// replaced with the import from '../data' per D-14.
+// converted to ES modules (docs/DECISIONS.md#p41-6-d-03). Sourced design's
+// BRACKETS reference is replaced with the import from '../data'
+// (docs/DECISIONS.md#p41-6-d-14).
 import { useEffect, useState } from 'react';
 import { Icon } from './icons';
 import { BRACKETS } from '../data';
@@ -103,49 +104,6 @@ export function SeedingState({ seed }) {
               <span style={{color: 'var(--text-3)'}}> · persona loaded · context primed</span>
             </div>
           ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── MEMORY PAUSED ────────────────────────────────────────────────────
-// Inference halted because RAM crossed threshold.
-// KR-41.1-04: GB legend literal stays as design placeholder (backend emits
-// percent only; no MB conversion available).
-export function MemoryPausedState({ pct, onResume }) {
-  const memPct = Math.max(0, Math.min(100, pct ?? 91));
-  return (
-    <div className="state-overlay dim">
-      <div className="state-center mempaused-center">
-        <div className="mempaused-icon">
-          <svg viewBox="0 0 48 48" width="56" height="56" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="6" y="14" width="36" height="20" rx="2"/>
-            <path d="M14 14 V34 M22 14 V34 M30 14 V34 M38 14 V34"/>
-            <circle cx="24" cy="42" r="2" fill="currentColor"/>
-          </svg>
-        </div>
-        <div className="state-kicker label" style={{color: 'var(--sell)'}}>MEMORY CEILING · {memPct.toFixed(0)}%</div>
-        <div className="state-headline">Inference paused.</div>
-        <div className="state-sub">
-          RAM usage crossed the 90% threshold you set in settings.
-          Agents have checkpointed; resume when safe, or lower the concurrent-slots ceiling.
-        </div>
-        <div className="mempaused-meter">
-          <div className="mempaused-bar">
-            <div className="mempaused-fill" style={{width: `${memPct}%`}} />
-            <div className="mempaused-threshold" style={{left: '90%'}} />
-          </div>
-          <div className="mempaused-legend mono">
-            {/* KR-41.1-04: GB literal stays — backend emits percent only. */}
-            <span>43.7 / 48.0 GB</span>
-            <span style={{color: 'var(--sell)'}}>▲ threshold 90%</span>
-          </div>
-        </div>
-        <div className="state-actions">
-          <button className="btn primary" onClick={onResume}>Resume inference</button>
-          <button className="btn ghost">Lower slots to 6</button>
-          <button className="btn ghost">Adjust threshold</button>
         </div>
       </div>
     </div>

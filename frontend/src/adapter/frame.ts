@@ -172,9 +172,6 @@ export function adaptSnapshot(raw: unknown): StateFrame {
       typeof bs.display_name === 'string'
         ? bs.display_name
         : (bracketSpec(bracket)?.display ?? 'Unknown');
-    // consensusSignal kept numeric for back-compat — derive as avg_sentiment if present, else 0.
-    const consensusSignal =
-      typeof bs.avg_sentiment === 'number' ? bs.avg_sentiment : 0;
     return {
       bracket,
       display,
@@ -183,8 +180,6 @@ export function adaptSnapshot(raw: unknown): StateFrame {
       hold,
       total,
       avgConfidence,
-      consensusSignal,
-      agentCount: total,
     };
   });
 
@@ -204,13 +199,6 @@ export function adaptSnapshot(raw: unknown): StateFrame {
       ts: finiteOr(re.ts, 0) * 1000, // wire: epoch seconds (0 in replay); view: epoch ms
     };
   });
-
-  // Consensus: derive from bracket summaries if present (avg signal), else null.
-  const consensus =
-    bracketSummaries.length > 0
-      ? bracketSummaries.reduce((acc, b) => acc + b.consensusSignal, 0) /
-        bracketSummaries.length
-      : null;
 
   // ITEM 5 of quick task 260512-jqn — DataSource audit slice.
   // Backend StateSnapshot.data_source_audit (snake_case wire) → frontend
@@ -247,7 +235,6 @@ export function adaptSnapshot(raw: unknown): StateFrame {
     bracketSummaries,
     rationales,
     telemetry,
-    consensus,
     dataSourceAudit,
     jobs: { advisory: adaptJob(jobsRaw.advisory), report: adaptJob(jobsRaw.report) },
     lastError: adaptLastError(r.last_error),

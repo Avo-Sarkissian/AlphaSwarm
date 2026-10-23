@@ -36,9 +36,6 @@ export interface BracketSummaryView {
   hold: number; // BracketSummary.hold_count
   total: number; // BracketSummary.total
   avgConfidence: number; // BracketSummary.avg_confidence (0..1)
-  // consensusSignal/agentCount kept for Wave 1 compat (read by tests/tools if any).
-  consensusSignal: number;
-  agentCount: number;
 }
 
 export interface TelemetrySlice {
@@ -107,7 +104,6 @@ export interface StateFrame {
   bracketSummaries: BracketSummaryView[];
   rationales: RationaleView[];
   telemetry: TelemetrySlice;
-  consensus: number | null;
   // ITEM 5 of 260512-jqn — live provider-call audit log for SignalWire.
   dataSourceAudit: DataSourceAuditView[];
   jobs: JobsView;
@@ -218,12 +214,6 @@ export interface WireStateFrame {
   pending_shock: string | null;
   applied_shocks: WireAppliedShock[];
   shock_window_open: boolean;
-}
-
-export interface EdgeView {
-  source: string;
-  target: string;
-  weight: number;
 }
 
 export interface CycleMeta {

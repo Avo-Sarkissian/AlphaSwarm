@@ -405,26 +405,6 @@ body { background: var(--bg); }
   background: var(--bg-3);
 }
 
-/* ---------- Tweaks panel ---------- */
-.tweaks-panel {
-  position: fixed; right: 18px; bottom: 18px;
-  width: 300px;
-  background: var(--bg-2);
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.55);
-  z-index: 120;
-  overflow: hidden;
-}
-.tweaks-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-3);
-}
-.tweaks-body { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
-.tweak-group { display: flex; flex-direction: column; gap: 6px; }
-.tweak-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
 .seg {
   display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
 }
@@ -547,7 +527,7 @@ body { background: var(--bg); }
    ═════════════════════════════════════════════════════════════════════════ */
 
 /* v2 STATES — used by frontend/src/components/states.jsx (IdleState,
-   SeedingState, MemoryPausedState). Lifted verbatim from
+   SeedingState). Lifted verbatim from
    frontend-react-archive/src/styles.css:719-857. */
 .state-overlay {
   position: absolute; inset: 0;
@@ -664,33 +644,6 @@ body { background: var(--bg); }
   -webkit-mask-image: linear-gradient(180deg, black 50%, transparent 100%);
 }
 .seeding-line { white-space: nowrap; }
-
-/* MEMORY PAUSED */
-.mempaused-center {}
-.mempaused-icon { color: var(--sell); margin-bottom: 18px; }
-.mempaused-meter { margin-top: 8px; }
-.mempaused-bar {
-  position: relative;
-  width: 100%; height: 12px; background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 2px; overflow: hidden;
-}
-.mempaused-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--buy) 0%, var(--accent) 70%, var(--sell) 90%, var(--sell) 100%);
-}
-.mempaused-threshold {
-  position: absolute; top: -3px; bottom: -3px;
-  width: 1px; background: var(--sell);
-}
-.mempaused-threshold::after {
-  content: ''; position: absolute; top: -4px; left: -3px;
-  width: 0; height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid var(--sell);
-}
-.mempaused-legend { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--text-2); }
 
 .seg-wrap { flex-wrap: wrap; }
 

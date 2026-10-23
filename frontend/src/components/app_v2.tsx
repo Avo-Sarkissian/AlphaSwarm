@@ -29,7 +29,6 @@ import { Icon } from './icons';
 import { Viz } from './viz';
 import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
 import { IdleState, SeedingState } from './states';
-import { TweaksPanelLoader } from './TweaksPanelLoader';
 import { useAgents } from '../context/AgentsContext';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useRationales } from '../context/RationalesContext';
@@ -266,14 +265,6 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [layout, setLayout] = useState<'force' | 'radial' | 'grid'>('force');
   const [hintsDismissed, setHintsDismissed] = useState(false);
-  const [tweaksOpen, setTweaksOpen] = useState(false);
-  const [tweakState, setTweakState] = useState<{
-    layout: string; density: string; phase: any; sigMix: { buy: number; sell: number; hold: number };
-    demoState: string;
-  }>({
-    layout: 'force', density: 'comfortable', phase: 2,
-    sigMix: { buy: 0.30, sell: 0.45, hold: 0.25 }, demoState: 'live',
-  });
   const [ui, setUi] = useState<UiState>({
     shockOpen: false,
     cyclePickerOpen: false,
@@ -737,15 +728,6 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
 
       {/* Pre-run cost confirmation modal (cloud/mixed mode only). */}
       {runConfirmModal}
-
-      {/* Dev-only TweaksPanel mount — gated to import.meta.env.DEV inside loader */}
-      {tweaksOpen && (
-        <TweaksPanelLoader
-          state={tweakState}
-          setState={setTweakState as any}
-          onClose={() => setTweaksOpen(false)}
-        />
-      )}
     </div>
   );
 }

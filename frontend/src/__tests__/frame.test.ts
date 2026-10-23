@@ -118,12 +118,11 @@ describe('adaptSnapshot — live frame (mid round 2)', () => {
     });
   });
 
-  it('maps bracket summaries and the derived consensus', () => {
+  it('maps bracket summaries', () => {
     expect(frame.bracketSummaries.map((b) => [b.bracket, b.display, b.total])).toEqual([
       ['sell_side', 'Sell-Side', 10],
       ['event_driven', 'Event-Driven', 10],
     ]);
-    expect(frame.consensus).toBeCloseTo(-0.05, 10);
   });
 
   it('maps jobs, error, shocks and the audit log', () => {
@@ -215,7 +214,6 @@ describe('adaptSnapshot — defensive mapping', () => {
       bracketSummaries: [],
       rationales: [],
       dataSourceAudit: [],
-      consensus: null,
       lastError: null,
       pendingShock: null,
       appliedShocks: [],
