@@ -171,6 +171,8 @@ source_modules = [
     "alphaswarm.report",
     "alphaswarm.security",
     "alphaswarm.security.hashing",
+    "alphaswarm.services",
+    "alphaswarm.services.runtime",
     "alphaswarm.seed",
     "alphaswarm.simulation",
     "alphaswarm.state",

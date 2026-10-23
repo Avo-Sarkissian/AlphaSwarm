@@ -569,3 +569,24 @@ def test_advisory_block_reason_names_the_failed_check(
     cfg = InferenceConfig(orchestrator=orchestrator, worker=_ollama_role(), allow_cloud_advisory=opt_in)
     assert advisory_block_reason(cfg, ollama_base_url=ollama_base_url) == reason
     assert advisory_allowed(cfg, ollama_base_url=ollama_base_url) is (reason is None)
+
+
+class TestBuildRoleProvider:
+    def test_builds_only_the_requested_role(self) -> None:
+        from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
+        from alphaswarm.inference.factory import build_role_provider
+        from alphaswarm.inference.ollama_provider import OllamaProvider
+        from alphaswarm.inference.types import ProviderRole
+
+        cfg = InferenceConfig(
+            orchestrator=RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-test"),  # no key
+            worker=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker"),
+        )
+        worker = build_role_provider(
+            cfg,
+            ProviderRole.WORKER,
+            ollama_client=object(),
+            ollama_model_manager=None,
+        )
+        assert isinstance(worker, OllamaProvider)
+        assert (worker.role, worker.model) == (ProviderRole.WORKER, "alphaswarm-worker")
