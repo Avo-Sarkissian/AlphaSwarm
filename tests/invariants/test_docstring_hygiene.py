@@ -47,3 +47,23 @@ def test_module_docstring_is_short(rel: str) -> None:
 def test_module_docstring_has_no_process_tags(rel: str) -> None:
     match = PROCESS_TAG.search(module_docstring(rel))
     assert match is None, f"{rel}: process tag {match.group(0)!r} in the module docstring"
+
+
+TESTS = Path(__file__).resolve().parents[1]
+THIS_FILE = Path(__file__).resolve()
+PROCESS_NAME = re.compile(r"(?:^|_)(?:task\d+[a-z]?|red|phase\d+|wave\d+)(?:_|\.py$)")
+RED_MARKER = re.compile(r"TDD RED|\bRED-\d+\b|\bRED tests\b")
+
+
+def test_test_modules_are_named_after_behaviour() -> None:
+    offenders = sorted(str(p.relative_to(TESTS)) for p in TESTS.rglob("test_*.py") if PROCESS_NAME.search(p.name))
+    assert offenders == []
+
+
+def test_tests_carry_no_red_phase_markers() -> None:
+    offenders = sorted(
+        str(p.relative_to(TESTS))
+        for p in TESTS.rglob("*.py")
+        if p.resolve() != THIS_FILE and RED_MARKER.search(p.read_text(encoding="utf-8"))
+    )
+    assert offenders == []
