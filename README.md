@@ -373,6 +373,11 @@ needs **Allow cloud advisory** in Settings → Model (see Cloud inference above)
 
 ---
 
+## Security
+
+See [docs/SECURITY.md](docs/SECURITY.md) for the threat model, the mitigations, the known
+limitations and how to report a vulnerability.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
