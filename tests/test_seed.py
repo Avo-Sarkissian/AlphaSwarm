@@ -3,7 +3,7 @@
 Validates:
 - Correct construction with valid fields
 - Boundary value acceptance (min/max for relevance, sentiment)
-- Out-of-range rejection
+- Out-of-range clamping (docs/DECISIONS.md#adr-structured-output)
 - Frozen immutability
 - Empty entities list is valid
 - ParsedSeedResult stores seed_event and parse_tier correctly
@@ -55,19 +55,15 @@ def test_seed_entity_boundary_values() -> None:
 
 
 def test_seed_entity_relevance_out_of_range() -> None:
-    """SeedEntity rejects relevance > 1.0 or < 0.0."""
-    with pytest.raises(ValidationError):
-        SeedEntity(name="X", type=EntityType.COMPANY, relevance=1.5, sentiment=0.0)
-    with pytest.raises(ValidationError):
-        SeedEntity(name="X", type=EntityType.COMPANY, relevance=-0.1, sentiment=0.0)
+    """SeedEntity clamps relevance into [0, 1] (docs/DECISIONS.md#adr-structured-output)."""
+    assert SeedEntity(name="X", type=EntityType.COMPANY, relevance=1.2, sentiment=0.0).relevance == 1.0
+    assert SeedEntity(name="X", type=EntityType.COMPANY, relevance=-0.1, sentiment=0.0).relevance == 0.0
 
 
 def test_seed_entity_sentiment_out_of_range() -> None:
-    """SeedEntity rejects sentiment outside -1.0 to 1.0."""
-    with pytest.raises(ValidationError):
-        SeedEntity(name="X", type=EntityType.COMPANY, relevance=0.5, sentiment=-1.5)
-    with pytest.raises(ValidationError):
-        SeedEntity(name="X", type=EntityType.COMPANY, relevance=0.5, sentiment=1.1)
+    """SeedEntity clamps sentiment into [-1, 1]."""
+    assert SeedEntity(name="X", type=EntityType.COMPANY, relevance=0.5, sentiment=-1.5).sentiment == -1.0
+    assert SeedEntity(name="X", type=EntityType.COMPANY, relevance=0.5, sentiment=1.1).sentiment == 1.0
 
 
 def test_seed_entity_frozen() -> None:
@@ -106,11 +102,9 @@ def test_seed_event_frozen() -> None:
 
 
 def test_seed_event_overall_sentiment_boundary() -> None:
-    """SeedEvent overall_sentiment rejects values outside -1.0 to 1.0."""
-    with pytest.raises(ValidationError):
-        SeedEvent(raw_rumor="test", entities=[], overall_sentiment=1.5)
-    with pytest.raises(ValidationError):
-        SeedEvent(raw_rumor="test", entities=[], overall_sentiment=-1.1)
+    """SeedEvent clamps overall_sentiment into [-1, 1]."""
+    assert SeedEvent(raw_rumor="test", entities=[], overall_sentiment=1.5).overall_sentiment == 1.0
+    assert SeedEvent(raw_rumor="test", entities=[], overall_sentiment=-1.1).overall_sentiment == -1.0
 
 
 # --- ParsedSeedResult tests ---

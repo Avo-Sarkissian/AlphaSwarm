@@ -42,11 +42,11 @@ def test_agent_decision_defaults() -> None:
 
 
 def test_agent_decision_validation_bounds() -> None:
-    """AgentDecision rejects out-of-bounds confidence and sentiment."""
+    """Out-of-range numbers are clamped (docs/DECISIONS.md#adr-structured-output); unknown signals still fail."""
+    assert AgentDecision(signal=SignalType.BUY, confidence=1.2).confidence == 1.0
+    assert AgentDecision(signal=SignalType.BUY, confidence=0.5, sentiment=2.0).sentiment == 1.0
     with pytest.raises(ValidationError):
-        AgentDecision(signal=SignalType.BUY, confidence=1.5)
-    with pytest.raises(ValidationError):
-        AgentDecision(signal=SignalType.BUY, confidence=0.5, sentiment=2.0)
+        AgentDecision.model_validate({"signal": "strong_buy", "confidence": 0.5})
 
 
 def test_agent_decision_parse_error_signal() -> None:
@@ -138,10 +138,10 @@ def test_tier3_parse_error() -> None:
 
 
 def test_tier3_invalid_json_values() -> None:
-    """Tier 3: JSON is valid but field values fail Pydantic validation."""
+    """Tier 3: JSON is valid but a value cannot be normalised (unknown signal)."""
     from alphaswarm.parsing import parse_agent_decision
 
-    raw = '{"signal": "buy", "confidence": 5.0}'  # confidence > 1.0
+    raw = '{"signal": "strong_buy", "confidence": 0.5}'
     result = parse_agent_decision(raw)
     assert result.signal == SignalType.PARSE_ERROR
     assert result.confidence == 0.0
@@ -255,18 +255,6 @@ def test_seed_parse_adversarial_null_fields() -> None:
     assert result.parse_tier == 3
 
 
-def test_seed_parse_adversarial_out_of_range_values() -> None:
-    """Adversarial: Out-of-range relevance/sentiment in entities -- bad entities skipped."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [{"name": "NVIDIA", "type": "company", "relevance": 1.5, "sentiment": 0.8}, {"name": "AMD", "type": "company", "relevance": 0.7, "sentiment": 0.5}], "overall_sentiment": 0.4}'
-    result = parse_seed_event(raw, original_rumor="test")
-    # NVIDIA entity has relevance=1.5 (out of range) -> skipped; AMD is valid
-    assert result.parse_tier in (1, 2)
-    assert len(result.seed_event.entities) == 1
-    assert result.seed_event.entities[0].name == "AMD"
-
-
 def test_seed_parse_adversarial_duplicate_entities() -> None:
     """Adversarial: Duplicate entities (same name twice) do not crash."""
     from alphaswarm.parsing import parse_seed_event
@@ -307,15 +295,6 @@ def test_seed_parse_raw_rumor_always_from_parameter() -> None:
     raw = '{"raw_rumor": "LLM fabricated rumor", "entities": [], "overall_sentiment": 0.0}'
     result = parse_seed_event(raw, original_rumor="the real rumor")
     assert result.seed_event.raw_rumor == "the real rumor"
-
-
-def test_seed_parse_adversarial_out_of_range_overall_sentiment() -> None:
-    """Adversarial: Out-of-range overall_sentiment falls to Tier 3."""
-    from alphaswarm.parsing import parse_seed_event
-
-    raw = '{"entities": [], "overall_sentiment": 5.0}'
-    result = parse_seed_event(raw, original_rumor="test")
-    assert result.parse_tier == 3
 
 
 # --- Phase 13: parse_modifier_response tests ---
