@@ -6,14 +6,11 @@ limit, bracket cap and floor, determinism) live in tests/test_peer_selection.py.
 
 from __future__ import annotations
 
-import random
-
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from alphaswarm.config import DEFAULT_BRACKETS, generate_personas
 from alphaswarm.parsing import parse_agent_decision
-from alphaswarm.simulation import select_diverse_peers
 from alphaswarm.types import AgentDecision, FlipType, SignalType
 from alphaswarm.write_buffer import compute_flip_type
 
@@ -33,13 +30,6 @@ decisions = st.builds(
 ).map(lambda d: d.model_copy(update={"error_kind": "parse" if d.signal is SignalType.PARSE_ERROR else None}))
 
 
-def _previous_round(failed: set[str]) -> dict[str, AgentDecision]:
-    return {
-        aid: AgentDecision(signal=SignalType.PARSE_ERROR if aid in failed else SignalType.BUY, confidence=0.5)
-        for aid in AGENT_IDS
-    }
-
-
 @settings(max_examples=200, deadline=None)
 @given(raw=st.text(max_size=500))
 def test_parse_agent_decision_never_raises(raw: str) -> None:
@@ -56,20 +46,6 @@ def test_parse_agent_decision_round_trips_plain_and_fenced_json(decision: AgentD
     payload = decision.model_dump_json()
     assert parse_agent_decision(payload) == decision
     assert parse_agent_decision(f"Sure.\n```json\n{payload}\n```\nDone.") == decision
-
-
-def test_select_diverse_peers_never_exceeds_the_limit() -> None:
-    """min_brackets > limit degrades to ``limit`` peers, never more."""
-    peers = select_diverse_peers(
-        "institutions_01",
-        {},
-        PERSONAS,
-        prev_decisions=_previous_round(set()),
-        rng=random.Random(0),
-        limit=1,
-        min_brackets=2,
-    )
-    assert len(peers) <= 1
 
 
 @settings(max_examples=100, deadline=None)
