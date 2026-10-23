@@ -24,8 +24,11 @@
 // ModelStatus chip (./v2.tsx): inference mode and spend from /api/health next
 // to live run telemetry; it shows no model name (docs/DECISIONS.md#kr-41-6-08).
 import { useEffect, useMemo, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { Icon } from './icons';
 import { Viz } from './viz';
+import type { VizLayout } from './vizLayout';
+import type { AgentView } from '../types';
 import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
 import { IdleState, SeedingState } from './states';
 import { useAgents } from '../context/AgentsContext';
@@ -77,7 +80,7 @@ function BrandMark() {
 }
 
 interface TooltipInfo {
-  agent: any;
+  agent: AgentView;
   x: number;
   y: number;
 }
@@ -264,7 +267,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
   // Local UI state — chrome only (no live data here).
   const [seed, setSeed] = useState<string>(initialSeed);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [layout, setLayout] = useState<'force' | 'radial' | 'grid'>('force');
+  const [layout, setLayout] = useState<VizLayout>('force');
   const [hintsDismissed, setHintsDismissed] = useState(false);
   const [ui, setUi] = useState<UiState>({
     shockOpen: false,
@@ -327,10 +330,12 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
   const phaseLabel = phaseLabelFor(phase, currentRound, numRounds);
   const phaseState: 'live' | 'complete' = phase === 'complete' ? 'complete' : 'live';
 
-  const onAgentHover = (agent: any, e: any) => {
-    if (!agent) { setUi(u => ({ ...u, tooltip: null })); return; }
-    const rect = e.currentTarget.closest('.canvas-wrap').getBoundingClientRect();
-    setUi(u => ({ ...u, tooltip: { agent, x: e.clientX - rect.left, y: e.clientY - rect.top } }));
+  const onAgentHover = (agent: AgentView | null, e?: MouseEvent<SVGElement>) => {
+    if (!agent || !e) { setUi((u) => ({ ...u, tooltip: null })); return; }
+    const wrap = e.currentTarget.closest('.canvas-wrap');
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    setUi((u) => ({ ...u, tooltip: { agent, x: e.clientX - rect.left, y: e.clientY - rect.top } }));
   };
   const openInterview = (agentId: string) => setUi((u) => ({ ...u, interviewAgentId: agentId }));
   const onAgentClick = (agent: { id: string }) => openInterview(agent.id);
@@ -564,10 +569,9 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
               edges={edgePairs}
               layout={layout}
               direction="a"
-              highlightId={ui.tooltip?.agent?.id}
+              highlightId={ui.tooltip?.agent.id}
               onAgentHover={onAgentHover}
               onAgentClick={onAgentClick}
-              round={round}
             />
             <ConsensusRing agents={agents} />
             <Legend />

@@ -23,7 +23,6 @@ const FILES: readonly string[] = walk(SRC)
 // entry in the commit that converts the file.
 const PENDING_JS: readonly string[] = [
   'components/modals.jsx',
-  'components/viz.jsx',
 ];
 
 describe('frontend structure', () => {
