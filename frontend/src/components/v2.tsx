@@ -808,6 +808,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   // See debug session ws-agent-states-not-emitted-mid-sim (symptom 2 UX).
   const polled = usePolling<AdvisoryContent | null>({
     key: `advisory:${cycleId ?? 'none'}`,
+    enabled: cycleId !== null,
     fetchFn: () => (cycleId ? advisoryFetch(cycleId) : Promise.resolve(null)),
     intervalMs: 3000,
     maxAttempts: 1200,
