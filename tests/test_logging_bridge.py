@@ -132,7 +132,8 @@ def test_stdlib_exception_is_rendered_without_locals() -> None:
     buffer = io.StringIO()
     configure_logging(log_level="INFO", json_output=True, stream=buffer)
     try:
-        secret = "".join(["sk-", "LOCAL", "-CANARY-0000"])
+        # Not shaped like an API key, so the key scrub cannot hide a rendered local.
+        secret = "".join(["FRAME", "-LOCAL-", "CANARY"])
         raise RuntimeError(f"failed ({len(secret)} chars)")
     except RuntimeError:
         logging.getLogger("anthropic").exception("request failed")
