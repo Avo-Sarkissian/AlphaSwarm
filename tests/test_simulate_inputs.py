@@ -1,4 +1,4 @@
-"""POST /api/simulate/start rejects empty and oversized seeds (T4.8)."""
+"""POST /api/simulate/start rejects empty and oversized seeds."""
 
 from __future__ import annotations
 
