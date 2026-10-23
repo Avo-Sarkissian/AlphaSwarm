@@ -491,11 +491,16 @@ class GraphStateManager:
     ) -> None:
         """Record a lifecycle transition (docs/DECISIONS.md#adr-cycle-metrics).
 
-        ``error_code`` is stored for ``failed`` and removed otherwise.
+        ``error_code`` goes only with ``failed``; writing any other status
+        removes a stored code.
 
         Raises:
-            Neo4jWriteError: no Cycle has *cycle_id*.
+            ValueError: an ``error_code`` was given with a status other than ``failed``.
+            Neo4jWriteError: no Cycle has *cycle_id*, or the write failed.
+            Neo4jUnavailableError: the database is unreachable.
         """
+        if error_code is not None and status != "failed":
+            raise ValueError(f"error_code goes only with status 'failed', not {status!r}")
         found = await self._write(
             self._set_cycle_status_tx,
             cycle_id,

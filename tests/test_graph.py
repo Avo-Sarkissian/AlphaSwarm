@@ -893,6 +893,29 @@ async def test_set_cycle_status_unknown_cycle_raises(mock_driver: MagicMock) -> 
     assert exc_info.value.op == "set_cycle_status"
 
 
+async def test_set_cycle_status_stores_the_error_code_with_failed(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_write = AsyncMock(return_value=True)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    await gsm.set_cycle_status("c1", "failed", error_code="round_failed")
+    assert session.execute_write.await_args.args[1:] == ("c1", "failed", "round_failed")
+    await gsm.set_cycle_status("c1", "complete")
+    assert session.execute_write.await_args.args[1:] == ("c1", "complete", None)
+
+
+@pytest.mark.parametrize("status", ["running", "complete", "cancelled"])
+async def test_set_cycle_status_rejects_an_error_code_without_failed(mock_driver: MagicMock, status: str) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    with pytest.raises(ValueError, match="error_code"):
+        await gsm.set_cycle_status("c1", status, error_code="round_failed")
+    mock_driver.session.assert_not_called()
+
+
 async def test_read_latest_cycle_id_passes_statuses(mock_driver: MagicMock) -> None:
     from alphaswarm.graph import GraphStateManager
 
