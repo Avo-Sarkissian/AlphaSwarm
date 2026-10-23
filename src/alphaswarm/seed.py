@@ -11,20 +11,29 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 import structlog
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 from alphaswarm.errors import StructuredOutputError
 from alphaswarm.inference.structured import chat_structured
-from alphaswarm.parsing import parse_modifier_response
-from alphaswarm.personas import compute_prompt_template_hash, load_bracket_configs
-from alphaswarm.prompts.modifiers import MODIFIER_GENERATION_PROMPT, build_modifier_user_message
-from alphaswarm.types import ParsedSeedResult, SeedEntity, SeedEvent, normalize_signed_unit
+from alphaswarm.personas import BRACKET_MODIFIERS, compute_prompt_template_hash, load_bracket_configs
+from alphaswarm.prompts.modifiers import (
+    MODIFIER_GENERATION_PROMPT,
+    build_modifier_user_message,
+    truncate_modifier,
+)
+from alphaswarm.types import (
+    BracketType,
+    ParsedModifiersResult,
+    ParsedSeedResult,
+    SeedEntity,
+    SeedEvent,
+    normalize_signed_unit,
+)
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.settings import AppSettings
-    from alphaswarm.types import ParsedModifiersResult
 
 logger = structlog.get_logger(component="seed")
 
@@ -86,6 +95,59 @@ class SeedLLMOutput(BaseModel):
             entities=list(self.entities),
             overall_sentiment=self.overall_sentiment,
         )
+
+
+def static_modifiers() -> dict[BracketType, str]:
+    """Each bracket's first static modifier: the tier-3 fallback (docs/DECISIONS.md#p13-d-07)."""
+    return {bracket: (BRACKET_MODIFIERS.get(bracket) or [""])[0] for bracket in BracketType}
+
+
+class ModifiersLLMOutput(BaseModel):
+    """The orchestrator's modifier reply: one short persona modifier per bracket.
+
+    Keys are case-insensitive, extra keys are ignored and a missing or
+    non-string value becomes "" so that bracket falls back to its static
+    modifier (docs/DECISIONS.md#p13-d-08).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    institutions: str = ""
+    sell_side: str = ""
+    event_driven: str = ""
+    quants: str = ""
+    degens: str = ""
+    narrators: str = ""
+    algos: str = ""
+    macro: str = ""
+    shorts: str = ""
+    allocators: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lower_case_keys(cls, data: object) -> object:
+        if isinstance(data, dict):
+            return {(key.strip().lower() if isinstance(key, str) else key): value for key, value in data.items()}
+        return data
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _text_or_empty(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else ""
+
+    def to_modifiers(self) -> tuple[dict[BracketType, str], list[str]]:
+        """Bracket -> truncated modifier, plus the bracket values that fell back."""
+        fallback = static_modifiers()
+        modifiers: dict[BracketType, str] = {}
+        fell_back: list[str] = []
+        for bracket in BracketType:
+            text = getattr(self, bracket.value)
+            if text:
+                modifiers[bracket] = truncate_modifier(text)
+            else:
+                modifiers[bracket] = fallback[bracket]
+                fell_back.append(bracket.value)
+        return modifiers, fell_back
 
 
 async def inject_seed(
@@ -185,45 +247,31 @@ async def generate_modifiers(
     seed_event: SeedEvent,
     orchestrator: InferenceProvider,
 ) -> ParsedModifiersResult:
-    """Generate entity-aware bracket modifiers via orchestrator LLM (D-04, D-05, D-06).
+    """Generate entity-aware bracket modifiers via the orchestrator (docs/DECISIONS.md#p13-d-04).
 
-    Makes a single JSON-mode chat call to the orchestrator (which must already
-    be loaded) and parses the response with 3-tier fallback.
-
-    Args:
-        seed_event: Parsed seed event with entities and raw_rumor.
-        orchestrator: Active InferenceProvider for the orchestrator role.
-            The model must already be loaded (prepare() must have been called).
-
-    Returns:
-        ParsedModifiersResult with modifiers dict and parse_tier.
+    One ``chat_structured`` call in the seed's orchestrator session
+    (docs/DECISIONS.md#p13-d-06); a reply that never validates falls back to
+    the static modifiers (tier 3, docs/DECISIONS.md#p13-d-07).
     """
-    user_message = build_modifier_user_message(seed_event)
-
     logger.info("modifier_generation_start", entity_count=len(seed_event.entities))
-
-    inference_result = await orchestrator.chat(
-        messages=[
-            {"role": "system", "content": MODIFIER_GENERATION_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        json_mode=True,
+    try:
+        result = await chat_structured(
+            orchestrator,
+            [
+                {"role": "system", "content": MODIFIER_GENERATION_PROMPT},
+                {"role": "user", "content": build_modifier_user_message(seed_event)},
+            ],
+            ModifiersLLMOutput,
+        )
+    except StructuredOutputError:
+        logger.warning("modifier_generation_fallback", parse_tier=3)
+        return ParsedModifiersResult(modifiers=static_modifiers(), parse_tier=3)
+    modifiers, fell_back = result.value.to_modifiers()
+    for bracket_value in fell_back:
+        logger.warning("modifier_bracket_fallback", bracket=bracket_value, reason="missing_or_invalid")
+    logger.info(
+        "modifier_generation_complete",
+        parse_tier=result.parse_tier,
+        modifier_count=len(modifiers) - len(fell_back),
     )
-
-    raw_content = inference_result.content
-    result = parse_modifier_response(raw_content)
-
-    if result.parse_tier == 3:
-        logger.warning(
-            "modifier_generation_fallback",
-            parse_tier=3,
-            raw_preview=raw_content[:300],
-        )
-    else:
-        logger.info(
-            "modifier_generation_complete",
-            parse_tier=result.parse_tier,
-            modifier_count=len(result.modifiers),
-        )
-
-    return result
+    return ParsedModifiersResult(modifiers=modifiers, parse_tier=result.parse_tier)

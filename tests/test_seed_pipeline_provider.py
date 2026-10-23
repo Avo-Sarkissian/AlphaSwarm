@@ -4,7 +4,7 @@ These tests replace the OllamaClient/OllamaModelManager mocks with
 FakeInferenceProvider, verifying that:
 - inject_seed calls provider.prepare() then provider.teardown() (lifecycle)
 - inference is routed through chat_structured (schema-constrained provider.chat())
-- generate_modifiers calls provider.chat() with json_mode=True
+- generate_modifiers goes through chat_structured
 - behaviour (prompts, parsing, return values) is identical to the old path
 """
 
@@ -378,8 +378,8 @@ async def test_generate_modifiers_calls_provider_chat() -> None:
     assert len(provider.calls) == 1
 
 
-async def test_generate_modifiers_uses_json_mode() -> None:
-    """generate_modifiers passes json_mode=True to provider.chat()."""
+async def test_generate_modifiers_uses_the_modifier_schema() -> None:
+    """generate_modifiers passes ModifiersLLMOutput's response schema to provider.chat()."""
     from alphaswarm.seed import generate_modifiers
 
     provider = FakeInferenceProvider(
@@ -390,7 +390,7 @@ async def test_generate_modifiers_uses_json_mode() -> None:
 
     await generate_modifiers(_make_seed_event(), provider)
 
-    assert provider.calls[0]["json_mode"] is True
+    assert "quants" in provider.calls[0]["response_schema"]["properties"]
 
 
 async def test_generate_modifiers_returns_parsed_modifiers_result() -> None:

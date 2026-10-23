@@ -8,7 +8,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from alphaswarm.inference.types import InferenceResult, ProviderRole
-from alphaswarm.seed import SeedLLMOutput, inject_seed
+from alphaswarm.personas import BRACKET_MODIFIERS
+from alphaswarm.seed import (
+    ModifiersLLMOutput,
+    SeedLLMOutput,
+    generate_modifiers,
+    inject_seed,
+    static_modifiers,
+)
+from alphaswarm.types import BracketType, EntityType, SeedEntity, SeedEvent
 from tests.inference.fakes import FakeInferenceProvider
 
 RUMOR = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
@@ -132,3 +140,63 @@ class TestInjectSeed:
         assert parsed.seed_event.raw_rumor == RUMOR
         assert len(provider.calls) == 2
         graph.create_cycle_with_seed_event.assert_awaited_once()
+
+
+def _seed_event() -> SeedEvent:
+    return SeedEvent(
+        raw_rumor=RUMOR,
+        entities=[SeedEntity(name="ZZZT Holdings", type=EntityType.COMPANY, relevance=0.9, sentiment=0.6)],
+        overall_sentiment=0.55,
+    )
+
+
+def _full_modifiers(prefix: str = "specialist tracking the ZZZT-QQQX deal for") -> str:
+    return json.dumps({b.value: f"{prefix} the {b.value} desk" for b in BracketType})
+
+
+class TestModifiers:
+    def test_model_fields_match_the_brackets(self) -> None:
+        assert set(ModifiersLLMOutput.model_fields) == {b.value for b in BracketType}
+
+    async def test_tier1_all_ten(self) -> None:
+        provider = _orchestrator(_full_modifiers())
+        result = await generate_modifiers(_seed_event(), provider)
+        assert result.parse_tier == 1
+        assert result.modifiers[BracketType.QUANTS].endswith("the quants desk")
+        assert set(provider.calls[0]["response_schema"]["properties"]) == {b.value for b in BracketType}
+
+    async def test_fenced_is_tier2(self) -> None:
+        result = await generate_modifiers(_seed_event(), _orchestrator(f"```json\n{_full_modifiers()}\n```"))
+        assert result.parse_tier == 2
+
+    async def test_partial_reply_falls_back_per_bracket(self) -> None:
+        partial = {b.value: f"custom {b.value}" for b in list(BracketType)[:7]}
+        result = await generate_modifiers(_seed_event(), _orchestrator(json.dumps(partial)))
+        assert result.parse_tier == 1
+        for bracket in list(BracketType)[:7]:
+            assert result.modifiers[bracket] == f"custom {bracket.value}"
+        for bracket in list(BracketType)[7:]:
+            assert result.modifiers[bracket] == static_modifiers()[bracket]
+
+    async def test_keys_are_case_insensitive_and_non_strings_fall_back(self) -> None:
+        upper: dict[str, object] = {b.value.upper(): f"upper {b.value}" for b in BracketType}
+        upper["MACRO"] = 7
+        result = await generate_modifiers(_seed_event(), _orchestrator(json.dumps(upper)))
+        assert result.modifiers[BracketType.QUANTS] == "upper quants"
+        assert result.modifiers[BracketType.MACRO] == static_modifiers()[BracketType.MACRO]
+
+    async def test_long_modifiers_are_truncated(self) -> None:
+        long_text = "word " * 80
+        reply = json.dumps({b.value: long_text for b in BracketType})
+        result = await generate_modifiers(_seed_event(), _orchestrator(reply))
+        assert all(len(text) <= 150 for text in result.modifiers.values())
+
+    async def test_two_invalid_replies_use_static_modifiers(self) -> None:
+        provider = _orchestrator("not json", "still not json")
+        result = await generate_modifiers(_seed_event(), provider)
+        assert result.parse_tier == 3
+        assert result.modifiers == static_modifiers()
+        assert len(provider.calls) == 2
+
+    def test_static_modifiers_are_the_first_of_each_bracket(self) -> None:
+        assert static_modifiers()[BracketType.SHORTS] == BRACKET_MODIFIERS[BracketType.SHORTS][0]

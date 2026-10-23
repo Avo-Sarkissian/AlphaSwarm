@@ -9,12 +9,10 @@ Tests verify:
 
 from __future__ import annotations
 
-import json as json_mod
-
 import pytest
 from pydantic import ValidationError
 
-from alphaswarm.types import AgentDecision, BracketType, SignalType
+from alphaswarm.types import AgentDecision, SignalType
 
 # --- AgentDecision model tests (no parsing module needed) ---
 
@@ -145,77 +143,6 @@ def test_tier3_invalid_json_values() -> None:
     result = parse_agent_decision(raw)
     assert result.signal == SignalType.PARSE_ERROR
     assert result.confidence == 0.0
-
-
-# --- Phase 13: parse_modifier_response tests ---
-
-
-def _make_full_modifier_json() -> str:
-    """Helper: build valid JSON with all 10 BracketType keys."""
-    return json_mod.dumps({bt.value: f"modifier for {bt.value}" for bt in BracketType})
-
-
-def test_parse_modifiers_tier1() -> None:
-    """Tier 1: direct JSON parse with all 10 keys succeeds."""
-    from alphaswarm.parsing import parse_modifier_response
-
-    raw = _make_full_modifier_json()
-    result = parse_modifier_response(raw)
-    assert result.parse_tier == 1
-    assert len(result.modifiers) == 10
-    for bt in BracketType:
-        assert bt in result.modifiers
-        assert f"modifier for {bt.value}" in result.modifiers[bt]
-
-
-def test_parse_modifiers_tier2() -> None:
-    """Tier 2: JSON wrapped in code fence is extracted."""
-    from alphaswarm.parsing import parse_modifier_response
-
-    raw = f"```json\n{_make_full_modifier_json()}\n```"
-    result = parse_modifier_response(raw)
-    assert result.parse_tier == 2
-    assert len(result.modifiers) == 10
-
-
-def test_parse_modifiers_tier3_fallback() -> None:
-    """Tier 3: garbage text falls back to static BRACKET_MODIFIERS[bracket][0]."""
-    from alphaswarm.parsing import parse_modifier_response
-    from alphaswarm.personas import BRACKET_MODIFIERS
-
-    result = parse_modifier_response("this is not json at all")
-    assert result.parse_tier == 3
-    assert len(result.modifiers) == 10
-    for bt in BracketType:
-        assert result.modifiers[bt] == BRACKET_MODIFIERS[bt][0]
-
-
-def test_parse_modifiers_partial_fallback() -> None:
-    """Partial JSON: present keys use generated value, missing keys use static fallback."""
-    from alphaswarm.parsing import parse_modifier_response
-    from alphaswarm.personas import BRACKET_MODIFIERS
-
-    partial = {bt.value: f"custom {bt.value}" for bt in list(BracketType)[:7]}
-    result = parse_modifier_response(json_mod.dumps(partial))
-    assert result.parse_tier == 1  # Valid JSON, just missing some keys
-    assert len(result.modifiers) == 10
-    # First 7 brackets have custom modifiers
-    for bt in list(BracketType)[:7]:
-        assert result.modifiers[bt] == f"custom {bt.value}"
-    # Last 3 brackets fall back to static
-    for bt in list(BracketType)[7:]:
-        assert result.modifiers[bt] == BRACKET_MODIFIERS[bt][0]
-
-
-def test_parse_modifiers_case_insensitive() -> None:
-    """Keys with mixed case are normalized to lowercase before BracketType lookup."""
-    from alphaswarm.parsing import parse_modifier_response
-
-    mixed_case = {bt.value.upper(): f"upper {bt.value}" for bt in BracketType}
-    result = parse_modifier_response(json_mod.dumps(mixed_case))
-    assert result.parse_tier == 1
-    for bt in BracketType:
-        assert result.modifiers[bt] == f"upper {bt.value}"
 
 
 def test_parse_logs_tier_used() -> None:
