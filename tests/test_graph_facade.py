@@ -283,3 +283,45 @@ def test_ensure_schema_never_runs_the_legacy_cleanup() -> None:
     )
     assert "legacy_property_cleanup" not in sources
     assert "LEGACY_PROPERTY_CLEANUP" not in sources
+
+
+MANAGER = SRC / "graph" / "manager.py"
+
+
+def test_facade_stays_small() -> None:
+    assert len(MANAGER.read_text(encoding="utf-8").splitlines()) <= 300
+
+
+def test_manager_keeps_no_transaction_functions() -> None:
+    from alphaswarm.graph import manager
+
+    leftovers = [n for n in vars(GraphStateManager) if n.endswith("_tx")]
+    leftovers += [n for n in vars(manager) if n.endswith("_tx")]
+    assert leftovers == []
+
+
+def test_every_public_method_is_delegated_or_owned() -> None:
+    owned = {"close", "ensure_schema", "verify_connectivity"}
+    public = {name for name in _public_api() if name != "__init__"}
+    assert public - owned == set(DELEGATES)
+
+
+def test_graph_package_has_no_type_arg_ignores() -> None:
+    offenders = [
+        f"{path.name}:{i}"
+        for path in [*_graph_sources(), SRC / "influence.py"]
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if "type: ignore[type-arg]" in line
+    ]
+    assert offenders == []
+
+
+def test_graph_package_has_exactly_six_files() -> None:
+    assert sorted(p.name for p in (SRC / "graph").glob("*.py")) == [
+        "__init__.py",
+        "analytics.py",
+        "manager.py",
+        "replay_interview.py",
+        "rows.py",
+        "schema_writes.py",
+    ]
