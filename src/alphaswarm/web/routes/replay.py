@@ -26,7 +26,7 @@ class CycleItem(BaseModel):
     cycle_id: str
     created_at: str  # ISO-8601 string (datetime serialized)
     seed_rumor: str
-    round_count: int  # Always 3 for completed cycles
+    round_count: int  # the cycle's num_rounds, 2 or 3 (docs/DECISIONS.md#adr-num-rounds)
 
 
 class ReplayCyclesResponse(BaseModel):
