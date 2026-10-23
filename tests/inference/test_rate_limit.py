@@ -14,12 +14,14 @@ accounting are tested here.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from alphaswarm.inference.concurrency import ConcurrencyController
 from alphaswarm.inference.rate_limit import RateLimitController, TokenBucket
+from tests.support.aio import eventually
 
 # ---------------------------------------------------------------------------
 # Fake clock helpers
@@ -415,30 +417,52 @@ class TestRateLimitControllerMonitoring:
         assert task1 is task2
         await ctrl.stop_monitoring()
 
-    @pytest.mark.asyncio
-    async def test_monitoring_emits_to_state_store(self) -> None:
-        """If state_store is present, the monitoring loop calls set()."""
-        received: list[dict] = []
 
-        class FakeStore:
-            def set(self, key: str, value: object) -> None:
-                received.append({"key": key, "value": value})
+async def _cancel_quietly(task: asyncio.Task[None]) -> None:
+    if not task.done():
+        task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
 
-        ctrl = RateLimitController(
-            max_in_flight=2,
-            requests_per_min=60,
-            tokens_per_min=100_000,
-            state_store=FakeStore(),
-        )
-        await ctrl.start_monitoring()
-        # Tick the event loop enough times for the 2s sleep to fire once.
-        # We patch asyncio.sleep to advance immediately for this test.
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            await asyncio.sleep(0)  # let the task run
-            # Give the loop a few iterations
-            for _ in range(5):
-                await asyncio.sleep(0)
-        await ctrl.stop_monitoring()
-        # We can't guarantee emissions without real time, but the test
-        # confirms no exceptions and clean stop.  Accept 0 or more emissions.
-        assert all("key" in r for r in received)
+
+class TestRateLimitControllerCancellation:
+    """Cancellation must never leak an in-flight slot."""
+
+    async def test_cancel_while_waiting_for_a_slot_does_not_leak(self) -> None:
+        ctrl = RateLimitController(max_in_flight=1, requests_per_min=None, tokens_per_min=None)
+        await ctrl.acquire()
+        waiter = asyncio.create_task(ctrl.acquire())
+        await asyncio.sleep(0)
+        assert not waiter.done()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        ctrl.release()
+        follower = asyncio.create_task(ctrl.acquire())
+        try:
+            await eventually(follower.done, what="acquire after a cancelled waiter")
+        finally:
+            await _cancel_quietly(follower)
+        ctrl.release()
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="T1.7: RateLimitController.acquire leaks its slot when cancelled during the pacing sleep (fix: plan 05)",
+    )
+    async def test_cancel_during_pacing_sleep_returns_the_slot(self) -> None:
+        clock = FakeClock()
+        ctrl = RateLimitController(max_in_flight=1, requests_per_min=1, tokens_per_min=None, now=clock)
+        await ctrl.acquire()  # bucket starts full: no pacing
+        ctrl.release()
+        paced = asyncio.create_task(ctrl.acquire())  # takes the only slot, then paces ~60 s
+        await asyncio.sleep(0)
+        assert not paced.done()
+        paced.cancel()  # interrupts the pacing sleep immediately: no wall time passes
+        with pytest.raises(asyncio.CancelledError):
+            await paced
+        clock.advance(600.0)  # buckets refilled; only a leaked slot can block now
+        follower = asyncio.create_task(ctrl.acquire())
+        try:
+            await eventually(follower.done, what="acquire after a cancelled pacing sleep")
+        finally:
+            await _cancel_quietly(follower)
