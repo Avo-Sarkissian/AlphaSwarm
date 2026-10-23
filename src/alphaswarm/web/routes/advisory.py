@@ -22,6 +22,7 @@ from fastapi import APIRouter, FastAPI, Request, status
 from pydantic import BaseModel, ValidationError
 
 from alphaswarm.advisory import AdvisoryReport, synthesize
+from alphaswarm.advisory.sector_map import load_sector_map
 from alphaswarm.config import ProviderType, load_inference_config
 from alphaswarm.fsutil import atomic_write_text, prune_old_files
 from alphaswarm.inference.factory import advisory_block_reason, build_providers
@@ -371,6 +372,12 @@ async def _run_advisory_synthesis(
         cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
     except (ValueError, OSError) as exc:
         raise job_config_error(exc, job="advisory", cycle_id=cycle_id) from None
+    # Read per run, so edits to the local map apply without a restart. A missing
+    # file falls back to the fictional example and an invalid one to the empty map;
+    # neither blocks the advisory (docs/DECISIONS.md#adr-holdings-isolation).
+    sector_map = await asyncio.to_thread(
+        load_sector_map, app_state.settings.resolve_path(app_state.settings.sector_map_path)
+    )
     reason = _orchestrator_block_reason(cfg, app_state)
     if reason is not None:
         # The config can change between the POST and this task starting.
@@ -392,6 +399,7 @@ async def _run_advisory_synthesis(
             portfolio=portfolio,
             graph_manager=gm,
             provider=provider,
+            sector_map=sector_map,
         )
 
         output_path = advisory_dir(app_state) / f"{cycle_id}_advisory.json"

@@ -337,6 +337,7 @@ Contents
   2. A four-surface sentinel canary runs the real `synthesize()` (`tests/invariants/test_holdings_isolation.py`).
   3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)). Tracebacks are rendered without local variables in both modes (JSON: `ExceptionDictTransformer(show_locals=False)` before the redactor; console: `plain_traceback`), so frames never leak keys or portfolio objects (2026-10).
   4. Holdings are loaded into memory at lifespan startup (`PortfolioCache`, re-read when the CSV changes) and never persisted ([p39-d-07](#p39-d-07)).
+  5. The owner's curated sector map lives in the gitignored `data/sector_map.local.json`; the repository ships only the fictional `examples/sector_map.example.json`. `scripts/ticker_scan.py` (count-only) checks that `src/`, `tests/` and `frontend/src/` name none of the owner's tickers (2026-10).
 - **Rationale:** Uncontaminated consensus, plus privacy for real brokerage data.
 - **Gate:** `uv run lint-imports` runs in the CI `lint` job and as a pre-commit hook, and `tests/invariants/test_importlinter_contract.py` runs it inside pytest. Ruff, mypy and vulture are gated in the same job.
 
@@ -357,7 +358,7 @@ Contents
 ### <a id="adr-advisory-pipeline"></a>Advisory synthesis
 - **Decision:**
   - Prefetch swarm data in parallel, then make one orchestrator call ([p41-d-04](#p41-d-04), [p41-d-05](#p41-d-05)).
-  - Relevance scoring uses a curated ticker→sector map plus an entity-impact join (F-07, F-28).
+  - Relevance scoring uses a curated ticker→sector map read per run from `data/sector_map.local.json` (fallback: the fictional example; invalid file: empty map) plus an entity-impact join. Entity names resolve only to held tickers, and the `unknown` sector never earns a seed bonus (F-07, F-28; 2026-10).
   - The LLM receives only the top 15 held tickers by relevance, one entry per ticker with sector tags; quantities and cost basis stay server-side (2026-10, [p41-d-05](#p41-d-05)). Every other holding is padded server-side as HOLD@0.30 (SWEEP B-7), so items[] has exactly one entry per holding.
   - Unknown tickers default to `macro_beta` 0.5 (SWEEP B-8).
   - Ranking: confidence × exposure / total basis.

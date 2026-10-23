@@ -26,8 +26,7 @@ import structlog
 from pydantic import ValidationError
 
 from alphaswarm.advisory.prompt import build_advisory_prompt
-from alphaswarm.advisory.sector_map import lookup as sector_lookup
-from alphaswarm.advisory.sector_map import resolve_ticker
+from alphaswarm.advisory.sector_map import EMPTY_SECTOR_MAP, UNKNOWN_SECTOR, SectorMap
 from alphaswarm.advisory.types import AdvisoryItem, AdvisoryReport
 from alphaswarm.holdings.types import PortfolioSnapshot
 from alphaswarm.inference.types import InferenceMessage
@@ -48,29 +47,25 @@ def _enrich_holdings(
     holdings: list[dict[str, str]],
     entity_impacts: dict[str, float],
     seed_text: str,
+    *,
+    sector_map: SectorMap = EMPTY_SECTOR_MAP,
 ) -> list[dict[str, str]]:
-    """Add sector_map fields + relevance_score to each holding; sort DESC by relevance.
+    """Add sector fields + relevance_score to each holding; sort DESC by relevance.
 
-    ITEM 6 of quick task 260512-jqn: produces the ordered list the prompt
-    consumes — top N goes through with full enrichment, the rest with
-    sector tag only.
-
-    Relevance score = |entity_impact| * |macro_beta| + 0.5 * seed_match.
-    seed_match is 1.0 when the ticker or its sector substring appears
-    in the seed text, else 0.0.
+    Relevance score = |entity_impact| * |macro_beta| + 0.5 * seed_match, where
+    seed_match is 1.0 when the ticker or the sector label appears in the seed text
+    as a whole word. The 'unknown' placeholder sector never matches: it would
+    reward any rumor that mentions "unknown sources"
+    (docs/DECISIONS.md#adr-advisory-pipeline).
     """
     enriched: list[dict[str, str]] = []
     for h in holdings:
         ticker = str(h.get("ticker", "")).upper()
-        sm = sector_lookup(ticker)
+        sm = sector_map.lookup(ticker)
         entity_impact = float(entity_impacts.get(ticker, 0.0))
-        # Ticker match uses a word-boundary regex — a plain substring test
-        # false-positives on short tickers ("ARM" in "pharma"). Single-word
-        # sector names ("displays", "industrials") ARE common English words, so
-        # the sector branch also uses a word-boundary match instead of a bare
-        # substring test, which previously granted a seed bonus on prose like
-        # "the chart displays a breakout" (F-28).
-        sector_phrase = sm["sector"].replace("_", " ")
+        # Whole-word matches only: a short ticker or a one-word sector label is
+        # often an ordinary English word inside the rumor text (F-28).
+        sector_phrase = "" if sm["sector"] == UNKNOWN_SECTOR["sector"] else sm["sector"].replace("_", " ")
         seed_match = (
             1.0
             if (ticker and re.search(rf"\b{re.escape(ticker)}\b", seed_text, re.IGNORECASE))
@@ -112,8 +107,12 @@ async def synthesize(
     portfolio: PortfolioSnapshot,
     graph_manager: GraphStateManager,
     provider: InferenceProvider,
+    sector_map: SectorMap | None = None,
 ) -> AdvisoryReport:
     """Prefetch swarm data, call orchestrator once, parse + rank.
+
+    *sector_map* comes from load_sector_map(settings.sector_map_path); None uses
+    EMPTY_SECTOR_MAP (every holding gets the 'unknown' sector).
 
     Raises:
         pydantic.ValidationError: if the LLM returns a malformed payload twice.
@@ -125,6 +124,8 @@ async def synthesize(
         cycle_id=cycle_id,
         holdings_count=len(portfolio.holdings),
     )
+    smap = sector_map if sector_map is not None else EMPTY_SECTOR_MAP
+    held = {h.ticker.upper() for h in portfolio.holdings}
 
     # D-04: prefetch all four swarm payloads in parallel.
     bracket_summary, timeline, narratives, entities = await asyncio.gather(
@@ -149,20 +150,18 @@ async def synthesize(
     total_cost_basis = _total_cb if _total_cb > 0 else Decimal("1")
 
     # ITEM 6 of quick task 260512-jqn — enrich + split.
-    # read_entity_impact rows carry entity_name + avg_sentiment (graph.py); the
-    # previous keys (`entity`/`magnitude`) never existed, so entity_impacts was
-    # always {} and the relevance ranking was dead (F-07). Collapse to
-    # {ticker: impact} using avg_sentiment as the bounded [-1,1] directional
-    # magnitude (mention_count is unbounded and would dominate abs() in the
-    # relevance product). Free-form names ("NVIDIA") are resolved to tickers via
-    # resolve_ticker; unresolved entities are skipped so they can't score an
-    # unrelated holding. When two entities map to one ticker, keep the strongest.
+    # read_entity_impact rows carry entity_name + avg_sentiment. Collapse them to
+    # {ticker: impact}, using avg_sentiment as the bounded [-1, 1] directional
+    # magnitude. Entity names resolve only to HELD tickers (pass-through, or a
+    # curated alias from the local sector map); anything else is skipped so it
+    # cannot score an unrelated holding (F-07). When two entities map to one
+    # ticker, keep the strongest.
     entity_impacts: dict[str, float] = {}
     for entry in entities:
         if not isinstance(entry, dict):
             continue
         raw_name = str(entry.get("entity_name") or entry.get("entity") or "").strip()
-        ticker = resolve_ticker(raw_name) if raw_name else None
+        ticker = smap.resolve_ticker(raw_name, held) if raw_name else None
         if ticker is None:
             continue
         try:
@@ -172,7 +171,7 @@ async def synthesize(
         if ticker not in entity_impacts or abs(impact) > abs(entity_impacts[ticker]):
             entity_impacts[ticker] = impact
 
-    enriched = _enrich_holdings(_ticker_entries(portfolio), entity_impacts, seed_rumor)
+    enriched = _enrich_holdings(_ticker_entries(portfolio), entity_impacts, seed_rumor, sector_map=smap)
     top_holdings = enriched[:15]
     # docs/DECISIONS.md#sweep-b-7: do NOT send rest holdings to the LLM. They're padded
     # server-side with HOLD@0.30 after the conviction items return. Saves
@@ -193,9 +192,9 @@ async def synthesize(
         messages=messages,
     )
 
-    # Coverage is keyed by unique upper-cased TICKER, not by Holding row — the
-    # portfolio holds one Holding per lot, and MRVL/QQQ appear in both taxable
-    # and Roth accounts. Aggregate cost basis across lots per ticker.
+    # Coverage is keyed by unique upper-cased ticker, not by Holding row: the
+    # portfolio holds one Holding per lot, and a ticker can sit in two accounts.
+    # Aggregate cost basis across lots per ticker.
     cost_by_ticker: dict[str, Decimal] = {}
     display_ticker: dict[str, str] = {}
     for h in portfolio.holdings:
@@ -220,7 +219,7 @@ async def synthesize(
         if prev is not None and prev.confidence >= it.confidence:
             continue
         # Normalize the ticker to the portfolio's canonical casing — the LLM
-        # may echo a different case ("nvda") than the user's CSV, which would
+        # may echo a different case ("zzzt") than the user's CSV, which would
         # make kept (conviction) and padded (HOLD) items disagree on casing for
         # the same position and break ticker-keyed lookups/dedupe (F-30).
         # display_ticker[ticker_up] is guaranteed present because actual_exposure
