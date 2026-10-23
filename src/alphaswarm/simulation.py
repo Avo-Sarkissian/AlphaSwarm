@@ -1051,6 +1051,11 @@ async def _run_simulation(
         modifier_generator=generate_modifiers,
         prompt_template_hash=compute_prompt_template_hash(brackets),
     )
+    # run_simulation runs in its own task (SimulationManager) or as the CLI's main
+    # coroutine, so this binding is task-local; agent tasks created later inherit it,
+    # and every later log line of this run carries the cycle id
+    # (docs/DECISIONS.md#adr-security-2026-08).
+    structlog.contextvars.bind_contextvars(cycle_id=cycle_id)
     tracker.cycle_id = cycle_id
     if state_store is not None:
         # The frame's cycle id: the canvas fetches this cycle's edges, never the

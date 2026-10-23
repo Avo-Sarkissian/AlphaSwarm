@@ -361,6 +361,9 @@ async def _run_advisory_synthesis(
     with identical behaviour to before.  The budget_meter here is per-operation
     (fresh per advisory run) which bounds each advisory to its own spend cap.
     """
+    # The job runs in its own task (start_advisory_job), so the binding is task-local
+    # (docs/DECISIONS.md#adr-security-2026-08).
+    structlog.contextvars.bind_contextvars(cycle_id=cycle_id, job="advisory")
     gm = app_state.graph_manager
     ollama_client = app_state.ollama_client
     model_manager = app_state.model_manager

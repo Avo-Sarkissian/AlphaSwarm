@@ -204,6 +204,9 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
     write_report replaces the file atomically, so GET never reads a partial report
     (docs/DECISIONS.md#adr-background-tasks).
     """
+    # The job runs in its own task (start_report_job), so the binding is task-local
+    # (docs/DECISIONS.md#adr-security-2026-08).
+    structlog.contextvars.bind_contextvars(cycle_id=cycle_id, job="report")
     model_manager = app_state.model_manager
     gm = app_state.graph_manager
     ollama_client = app_state.ollama_client
