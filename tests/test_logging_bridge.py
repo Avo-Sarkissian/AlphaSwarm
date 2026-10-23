@@ -31,6 +31,75 @@ def _lines(buffer: io.StringIO) -> list[dict[str, object]]:
     return [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
 
 
+_UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+
+
+@pytest.fixture
+def uvicorn_loggers() -> Iterator[None]:
+    """Put the uvicorn loggers back as they were: uvicorn.Config applies uvicorn's
+    LOGGING_CONFIG to the process-wide loggers."""
+    saved = {}
+    for name in _UVICORN_LOGGERS:
+        logger = logging.getLogger(name)
+        saved[name] = (list(logger.handlers), logger.propagate, logger.level)
+    yield
+    for name, (handlers, propagate, level) in saved.items():
+        logger = logging.getLogger(name)
+        logger.handlers[:] = handlers
+        logger.propagate = propagate
+        logger.setLevel(level)
+
+
+async def _never_called_app(scope: object, receive: object, send: object) -> None:
+    raise AssertionError("the logging tests never serve a request")
+
+
+@pytest.mark.usefixtures("uvicorn_loggers")
+def test_a_direct_uvicorn_launch_is_bridged_too(capsys: pytest.CaptureFixture[str]) -> None:
+    """`uvicorn alphaswarm.web.app:app` applies uvicorn's default log_config, which gives
+    its loggers their own handlers and stops propagation. Configuring logging (the web
+    lifespan does) takes them over, so an ASGI traceback and the access lines are
+    redacted like every other line."""
+    import uvicorn
+
+    uvicorn.Config(app=_never_called_app)
+    assert logging.getLogger("uvicorn").handlers
+    assert not logging.getLogger("uvicorn.access").propagate
+    buffer = io.StringIO()
+    configure_logging(log_level="INFO", json_output=True, stream=buffer)
+    try:
+        raise RuntimeError(f"upstream rejected {FAKE_KEY}")
+    except RuntimeError:
+        logging.getLogger("uvicorn.error").exception("Exception in ASGI application")
+    logging.getLogger("uvicorn.access").info(
+        '%s - "%s %s HTTP/%s" %d', "127.0.0.1:50000", "GET", f"/api/health?key={FAKE_KEY}", "1.1", 200
+    )
+
+    captured = capsys.readouterr()
+    assert FAKE_KEY not in buffer.getvalue() + captured.out + captured.err
+    error_line, access_line = _lines(buffer)
+    assert error_line["event"] == "Exception in ASGI application"
+    exception = error_line["exception"]
+    assert isinstance(exception, list)
+    assert exception[0]["exc_value"] == "upstream rejected [REDACTED_SECRET]"
+    assert access_line["event"] == '127.0.0.1:50000 - "GET /api/health?key=[REDACTED_SECRET] HTTP/1.1" 200'
+
+
+@pytest.mark.usefixtures("uvicorn_loggers")
+def test_a_disabled_uvicorn_access_log_stays_off() -> None:
+    """`uvicorn --no-access-log` leaves uvicorn.access without handlers and without
+    propagation; the bridge keeps it that way instead of turning access lines on."""
+    import uvicorn
+
+    uvicorn.Config(app=_never_called_app, access_log=False)
+    buffer = io.StringIO()
+    configure_logging(log_level="INFO", json_output=True, stream=buffer)
+    logging.getLogger("uvicorn.access").info('127.0.0.1:50000 - "GET /api/health HTTP/1.1" 200')
+    logging.getLogger("uvicorn.error").info("Application startup complete.")
+    [line] = _lines(buffer)
+    assert line["event"] == "Application startup complete."
+
+
 def test_stdlib_warning_with_a_fake_key_is_redacted() -> None:
     """A key in a third-party SDK warning never reaches the terminal."""
     buffer = io.StringIO()

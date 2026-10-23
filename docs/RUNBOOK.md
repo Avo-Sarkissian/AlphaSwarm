@@ -131,11 +131,17 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
 
 ```bash
 # Terminal 1: backend. Runtime paths (.env, holdings CSV, .secrets/, advisory/, reports/) resolve against the repo root, so any working directory works.
-uv run uvicorn alphaswarm.web.app:app --port 8000      # or ./start (cds to the repo root, then python -m alphaswarm web)
+./start                                                 # or: uv run alphaswarm web (both serve 127.0.0.1:8000)
 
 # Terminal 2: frontend with hot reload (proxies /api and /ws to :8000)
 npm --prefix frontend run dev                           # http://localhost:5173
 ```
+- `./start` and `alphaswarm web` configure logging before uvicorn starts, so every
+  server line, uvicorn's own included, goes through the redacting structlog chain.
+  A direct `uv run uvicorn alphaswarm.web.app:app --port 8000` also works, but its
+  first two lines ("Started server process", "Waiting for application startup.")
+  use uvicorn's own format; the app takes over uvicorn's loggers when its lifespan
+  starts.
 - `http://localhost:8000` serves the UI **only after** `npm --prefix frontend run build`.
   `frontend/dist/` is gitignored, so build it first (README Quick Start). Without a build, use :5173.
 - Uvicorn does not hot-reload Python changes in this setup. **Restart the
