@@ -9,19 +9,30 @@ ConnectionManager, which applies drop-oldest backpressure per client
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import Protocol
 
 import psutil
 import structlog
 
-from alphaswarm.state import StateStore
+from alphaswarm.state import ReplayStore, StateStore
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.wire import build_frame
 
-if TYPE_CHECKING:
-    from alphaswarm.web.replay_manager import ReplayManager
-
 log = structlog.get_logger(component="web.broadcaster")
+
+
+class ReplaySource(Protocol):
+    """The replay view the broadcaster reads; ``ReplayManager`` satisfies it.
+
+    A structural seam instead of an import of ``ReplayManager``, which itself
+    imports ``snapshot_to_json`` from this module.
+    """
+
+    @property
+    def has_store(self) -> bool: ...
+
+    @property
+    def store(self) -> ReplayStore: ...
 
 
 def _host_memory_percent() -> float:
@@ -35,7 +46,7 @@ def _host_memory_percent() -> float:
 
 def snapshot_to_json(
     state_store: StateStore,
-    replay_manager: ReplayManager | None = None,
+    replay_manager: ReplaySource | None = None,
 ) -> str:
     """Serialize the current StateFrame to JSON.
 
@@ -58,7 +69,7 @@ def snapshot_to_json(
 def start_broadcaster(
     state_store: StateStore,
     connection_manager: ConnectionManager,
-    replay_manager: ReplayManager | None = None,
+    replay_manager: ReplaySource | None = None,
 ) -> asyncio.Task[None]:
     """Create and return a broadcaster task running at ~5Hz.
 
@@ -74,7 +85,7 @@ def start_broadcaster(
 async def _broadcast_loop(
     state_store: StateStore,
     connection_manager: ConnectionManager,
-    replay_manager: ReplayManager | None = None,
+    replay_manager: ReplaySource | None = None,
 ) -> None:
     """Broadcast the StateFrame to all WebSocket clients at ~5Hz.
 
