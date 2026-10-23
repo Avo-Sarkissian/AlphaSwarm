@@ -231,7 +231,7 @@ interface UiState {
   comingSoon: 'whatif' | 'multiseed' | 'stress' | 'brackets' | null;
 }
 
-export function App() {
+export function App({ initialSeed = '' }: { initialSeed?: string }) {
   // Live data via 6-context tree (W1 Plan 01 wiring).
   const { agents } = useAgents();
   const { rationales } = useRationales();
@@ -262,7 +262,7 @@ export function App() {
   }, [governorPaused]);
 
   // Local UI state — chrome only (no live data here).
-  const [seed, setSeed] = useState<string>('');
+  const [seed, setSeed] = useState<string>(initialSeed);
   const [actionError, setActionError] = useState<string | null>(null);
   const [layout, setLayout] = useState<'force' | 'radial' | 'grid'>('force');
   const [hintsDismissed, setHintsDismissed] = useState(false);

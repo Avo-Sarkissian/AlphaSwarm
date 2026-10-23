@@ -14,6 +14,7 @@ import { FrameProviders } from './context/FrameProviders';
 import { App as DashboardShell } from './components/app_v2';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import { Onboarding } from './components/onboarding';
+import { safeStorage } from './lib/safeStorage';
 
 const ONBOARDING_FLAG = 'as_onboarding_v1_complete';
 
@@ -23,28 +24,30 @@ export function App() {
 
   // Onboarding gate (D-12). Full Onboarding component arrives in W4.
   // codex LOW-9 + gemini #6: derive initial state from BOTH the dev-skip env var
-  // AND the persisted localStorage flag. Pure read; no localStorage writes during
+  // AND the persisted storage flag. Pure read; no storage writes during
   // the render path (no useEffect, no setItem in initializer).
   const [onboardingDone, setOnboardingDone] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
     const devSkip = import.meta.env.DEV && import.meta.env.VITE_SKIP_ONBOARDING === 'true';
-    const persisted = localStorage.getItem(ONBOARDING_FLAG) === 'true';
-    return devSkip || persisted;
+    return devSkip || safeStorage.get(ONBOARDING_FLAG) === 'true';
   });
+  // The seed typed during onboarding pre-fills the dashboard, so the topbar
+  // and SeedingState show what is actually running.
+  const [initialSeed, setInitialSeed] = useState<string>('');
   // codex LOW-9 + gemini #6 (preserved from W1 patch): the onboardingDone
   // initial state ALREADY honors VITE_SKIP_ONBOARDING=true via the useState
   // initializer above; the dev-skip path falls through to the dashboard render
   // automatically because onboardingDone === true at mount. We do NOT write
-  // localStorage during render — the localStorage.setItem below runs only inside
+  // storage during render — the safeStorage.set below runs only inside
   // the Onboarding onComplete event handler.
   if (!onboardingDone) {
     return (
       <Onboarding
         numRounds={lastFrame?.numRounds ?? null}
-        onComplete={(_seed: string) => {
+        onComplete={(seed: string) => {
           // simStart was already fired inside Onboarding's Run handler — do NOT
-          // re-fire here. We only persist the gate flag and unmount Onboarding.
-          localStorage.setItem(ONBOARDING_FLAG, 'true');
+          // re-fire here. Persist the gate flag, keep the seed, unmount Onboarding.
+          safeStorage.set(ONBOARDING_FLAG, 'true');
+          setInitialSeed(seed);
           setOnboardingDone(true);
         }}
       />
@@ -63,7 +66,7 @@ export function App() {
     <FrameProviders frame={lastFrame} connected={connected} status={status}>
       <ConnectionBanner status={status} />
       <EdgesProvider>
-        <DashboardShell />
+        <DashboardShell initialSeed={initialSeed} />
       </EdgesProvider>
     </FrameProviders>
   );
