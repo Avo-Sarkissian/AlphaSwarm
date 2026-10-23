@@ -66,12 +66,13 @@ function httpFailure(err: unknown): { status: unknown; body: unknown } | null {
 }
 
 /**
- * True when the request never reached the backend: fetch rejected with a
- * TypeError, or the Vite dev proxy answered backend_unreachable
- * (lib/backendUnreachable.ts).
+ * True when the request never reached the backend: fetch rejected (a raw
+ * TypeError, or request()'s network_error ApiError), or the Vite dev proxy
+ * answered backend_unreachable (lib/backendUnreachable.ts).
  */
 export function isBackendUnreachable(err: unknown): boolean {
   if (err instanceof TypeError) return true;
+  if (err instanceof ApiError && err.code === 'network_error') return true;
   const failure = httpFailure(err);
   return failure !== null && parseErrorEnvelope(failure.body).code === BACKEND_UNREACHABLE_CODE;
 }
@@ -87,6 +88,9 @@ export function formatApiError(err: unknown): string {
   if (failure) {
     const { code, message } = parseErrorEnvelope(failure.body);
     if (message) return message;
+    // Timeouts and network failures (status 0, no body) carry readable text
+    // in Error.message (src/api/client.ts request()).
+    if (failure.status === 0 && err instanceof Error && err.message) return err.message;
     const statusText = typeof failure.status === 'number' ? ` (HTTP ${failure.status})` : '';
     if (code) return `${code.replace(/_/g, ' ')}${statusText}`;
     return `Request failed${statusText}`;

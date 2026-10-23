@@ -7,7 +7,10 @@
 // On PUT, api_key is a raw string per role; omit it (leave undefined) when
 // the caller wants to keep the stored key — an empty string is treated as
 // "omit" by putSettings() and stripped from the request body.
-import { apiFetch, apiPost, ApiError } from './client';
+import { apiFetch, apiPost, request } from './client';
+
+/** A cloud provider test can take up to its own 120 s request timeout. */
+const CONNECTION_TEST_TIMEOUT_MS = 180_000;
 
 // ── types ─────────────────────────────────────────────────────────────────
 
@@ -132,7 +135,7 @@ export function getSettings(): Promise<SettingsView> {
  * Empty api_key strings are stripped (backend keeps stored key).
  * Throws ApiError with status 409 when a sim is running.
  */
-export async function putSettings(
+export function putSettings(
   body: SettingsPutBody,
 ): Promise<{ config: SettingsView['config']; mode: SettingsView['mode'] }> {
   const sanitised: SettingsPutBody = {
@@ -140,31 +143,18 @@ export async function putSettings(
     orchestrator: sanitiseRolePut(body.orchestrator),
     worker: sanitiseRolePut(body.worker),
   };
-  const res = await fetch('/api/settings', {
+  return request('/api/settings', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(sanitised),
   });
-  if (!res.ok) {
-    let errBody: unknown;
-    try {
-      errBody = await res.json();
-    } catch {
-      errBody = await res.text().catch(() => null);
-    }
-    throw new ApiError(res.status, errBody, '/api/settings');
-  }
-  return res.json() as Promise<{
-    config: SettingsView['config'];
-    mode: SettingsView['mode'];
-  }>;
 }
 
 /** POST /api/settings/test — test stored connection for a role. Connection failures come back in the result; throws ApiError 409 simulation_running during a run. */
 export function testConnection(
   role: 'orchestrator' | 'worker',
 ): Promise<TestResult> {
-  return apiPost<TestResult>('/api/settings/test', { role });
+  return apiPost<TestResult>('/api/settings/test', { role }, { timeoutMs: CONNECTION_TEST_TIMEOUT_MS });
 }
 
 /** GET /api/settings/estimate — cost estimate for the next run. */

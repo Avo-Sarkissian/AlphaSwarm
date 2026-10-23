@@ -3,6 +3,9 @@
 // not SSE. Plan 04 modals render the full response as one block.
 import { apiPost } from './client';
 
+/** A local interview turn (lazy narrative + answer) can take minutes; match the backend's 600 s. */
+const INTERVIEW_TIMEOUT_MS = 600_000;
+
 export interface InterviewResponse {
   response: string;
 }
@@ -17,5 +20,6 @@ export async function askAgent(
   return apiPost<InterviewResponse>(
     `/api/interview/${encodeURIComponent(agentId)}`,
     { message: trimmed },
+    { timeoutMs: INTERVIEW_TIMEOUT_MS },
   );
 }
