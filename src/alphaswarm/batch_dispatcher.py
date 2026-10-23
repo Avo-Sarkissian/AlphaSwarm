@@ -106,7 +106,8 @@ async def _safe_agent_inference(
     # (docs/DECISIONS.md#adr-security-2026-08).
     structlog.contextvars.bind_contextvars(round=round_num, agent_id=persona["agent_id"])
     try:
-        await asyncio.sleep(random.uniform(jitter_min, jitter_max))
+        if jitter_max > 0:
+            await asyncio.sleep(random.uniform(jitter_min, jitter_max))
         async with agent_worker(persona, governor, provider, state_store=state_store, telemetry=telemetry) as worker:
             decision = await worker.infer(
                 user_message=user_message,
@@ -184,8 +185,8 @@ async def dispatch_wave(
     """Dispatch a wave of agent inferences using asyncio.TaskGroup.
 
     Creates one task per persona inside a TaskGroup (INFRA-07: no bare
-    create_task). Each task applies random jitter before acquiring a
-    governor slot and running inference.
+    create_task). Each task applies random jitter before acquiring a slot when
+    the provider is remote; local providers dispatch without jitter.
 
     After the wave completes, counts failures and reports to the governor
     if any occurred (the governor internally decides whether to shrink
@@ -231,6 +232,14 @@ async def dispatch_wave(
 
     tasks: list[asyncio.Task[AgentDecision]] = []
 
+    # Local calls queue inside Ollama, so jitter only delays them and scrambles the
+    # bracket order in which consecutive prompts can share a KV prefix
+    # (docs/DECISIONS.md#adr-prefix-reuse). Cloud calls keep it against bursts.
+    if provider.is_local():
+        jitter_min, jitter_max = 0.0, 0.0
+    else:
+        jitter_min, jitter_max = settings.jitter_min_seconds, settings.jitter_max_seconds
+
     try:
         async with asyncio.TaskGroup() as tg:
             tasks = [
@@ -242,8 +251,8 @@ async def dispatch_wave(
                         user_message,
                         peer_contexts[i] if peer_contexts is not None else peer_context,
                         market_context,
-                        settings.jitter_min_seconds,
-                        settings.jitter_max_seconds,
+                        jitter_min,
+                        jitter_max,
                         state_store=state_store,
                         round_num=round_num,
                         own_prior=own_priors[i] if own_priors is not None else None,

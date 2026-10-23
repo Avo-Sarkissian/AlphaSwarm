@@ -293,7 +293,7 @@ Contents
 ### <a id="adr-taskgroup-dispatch"></a>All agent fan-out uses `asyncio.TaskGroup`, with jitter
 - **Decision:**
   - `dispatch_wave` creates one task per persona inside a TaskGroup, with no bare `create_task` (INFRA-07). Narratives are no longer a fan-out: one worker call on an agent's first interview ([p11-d-11](#p11-d-11)).
-  - Random 0.5-1.5 s jitter runs before acquiring a slot ([p3-d-14](#p3-d-14)).
+  - Random 0.5-1.5 s jitter runs before acquiring a slot for cloud providers; local dispatch has none since 2026-10, so prompts reach Ollama in bracket order ([p3-d-14](#p3-d-14), [adr-prefix-reuse](#adr-prefix-reuse)).
   - A failed agent becomes a PARSE_ERROR decision with `error_kind` `"inference"` (the call raised) or `"parse"` (tier-3 parse fallback), and the round continues. Cycle metrics count `r{n}_inference_errors` separately from `r{n}_parse_errors`.
   - Hard stops (`HARD_STOP_ERRORS` in `batch_dispatcher.py`: `BudgetExceededError`, `AuthError`, `GovernorCrisisError`) are never converted. `dispatch_wave` unwraps the TaskGroup's `ExceptionGroup` with `except*` and re-raises the first one bare, chained `from` the group; `ensure_decision_narrative` lets them propagate and turns any other inference failure into an interview without a narrative; a failure to store the narrative fails that first interview.
   - Round abort: after `dispatch_wave` and before the round's first Neo4j write, a round in which `failed * 100 > GovernorSettings.round_abort_failure_percent * total` (default 50; `failed` = PARSE_ERROR of any kind) raises `RoundFailedError`; an empty round always fails. Failed agents are not re-dispatched.
@@ -551,7 +551,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p3-d-11"></a>`D-11` | Metrics emitted to StateStore on state change. Later (8521e91, Jun 2026) also emitted every check for the live UI. | partial | governor.py:419; state.py:25 |
 | <a id="p3-d-12"></a>`D-12` | Dual-signal memory sensing: psutil percent plus macOS kernel pressure. Implemented with sysctl kern.memorystatus_vm_pressure_level (not the memory_pressure CLI); unknown values map to GREEN, read failures are fail-stale since F-17. | partial | memory_monitor.py:39 |
 | <a id="p3-d-13"></a>`D-13` | Kernel pressure YELLOW/RED is the master signal: halt the queue and drop to 1 slot. | active | governor.py:444; tests/test_governor.py:268 |
-| <a id="p3-d-14"></a>`D-14` | Random jitter (0.5-1.5s) before each agent dispatch, applied in batch_dispatcher, not inside the worker; spreads load spikes. Both bounds accept 0.0 (2026-10) so deterministic tests can turn jitter off ([adr-engine-scenario-harness](#adr-engine-scenario-harness)); the defaults are unchanged. | active | batch_dispatcher.py:52; settings.py:GovernorSettings |
+| <a id="p3-d-14"></a>`D-14` | Random jitter (0.5-1.5s) before each agent dispatch, applied in batch_dispatcher, not inside the worker; spreads load spikes. Both bounds accept 0.0 (2026-10) so deterministic tests can turn jitter off ([adr-engine-scenario-harness](#adr-engine-scenario-harness)); the defaults are unchanged. Since 2026-10 for cloud providers only (adr-prefix-reuse). | partial | batch_dispatcher.py:dispatch_wave; settings.py:GovernorSettings |
 
 ### Phase 4: Neo4j graph state
 

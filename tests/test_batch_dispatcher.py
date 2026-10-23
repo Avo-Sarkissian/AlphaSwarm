@@ -33,7 +33,7 @@ _VALID_BUY_JSON = (
 )
 
 
-def _fake_provider(content: str = _VALID_BUY_JSON, *, n: int = 1000) -> FakeInferenceProvider:
+def _fake_provider(content: str = _VALID_BUY_JSON, *, n: int = 1000, is_local: bool = True) -> FakeInferenceProvider:
     """Return a FakeInferenceProvider scripted with n identical results.
 
     Default n=1000 is a generous upper bound for batch tests so the scripted
@@ -51,6 +51,7 @@ def _fake_provider(content: str = _VALID_BUY_JSON, *, n: int = 1000) -> FakeInfe
         role=ProviderRole.WORKER,
         model="fake-model",
         scripted=scripted,
+        is_local=is_local,
     )
 
 
@@ -171,10 +172,10 @@ async def test_jitter_applied_before_dispatch(
     governor: ResourceGovernor,
     sample_personas: list[WorkerPersonaConfig],
 ) -> None:
-    """asyncio.sleep is called with jitter values in [0.5, 1.5] range."""
+    """asyncio.sleep is called with jitter values in [0.5, 1.5] range (cloud provider)."""
     from alphaswarm.batch_dispatcher import dispatch_wave
 
-    provider = _fake_provider(n=len(sample_personas))
+    provider = _fake_provider(n=len(sample_personas), is_local=False)
     settings = GovernorSettings(baseline_parallel=16)
     sleep_values: list[float] = []
 
@@ -199,10 +200,10 @@ async def test_jitter_within_settings_range(
     governor: ResourceGovernor,
     sample_personas: list[WorkerPersonaConfig],
 ) -> None:
-    """Jitter values respect custom GovernorSettings jitter_min/max."""
+    """Jitter values respect custom GovernorSettings jitter_min/max (cloud provider)."""
     from alphaswarm.batch_dispatcher import dispatch_wave
 
-    provider = _fake_provider(n=len(sample_personas))
+    provider = _fake_provider(n=len(sample_personas), is_local=False)
     settings = GovernorSettings(baseline_parallel=16, jitter_min_seconds=0.5, jitter_max_seconds=0.8)
     sleep_values: list[float] = []
 
@@ -1406,3 +1407,38 @@ async def test_dispatch_wave_feeds_round_telemetry() -> None:
     assert len(decisions) == 3
     assert telemetry.calls == 3
     assert telemetry.to_metrics(1)["r1_mean_completion_tokens"] == 150.0
+
+
+def _record_jitter(monkeypatch: pytest.MonkeyPatch) -> list[tuple[float, float]]:
+    draws: list[tuple[float, float]] = []
+
+    def fake_uniform(low: float, high: float) -> float:
+        draws.append((low, high))
+        return 0.0
+
+    monkeypatch.setattr("alphaswarm.batch_dispatcher.random.uniform", fake_uniform)
+    return draws
+
+
+@pytest.mark.parametrize(("is_local", "expected_draws"), [(True, 0), (False, 3)])
+async def test_jitter_only_for_cloud_providers(
+    monkeypatch: pytest.MonkeyPatch, is_local: bool, expected_draws: int
+) -> None:
+    draws = _record_jitter(monkeypatch)
+    personas = [persona_to_worker_config(p) for p in generate_personas(DEFAULT_BRACKETS)[:3]]
+    provider = FakeInferenceProvider(
+        ProviderRole.WORKER,
+        "fake-model",
+        scripted=lambda **_: InferenceResult(content=_TELEMETRY_DECISION, model="fake-model"),
+        is_local=is_local,
+    )
+    await dispatch_wave(
+        personas,
+        ImmediateController(),
+        provider,
+        "ZZZT Holdings rumor",
+        GovernorSettings(jitter_min_seconds=0.5, jitter_max_seconds=1.5),
+        round_num=1,
+    )
+    assert len(draws) == expected_draws
+    assert all(draw == (0.5, 1.5) for draw in draws)
