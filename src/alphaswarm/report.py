@@ -3,20 +3,32 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
+from alphaswarm.errors import AlphaSwarmError
 from alphaswarm.fsutil import atomic_write_text
 
 if TYPE_CHECKING:
+    from alphaswarm.graph import (
+        BracketNarrativeRow,
+        ConsensusSummaryRow,
+        EntityImpactRow,
+        GraphStateManager,
+        InfluenceLeaderRow,
+        KeyDissenterRow,
+        RoundTimelineRow,
+        ShockImpactRow,
+        SignalFlipRow,
+    )
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.inference.types import InferenceMessage
 
@@ -256,6 +268,84 @@ def num(value: object, digits: int = 2) -> str:
     return f"{float(value):.{digits}f}"
 
 
+class ReportDataError(AlphaSwarmError):
+    """The cycle has nothing to report on (no decisions were persisted)."""
+
+
+@dataclass(frozen=True)
+class ReportData:
+    """Everything a report renders, read once with the cycle id bound server-side."""
+
+    cycle_id: str
+    final_round: int
+    seed_rumor: str
+    consensus: ConsensusSummaryRow
+    timeline: list[RoundTimelineRow]
+    brackets: list[BracketNarrativeRow]
+    dissenters: list[KeyDissenterRow]
+    influence: list[InfluenceLeaderRow]
+    flips: list[SignalFlipRow]
+    entities: list[EntityImpactRow]
+    shock: ShockImpactRow | None
+    generated_at: datetime
+
+
+async def resolve_final_round(gm: GraphStateManager, cycle_id: str) -> int:
+    """Last round that has decisions: 2 or 3 (docs/DECISIONS.md#adr-num-rounds)."""
+    timeline = await gm.read_round_timeline(cycle_id)
+    rounds = [int(row["round_num"]) for row in timeline]
+    if not rounds:
+        raise ReportDataError(f"Cycle {cycle_id} has no decisions to report on")
+    return max(rounds)
+
+
+async def collect_report_data(
+    gm: GraphStateManager,
+    cycle_id: str,
+    final_round: int,
+) -> ReportData:
+    """Run every report read concurrently for *cycle_id*.
+
+    The model never chooses a query or a cycle id. ``asyncio.gather`` is enough
+    here: the reads are independent and read-only, and the first failure
+    propagates unwrapped to the job (docs/DECISIONS.md#adr-report-react). The
+    nine reads are split into two inner gathers (both scheduled immediately, so
+    all nine run concurrently) because typeshed types ``gather`` precisely only up
+    to six awaitables.
+    """
+    tables = asyncio.gather(
+        gm.read_consensus_summary(cycle_id),
+        gm.read_round_timeline(cycle_id),
+        gm.read_bracket_narratives(cycle_id),
+        gm.read_key_dissenters(cycle_id),
+        gm.read_influence_leaders(cycle_id),
+        gm.read_signal_flips(cycle_id),
+    )
+    extras = asyncio.gather(
+        gm.read_entity_impact(cycle_id),
+        gm.read_shock_event(cycle_id),
+        gm.read_cycle_seed(cycle_id),
+    )
+    (consensus, timeline, brackets, dissenters, influence, flips), (entities, shock_event, seed) = await asyncio.gather(
+        tables, extras
+    )
+    shock = await gm.read_shock_impact(cycle_id) if shock_event is not None else None
+    return ReportData(
+        cycle_id=cycle_id,
+        final_round=final_round,
+        seed_rumor=seed or "",
+        consensus=consensus,
+        timeline=list(timeline),
+        brackets=list(brackets),
+        dissenters=list(dissenters),
+        influence=list(influence),
+        flips=list(flips),
+        entities=list(entities),
+        shock=shock,
+        generated_at=datetime.now(UTC),
+    )
+
+
 TOOL_TO_TEMPLATE: dict[str, str] = {
     "bracket_summary": "01_consensus_summary.j2",
     "round_timeline": "02_round_timeline.j2",
@@ -337,7 +427,7 @@ class ReportAssembler:
         # Index observations by tool_name for fast lookup
         obs_by_tool: dict[str, ToolObservation] = {obs.tool_name: obs for obs in observations}
 
-        now_iso = datetime.datetime.now(tz=datetime.UTC).isoformat()
+        now_iso = datetime.now(tz=UTC).isoformat()
         header = f"# Post-Simulation Analysis Report\n\n**Cycle:** {cycle_id}\n**Generated:** {now_iso}\n\n---\n\n"
 
         sections: list[str] = []
