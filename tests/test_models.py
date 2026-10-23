@@ -12,12 +12,15 @@ Tests verify:
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import alphaswarm.ollama_models as ollama_models_module
 from alphaswarm.errors import ModelLoadError
+from alphaswarm.ollama_models import WARMUP_PROMPT, WARMUP_SLOW_PREFILL_TPS, warmup_stats
 
 
 def _make_process_model(name: str) -> MagicMock:
@@ -220,3 +223,107 @@ def test_model_manager_no_longer_tracks_a_current_model() -> None:
 async def test_loaded_models_lists_every_resident_model(model_manager: Any, mock_raw_client: AsyncMock) -> None:
     mock_raw_client.ps = AsyncMock(return_value=_make_ps_response(["llama3:8b", "alphaswarm-worker"]))
     assert await model_manager.loaded_models() == ["alphaswarm-worker", "llama3:8b"]
+
+
+class _WarmupLog:
+    """Stand-in for the module logger; records (event, fields) for every level used."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, Any]]] = []
+
+    async def ainfo(self, event: str, **fields: Any) -> None:
+        self.events.append((event, fields))
+
+    async def awarning(self, event: str, **fields: Any) -> None:
+        self.events.append((event, fields))
+
+    def warning(self, event: str, **fields: Any) -> None:
+        self.events.append((event, fields))
+
+    def named(self, event: str) -> list[dict[str, Any]]:
+        return [fields for name, fields in self.events if name == event]
+
+
+@pytest.fixture()
+def warmup_log(monkeypatch: pytest.MonkeyPatch) -> _WarmupLog:
+    rec = _WarmupLog()
+    monkeypatch.setattr(ollama_models_module, "logger", rec)
+    return rec
+
+
+def _resident(mock_raw_client: AsyncMock, model: str) -> None:
+    mock_raw_client.ps = AsyncMock(return_value=_make_ps_response([model]))
+
+
+async def test_warmup_request_shape(
+    model_manager: Any, mock_ollama_client: MagicMock, mock_raw_client: AsyncMock
+) -> None:
+    _resident(mock_raw_client, "alphaswarm-orchestrator")
+    await model_manager.load_model("alphaswarm-orchestrator")
+    assert mock_ollama_client.chat.await_args.kwargs == {
+        "model": "alphaswarm-orchestrator",
+        "messages": [{"role": "user", "content": WARMUP_PROMPT}],
+        "think": False,
+        "keep_alive": "5m",
+        "options": {"num_predict": 1},
+        "timeout_role": "orchestrator",
+    }
+
+
+async def test_warmup_uses_the_long_read_timeout(
+    model_manager: Any, mock_ollama_client: MagicMock, mock_raw_client: AsyncMock
+) -> None:
+    # Loading the worker pays model load plus MLX kernel compilation, so the
+    # warm-up must never run on the 120 s worker read timeout.
+    _resident(mock_raw_client, "alphaswarm-worker")
+    await model_manager.load_model("alphaswarm-worker")
+    kwargs = mock_ollama_client.chat.await_args.kwargs
+    assert kwargs["timeout_role"] == "orchestrator"
+    assert kwargs["messages"] and kwargs["messages"][0]["content"].strip()
+
+
+async def test_warmup_logs_load_and_prefill(
+    model_manager: Any,
+    mock_ollama_client: MagicMock,
+    mock_raw_client: AsyncMock,
+    warmup_log: _WarmupLog,
+) -> None:
+    _resident(mock_raw_client, "alphaswarm-worker")
+    mock_ollama_client.chat.return_value = SimpleNamespace(
+        prompt_eval_count=40, prompt_eval_duration=20_000_000, load_duration=1_500_000_000
+    )
+    await model_manager.load_model("alphaswarm-worker")
+    [fields] = warmup_log.named("model_warmed")
+    assert fields["model"] == "alphaswarm-worker"
+    assert (fields["prompt_tokens"], fields["prefill_tps"], fields["load_ms"]) == (40, 2000.0, 1500.0)
+    assert fields["warmup_ms"] >= 0.0
+    assert warmup_log.named("model_warmup_slow") == []
+
+
+async def test_slow_warmup_prefill_warns(
+    model_manager: Any,
+    mock_ollama_client: MagicMock,
+    mock_raw_client: AsyncMock,
+    warmup_log: _WarmupLog,
+) -> None:
+    _resident(mock_raw_client, "alphaswarm-orchestrator")
+    half_rate = WARMUP_SLOW_PREFILL_TPS / 2  # 100 t/s at the shipped 200 t/s threshold
+    mock_ollama_client.chat.return_value = SimpleNamespace(
+        prompt_eval_count=40, prompt_eval_duration=int(40 / half_rate * 1e9), load_duration=0
+    )
+    await model_manager.load_model("alphaswarm-orchestrator")
+    [fields] = warmup_log.named("model_warmup_slow")
+    assert (fields["model"], fields["prefill_tps"], fields["threshold_tps"]) == (
+        "alphaswarm-orchestrator",
+        round(half_rate, 1),
+        WARMUP_SLOW_PREFILL_TPS,
+    )
+
+
+def test_warmup_stats_tolerate_missing_fields() -> None:
+    assert warmup_stats(MagicMock(), 0.25) == {
+        "warmup_ms": 250.0,
+        "load_ms": None,
+        "prompt_tokens": None,
+        "prefill_tps": None,
+    }

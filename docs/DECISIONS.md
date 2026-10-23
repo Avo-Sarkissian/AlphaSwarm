@@ -90,7 +90,7 @@ Contents
 - **Decision:** Every local inference call passes `think=False`. It is hardcoded in `OllamaProvider.chat` (`inference/ollama_provider.py:162`), so it covers worker and orchestrator alike: seed, modifiers, rounds, narratives, advisory, report, and interview. No call site sets it individually.
 - **Rationale:** The 2026-05-06 probe on qwen3.6:27b measured 274.6 s per call with thinking against 9.5 s without. Both produced valid JSON, and neither output was clearly better. With 11.3 t/s MLX decode, thinking also pushed advisory past the 600 s timeout (quick task 260611-rlx).
 - **Where:**
-  - Enforced: `inference/ollama_provider.py:162` (documented at `:12` and `:129`).
+  - Enforced: `inference/ollama_provider.py:162` (documented at `:12` and `:129`); the load warm-up in ollama_models.py passes it too (2026-10).
   - Rationale comments only: `seed.py:inject_seed`, `tests/test_seed_pipeline.py:test_inject_seed_calls_chat_with_seed_schema`, `modelfiles/Modelfile.orchestrator:16-17`.
 - **Revisit:**
   - Triggers: complaints about consensus quality, or missed divergence flags.
@@ -102,6 +102,7 @@ Contents
 - **Rationale:** One 600 s scalar let a stalled worker call hold its slot for ten minutes and made an unreachable host take 600 s to fail. Worker calls take seconds on MLX. `ollama.AsyncClient` fixes its timeout per client, hence two pools rather than a per-call value.
 - **Where:** `ollama_client.py` (`OllamaTimeouts`, `chat(timeout_role=)`), `inference/ollama_provider.py`, `app.py`, `settings.py`.
 - **Revisit when:** a cold worker load inside a worker call (keep-alive expired, for example a late interview) needs more than 120 s: raise `ALPHASWARM_OLLAMA__WORKER_READ_TIMEOUT_S`.
+- **Warm-up:** every load sends a short fixed prompt with think=False and num_predict 1 on the orchestrator read timeout, and logs model_warmed (warmup_ms, load_ms, prompt_tokens, prefill_tps). A prefill rate under 200 t/s logs model_warmup_slow, which usually means OLLAMA_USE_MLX is not set. Before this, the "ping" ran with qwen3.6 reasoning on and no output cap.
 
 ### <a id="adr-sequential-model-lifecycle"></a>At most two models loaded; orchestrator users are serialized
 - **Decision:**

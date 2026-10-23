@@ -13,6 +13,10 @@ conditions from concurrent async calls.
 from __future__ import annotations
 
 import asyncio
+import time
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Final
 
 import structlog
 
@@ -20,6 +24,50 @@ from alphaswarm.errors import ModelLoadError
 from alphaswarm.ollama_client import OllamaClient
 
 logger = structlog.get_logger(component="ollama_models")
+
+# Warm-up request sent by every load (docs/DECISIONS.md#adr-inference-timeouts): a
+# short realistic prompt (some Ollama builds reject an empty messages list),
+# reasoning off and one output token. It pays model load and MLX kernel
+# compilation, so it runs on the long orchestrator read timeout.
+WARMUP_PROMPT: Final = (
+    "You are a market analyst. Answer in one word: is the headline "
+    "'Company beats quarterly earnings estimates' bullish or bearish?"
+)
+WARMUP_OPTIONS: Final[Mapping[str, int]] = MappingProxyType({"num_predict": 1})
+# A warm-up prefill rate below this suggests the llama.cpp fallback instead of MLX
+# (benchmarks: worker 2,361 t/s, orchestrator 3,395 t/s; docs/DECISIONS.md#adr-model-stack).
+WARMUP_SLOW_PREFILL_TPS: Final = 200.0
+
+
+def _count(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def warmup_stats(response: object, wall_seconds: float) -> dict[str, float | int | None]:
+    """Wall time, load time, prompt size and prefill rate of one warm-up reply."""
+    prompt_tokens = _count(getattr(response, "prompt_eval_count", None))
+    prefill_ns = _count(getattr(response, "prompt_eval_duration", None))
+    load_ns = _count(getattr(response, "load_duration", None))
+    prefill_tps = round(prompt_tokens / (prefill_ns / 1e9), 1) if prompt_tokens and prefill_ns else None
+    return {
+        "warmup_ms": round(wall_seconds * 1000, 1),
+        "load_ms": None if load_ns is None else round(load_ns / 1e6, 1),
+        "prompt_tokens": prompt_tokens,
+        "prefill_tps": prefill_tps,
+    }
+
+
+async def _log_warmup(model: str, stats: Mapping[str, float | int | None]) -> None:
+    await logger.ainfo("model_warmed", model=model, **stats)
+    rate = stats["prefill_tps"]
+    if isinstance(rate, float) and rate < WARMUP_SLOW_PREFILL_TPS:
+        await logger.awarning(
+            "model_warmup_slow",
+            model=model,
+            prefill_tps=rate,
+            threshold_tps=WARMUP_SLOW_PREFILL_TPS,
+            hint="check OLLAMA_USE_MLX on the Ollama server (docs/RUNBOOK.md section 1)",
+        )
 
 
 class OllamaModelManager:
@@ -54,8 +102,9 @@ class OllamaModelManager:
     async def load_model(self, model: str) -> None:
         """Load a model into Ollama memory.
 
-        Sends a minimal chat request to trigger model loading, then
-        verifies via ps() that the model is actually loaded.
+        Sends a short warm-up request (reasoning off, one output token, long read
+        timeout) that loads the model, logs its load time and prefill rate, then
+        verifies via ps() that the model is loaded.
         Serialized by internal Lock to prevent concurrent load/unload races.
 
         Args:
@@ -67,11 +116,15 @@ class OllamaModelManager:
         """
         async with self._lock:
             await logger.ainfo("loading model", model=model)
+            started = time.monotonic()
             try:
-                await self._client.chat(
+                response = await self._client.chat(
                     model=model,
-                    messages=[{"role": "user", "content": "ping"}],
+                    messages=[{"role": "user", "content": WARMUP_PROMPT}],
+                    think=False,
                     keep_alive="5m",
+                    options=dict(WARMUP_OPTIONS),
+                    timeout_role="orchestrator",
                 )
             except Exception as exc:
                 raise ModelLoadError(
@@ -79,6 +132,7 @@ class OllamaModelManager:
                     model=model,
                     original_error=exc if isinstance(exc, Exception) else None,
                 ) from exc
+            await _log_warmup(model, warmup_stats(response, time.monotonic() - started))
 
             if not await self.is_model_loaded(model):
                 raise ModelLoadError(
