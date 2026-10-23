@@ -72,6 +72,14 @@ EXPECTED_KEYS: dict[str, set[str]] = {
         "avg_sentiment",
     },
     "RationaleRoundRow": {"agent_id", "signal", "rationale", "round_num"},
+    "AgentDecisionRow": {
+        "round_num",
+        "signal",
+        "confidence",
+        "sentiment",
+        "rationale",
+        "cited_agents",
+    },
 }
 
 

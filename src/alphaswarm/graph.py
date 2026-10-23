@@ -158,6 +158,17 @@ class CompletedCycleRow(TypedDict):
     agent_count: int | None
 
 
+class AgentDecisionRow(TypedDict):
+    """One stored decision of one agent; signal is lowercase."""
+
+    round_num: int
+    signal: str
+    confidence: float
+    sentiment: float
+    rationale: str
+    cited_agents: list[str]
+
+
 class BracketRoundRow(TypedDict):
     """Replay per-round bracket row; totals and averages exclude parse errors."""
 
@@ -1281,6 +1292,66 @@ class GraphStateManager:
             cycle_id=cycle_id,
         )
         return [dict(record) async for record in result]
+
+    async def read_agent_decisions(self, cycle_id: str, agent_id: str) -> list[AgentDecisionRow]:
+        """All of one agent's stored decisions in a cycle, ascending by round.
+
+        Rounds appear as they are persisted, so a running cycle returns the
+        rounds finished so far (docs/DECISIONS.md#p14-d-06).
+
+        Raises:
+            Neo4jConnectionError: When Neo4j query fails.
+        """
+        try:
+            async with self._driver.session(database=self._database) as session:
+                rows = await session.execute_read(
+                    self._read_agent_decisions_tx, cycle_id, agent_id,
+                )
+        except Neo4jError as exc:
+            raise Neo4jConnectionError(
+                f"Failed to read decisions for agent {agent_id} cycle {cycle_id}",
+                original_error=exc,
+            ) from exc
+        self._log.debug(
+            "agent_decisions_read", cycle_id=cycle_id, agent_id=agent_id, count=len(rows),
+        )
+        return rows
+
+    @staticmethod
+    async def _read_agent_decisions_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        agent_id: str,
+    ) -> list[AgentDecisionRow]:
+        """Decisions plus the ids they CITED, one row per round."""
+        result = await tx.run(
+            """
+            MATCH (:Agent {id: $agent_id})-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            OPTIONAL MATCH (d)-[:CITED]->(cited:Agent)
+            WITH d, collect(cited.id) AS cited_ids
+            RETURN
+                d.round AS round_num,
+                d.signal AS signal,
+                d.confidence AS confidence,
+                d.sentiment AS sentiment,
+                d.rationale AS rationale,
+                cited_ids
+            ORDER BY d.round
+            """,
+            cycle_id=cycle_id,
+            agent_id=agent_id,
+        )
+        return [
+            AgentDecisionRow(
+                round_num=int(r["round_num"]),
+                signal=str(r["signal"]),
+                confidence=float(r["confidence"] or 0.0),
+                sentiment=float(r["sentiment"] or 0.0),
+                rationale=str(r["rationale"] or ""),
+                cited_agents=sorted(str(x) for x in r["cited_ids"]),
+            )
+            async for r in result
+        ]
 
     # ------------------------------------------------------------------
     # Phase 15: Report query tools
