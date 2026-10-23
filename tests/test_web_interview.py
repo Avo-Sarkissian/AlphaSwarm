@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -545,3 +546,51 @@ def test_first_interview_generates_and_stores_lazy_narrative() -> None:
         assert response.status_code == 200
         ensure.assert_awaited_once_with(mock_gm, ANY, context, cycle_id="c1")
         assert engine_cls.call_args.kwargs["context"] is enriched
+
+
+@pytest.mark.parametrize("close_error", [None, RuntimeError("connection reset")])
+def test_failed_session_setup_closes_the_built_worker(close_error: Exception | None) -> None:
+    """A failure after build_providers closes the worker no session owns.
+
+    The narrative write fails here; the worker is closed (a failing close is
+    only logged), the original error still propagates and no session remains.
+    """
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from alphaswarm.errors import Neo4jWriteError
+    from alphaswarm.interview import InterviewContext, RoundDecision
+
+    app = _make_interview_test_app()
+    worker = MagicMock()
+    worker.aclose = AsyncMock(side_effect=close_error)
+    with TestClient(app) as client:
+        context = InterviewContext(
+            agent_id="agent_1",
+            agent_name="TestAgent",
+            bracket="quants",
+            interview_system_prompt="You are TestAgent.",
+            decision_narrative="",
+            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
+        )
+        mock_gm = AsyncMock()
+        mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
+        mock_gm.read_agent_interview_context = AsyncMock(return_value=context)
+        app.state.app_state.graph_manager = mock_gm
+        _mock_complete_app_state(app)
+
+        with (
+            patch(
+                "alphaswarm.web.routes.interview.build_providers",
+                return_value=SimpleNamespace(orchestrator=MagicMock(), worker=worker),
+            ),
+            patch(
+                "alphaswarm.web.routes.interview.ensure_decision_narrative",
+                new=AsyncMock(side_effect=Neo4jWriteError("narrative write failed", op="write_decision_narrative")),
+            ),
+            pytest.raises(Neo4jWriteError),
+        ):
+            client.post("/api/interview/agent_1", json={"message": "Why?"})
+
+        worker.aclose.assert_awaited_once()
+        assert app.state.interview_sessions == {}

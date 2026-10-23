@@ -24,11 +24,25 @@ from alphaswarm.web.guards import require_complete_cycle, require_graph
 from alphaswarm.web.params import CYCLE_ID_PATTERN
 
 if TYPE_CHECKING:
+    from alphaswarm.inference.factory import BuiltProviders
     from alphaswarm.inference.provider import InferenceProvider
 
 log = structlog.get_logger(component="web.interview")
 
 router = APIRouter()
+
+
+async def _close_unowned_provider(provider: InferenceProvider, *, agent_id: str, cycle_id: str) -> None:
+    """Close a provider that no session holds; a failing close is logged, never raised."""
+    try:
+        await provider.aclose()
+    except Exception as exc:
+        log.warning(
+            "interview_provider_close_failed",
+            agent_id=agent_id,
+            cycle_id=cycle_id,
+            exc_type=type(exc).__name__,
+        )
 
 
 class InterviewSession(TypedDict, total=False):
@@ -93,6 +107,7 @@ async def interview_agent(
     async with entry["lock"]:
         engine = entry.get("engine")
         if engine is None:
+            built: BuiltProviders | None = None
             try:
                 try:
                     context = await graph.read_agent_interview_context(agent_id, cycle_id)
@@ -119,6 +134,10 @@ async def interview_agent(
             except BaseException:
                 if sessions.get(key) is entry:
                     sessions.pop(key, None)
+                # A worker built for this session but never stored on it would
+                # leak its cloud client: the sim-start cleanup cannot reach it.
+                if built is not None and entry.get("provider") is not built.worker:
+                    await _close_unowned_provider(built.worker, agent_id=agent_id, cycle_id=cycle_id)
                 raise
         response_text = await engine.ask(body.message)
 
