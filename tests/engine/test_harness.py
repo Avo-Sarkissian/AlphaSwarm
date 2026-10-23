@@ -43,10 +43,10 @@ async def test_scripted_three_round_run_completes(
     assert result.cycle_id == SCENARIO_CYCLE_ID
     assert scenario_store.phases == FULL_RUN
     assert [len(round_calls(scripted_worker, r)) for r in (1, 2, 3)] == [100, 100, 100]
-    assert len(scripted_worker.calls_for("narrative")) == 100
+    assert scripted_worker.calls_for("narrative") == []  # narratives are lazy, per interview
     assert len(scripted_orchestrator.calls_for("orchestrator")) == 2
     assert persisted_rounds(fake_graph) == [1, 2, 3]
-    assert scenario_controller.acquired == scenario_controller.released == 400
+    assert scenario_controller.acquired == scenario_controller.released == 300
     assert scenario_controller.in_use == 0
 
 

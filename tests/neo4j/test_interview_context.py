@@ -50,20 +50,6 @@ async def test_decision_narrative_round_trip_on_final_round(
     ]
 
 
-async def test_batch_narratives_land_on_each_agents_final_decision(
-    graph_manager_test: GraphStateManager,
-) -> None:
-    cycle_id = await _two_rounds(graph_manager_test, "quants_01", "degens_01")
-
-    await graph_manager_test.write_decision_narratives(
-        cycle_id,
-        [("quants_01", "q arc"), ("degens_01", "d arc")],
-    )
-
-    assert await graph_manager_test.read_decision_narrative(cycle_id, "quants_01") == "q arc"
-    assert await graph_manager_test.read_decision_narrative(cycle_id, "degens_01") == "d arc"
-
-
 async def test_narrative_write_without_decision_is_a_no_op(
     graph_manager_test: GraphStateManager,
 ) -> None:

@@ -57,7 +57,6 @@
     "worker_model": "scripted-worker",
     "worker_provider": "ollama"
   },
-  "narratives_written": 100,
   "phases": [
     "idle",
     "seeding",

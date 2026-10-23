@@ -21,7 +21,7 @@ from tests.engine.scenario import (
     recorded_decisions,
     round_calls,
 )
-from tests.inference.fakes import AGENT_HEADER_RE, ScriptedProvider
+from tests.inference.fakes import ScriptedProvider
 from tests.support.controllers import ImmediateController
 
 
@@ -78,21 +78,6 @@ class _StallingWorker(ScriptedProvider):
         if kwargs.get("response_schema") is not None and self._current_round() == self._stall_round:
             self.stalled.set()
             await asyncio.Event().wait()  # never set: only cancellation ends this call
-        return await super().chat(messages, **kwargs)
-
-
-class _StallingNarrator(ScriptedProvider):
-    """Blocks every narrative call (no schema, no persona header) until cancelled."""
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.stalled = asyncio.Event()
-
-    async def chat(self, messages: list[InferenceMessage], **kwargs: Any) -> InferenceResult:
-        first_system = next((m["content"] for m in messages if m["role"] == "system"), "")
-        if kwargs.get("response_schema") is None and not AGENT_HEADER_RE.search(first_system):
-            self.stalled.set()
-            await asyncio.Event().wait()
         return await super().chat(messages, **kwargs)
 
 
@@ -204,26 +189,4 @@ async def test_cancellation_mid_round_releases_worker_and_governor(
     assert worker.prepare_calls == worker.teardown_calls
     assert scenario_controller.monitoring_starts == scenario_controller.monitoring_stops
     assert scenario_controller.in_use == 0
-    fake_graph.write_cycle_metrics.assert_not_awaited()
-
-
-async def test_cancellation_during_narratives_skips_metrics_and_completion(
-    run_scenario: RunScenario,
-    all_personas: list[AgentPersona],
-    fake_graph: MagicMock,
-    scenario_store: RecordingStateStore,
-    scenario_controller: ImmediateController,
-) -> None:
-    worker = _StallingNarrator(personas=all_personas, round_source=lambda: scenario_store.snapshot().round_num)
-    run = asyncio.create_task(run_scenario(worker=worker))
-    await _run_until(run, worker.stalled, "the narrative phase started")
-    run.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await run
-    assert persisted_rounds(fake_graph) == [1, 2, 3]
-    assert SimulationPhase.COMPLETE not in scenario_store.phases
-    assert worker.prepare_calls == worker.teardown_calls
-    assert scenario_controller.monitoring_starts == scenario_controller.monitoring_stops
-    assert scenario_controller.in_use == 0
-    fake_graph.write_decision_narratives.assert_not_awaited()
     fake_graph.write_cycle_metrics.assert_not_awaited()

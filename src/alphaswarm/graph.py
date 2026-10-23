@@ -1065,43 +1065,6 @@ class GraphStateManager:
         record = await result.single()
         return int(record["updated"]) if record is not None else 0
 
-    async def write_decision_narratives(
-        self,
-        cycle_id: str,
-        narratives: Sequence[tuple[str, str]],
-    ) -> None:
-        """Batch form for eager narratives: (agent_id, narrative) pairs, each
-        stored on that agent's final-round Decision of this cycle
-        (docs/DECISIONS.md#p11-d-10)."""
-        if not narratives:
-            return
-        params = [{"agent_id": agent_id, "narrative": text} for agent_id, text in narratives]
-        await self._write(
-            self._batch_write_narratives_tx,
-            cycle_id,
-            params,
-            op="write_decision_narratives",
-        )
-        self._log.info("narratives_written", cycle_id=cycle_id, count=len(params))
-
-    @staticmethod
-    async def _batch_write_narratives_tx(
-        tx: AsyncManagedTransaction,
-        cycle_id: str,
-        narratives: list[dict[str, str]],
-    ) -> None:
-        await tx.run(
-            """
-            UNWIND $narratives AS n
-            MATCH (:Agent {id: n.agent_id})-[:MADE]->(d:Decision {cycle_id: $cycle_id})
-            WITH n, d ORDER BY d.round DESC
-            WITH n, collect(d)[0] AS final
-            SET final.narrative = n.narrative
-            """,
-            cycle_id=cycle_id,
-            narratives=narratives,
-        )
-
     # ------------------------------------------------------------------
     # Influence edge computation (Phase 8: dynamic influence topology)
     # ------------------------------------------------------------------

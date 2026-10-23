@@ -501,3 +501,47 @@ def test_interview_route_registered_in_production_app() -> None:
     assert "/api/interview/{agent_id}" in route_paths, (
         f"/api/interview/{{agent_id}} not registered. Found: {route_paths}"
     )
+
+
+def test_first_interview_generates_and_stores_lazy_narrative() -> None:
+    """The route enriches the context with a lazy narrative before building the engine."""
+    from dataclasses import replace
+    from unittest.mock import ANY, AsyncMock, MagicMock, patch
+
+    from alphaswarm.interview import InterviewContext, RoundDecision
+
+    app = _make_interview_test_app()
+    with TestClient(app) as client:
+        context = InterviewContext(
+            agent_id="agent_1",
+            agent_name="TestAgent",
+            bracket="quants",
+            interview_system_prompt="You are TestAgent.",
+            decision_narrative="",
+            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
+        )
+        enriched = replace(context, decision_narrative="Generated arc.")
+        mock_gm = AsyncMock()
+        mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
+        mock_gm.read_agent_interview_context = AsyncMock(return_value=context)
+        app.state.app_state.graph_manager = mock_gm
+        app.state.app_state.ollama_client = MagicMock()
+        _mock_complete_app_state(app)
+        mock_engine = MagicMock()
+        mock_engine.ask = AsyncMock(return_value="answer")
+
+        with (
+            patch(
+                "alphaswarm.web.routes.interview.ensure_decision_narrative",
+                new=AsyncMock(return_value=enriched),
+            ) as ensure,
+            patch(
+                "alphaswarm.web.routes.interview.InterviewEngine",
+                return_value=mock_engine,
+            ) as engine_cls,
+        ):
+            response = client.post("/api/interview/agent_1", json={"message": "Why?"})
+
+        assert response.status_code == 200
+        ensure.assert_awaited_once_with(mock_gm, ANY, context, cycle_id="c1")
+        assert engine_cls.call_args.kwargs["context"] is enriched

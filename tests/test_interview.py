@@ -324,3 +324,136 @@ def test_round_decision_cited_agents_defaults_to_empty() -> None:
     decision = RoundDecision(round_num=1, signal="buy", confidence=0.5, sentiment=0.0, rationale="r")
 
     assert decision.cited_agents == ()
+
+
+class TestLazyNarrative:
+    """Narrative generated once, on the first interview of (cycle, agent)."""
+
+    class _Store:
+        def __init__(self) -> None:
+            self.writes: list[tuple[str, str, str]] = []
+
+        async def write_decision_narrative(
+            self,
+            cycle_id: str,
+            agent_id: str,
+            narrative: str,
+        ) -> None:
+            self.writes.append((cycle_id, agent_id, narrative))
+
+    @staticmethod
+    def _context(narrative: str = "") -> InterviewContext:
+        from alphaswarm.interview import RoundDecision
+
+        return InterviewContext(
+            agent_id="quants_01",
+            agent_name="Quants 1",
+            bracket="quants",
+            interview_system_prompt="You are a quantitative analyst.",
+            decision_narrative=narrative,
+            decisions=[
+                RoundDecision(round_num=1, signal="buy", confidence=0.8, sentiment=0.5, rationale="r1"),
+                RoundDecision(
+                    round_num=2,
+                    signal="sell",
+                    confidence=0.6,
+                    sentiment=-0.2,
+                    rationale="r2",
+                    cited_agents=("sell_side_01",),
+                ),
+            ],
+        )
+
+    async def test_generates_once_and_stores_on_first_interview(self) -> None:
+        from alphaswarm.inference.types import InferenceResult, ProviderRole
+        from alphaswarm.interview import ensure_decision_narrative
+        from tests.inference.fakes import FakeInferenceProvider
+
+        store = self._Store()
+        provider = FakeInferenceProvider(
+            ProviderRole.WORKER,
+            "w",
+            scripted=[InferenceResult(content="  Bought, then sold.  ", model="w")],
+        )
+
+        ctx = await ensure_decision_narrative(store, provider, self._context(), cycle_id="c1")
+
+        assert ctx.decision_narrative == "Bought, then sold."
+        assert store.writes == [("c1", "quants_01", "Bought, then sold.")]
+        assert len(provider.calls) == 1
+
+    async def test_existing_narrative_is_reused_without_inference(self) -> None:
+        from alphaswarm.inference.types import ProviderRole
+        from alphaswarm.interview import ensure_decision_narrative
+        from tests.inference.fakes import FakeInferenceProvider
+
+        store = self._Store()
+        provider = FakeInferenceProvider(ProviderRole.WORKER, "w", scripted=[])
+
+        ctx = await ensure_decision_narrative(
+            store,
+            provider,
+            self._context("Stored."),
+            cycle_id="c1",
+        )
+
+        assert ctx.decision_narrative == "Stored."
+        assert provider.calls == [] and store.writes == []
+
+    async def test_agent_without_decisions_gets_no_narrative(self) -> None:
+        from dataclasses import replace
+
+        from alphaswarm.inference.types import ProviderRole
+        from alphaswarm.interview import ensure_decision_narrative
+        from tests.inference.fakes import FakeInferenceProvider
+
+        store = self._Store()
+        provider = FakeInferenceProvider(ProviderRole.WORKER, "w", scripted=[])
+        empty = replace(self._context(), decisions=[])
+
+        assert await ensure_decision_narrative(store, provider, empty, cycle_id="c1") is empty
+        assert provider.calls == [] and store.writes == []
+
+    async def test_inference_failure_keeps_interview_working(self) -> None:
+        from alphaswarm.errors import InferenceError
+        from alphaswarm.inference.types import InferenceResult, ProviderRole
+        from alphaswarm.interview import ensure_decision_narrative
+        from tests.inference.fakes import FakeInferenceProvider
+
+        def _boom(**_: object) -> InferenceResult:
+            raise InferenceError("worker timed out", provider="ollama", model="w")
+
+        store = self._Store()
+        provider = FakeInferenceProvider(ProviderRole.WORKER, "w", scripted=_boom)
+
+        ctx = await ensure_decision_narrative(store, provider, self._context(), cycle_id="c1")
+
+        assert ctx.decision_narrative == ""
+        assert store.writes == []
+
+    async def test_hard_stop_errors_propagate(self) -> None:
+        from decimal import Decimal
+
+        from alphaswarm.errors import BudgetExceededError
+        from alphaswarm.inference.types import InferenceResult, ProviderRole
+        from alphaswarm.interview import ensure_decision_narrative
+        from tests.inference.fakes import FakeInferenceProvider
+
+        def _over_budget(**_: object) -> InferenceResult:
+            raise BudgetExceededError(Decimal("1.00"), Decimal("0.50"))
+
+        provider = FakeInferenceProvider(ProviderRole.WORKER, "w", scripted=_over_budget)
+
+        with pytest.raises(BudgetExceededError):
+            await ensure_decision_narrative(self._Store(), provider, self._context(), cycle_id="c1")
+
+    def test_prompt_uses_the_rounds_that_ran(self) -> None:
+        from alphaswarm.interview import NARRATIVE_SYSTEM_PROMPT, build_narrative_messages
+
+        messages = build_narrative_messages(self._context())
+
+        assert messages[0] == {"role": "system", "content": NARRATIVE_SYSTEM_PROMPT}
+        user = messages[1]["content"]
+        assert "this agent's 2-round decision arc" in user
+        assert "Round 2: SELL (confidence: 0.60, sentiment: -0.20) flip: buy_to_sell" in user
+        assert "  Cited: sell_side_01" in user

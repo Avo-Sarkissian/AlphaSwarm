@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from alphaswarm.config import load_inference_config
 from alphaswarm.errors import AgentNotFoundError
 from alphaswarm.inference.factory import build_providers
-from alphaswarm.interview import InterviewEngine
+from alphaswarm.interview import InterviewEngine, ensure_decision_narrative
 from alphaswarm.web.errors import ApiError
 from alphaswarm.web.guards import require_complete_cycle, require_graph
 from alphaswarm.web.params import CYCLE_ID_PATTERN
@@ -108,6 +108,9 @@ async def interview_agent(
                     ollama_client=app_state.ollama_client,
                     ollama_model_manager=app_state.model_manager,
                 )
+                # First interview of (cycle, agent) generates and stores the
+                # narrative once (docs/DECISIONS.md#p11-d-11).
+                context = await ensure_decision_narrative(graph, built.worker, context, cycle_id=cycle_id)
                 engine = InterviewEngine(context=context, provider=built.worker)
                 entry["engine"] = engine
                 # Kept so the sim-start cleanup can aclose() cloud clients.

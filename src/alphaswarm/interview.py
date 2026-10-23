@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Final, Protocol
 
 import structlog
 
+from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS
 from alphaswarm.config import JSON_OUTPUT_INSTRUCTIONS
+from alphaswarm.episodes import compute_flip_type
 from alphaswarm.inference.types import InferenceMessage
+from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
     from alphaswarm.inference.provider import InferenceProvider
@@ -60,6 +63,94 @@ def _strip_json_instructions(system_prompt: str) -> str:
     Interviews are conversational prose, not JSON-structured decisions (D-05).
     """
     return system_prompt.replace(JSON_OUTPUT_INSTRUCTIONS, "").rstrip()
+
+
+# ---------------------------------------------------------------------------
+# Lazy decision narratives (docs/DECISIONS.md#p11-d-11)
+# ---------------------------------------------------------------------------
+
+NARRATIVE_SYSTEM_PROMPT: Final = (
+    "You are a concise financial analyst narrator. Summarize agent decision arcs in 2-3 sentences."
+)
+
+
+class NarrativeStore(Protocol):
+    """Persistence seam for lazy narratives; GraphStateManager satisfies it."""
+
+    async def write_decision_narrative(self, cycle_id: str, agent_id: str, narrative: str) -> None: ...
+
+
+def _signal_or_none(value: str) -> SignalType | None:
+    try:
+        return SignalType(value.lower())
+    except ValueError:
+        return None
+
+
+def build_narrative_messages(context: InterviewContext) -> list[InferenceMessage]:
+    """Prompt for one agent's decision arc, sized to the rounds that actually ran."""
+    lines = [f"Agent: {context.agent_name} ({context.bracket})", ""]
+    previous: SignalType | None = None
+    for decision in context.decisions:
+        current = _signal_or_none(decision.signal)
+        flip = compute_flip_type(previous, current).value if current is not None else "none"
+        lines.append(
+            f"Round {decision.round_num}: {decision.signal.upper()} "
+            f"(confidence: {decision.confidence:.2f}, sentiment: {decision.sentiment:.2f}) "
+            f"flip: {flip}"
+        )
+        if decision.cited_agents:
+            lines.append(f"  Cited: {', '.join(decision.cited_agents)}")
+        previous = current
+    prompt = (
+        f"Summarize this agent's {len(context.decisions)}-round decision arc in 2-3 sentences. "
+        "Note any signal changes and key influences. Be concise.\n\n" + "\n".join(lines)
+    )
+    return [
+        {"role": "system", "content": NARRATIVE_SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
+
+async def ensure_decision_narrative(
+    store: NarrativeStore,
+    provider: InferenceProvider,
+    context: InterviewContext,
+    *,
+    cycle_id: str,
+) -> InterviewContext:
+    """Return the context with a narrative, generating and storing it once.
+
+    Reuses a stored narrative; skips agents without decisions. Hard-stop errors
+    (budget, auth, governor crisis) propagate; any other inference failure is
+    logged and the interview continues without a narrative.
+    """
+    if context.decision_narrative or not context.decisions:
+        return context
+    try:
+        result = await provider.chat(build_narrative_messages(context))
+    except HARD_STOP_ERRORS:
+        raise
+    except Exception:  # an interview still works without a narrative
+        log.warning(
+            "narrative_generation_failed",
+            cycle_id=cycle_id,
+            agent_id=context.agent_id,
+            exc_info=True,
+        )
+        return context
+    narrative = (result.content or "").strip()
+    if not narrative:
+        log.warning("narrative_generation_empty", cycle_id=cycle_id, agent_id=context.agent_id)
+        return context
+    await store.write_decision_narrative(cycle_id, context.agent_id, narrative)
+    log.info(
+        "narrative_generated",
+        cycle_id=cycle_id,
+        agent_id=context.agent_id,
+        chars=len(narrative),
+    )
+    return replace(context, decision_narrative=narrative)
 
 
 # ---------------------------------------------------------------------------

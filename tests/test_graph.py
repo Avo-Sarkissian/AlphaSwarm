@@ -335,14 +335,6 @@ async def test_write_decision_narrative_without_target_is_a_no_op(mock_driver: M
     assert session.execute_write.await_args.args[1:] == ("c1", "degens_09", "orphan")
 
 
-async def test_write_decision_narratives_empty_is_noop(mock_driver: MagicMock) -> None:
-    from alphaswarm.graph import GraphStateManager
-
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-    await gsm.write_decision_narratives("c1", [])
-    mock_driver.session.assert_not_called()
-
-
 def test_schema_statements_includes_episode_index() -> None:
     """SCHEMA_STATEMENTS contains RationaleEpisode composite index."""
     from alphaswarm.graph import SCHEMA_STATEMENTS

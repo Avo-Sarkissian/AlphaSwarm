@@ -46,7 +46,7 @@ async def test_zero_jitter_with_real_governor_never_exceeds_baseline_slots(
         monitor=ScriptedMonitor([reading(50.0)], repeat_last=False),
     )
     worker = _ConcurrencyProbe(personas=all_personas, round_source=lambda: scenario_store.snapshot().round_num)
-    await run_scenario(worker=worker, controller=governor, generate_narratives=False)
+    await run_scenario(worker=worker, controller=governor)
     assert 1 < worker.max_in_flight <= BASELINE_SLOTS
     assert persisted_rounds(fake_graph) == [1, 2, 3]
     assert scenario_store.phases[-1] is SimulationPhase.COMPLETE
