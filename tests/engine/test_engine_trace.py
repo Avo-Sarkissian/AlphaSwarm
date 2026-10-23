@@ -3,10 +3,11 @@
 The scenario goldens (tests/golden/scenarios/<name>.json) pin outcomes. These traces
 pin how the engine reaches them: every state-sink mutation in order, every graph call
 in order, the exact prompts of three sample agents per round, a digest over all
-prompts, and every orchestrator message. Worker and governor lifecycle calls are left
-out on purpose: the single-worker-session revision of docs/DECISIONS.md#p7-d-05
-changes them. Structural refactors keep these files byte-identical; a deliberate
-change to prompts or state calls regenerates them in the same commit
+prompts, and every orchestrator message. Worker and governor lifecycle calls (model
+load and unload, governor sessions: docs/DECISIONS.md#p7-d-05 and #p7-d-06) are left
+out on purpose, so a change to that lifecycle leaves these files alone. Structural
+refactors keep these files byte-identical; a deliberate change to prompts or state
+calls regenerates them in the same commit
 (UPDATE_GOLDEN=1 uv run pytest -q tests/engine/test_engine_trace.py).
 """
 
