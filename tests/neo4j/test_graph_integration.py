@@ -215,8 +215,8 @@ async def test_complete_reasoning_arc(
     """After writing decisions and episodes for 3 rounds, a Cypher query returns
     a complete reasoning arc for any agent: decisions, rationale episodes,
     influence relationships, and entity references (SC-3)."""
+    from alphaswarm.episodes import EpisodeRecord, compute_flip_type
     from alphaswarm.types import SignalType
-    from alphaswarm.write_buffer import EpisodeRecord, compute_flip_type
 
     # 1. Create cycle with seed event (Entity nodes created via MENTIONS edges)
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(
@@ -312,8 +312,8 @@ async def test_references_edges_case_insensitive(
 
     Entity stored as 'NVIDIA', rationale mentions 'nvidia' lowercase.
     """
+    from alphaswarm.episodes import EpisodeRecord
     from alphaswarm.types import SignalType
-    from alphaswarm.write_buffer import EpisodeRecord
 
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(
         sample_seed_event.raw_rumor,

@@ -1,13 +1,12 @@
-"""Unit tests for WriteBuffer, EpisodeRecord, and compute_flip_type (Plan 11-01)."""
+"""Unit tests for WriteBuffer (Plan 11-01)."""
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
-from alphaswarm.types import FlipType, SignalType
-from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_type
+from alphaswarm.episodes import EpisodeRecord
+from alphaswarm.types import FlipType
+from alphaswarm.write_buffer import WriteBuffer
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -29,111 +28,6 @@ def make_record(
         round_num=round_num,
         cycle_id=cycle_id,
     )
-
-
-# ---------------------------------------------------------------------------
-# FlipType enum tests
-# ---------------------------------------------------------------------------
-
-
-def test_flip_type_has_seven_values() -> None:
-    assert len(FlipType) == 7
-
-
-def test_flip_type_string_construction() -> None:
-    assert FlipType("none") == FlipType.NONE
-    assert FlipType("buy_to_sell") == FlipType.BUY_TO_SELL
-
-
-def test_flip_type_all_values_accessible() -> None:
-    expected = {
-        "none",
-        "buy_to_sell",
-        "sell_to_buy",
-        "buy_to_hold",
-        "hold_to_buy",
-        "sell_to_hold",
-        "hold_to_sell",
-    }
-    assert {ft.value for ft in FlipType} == expected
-
-
-# ---------------------------------------------------------------------------
-# compute_flip_type tests
-# ---------------------------------------------------------------------------
-
-
-def test_flip_type_buy_to_sell() -> None:
-    assert compute_flip_type(SignalType.BUY, SignalType.SELL) == FlipType.BUY_TO_SELL
-
-
-def test_flip_type_sell_to_buy() -> None:
-    assert compute_flip_type(SignalType.SELL, SignalType.BUY) == FlipType.SELL_TO_BUY
-
-
-def test_flip_type_buy_to_hold() -> None:
-    assert compute_flip_type(SignalType.BUY, SignalType.HOLD) == FlipType.BUY_TO_HOLD
-
-
-def test_flip_type_hold_to_buy() -> None:
-    assert compute_flip_type(SignalType.HOLD, SignalType.BUY) == FlipType.HOLD_TO_BUY
-
-
-def test_flip_type_sell_to_hold() -> None:
-    assert compute_flip_type(SignalType.SELL, SignalType.HOLD) == FlipType.SELL_TO_HOLD
-
-
-def test_flip_type_hold_to_sell() -> None:
-    assert compute_flip_type(SignalType.HOLD, SignalType.SELL) == FlipType.HOLD_TO_SELL
-
-
-def test_flip_type_none_when_prev_is_none() -> None:
-    """Round 1: no previous signal -> NONE."""
-    assert compute_flip_type(None, SignalType.BUY) == FlipType.NONE
-
-
-def test_flip_type_none_when_same_signal() -> None:
-    assert compute_flip_type(SignalType.BUY, SignalType.BUY) == FlipType.NONE
-    assert compute_flip_type(SignalType.SELL, SignalType.SELL) == FlipType.NONE
-    assert compute_flip_type(SignalType.HOLD, SignalType.HOLD) == FlipType.NONE
-
-
-def test_flip_type_none_when_prev_is_parse_error() -> None:
-    assert compute_flip_type(SignalType.PARSE_ERROR, SignalType.BUY) == FlipType.NONE
-
-
-def test_flip_type_none_when_curr_is_parse_error() -> None:
-    assert compute_flip_type(SignalType.BUY, SignalType.PARSE_ERROR) == FlipType.NONE
-
-
-# ---------------------------------------------------------------------------
-# EpisodeRecord tests
-# ---------------------------------------------------------------------------
-
-
-def test_episode_record_is_frozen() -> None:
-    record = make_record()
-    with pytest.raises((AttributeError, TypeError)):
-        record.agent_id = "mutated"  # type: ignore[misc]
-
-
-def test_episode_record_fields() -> None:
-    record = EpisodeRecord(
-        decision_id="dec-x",
-        agent_id="ag-5",
-        rationale="Bull case clear.",
-        peer_context_received="peer said sell",
-        flip_type=FlipType.SELL_TO_BUY.value,
-        round_num=2,
-        cycle_id="cy-99",
-    )
-    assert record.decision_id == "dec-x"
-    assert record.agent_id == "ag-5"
-    assert record.rationale == "Bull case clear."
-    assert record.peer_context_received == "peer said sell"
-    assert record.flip_type == "sell_to_buy"
-    assert record.round_num == 2
-    assert record.cycle_id == "cy-99"
 
 
 # ---------------------------------------------------------------------------

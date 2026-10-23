@@ -14,70 +14,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.types import FlipType, SignalType
+from alphaswarm.episodes import EpisodeRecord
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
 
 log = structlog.get_logger(component="write_buffer")
-
-
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class EpisodeRecord:
-    """Immutable record capturing a single agent inference episode.
-
-    Passed to WriteBuffer.push() immediately after each agent decision.
-    Consumed in batches by WriteBuffer.flush() at round boundaries.
-    """
-
-    decision_id: str  # links to parent Decision node via HAS_EPISODE edge
-    agent_id: str
-    rationale: str
-    peer_context_received: str  # full formatted context string; "" for Round 1 (Pitfall 3)
-    flip_type: str  # FlipType.value string (stored as string for Neo4j compat)
-    round_num: int
-    cycle_id: str
-
-
-# ---------------------------------------------------------------------------
-# Pure function
-# ---------------------------------------------------------------------------
-
-
-def compute_flip_type(
-    prev_signal: SignalType | None,
-    curr_signal: SignalType,
-) -> FlipType:
-    """Compute the FlipType describing the transition from prev to curr signal.
-
-    Returns FlipType.NONE when:
-    - prev_signal is None (Round 1, no previous signal exists)
-    - prev_signal is PARSE_ERROR (previous round failed to parse)
-    - curr_signal is PARSE_ERROR (current round failed to parse)
-    - prev_signal == curr_signal (no change, not a flip)
-
-    Otherwise returns the matching FlipType enum value via key construction.
-    """
-    if prev_signal is None:
-        return FlipType.NONE
-    if prev_signal == SignalType.PARSE_ERROR:
-        return FlipType.NONE
-    if curr_signal == SignalType.PARSE_ERROR:
-        return FlipType.NONE
-    if prev_signal == curr_signal:
-        return FlipType.NONE
-    key = f"{prev_signal.value}_to_{curr_signal.value}"
-    return FlipType(key)
 
 
 # ---------------------------------------------------------------------------

@@ -12,9 +12,9 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from alphaswarm.episodes import EpisodeRecord, compute_flip_type
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.types import AgentDecision, EntityType, SeedEntity, SeedEvent, SignalType
-from alphaswarm.write_buffer import EpisodeRecord, compute_flip_type
 
 MINI_RUMOR = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
 MINI_ENTITIES: tuple[SeedEntity, ...] = (

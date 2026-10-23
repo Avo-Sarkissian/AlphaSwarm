@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 from alphaswarm.config import DEFAULT_BRACKETS, generate_personas
+from alphaswarm.episodes import EpisodeRecord, compute_flip_type
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -21,7 +22,6 @@ from alphaswarm.types import (
     SeedEvent,
     SignalType,
 )
-from alphaswarm.write_buffer import EpisodeRecord, compute_flip_type
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager

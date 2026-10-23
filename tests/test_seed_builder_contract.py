@@ -7,9 +7,9 @@ from unittest.mock import create_autospec
 
 import pytest
 
+from alphaswarm.episodes import compute_flip_type
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.types import BracketType, SignalType
-from alphaswarm.write_buffer import compute_flip_type
 from tests.support.seed_builder import (
     HUB_CITATIONS,
     PARSE_ERRORS_BY_ROUND,

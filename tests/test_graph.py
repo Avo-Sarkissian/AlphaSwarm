@@ -551,8 +551,8 @@ async def test_write_decisions_raises_on_mismatched_ids(
 
 async def test_write_rationale_episodes(mock_driver: MagicMock) -> None:
     """write_rationale_episodes calls execute_write once with episode data."""
+    from alphaswarm.episodes import EpisodeRecord
     from alphaswarm.graph import GraphStateManager
-    from alphaswarm.write_buffer import EpisodeRecord
 
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
@@ -601,8 +601,8 @@ async def test_write_rationale_episodes_empty_is_noop(mock_driver: MagicMock) ->
 
 async def test_write_narrative_edges_case_insensitive(mock_driver: MagicMock) -> None:
     """write_narrative_edges matches entity names case-insensitively."""
+    from alphaswarm.episodes import EpisodeRecord
     from alphaswarm.graph import GraphStateManager
-    from alphaswarm.write_buffer import EpisodeRecord
 
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
@@ -633,8 +633,8 @@ async def test_write_narrative_edges_case_insensitive(mock_driver: MagicMock) ->
 
 async def test_write_narrative_edges_original_casing(mock_driver: MagicMock) -> None:
     """write_narrative_edges preserves original entity name casing in the matched pairs."""
+    from alphaswarm.episodes import EpisodeRecord
     from alphaswarm.graph import GraphStateManager
-    from alphaswarm.write_buffer import EpisodeRecord
 
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
@@ -662,8 +662,8 @@ async def test_write_narrative_edges_original_casing(mock_driver: MagicMock) -> 
 
 async def test_write_narrative_edges_no_match_skips_write(mock_driver: MagicMock) -> None:
     """write_narrative_edges skips execute_write when no entities match rationales."""
+    from alphaswarm.episodes import EpisodeRecord
     from alphaswarm.graph import GraphStateManager
-    from alphaswarm.write_buffer import EpisodeRecord
 
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
@@ -688,8 +688,8 @@ async def test_write_narrative_edges_no_match_skips_write(mock_driver: MagicMock
 
 async def test_write_narrative_edges_empty_is_noop(mock_driver: MagicMock) -> None:
     """write_narrative_edges with empty records or entity_names is a no-op."""
+    from alphaswarm.episodes import EpisodeRecord
     from alphaswarm.graph import GraphStateManager
-    from alphaswarm.write_buffer import EpisodeRecord
 
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])

@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from alphaswarm.episodes import EpisodeRecord
 from alphaswarm.types import AgentDecision, EntityType, SeedEntity, SeedEvent, SignalType
-from alphaswarm.write_buffer import EpisodeRecord
 from tests.conftest import NEO4J_TEST_DATABASE
 
 if TYPE_CHECKING:

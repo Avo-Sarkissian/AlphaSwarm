@@ -27,6 +27,7 @@ import structlog
 from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS, dispatch_wave
 from alphaswarm.config import generate_modifiers, generate_personas, persona_to_worker_config
 from alphaswarm.context_formatter import format_market_context
+from alphaswarm.episodes import EpisodeRecord, compute_flip_type
 from alphaswarm.errors import RoundFailedError
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
@@ -37,7 +38,7 @@ from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
 from alphaswarm.utils import sanitize_rationale
-from alphaswarm.write_buffer import EpisodeRecord, WriteBuffer, compute_flip_type
+from alphaswarm.write_buffer import WriteBuffer
 
 if TYPE_CHECKING:
     from alphaswarm.config import AppSettings, BracketConfig, SimulationSettings

@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from alphaswarm.config import DEFAULT_BRACKETS
+from alphaswarm.episodes import compute_flip_type
 from alphaswarm.interview import _strip_json_instructions
 from alphaswarm.types import SeedEvent, SignalType
-from alphaswarm.write_buffer import compute_flip_type
 from tests.support.golden import assert_golden
 from tests.support.seed_builder import (
     HUB_CITATIONS,
