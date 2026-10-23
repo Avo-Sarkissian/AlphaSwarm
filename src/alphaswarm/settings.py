@@ -123,6 +123,12 @@ class GovernorSettings(BaseModel):
     crisis_timeout_seconds: float = Field(default=300.0, ge=30.0, le=600.0)
     slot_adjustment_step: int = Field(default=2, ge=1, le=4)
     batch_failure_threshold_percent: float = Field(default=20.0, ge=5.0, le=50.0)
+    # Rolling-window failure accounting (docs/DECISIONS.md#p3-d-04): over the
+    # last failure_window_size inference outcomes, a failure share of at least
+    # batch_failure_threshold_percent shrinks one slot_adjustment_step;
+    # failure_regrow_successes consecutive successes grow one step back.
+    failure_window_size: int = Field(default=20, ge=4, le=200)
+    failure_regrow_successes: int = Field(default=10, ge=1, le=100)
     jitter_min_seconds: float = Field(default=0.5, ge=0.0, le=2.0)
     # Lower bound 0.0 lets deterministic harnesses (tests/engine) turn jitter off;
     # the production default stays 1.5 s (docs/DECISIONS.md#p3-d-14).

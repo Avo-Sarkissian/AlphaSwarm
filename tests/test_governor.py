@@ -12,6 +12,7 @@ from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.governor import GovernorState, ResourceGovernor
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReader, MemoryReading, PressureLevel
 from alphaswarm.settings import GovernorSettings
+from alphaswarm.types import WorkerPersonaConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -364,43 +365,76 @@ class TestGovernorCrisisTimeout:
 # ---------------------------------------------------------------------------
 
 
-class TestGovernorWaveFailures:
-    """Test report_wave_failures shrink behavior."""
+class TestGovernorFailureWindow:
+    """Rolling-window failure accounting in release() (docs/DECISIONS.md#p3-d-04)."""
 
-    async def test_shrink_on_high_failure_rate(self) -> None:
-        """D-04: Failure rate >= 20% triggers shrink by slot_adjustment_step."""
-        settings = GovernorSettings(
-            baseline_parallel=8,
-            slot_adjustment_step=2,
-            batch_failure_threshold_percent=20.0,
-        )
-        gov = ResourceGovernor(settings)
-        assert gov.current_limit == 8
+    @staticmethod
+    def _settings(**overrides: object) -> GovernorSettings:
+        base: dict[str, object] = {
+            "baseline_parallel": 8,
+            "slot_adjustment_step": 2,
+            "batch_failure_threshold_percent": 20.0,
+            "failure_window_size": 10,
+            "failure_regrow_successes": 5,
+        }
+        base.update(overrides)
+        return GovernorSettings(**base)  # type: ignore[arg-type]
 
-        # 20% failure rate: 2 failures out of 10
-        gov.report_wave_failures(success_count=8, failure_count=2)
+    @staticmethod
+    async def _calls(gov: ResourceGovernor, outcomes: list[bool]) -> None:
+        for ok in outcomes:
+            await gov.acquire()
+            gov.release(success=ok)
+
+    async def test_threshold_failures_in_a_full_window_shrink_one_step(self) -> None:
+        gov = ResourceGovernor(self._settings())
+        await self._calls(gov, [True] * 8 + [False] * 2)
         assert gov.current_limit == 6
 
-    async def test_shrink_minimum_1_slot(self) -> None:
-        """D-05: Governor never shrinks below 1 slot."""
-        settings = GovernorSettings(
-            baseline_parallel=2,
-            slot_adjustment_step=4,
-            batch_failure_threshold_percent=20.0,
-        )
-        gov = ResourceGovernor(settings)
-        # Try to shrink below 1
-        gov.report_wave_failures(success_count=1, failure_count=9)
-        assert gov.current_limit >= 1
+    async def test_a_partial_window_never_shrinks(self) -> None:
+        gov = ResourceGovernor(self._settings())
+        await self._calls(gov, [False] * 9)
+        assert gov.current_limit == 8
 
-    async def test_no_shrink_on_low_failure_rate(self) -> None:
-        """Below threshold failure rate does not shrink."""
-        settings = GovernorSettings(
-            baseline_parallel=8,
-            batch_failure_threshold_percent=20.0,
+    async def test_below_threshold_does_not_shrink(self) -> None:
+        gov = ResourceGovernor(self._settings())
+        await self._calls(gov, [True] * 9 + [False])
+        assert gov.current_limit == 8
+
+    async def test_never_below_one_slot(self) -> None:
+        gov = ResourceGovernor(self._settings(baseline_parallel=2, max_parallel=2))
+        await self._calls(gov, [False] * 30)
+        assert gov.current_limit == 1
+
+    async def test_consecutive_successes_grow_back_only_what_was_shrunk(self) -> None:
+        gov = ResourceGovernor(self._settings())
+        await self._calls(gov, [True] * 8 + [False] * 2)
+        assert gov.current_limit == 6
+        await self._calls(gov, [True] * 5)
+        assert gov.current_limit == 8
+        await self._calls(gov, [True] * 20)
+        assert gov.current_limit == 8  # never above the pre-shrink level via this path
+
+    async def test_wave_report_is_a_noop(self) -> None:
+        gov = ResourceGovernor(self._settings())
+        gov.report_wave_failures(success_count=1, failure_count=9)
+        assert gov.current_limit == 8
+
+    async def test_parse_fallbacks_do_not_count_as_failures(self, sample_personas: list[WorkerPersonaConfig]) -> None:
+        """Malformed JSON returns a PARSE_ERROR decision; agent_worker releases success=True."""
+        from alphaswarm.inference.types import InferenceResult, ProviderRole
+        from alphaswarm.worker import agent_worker
+        from tests.inference.fakes import FakeInferenceProvider
+
+        gov = ResourceGovernor(self._settings())
+        provider = FakeInferenceProvider(
+            ProviderRole.WORKER,
+            "fake-worker",
+            scripted=lambda **_: InferenceResult(content="not json at all", model="fake-worker"),
         )
-        gov = ResourceGovernor(settings)
-        gov.report_wave_failures(success_count=9, failure_count=1)  # 10% < 20%
+        for _ in range(20):
+            async with agent_worker(sample_personas[0], gov, provider) as worker:
+                await worker.infer(user_message="ZZZT Holdings is in late-stage talks.")
         assert gov.current_limit == 8
 
 

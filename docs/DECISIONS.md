@@ -280,16 +280,17 @@ Contents
 
 ### <a id="adr-governor"></a>Memory-aware ResourceGovernor
 - **Decision:**
-  - A queue-based TokenPool with a 5-state machine: RUNNING, THROTTLED, PAUSED, CRISIS, RECOVERING (`governor.py`).
-  - Baseline 8 slots, maximum 16.
-  - Throttle at 80% memory, pause at 90%.
-  - macOS sysctl kernel pressure is the master signal. Read failures are fail-stale (F-17).
-  - `grow()` pays down crisis debt before adding tokens (F-04).
-  - Monitor-loop failures turn into a crisis rather than silently stopping (F-21).
+  - One slot limiter (`_limit`, `_in_use`, `_paused`, `_fatal`) whose predicate every waiter re-checks after each notify, so pause, resize and a fatal monitor error reach agents already queued. It replaced the queue-based TokenPool in 2026-10. An `asyncio.Condition` was the first design; a generation `asyncio.Event` gives the same semantics because the synchronous `release()` and the task done-callback cannot take a Condition's lock.
+  - A 5-state machine: RUNNING, THROTTLED, PAUSED, CRISIS, RECOVERING. PAUSED escalates to CRISIS after `crisis_timeout_seconds` without a successful inference ([p3-d-07](#p3-d-07)); crisis recovery ramps toward the baseline ([p3-d-01](#p3-d-01), [p3-d-03](#p3-d-03)).
+  - Baseline 8 slots, maximum 16; throttle at 80% used, pause at 90% (thresholds as calibrated in docs/experiments.md "Governor threshold calibration").
+  - The memory signal is the macOS kernel's, read through ctypes ([p3-d-12](#p3-d-12)); kernel pressure is the master signal ([p3-d-13](#p3-d-13)). Read failures are fail-stale (F-17).
+  - A dead monitor or a D-07 abort is a fatal error raised in every waiter; `stop_monitoring()` re-raises one no waiter saw, unless another exception is propagating. Monitor-loop failures turn into a crisis rather than silently stopping (F-21).
+  - Failures are counted per call over a rolling window ([p3-d-04](#p3-d-04)).
+  - Note: shrinking slots frees almost no memory with these hybrid-attention models; the governor's job is to prevent stalls under memory pressure, not to reduce footprint.
 - **Rationale:** Memory pressure is the main way the M1 Max fails. See [Phase 3 entries](#phase-3-resource-governance-governor-memory-monitor).
 - **Cloud mode:** `RateLimitController` replaces the governor through the `ConcurrencyController` protocol.
 - **Testing seam (2026-10):** `ResourceGovernor(settings, *, state_store=None, monitor=None)` reads memory through `monitor`, any `MemoryReader` (`memory_monitor.py`, a protocol with one method, `read_combined()`); production leaves it out and gets `MemoryMonitor(settings)`. Tests run the real monitor loop and state machine on scripted readings with `ScriptedMonitor`, `reading()` and `fast_governor_settings()` (`tests/support/monitor.py`: no psutil or sysctl, a zero check interval). The behavioral tests are in `tests/test_governor_concurrency.py`, and `tests/engine/test_scenarios_governor.py` runs one full scenario on the real governor.
-- **Known defects (2026-10):** each is pinned in `tests/test_governor_concurrency.py` as a strict xfail that its fix removes. A waiter already queued on the TokenPool starts while PAUSED. A crisis abort fails waiters at the resume gate but never those queued on the pool. `stop_monitoring()` swallows a fatal monitor error. PAUSED never escalates to CRISIS, so a stuck reading can wedge a round. Crisis exit grows the pool straight back to baseline, so the gradual ramp of [p3-d-01](#p3-d-01) never runs.
+- **Fixed defects (2026-10):** the five strict xfails in `tests/test_governor_concurrency.py` (a queued waiter starting while PAUSED, a crisis abort missing queued waiters, `stop_monitoring()` swallowing a fatal error, PAUSED never escalating, crisis exit snapping to baseline) now pass as ordinary tests.
 
 ### <a id="adr-taskgroup-dispatch"></a>All agent fan-out uses `asyncio.TaskGroup`, with jitter
 - **Decision:**
@@ -545,7 +546,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p3-d-01"></a>`D-01` | After a pressure crisis clears, restore slots gradually (+`slot_adjustment_step` per check) toward the D-03 baseline instead of snapping back; avoids re-triggering pressure. Before 2026-10 crisis exit snapped to baseline and this ramp never ran after a crisis. | active | governor.py `_handle_crisis`, `_handle_recovering` |
 | <a id="p3-d-02"></a>`D-02` | Scale above baseline (up to max_parallel) only after consecutive calm memory checks. | active | settings.py:GovernorSettings; tests/test_governor.py:360,365 |
 | <a id="p3-d-03"></a>`D-03` | Crisis recovery targets the baseline, not the pre-incident slot count; D-01's ramp is how it gets there. | active | governor.py `_handle_crisis`; tests/test_governor.py `test_recovery_ramps_by_step_until_baseline` |
-| <a id="p3-d-04"></a>`D-04` | If >=20% of a dispatch wave fails, shrink the governor (per-wave failure scope). | active | settings.py:GovernorSettings; governor.py:292; tests/test_governor.py:480,488 |
+| <a id="p3-d-04"></a>`D-04` | Inference failures shrink the governor. Since 2026-10 they are counted per call in `release(success=...)` over the last `failure_window_size` (20) outcomes: a failure share ≥ `batch_failure_threshold_percent` (20%) shrinks one step and clears the window; `failure_regrow_successes` (10) consecutive successes grow one step back, never above the pre-shrink level. Parse fallbacks release with success=True and do not count. Before: once per wave, reset by stop_monitoring, parse errors included. | active | governor.py `_record_outcome`, `_maybe_regrow`; batch_dispatcher.py `dispatch_wave` |
 | <a id="p3-d-05"></a>`D-05` | Shrink by a fixed step (2) per trigger, never below 1 slot; gradual degradation, not halving. | active | settings.py:GovernorSettings; governor.py:292,304; tests/test_governor.py:480,502 |
 | <a id="p3-d-07"></a>`D-07` | Abort with GovernorCrisisError after a sustained crisis (default 5 min) with no successful inference. Since 2026-10 a PAUSED that lasts `crisis_timeout_seconds` with no successful inference escalates to CRISIS with the crisis clock backdated to when the pause began, so the abort follows on the next check; CRISIS is left only when kernel pressure is GREEN and used % is below the pause threshold. | active | governor.py `_handle_paused`, `_handle_crisis`; tests/test_governor.py `TestPauseEscalation` |
 | <a id="p3-d-08"></a>`D-08` | Any successful inference resets the crisis timeout clock, even at 1 slot. | active | governor.py:241; tests/test_governor.py:428,459 |

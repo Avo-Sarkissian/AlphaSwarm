@@ -15,6 +15,7 @@ import contextlib
 import enum
 import sys
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Final
 
@@ -114,6 +115,10 @@ class ResourceGovernor:
         self._consecutive_green_checks = 0
         self._adjustment_lock = asyncio.Lock()
         self._monitor_task: asyncio.Task[None] | None = None
+        # Rolling-window failure accounting (docs/DECISIONS.md#p3-d-04).
+        self._outcomes: deque[bool] = deque(maxlen=settings.failure_window_size)
+        self._consecutive_successes = 0
+        self._failure_debt = 0
         # Per-session telemetry: seconds per tracked state and peak memory.
         self._time_in_state: dict[GovernorTelemetryState, float] = _zero_time_in_state()
         self._peak_memory_percent = 0.0
@@ -143,14 +148,15 @@ class ResourceGovernor:
             await self._changed.wait()
 
     def release(self, *, success: bool = True, result_tokens: int | None = None) -> None:
-        """Return a slot; a success resets the crisis clock (docs/DECISIONS.md#p3-d-08).
+        """Return a slot; count the outcome; a success resets the crisis clock.
 
-        ``result_tokens`` exists for the ConcurrencyController protocol; the
-        local governor ignores it.
+        Crisis clock: docs/DECISIONS.md#p3-d-08. ``result_tokens`` exists for the
+        ConcurrencyController protocol; the local governor ignores it.
         """
         self._in_use = max(0, self._in_use - 1)
         if success:
             self._last_successful_inference = time.monotonic()
+        self._record_outcome(success)
         self._notify()
 
     async def start_monitoring(self) -> None:
@@ -256,26 +262,67 @@ class ResourceGovernor:
         self._state_entered_at = _clock()
 
     def report_wave_failures(self, success_count: int, failure_count: int) -> None:
-        """Shrink by one step when a wave's failure rate reaches the threshold (D-04/D-05).
+        """No-op: failures are counted per call in release() (docs/DECISIONS.md#p3-d-04).
 
-        Never below 1 slot.
+        Kept for the ConcurrencyController protocol; RateLimitController still
+        uses wave totals.
         """
-        total = success_count + failure_count
-        if total == 0:
+
+    def _record_outcome(self, success: bool) -> None:
+        """Only inference failures count: a parse fallback releases with success=True."""
+        self._outcomes.append(success)
+        if success:
+            self._consecutive_successes += 1
+            self._maybe_regrow()
             return
-        failure_rate = failure_count / total
-        threshold = self._settings.batch_failure_threshold_percent / 100.0
-        if failure_rate >= threshold:
-            shrink_amount = min(self._settings.slot_adjustment_step, self._limit - 1)
-            if shrink_amount > 0:
-                self._set_limit(self._limit - shrink_amount)
-                log.warning(
-                    "slot adjustment",
-                    action="shrink",
-                    amount=shrink_amount,
-                    new_limit=self._limit,
-                    reason=f"wave failure rate {failure_rate:.1%} >= {threshold:.1%}",
-                )
+        self._consecutive_successes = 0
+        window = self._settings.failure_window_size
+        if len(self._outcomes) < window:
+            return
+        failures = self._outcomes.count(False)
+        if failures * 100 < self._settings.batch_failure_threshold_percent * len(self._outcomes):
+            return
+        self._outcomes.clear()
+        if self._state is GovernorState.CRISIS:
+            return
+        shrink = min(self._settings.slot_adjustment_step, self._limit - 1)
+        if shrink <= 0:
+            return
+        self._failure_debt += shrink
+        self._set_limit(self._limit - shrink)
+        log.warning(
+            "slot adjustment",
+            action="shrink",
+            amount=shrink,
+            new_limit=self._limit,
+            reason=f"{failures} of the last {window} inferences failed",
+        )
+
+    def _maybe_regrow(self) -> None:
+        if (
+            self._failure_debt == 0
+            or self._consecutive_successes < self._settings.failure_regrow_successes
+            or self._state not in (GovernorState.RUNNING, GovernorState.THROTTLED)
+        ):
+            return
+        self._consecutive_successes = 0
+        grow = min(
+            self._settings.slot_adjustment_step,
+            self._failure_debt,
+            self._settings.max_parallel - self._limit,
+        )
+        if grow <= 0:
+            self._failure_debt = 0
+            return
+        self._failure_debt -= grow
+        self._set_limit(self._limit + grow)
+        log.info(
+            "slot adjustment",
+            action="grow",
+            amount=grow,
+            new_limit=self._limit,
+            reason=f"{self._settings.failure_regrow_successes} consecutive successful inferences",
+        )
 
     # --- Properties ---
 
@@ -360,6 +407,9 @@ class ResourceGovernor:
         self._paused = False
         self._fatal = None
         self._fatal_delivered = False
+        self._outcomes.clear()
+        self._consecutive_successes = 0
+        self._failure_debt = 0
         self._notify()
 
     # --- Internal monitoring ---
@@ -460,6 +510,7 @@ class ResourceGovernor:
         """
         self._state = GovernorState.CRISIS
         self._set_limit(1)
+        self._failure_debt = 0  # recovery targets the baseline instead
         self._crisis_start = since if since is not None else time.monotonic()
         self._paused_since = None
         self._consecutive_green_checks = 0
