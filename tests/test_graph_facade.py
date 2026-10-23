@@ -165,3 +165,11 @@ def test_graph_is_a_package_with_a_manager_module() -> None:
     assert not (SRC / "graph.py").exists()
     assert graph.GraphStateManager is manager.GraphStateManager
     assert not [name for name in graph.__all__ if name.startswith("_")]
+
+
+def test_ranked_post_lives_with_peer_formatting() -> None:
+    import alphaswarm.graph as graph
+    from alphaswarm import peers
+
+    assert peers.RankedPost.__module__ == "alphaswarm.peers"
+    assert not hasattr(graph, "RankedPost")

@@ -356,7 +356,7 @@ async def test_write_decision_narrative_without_target_is_a_no_op(mock_driver: M
 
 def test_ranked_post_dataclass_frozen() -> None:
     """RankedPost is a frozen dataclass with 8 fields."""
-    from alphaswarm.graph import RankedPost
+    from alphaswarm.peers import RankedPost
 
     rp = RankedPost(
         post_id="x",
@@ -975,7 +975,8 @@ async def test_persist_round_marks_only_control_ids_as_control(mock_driver: Magi
 
 def test_post_writer_is_gone() -> None:
     """Post nodes are no longer written; RankedPost stays for peer formatting."""
-    from alphaswarm.graph import GraphStateManager, RankedPost
+    from alphaswarm.graph import GraphStateManager
+    from alphaswarm.peers import RankedPost
 
     assert not hasattr(GraphStateManager, "write_posts")
     assert RankedPost.__dataclass_fields__.keys() >= {"agent_id", "content"}

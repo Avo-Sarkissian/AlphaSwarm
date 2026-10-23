@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, TypeVar, cast, get_args
 
@@ -103,25 +102,6 @@ def _map_graph_error(exc: Exception, *, op: str, write: bool) -> GraphError:
     if write:
         return Neo4jWriteError(f"Neo4j write failed ({op})", exc, op=op)
     return Neo4jQueryError(f"Neo4j query failed ({op})", exc, op=op)
-
-
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class RankedPost:
-    """A peer's published rationale post ranked by influence weight."""
-
-    post_id: str
-    agent_id: str
-    bracket: str
-    signal: str
-    confidence: float
-    content: str
-    influence_weight: float
-    round_num: int
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ Callers use GraphStateManager and the read-model rows exported here; the
 implementation lives in the modules of this package.
 """
 
-from alphaswarm.graph.manager import GraphStateManager, RankedPost
+from alphaswarm.graph.manager import GraphStateManager
 from alphaswarm.graph.rows import (
     AgentDecisionRow,
     BracketNarrativeRow,
@@ -36,7 +36,6 @@ __all__ = [
     "InfluenceLeaderRow",
     "KeyDissenterRow",
     "PersistRoundResult",
-    "RankedPost",
     "RationaleRoundRow",
     "RoundTimelineRow",
     "ShockImpactRow",
