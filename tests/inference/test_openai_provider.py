@@ -441,10 +441,11 @@ async def test_persistent_429_raises_inference_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_500_raises_inference_error_after_retries() -> None:
+async def test_500_raises_inference_error_after_retries(instant_sleep: list[float]) -> None:
     p = _make_provider(lambda req: _error(500), max_retries=1)
     with pytest.raises(InferenceError):
         await p.chat(_MSG)
+    assert instant_sleep == [1.0]  # 2**0 back-off before the single retry
 
 
 # ---------------------------------------------------------------------------

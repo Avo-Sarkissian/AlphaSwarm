@@ -400,7 +400,9 @@ async def test_rate_limit_retries_then_raises_inference_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_api_connection_error_retries_then_raises_inference_error() -> None:
+async def test_api_connection_error_retries_then_raises_inference_error(
+    instant_sleep: list[float],
+) -> None:
     """APIConnectionError → retried with backoff, then InferenceError."""
     import anthropic
     import httpx
@@ -439,3 +441,4 @@ async def test_api_connection_error_retries_then_raises_inference_error() -> Non
 
     assert exc_info.value.provider == "anthropic"
     assert call_count == 2  # initial + 1 retry
+    assert instant_sleep == [1.0]  # 2**0 back-off before the retry

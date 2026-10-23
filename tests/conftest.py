@@ -6,7 +6,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, NoReturn
+from typing import TYPE_CHECKING, Any, Final, NoReturn
 from urllib.parse import urlsplit
 
 import pytest
@@ -397,3 +397,21 @@ def fixed_git_revision(monkeypatch: pytest.MonkeyPatch) -> tuple[str, bool]:
     value = (FIXED_GIT_SHA, False)
     monkeypatch.setattr("alphaswarm.simulation.current_git_revision", lambda: value)
     return value
+
+
+@pytest.fixture()
+def instant_sleep(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Replace asyncio.sleep with a recorder: delays are logged, no wall-clock wait.
+
+    Libraries that call asyncio.sleep through the module attribute (backoff, the
+    cloud providers' retry loops, the rate limiter) all see the recorder.
+    """
+    delays: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def _record(delay: float, result: Any = None) -> Any:
+        delays.append(float(delay))
+        return await real_sleep(0, result)
+
+    monkeypatch.setattr(asyncio, "sleep", _record)
+    return delays
