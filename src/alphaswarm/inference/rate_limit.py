@@ -14,17 +14,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import logging
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
+
+import structlog
 
 from alphaswarm.inference.concurrency import ConcurrencyController
 
 if TYPE_CHECKING:
     from types import TracebackType
 
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(component="inference.rate_limit")
 
 # ---------------------------------------------------------------------------
 # TokenBucket
@@ -351,13 +352,12 @@ class RateLimitController:
         if failure_rate >= self._failure_shrink_threshold and self._target_slots > self._min_in_flight:
             self._target_slots -= 1
             self._shrink_pending += 1
-            logger.info(
-                "RateLimitController: failure rate %.1f%% >= threshold %.1f%% — "
-                "shrinking effective max_in_flight to %d (pending drain: %d)",
-                failure_rate * 100,
-                self._failure_shrink_threshold * 100,
-                self._target_slots,
-                self._shrink_pending,
+            log.info(
+                "rate_limit_slots_shrunk",
+                failure_rate_percent=round(failure_rate * 100, 1),
+                threshold_percent=round(self._failure_shrink_threshold * 100, 1),
+                target_slots=self._target_slots,
+                shrink_pending=self._shrink_pending,
             )
 
     async def start_monitoring(self) -> None:
