@@ -162,11 +162,9 @@ async def wire_web_state(
     # (docs/DECISIONS.md#p35-d-06).
     app.state.interview_sessions = {}
     stack.push_async_callback(close_interview_sessions, app)
-    # Slots read by the route-level report/advisory job starters until those
-    # routes move onto the services.
-    app.state.report_task = None
+    # Slots read by the route-level advisory job starter until that route moves
+    # onto AdvisoryService.
     app.state.advisory_task = None
-    app.state.report_generation_error = {}
     app.state.advisory_generation_error = {}
     stack.push_async_callback(_cancel_route_jobs, app)
     # Pin run provenance to the code this process loaded: cycles stamp this
@@ -229,13 +227,12 @@ async def wire_web_state(
 
 
 async def _cancel_route_jobs(app: FastAPI) -> None:
-    """Cancel report/advisory tasks the route-level starters left running."""
-    for task_attr in ("report_task", "advisory_task"):
-        task = getattr(app.state, task_attr, None)
-        if task is not None and not task.done():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
+    """Cancel an advisory task the route-level starter left running."""
+    task = getattr(app.state, "advisory_task", None)
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
 
 
 def _warn_legacy_origin_settings(settings: AppSettings) -> None:

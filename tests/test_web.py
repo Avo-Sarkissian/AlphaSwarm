@@ -67,10 +67,6 @@ def _make_test_app() -> FastAPI:
         app.state.replay_manager = replay_manager
         app.state.connection_manager = connection_manager
         app.state.interview_sessions = {}
-        # Phase 36 D-02: in-progress report generation handle.
-        app.state.report_task = None
-        # Phase 36 T-36-15: per-cycle error capture from background task done_callback.
-        app.state.report_generation_error = {}
 
         # Phase 40 D-10: mirror production provider wiring in the isolated test lifespan.
         # Construction is synchronous and does no network I/O — preserves with_ollama=False,

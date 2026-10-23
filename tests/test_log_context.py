@@ -10,14 +10,14 @@ import pytest
 import structlog
 
 import alphaswarm.web.routes.advisory as advisory_module
-import alphaswarm.web.routes.report as report_module
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.inference.types import InferenceResult, ProviderRole
+from alphaswarm.services.report import ReportService
 from alphaswarm.settings import GovernorSettings
 from alphaswarm.types import WorkerPersonaConfig
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.controllers import ImmediateController
-from tests.support.web_app import CYCLE_A, route_test_settings
+from tests.support.web_app import CYCLE_A, offline_runtime, route_test_settings
 
 _BUY = '{"signal": "buy", "confidence": 0.8, "sentiment": 0.4, "rationale": "ok", "cited_agents": []}'
 
@@ -89,8 +89,23 @@ async def test_report_job_binds_cycle_and_job(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The JobRunner binds cycle_id and job inside the report job's task."""
     seen: list[dict[str, Any]] = []
-    monkeypatch.setattr(report_module, "load_inference_config", _record_then_stop(seen))
+    runtime = offline_runtime(route_test_settings(tmp_path), graph=object())
+    graph: Any = runtime.app_state.graph_manager
+    service = ReportService(
+        graph=graph,
+        inference=runtime.inference,
+        jobs=runtime.jobs,
+        reports_dir=tmp_path / "reports",
+    )
+
+    async def _open(_name: str) -> object:
+        seen.append(dict(structlog.contextvars.get_contextvars()))
+        raise _StopError
+
+    monkeypatch.setattr(runtime.inference, "open_operation", _open)
     with pytest.raises(_StopError):
-        await report_module._run_report_generation(_app_state(tmp_path), CYCLE_A)  # type: ignore[arg-type]
+        await service.start(CYCLE_A)
     assert (seen[0]["cycle_id"], seen[0]["job"]) == (CYCLE_A, "report")
+    assert "job" not in structlog.contextvars.get_contextvars()  # the caller's context is untouched

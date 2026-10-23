@@ -19,7 +19,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 import alphaswarm.web.routes.advisory as advisory_module
-import alphaswarm.web.routes.report as report_module
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
@@ -107,13 +106,9 @@ def ledger(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 def report_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     calls: list[str] = []
 
-    async def _report(app_state: Any, cycle_id: str) -> None:
-        calls.append(cycle_id)
-
     async def _generate(self: ReportService, cycle_id: str) -> None:
         calls.append(cycle_id)
 
-    monkeypatch.setattr(report_module, "_run_report_generation", _report)
     monkeypatch.setattr(ReportService, "generate", _generate)
     return calls
 

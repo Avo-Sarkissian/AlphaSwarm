@@ -76,20 +76,6 @@ async def test_simulation_failure_is_logged_with_exc_info(monkeypatch: pytest.Mo
     ) in log.calls
 
 
-async def test_report_task_failure_is_logged_with_exc_info(monkeypatch: pytest.MonkeyPatch) -> None:
-    from alphaswarm.web.routes import report as module
-
-    log = _RecordingLog()
-    monkeypatch.setattr(module, "log", log)
-    boom = RuntimeError("template exploded")
-    app = FastAPI()
-
-    module._on_report_task_done(await _failed_task(boom), "cycle-1", app)
-
-    assert log.kwargs_for("report_task_exception_recorded")["exc_info"] is boom
-    assert app.state.report_generation_error["cycle-1"]["error"] == "report_generation_failed"
-
-
 async def test_advisory_task_failure_is_logged_with_exc_info(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
