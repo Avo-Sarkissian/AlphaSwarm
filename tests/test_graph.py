@@ -992,3 +992,26 @@ def test_post_writer_is_gone() -> None:
 
     assert not hasattr(GraphStateManager, "write_posts")
     assert RankedPost.__dataclass_fields__.keys() >= {"agent_id", "content"}
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, None),
+        ("{not json", None),
+        ('["quants"]', None),
+        (
+            '{"quants": "fictional catalyst watcher", "legacy_suits": "x", "degens": 3}',
+            {BracketType.QUANTS: "fictional catalyst watcher"},
+        ),
+    ],
+)
+def test_decode_modifiers_drops_bad_json_and_unknown_brackets(
+    raw: object,
+    expected: dict[BracketType, str] | None,
+) -> None:
+    from alphaswarm.graph import _decode_modifiers, _encode_modifiers
+
+    assert _decode_modifiers(raw) == expected
+    modifiers = {BracketType.QUANTS: "a", BracketType.DEGENS: "b"}
+    assert _decode_modifiers(_encode_modifiers(modifiers)) == modifiers

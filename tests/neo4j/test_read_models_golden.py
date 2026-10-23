@@ -111,7 +111,7 @@ async def test_read_agent_interview_context(graph_reader: GraphStateManager, see
         assert [(d.round_num, d.signal) for d in ctx.decisions] == [
             (r, _round(seeded_cycle, r)[agent_id].signal.value) for r in range(1, seeded_cycle.num_rounds + 1)
         ]
-        # decision_narrative lives on the global Agent node, so other tests can change it.
+        # The narrative is pinned per cycle in tests/neo4j/test_interview_context.py.
         contexts[agent_id] = {
             **dataclasses.asdict(ctx),
             "interview_system_prompt": "<asserted above>",

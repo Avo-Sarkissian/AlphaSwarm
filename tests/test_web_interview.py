@@ -136,19 +136,23 @@ def test_interview_404_no_cycles() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 5: 404 when read_agent_interview_context returns None
+# Test 5: 404 when the agent is unknown for the cycle
 # ---------------------------------------------------------------------------
 
 
 def test_interview_404_empty_context() -> None:
-    """POST /api/interview/{agent_id} returns 404 when read_agent_interview_context returns None."""
+    """POST /api/interview/{agent_id} returns 404 when the agent is unknown for the cycle."""
     from unittest.mock import AsyncMock, MagicMock
 
     app = _make_interview_test_app()
     with TestClient(app) as client:
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
-        mock_gm.read_agent_interview_context = AsyncMock(return_value=None)
+        from alphaswarm.errors import AgentNotFoundError
+
+        mock_gm.read_agent_interview_context = AsyncMock(
+            side_effect=AgentNotFoundError("agent_1", "c1"),
+        )
         app.state.app_state.graph_manager = mock_gm
         app.state.app_state.ollama_client = MagicMock()
         _mock_complete_app_state(app)

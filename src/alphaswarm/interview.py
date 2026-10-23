@@ -30,6 +30,7 @@ class RoundDecision:
     confidence: float
     sentiment: float
     rationale: str
+    cited_agents: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,7 @@ class InterviewContext:
     agent_name: str
     bracket: str
     interview_system_prompt: str  # persona system_prompt with JSON instructions stripped
-    decision_narrative: str  # pre-computed from Agent node (Phase 11)
+    decision_narrative: str  # this cycle's final-round Decision.narrative, "" when absent
     decisions: list[RoundDecision]
 
 
@@ -94,15 +95,11 @@ class InterviewEngine:
         return self._context.interview_system_prompt
 
     def _build_context_block(self) -> str:
-        """Build a formatted context block with decision narrative and per-round decisions."""
-        lines = [
-            "=== Your Simulation Context ===",
-            "",
-            "Narrative Summary:",
-            self._context.decision_narrative,
-            "",
-            "Round-by-Round Decisions:",
-        ]
+        """Context block: narrative (when one exists) plus per-round decisions."""
+        lines = ["=== Your Simulation Context ===", ""]
+        if self._context.decision_narrative:
+            lines += ["Narrative Summary:", self._context.decision_narrative, ""]
+        lines.append("Round-by-Round Decisions:")
         for d in self._context.decisions:
             lines.append(f"Round {d.round_num}: Signal={d.signal}, Confidence={d.confidence}, Sentiment={d.sentiment}")
             lines.append(f"Rationale: {d.rationale}")

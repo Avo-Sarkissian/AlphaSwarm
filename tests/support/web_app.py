@@ -18,6 +18,7 @@ from fastapi import APIRouter, FastAPI
 
 from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+from alphaswarm.errors import AgentNotFoundError
 from alphaswarm.web.app import make_session_clearer
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers
@@ -104,10 +105,13 @@ class FakeCycleGraph:
             rows = [r for r in rows if datetime.fromisoformat(str(r["created_at"])) < cursor]
         return rows[:limit]
 
-    async def read_agent_interview_context(self, agent_id: str, cycle_id: str) -> object | None:
-        """The stored context for (cycle, agent); None for an unknown agent."""
+    async def read_agent_interview_context(self, agent_id: str, cycle_id: str) -> object:
+        """The stored context for (cycle, agent); AgentNotFoundError for an unknown agent."""
         self.context_calls.append((cycle_id, agent_id))
-        return self.contexts.get((cycle_id, agent_id))
+        context = self.contexts.get((cycle_id, agent_id))
+        if context is None:
+            raise AgentNotFoundError(agent_id, cycle_id)
+        return context
 
     async def read_agent_decisions(self, cycle_id: str, agent_id: str) -> list[dict[str, object]]:
         self.decision_calls.append((cycle_id, agent_id))

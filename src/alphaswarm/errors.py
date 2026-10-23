@@ -178,6 +178,19 @@ class InferenceConfigError(AlphaSwarmError):
     """The persisted inference configuration could not be loaded or built."""
 
 
+class AgentNotFoundError(AlphaSwarmError):
+    """The agent, or its persona, is unknown for this cycle.
+
+    The interview route maps it to 404 agent_not_found instead of sending an
+    empty system prompt to the model.
+    """
+
+    def __init__(self, agent_id: str, cycle_id: str) -> None:
+        super().__init__(f"No interview context for agent {agent_id} in cycle {cycle_id}")
+        self.agent_id = agent_id
+        self.cycle_id = cycle_id
+
+
 # ---------------------------------------------------------------------------
 # UI-safe description of a failed run (StateStore.last_error)
 # ---------------------------------------------------------------------------

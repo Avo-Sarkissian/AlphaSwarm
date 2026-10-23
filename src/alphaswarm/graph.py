@@ -14,9 +14,10 @@ from neo4j import unit_of_work
 from neo4j.exceptions import AuthError as Neo4jAuthError
 from neo4j.exceptions import DriverError, Neo4jError
 
-from alphaswarm.config import DEFAULT_BRACKETS
+from alphaswarm.config import DEFAULT_BRACKETS, generate_personas, load_bracket_configs
 from alphaswarm.episodes import EntityRef
 from alphaswarm.errors import (
+    AgentNotFoundError,
     GraphError,
     Neo4jQueryError,
     Neo4jUnavailableError,
@@ -47,6 +48,21 @@ def _encode_modifiers(modifiers: Mapping[BracketType, str] | None) -> str | None
         sort_keys=True,
         ensure_ascii=False,
     )
+
+
+def _decode_modifiers(raw: object) -> dict[BracketType, str] | None:
+    """Inverse of _encode_modifiers; unknown brackets and bad JSON are dropped."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        log.warning("cycle_modifiers_decode_failed")
+        return None
+    if not isinstance(data, dict):
+        return None
+    known = {b.value for b in BracketType}
+    return {BracketType(k): v for k, v in data.items() if k in known and isinstance(v, str)}
 
 
 # neo4j 5.x raises a pool-acquisition timeout as a code-less ClientError
@@ -1277,61 +1293,57 @@ class GraphStateManager:
         agent_id: str,
         cycle_id: str,
     ) -> InterviewContext:
-        """Read agent context for post-simulation interview (INT-01, D-04, D-06).
+        """Interview context for one agent in one cycle.
 
-        Reconstructs InterviewContext from Neo4j Agent + Decision nodes and
-        the in-memory persona list for system_prompt lookup.
-
-        Args:
-            agent_id: The agent to interview.
-            cycle_id: The simulation cycle to pull decisions from.
-
-        Returns:
-            InterviewContext with persona, narrative, and per-round decisions.
+        The persona is rebuilt from config with the cycle's stored modifiers, so
+        the agent keeps the focus line it had in that run
+        (docs/DECISIONS.md#p14-d-06). The narrative is the one stored on this
+        cycle's final-round Decision, never another cycle's.
 
         Raises:
+            AgentNotFoundError: no Agent node, or the agent is not in the roster.
             Neo4jQueryError / Neo4jUnavailableError: When the read fails.
         """
-        records = await self._read(
-            self._read_interview_context_tx, agent_id, cycle_id, op="read_agent_interview_context"
+        rows = await self._read(
+            self._read_interview_context_tx,
+            agent_id,
+            cycle_id,
+            op="read_agent_interview_context",
         )
-
-        # Look up persona from in-memory list (D-06: avoids second Neo4j query)
-        persona = next((p for p in self._personas if p.id == agent_id), None)
-        interview_system_prompt = _strip_json_instructions(persona.system_prompt) if persona else ""
-
-        # Extract agent-level fields from first record
-        first = records[0] if records else {}
-        agent_name = first.get("name", "")
-        bracket = first.get("bracket", "")
-        decision_narrative = first.get("decision_narrative") or ""
-
-        # Build per-round decisions (skip records with no round_num, e.g. OPTIONAL MATCH miss)
+        if not rows:
+            raise AgentNotFoundError(agent_id, cycle_id)
+        personas = generate_personas(
+            load_bracket_configs(),
+            modifiers=_decode_modifiers(rows[0]["modifiers_json"]),
+        )
+        persona = next((p for p in personas if p.id == agent_id), None)
+        if persona is None:
+            raise AgentNotFoundError(agent_id, cycle_id)
+        decided = [r for r in rows if r["round_num"] is not None]
         decisions = [
             RoundDecision(
-                round_num=r["round_num"],
-                signal=r["signal"],
-                confidence=r["confidence"],
-                sentiment=r["sentiment"],
-                rationale=r["rationale"],
+                round_num=int(r["round_num"]),
+                signal=str(r["signal"]),
+                confidence=float(r["confidence"]),
+                sentiment=float(r["sentiment"]),
+                rationale=str(r["rationale"] or ""),
+                cited_agents=tuple(sorted(r["cited_agents"])),
             )
-            for r in records
-            if r.get("round_num") is not None
+            for r in decided
         ]
-
+        narrative = str(decided[-1]["narrative"] or "") if decided else ""
         self._log.debug(
             "interview_context_read",
             agent_id=agent_id,
             cycle_id=cycle_id,
             decision_count=len(decisions),
         )
-
         return InterviewContext(
             agent_id=agent_id,
-            agent_name=agent_name,
-            bracket=bracket,
-            interview_system_prompt=interview_system_prompt,
-            decision_narrative=decision_narrative,
+            agent_name=str(rows[0]["name"]),
+            bracket=str(rows[0]["bracket"]),
+            interview_system_prompt=_strip_json_instructions(persona.system_prompt),
+            decision_narrative=narrative,
             decisions=decisions,
         )
 
@@ -1340,23 +1352,26 @@ class GraphStateManager:
         tx: AsyncManagedTransaction,
         agent_id: str,
         cycle_id: str,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for reading agent interview context."""
+    ) -> list[dict[str, Any]]:
+        """One row per stored round (or one null-decision row) with the cycle's modifiers."""
         result = await tx.run(
             """
             MATCH (a:Agent {id: $agent_id})
-            OPTIONAL MATCH (a)-[:MADE]->(d:Decision)
-            WHERE d.cycle_id = $cycle_id
-            RETURN a.id AS agent_id,
-                   a.name AS name,
+            OPTIONAL MATCH (c:Cycle {cycle_id: $cycle_id})
+            OPTIONAL MATCH (a)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+            OPTIONAL MATCH (d)-[:CITED]->(cited:Agent)
+            WITH a, c, d, collect(DISTINCT cited.id) AS cited_agents
+            RETURN a.name AS name,
                    a.bracket AS bracket,
-                   a.decision_narrative AS decision_narrative,
+                   c.modifiers_json AS modifiers_json,
                    d.round AS round_num,
                    d.signal AS signal,
                    d.confidence AS confidence,
                    d.sentiment AS sentiment,
-                   d.rationale AS rationale
-            ORDER BY d.round
+                   d.rationale AS rationale,
+                   d.narrative AS narrative,
+                   cited_agents
+            ORDER BY round_num
             """,
             agent_id=agent_id,
             cycle_id=cycle_id,

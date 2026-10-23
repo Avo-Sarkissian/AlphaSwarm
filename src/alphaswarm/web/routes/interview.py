@@ -16,6 +16,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from alphaswarm.config import load_inference_config
+from alphaswarm.errors import AgentNotFoundError
 from alphaswarm.inference.factory import build_providers
 from alphaswarm.interview import InterviewEngine
 from alphaswarm.web.errors import ApiError
@@ -93,13 +94,14 @@ async def interview_agent(
         engine = entry.get("engine")
         if engine is None:
             try:
-                context = await graph.read_agent_interview_context(agent_id, cycle_id)
-                if context is None or not context.agent_name:
+                try:
+                    context = await graph.read_agent_interview_context(agent_id, cycle_id)
+                except AgentNotFoundError as exc:
                     raise ApiError(
                         404,
                         "agent_not_found",
                         f"No interview context for agent {agent_id}",
-                    )
+                    ) from exc
                 cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
                 built = build_providers(
                     cfg,
