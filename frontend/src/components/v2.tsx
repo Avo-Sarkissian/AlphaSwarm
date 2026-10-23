@@ -37,6 +37,7 @@ import { usePrivacyFacts } from '../hooks/usePrivacyFacts';
 import { advisoryLine, dataSourcesNote } from '../lib/privacyCopy';
 import { advisoryFetch, type AdvisoryContent } from '../api/advisory';
 import { renderMarkdown } from '../lib/markdown';
+import { AdvisoryDisclaimer } from '../features/advisory/AdvisoryDisclaimer';
 import {
   parseOutlook,
   extractTickerSection,
@@ -934,6 +935,8 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       </div>
+
+      <AdvisoryDisclaimer />
 
       <div className="adv-body">
         {findingCycle && (

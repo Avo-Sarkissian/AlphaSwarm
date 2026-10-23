@@ -421,6 +421,12 @@ Contents
   - The API-key file and its directory are created owner-only (CWE-276).
 - **Commits:** 53e5954, 72d55a9, 45c7827, 1e7a8ee, e353716, 820b8fe.
 
+### <a id="adr-docs-sync"></a>Measured numbers have one home; the docs copy them by script
+- **Decision:** Every measured number the README, the CHANGELOG and the résumé bullets show lives once, in the headline table of [docs/experiments.md](experiments.md#headline-numbers-v60). `scripts/docs_sync.py` renders the README's results, quality and run-time tables, the bracket table from `DEFAULT_BRACKETS`, the demo link, the screenshot gallery (from `docs/media/captures.json`), the CHANGELOG results and the résumé bullets in `docs/HISTORY.md`. `docs_sync.py check`, and a repository test once the blocks exist, fail when any copy is stale.
+- **Rationale:** The October 2026 audit found a README that contradicted the code in a dozen places, and screenshots that showed mock data. Generated copies turn drift into a test failure instead of a reviewer's job.
+- **Rule:** A generated sentence names a feature only when `repo_facts` finds it in the repository: the static demo build (the frontend reads `VITE_DEMO`), run manifests (`alphaswarm.manifest` defines `RunManifest`), pre-registered metrics (`docs/methodology.md` exists), per-call inference telemetry (`alphaswarm/inference/call_log.py` exists) and the ruff gate (a CI step runs `ruff check`). Until then the demo line is empty and the résumé bullets leave the feature out, so `write` cannot publish a claim ahead of the code. A claim that a result reproduces also needs run manifests. Wording changes go into the renderer and its test, never into a generated block.
+- **Status (2026-10-22):** The script, its unit tests and the headline table exist; the generated blocks do not. README.md and docs/HISTORY.md carry no `<!-- NAME:start -->` markers, and CHANGELOG.md and `docs/media/captures.json` are absent, so `docs_sync.py check` and `write` exit 2 and change nothing, and no test compares a copy with the table yet. The README rewrite adds the markers and that test.
+
 ---
 
 ## 2. Historical decisions no longer in code
@@ -712,13 +718,13 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p39-d-01"></a>`D-01` | Holdings source is a 4-column CSV (account, symbol, shares, cost_basis_per_share). | active | holdings/loader.py:9 |
-| <a id="p39-d-02"></a>`D-02` | Holding.cost_basis is total position cost (shares x per-share basis). | active | holdings/loader.py:10,141; tests/test_holdings_loader.py:72 |
-| <a id="p39-d-03"></a>`D-03` | Multiple accounts merge into one PortfolioSnapshot. | active | holdings/loader.py:11; tests/test_holdings_loader.py:125,145,164 |
-| <a id="p39-d-04"></a>`D-04` | All positions included (no money-market filtering). | active | holdings/loader.py:12; tests/test_holdings_loader.py:125,129,134 |
+| <a id="p39-d-02"></a>`D-02` | Holding.cost_basis is total position cost (shares x per-share basis). | active | holdings/loader.py:10,151; tests/test_holdings_loader.py:79 |
+| <a id="p39-d-03"></a>`D-03` | Multiple accounts merge into one PortfolioSnapshot. | active | holdings/loader.py:11; tests/test_holdings_loader.py:132,152,171 |
+| <a id="p39-d-04"></a>`D-04` | All positions included (no money-market filtering). | active | holdings/loader.py:12; tests/test_holdings_loader.py:132,136,141 |
 | <a id="p39-d-05"></a>`D-05` | Path from ALPHASWARM_HOLDINGS_CSV_PATH, default Schwab/holdings.csv, resolved against the repo root. | active | config.py:478; web/app.py:220 |
 | <a id="p39-d-06"></a>`D-06` | GET /api/holdings returns account hash, as_of, holdings with Decimals as strings. | active | web/routes/holdings.py:17,54,67; tests/unit/test_holdings_route.py:13,85,90,137 |
 | <a id="p39-d-07"></a>`D-07` | Holdings load at lifespan startup into PortfolioCache on app.state and reload when the CSV's mtime changes; never assigned onto AppState. Revised 2026-10 (was loaded once, with a lazy reload in the advisory route). | revised | web/app.py:218; web/routes/holdings.py:18,120 |
-| <a id="p39-d-08"></a>`D-08` | Missing/malformed CSV -> snapshot None -> structured 503; never crashes the WS loop. | active | holdings/loader.py:52; web/app.py:131,138; web/routes/holdings.py:21,82,136,146; tests/unit/test_holdings_route.py:14,215,220; tests/test_holdings_loader.py:261 |
+| <a id="p39-d-08"></a>`D-08` | Missing/malformed CSV -> snapshot None -> structured 503; never crashes the WS loop. | active | holdings/loader.py:54; web/app.py:131,138; web/routes/holdings.py:21,82,136,146; tests/unit/test_holdings_route.py:14,215,220; tests/test_holdings_loader.py:280 |
 
 ### Phase 40: Simulation context wiring
 
@@ -843,7 +849,7 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-11"></a>F-11 | Failed cloud calls leaked TPM reservation (follow-up in 9312419: refund only on failure) | c99d00b, 9312419 | inference/rate_limit.py:299; tests/inference/test_rate_limit.py:276 |
 | <a id="f-12"></a>F-12 | Replay advanced 2-round cycles to an empty round 3 | 66d680f | web/replay_manager.py:167 |
 | <a id="f-13"></a>F-13 | Settings PUT carried the old vendor's API key to a new provider | 66d680f, 9312419 | web/routes/settings.py:250; tests/test_web_settings.py:103 |
-| <a id="f-14"></a>F-14 | Blank account cells crashed the holdings loader outside the 503 path | 902d7b5 | holdings/loader.py:150 |
+| <a id="f-14"></a>F-14 | Blank account cells crashed the holdings loader outside the 503 path | 902d7b5 | holdings/loader.py:172 |
 | <a id="f-15"></a>F-15 | Interview window trim lost a turn when summarization failed | 902d7b5 | interview.py:157 |
 | <a id="f-16"></a>F-16 | `usePolling` stacked overlapping requests | df2f26a | fe/hooks/usePolling.ts:58 |
 | <a id="f-17"></a>F-17 | A sysctl read failure returned GREEN and cleared a crisis; now fail-stale with a timeout | c567a2f | memory_monitor.py:121; tests/test_memory_monitor.py:273,286 |
@@ -941,7 +947,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-be"></a>BE-01 / 03 / 04 / 08 / 09 / 10 | v5.0 web-backend IDs (definitions recovered from `git show 343669f^:.planning/...`). BE-01: FastAPI app whose lifespan owns the event loop, plus `/api/health`. BE-03: per-client WebSocket queue with drop-oldest and writer-task cleanup (ConnectionManager). BE-04: `/ws/state` 5 Hz snapshot stream (Phase 30). BE-08: `GET /api/replay/cycles` (real Neo4j query). BE-09: `POST /api/replay/start/{cycle_id}`. BE-10: `POST /api/replay/advance` (BE-09/10 began as Phase 32 stubs and were filled in by Phase 34) | BE-01: tests/test_web.py:99,223. BE-03: tests/test_web.py:281,310,341. BE-04: tests/test_web.py:438,821. BE-08..10: tests/test_web.py:1207 |
 | <a id="req-isol"></a>ISOL-01..07 | v6.0 isolation: stdlib holdings types (01), frozen ingestion models (02), import contract (03), PII redaction (04), provider protocols (05), socket gate (06), four-surface canary (07) | see the `ISOL-` lines in `holdings/`, `ingestion/`, `logging.py`, `tests/invariants/`, `tests/test_network_gate.py` |
 | <a id="req-ingest"></a>INGEST-01 / 02 | yfinance provider / RSS provider | ingestion/__init__.py:9; ingestion/yfinance_provider.py:1; ingestion/rss_provider.py:1; tests/... |
-| <a id="req-hold"></a>HOLD-01..04 | CSV loader (01), account number hashed with `sha256_first8` (02/04), `GET /api/holdings` (03) | config.py:452; holdings/loader.py:1,13,73,145; holdings/types.py:33; security/hashing.py:5; web/routes/holdings.py:1; tests/... |
+| <a id="req-hold"></a>HOLD-01..04 | CSV loader (01), account number hashed with `sha256_first8` (02/04), `GET /api/holdings` (03) | config.py:452; holdings/loader.py:1,13,75,167; holdings/types.py:33; security/hashing.py:5; web/routes/holdings.py:1; tests/... |
 | <a id="req-advis"></a>ADVIS-01 / 02 | `synthesize()` ranked items / `POST /api/advisory` with serialization | advisory/__init__.py:1; advisory/engine.py:1; advisory/types.py:1; web/routes/advisory.py:1,99; tests/unit/... |
 | <a id="req-sim-04"></a>SIM-04 | `run_simulation` takes optional providers; backward compatible without them | tests/test_simulation.py:3269 |
 | <a id="req-mem"></a>MEM-01..03 | Live RAM% on every WS frame, 5 Hz, governor fields preserved | web/broadcaster.py:27,53; web/wire.py:167; tests/test_web.py:464,471,496,527,556; docs/design/inference-providers.md:142 |

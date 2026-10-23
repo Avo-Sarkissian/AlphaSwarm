@@ -28,8 +28,10 @@ from pathlib import Path
 
 import pytest
 
+import alphaswarm.holdings.loader as loader_module
 from alphaswarm.holdings import HoldingsLoader, HoldingsLoadError, PortfolioSnapshot
 from alphaswarm.security.hashing import sha256_first8
+from tests.support.log_capture import RenderedLog
 
 # --------- Fixture helpers (hermetic tmp_path CSVs) ---------
 
@@ -260,6 +262,18 @@ def test_single_account_hash(tmp_path: Path) -> None:
     path = _schwab_like_csv(tmp_path, ["individual,ZZZT,20,30"])
     snap = HoldingsLoader.load(path)
     assert snap.account_number_hash == sha256_first8("individual")
+
+
+def test_account_labels_never_reach_the_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A label is free text and may be an account number, so the log gets a count only."""
+    rendered = RenderedLog()
+    monkeypatch.setattr(loader_module, "log", rendered)
+    HoldingsLoader.load(_schwab_like_csv(tmp_path, ["acct-0000-9999,ZZZT,20,30"]))
+    assert rendered.events == ["holdings_loaded"]
+    assert '"account_count": 1' in rendered.text
+    assert "acct-0000-9999" not in rendered.text
 
 
 # --------- Error paths (D-08) ---------
