@@ -136,4 +136,5 @@ async def test_shock_before_round_2_is_carried_into_round_3(
     run_scenario: RunScenario, scripted_worker: ScriptedProvider
 ) -> None:
     await run_scenario(shocks={2: SCENARIO_SHOCK_TEXT})
+    assert len(round_calls(scripted_worker, 3)) == 100
     assert all(SHOCK_SUFFIX in message for message in _user_messages(scripted_worker, 3))

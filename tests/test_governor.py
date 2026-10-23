@@ -563,9 +563,12 @@ class TestGovernorLogging:
             # Verify warning was called with reason
             mock_log.warning.assert_called()
             call_kwargs = mock_log.warning.call_args
-            # Check that keyword args contain old_state, new_state, reason
-            assert "old_state" in call_kwargs.kwargs or any("old_state" in str(a) for a in call_kwargs.args)
-            assert "reason" in call_kwargs.kwargs
+            assert call_kwargs.args == ("governor state transition",)
+            assert call_kwargs.kwargs == {
+                "old_state": GovernorState.RUNNING.value,
+                "new_state": GovernorState.THROTTLED.value,
+                "reason": "sysctl=green, psutil=85.0%",
+            }
 
 
 # ---------------------------------------------------------------------------

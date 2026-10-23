@@ -24,6 +24,7 @@ async def test_round_prompts_show_previous_round_peers_and_never_self(
 ) -> None:
     await run_scenario()
     bracket_of = {p.id: p.bracket for p in all_personas}
+    assert len(round_calls(scripted_worker, 1)) == 100
     assert all(c.shown_peer_ids == () for c in round_calls(scripted_worker, 1))
     for round_num in (2, 3):
         calls = round_calls(scripted_worker, round_num)

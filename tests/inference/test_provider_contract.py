@@ -175,7 +175,7 @@ def test_budget_exceeded_error_attributes() -> None:
 def test_budget_exceeded_error_is_exception() -> None:
     err = BudgetExceededError(spent_usd=1.0, cap_usd=0.5)
     assert isinstance(err, Exception)
-    assert "1.0" in str(err) or "0.5" in str(err)
+    assert str(err) == "Budget cap exceeded: spent $1.0000 > cap $0.5000"
 
 
 # ---------------------------------------------------------------------------

@@ -351,6 +351,7 @@ class TestPeerAndProvenanceMetrics:
             git_dirty=True,
         )
 
+        assert metrics
         assert all(isinstance(v, (int, float, str, bool)) for v in metrics.values())
 
 

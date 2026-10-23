@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
+
+import pytest
+
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 
 
@@ -22,11 +26,8 @@ def test_provider_role_orchestrator() -> None:
 def test_inference_result_frozen() -> None:
     """InferenceResult must be immutable (frozen dataclass)."""
     r = InferenceResult(content="x", model="y", input_tokens=10)
-    try:
+    with pytest.raises(dataclasses.FrozenInstanceError):
         r.content = "z"  # type: ignore[misc]
-        raise AssertionError("Should have raised FrozenInstanceError")
-    except Exception as exc:
-        assert "frozen" in type(exc).__name__.lower() or "frozen" in str(exc).lower()
 
 
 def test_inference_result_all_fields() -> None:

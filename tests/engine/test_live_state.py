@@ -63,4 +63,5 @@ async def test_failed_agents_show_parse_error_not_thinking(
     await run_scenario(num_rounds=2, worker=worker)
     states = scenario_store.snapshot().agent_states
     assert {aid for aid, s in states.items() if s.signal is SignalType.PARSE_ERROR} == failing
+    assert len(states) == 100
     assert all(s.signal is not None for s in states.values())

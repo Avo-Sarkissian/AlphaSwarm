@@ -85,6 +85,7 @@ async def test_citations_cross_brackets_and_match_decisions() -> None:
             (agent_id, cited) for agent_id, d in seeded.decisions[round_num] for cited in d.cited_agents
         )
         assert from_decisions == seeded.cited_pairs[round_num]
+        assert from_decisions
         assert all(bracket_of[a] != bracket_of[b] for a, b in from_decisions)
 
 

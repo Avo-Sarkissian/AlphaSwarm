@@ -51,10 +51,15 @@ async def test_rounds_two_and_three_carry_the_own_prior(
 
     for round_num in (2, 3):
         marker = f"Your Round {round_num - 1} position: "
-        for call in round_calls(scripted_worker, round_num):
+        calls = round_calls(scripted_worker, round_num)
+        assert len(calls) == 100
+        for call in calls:
             user = call.messages[-1]["content"]
             assert marker in user and user.index(marker) < user.index(SCENARIO_RUMOR)
-            assert all(marker not in m["content"] for m in call.messages if m["role"] == "system")
+            system_contents = [m["content"] for m in call.messages if m["role"] == "system"]
+            assert len(system_contents) == 2  # persona prompt + peer context
+            assert all(marker not in c for c in system_contents)
+    assert len(round_calls(scripted_worker, 1)) == 100
     assert all("position: " not in c.messages[-1]["content"] for c in round_calls(scripted_worker, 1))
 
 
@@ -64,6 +69,7 @@ async def test_own_prior_memory_off_sends_no_prior(
     scenario_settings.simulation = SimulationSettings(own_prior_memory=False, control_fraction=0.0)
     await run_scenario()
 
+    assert len(scripted_worker.calls_for("decision")) == 300
     assert all("position: " not in c.messages[-1]["content"] for c in scripted_worker.calls_for("decision"))
 
 

@@ -683,6 +683,7 @@ async def test_dispatch_wave_peer_contexts_none_falls_back_to_scalar(
             )
 
     # All agents should have received the scalar peer_context
+    assert len(received_contexts) == len(sample_personas)
     assert all(c == "shared_context" for c in received_contexts)
 
 
@@ -1032,6 +1033,7 @@ async def test_safe_agent_inference_streams_rationale_push_on_success(
     # One success per persona → one rationale per agent in the window.
     successful = [r for r in results if r.signal is not SignalType.PARSE_ERROR]
     rationales = store.peek_rationales()
+    assert len(successful) == len(sample_personas)
     assert len(rationales) == len(successful)
 
     # All pushed entries must be RationaleEntry objects with round_num=2.
@@ -1079,6 +1081,7 @@ async def test_safe_agent_inference_skips_rationale_on_parse_error(
             )
 
     # All decisions failed.
+    assert len(results) == len(sample_personas)
     assert all(r.signal is SignalType.PARSE_ERROR for r in results)
     # ⇒ ZERO rationale entries pushed.
     assert store.peek_rationales() == ()
@@ -1250,6 +1253,7 @@ async def test_dead_monitor_aborts_the_wave_with_governor_crisis(
 
     group = exc_info.value.__cause__
     assert isinstance(group, ExceptionGroup)
+    assert len(group.exceptions) == len(sample_personas)
     assert all(isinstance(e, GovernorCrisisError) for e in group.exceptions)
     assert provider.calls == []
     await governor.stop_monitoring()
@@ -1310,6 +1314,7 @@ async def test_several_hard_stops_raise_only_the_first_bare(
         )
     group = exc_info.value.__cause__
     assert isinstance(group, ExceptionGroup)
+    assert len(group.exceptions) == len(sample_personas)
     assert all(isinstance(e, BudgetExceededError) for e in group.exceptions)
 
 

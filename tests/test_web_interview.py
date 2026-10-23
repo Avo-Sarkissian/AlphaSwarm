@@ -363,7 +363,7 @@ async def test_interview_concurrent_same_agent_serializes() -> None:
             t1.join(timeout=5)
             t2.join(timeout=5)
 
-    assert all(s == 200 for s in results), f"Expected 200s, got: {results}"
+    assert results == [200, 200], f"Expected two 200s, got: {results}"
     assert max_concurrent == 1, f"Expected max 1 concurrent ask, got {max_concurrent}"
 
 
