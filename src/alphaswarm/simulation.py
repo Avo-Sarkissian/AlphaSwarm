@@ -13,7 +13,7 @@ import asyncio
 import dataclasses
 import re
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
@@ -342,7 +342,6 @@ async def _record_cycle_metrics(
     total_seconds: float,
     git_sha: str | None,
     git_dirty: bool | None,
-    extra: Mapping[str, float | int | str | bool] | None = None,
 ) -> None:
     """Write the cycle metrics; a failed write is logged and never fails the run."""
     metrics = _cycle_metrics(
@@ -360,7 +359,6 @@ async def _record_cycle_metrics(
             git_dirty=git_dirty,
         )
     )
-    metrics.update(extra or {})
     try:
         await deps.graph.write_cycle_metrics(cycle_id, metrics)
     except Exception:
