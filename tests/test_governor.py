@@ -1,4 +1,4 @@
-"""Tests for TokenPool, ResourceGovernor state machine, and StateStore integration."""
+"""Tests for the ResourceGovernor limiter, state machine, and StateStore integration."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from alphaswarm.errors import GovernorCrisisError
-from alphaswarm.governor import GovernorState, ResourceGovernor, TokenPool
+from alphaswarm.governor import GovernorState, ResourceGovernor
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReader, MemoryReading, PressureLevel
 from alphaswarm.settings import GovernorSettings
 
@@ -31,142 +31,6 @@ def _reading(
         pause_threshold=90.0,
         scale_up_threshold=60.0,
     )
-
-
-# ---------------------------------------------------------------------------
-# TokenPool tests
-# ---------------------------------------------------------------------------
-
-
-class TestTokenPool:
-    """Test TokenPool: init, acquire, release, grow, shrink, debt pattern."""
-
-    async def test_init_with_n_tokens(self) -> None:
-        pool = TokenPool(4)
-        assert pool.current_limit == 4
-        assert pool.available == 4
-        assert pool.debt == 0
-
-    async def test_acquire_blocks_when_empty(self) -> None:
-        pool = TokenPool(1)
-        await pool.acquire()
-        assert pool.available == 0
-
-        # Second acquire should block (timeout to prove it)
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(pool.acquire(), timeout=0.05)
-
-    async def test_release_returns_token(self) -> None:
-        pool = TokenPool(2)
-        await pool.acquire()
-        assert pool.available == 1
-        pool.release()
-        assert pool.available == 2
-
-    async def test_grow_adds_tokens(self) -> None:
-        pool = TokenPool(4)
-        pool.grow(2)
-        assert pool.current_limit == 6
-        assert pool.available == 6
-
-    async def test_grow_pays_down_debt_no_over_permit(self) -> None:
-        """F-04: crisis-recovery grow must cancel outstanding debt before adding
-        free tokens, so in-flight inferences can never exceed current_limit."""
-        pool = TokenPool(8)
-        for _ in range(8):  # all 8 checked out (memory crisis regime)
-            await pool.acquire()
-        pool.shrink(7)  # crisis shrink to 1; 7 tokens still checked out -> debt
-        assert pool.debt == 7
-        assert pool.current_limit == 1
-
-        pool.grow(7)  # recovery back to baseline
-        # Debt is fully repaid and NO phantom free tokens were added while the
-        # original 8 inferences are still running.
-        assert pool.debt == 0
-        assert pool.available == 0
-        assert pool.current_limit == 8
-
-        # When the 8 originals release, capacity returns to exactly 8 — never more.
-        for _ in range(8):
-            pool.release()
-        assert pool.available == 8
-        assert pool.debt == 0
-
-    async def test_shrink_removes_free_tokens(self) -> None:
-        pool = TokenPool(4)
-        removed = pool.shrink(2)
-        assert removed == 2
-        assert pool.current_limit == 2
-        assert pool.available == 2
-
-    async def test_shrink_when_all_checked_out_sets_debt(self) -> None:
-        """When all tokens are checked out, shrink sets debt counter."""
-        pool = TokenPool(4)
-        # Acquire all 4 tokens
-        for _ in range(4):
-            await pool.acquire()
-        assert pool.available == 0
-
-        removed = pool.shrink(2)
-        # Limit changes immediately, debt records deferred removal
-        assert removed == 2
-        assert pool.current_limit == 2
-        assert pool.debt == 2
-
-    async def test_release_with_debt_discards_token(self) -> None:
-        """Debt pattern: release consumes debt instead of returning to pool."""
-        pool = TokenPool(4)
-        # Acquire all 4
-        for _ in range(4):
-            await pool.acquire()
-        # Shrink by 2 (all checked out -> debt=2)
-        pool.shrink(2)
-        assert pool.debt == 2
-        assert pool.current_limit == 2
-
-        # Release 2 tokens: consumed by debt, not returned to pool
-        pool.release()
-        assert pool.debt == 1
-        assert pool.available == 0
-
-        pool.release()
-        assert pool.debt == 0
-        assert pool.available == 0
-
-    async def test_release_after_debt_repaid_returns_normally(self) -> None:
-        """After debt is fully repaid, subsequent releases return tokens to pool."""
-        pool = TokenPool(4)
-        for _ in range(4):
-            await pool.acquire()
-        pool.shrink(2)
-        assert pool.debt == 2
-
-        # Release 2: consumed by debt
-        pool.release()
-        pool.release()
-        assert pool.debt == 0
-        assert pool.available == 0
-
-        # Release remaining 2: returned to pool normally
-        pool.release()
-        assert pool.available == 1
-        pool.release()
-        assert pool.available == 2
-        assert pool.current_limit == 2
-
-    async def test_shrink_partial_debt(self) -> None:
-        """Shrink with some free and some checked out tokens."""
-        pool = TokenPool(4)
-        # Acquire 2, leave 2 free
-        await pool.acquire()
-        await pool.acquire()
-
-        # Shrink by 3: 2 removed from free pool, 1 becomes debt
-        removed = pool.shrink(3)
-        assert removed == 3
-        assert pool.current_limit == 1
-        assert pool.debt == 1
-        assert pool.available == 0
 
 
 # ---------------------------------------------------------------------------

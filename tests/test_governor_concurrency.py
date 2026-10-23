@@ -18,7 +18,7 @@ from hypothesis import strategies as st
 
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.errors import GovernorCrisisError
-from alphaswarm.governor import GovernorState, ResourceGovernor, TokenPool
+from alphaswarm.governor import GovernorState, ResourceGovernor
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.memory_monitor import MemoryReading, PressureLevel
 from alphaswarm.settings import GovernorSettings
@@ -94,10 +94,6 @@ async def test_pause_blocks_new_acquirers_until_pressure_drops(
         await _cancel(newcomer)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T1.4: a waiter already queued on the TokenPool starts while PAUSED (fix: plan 18)",
-)
 async def test_queued_waiter_does_not_start_while_paused(make_governor: MakeGovernor) -> None:
     gov, monitor = make_governor([GREEN], baseline_parallel=1)
     await gov.start_monitoring()
@@ -135,10 +131,6 @@ async def test_crisis_abort_raises_in_a_waiter_blocked_on_the_resume_gate(
         await _cancel(waiter)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T1.4: a crisis abort never reaches waiters queued on the TokenPool (fix: plan 18)",
-)
 async def test_crisis_abort_raises_in_every_queued_waiter(make_governor: MakeGovernor) -> None:
     gov, monitor = make_governor([GREEN], baseline_parallel=2, crisis_timeout_seconds=-1.0)
     await gov.start_monitoring()
@@ -158,10 +150,6 @@ async def test_crisis_abort_raises_in_every_queued_waiter(make_governor: MakeGov
         await _cancel(queued)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T1.4: stop_monitoring() swallows a fatal monitor error (fix: plan 18)",
-)
 async def test_stop_monitoring_reraises_a_fatal_monitor_error(
     make_governor: MakeGovernor,
 ) -> None:
@@ -254,28 +242,36 @@ async def test_dead_monitor_surfaces_through_dispatch_wave(
         max_size=60,
     ),
 )
-def test_token_pool_never_admits_more_than_its_limit(initial: int, ops: list[tuple[str, int]]) -> None:
-    """Resizing never lets effective in-flight work exceed current_limit."""
+def test_limiter_never_admits_above_its_limit(initial: int, ops: list[tuple[str, int]]) -> None:
+    """An acquire completes only while in-use < limit; resizing never over-admits."""
 
     async def _drive() -> None:
-        pool = TokenPool(initial)
-        checked_out = 0
+        gov = ResourceGovernor(
+            fast_governor_settings(baseline_parallel=initial, max_parallel=8),
+            monitor=ScriptedMonitor([GREEN]),
+        )
+        held = 0
         for op, amount in ops:
-            if op == "acquire" and pool.available > 0:
-                await pool.acquire()
-                checked_out += 1
-            elif op == "release" and checked_out > 0:
-                pool.release()
-                checked_out -= 1
+            if op == "acquire":
+                admitted = held < gov.current_limit
+                waiter = asyncio.create_task(gov.acquire())
+                for _ in range(3):
+                    await asyncio.sleep(0)
+                assert waiter.done() is admitted
+                if admitted:
+                    held += 1
+                else:
+                    waiter.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await waiter
+            elif op == "release" and held > 0:
+                gov.release()
+                held -= 1
             elif op == "grow":
-                pool.grow(amount)
+                gov._set_limit(gov.current_limit + amount)
             elif op == "shrink":
-                step = min(amount, pool.current_limit - 1)
-                if step > 0:
-                    pool.shrink(step)
-            effective = checked_out - pool.debt
-            assert effective <= pool.current_limit
-            assert pool.available == pool.current_limit - effective
+                gov._set_limit(max(1, gov.current_limit - amount))
+            assert gov.active_count == held
 
     # A private loop on purpose: asyncio.run() would also clear the thread's current
     # event loop, orphaning the one pytest-asyncio installed; that loop then leaks as an
@@ -285,3 +281,35 @@ def test_token_pool_never_admits_more_than_its_limit(initial: int, ops: list[tup
         loop.run_until_complete(_drive())
     finally:
         loop.close()
+
+
+async def test_stop_monitoring_does_not_mask_a_propagating_cancellation(
+    make_governor: MakeGovernor,
+) -> None:
+    """A Stop (cancel) during teardown stays a cancel even if the monitor died unseen."""
+    gov, monitor = make_governor([RuntimeError("sysctl exploded")], baseline_parallel=1)
+    await gov.start_monitoring()
+    await eventually(lambda: monitor.reads == 1, what="failing read")
+
+    async def _run() -> None:
+        try:
+            await asyncio.sleep(3600)
+        finally:
+            await gov.stop_monitoring()
+
+    task = asyncio.create_task(_run())
+    await _turns(3)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_stop_monitoring_is_quiet_once_a_waiter_saw_the_error(
+    make_governor: MakeGovernor,
+) -> None:
+    gov, monitor = make_governor([RuntimeError("sysctl exploded")], baseline_parallel=1)
+    await gov.start_monitoring()
+    await eventually(lambda: monitor.reads == 1, what="failing read")
+    with pytest.raises(GovernorCrisisError):
+        await gov.acquire()
+    await gov.stop_monitoring()  # delivered already: must not raise again
