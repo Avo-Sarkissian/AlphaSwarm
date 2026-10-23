@@ -80,7 +80,7 @@ Contents
 - **Revisit when:** a new MoE beats 2361 t/s prefill on 64 GB. Gemma 4 26B MoE is untested.
 
 ### <a id="adr-model-aliases"></a>Code calls Modelfile aliases; `num_ctx` lives only in Modelfiles
-- **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`).
+- **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`). Output caps are sent per request: OllamaProvider forwards max_tokens as options["num_predict"], a sampling option that does not reload the model; the Modelfile num_predict is only the fallback, so a base tag chosen in Settings is capped too (2026-10).
 - **Rationale:** A per-request `num_ctx` makes Ollama silently reload the model.
 - **Caveats:**
   - `OllamaSettings.worker_model` and `orchestrator_model` are no longer read anywhere (the CLI banner that displayed them was removed; see [adr-cli-ux](#adr-cli-ux)). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.

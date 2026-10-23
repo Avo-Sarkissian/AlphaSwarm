@@ -11,7 +11,7 @@ Local path calling shape (must stay identical to worker.py):
         format=DECISION_JSON_SCHEMA,   # or "json" or None
         think=False,
         keep_alive="5m",
-        options={"temperature": ...},  # or None if not set
+        options={"temperature": ..., "num_predict": ...},  # each only when set; None if neither
     )
 """
 
@@ -173,8 +173,7 @@ class OllamaProvider:
         - ``json_mode=True``  → ``format="json"``          (raw JSON, no schema)
         - neither             → ``format=None``
         - ``temperature``     → ``options={"temperature": <value>}`` or None
-        - ``max_tokens``      → accepted but silently ignored (Modelfile
-          ``num_predict`` governs; OllamaClient already strips ``num_ctx``)
+        - ``max_tokens``      → ``options["num_predict"]`` (the Modelfile value is only the fallback)
         - ``think=False``     always (disables thinking for structured outputs)
         - ``keep_alive``      from constructor default (``"5m"``)
 
@@ -184,7 +183,7 @@ class OllamaProvider:
                 Takes precedence over ``json_mode``.
             json_mode: Emit raw JSON without a schema constraint.
             temperature: Sampling temperature override; None uses Modelfile default.
-            max_tokens: Accepted for interface compatibility; has no effect.
+            max_tokens: Output cap for this call, sent as num_predict.
 
         Returns:
             ``InferenceResult`` with content, model, token counts, prefill/decode/load
@@ -199,10 +198,14 @@ class OllamaProvider:
         else:
             fmt = None
 
-        # Build options only when temperature is explicitly set.
-        # Do NOT pass num_ctx — OllamaClient strips it, but omitting it
-        # avoids a spurious log-warning on every single call.
-        options: dict[str, Any] | None = {"temperature": temperature} if temperature is not None else None
+        # Sampling options only, so the model never reloads: temperature and the
+        # per-call output cap (num_predict). num_ctx is never sent
+        # (docs/DECISIONS.md#adr-model-aliases).
+        options: dict[str, Any] = {}
+        if temperature is not None:
+            options["temperature"] = temperature
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
 
         resp = await self._client.chat(
             model=self.model,
@@ -210,7 +213,7 @@ class OllamaProvider:
             format=fmt,
             think=False,
             keep_alive=self._keep_alive,
-            options=options,
+            options=options or None,
             # Worker decisions take seconds; a stalled one is cut at the worker read
             # timeout (docs/DECISIONS.md#adr-inference-timeouts).
             timeout_role="worker" if self.role is ProviderRole.WORKER else "orchestrator",
