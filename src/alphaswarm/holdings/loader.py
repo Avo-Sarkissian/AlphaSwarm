@@ -135,9 +135,7 @@ class HoldingsLoader:
                 cost_per_share = Decimal(row["cost_basis_per_share"])
             except (InvalidOperation, TypeError) as exc:
                 # Row NUMBER only: never embed the raw row in the message (it gets logged).
-                raise HoldingsLoadError(
-                    f"Invalid numeric value in CSV row {row_num}: {exc}"
-                ) from exc
+                raise HoldingsLoadError(f"Invalid numeric value in CSV row {row_num}: {exc}") from exc
             # Finiteness first: comparing a NaN Decimal with 0 raises InvalidOperation.
             if not qty.is_finite() or not cost_per_share.is_finite():
                 raise HoldingsLoadError(f"Non-finite numeric value in CSV row {row_num}")
