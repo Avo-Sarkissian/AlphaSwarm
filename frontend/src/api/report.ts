@@ -3,10 +3,39 @@ import { apiFetch, apiPost, ApiError } from './client';
 import { parseErrorEnvelope } from '../lib/apiError';
 import { shouldKeepPolling } from '../lib/reportPolling';
 
+// Structured report view served next to the markdown. Rows mirror the backend
+// read models; shares are computed in the UI over decided agents.
+export interface ConvergenceRow {
+  round_num: number;
+  buy_count: number;
+  sell_count: number;
+  hold_count: number;
+  parse_error_count: number;
+  total: number;
+}
+
+export interface InfluenceRow {
+  agent_id: string;
+  name: string;
+  bracket: string;
+  citation_count: number;
+  influence_share: number;
+}
+
+export interface ReportSections {
+  summary: string;
+  convergence: ConvergenceRow[];
+  influence: InfluenceRow[];
+  moments: string[];
+  dissent: string[];
+  followups: string[];
+}
+
 export interface ReportContent {
   cycle_id: string;
   content: string;
   generated_at: string;
+  sections?: ReportSections | null; // null for reports written before sections existed
 }
 
 export interface ReportGenerateResponse {

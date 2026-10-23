@@ -1,6 +1,6 @@
 // v2 components — Signal Wire (CSS scroll), Data Sources (full takeover),
-// Advisory V2, Model Status, plus the ReportModalV2 rich-section helpers
-// (ConvergenceFlow, InfluenceChart, Moment, Followup, AdvStat, AdvHoldingRow).
+// Advisory V2, Model Status, the report charts (ConvergenceFlow, InfluenceChart)
+// and the advisory helpers (AdvStat, AdvHoldingRow).
 //
 // Ported from AlphaSwarm-2/src/v2.jsx (801 LOC) per D-03 (CDN-globals → ES
 // modules) and renamed .jsx → .tsx per codex HIGH-1 — body uses generic
@@ -18,9 +18,9 @@
 //     GET-only polling (the manual brief trigger is forbidden) per codex HIGH-3
 //     — synthesis is
 //     auto-fired by backend on FINAL round per quick task 260507-19f.
-//   • ReportModalV2 NOT exported — its rich layout folds into ./ReportModal.tsx
-//     per D-20 (canonical-first, heading-gated subsections, codex HIGH-4).
-import { useState, useMemo, useRef } from 'react';
+//   • ConvergenceFlow / InfluenceChart — drawn by ./ReportModal.tsx from the
+//     backend's structured report sections; markdown is never parsed.
+import { useState, useMemo } from 'react';
 import { getHealth } from '../api/settings';
 import { Icon } from './icons';
 import { useTelemetry } from '../context/TelemetryContext';
@@ -34,16 +34,21 @@ import { usePolling } from '../hooks/usePolling';
 import { useDataSourceAudit } from '../hooks/useDataSourceAudit';
 import { usePrivacyFacts } from '../hooks/usePrivacyFacts';
 import { advisoryLine, dataSourcesNote } from '../lib/privacyCopy';
-import { advisoryFetch, type AdvisoryContent } from '../api/advisory';
+import {
+  advisoryFetch,
+  type AdvisoryContent,
+  type AdvisoryReportPayload,
+} from '../api/advisory';
+import type { ConvergenceRow, InfluenceRow } from '../api/report';
 import { renderMarkdown } from '../lib/markdown';
 import { AdvisoryDisclaimer } from '../features/advisory/AdvisoryDisclaimer';
 import {
   parseOutlook,
-  extractTickerSection,
-  extractField,
   countAgentCitationsAgainst, // gemini #G2 — strict intersection (NOT bare countAgentCitations)
 } from '../lib/advisoryParse';
+import { isPlaceholder, overviewStats, recLabel } from '../lib/advisoryView';
 import { recentFor, summarizeAudit } from '../lib/dataSources';
+import { convergenceBars, influenceBars } from '../lib/reportSections';
 
 // One ticker item: a provider call with its subject in the agent slot.
 interface WireItem {
@@ -392,20 +397,6 @@ function DsStat({
 // directly from backend. gemini #G2 strict-intersection citation count.
 // codex HIGH-3: NO advisory POST trigger — backend auto-fires on FINAL round.
 // ──────────────────────────────────────────────────────────────────────
-interface AdvisoryItemPayload {
-  ticker: string;
-  consensus_signal: 'BUY' | 'SELL' | 'HOLD';
-  confidence: number;
-  rationale_summary: string;
-  position_exposure: string | number;
-}
-interface AdvisoryReportPayload extends AdvisoryContent {
-  items?: AdvisoryItemPayload[];
-  portfolio_outlook?: string;
-  total_holdings?: number;
-  affected_holdings?: number;
-}
-
 interface HoldingAnalysis {
   ticker: string;
   swarmSignal: 'BUY' | 'SELL' | 'HOLD';
@@ -421,6 +412,7 @@ interface HoldingAnalysis {
   sentiment: number;
   risk: string | null;
   upside: string | null;
+  placeholder: boolean;
 }
 
 export function AdvisoryV2({ onClose }: { onClose: () => void }) {
@@ -468,22 +460,14 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
       (sum, item) => sum + Number(item.position_exposure || 0),
       0,
     );
-    const outlookMd = report.portfolio_outlook || '';
     return report.items.map((item) => {
       const value = Number(item.position_exposure || 0);
       const weight = totalExposure > 0 ? (value / totalExposure) * 100 : 0;
-      const tickerSection = extractTickerSection(outlookMd, item.ticker);
       return {
         ticker: item.ticker,
         swarmSignal: item.consensus_signal,
         recTone: item.consensus_signal.toLowerCase() as 'buy' | 'sell' | 'hold',
-        rec:
-          (tickerSection && extractField(tickerSection, 'rec')) ||
-          (item.consensus_signal === 'BUY'
-            ? 'CONSIDER ADDING'
-            : item.consensus_signal === 'SELL'
-              ? 'CONSIDER TRIMMING'
-              : 'NO ACTION'),
+        rec: recLabel(item.consensus_signal),
         rationale: item.rationale_summary,
         value,
         weight,
@@ -494,9 +478,10 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
         basis: null,
         last: null,
         sentiment: 0,
-        // PARSE per-ticker section (KR-41.6-12 if missing):
-        risk: tickerSection ? extractField(tickerSection, 'risk') : null,
-        upside: tickerSection ? extractField(tickerSection, 'upside') : null,
+        // Written per item by the orchestrator; null when it gave none.
+        risk: item.risk ?? null,
+        upside: item.upside ?? null,
+        placeholder: isPlaceholder(item),
       };
     });
   }, [report, liveAgentIds]);
@@ -518,31 +503,24 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   // D-22 — display as `${affected}/${total}` directly from backend.
   const holdingsAffectedDisplay = `${affectedHoldings}/${totalHoldings}`;
 
-  // CONFIDENCE: average across items, label HIGH (>0.7) / MED (>0.4) / LOW
-  const avgConfidence = report?.items?.length
-    ? report.items.reduce((a, i) => a + (i.confidence || 0), 0) / report.items.length
-    : 0;
+  // Backend stats over conviction items only: placeholders never skew them.
+  const overview = useMemo(() => (report ? overviewStats(report) : null), [report]);
+  const avgConfidence = overview?.avgConfidence ?? null;
   const confidenceLabel =
-    avgConfidence > 0.7 ? 'HIGH' : avgConfidence > 0.4 ? 'MED' : 'LOW';
+    avgConfidence === null
+      ? '—'
+      : avgConfidence > 0.7
+        ? 'HIGH'
+        : avgConfidence > 0.4
+          ? 'MED'
+          : 'LOW';
   const confidenceTone: 'buy' | 'sell' | 'hold' =
-    avgConfidence > 0.7 ? 'buy' : avgConfidence > 0.4 ? 'hold' : 'sell';
-
-  // SWARM VIEW: dominant of items.consensus_signal counts
-  const swarmCounts = useMemo(() => {
-    const c = { BUY: 0, SELL: 0, HOLD: 0 };
-    for (const item of report?.items ?? []) c[item.consensus_signal] += 1;
-    return c;
-  }, [report]);
-  const swarmTotal = swarmCounts.BUY + swarmCounts.SELL + swarmCounts.HOLD;
-  const swarmDominant: 'BUY' | 'SELL' | 'HOLD' =
-    swarmCounts.SELL >= swarmCounts.BUY && swarmCounts.SELL >= swarmCounts.HOLD
-      ? 'SELL'
-      : swarmCounts.BUY >= swarmCounts.HOLD
-        ? 'BUY'
-        : 'HOLD';
-  const swarmDominantPct = swarmTotal
-    ? Math.round((swarmCounts[swarmDominant] / swarmTotal) * 100)
-    : 0;
+    avgConfidence !== null && avgConfidence > 0.7
+      ? 'buy'
+      : avgConfidence !== null && avgConfidence > 0.4
+        ? 'hold'
+        : 'sell';
+  const swarmDominant = overview?.dominant ?? null;
   const swarmTone: 'buy' | 'sell' | 'hold' =
     swarmDominant === 'BUY' ? 'buy' : swarmDominant === 'SELL' ? 'sell' : 'hold';
 
@@ -658,14 +636,18 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
               />
               <AdvStat
                 label="SWARM VIEW"
-                value={`${swarmDominant} ${swarmDominantPct}%`}
-                sub="dominant signal"
+                value={swarmDominant ? `${swarmDominant} ${overview?.dominantPct ?? 0}%` : '—'}
+                sub={`dominant of ${overview?.convictionCount ?? 0} conviction items`}
                 tone={swarmTone}
               />
               <AdvStat
                 label="CONFIDENCE"
                 value={confidenceLabel}
-                sub={`avg ${(avgConfidence * 100).toFixed(0)}%`}
+                sub={
+                  avgConfidence === null
+                    ? 'no conviction items'
+                    : `avg ${(avgConfidence * 100).toFixed(0)}%`
+                }
                 tone={confidenceTone}
               />
             </div>
@@ -700,7 +682,17 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
             {holdingAnalysis.map((h) => (
               <div key={h.ticker} className="adv-holding-card">
                 <div className="adv-hc-head">
-                  <div className="adv-hc-ticker">{h.ticker}</div>
+                  <div className="adv-hc-ticker">
+                    {h.ticker}
+                    {h.placeholder && (
+                      <span
+                        className="adv-placeholder-tag label"
+                        title="No strong swarm view this cycle; shown as HOLD placeholder"
+                      >
+                        PLACEHOLDER
+                      </span>
+                    )}
+                  </div>
                   <div className="adv-hc-value">
                     {/* STUB per D-08 + KR-41.6-01 — last/shares not on backend */}
                     <div className="adv-hc-val mono">{h.last ?? '—'}</div>
@@ -861,7 +853,17 @@ export function AdvHoldingRow({
   // Sentiment STUBBED (KR-41.6-01) — render midline bar.
   return (
     <div className="adv-qh-row">
-      <div className="adv-qh-ticker">{h.ticker}</div>
+      <div className="adv-qh-ticker">
+        {h.ticker}
+        {h.placeholder && (
+          <span
+            className="adv-placeholder-tag label"
+            title="No strong swarm view this cycle; shown as HOLD placeholder"
+          >
+            PLACEHOLDER
+          </span>
+        )}
+      </div>
       <div className="adv-qh-shares mono">{h.shares ?? '—'} sh</div>
       <div className="adv-qh-val mono">${(h.value / 1000).toFixed(0)}K</div>
       <div className="adv-qh-weight mono">
@@ -881,56 +883,26 @@ export function AdvHoldingRow({
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// ReportModalV2 rich-section helpers (folded into ./ReportModal.tsx per D-20).
-// These render only when the corresponding parser returns non-null/non-empty
-// data (heading-gated per codex HIGH-4).
+// ReportModal charts, drawn from the backend's structured report sections.
 // ──────────────────────────────────────────────────────────────────────
-import type {
-  ConvergenceData,
-  InfluenceEntry,
-  MomentEntry,
-  FollowupEntry,
-} from '../lib/advisoryParse';
-
-export function ConvergenceFlow({ data }: { data: ConvergenceData[] }) {
-  // Group rows by round — sum weights per signal per round so the same data
-  // shape used by the parser also drives the bar segments.
-  const byRound = useMemo(() => {
-    const m = new Map<number, { buy: number; sell: number; hold: number }>();
-    for (const row of data) {
-      const cur = m.get(row.round) ?? { buy: 0, sell: 0, hold: 0 };
-      const w = row.weight * 100; // parser returns 0..1
-      if (row.signal === 'BUY') cur.buy += w;
-      else if (row.signal === 'SELL') cur.sell += w;
-      else if (row.signal === 'HOLD') cur.hold += w;
-      m.set(row.round, cur);
-    }
-    return Array.from(m.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([r, v]) => ({ r: `R${r}`, ...v }));
-  }, [data]);
-
-  // Use a ref so React's useMemo dep-tracker on `data` is honored without
-  // shadowing the data prop usage below.
-  const ignoredRef = useRef(byRound);
-  ignoredRef.current = byRound;
-
+export function ConvergenceFlow({ rows }: { rows: ConvergenceRow[] }) {
+  const bars = useMemo(() => convergenceBars(rows), [rows]);
   return (
     <div className="cv-flow">
-      {byRound.map((rd) => (
-        <div key={rd.r} className="cv-col">
+      {bars.map((bar) => (
+        <div key={bar.label} className="cv-col">
           <div className="cv-bar">
-            <div className="cv-seg buy" style={{ height: `${rd.buy}%` }}>
-              <span className="cv-n">{Math.round(rd.buy)}</span>
+            <div className="cv-seg buy" style={{ height: `${bar.buyPct}%` }}>
+              <span className="cv-n">{bar.buy}</span>
             </div>
-            <div className="cv-seg hold" style={{ height: `${rd.hold}%` }}>
-              <span className="cv-n">{Math.round(rd.hold)}</span>
+            <div className="cv-seg hold" style={{ height: `${bar.holdPct}%` }}>
+              <span className="cv-n">{bar.hold}</span>
             </div>
-            <div className="cv-seg sell" style={{ height: `${rd.sell}%` }}>
-              <span className="cv-n">{Math.round(rd.sell)}</span>
+            <div className="cv-seg sell" style={{ height: `${bar.sellPct}%` }}>
+              <span className="cv-n">{bar.sell}</span>
             </div>
           </div>
-          <div className="cv-r label">{rd.r}</div>
+          <div className="cv-r label">{bar.label}</div>
         </div>
       ))}
       <div className="cv-legend">
@@ -948,49 +920,20 @@ export function ConvergenceFlow({ data }: { data: ConvergenceData[] }) {
   );
 }
 
-export function InfluenceChart({ data }: { data: InfluenceEntry[] }) {
-  const max = data.reduce((m, r) => Math.max(m, r.weight), 0) || 1;
+export function InfluenceChart({ rows }: { rows: InfluenceRow[] }) {
+  const bars = useMemo(() => influenceBars(rows), [rows]);
   return (
     <div className="infl-chart">
-      {data.map((r) => (
-        <div key={r.agentId} className="infl-row">
-          <span className="infl-id mono">{r.agentId}</span>
-          <span className="infl-bracket label">—</span>
+      {bars.map((bar) => (
+        <div key={bar.agentId} className="infl-row">
+          <span className="infl-id mono">{bar.agentId}</span>
+          <span className="infl-bracket label">{bar.bracket}</span>
           <div className="infl-bar-wrap">
-            <div className="infl-bar" style={{ width: `${(r.weight / max) * 100}%` }} />
+            <div className="infl-bar" style={{ width: `${bar.widthPct}%` }} />
           </div>
-          <span className="infl-n mono">{r.weight.toFixed(2)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export function Moment({ moments }: { moments: MomentEntry[] }) {
-  return (
-    <div className="rv2-moments">
-      {moments.map((m, i) => (
-        <div key={i} className="rv2-moment">
-          <div className="rv2-moment-t mono">R{m.round}</div>
-          <div>
-            <div className="rv2-moment-title">Round {m.round}</div>
-            <div className="rv2-moment-body">{m.description}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export function Followup({ items }: { items: FollowupEntry[] }) {
-  return (
-    <div className="rv2-followups">
-      {items.map((f, i) => (
-        <div key={i} className="rv2-followup">
-          <div className="rv2-followup-n">{String(i + 1).padStart(2, '0')}</div>
-          <div>
-            <div className="rv2-followup-title">{f.description}</div>
-          </div>
+          <span className="infl-n mono">
+            {bar.citations} · {bar.sharePct.toFixed(1)}%
+          </span>
         </div>
       ))}
     </div>

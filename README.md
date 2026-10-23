@@ -30,7 +30,7 @@ they were removed.
 - **Dynamic influence topology** where agent-to-agent influence edges form organically from citation and agreement patterns via Neo4j graph
 - **React + FastAPI web dashboard** with a React-rendered SVG graph of the 100 agents (deterministic layout), live WebSocket at 5Hz, bracket panels, rationale feed, replay mode, and advisory panel
 - **Live graph memory** where Neo4j persists every decision, rationale episode, signal flip, and INFLUENCED_BY edge as queryable state
-- **Post-simulation capabilities** including click-to-interview any agent (multi-turn Q&A), replay past cycles from Neo4j state without re-inference, and ReACT-agent-generated market analysis reports
+- **Post-simulation capabilities** including click-to-interview any agent (multi-turn Q&A), replay past cycles from Neo4j state without re-inference, and market analysis reports built from the simulation data plus one grounded orchestrator call
 - **Dynamic persona generation** where the orchestrator extracts entities from the seed rumor to inject situation-specific bracket modifiers
 - **Shock injection** to inject disruptive news or events mid-simulation between rounds, prompting agents to re-evaluate with fresh context
 - **Memory-aware resource governance** with dynamic concurrency control via `psutil` and macOS memory-pressure monitoring, auto-throttle at 80% RAM, and pause at 90%
@@ -58,7 +58,7 @@ Seed Rumor --> Orchestrator (27B) --> Entity Extraction + Dynamic Persona Modifi
                     +-> Per-agent decisions + public rationales
                     +-> Bracket sentiment distribution
                     +-> Neo4j graph of RationaleEpisodes and INFLUENCED_BY edges
-                    +-> ReACT-generated markdown report
+                    +-> Markdown report (simulation data + one grounded orchestrator call)
                     +-> Live agent interviews (multi-turn Q&A post-simulation)
 ```
 
@@ -82,7 +82,7 @@ uv run alphaswarm web
 | **Bracket Panel** | Per-archetype sentiment bar charts (SVG) updated after each round |
 | **Agent Interview Modal** | Click any agent post-simulation to open a multi-turn Q&A chat panel with restored persona |
 | **Replay Mode** | Cycle picker + round-by-round stepping to re-render past simulations from Neo4j (no re-inference) |
-| **Report Viewer** | Full-screen modal rendering the ReACT-generated markdown report (sanitized via DOMPurify) |
+| **Report Viewer** | Full-screen modal rendering the markdown report (sanitized via DOMPurify) with convergence and influence charts from the report's structured sections |
 | **Shock Injection** | Slide-down drawer to inject disruptive events between rounds during a live run |
 
 ---
@@ -371,7 +371,7 @@ Advisory files are written owner-only, and only the newest 20 are kept
 
 **v1.0 Core Engine:** async batched Ollama inference, dynamic resource governor, Neo4j graph state, 100-agent swarm across 10 brackets, 3-round consensus cascade, dynamic influence topology, and a terminal dashboard (later retired in favour of the web UI).
 
-**v2.0 Engine Depth:** live graph memory (RationaleEpisode nodes, narrative edges), richer agent interactions (public rationale posts, token-budget-aware peer context), dynamic persona generation, post-simulation agent interviews, ReACT-generated markdown reports.
+**v2.0 Engine Depth:** live graph memory (RationaleEpisode nodes, narrative edges), richer agent interactions (public rationale posts, token-budget-aware peer context), dynamic persona generation, post-simulation agent interviews, markdown analysis reports.
 
 **v3.0 Stock-Specific Recommendations:** ticker extraction, a market-data pipeline and per-ticker decisions. Lost in a bad merge on 2026-04-09; the real-data work was rebuilt differently in v6.0.
 

@@ -18,6 +18,39 @@ export interface AdvisoryContent {
   [key: string]: unknown;
 }
 
+export type AdvisorySignal = 'BUY' | 'SELL' | 'HOLD';
+
+export interface AdvisoryItemPayload {
+  ticker: string;
+  consensus_signal: AdvisorySignal;
+  confidence: number;
+  rationale_summary: string;
+  position_exposure: string | number;
+  source?: 'swarm' | 'placeholder'; // absent in files written before placeholders were marked
+  risk?: string | null;
+  upside?: string | null;
+}
+
+export interface AdvisoryStatsPayload {
+  conviction_count: number;
+  placeholder_count: number;
+  buy_count: number;
+  sell_count: number;
+  hold_count: number;
+  avg_confidence: number | null;
+  dominant_signal: AdvisorySignal | null;
+  dominant_share: number | null;
+}
+
+export interface AdvisoryReportPayload extends AdvisoryContent {
+  items?: AdvisoryItemPayload[];
+  portfolio_outlook?: string;
+  total_holdings?: number;
+  affected_holdings?: number;
+  stats?: AdvisoryStatsPayload | null; // null for files written before backend stats
+  holdings_as_of?: string | null;
+}
+
 // GET /api/advisory/{cycle_id} — 404 / 409 in progress mean pending (returns null).
 export async function advisoryFetch(
   cycleId: string,
