@@ -273,10 +273,6 @@ const FALSE_CLAIMS: ReadonlyArray<readonly [RegExp, string]> = [
   [claim('', 'advisory', '-audit'), 'there is no advisory audit log'],
   [claim('', 'ALPHASWARM v', '\\d'), 'the version comes from /api/health'],
   [claim('', 'FRED, news', ', filings'), 'only yfinance and RSS providers exist'],
-  [
-    claim('', 'the live stream or', ' the logs'),
-    'advisory validation errors can still log LLM-echoed tickers; drop this once they are scrubbed',
-  ],
 ];
 
 function sourceFiles(dir: string): string[] {

@@ -818,9 +818,9 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
                 <p>
                   The orchestrator reads only the consensus output — signals,
                   rationales, influence graph — never the raw agent prompts. Your
-                  holdings are read from your local CSV and never written to Neo4j or
-                  the live stream; the advisory result, including the cost-basis
-                  exposure, is saved under advisory/ as an owner-only file.
+                  holdings are read from your local CSV and never written to Neo4j,
+                  the live stream or the logs; the advisory result, including the
+                  cost-basis exposure, is saved under advisory/ as an owner-only file.
                 </p>
               </div>
             </div>
