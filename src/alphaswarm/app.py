@@ -10,7 +10,7 @@ import structlog
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.logging import get_logger
-from alphaswarm.ollama_client import OllamaClient
+from alphaswarm.ollama_client import OllamaClient, OllamaTimeouts
 from alphaswarm.ollama_models import OllamaModelManager
 from alphaswarm.settings import AppSettings
 from alphaswarm.state import StateStore
@@ -87,7 +87,11 @@ def create_app_state(
     if with_ollama:
         ollama_client = OllamaClient(
             base_url=settings.ollama.base_url,
-            request_timeout_seconds=settings.ollama.request_timeout_seconds,
+            timeouts=OllamaTimeouts(
+                connect_s=settings.ollama.connect_timeout_s,
+                worker_read_s=settings.ollama.worker_read_timeout_s,
+                orchestrator_read_s=settings.ollama.orchestrator_read_timeout_s,
+            ),
         )
         model_manager = OllamaModelManager(
             client=ollama_client,

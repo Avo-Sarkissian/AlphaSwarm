@@ -6,11 +6,14 @@ Contracts:
 - OllamaInferenceError raised after max_tries exhausted
 - RequestError wrapped in OllamaInferenceError at public boundary (not retried)
 - All inference goes through this wrapper, never raw AsyncClient
+- Per-role read timeouts: worker calls are cut at OllamaTimeouts.worker_read_s,
+  everything else at orchestrator_read_s (docs/DECISIONS.md#adr-inference-timeouts)
 """
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Final, Literal
 
 import backoff
 import httpx
@@ -20,6 +23,32 @@ from ollama import AsyncClient, ChatResponse, RequestError, ResponseError
 from alphaswarm.errors import OllamaInferenceError
 
 logger = structlog.get_logger(component="ollama_client")
+
+TimeoutRole = Literal["worker", "orchestrator"]
+
+# Fixed parts of every Ollama HTTP timeout (docs/DECISIONS.md#adr-inference-timeouts).
+WRITE_TIMEOUT_S: Final = 30.0
+POOL_TIMEOUT_S: Final = 30.0
+
+
+@dataclass(frozen=True)
+class OllamaTimeouts:
+    """Per-role HTTP timeouts for the Ollama server (docs/DECISIONS.md#adr-inference-timeouts).
+
+    ``connect_s`` makes an unreachable host fail fast. The read timeout bounds
+    the wait for a whole non-streamed reply: worker decisions take seconds, so a
+    stalled one is cut at ``worker_read_s``; orchestrator calls, model loads and
+    warm-ups (which pay MLX kernel compilation) get ``orchestrator_read_s``.
+    """
+
+    connect_s: float = 5.0
+    worker_read_s: float = 120.0
+    orchestrator_read_s: float = 600.0
+
+    def httpx_timeout(self, role: TimeoutRole) -> httpx.Timeout:
+        """The ``httpx.Timeout`` for one role's connection pool."""
+        read = self.worker_read_s if role == "worker" else self.orchestrator_read_s
+        return httpx.Timeout(connect=self.connect_s, read=read, write=WRITE_TIMEOUT_S, pool=POOL_TIMEOUT_S)
 
 
 def _strip_num_ctx(options: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -41,15 +70,12 @@ class OllamaClient:
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
-        request_timeout_seconds: float | None = 600.0,
+        timeouts: OllamaTimeouts | None = None,
     ) -> None:
-        # request_timeout_seconds caps EVERY inference call. Without it the
-        # underlying httpx client waits forever, so a wedged Ollama server
-        # (e.g. after macOS sleep/wake) blocks the entire dispatch_wave
-        # TaskGroup with no recovery path — the governor's crisis timeout
-        # only covers memory pressure, not stuck inference. A timed-out
-        # agent surfaces as PARSE_ERROR via _safe_agent_inference instead
-        # of hanging the simulation. None disables the cap (tests only).
+        # Every call has a bounded wait, so a wedged server (e.g. after macOS
+        # sleep/wake) becomes OllamaInferenceError -> PARSE_ERROR instead of a hung
+        # dispatch_wave. ollama.AsyncClient fixes its timeout per client, so each
+        # role gets its own pool (docs/DECISIONS.md#adr-inference-timeouts).
         #
         # trust_env=False: httpx would otherwise send requests through any
         # HTTP_PROXY/ALL_PROXY or macOS system proxy, with no automatic
@@ -58,9 +84,16 @@ class OllamaClient:
         # follow_redirects=False: a process on the Ollama port cannot redirect
         # a request body to another host. Ollama itself never redirects
         # (docs/DECISIONS.md#adr-advisory-pipeline).
+        self._timeouts = timeouts or OllamaTimeouts()
         self._client = AsyncClient(
             host=base_url,
-            timeout=request_timeout_seconds,
+            timeout=self._timeouts.httpx_timeout("orchestrator"),
+            trust_env=False,
+            follow_redirects=False,
+        )
+        self._worker_client = AsyncClient(
+            host=base_url,
+            timeout=self._timeouts.httpx_timeout("worker"),
             trust_env=False,
             follow_redirects=False,
         )
@@ -68,7 +101,7 @@ class OllamaClient:
 
     @property
     def raw_client(self) -> AsyncClient:
-        """Access underlying AsyncClient for model management (ps, create, etc)."""
+        """The orchestrator-timeout AsyncClient, for model management (ps, list, create)."""
         return self._client
 
     @property
@@ -111,6 +144,7 @@ class OllamaClient:
         think: bool | None = None,
         keep_alive: float | str | None = None,
         options: dict[str, Any] | None = None,
+        timeout_role: TimeoutRole = "orchestrator",
     ) -> ChatResponse:
         """Send a chat request with contract enforcement.
 
@@ -121,6 +155,9 @@ class OllamaClient:
             think: Enable/disable thinking mode for Qwen3 models.
             keep_alive: Model keep-alive duration. Use 0 to unload.
             options: Additional model options. num_ctx is STRIPPED if present.
+            timeout_role: "worker" for worker inference (short read timeout); the
+                default "orchestrator" for everything long (orchestrator calls,
+                loads, warm-ups).
 
         Raises:
             OllamaInferenceError: On transient errors after retries exhausted,
@@ -134,6 +171,7 @@ class OllamaClient:
             )
         try:
             return await self._chat_with_backoff(
+                self._pool(timeout_role),
                 model=model,
                 messages=messages,
                 format=format,
@@ -165,23 +203,27 @@ class OllamaClient:
             ) from exc
 
     async def aclose(self) -> None:
-        """Close the HTTP connection pool.
+        """Close both HTTP connection pools.
 
         Meant for process shutdown: every provider shares this client, so no
         single operation may close it. ``ollama.AsyncClient`` has no close
-        method, so the ``httpx.AsyncClient`` it wraps is closed directly.
+        method, so the ``httpx.AsyncClient`` each one wraps is closed directly.
         Closing twice is a no-op.
         """
-        http = self._http
-        if not http.is_closed:
-            await http.aclose()
+        for pool in (self._client, self._worker_client):
+            http_client = getattr(pool, "_client", None)
+            if isinstance(http_client, httpx.AsyncClient) and not http_client.is_closed:
+                await http_client.aclose()
+
+    def _pool(self, role: TimeoutRole) -> AsyncClient:
+        return self._worker_client if role == "worker" else self._client
 
     @backoff.on_exception(
         backoff.expo,
         (ResponseError, ConnectionError, httpx.ConnectError),
         max_tries=3,
     )
-    async def _chat_with_backoff(self, **kwargs: Any) -> ChatResponse:
+    async def _chat_with_backoff(self, pool: AsyncClient, **kwargs: Any) -> ChatResponse:
         """Internal chat call with exponential backoff on transient errors."""
-        result: ChatResponse = await self._client.chat(**kwargs)
+        result: ChatResponse = await pool.chat(**kwargs)
         return result

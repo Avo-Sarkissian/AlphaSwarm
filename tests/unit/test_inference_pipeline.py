@@ -52,6 +52,7 @@ def _make_mock_client(response_content: str) -> OllamaClient:
     mock_response.message.content = response_content
     mock_inner.chat.return_value = mock_response
     client._client = mock_inner
+    client._worker_client = mock_inner
     client._base_url = "http://localhost:11434"
     return client
 
@@ -222,6 +223,7 @@ async def test_sequential_model_flow() -> None:
     mock_inner.ps = AsyncMock(side_effect=mock_ps)
 
     client._client = mock_inner
+    client._worker_client = mock_inner
     client._base_url = "http://localhost:11434"
 
     # Create model manager with configured aliases
@@ -284,6 +286,7 @@ async def test_ensure_clean_state_scoped_in_integration() -> None:
 
     mock_inner.ps = AsyncMock(side_effect=mock_ps)
     client._client = mock_inner
+    client._worker_client = mock_inner
     client._base_url = "http://localhost:11434"
 
     manager = OllamaModelManager(

@@ -97,6 +97,12 @@ Contents
   - How to test: `InferenceProvider.chat` has no `think` parameter today (`inference/provider.py:60`), so an A/B run needs a small change first, for example an optional `think` argument on `OllamaProvider.chat` used by one call site. No model reload is needed.
   - Hybrid option: keep `think=False` as the default and enable it only for one high-stakes call.
 
+### <a id="adr-inference-timeouts"></a>Per-role Ollama timeouts
+- **Decision:** `OllamaClient` holds two HTTP pools built from `OllamaTimeouts`. Worker inference uses `httpx.Timeout(connect=5, read=120, write=30, pool=30)`; everything else (orchestrator calls, model loads, unloads and warm-ups) uses read=600. Settings: `ALPHASWARM_OLLAMA__CONNECT_TIMEOUT_S`, `__WORKER_READ_TIMEOUT_S`, `__ORCHESTRATOR_READ_TIMEOUT_S`. The retired `__REQUEST_TIMEOUT_SECONDS` maps onto the orchestrator value with a `FutureWarning`.
+- **Rationale:** One 600 s scalar let a stalled worker call hold its slot for ten minutes and made an unreachable host take 600 s to fail. Worker calls take seconds on MLX. `ollama.AsyncClient` fixes its timeout per client, hence two pools rather than a per-call value.
+- **Where:** `ollama_client.py` (`OllamaTimeouts`, `chat(timeout_role=)`), `inference/ollama_provider.py`, `app.py`, `settings.py`.
+- **Revisit when:** a cold worker load inside a worker call (keep-alive expired, for example a late interview) needs more than 120 s: raise `ALPHASWARM_OLLAMA__WORKER_READ_TIMEOUT_S`.
+
 ### <a id="adr-sequential-model-lifecycle"></a>At most two models loaded; orchestrator users are serialized
 - **Decision:**
   - The callers set the load order; `OllamaModelManager` only serializes load and unload transitions under one lock (`ollama_models.py:OllamaModelManager`, INFRA-03). A run loads the orchestrator for the seed and unloads it (`seed.py:inject_seed`), then loads the worker once for all rounds ([adr-round-runner](#adr-round-runner)). Advisory and report load the orchestrator after the run, and decision narratives are generated on the first interview ([p11-d-11](#p11-d-11)).

@@ -211,6 +211,9 @@ class OllamaProvider:
             think=False,
             keep_alive=self._keep_alive,
             options=options,
+            # Worker decisions take seconds; a stalled one is cut at the worker read
+            # timeout (docs/DECISIONS.md#adr-inference-timeouts).
+            timeout_role="worker" if self.role is ProviderRole.WORKER else "orchestrator",
         )
 
         return InferenceResult(
