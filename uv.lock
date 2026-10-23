@@ -83,7 +83,7 @@ dev = [
     { name = "import-linter", specifier = "==2.11" },
     { name = "mypy" },
     { name = "pre-commit", specifier = ">=4.7.0" },
-    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest", specifier = ">=9.0" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
     { name = "pytest-cov", specifier = ">=6.0" },
     { name = "pytest-socket", specifier = "==0.7.0" },
