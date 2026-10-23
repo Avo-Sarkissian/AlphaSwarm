@@ -131,7 +131,7 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
 
 ```bash
 # Terminal 1: backend. Runtime paths (.env, holdings CSV, .secrets/, advisory/, reports/) resolve against the repo root, so any working directory works.
-./start                                                 # or: uv run alphaswarm web (both serve 127.0.0.1:8000)
+uv run alphaswarm web      # the single launcher (127.0.0.1:8000); ./start and uv run start call it
 
 # Terminal 2: frontend with hot reload (proxies /api and /ws to :8000)
 npm --prefix frontend run dev                           # http://localhost:5173
