@@ -83,14 +83,14 @@ Contents
 - **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`).
 - **Rationale:** A per-request `num_ctx` makes Ollama silently reload the model.
 - **Caveats:**
-  - `OllamaSettings.worker_model` and `orchestrator_model` are only displayed in the CLI banner (`cli.py:70-71`). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
+  - `OllamaSettings.worker_model` and `orchestrator_model` are only displayed in the CLI banner (`cli.py:_print_banner`). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
   - `OllamaSettings.num_parallel` and `max_loaded_models` are never read, so they are dead config. The real values are Ollama server environment variables (see RUNBOOK).
 
 ### <a id="adr-think-off"></a>Orchestrator reasoning ("think") is off everywhere
-- **Decision:** Every local inference call passes `think=False`. It is hardcoded in `OllamaProvider.chat` (`inference/ollama_provider.py:150`), so it covers worker and orchestrator alike: seed, modifiers, rounds, narratives, advisory, report, and interview. No call site sets it individually.
+- **Decision:** Every local inference call passes `think=False`. It is hardcoded in `OllamaProvider.chat` (`inference/ollama_provider.py:162`), so it covers worker and orchestrator alike: seed, modifiers, rounds, narratives, advisory, report, and interview. No call site sets it individually.
 - **Rationale:** The 2026-05-06 probe on qwen3.6:27b measured 274.6 s per call with thinking against 9.5 s without. Both produced valid JSON, and neither output was clearly better. With 11.3 t/s MLX decode, thinking also pushed advisory past the 600 s timeout (quick task 260611-rlx).
 - **Where:**
-  - Enforced: `inference/ollama_provider.py:150` (documented at `:12` and `:117`).
+  - Enforced: `inference/ollama_provider.py:162` (documented at `:12` and `:129`).
   - Rationale comments only: `seed.py:66-68`, `tests/test_seed_pipeline.py:87-89`, `modelfiles/Modelfile.orchestrator:16-17`.
 - **Revisit:**
   - Triggers: complaints about consensus quality, or missed divergence flags.
@@ -541,8 +541,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p7-d-11"></a>`D-11` | Track signal flips between rounds with a transition breakdown. | active | rounds.py:compute_shifts |
 | <a id="p7-d-12"></a>`D-12` | Track per-bracket average confidence delta between rounds. | active | rounds.py:compute_shifts |
 | <a id="p7-d-13"></a>`D-13` | Shift metrics computed in memory from round results; no Neo4j query. | active | rounds.py:compute_shifts,run_round |
-| <a id="p7-d-14"></a>`D-14` | CLI prints each round's report as it completes via an on_round_complete callback. | active | cli.py:484; tests/test_cli.py:814 |
-| <a id="p7-d-17"></a>`D-17` | The `run` CLI subcommand runs the full multi-round simulation. | active | cli.py:483; tests/test_cli.py:814 |
+| <a id="p7-d-14"></a>`D-14` | CLI prints each round's report as it completes via an on_round_complete callback. | active | cli.py:_run_pipeline,_make_round_complete_handler; tests/test_cli.py:test_run_pipeline_calls_run_simulation_with_callback,test_round_complete_handler_prints_report_and_shift |
+| <a id="p7-d-17"></a>`D-17` | The `run` CLI subcommand runs the full multi-round simulation. | active | cli.py:_handle_run,_run_pipeline; tests/test_cli.py:test_run_pipeline_calls_run_simulation_with_callback |
 
 ### Phase 8: Dynamic influence topology
 
@@ -555,7 +555,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p8-d-05"></a>`D-05` | Cold start: when no citations exist, fall back to static influence_weight_base. The explicit fallback (sequential `read_peer_decisions` reads) was deleted with `_dispatch_round` in 2026-10. The production path (`build_peer_contexts`) always adds base reach to citation share, so with zero citations it samples by base reach alone ([adr-diverse-peer-context](#adr-diverse-peer-context)); no static ordering remains. | superseded | peers.py (`build_peer_contexts`) |
 | <a id="p8-d-06"></a>`D-06` | Bracket-diverse peer selection: top-1 from the top N brackets, then fill by weight. Superseded by seeded stratified sampling with a per-bracket cap ([adr-diverse-peer-context](#adr-diverse-peer-context)). | superseded | peers.py (select_diverse_peers) |
 | <a id="p8-d-07"></a>`D-07` | Bracket aggregation computed in memory from the round's decisions. | active | rounds.py:compute_bracket_summaries; state.py:38 |
-| <a id="p8-d-08"></a>`D-08` | BracketSummary frozen dataclass promoted into the simulation layer and carried on SimulationResult; CLI and UI share it. | active | cli.py:229,283,407; rounds.py:compute_bracket_summaries,RoundOutcome; simulation.py:SimulationResult; state.py:38 |
+| <a id="p8-d-08"></a>`D-08` | BracketSummary frozen dataclass promoted into the simulation layer and carried on SimulationResult; CLI and UI share it. | active | cli.py:_print_bracket_table_from_summaries,_print_round_report,_print_simulation_summary; rounds.py:compute_bracket_summaries,RoundOutcome; simulation.py:SimulationResult; state.py:38 |
 
 ### Phase 9: TUI core dashboard (retired UI; StateStore contracts survive)
 
@@ -923,9 +923,9 @@ subjects, for example "remove hardcoded Neo4j password default (F1)". See
 | <a id="b1"></a>B1 | Shock injection was dead in the web UI: `consume_shock()` had no caller and there was no `write_shock_event`. Fixed in Phase 35.1: shock consumed before Rounds 2 and 3 and persisted as ShockEvent. Since 2026-10 shocks carry forward: every applied shock is appended to all later rounds' user message, oldest first (a Round 2 shock is still in Round 3), and recorded on the StateStore (`applied_shocks`). A shock posted once the last gated round has started gets 409 `shock_window_closed` instead of being accepted and never read | graph.py:2190; simulation.py:_run_simulation (shock consumption); rounds.py:run_round (shock gate); web/simulation_manager.py (`inject_shock`); tests/test_graph.py:1547; tests/engine/test_orchestration.py (test_shocks_are_written_once_and_carried_forward, test_shock_is_consumed_after_the_round_starts); tests/engine/test_round_runner.py (test_round_message_is_rumor_plus_active_shocks); tests/test_shock_window.py; tests/engine/test_scenarios.py:135 |
 | <a id="b4"></a>B4 | Replay could run on top of a live sim. Fixed with mutual exclusion: route returns 409 and `SimulationManager.start` raises `ReplayActiveError` | web/app.py:110; web/routes/replay.py:107,122; web/simulation_manager.py:120,131; tests/test_web.py:59,1380,1386,1407 |
 | <a id="b7"></a>B7 | ConnectionManager leaked dead clients. The writer `finally` now removes its own entries | web/connection_manager.py:56,75; tests/test_connection_manager.py |
-| <a id="b8"></a>B8 | `_on_task_done` race with `start()`. Phase reset now happens synchronously inside `_run` before the lock is released | web/simulation_manager.py:147,210,236; tests/test_web.py:1081,1380,1426,1492 |
+| <a id="b8"></a>B8 | `_on_task_done` race with `start()`. Phase reset now happens synchronously inside `_run` before the lock is released | web/simulation_manager.py:SimulationManager._run,_on_task_done; tests/test_web.py:1081,1380,1426,1492 |
 | <a id="b9"></a>B9 | ReplayManager `advance`/`stop` mutated state without the lock. Both are now serialized | web/replay_manager.py:195,248; tests/test_web.py:1380,1499,1532,1535 |
-| <a id="b10"></a>B10 | Duplicate `set_phase(COMPLETE)`. Only `simulation.py` (`_run_simulation`) sets it now. The comments name `run_simulation`; their stale `simulation.py` line citations were fixed in 2026-10 | web/simulation_manager.py:153,207; tests/test_web.py:1380,1539,1581 |
+| <a id="b10"></a>B10 | Duplicate `set_phase(COMPLETE)`. Only `simulation.py` (`_run_simulation`) sets it now. The comments name `run_simulation`; their stale `simulation.py` line citations were fixed in 2026-10 | web/simulation_manager.py:SimulationManager._run; tests/test_web.py:1380,1539,1581 |
 
 The other BUGFIX-CONTEXT items (B2, B3, B5, B6, B11-B20) are not referenced in
 code. Their status is in BACKLOG.md.
