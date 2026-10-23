@@ -97,6 +97,14 @@ class TestGovernorSettingsExtensions:
         with pytest.raises(ValidationError):
             GovernorSettings(slot_adjustment_step=5)  # max is 4
 
+    def test_baseline_above_max_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="baseline_parallel must be <= max_parallel"):
+            GovernorSettings(baseline_parallel=12, max_parallel=8)
+
+    def test_baseline_equal_to_max_is_accepted(self) -> None:
+        s = GovernorSettings(baseline_parallel=4, max_parallel=4)
+        assert (s.baseline_parallel, s.max_parallel) == (4, 4)
+
 
 # ---------------------------------------------------------------------------
 # GovernorCrisisError

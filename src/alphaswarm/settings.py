@@ -153,6 +153,11 @@ class GovernorSettings(BaseModel):
                 "GovernorSettings: jitter_min_seconds must be <= jitter_max_seconds, "
                 f"got {self.jitter_min_seconds} > {self.jitter_max_seconds}"
             )
+        if self.baseline_parallel > self.max_parallel:
+            raise ValueError(
+                "GovernorSettings: baseline_parallel must be <= max_parallel, "
+                f"got {self.baseline_parallel} > {self.max_parallel}"
+            )
         return self
 
 
