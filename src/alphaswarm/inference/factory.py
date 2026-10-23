@@ -29,6 +29,10 @@ from urllib.parse import urlsplit
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
 from alphaswarm.inference.budget import DEFAULT_PRICING, BudgetMeter, BudgetTrackingProvider
+from alphaswarm.inference.caps import (
+    ANTHROPIC_ORCHESTRATOR_DEFAULT_MAX_TOKENS,
+    ANTHROPIC_WORKER_DEFAULT_MAX_TOKENS,
+)
 from alphaswarm.inference.concurrency import ConcurrencyController
 from alphaswarm.inference.config import InferenceConfig, ProviderLimits, ProviderType
 from alphaswarm.inference.ollama_provider import OllamaProvider
@@ -255,12 +259,15 @@ def _build_single_provider(
     _validate_cloud_role(provider_type, model, api_key, base_url)
 
     if provider_type == ProviderType.ANTHROPIC:
-        # The Anthropic Messages API hard-caps output at max_tokens. The 1024
-        # constructor default silently truncated long orchestrator output —
-        # breaking seed JSON synthesis, the ReAct report loop, and advisory
-        # synthesis (F-05). Give the orchestrator a generous ceiling; the worker
-        # emits a single small decision JSON, so a tighter bound is fine.
-        max_tokens_default = 8192 if role == ProviderRole.ORCHESTRATOR else 2048
+        # Anthropic requires max_tokens on every request. Call sites pass their own
+        # cap; these defaults only cover a caller that passes none
+        # (docs/DECISIONS.md#adr-output-caps; docs/DECISIONS.md#f-05 for the
+        # orchestrator value).
+        max_tokens_default = (
+            ANTHROPIC_ORCHESTRATOR_DEFAULT_MAX_TOKENS
+            if role == ProviderRole.ORCHESTRATOR
+            else ANTHROPIC_WORKER_DEFAULT_MAX_TOKENS
+        )
         # _validate_cloud_role above raised for an empty key/base_url, so `or ""` never
         # changes the value; it only narrows `str | None` to `str` for mypy.
         inner: InferenceProvider = AnthropicProvider(

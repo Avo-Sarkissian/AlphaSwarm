@@ -230,8 +230,8 @@ async def test_system_message_hoisted_to_system_kwarg() -> None:
     assert any(m.get("role") == "user" for m in kwargs.get("messages", []))
 
 
-async def test_multiple_system_messages_joined_with_newline() -> None:
-    """Multiple system messages → joined with newline as top-level system=."""
+async def test_multiple_system_messages_become_blocks_with_a_cache_breakpoint() -> None:
+    """Two or more system messages → text blocks; the shared prefix is cacheable."""
     resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
     p, fake_client = _make_provider(resp)
 
@@ -242,8 +242,12 @@ async def test_multiple_system_messages_joined_with_newline() -> None:
     ]
     await p.chat(messages)
 
-    kwargs = fake_client.messages.last_kwargs
-    assert kwargs.get("system") == "Rule 1.\nRule 2."
+    system = fake_client.messages.last_kwargs["system"]
+    assert system == [
+        {"type": "text", "text": "Rule 1.\n", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "Rule 2."},
+    ]
+    assert "".join(block["text"] for block in system) == "Rule 1.\nRule 2."
 
 
 async def test_no_system_message_no_system_kwarg() -> None:
@@ -425,3 +429,37 @@ async def test_api_connection_error_retries_then_raises_inference_error(
     assert exc_info.value.provider == "anthropic"
     assert call_count == 2  # initial + 1 retry
     assert instant_sleep == [1.0]  # 2**0 back-off before the retry
+
+
+async def test_breakpoint_sits_after_the_shared_persona_block() -> None:
+    """Worker layout: guard, shared persona block, agent text → cache up to the shared block."""
+    resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
+    p, fake_client = _make_provider(resp)
+
+    await p.chat(
+        [
+            {"role": "system", "content": "GUARD"},
+            {"role": "system", "content": "RULES AND TEMPLATE\n"},
+            {"role": "system", "content": "You are a fictional quant.\n[Quants 1 | Quants bracket]"},
+            {"role": "user", "content": "ZZZT"},
+        ]
+    )
+
+    system = fake_client.messages.last_kwargs["system"]
+    assert [("cache_control" in block) for block in system] == [False, True, False]
+    assert system[1]["text"] == "RULES AND TEMPLATE\n\n"
+
+
+async def test_empty_system_messages_are_dropped() -> None:
+    resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
+    p, fake_client = _make_provider(resp)
+
+    await p.chat(
+        [
+            {"role": "system", "content": ""},
+            {"role": "system", "content": "Only rule."},
+            {"role": "user", "content": "Go."},
+        ]
+    )
+
+    assert fake_client.messages.last_kwargs["system"] == "Only rule."

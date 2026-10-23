@@ -52,6 +52,7 @@ def _make_mock_client(response_content: str) -> OllamaClient:
     mock_response.message.content = response_content
     mock_inner.chat.return_value = mock_response
     client._client = mock_inner
+    client._worker_client = mock_inner
     client._base_url = "http://localhost:11434"
     return client
 
@@ -140,9 +141,9 @@ async def test_inference_with_peer_context(
     # Verify peer context was included in messages
     call_kwargs = mock_client_success._client.chat.call_args.kwargs
     messages = call_kwargs.get("messages")
-    # 3 messages: persona, the fixed peer guard, the user message with the fenced peers
+    # 3 messages: the fixed peer guard, the persona, the user message with the fenced peers
     assert len(messages) == 3
-    assert messages[1]["content"] == PEER_CONTEXT_GUARD
+    assert messages[0]["content"] == PEER_CONTEXT_GUARD
     assert "macro_01: SELL" in messages[2]["content"]
 
 
@@ -222,6 +223,7 @@ async def test_sequential_model_flow() -> None:
     mock_inner.ps = AsyncMock(side_effect=mock_ps)
 
     client._client = mock_inner
+    client._worker_client = mock_inner
     client._base_url = "http://localhost:11434"
 
     # Create model manager with configured aliases
@@ -284,6 +286,7 @@ async def test_ensure_clean_state_scoped_in_integration() -> None:
 
     mock_inner.ps = AsyncMock(side_effect=mock_ps)
     client._client = mock_inner
+    client._worker_client = mock_inner
     client._base_url = "http://localhost:11434"
 
     manager = OllamaModelManager(

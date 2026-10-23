@@ -80,22 +80,44 @@ Contents
 - **Revisit when:** a new MoE beats 2361 t/s prefill on 64 GB. Gemma 4 26B MoE is untested.
 
 ### <a id="adr-model-aliases"></a>Code calls Modelfile aliases; `num_ctx` lives only in Modelfiles
-- **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`).
+- **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`). Output caps are sent per request: OllamaProvider forwards max_tokens as options["num_predict"], a sampling option that does not reload the model; the Modelfile num_predict is only the fallback, so a base tag chosen in Settings is capped too (2026-10). See [adr-output-caps](#adr-output-caps).
 - **Rationale:** A per-request `num_ctx` makes Ollama silently reload the model.
 - **Caveats:**
   - `OllamaSettings.worker_model` and `orchestrator_model` are no longer read anywhere (the CLI banner that displayed them was removed; see [adr-cli-ux](#adr-cli-ux)). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
   - `OllamaSettings.num_parallel` and `max_loaded_models` are never read, so they are dead config. The real values are Ollama server environment variables (see RUNBOOK).
 
+### <a id="adr-output-caps"></a>Explicit output caps at every call site
+- **Decision:** Every `chat`/`chat_structured` call passes `max_tokens`. The values live in `inference/caps.py` (worker decision 400, decision narrative 400, interview reply 600 and summary 300, seed 1024, modifiers 1024), except the report narrative (1200, `report.py`) and the advisory (3000, `advisory/engine.py`), which sit next to their prompts. Ollama receives the cap as `num_predict` on each request; the Modelfiles keep `num_predict` 400 (worker) and 4096 (orchestrator) as fallbacks. Anthropic defaults: 512 for the worker role, 8192 for the orchestrator.
+- **Rationale:** On MLX the worker prefills at about 2,361 t/s but decodes at about 56 t/s, so output length drives call time. The caps lived only in the worker Modelfile, so a base tag chosen in Settings, the orchestrator and every cloud worker ran uncapped (Anthropic defaulted to 2048).
+- **Where:** `inference/caps.py`, `inference/ollama_provider.py`, `inference/factory.py`, `worker.py`, `seed.py`, `interview.py`, `report.py`, `advisory/engine.py`, `modelfiles/`.
+- **Guard:** `tests/invariants/test_output_caps.py` fails for a call without a cap.
+- **Rationale and citations:** the decode schema caps rationale at 280 characters and cited_agents at 5 items, and the instructions ask for one or two sentences of at most 40 words. AgentDecision is not capped, so a backend that ignores maxLength/maxItems still parses. Long rationales also pushed peers out of the 4,000-character peer budget. Kept or reverted by gate G-24 (docs/experiments.md, arm A1).
+
+### <a id="adr-prefix-reuse"></a>Prompt layout for KV-prefix reuse (experiment, gate G-22)
+- **Decision (pending G-22):** persona prompts put shared text first and agent text last: the JSON rules (every agent), the bracket template and this cycle's bracket focus (one bracket), then the agent's static modifier and the header `[<Name> | <Display> bracket]`. `AgentPersona.shared_prompt_chars` marks the end of the shared part. Arm A2 also includes: the worker sends the fixed guards first and the persona as two system messages (shared, then agent), local dispatch has no jitter so prompts reach Ollama in bracket order, and Anthropic gets a cache breakpoint after the shared block.
+- **Rationale:** every prompt opened with a unique header, so two agents of a bracket shared about 14 characters of prefix. The realistic gain is the 400-600 tokens of rules and template per call, and only if the MLX runner reuses a KV prefix, which is unverified.
+- **Constraints:** untrusted text never moves into the system role (F3; the market and peer blocks stay fenced in the user message), and `AGENT_HEADER_RE` keeps matching the header.
+- **Kept only if** mean R2-R3 `prefill_ms` drops by at least 10% with unchanged final distributions (docs/experiments.md, arm A2).
+- **Where:** `personas.py`, `types.py`, `interview.py`, `worker.py`, `batch_dispatcher.py`, `inference/anthropic_provider.py`.
+- **Anthropic:** several system messages are sent as text blocks with cache_control on the second-to-last one (the persona's shared block for the worker). Anthropic only caches prefixes above the model's minimum (1,024 tokens or more), so the about 600-token worker prefix is usually not cached; cache hits show up as cached_prompt_tokens in inference_call. Cache writes cost 1.25x and reads 0.1x the input price while BudgetMeter prices all prompt tokens at 1x (pricing belongs to the cloud-pricing work).
+
 ### <a id="adr-think-off"></a>Orchestrator reasoning ("think") is off everywhere
 - **Decision:** Every local inference call passes `think=False`. It is hardcoded in `OllamaProvider.chat` (`inference/ollama_provider.py:162`), so it covers worker and orchestrator alike: seed, modifiers, rounds, narratives, advisory, report, and interview. No call site sets it individually.
 - **Rationale:** The 2026-05-06 probe on qwen3.6:27b measured 274.6 s per call with thinking against 9.5 s without. Both produced valid JSON, and neither output was clearly better. With 11.3 t/s MLX decode, thinking also pushed advisory past the 600 s timeout (quick task 260611-rlx).
 - **Where:**
-  - Enforced: `inference/ollama_provider.py:162` (documented at `:12` and `:129`).
+  - Enforced: `inference/ollama_provider.py:162` (documented at `:12` and `:129`); the load warm-up in ollama_models.py passes it too (2026-10).
   - Rationale comments only: `seed.py:inject_seed`, `tests/test_seed_pipeline.py:test_inject_seed_calls_chat_with_seed_schema`, `modelfiles/Modelfile.orchestrator:16-17`.
 - **Revisit:**
   - Triggers: complaints about consensus quality, or missed divergence flags.
   - How to test: `InferenceProvider.chat` has no `think` parameter today (`inference/provider.py:60`), so an A/B run needs a small change first, for example an optional `think` argument on `OllamaProvider.chat` used by one call site. No model reload is needed.
   - Hybrid option: keep `think=False` as the default and enable it only for one high-stakes call.
+
+### <a id="adr-inference-timeouts"></a>Per-role Ollama timeouts
+- **Decision:** `OllamaClient` holds two HTTP pools built from `OllamaTimeouts`. Worker inference uses `httpx.Timeout(connect=5, read=120, write=30, pool=30)`; everything else (orchestrator calls, model loads, unloads and warm-ups) uses read=600. Settings: `ALPHASWARM_OLLAMA__CONNECT_TIMEOUT_S`, `__WORKER_READ_TIMEOUT_S`, `__ORCHESTRATOR_READ_TIMEOUT_S`. The retired `__REQUEST_TIMEOUT_SECONDS` maps onto the orchestrator value with a `FutureWarning`.
+- **Rationale:** One 600 s scalar let a stalled worker call hold its slot for ten minutes and made an unreachable host take 600 s to fail. Worker calls take seconds on MLX. `ollama.AsyncClient` fixes its timeout per client, hence two pools rather than a per-call value.
+- **Where:** `ollama_client.py` (`OllamaTimeouts`, `chat(timeout_role=)`), `inference/ollama_provider.py`, `app.py`, `settings.py`.
+- **Revisit when:** a cold worker load inside a worker call (keep-alive expired, for example a late interview) needs more than 120 s: raise `ALPHASWARM_OLLAMA__WORKER_READ_TIMEOUT_S`.
+- **Warm-up:** every load sends a short fixed prompt with think=False and num_predict 1 on the orchestrator read timeout, and logs model_warmed (warmup_ms, load_ms, prompt_tokens, prefill_tps). A prefill rate under 200 t/s logs model_warmup_slow, which usually means OLLAMA_USE_MLX is not set. Before this, the "ping" ran with qwen3.6 reasoning on and no output cap.
 
 ### <a id="adr-sequential-model-lifecycle"></a>At most two models loaded; orchestrator users are serialized
 - **Decision:**
@@ -272,7 +294,7 @@ Contents
 ### <a id="adr-taskgroup-dispatch"></a>All agent fan-out uses `asyncio.TaskGroup`, with jitter
 - **Decision:**
   - `dispatch_wave` creates one task per persona inside a TaskGroup, with no bare `create_task` (INFRA-07). Narratives are no longer a fan-out: one worker call on an agent's first interview ([p11-d-11](#p11-d-11)).
-  - Random 0.5-1.5 s jitter runs before acquiring a slot ([p3-d-14](#p3-d-14)).
+  - Random 0.5-1.5 s jitter runs before acquiring a slot for cloud providers; local dispatch has none since 2026-10, so prompts reach Ollama in bracket order ([p3-d-14](#p3-d-14), [adr-prefix-reuse](#adr-prefix-reuse)).
   - A failed agent becomes a PARSE_ERROR decision with `error_kind` `"inference"` (the call raised) or `"parse"` (tier-3 parse fallback), and the round continues. Cycle metrics count `r{n}_inference_errors` separately from `r{n}_parse_errors`.
   - Hard stops (`HARD_STOP_ERRORS` in `batch_dispatcher.py`: `BudgetExceededError`, `AuthError`, `GovernorCrisisError`) are never converted. `dispatch_wave` unwraps the TaskGroup's `ExceptionGroup` with `except*` and re-raises the first one bare, chained `from` the group; `ensure_decision_narrative` lets them propagate and turns any other inference failure into an interview without a narrative; a failure to store the narrative fails that first interview.
   - Round abort: after `dispatch_wave` and before the round's first Neo4j write, a round in which `failed * 100 > GovernorSettings.round_abort_failure_percent * total` (default 50; `failed` = PARSE_ERROR of any kind) raises `RoundFailedError`; an empty round always fails. Failed agents are not re-dispatched.
@@ -530,7 +552,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p3-d-11"></a>`D-11` | Metrics emitted to StateStore on state change. Later (8521e91, Jun 2026) also emitted every check for the live UI. | partial | governor.py:419; state.py:25 |
 | <a id="p3-d-12"></a>`D-12` | Dual-signal memory sensing: psutil percent plus macOS kernel pressure. Implemented with sysctl kern.memorystatus_vm_pressure_level (not the memory_pressure CLI); unknown values map to GREEN, read failures are fail-stale since F-17. | partial | memory_monitor.py:39 |
 | <a id="p3-d-13"></a>`D-13` | Kernel pressure YELLOW/RED is the master signal: halt the queue and drop to 1 slot. | active | governor.py:444; tests/test_governor.py:268 |
-| <a id="p3-d-14"></a>`D-14` | Random jitter (0.5-1.5s) before each agent dispatch, applied in batch_dispatcher, not inside the worker; spreads load spikes. Both bounds accept 0.0 (2026-10) so deterministic tests can turn jitter off ([adr-engine-scenario-harness](#adr-engine-scenario-harness)); the defaults are unchanged. | active | batch_dispatcher.py:52; settings.py:GovernorSettings |
+| <a id="p3-d-14"></a>`D-14` | Random jitter (0.5-1.5s) before each agent dispatch, applied in batch_dispatcher, not inside the worker; spreads load spikes. Both bounds accept 0.0 (2026-10) so deterministic tests can turn jitter off ([adr-engine-scenario-harness](#adr-engine-scenario-harness)); the defaults are unchanged. Since 2026-10 for cloud providers only (adr-prefix-reuse). | partial | batch_dispatcher.py:dispatch_wave; settings.py:GovernorSettings |
 
 ### Phase 4: Neo4j graph state
 
@@ -645,7 +667,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p14-d-04"></a>`D-04` | Interview system prompt = persona + decision narrative + per-round decisions (hybrid context). The persona is rebuilt with the cycle's stored modifiers (2026-10). | active | interview.py (`load_interview_context`, `interview_persona`); graph/replay_interview.py (`read_agent_interview_rows`) |
-| <a id="p14-d-05"></a>`D-05` | Strip JSON output instructions from the persona for conversational answers. | active | interview.py:59 |
+| <a id="p14-d-05"></a>`D-05` | Strip JSON output instructions from the persona for conversational answers (wherever they sit, since [adr-prefix-reuse](#adr-prefix-reuse)). | active | interview.py:_strip_json_instructions |
 | <a id="p14-d-06"></a>`D-06` | Context reconstructed from Neo4j at session start: the graph returns the agent's rows (read_agent_interview_rows) and `interview.load_interview_context` rebuilds the persona from config plus Cycle.modifiers_json; unknown or off-roster agents raise AgentNotFoundError (404). | active | graph/replay_interview.py (`read_agent_interview_rows`); interview.py (`load_interview_context`) |
 | <a id="p14-d-08"></a>`D-08` | Interview history keeps up to 12 user/assistant pairs; past that the oldest 6 are summarized in one call. A turn is committed only after the provider answers. Revised 2026-10 (was a 10-pair window trimmed one pair per turn). | revised | interview.py:172,230 |
 | <a id="p14-d-09"></a>`D-09` | Dropped turns summarised into a prepended system message. | active | interview.py:216 |
@@ -901,7 +923,7 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-02"></a>F-02 | `read_signal_flips` filtered `'NONE'` instead of `'none'` and read a non-existent `round_num` | 6ced8a8 | — |
 | <a id="f-03"></a>F-03 | Shock-impact aggregation used uppercase keys, so every value was zero and HOLD | 6ced8a8 | — |
 | <a id="f-04"></a>F-04 | `TokenPool.grow()` ignored crisis debt, so concurrency exceeded the limit right after recovery | 78744f6 | governor.py:90; tests/test_governor.py:73 |
-| <a id="f-05"></a>F-05 | Anthropic provider defaulted to max_tokens=1024, truncating orchestrator output (now 8192 orchestrator / 2048 worker) | c99d00b | inference/factory.py:130 |
+| <a id="f-05"></a>F-05 | Anthropic provider defaulted to max_tokens=1024, truncating orchestrator output (now 8192 orchestrator / 512 worker; [adr-output-caps](#adr-output-caps)) | c99d00b | inference/factory.py:130 |
 | <a id="f-06"></a>F-06 | ReAct prompt tool names did not match the registry, so the consensus and flip sections were always missing | 90dd0f9 | — (the ReAct loop and its registry were deleted in 2026-10; `SECTION_TEMPLATES` renders every section, [adr-report-react](#adr-report-react)) |
 | <a id="f-07"></a>F-07 | Advisory read the wrong entity-impact keys, so relevance ranking was dead; added `resolve_ticker` | 3d65f99 | advisory/engine.py:synthesize; advisory/sector_map.py:187; tests/unit/test_advisory.py:test_enrich_holdings_entity_impact_drives_ranking |
 | <a id="f-08"></a>F-08 | Round 2 equal weights meant every reader got the same peers; fixed with a stable per-reader jitter. The jitter is gone: seeded per-reader sampling ([adr-diverse-peer-context](#adr-diverse-peer-context)) disperses readers by construction | 7ae6a69 | peers.py (peer_rng); tests/test_peer_selection.py (test_equal_weights_disperse_across_readers) |

@@ -7,9 +7,10 @@ provider configuration (which can hold API keys) lives in
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -36,11 +37,13 @@ class OllamaSettings(BaseModel):
     num_parallel: int = Field(default=4, ge=1, le=32)
     max_loaded_models: int = Field(default=2, ge=1, le=4)
     base_url: str = "http://localhost:11434"
-    # Hard cap on any single inference HTTP request. Worst legitimate calls
-    # on M1 Max (qwen3:8b worker under KV pressure) run 60-180s; the 14-20
-    # min/call pathology from the 41.3 smoke is exactly what this converts
-    # from "simulation hangs" into "agent returns PARSE_ERROR".
-    request_timeout_seconds: float = Field(default=600.0, ge=30.0, le=3600.0)
+    # Per-role HTTP timeouts (docs/DECISIONS.md#adr-inference-timeouts). Worker
+    # calls take seconds on MLX, so a stalled one is cut at 120 s; orchestrator
+    # calls, model loads and warm-ups keep 600 s. An unreachable host fails at
+    # the 5 s connect timeout.
+    connect_timeout_s: float = Field(default=5.0, ge=0.5, le=60.0)
+    worker_read_timeout_s: float = Field(default=120.0, ge=10.0, le=3600.0)
+    orchestrator_read_timeout_s: float = Field(default=600.0, ge=30.0, le=3600.0)
     orchestrator_model_alias: str = "alphaswarm-orchestrator"
     worker_model_alias: str = "alphaswarm-worker"
     # Mirrors PARAMETER num_ctx in modelfiles/Modelfile.worker (pinned by
@@ -48,6 +51,23 @@ class OllamaSettings(BaseModel):
     # the context limit (r{n}_ctx_warnings); never sent per request
     # (docs/DECISIONS.md#adr-model-aliases).
     worker_num_ctx: int = Field(default=4096, ge=512, le=262144)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _map_legacy_timeout(cls, data: Any) -> Any:
+        """Map the retired request_timeout_seconds onto the orchestrator read timeout."""
+        if not isinstance(data, dict) or "request_timeout_seconds" not in data:
+            return data
+        mapped = dict(data)
+        legacy = mapped.pop("request_timeout_seconds")
+        mapped.setdefault("orchestrator_read_timeout_s", legacy)
+        warnings.warn(
+            "ALPHASWARM_OLLAMA__REQUEST_TIMEOUT_SECONDS is retired; it now sets "
+            "ALPHASWARM_OLLAMA__ORCHESTRATOR_READ_TIMEOUT_S. Rename it in .env.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        return mapped
 
 
 class Neo4jSettings(BaseModel):

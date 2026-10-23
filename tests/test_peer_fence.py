@@ -62,7 +62,7 @@ async def _messages(
 async def test_peer_context_is_fenced_in_the_user_message() -> None:
     messages = await _messages(PEERS)
     assert [m["role"] for m in messages] == ["system", "system", "user"]
-    assert messages[1]["content"] == PEER_CONTEXT_GUARD
+    assert messages[0]["content"] == PEER_CONTEXT_GUARD
     user = messages[2]["content"]
     assert (
         user.index(PEER_FENCE_OPEN)
@@ -82,7 +82,7 @@ async def test_no_peer_text_reaches_a_system_message() -> None:
 
 async def test_market_then_peers_then_rumor() -> None:
     messages = await _messages(PEERS, market_context="MKT BLOCK")
-    assert [m["content"] for m in messages[1:3]] == [MARKET_CONTEXT_GUARD, PEER_CONTEXT_GUARD]
+    assert [m["content"] for m in messages[0:2]] == [MARKET_CONTEXT_GUARD, PEER_CONTEXT_GUARD]
     user = messages[3]["content"]
     assert user.index(UNTRUSTED_DATA_OPEN) < user.index(PEER_FENCE_OPEN) < user.index("RUMOR TEXT")
 
@@ -120,6 +120,7 @@ async def test_worker_strips_fence_tags_from_a_raw_block() -> None:
     assert user.count(PEER_FENCE_CLOSE) == 1
 
 
-async def test_persona_header_stays_first_for_the_scripted_provider() -> None:
+async def test_persona_header_is_in_the_last_system_message() -> None:
     messages = await _messages(PEERS)
-    assert AGENT_HEADER_RE.search(messages[0]["content"])
+    systems = [m["content"] for m in messages if m["role"] == "system"]
+    assert AGENT_HEADER_RE.search(systems[-1])

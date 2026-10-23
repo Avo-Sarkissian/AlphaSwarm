@@ -14,6 +14,7 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from alphaswarm.errors import StructuredOutputError
+from alphaswarm.inference.caps import MODIFIERS_MAX_TOKENS, SEED_MAX_TOKENS
 from alphaswarm.inference.structured import chat_structured
 from alphaswarm.personas import BRACKET_MODIFIERS, compute_prompt_template_hash, load_bracket_configs
 from alphaswarm.prompts.modifiers import (
@@ -194,6 +195,7 @@ async def inject_seed(
                     {"role": "user", "content": rumor},
                 ],
                 SeedLLMOutput,
+                max_tokens=SEED_MAX_TOKENS,
             )
         except StructuredOutputError:
             logger.warning("seed_parse_used_fallback", parse_tier=3)
@@ -265,6 +267,7 @@ async def generate_modifiers(
                 {"role": "user", "content": build_modifier_user_message(seed_event)},
             ],
             ModifiersLLMOutput,
+            max_tokens=MODIFIERS_MAX_TOKENS,
         )
     except StructuredOutputError:
         logger.warning("modifier_generation_fallback", parse_tier=3)

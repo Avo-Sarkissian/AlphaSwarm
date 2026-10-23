@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from enum import StrEnum
-from typing import Final, Literal, TypedDict
+from typing import Final, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -112,6 +112,9 @@ class AgentPersona(BaseModel, frozen=True):
     temperature: float
     system_prompt: str
     influence_weight_base: float
+    # Length of the bracket-shared start of system_prompt (rules, template, cycle
+    # focus); the rest is this agent's own text (docs/DECISIONS.md#adr-prefix-reuse).
+    shared_prompt_chars: int = Field(default=0, ge=0)
 
 
 class WorkerPersonaConfig(TypedDict):
@@ -128,6 +131,7 @@ class WorkerPersonaConfig(TypedDict):
     temperature: float
     system_prompt: str
     risk_profile: float  # AgentPersona.risk_profile; unused by the prompt (docs/DECISIONS.md#adr-swarm-composition-v2)
+    shared_prompt_chars: NotRequired[int]  # see AgentPersona.shared_prompt_chars
 
 
 class SignalType(StrEnum):

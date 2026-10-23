@@ -58,6 +58,21 @@ def _finish_reason(value: object) -> FinishReason | None:
     return _STOP_REASONS.get(value, "other")
 
 
+def _system_blocks(parts: list[str]) -> list[dict[str, Any]]:
+    """System text as content blocks with a cache breakpoint after the shared prefix.
+
+    The texts concatenate to the newline-joined string a single block would carry.
+    Every system message but the last is treated as shared; the worker sends the
+    guards and the persona's bracket block before the agent's own text
+    (docs/DECISIONS.md#adr-prefix-reuse).
+    """
+    blocks: list[dict[str, Any]] = [
+        {"type": "text", "text": part + ("\n" if i < len(parts) - 1 else "")} for i, part in enumerate(parts)
+    ]
+    blocks[-2]["cache_control"] = {"type": "ephemeral"}
+    return blocks
+
+
 class AnthropicProvider:
     """Anthropic Messages API adapter.
 
@@ -137,8 +152,9 @@ class AnthropicProvider:
         """Call the Anthropic Messages API and return a normalised result.
 
         Mapping rules:
-        - System-role messages are hoisted to the top-level ``system=`` kwarg
-          (joined with newlines when multiple); they are removed from ``messages``.
+        - System-role messages are hoisted to the top-level ``system=`` kwarg: one as
+          a string, several as text blocks with a cache breakpoint after all but the
+          last; they are removed from ``messages``.
         - ``response_schema`` → ``tools=[emit_decision]`` + forced ``tool_choice``;
           response JSON extracted from tool_use block.
         - No schema → concatenate all text blocks from response.
@@ -160,7 +176,8 @@ class AnthropicProvider:
         remaining: list[dict[str, Any]] = []
         for msg in messages:
             if msg["role"] == "system":
-                system_parts.append(msg["content"])
+                if msg["content"]:
+                    system_parts.append(msg["content"])
             else:
                 remaining.append({"role": msg["role"], "content": msg["content"]})
 
@@ -170,8 +187,10 @@ class AnthropicProvider:
             "max_tokens": max_tokens if max_tokens is not None else self._max_tokens_default,
             "messages": remaining,
         }
-        if system_parts:
-            kwargs["system"] = "\n".join(system_parts)
+        if len(system_parts) == 1:
+            kwargs["system"] = system_parts[0]
+        elif system_parts:
+            kwargs["system"] = _system_blocks(system_parts)
         if temperature is not None:
             kwargs["temperature"] = temperature
 

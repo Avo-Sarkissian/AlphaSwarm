@@ -207,17 +207,39 @@ async def test_no_temperature_options_is_none() -> None:
 
 
 # ---------------------------------------------------------------------------
-# max_tokens is accepted but ignored
+# max_tokens is the per-call output cap (options["num_predict"])
 # ---------------------------------------------------------------------------
 
 
-async def test_max_tokens_accepted_but_ignored() -> None:
-    """max_tokens kwarg must be accepted without error; it does not flow to Ollama."""
+async def test_max_tokens_becomes_num_predict() -> None:
     p, fc, _ = _make_provider()
-    await p.chat([{"role": "user", "content": "x"}], max_tokens=512)
+    await p.chat([{"role": "user", "content": "x"}], max_tokens=400)
     assert fc.kwargs is not None
-    # num_predict should NOT appear in options
-    assert fc.kwargs.get("options") is None or "num_predict" not in (fc.kwargs.get("options") or {})
+    assert fc.kwargs["options"] == {"num_predict": 400}
+
+
+async def test_temperature_and_cap_share_the_options() -> None:
+    p, fc, _ = _make_provider()
+    await p.chat([{"role": "user", "content": "x"}], temperature=0.3, max_tokens=400)
+    assert fc.kwargs is not None
+    assert fc.kwargs["options"] == {"temperature": 0.3, "num_predict": 400}
+
+
+async def test_num_predict_reaches_the_ollama_request() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from alphaswarm.ollama_client import OllamaClient
+
+    client = OllamaClient()
+    pool = AsyncMock()
+    pool.chat.return_value = SimpleNamespace(message=SimpleNamespace(content="{}"))
+    client._worker_client = pool  # type: ignore[assignment]
+    provider = OllamaProvider(ProviderRole.WORKER, "alphaswarm-worker", client)
+    await provider.chat([{"role": "user", "content": "x"}], max_tokens=400)
+    sent = pool.chat.await_args.kwargs
+    assert sent["options"] == {"num_predict": 400}
+    assert "num_ctx" not in sent["options"]
 
 
 # ---------------------------------------------------------------------------
