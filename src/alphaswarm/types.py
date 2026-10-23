@@ -52,8 +52,12 @@ def normalize_signed_unit(value: object) -> object:
 
 # Engine-owned classification of a failed decision (docs/DECISIONS.md#adr-taskgroup-dispatch):
 # "inference" = the model call raised, "parse" = tier-3 parse fallback,
-# "truncated" = parse failure with finish_reason == "length" (reserved; not emitted yet).
+# "truncated" = parse failure with finish_reason == "length" (the output cap cut the reply).
 ErrorKind = Literal["inference", "parse", "truncated"]
+# Governor states whose duration is reported in the cycle metrics. Defined here, not in
+# telemetry.py, so governor -> telemetry -> inference -> governor never forms an import
+# cycle (docs/DECISIONS.md#adr-inference-telemetry).
+GovernorTelemetryState = Literal["throttled", "paused", "crisis"]
 
 
 class BracketType(StrEnum):

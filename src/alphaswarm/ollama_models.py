@@ -112,6 +112,12 @@ class OllamaModelManager:
                 # (ensure_clean_state loops over models; docs/DECISIONS.md#f-32).
                 await logger.awarning("unload_model_failed", model=model, exc_info=True)
 
+    async def loaded_models(self) -> list[str]:
+        """Sorted names of every model Ollama holds in memory, AlphaSwarm's or not."""
+        ps_response = await self._client.raw_client.ps()
+        # ProcessResponse.Model.model is Optional[str] in ollama-python 0.6.
+        return sorted(m.model for m in ps_response.models if m.model)
+
     async def is_model_loaded(self, model: str) -> bool:
         """Check if a model is currently loaded via ps().
 

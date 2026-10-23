@@ -38,6 +38,57 @@ metrics: `methodology.md` (not written yet).
 | `demo_url` | Static demo | not published | Static demo not built yet |
 <!-- headline:end -->
 
+## Protocol
+
+The performance arms below are measured on the reference machine (Apple M1 Max, 64 GB,
+Ollama with the MLX backend). Every number comes from the cycle metrics of a real run,
+read with `scripts/telemetry_report.py`; the cycle ids and git SHAs let anyone re-read
+them from Neo4j. Metric definitions: `docs/DECISIONS.md#adr-inference-telemetry`.
+
+- **Server:** Ollama started with `OLLAMA_USE_MLX=1` and `OLLAMA_NUM_PARALLEL=4`
+  (`docs/RUNBOOK.md` §1). `alphaswarm-worker` = qwen3.6:35b-a3b-nvfp4,
+  `alphaswarm-orchestrator` = qwen3.6:27b-nvfp4. No other model and no other
+  AlphaSwarm process running.
+- **Seeds:** `apple-anthropic`, `nvda-earnings-miss`, `fed-emergency-cut` from
+  `scripts/benchmark_seeds.json`; one run per seed per arm; `ALPHASWARM_NUM_ROUNDS=3`.
+- **Confound:** Round 1 prompts carry market and news context fetched at run time
+  (`docs/DECISIONS.md#adr-market-context`), so Round 1 prompt sizes differ between
+  runs. Prefill comparisons use Rounds 2-3.
+- **Distribution rule:** total-variation (TV) distance between the final
+  buy/sell/hold distributions of the same seed in two arms. "Unchanged" means mean
+  TV ≤ 0.15 over the seeds and no seed above 0.25. When one seed is above 0.25,
+  re-run that seed once on the later arm: if the two later-arm runs differ from
+  each other by at least as much as the earlier-vs-later pair, the shift is
+  run-to-run noise and the rule passes.
+- **Prefill rule:** a prompt-layout change is kept only if the mean change of
+  `r2`/`r3` `mean_prefill_ms` across seeds is −10% or better and the distribution
+  rule holds.
+- **Rationale spot-check:** 10 sampled final-round rationales per seed per arm
+  (`telemetry_report.py rationales --sample 10 --rng-seed 7`), each marked "gives a
+  reason tied to the rumor" (yes/no) and "cut off mid-sentence" (yes/no).
+
+## Arms
+
+| Arm | Git SHA | Change under test |
+|---|---|---|
+
+## A0 — baseline (telemetry only)
+
+No runs recorded: the three baseline runs happen on the reference machine.
+
+## A1 — output caps, warm-up and timeouts (vs A0)
+
+No runs recorded: this arm needs the A0 baseline first.
+
+## A2 — prefix-reuse prompt layout (vs A1, or vs A1b when the rationale cap was reverted)
+
+No runs recorded: this arm needs the A1 result first.
+
+## Web and UI efficiency
+
+No measurement recorded: idle serialization and React Profiler commits are measured on the
+reference machine.
+
 ## Model stack benchmarks (2026-06-11)
 
 Single-stream throughput on the reference M1 Max with Ollama 0.30.7, recorded when the MLX

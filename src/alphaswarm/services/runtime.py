@@ -31,6 +31,7 @@ from alphaswarm.errors import (
     InferenceConfigIncompleteError,
     Neo4jUnavailableError,
 )
+from alphaswarm.governor import ResourceGovernor
 
 # Called through their modules so patch("alphaswarm.inference.factory.build_providers")
 # style tests reach the runtime too.
@@ -42,6 +43,7 @@ from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
 from alphaswarm.services.jobs import JobRunner
 from alphaswarm.settings import AppSettings
+from alphaswarm.telemetry import make_transition_probe
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
@@ -163,8 +165,16 @@ class InferenceRuntime:
         return provider
 
     async def build_controller(self, state_store: StateStore) -> ConcurrencyController:
-        """ResourceGovernor for a local worker, RateLimitController for a cloud worker."""
-        return factory.build_controller(await self.config(), self._settings.governor, state_store=state_store)
+        """ResourceGovernor for a local worker, RateLimitController for a cloud worker.
+
+        A governor gets the transition probe that logs loaded models and Docker VM
+        memory on every state change (docs/DECISIONS.md#adr-inference-telemetry).
+        """
+        controller = factory.build_controller(await self.config(), self._settings.governor, state_store=state_store)
+        if isinstance(controller, ResourceGovernor):
+            loaded = self._model_manager.loaded_models if self._model_manager is not None else None
+            controller.set_transition_probe(make_transition_probe(loaded))
+        return controller
 
     @staticmethod
     def _log_incomplete(cfg: InferenceConfig, exc: ValueError, name: OperationName) -> None:

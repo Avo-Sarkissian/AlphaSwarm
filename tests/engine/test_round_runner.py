@@ -176,6 +176,16 @@ async def test_round_outcome_is_frozen_and_aligned(
         "r1_parse_tier1",
         "r1_parse_tier2",
         "r1_parse_tier3",
+        "r1_latency_p50_ms",
+        "r1_latency_p95_ms",
+        "r1_mean_prompt_tokens",
+        "r1_mean_completion_tokens",
+        "r1_mean_prefill_ms",
+        "r1_mean_decode_ms",
+        "r1_total_load_ms",
+        "r1_cold_loads",
+        "r1_truncations",
+        "r1_ctx_warnings",
     }
 
 

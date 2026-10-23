@@ -213,7 +213,7 @@ def _ollama(outcome: ollama.ChatResponse | BaseException) -> InferenceProvider:
 _OLLAMA_OK = ollama.ChatResponse(
     model="alphaswarm-worker",
     message=ollama.Message(role="assistant", content=json.dumps(_DECISION)),
-    eval_count=12,
+    output_tokens=12,
     eval_duration=1_000_000,
 )
 
@@ -370,3 +370,18 @@ async def test_contract_rejected_credentials_raise_auth_error(case: ProviderCase
     provider = case.make_auth_failure()
     with pytest.raises(AuthError):
         await provider.chat(_MESSAGES, response_schema=DECISION_JSON_SCHEMA)
+
+
+async def test_fake_provider_passes_telemetry_fields_through() -> None:
+    result = InferenceResult(
+        content="ok",
+        model="fake",
+        input_tokens=10,
+        output_tokens=2,
+        prefill_ms=1.0,
+        decode_ms=2.0,
+        load_ms=0.0,
+        finish_reason="length",
+    )
+    fake = FakeInferenceProvider(ProviderRole.WORKER, "fake", scripted=[result])
+    assert await fake.chat([{"role": "user", "content": "hi"}]) is result

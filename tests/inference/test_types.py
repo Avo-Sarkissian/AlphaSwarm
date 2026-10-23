@@ -36,10 +36,7 @@ def test_inference_result_all_fields() -> None:
         model="qwen3:8b",
         input_tokens=100,
         output_tokens=50,
-        eval_count=50,
-        eval_duration_ns=1_000_000,
+        prefill_ms=40.0,
+        decode_ms=900.0,
     )
-    assert r.input_tokens == 100
-    assert r.output_tokens == 50
-    assert r.eval_count == 50
-    assert r.eval_duration_ns == 1_000_000
+    assert (r.input_tokens, r.output_tokens, r.prefill_ms, r.decode_ms) == (100, 50, 40.0, 900.0)

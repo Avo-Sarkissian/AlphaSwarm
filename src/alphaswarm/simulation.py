@@ -13,7 +13,7 @@ import asyncio
 import dataclasses
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
@@ -33,6 +33,7 @@ from alphaswarm.rounds import (
     run_round,
 )
 from alphaswarm.seed import generate_modifiers, inject_seed
+from alphaswarm.telemetry import governor_metrics
 from alphaswarm.types import SignalType, SimulationPhase
 
 if TYPE_CHECKING:
@@ -314,7 +315,7 @@ def _cycle_metrics(
         if decision.signal != SignalType.PARSE_ERROR:
             counts[decision.signal.value] += 1
     metrics: dict[str, float | int | str | bool] = {
-        "metrics_version": 1,
+        "metrics_version": 2,
         "num_rounds": num_rounds,
         "total_seconds": round(total_seconds, 1),
         "final_buy": counts["buy"],
@@ -342,6 +343,7 @@ async def _record_cycle_metrics(
     total_seconds: float,
     git_sha: str | None,
     git_dirty: bool | None,
+    extra: Mapping[str, float] | None = None,
 ) -> None:
     """Write the cycle metrics; a failed write is logged and never fails the run."""
     metrics = _cycle_metrics(
@@ -359,6 +361,8 @@ async def _record_cycle_metrics(
             git_dirty=git_dirty,
         )
     )
+    if extra:
+        metrics.update(extra)
     try:
         await deps.graph.write_cycle_metrics(cycle_id, metrics)
     except Exception:
@@ -376,6 +380,9 @@ async def _run_simulation(
     tracker: _RunTracker,
 ) -> SimulationResult:
     """Body of run_simulation; see the public wrapper below for the contract."""
+    # One run clock from the first instruction: total_seconds now includes
+    # seeding, and seed_seconds isolates it (docs/DECISIONS.md#adr-cycle-metrics).
+    sim_start = time.monotonic()
     settings, graph, state = deps.settings, deps.graph, deps.state
     await _enter_phase(state, SimulationPhase.IDLE)
     if state is not None:
@@ -406,7 +413,6 @@ async def _run_simulation(
         logger.info("personas_regenerated_with_modifiers", parse_tier=modifier_result.parse_tier)
     market_context = await _round_1_market_context(deps, cycle_id, parsed_result)
 
-    sim_start = time.monotonic()
     ctx = RoundContext(
         deps=deps,
         cycle_id=cycle_id,
@@ -425,6 +431,7 @@ async def _run_simulation(
     await deps.controller.start_monitoring()
     try:
         await deps.worker.prepare()
+        seed_seconds = time.monotonic() - sim_start
         try:
             for round_num in range(1, settings.num_rounds + 1):
                 await _enter_round(state, round_num, cycle_id)
@@ -450,6 +457,7 @@ async def _run_simulation(
         total_seconds=time.monotonic() - sim_start,
         git_sha=git_sha,
         git_dirty=git_dirty,
+        extra={"seed_seconds": round(seed_seconds, 1), **governor_metrics(deps.controller)},
     )
     # Every round is persisted and metrics were attempted (docs/DECISIONS.md#adr-cycle-metrics).
     await graph.set_cycle_status(cycle_id, "complete")

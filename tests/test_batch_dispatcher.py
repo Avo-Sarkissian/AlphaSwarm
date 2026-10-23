@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.errors import (
     AuthError,
     BudgetExceededError,
@@ -16,9 +17,12 @@ from alphaswarm.errors import (
 )
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas, persona_to_worker_config
 from alphaswarm.settings import GovernorSettings
+from alphaswarm.telemetry import RoundTelemetry
 from alphaswarm.types import AgentDecision, SignalType, WorkerPersonaConfig
 from tests.inference.fakes import FakeInferenceProvider
+from tests.support.controllers import ImmediateController
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,8 +43,7 @@ def _fake_provider(content: str = _VALID_BUY_JSON, *, n: int = 1000) -> FakeInfe
         InferenceResult(
             content=content,
             model="fake-model",
-            eval_count=50,
-            eval_duration_ns=1_000_000_000,
+            output_tokens=50,
         )
         for _ in range(n)
     ]
@@ -1374,3 +1377,32 @@ async def test_ft_dispatch_wave_rejects_misaligned_own_priors(governor: Resource
             settings=GovernorSettings(baseline_parallel=16),
             own_priors=[None],
         )
+
+
+_TELEMETRY_DECISION = (
+    '{"signal": "hold", "confidence": 0.5, "sentiment": 0.0, "rationale": "ZZZT terms unclear", "cited_agents": []}'
+)
+
+
+async def test_dispatch_wave_feeds_round_telemetry() -> None:
+    personas = [persona_to_worker_config(p) for p in generate_personas(DEFAULT_BRACKETS)[:3]]
+    provider = FakeInferenceProvider(
+        ProviderRole.WORKER,
+        "fake-model",
+        scripted=lambda **_: InferenceResult(
+            content=_TELEMETRY_DECISION, model="fake-model", output_tokens=150, finish_reason="stop"
+        ),
+    )
+    telemetry = RoundTelemetry()
+    decisions = await dispatch_wave(
+        personas,
+        ImmediateController(),
+        provider,
+        "ZZZT Holdings rumor",
+        GovernorSettings(jitter_min_seconds=0.0, jitter_max_seconds=0.0),
+        round_num=1,
+        telemetry=telemetry,
+    )
+    assert len(decisions) == 3
+    assert telemetry.calls == 3
+    assert telemetry.to_metrics(1)["r1_mean_completion_tokens"] == 150.0

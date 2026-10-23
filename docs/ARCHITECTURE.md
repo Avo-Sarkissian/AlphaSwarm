@@ -45,10 +45,13 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `episodes.py`: `EpisodeRecord`, `compute_flip_type`, `EntityRef`/`EntityMatch`, `match_entities`, `new_decision_ids`.
   - `context_formatter.py`.
 - **Concurrency**
-  - `governor.py`: ResourceGovernor / TokenPool state machine.
+  - `governor.py`: ResourceGovernor / TokenPool state machine; per-session time in THROTTLED/PAUSED/CRISIS, peak memory, and a transition probe logged on every state change.
   - `memory_monitor.py`: psutil plus macOS sysctl memory pressure.
   - `inference/concurrency.py`: ConcurrencyController protocol.
   - `inference/rate_limit.py`: the cloud controller.
+- **Telemetry**
+  - `telemetry.py`: per-round inference telemetry (`RoundTelemetry`, the `r{n}_*` cycle-metric keys), governor metrics, and the transition probe (loaded models, Docker VM memory) ([adr-inference-telemetry](DECISIONS.md#adr-inference-telemetry)).
+  - `inference/call_log.py`: one `inference_call` log line per provider call (tokens, timings, finish reason, latency; never prompt or reply text).
 - **Inference**
   - `ollama_client.py`: backoff, plus the rule that `num_ctx` is never sent per request.
   - `ollama_models.py`: model load and unload.

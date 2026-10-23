@@ -46,7 +46,7 @@ ORDERED_STATE_CALLS = frozenset(
         "set_bracket_summaries",
     }
 )
-COUNTED_STATE_CALLS = frozenset({"update_agent_state", "push_rationale", "update_tps"})
+COUNTED_STATE_CALLS = frozenset({"update_agent_state", "push_rationale", "record_tokens"})
 SECOND_SHOCK_TEXT = "ZZZT Holdings raises its offer for QQQX Robotics to $4.6B in cash."
 HEADLINE = "ZZZT Holdings confirms a strategic review"
 # Only ticker-shaped entity names reach MarketDataProvider.get_prices, so the market

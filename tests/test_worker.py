@@ -9,6 +9,8 @@ import pytest
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.settings import GovernorSettings
+from alphaswarm.state import StateStore
+from alphaswarm.telemetry import RoundTelemetry
 from alphaswarm.types import AgentDecision, SignalType, WorkerPersonaConfig
 from alphaswarm.worker import (
     DECISION_JSON_SCHEMA,
@@ -39,8 +41,7 @@ def _fake_provider(content: str = _VALID_BUY_JSON, *, n: int = 1) -> FakeInferen
         InferenceResult(
             content=content,
             model="fake-model",
-            eval_count=50,
-            eval_duration_ns=1_000_000_000,
+            output_tokens=50,
         )
         for _ in range(n)
     ]
@@ -360,8 +361,7 @@ async def test_agent_worker_with_fake_provider_returns_parsed_decision(
             '"rationale": "strong upward momentum", "cited_agents": []}'
         ),
         model="fake-model",
-        eval_count=42,
-        eval_duration_ns=1_000_000_000,
+        output_tokens=42,
     )
 
     provider = FakeInferenceProvider(
@@ -574,3 +574,93 @@ def test_risk_profile_is_the_personas_float() -> None:
     # The module uses `from __future__ import annotations`, so TypedDict stores
     # ForwardRef objects; get_type_hints resolves them to the real types.
     assert typing.get_type_hints(WorkerPersonaConfig)["risk_profile"] is float
+
+
+async def test_infer_records_completed_tokens_for_live_tps(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    store = StateStore()
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[InferenceResult(content=_VALID_BUY_JSON, model="fake-model", output_tokens=42)],
+    )
+    await AgentWorker(sample_persona, provider, state_store=store).infer(user_message="ZZZT")
+    assert store.snapshot().tps == pytest.approx(4.2)  # 42 tokens / 10 s window
+
+
+async def test_infer_without_token_counts_records_nothing(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    store = StateStore()
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[InferenceResult(content=_VALID_BUY_JSON, model="fake-model")],
+    )
+    await AgentWorker(sample_persona, provider, state_store=store).infer(user_message="ZZZT")
+    assert store.snapshot().tps == 0.0
+
+
+async def test_infer_records_the_call_in_round_telemetry(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    telemetry = RoundTelemetry()
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[
+            InferenceResult(
+                content=_VALID_BUY_JSON,
+                model="fake-model",
+                input_tokens=1400,
+                output_tokens=150,
+                prefill_ms=600.0,
+                decode_ms=2700.0,
+                finish_reason="stop",
+            )
+        ],
+    )
+    await AgentWorker(sample_persona, provider, telemetry=telemetry).infer(user_message="ZZZT")
+    metrics = telemetry.to_metrics(1)
+    assert telemetry.calls == 1
+    assert (metrics["r1_mean_prompt_tokens"], metrics["r1_mean_decode_ms"]) == (1400.0, 2700.0)
+
+
+async def test_truncated_reply_is_tagged_truncated(sample_persona: WorkerPersonaConfig) -> None:
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[
+            InferenceResult(
+                content='{"signal": "buy", "confidence": 0.8, "rationale": "The ZZZT deal',
+                model="fake-model",
+                output_tokens=400,
+                finish_reason="length",
+            )
+        ],
+    )
+    decision = await AgentWorker(sample_persona, provider).infer(user_message="ZZZT")
+    assert (decision.signal, decision.error_kind) == (SignalType.PARSE_ERROR, "truncated")
+
+
+async def test_malformed_reply_that_finished_stays_a_parse_error(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[InferenceResult(content="no json here", model="fake-model", finish_reason="stop")],
+    )
+    decision = await AgentWorker(sample_persona, provider).infer(user_message="ZZZT")
+    assert (decision.signal, decision.error_kind) == (SignalType.PARSE_ERROR, "parse")
+
+
+async def test_reply_at_the_cap_that_parses_is_kept(sample_persona: WorkerPersonaConfig) -> None:
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[InferenceResult(content=_VALID_BUY_JSON, model="fake-model", finish_reason="length")],
+    )
+    decision = await AgentWorker(sample_persona, provider).infer(user_message="ZZZT")
+    assert (decision.signal, decision.error_kind) == (SignalType.BUY, None)

@@ -121,7 +121,7 @@ async def _live_store(clock: FrozenClock) -> StateStore:
     await store.set_bracket_summaries(SUMMARIES)
     store.update_governor_metrics(GovernorMetrics(16, 12, "green", 58.0, "running", 1_500.0))
     store.record_data_source(source="yfinance", query="ZZZT 1d OHLCV", result="ok", used=True)
-    store.update_tps(427, 10_000_000_000)
+    store.record_tokens(427, now=1_754.25)
     store.set_pending_shock(SHOCK_PENDING)
     clock.mono = 1_754.25
     return store

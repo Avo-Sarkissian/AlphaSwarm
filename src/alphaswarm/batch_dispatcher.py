@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.settings import GovernorSettings
     from alphaswarm.state import StateSink
+    from alphaswarm.telemetry import RoundTelemetry
     from alphaswarm.types import WorkerPersonaConfig
 
 log = structlog.get_logger(component="batch_dispatcher")
@@ -62,6 +63,7 @@ async def _safe_agent_inference(
     state_store: StateSink | None = None,
     round_num: int = 0,
     own_prior: str | None = None,
+    telemetry: RoundTelemetry | None = None,
 ) -> AgentDecision:
     """Run a single agent inference with jitter and exception safety.
 
@@ -105,7 +107,7 @@ async def _safe_agent_inference(
     structlog.contextvars.bind_contextvars(round=round_num, agent_id=persona["agent_id"])
     try:
         await asyncio.sleep(random.uniform(jitter_min, jitter_max))
-        async with agent_worker(persona, governor, provider, state_store=state_store) as worker:
+        async with agent_worker(persona, governor, provider, state_store=state_store, telemetry=telemetry) as worker:
             decision = await worker.infer(
                 user_message=user_message,
                 peer_context=peer_context,
@@ -177,6 +179,7 @@ async def dispatch_wave(
     state_store: StateSink | None = None,
     round_num: int = 0,
     own_priors: Sequence[str | None] | None = None,
+    telemetry: RoundTelemetry | None = None,
 ) -> list[AgentDecision]:
     """Dispatch a wave of agent inferences using asyncio.TaskGroup.
 
@@ -204,6 +207,8 @@ async def dispatch_wave(
         state_store: Optional StateSink for TPS metric collection (docs/DECISIONS.md#p10-d-05).
             Threaded through to AgentWorker.infer() via agent_worker context manager.
         own_priors: Optional per-agent own-prior lines (same length as personas).
+        telemetry: Per-round telemetry every completed call is recorded in
+            (docs/DECISIONS.md#adr-inference-telemetry).
 
     Returns:
         List of AgentDecision, one per persona. Failed agents have
@@ -242,6 +247,7 @@ async def dispatch_wave(
                         state_store=state_store,
                         round_num=round_num,
                         own_prior=own_priors[i] if own_priors is not None else None,
+                        telemetry=telemetry,
                     )
                 )
                 for i, p in enumerate(personas)

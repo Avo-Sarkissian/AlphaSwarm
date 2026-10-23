@@ -129,6 +129,10 @@ def _after_rumor(messages: list[InferenceMessage]) -> str:
     return user.split(SCENARIO_RUMOR, 1)[1] if SCENARIO_RUMOR in user else "<rumor missing>"
 
 
+# Metric keys measured on the wall clock vary run to run; goldens leave them out.
+_WALL_CLOCK_METRIC_SUFFIXES: Final = ("_seconds", "_latency_p50_ms", "_latency_p95_ms")
+
+
 def scenario_summary(
     *,
     store: RecordingStateStore,
@@ -155,5 +159,5 @@ def scenario_summary(
         "phases": [phase.value for phase in store.phases],
         "rounds": rounds,
         "shocks": [[c.args[1], c.kwargs["injected_before_round"]] for c in graph.write_shock_event.await_args_list],
-        "metrics": {k: v for k, v in sorted(metrics.items()) if not k.endswith("_seconds")},
+        "metrics": {k: v for k, v in sorted(metrics.items()) if not k.endswith(_WALL_CLOCK_METRIC_SUFFIXES)},
     }

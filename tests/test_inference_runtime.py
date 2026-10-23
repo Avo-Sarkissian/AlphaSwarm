@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 import alphaswarm.inference.config as config_module
+import alphaswarm.telemetry as telemetry_module
 from alphaswarm.errors import (
     INFERENCE_CONFIG_INCOMPLETE_MESSAGE,
     InferenceConfigError,
@@ -24,6 +25,7 @@ from alphaswarm.inference.config import (
 )
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.types import ProviderRole
+from alphaswarm.ollama_models import OllamaModelManager
 from alphaswarm.services.runtime import InferenceRuntime
 from alphaswarm.settings import AppSettings
 from alphaswarm.state import StateStore
@@ -129,3 +131,18 @@ def test_ollama_client_is_the_injected_client(tmp_path: Path) -> None:
     client = object()
     runtime = InferenceRuntime(settings, ollama_client=client, model_manager=None)  # type: ignore[arg-type]
     assert runtime.ollama_client is client
+
+
+async def test_local_controller_gets_the_transition_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(telemetry_module, "docker_vm_rss_mb", lambda: 512.0)
+    settings = AppSettings(_env_file=None, inference_config_path=tmp_path / "inference.json")
+    manager = MagicMock(spec=OllamaModelManager)
+    manager.loaded_models = AsyncMock(return_value=["alphaswarm-worker"])
+    runtime = InferenceRuntime(settings, ollama_client=None, model_manager=manager)
+    controller = await runtime.build_controller(StateStore())
+    assert isinstance(controller, ResourceGovernor)
+    assert controller.transition_probe is not None
+    assert await controller.transition_probe() == {
+        "loaded_models": "alphaswarm-worker",
+        "docker_vm_rss_mb": 512.0,
+    }
