@@ -406,6 +406,11 @@ Contents
   - Cycle ids are validated by the `CycleId` uuid4 path type (`web/params.py`); malformed ids return 422 `validation_error` (T-36-01). Every error uses the envelope from `web/errors.py`.
   - The report modal polls only on 409 `report_generation_in_progress`; `usePolling` keeps at most one request in flight (F-16) and surfaces timeouts ([p41-6-d-19](#p41-6-d-19)).
 
+### <a id="adr-cli-ux"></a>CLI: stdout for output, stderr for logs
+- **Decision:**
+  - structlog writes to the `sys.stderr` current at each write; stdout carries only command output (tables, report paths, help).
+- **Rationale:** JSON log lines interleaved with the CLI's tables on stdout, so piping a command captured both.
+
 ### <a id="adr-web-lifespan"></a>Web process shape
 - **Decision:**
   - Uvicorn owns the event loop. `services.runtime.open_runtime` is the one composition root for the CLI and the lifespan: it configures logging, builds AppState, the InferenceRuntime and the JobRunner, applies the Neo4j schema and tears everything down through one `AsyncExitStack` ([p29-d-04](#p29-d-04)).
