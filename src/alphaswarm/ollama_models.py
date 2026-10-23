@@ -1,13 +1,14 @@
-"""Ollama model loading and unloading.
+"""Serialized, verified model loading and unloading for Ollama.
+
+Every load and unload goes through one asyncio.Lock and is checked with ps():
+a load must appear, an unload must disappear (polled every 0.25 s for up to
+30 s, then a warning). Load and unload times are logged in ms.
 
 Rounds never run with the orchestrator and the worker loaded together: seeding loads
 and unloads the orchestrator, then the worker is loaded once for every round
 (docs/DECISIONS.md#adr-round-runner). Ollama itself may hold up to two models
 (CLAUDE.md constraint 2), for example an interview's worker next to a report's
 orchestrator.
-
-Uses an asyncio.Lock to serialize all model transitions, preventing race
-conditions from concurrent async calls.
 """
 
 from __future__ import annotations
@@ -94,10 +95,15 @@ class OllamaModelManager:
         self,
         client: OllamaClient,
         configured_aliases: set[str] | None = None,
+        *,
+        unload_timeout_s: float = 30.0,
+        poll_interval_s: float = 0.25,
     ) -> None:
         self._client = client
         self._lock = asyncio.Lock()
         self._configured_aliases: set[str] = configured_aliases or set()
+        self._unload_timeout_s = unload_timeout_s
+        self._poll_interval_s = poll_interval_s
 
     async def load_model(self, model: str) -> None:
         """Load a model into Ollama memory.
@@ -139,32 +145,49 @@ class OllamaModelManager:
                     message=f"Model {model} not found in ps() after load attempt",
                     model=model,
                 )
-            await logger.ainfo("model loaded", model=model)
+            await logger.ainfo("model_loaded", model=model, load_ms=round((time.monotonic() - started) * 1000))
 
     async def unload_model(self, model: str) -> None:
-        """Unload a model from Ollama memory via keep_alive=0.
+        """Unload via keep_alive=0, then poll ps() until the model is gone.
 
-        Does NOT delete the model files. Uses keep_alive=0 on an empty
-        chat request to signal Ollama to unload from memory.
-        Serialized by internal Lock.
-
-        Args:
-            model: Ollama model tag to unload.
+        Does NOT delete the model files. Ollama acknowledges keep_alive=0 before
+        it frees the weights, so the next load could otherwise overlap this
+        model. A failed or unverified unload is logged and never aborts the
+        caller (ensure_clean_state loops over models; docs/DECISIONS.md#f-32).
         """
         async with self._lock:
-            await logger.ainfo("unloading model", model=model)
+            started = time.monotonic()
+            await logger.ainfo("model_unload_requested", model=model)
             try:
-                await self._client.chat(
-                    model=model,
-                    messages=[],
-                    keep_alive=0,
-                )
-                await logger.ainfo("model unloaded", model=model)
+                await self._client.chat(model=model, messages=[], keep_alive=0)
             except Exception:
-                # Best-effort unload: some Ollama builds reject an empty messages
-                # list, and a failed unload must not abort the caller
-                # (ensure_clean_state loops over models; docs/DECISIONS.md#f-32).
+                # Some Ollama builds reject an empty messages list.
                 await logger.awarning("unload_model_failed", model=model, exc_info=True)
+                return
+            gone = await self._wait_until_unloaded(model, started)
+            elapsed_ms = round((time.monotonic() - started) * 1000)
+            if gone:
+                await logger.ainfo("model_unloaded", model=model, unload_ms=elapsed_ms)
+            else:
+                await logger.awarning(
+                    "model_unload_unverified",
+                    model=model,
+                    waited_ms=elapsed_ms,
+                    timeout_s=self._unload_timeout_s,
+                )
+
+    async def _wait_until_unloaded(self, model: str, started: float) -> bool:
+        deadline = started + self._unload_timeout_s
+        while True:
+            try:
+                if not await self.is_model_loaded(model):
+                    return True
+            except Exception:
+                await logger.awarning("model_unload_check_failed", model=model, exc_info=True)
+                return False
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(self._poll_interval_s)
 
     async def loaded_models(self) -> list[str]:
         """Sorted names of every model Ollama holds in memory, AlphaSwarm's or not."""

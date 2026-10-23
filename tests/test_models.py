@@ -67,6 +67,8 @@ def model_manager(mock_ollama_client: MagicMock) -> Any:
     return OllamaModelManager(
         client=mock_ollama_client,
         configured_aliases={"alphaswarm-orchestrator", "alphaswarm-worker"},
+        unload_timeout_s=0.05,
+        poll_interval_s=0.0,
     )
 
 
@@ -95,11 +97,12 @@ async def test_verify_loaded(model_manager: Any, mock_raw_client: AsyncMock) -> 
 
 
 async def test_sequential_load(model_manager: Any, mock_ollama_client: MagicMock, mock_raw_client: AsyncMock) -> None:
-    """Load orchestrator -> unload it -> load worker; ps() verifies each load."""
+    """Load orchestrator -> unload it -> load worker; ps() verifies every load and unload."""
     mock_raw_client.ps = AsyncMock(
         side_effect=[
-            _make_ps_response(["alphaswarm-orchestrator"]),
-            _make_ps_response(["alphaswarm-worker"]),
+            _make_ps_response(["alphaswarm-orchestrator"]),  # load(orch): verify loaded
+            _make_ps_response([]),  # unload(orch): verify gone
+            _make_ps_response(["alphaswarm-worker"]),  # load(worker): verify loaded
         ]
     )
     await model_manager.load_model("alphaswarm-orchestrator")
@@ -112,7 +115,7 @@ async def test_sequential_load(model_manager: Any, mock_ollama_client: MagicMock
         ("alphaswarm-orchestrator", 0),
         ("alphaswarm-worker", "5m"),
     ]
-    assert mock_raw_client.ps.await_count == 2
+    assert mock_raw_client.ps.await_count == 3
 
 
 async def test_load_failure_raises_model_load_error(
@@ -166,6 +169,8 @@ async def test_load_unload_serialized(mock_ollama_client: MagicMock, mock_raw_cl
     manager = OllamaModelManager(
         client=mock_ollama_client,
         configured_aliases={"model-a", "model-b"},
+        unload_timeout_s=0.05,
+        poll_interval_s=0.0,
     )
 
     # Run two operations concurrently
@@ -327,3 +332,69 @@ def test_warmup_stats_tolerate_missing_fields() -> None:
         "prompt_tokens": None,
         "prefill_tps": None,
     }
+
+
+class _RecordingLog:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, Any]]] = []
+
+    async def ainfo(self, event: str, **kw: Any) -> None:
+        self.events.append((event, kw))
+
+    async def awarning(self, event: str, **kw: Any) -> None:
+        self.events.append((event, kw))
+
+    def warning(self, event: str, **kw: Any) -> None:
+        self.events.append((event, kw))
+
+
+async def test_unload_waits_until_ps_no_longer_lists_the_model(
+    model_manager: Any, mock_raw_client: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rec = _RecordingLog()
+    monkeypatch.setattr("alphaswarm.ollama_models.logger", rec)
+    mock_raw_client.ps = AsyncMock(
+        side_effect=[
+            _make_ps_response(["alphaswarm-worker"]),
+            _make_ps_response(["alphaswarm-worker"]),
+            _make_ps_response([]),
+        ]
+    )
+    await model_manager.unload_model("alphaswarm-worker")
+    assert mock_raw_client.ps.await_count == 3
+    unloaded = [kw for e, kw in rec.events if e == "model_unloaded"]
+    assert len(unloaded) == 1 and isinstance(unloaded[0]["unload_ms"], int)
+
+
+async def test_unload_gives_up_after_the_timeout_and_warns(
+    model_manager: Any, mock_raw_client: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rec = _RecordingLog()
+    monkeypatch.setattr("alphaswarm.ollama_models.logger", rec)
+    mock_raw_client.ps = AsyncMock(return_value=_make_ps_response(["alphaswarm-worker"]))
+    await model_manager.unload_model("alphaswarm-worker")
+    unload_events = [e for e, _ in rec.events if e.startswith("model_unload")]
+    assert unload_events[-1] == "model_unload_unverified"
+    assert "model_unloaded" not in unload_events
+
+
+async def test_unload_check_failure_is_logged_not_raised(
+    model_manager: Any, mock_raw_client: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rec = _RecordingLog()
+    monkeypatch.setattr("alphaswarm.ollama_models.logger", rec)
+    mock_raw_client.ps = AsyncMock(side_effect=ConnectionError("refused"))
+    await model_manager.unload_model("alphaswarm-worker")
+    events = [e for e, _ in rec.events]
+    assert "model_unload_check_failed" in events and events[-1] == "model_unload_unverified"
+
+
+async def test_load_logs_load_ms(
+    model_manager: Any, mock_raw_client: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rec = _RecordingLog()
+    monkeypatch.setattr("alphaswarm.ollama_models.logger", rec)
+    mock_raw_client.ps = AsyncMock(return_value=_make_ps_response(["alphaswarm-worker"]))
+    await model_manager.load_model("alphaswarm-worker")
+    loaded = [kw for e, kw in rec.events if e == "model_loaded"]
+    assert len(loaded) == 1 and loaded[0]["load_ms"] >= 0
