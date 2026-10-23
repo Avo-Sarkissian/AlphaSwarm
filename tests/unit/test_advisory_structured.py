@@ -354,6 +354,8 @@ async def test_near_miss_reply_needs_no_retry() -> None:
 
 
 async def test_two_invalid_replies_fail_without_partial_file() -> None:
+    """synthesize raises and returns nothing to write; the job-level check that no
+    file appears is tests/test_advisory_retention.py::test_two_invalid_replies_write_no_file."""
     provider = FakeInferenceProvider(
         role=ProviderRole.ORCHESTRATOR,
         model="fake-orch",

@@ -1,4 +1,5 @@
-"""The advisory job writes owner-only files and keeps only the newest N.
+"""The advisory job writes owner-only files, keeps only the newest N and writes
+nothing when the orchestrator never returns a valid reply.
 
 See docs/DECISIONS.md#adr-advisory-pipeline.
 """
@@ -19,10 +20,11 @@ import pytest
 from pydantic import ValidationError
 
 import alphaswarm.web.routes.advisory as advisory_module
+from alphaswarm.errors import StructuredOutputError
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.factory import BuiltProviders
-from alphaswarm.inference.types import ProviderRole
+from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.settings import AppSettings
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.web_app import CYCLE_A, CYCLE_B, CYCLE_UNKNOWN, route_test_settings
@@ -43,15 +45,43 @@ def _portfolio() -> PortfolioSnapshot:
     )
 
 
-def _job_app_state(settings: AppSettings, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    """An offline app state whose advisory job writes a fake report through the real path."""
-    provider = FakeInferenceProvider(role=ProviderRole.ORCHESTRATOR, model="fake", scripted=[])
+class _SwarmReads:
+    """The graph reads the real ``synthesize`` makes, with fictional cycle data."""
+
+    async def read_consensus_summary(self, cycle_id: str) -> dict[str, Any]:
+        return {"buy_count": 52, "sell_count": 21, "hold_count": 24, "parse_error_count": 3, "total": 100}
+
+    async def read_round_timeline(self, cycle_id: str) -> list[dict[str, Any]]:
+        return []
+
+    async def read_bracket_narratives(self, cycle_id: str) -> list[dict[str, Any]]:
+        return []
+
+    async def read_entity_impact(self, cycle_id: str) -> list[dict[str, Any]]:
+        return []
+
+    async def read_cycle_seed(self, cycle_id: str) -> str:
+        return "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
+
+
+def _job_app_state(
+    settings: AppSettings,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    provider: FakeInferenceProvider | None = None,
+) -> SimpleNamespace:
+    """An offline app state whose advisory job runs through the real route path.
+
+    Without *provider* the synthesis is faked and returns a fixed report; with
+    one, the real ``synthesize`` runs on *provider* over ``_SwarmReads``.
+    """
+    orchestrator = provider or FakeInferenceProvider(role=ProviderRole.ORCHESTRATOR, model="fake", scripted=[])
     monkeypatch.setattr(
         advisory_module,
         "build_providers",
         lambda *_a, **_k: BuiltProviders(
-            orchestrator=provider,  # type: ignore[arg-type]
-            worker=provider,  # type: ignore[arg-type]
+            orchestrator=orchestrator,  # type: ignore[arg-type]
+            worker=orchestrator,  # type: ignore[arg-type]
             budget_meter=BudgetMeter(None, {}),
         ),
     )
@@ -59,10 +89,12 @@ def _job_app_state(settings: AppSettings, monkeypatch: pytest.MonkeyPatch) -> Si
     # tmp file, so the real loader returns the local Ollama defaults and the job's
     # cloud re-check passes.
 
-    async def _synthesize(**_kwargs: Any) -> _FakeReport:
-        return _FakeReport()
+    if provider is None:
 
-    monkeypatch.setattr(advisory_module, "synthesize", _synthesize)
+        async def _synthesize(**_kwargs: Any) -> _FakeReport:
+            return _FakeReport()
+
+        monkeypatch.setattr(advisory_module, "synthesize", _synthesize)
     # The job asks the shared client for its host and whether the model runs remotely.
     client = SimpleNamespace(
         base_url="http://127.0.0.1:11434",
@@ -70,7 +102,7 @@ def _job_app_state(settings: AppSettings, monkeypatch: pytest.MonkeyPatch) -> Si
     )
     return SimpleNamespace(
         settings=settings,
-        graph_manager=object(),
+        graph_manager=object() if provider is None else _SwarmReads(),
         ollama_client=client,
         model_manager=object(),
     )
@@ -116,6 +148,27 @@ async def test_a_failed_prune_does_not_fail_the_advisory(
     await advisory_module._run_advisory_synthesis(app_state, CYCLE_A, _portfolio())  # type: ignore[arg-type]
     names = sorted(p.name for p in advisory_dir.iterdir())
     assert names == sorted([f"{CYCLE_A}_advisory.json", f"{CYCLE_B}_advisory.json"])
+
+
+async def test_two_invalid_replies_write_no_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The job fails before anything is written: no advisory, no temp file, older files kept."""
+    # keep_last=1: a written advisory would also have pruned CYCLE_B's file.
+    settings = route_test_settings(tmp_path, advisory_keep_last=1)
+    advisory_dir = tmp_path / "advisory"
+    _write_old_advisories(advisory_dir, CYCLE_B)
+    provider = FakeInferenceProvider(
+        role=ProviderRole.ORCHESTRATOR,
+        model="fake",
+        scripted=[InferenceResult(content="prose, not JSON", model="fake")] * 2,
+    )
+    app_state = _job_app_state(settings, monkeypatch, provider=provider)
+    with pytest.raises(StructuredOutputError):
+        await advisory_module._run_advisory_synthesis(app_state, CYCLE_A, _portfolio())  # type: ignore[arg-type]
+    assert len(provider.calls) == 2
+    assert sorted(p.name for p in advisory_dir.iterdir()) == [f"{CYCLE_B}_advisory.json"]
 
 
 def test_keep_last_default_and_bounds() -> None:
