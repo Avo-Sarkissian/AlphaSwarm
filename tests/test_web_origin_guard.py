@@ -202,7 +202,11 @@ def test_production_mutating_routes_reject_foreign_origin(method: str, path: str
     """
     from alphaswarm.web.app import create_app as production_create_app
 
-    client = TestClient(production_create_app(), raise_server_exceptions=False)
+    client = TestClient(
+        production_create_app(),
+        base_url="http://127.0.0.1",
+        raise_server_exceptions=False,
+    )
     r = client.request(method, path, json={}, headers={"origin": FOREIGN_ORIGIN})
     assert r.status_code == 403, f"{method} {path} accepted a foreign origin"
     assert r.json()["detail"]["error"] == "origin_not_allowed"
@@ -217,7 +221,11 @@ def test_production_mutating_routes_accept_allowed_origin(method: str, path: str
     """
     from alphaswarm.web.app import create_app as production_create_app
 
-    client = TestClient(production_create_app(), raise_server_exceptions=False)
+    client = TestClient(
+        production_create_app(),
+        base_url="http://127.0.0.1",
+        raise_server_exceptions=False,
+    )
     r = client.request(method, path, json={}, headers={"origin": ALLOWED_ORIGIN})
     assert r.status_code != 403, f"{method} {path} rejected the SPA origin"
 
@@ -226,6 +234,10 @@ def test_production_get_route_unaffected_by_foreign_origin() -> None:
     """GET routes are not guarded — no read path changes behaviour."""
     from alphaswarm.web.app import create_app as production_create_app
 
-    client = TestClient(production_create_app(), raise_server_exceptions=False)
+    client = TestClient(
+        production_create_app(),
+        base_url="http://127.0.0.1",
+        raise_server_exceptions=False,
+    )
     r = client.get("/api/health", headers={"origin": FOREIGN_ORIGIN})
     assert r.status_code != 403

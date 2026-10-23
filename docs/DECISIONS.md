@@ -435,6 +435,7 @@ Contents
   - Every state-changing HTTP route has an Origin guard (`web/origin_guard.py`, CWE-352).
   - The API-key file and its directory are created owner-only (CWE-276).
   - One origin list, `AppSettings.allowed_origins` (`ALPHASWARM_ALLOWED_ORIGINS`), serves the HTTP CSRF guard and the WebSocket handshake through `origin_guard.is_allowed`; the WebSocket no longer accepts an Origin derived from the request's own Host. `ALPHASWARM_WS_ALLOWED_ORIGINS` and `ALPHASWARM_HTTP_ALLOWED_ORIGINS` are no longer read; startup logs `legacy_origin_settings_ignored` when they are set (2026-10, SPEC T7.3, T11.8).
+  - `TrustedHostMiddleware` answers only `AppSettings.trusted_hosts` (default `localhost`, `127.0.0.1`, `[::1]`; `ALPHASWARM_TRUSTED_HOSTS`), so a DNS-rebinding page can no longer read `GET /api/holdings`, the advisories or the live stream. It is the outermost middleware; it became possible once the in-process `testserver` calls were removed (2026-10, SPEC T7.3). Starlette compares only the text before the first `:` of the Host, so the `[::1]` entry never matches today and an IPv6-loopback Host is refused (fail-closed; the server binds 127.0.0.1 by default).
 - **Commits:** 53e5954, 72d55a9, 45c7827, 1e7a8ee, e353716, 820b8fe.
 
 ### <a id="adr-docs-sync"></a>Measured numbers have one home; the docs copy them by script

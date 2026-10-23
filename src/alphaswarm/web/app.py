@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import structlog
 from fastapi import FastAPI
 from neo4j.exceptions import AuthError as Neo4jAuthError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.staticfiles import StaticFiles
 
 from alphaswarm.app import create_app_state
@@ -312,6 +313,15 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     # Origin/Referer, covering all routers below plus any added later.
     # Header-less callers (curl, scripts/) are unaffected — see web/origin_guard.py.
     install_origin_guard(app, resolved.allowed_origins)
+    # DNS-rebinding guard (docs/DECISIONS.md#adr-security-2026-08): a page that
+    # re-points its own name at 127.0.0.1 still sends that name as Host, so only
+    # the Host values in settings.trusted_hosts reach any route or the WebSocket.
+    # Added after the origin guard so it is the outermost middleware.
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=list(resolved.trusted_hosts),
+        www_redirect=False,
+    )
     _warn_legacy_origin_settings(resolved)
 
     app.include_router(health_router, prefix="/api")
