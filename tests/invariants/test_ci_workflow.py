@@ -21,6 +21,26 @@ def _jobs(text: str) -> dict[str, str]:
     return {parts[i]: parts[i + 1] for i in range(1, len(parts), 2)}
 
 
+def _steps(job: str) -> list[str]:
+    """A job's steps, each as its YAML text (the six-space-indented items under ``steps:``)."""
+    return re.split(r"(?m)^      - ", job.split("\n    steps:\n", 1)[1])[1:]
+
+
+def _run(step: str) -> str:
+    """A step's ``run:`` command, without the YAML block indicator (``|`` or ``>-``)."""
+    lines = step.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("run:") or line.startswith("        run:"):
+            value = line.split("run:", 1)[1].strip()
+            body = [] if value in ("|", "|-", ">", ">-") else [value]
+            for more in lines[i + 1 :]:
+                if more.strip() and not more.startswith(" " * 10):
+                    break
+                body.append(more.strip())
+            return "\n".join(body)
+    return ""
+
+
 def test_ci_has_the_expected_jobs() -> None:
     assert set(_jobs(_text(CI))) == {"lint", "backend-unit", "backend-neo4j", "frontend"}
 
@@ -50,6 +70,27 @@ def test_neo4j_job_requires_the_database() -> None:
     assert "7688:7687" in job
     assert "-m neo4j --require-neo4j" in job
     assert "-rxX" in job
+
+
+def test_piped_steps_fail_when_the_first_command_fails() -> None:
+    """Every step that pipes a command (``pytest ... | tee``) declares ``shell: bash``.
+
+    GitHub runs an explicit ``shell: bash`` as ``bash --noprofile --norc -eo pipefail``,
+    but the default shell is ``bash -e`` without pipefail. There the step reports
+    tee's exit status, so a failing suite, the coverage gate or ``--require-neo4j``
+    would all show green.
+    """
+    pytest_steps = 0
+    for path in (CI, WORKFLOWS / "nightly.yml"):
+        for job_name, job in _jobs(_text(path)).items():
+            for step in _steps(job):
+                command = _run(step)
+                pytest_steps += "uv run pytest" in command
+                unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", "", command)  # grep -E '(A|B)' is no pipe
+                if re.search(r"(?<!\|)\|(?!\|)", unquoted):
+                    where = f"{path.name} {job_name}: {step.splitlines()[0]}"
+                    assert re.search(r"(?m)^        shell: bash$", step), where
+    assert pytest_steps == 3  # backend-unit, backend-neo4j, nightly live-network
 
 
 def test_lint_job_runs_the_static_gates() -> None:
