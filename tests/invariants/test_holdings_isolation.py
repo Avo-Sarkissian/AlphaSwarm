@@ -43,12 +43,17 @@ REVIEW MEDIUM (Codex): canary searches for ALL sentinel representations
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 import structlog
+from fastapi.testclient import TestClient
 
 from alphaswarm.advisory import synthesize
 from alphaswarm.holdings.types import PortfolioSnapshot
+from alphaswarm.inference.budget import BudgetMeter
+from alphaswarm.inference.factory import BuiltProviders
+from tests.support.web_app import CYCLE_A, make_route_app, route_test_settings
 
 from .conftest import (
     SENTINEL_ACCT,
@@ -57,7 +62,9 @@ from .conftest import (
     SENTINEL_TICKER,
     CanaryFakeGraphManager,
     CanaryFakeOllamaClient,
+    CanarySequenceProvider,
     all_sentinel_representations,
+    canary_invalid_advisory_json,
     canary_valid_advisory_json,
 )
 
@@ -245,3 +252,105 @@ def test_all_sentinel_representations_covers_expected_forms() -> None:
     assert any(r.startswith("SNTL") is False and len(r) == 8 for r in reps), (
         "Expected an 8-hex sha256_first8(SENTINEL_ACCT) entry in representations"
     )
+
+
+# --------- Failure path: invalid LLM JSON must not leak through errors ---------
+
+
+def _fresh_advisory_loggers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the advisory loggers at fresh proxies so capture_logs sees them even
+    when an earlier test cached them under another structlog configuration."""
+    import alphaswarm.advisory.engine as engine_module
+    import alphaswarm.web.routes.advisory as advisory_route
+
+    monkeypatch.setattr(engine_module, "log", structlog.get_logger(component="advisory"))
+    monkeypatch.setattr(advisory_route, "log", structlog.get_logger(component="web.advisory"))
+
+
+async def test_invalid_first_response_leaks_nothing(
+    sentinel_portfolio: PortfolioSnapshot,
+    capture_logs: Any,
+    capture_neo4j_writes: list[str],
+    capture_jinja_renders: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The retry warning and the retry prompt carry no holdings values."""
+    _fresh_advisory_loggers(monkeypatch)
+    provider = CanarySequenceProvider(
+        prompt_sink=capture_jinja_renders,
+        contents=[canary_invalid_advisory_json(), canary_valid_advisory_json()],
+    )
+    await synthesize(
+        cycle_id="canary_cycle",
+        portfolio=sentinel_portfolio,
+        graph_manager=CanaryFakeGraphManager(neo4j_sink=capture_neo4j_writes),  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+    )
+    log_output = capture_logs.getvalue()
+    retry_prompt = capture_jinja_renders[1]
+    assert "advisory_validation_retry" in log_output  # positive control: the retry was logged
+    assert "failed validation" in retry_prompt  # positive control: the retry prompt was captured
+    for sentinel in all_sentinel_representations():
+        assert sentinel not in log_output, f"sentinel representation {sentinel!r} leaked into logs"
+        if sentinel != SENTINEL_TICKER:
+            assert sentinel not in retry_prompt, f"{sentinel!r} echoed into the retry prompt"
+
+
+def test_invalid_twice_leaks_nothing_to_logs_or_http(
+    sentinel_portfolio: PortfolioSnapshot,
+    capture_logs: Any,
+    capture_neo4j_writes: list[str],
+    capture_jinja_renders: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """End to end: POST, the job fails twice, GET answers 500 without holdings."""
+    import alphaswarm.web.routes.advisory as advisory_route
+
+    _fresh_advisory_loggers(monkeypatch)
+    # make_route_app's lifespan builds AppState, which reconfigures logging; keep the
+    # canary's capture configuration for the whole test.
+    monkeypatch.setattr("alphaswarm.app.configure_logging", lambda **_kwargs: None)
+    provider = CanarySequenceProvider(
+        prompt_sink=capture_jinja_renders,
+        contents=[canary_invalid_advisory_json(), canary_invalid_advisory_json()],
+    )
+    monkeypatch.setattr(
+        advisory_route,
+        "build_providers",
+        lambda *_a, **_k: BuiltProviders(
+            orchestrator=provider,  # type: ignore[arg-type]
+            worker=provider,  # type: ignore[arg-type]
+            budget_meter=BudgetMeter(None, {}),
+        ),
+    )
+
+    class _Graph(CanaryFakeGraphManager):
+        async def read_cycle_status(self, cycle_id: str) -> str | None:
+            return "complete" if cycle_id == CYCLE_A else None
+
+        async def read_cycle_seed(self, cycle_id: str) -> str:
+            return ""
+
+    app = make_route_app(
+        advisory_route.router,
+        settings=route_test_settings(tmp_path),
+        graph=_Graph(neo4j_sink=capture_neo4j_writes),
+        portfolio=sentinel_portfolio,
+    )
+    with TestClient(app) as client:
+        # The job asks Ollama whether the orchestrator runs locally; answer "local".
+        app.state.app_state.ollama_client.is_remote_model = AsyncMock(return_value=False)
+        assert client.post(f"/api/advisory/{CYCLE_A}").status_code == 202
+        response = client.get(f"/api/advisory/{CYCLE_A}")
+        for _ in range(200):  # 409 while the job runs; each request yields to the loop
+            if response.status_code != 409:
+                break
+            response = client.get(f"/api/advisory/{CYCLE_A}")
+    assert response.status_code == 500
+    assert response.json()["detail"]["message"] == "Advisory generation failed (ValidationError)"
+    log_output = capture_logs.getvalue()
+    assert "advisory_generation_failed" in log_output  # positive control
+    for sentinel in all_sentinel_representations():
+        assert sentinel not in response.text, f"{sentinel!r} leaked into the HTTP body"
+        assert sentinel not in log_output, f"{sentinel!r} leaked into logs"

@@ -25,6 +25,7 @@ from alphaswarm.advisory import AdvisoryReport, synthesize
 from alphaswarm.config import ProviderType, load_inference_config
 from alphaswarm.fsutil import atomic_write_text
 from alphaswarm.inference.factory import advisory_block_reason, build_providers
+from alphaswarm.logging import validation_error_summary
 from alphaswarm.state import JobStatus
 from alphaswarm.web.errors import ApiError
 from alphaswarm.web.guards import (
@@ -310,11 +311,14 @@ def _on_advisory_task_done(task: asyncio.Task[Any], cycle_id: str, app: FastAPI)
         _record_advisory_failure(app, cycle_id, code, message)
         _set_advisory_status(app, JobStatus("failed", cycle_id, code))
         # Event name and exc_info are pinned by tests/test_task_failure_logging.py.
+        # A ValidationError's traceback text echoes the model's input, so it is
+        # logged as a summary without exc_info (docs/DECISIONS.md#adr-holdings-isolation).
+        summary = validation_error_summary(exc)
         log.error(
             "advisory_task_exception_recorded",
             cycle_id=cycle_id,
             exc_type=exc.__class__.__name__,
-            exc_info=exc,
+            **(summary or {"exc_info": exc}),
         )
     except Exception:  # a done-callback must never raise
         log.exception("advisory_task_done_callback_failed", cycle_id=cycle_id)
@@ -383,7 +387,14 @@ async def _run_advisory_synthesis(
             affected=report_obj.affected_holdings,
         )
     except Exception as exc:
-        log.error("advisory_generation_failed", cycle_id=cycle_id, error=str(exc))
+        # Never str(exc) and no traceback: advisory exceptions can echo holdings
+        # (docs/DECISIONS.md#adr-holdings-isolation).
+        log.error(
+            "advisory_generation_failed",
+            cycle_id=cycle_id,
+            exc_type=exc.__class__.__name__,
+            **validation_error_summary(exc),
+        )
         raise
     finally:
         try:

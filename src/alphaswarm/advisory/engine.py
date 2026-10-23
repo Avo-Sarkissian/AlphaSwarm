@@ -10,6 +10,8 @@ event_dict. Log only scalar metadata (cycle_id, holdings_count, affected).
 Pitfall 2: NEVER json.dumps over raw Decimal. All holdings values are stringified
 before prompt construction.
 Pitfall 3: one bounded retry on ValidationError; second failure raises.
+Pitfall 4: NEVER log or forward str(ValidationError): it echoes the model's input
+values, which can include tickers or a cost basis. Use validation_error_summary().
 """
 
 from __future__ import annotations
@@ -29,6 +31,11 @@ from alphaswarm.advisory.sector_map import resolve_ticker
 from alphaswarm.advisory.types import AdvisoryItem, AdvisoryReport
 from alphaswarm.holdings.types import PortfolioSnapshot
 from alphaswarm.inference.types import InferenceMessage
+from alphaswarm.logging import (
+    validation_error_details,
+    validation_error_location,
+    validation_error_summary,
+)
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
@@ -288,6 +295,12 @@ async def synthesize(
     return final
 
 
+def _retry_feedback(exc: ValidationError) -> str:
+    """Which fields failed and why, without echoing the values the model sent."""
+    errors = validation_error_details(exc)
+    return "\n".join(f"- {validation_error_location(error)}: {error['msg']}" for error in errors[:10])
+
+
 async def _infer_with_retry(
     *,
     provider: InferenceProvider,
@@ -303,17 +316,14 @@ async def _infer_with_retry(
     try:
         return AdvisoryReport.model_validate_json(content)
     except ValidationError as first_err:
-        log.warning(
-            "advisory_validation_retry",
-            cycle_id_hint="present_in_messages",
-            error=str(first_err),
-        )
+        log.warning("advisory_validation_retry", **validation_error_summary(first_err))
         retry_messages: list[InferenceMessage] = [
             *messages,
             {
                 "role": "user",
                 "content": (
-                    f"Your previous response failed validation: {first_err}. "
+                    "Your previous response failed validation:\n"
+                    f"{_retry_feedback(first_err)}\n"
                     "Return ONLY the JSON object matching the schema."
                 ),
             },

@@ -42,6 +42,8 @@ from collections.abc import Mapping, MutableMapping
 from typing import Any
 
 import structlog
+from pydantic import ValidationError
+from pydantic_core import ErrorDetails
 from structlog.tracebacks import ExceptionDictTransformer
 
 from alphaswarm.security.hashing import sha256_first8
@@ -253,3 +255,55 @@ def configure_logging(log_level: str = "INFO", json_output: bool = True) -> None
 def get_logger(**initial_bindings: object) -> structlog.stdlib.BoundLogger:
     """Get a structlog logger with optional initial context bindings."""
     return structlog.get_logger(**initial_bindings)  # type: ignore[no-any-return]
+
+
+# ------ Loggable pydantic validation failures (docs/DECISIONS.md#adr-holdings-isolation) ------
+
+_MAX_ERROR_LOCATIONS = 10
+
+
+def validation_error_location(error: ErrorDetails) -> str:
+    """Dotted location of one pydantic error. An extra key's own name is masked:
+    it is text the model chose and could be a ticker."""
+    parts = [str(part) for part in error["loc"]]
+    if error["type"] == "extra_forbidden" and parts:
+        parts[-1] = "<extra>"
+    return ".".join(parts) or "(root)"
+
+
+def validation_error_details(exc: ValidationError) -> list[ErrorDetails]:
+    """The errors of *exc* without input values, URLs or context."""
+    return exc.errors(include_input=False, include_url=False, include_context=False)
+
+
+def _find_validation_error(exc: BaseException) -> ValidationError | None:
+    """*exc* itself or the first pydantic ValidationError on its cause/context chain."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, ValidationError):
+            return current
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def validation_error_summary(exc: BaseException) -> dict[str, object]:
+    """Loggable facts about the pydantic ValidationError *exc* is or was raised from.
+
+    str() and repr() of a ValidationError echo the input values, which on the
+    advisory path can include tickers or a cost basis. The summary keeps the error
+    count, up to ten dotted locations and the sorted error types. Without a
+    ValidationError on the chain it is {}: log the exception class (and, where
+    safe, the traceback) instead. Callers that get a summary must not also pass
+    exc_info, because the rendered traceback carries the exception text.
+    """
+    validation_error = _find_validation_error(exc)
+    if validation_error is None:
+        return {}
+    errors = validation_error_details(validation_error)
+    return {
+        "error_count": len(errors),
+        "error_locations": [validation_error_location(error) for error in errors[:_MAX_ERROR_LOCATIONS]],
+        "error_types": sorted({error["type"] for error in errors}),
+    }
