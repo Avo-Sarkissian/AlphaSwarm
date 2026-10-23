@@ -162,7 +162,12 @@ class TestBuildDiversePeerContexts:
         """Peers cut by the character budget are not exposure."""
         long_take = "word " * 400  # 2,000 characters per rationale
 
-        contexts, exposures = _build(SMALL_PERSONAS, _decisions(SMALL_PERSONAS, rationale=long_take), 1)
+        contexts, exposures = _build(
+            SMALL_PERSONAS,
+            _decisions(SMALL_PERSONAS, rationale=long_take),
+            1,
+            sim=SimulationSettings(peer_budget_chars=800),
+        )
 
         for ctx, shown in zip(contexts, exposures, strict=True):
             assert ctx is not None

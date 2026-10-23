@@ -42,7 +42,7 @@ from alphaswarm.metrics import split_flips
 from alphaswarm.seed import inject_seed
 from alphaswarm.state import BracketSummary
 from alphaswarm.types import SignalType, SimulationPhase
-from alphaswarm.utils import sanitize_rationale
+from alphaswarm.utils import sanitize_peer_rationale, sanitize_rationale
 
 if TYPE_CHECKING:
     from alphaswarm.config import AppSettings, BracketConfig, SimulationSettings
@@ -397,7 +397,8 @@ def _format_peer_context(
 
     Greedy fill: iterate ranked posts, accumulate chars, truncate last post
     at word boundary if it would exceed budget. Prompt guard line preserved
-    from Phase 7 D-03.
+    from Phase 7 D-03. Each rationale is sanitized and capped at about 300
+    characters first (sanitize_peer_rationale).
 
     Returns ``(text, shown_ids)``: ``shown_ids`` are the agent ids of the
     rendered lines in display order, which is the reader's exposure
@@ -422,14 +423,16 @@ def _format_peer_context(
     for i, post in enumerate(posts[:max_posts], 1):
         if remaining <= 0:
             break
-        if not post.content:
+        # Peer rationales are other agents' model output: quote them only after
+        # sanitising (docs/DECISIONS.md#adr-security-2026-08).
+        content = sanitize_peer_rationale(post.content)
+        if not content:
             continue
         prefix = f'{i}. [{post.agent_id}|{post.bracket}] {post.signal.upper()} (conf: {post.confidence:.2f}) "'
         suffix = '"'
         available = remaining - len(prefix) - len(suffix) - 1  # -1 for newline
         if available <= 0:
             break
-        content = post.content
         if len(content) > available:
             # Truncate at word boundary
             truncated = content[:available].rsplit(" ", 1)[0]

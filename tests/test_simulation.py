@@ -752,8 +752,9 @@ def test_format_peer_context_budget_enforced() -> None:
         for i in range(10)
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
-    assert len(result) <= 4000
+    # Rationales are capped near 300 characters, so ten now fit 4,000; 2,000 still truncates.
+    result, _shown = _format_peer_context(posts, source_round=1, budget=2000)
+    assert len(result) <= 2000
     # Not all 10 posts should appear (total would exceed budget)
     numbered_lines = [line for line in result.split("\n") if line and line[0].isdigit()]
     assert len(numbered_lines) < 10
@@ -782,8 +783,10 @@ def test_format_peer_context_word_boundary_truncation() -> None:
         ),
     ]
 
-    result, _shown = _format_peer_context(posts, source_round=1)
-    assert len(result) <= 4000
+    # The capped rationale (~300 chars) fits 4,000; a 400-character budget forces the
+    # word-boundary budget truncation this test is about.
+    result, _shown = _format_peer_context(posts, source_round=1, budget=400)
+    assert len(result) <= 400
     # Find the content inside quotes on the numbered line
     for line in result.split("\n"):
         if line.startswith("1."):
@@ -968,7 +971,7 @@ def test_format_peer_context_returns_rendered_ids() -> None:
         post("shorts_01", "shorts", "never reached"),  # budget exhausted
     ]
 
-    text, shown = _format_peer_context(posts, source_round=1, budget=1000)
+    text, shown = _format_peer_context(posts, source_round=1, budget=500)
 
     assert shown == ("quants_01", "macro_01")
     assert "[degens_01|" not in text
