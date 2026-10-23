@@ -164,6 +164,16 @@ class OllamaClient:
                 original_error=exc,
             ) from exc
 
+    async def aclose(self) -> None:
+        """Close the HTTP connection pool (called by the runtime exit stack).
+
+        ``ollama.AsyncClient`` has no close method, so the ``httpx.AsyncClient``
+        it wraps is closed directly. Closing twice is a no-op.
+        """
+        http = self._http
+        if not http.is_closed:
+            await http.aclose()
+
     @backoff.on_exception(
         backoff.expo,
         (ResponseError, ConnectionError, httpx.ConnectError),

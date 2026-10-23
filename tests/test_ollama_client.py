@@ -226,3 +226,15 @@ async def test_is_remote_model_raises_when_it_cannot_tell(response: dict[str, An
 
     with pytest.raises(Exception):  # noqa: B017 - any failure must propagate
         await client.is_remote_model("alphaswarm-orchestrator")
+
+
+async def test_aclose_closes_the_http_pool_and_is_idempotent() -> None:
+    """The runtime exit stack closes the Ollama HTTP pool at shutdown."""
+    from alphaswarm.ollama_client import OllamaClient
+
+    client = OllamaClient(base_url="http://127.0.0.1:11434")
+    http_client = client.raw_client._client  # httpx.AsyncClient inside ollama.AsyncClient
+    assert http_client.is_closed is False
+    await client.aclose()
+    assert http_client.is_closed is True
+    await client.aclose()  # a second close is a no-op
