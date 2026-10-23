@@ -9,7 +9,8 @@ Conforms to the ``InferenceProvider`` protocol without subclassing it.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Final
 
 import httpx
 import structlog
@@ -17,9 +18,11 @@ import structlog
 from alphaswarm.errors import AuthError, InferenceError
 from alphaswarm.inference.schema import to_openai_json_object, to_openai_response_format
 from alphaswarm.inference.types import (
+    FinishReason,
     InferenceMessage,
     InferenceResult,
     ProviderRole,
+    count_or_none,
     parse_retry_after,
 )
 
@@ -27,6 +30,21 @@ log = structlog.get_logger(component="inference.openai")
 
 # Sentinel: body text indicating the endpoint doesn't support strict JSON schema
 _STRICT_UNSUPPORTED_MARKERS = ("json_schema", "response_format", "strict")
+
+# OpenAI finish_reason → normalized finish reason (docs/DECISIONS.md#adr-inference-telemetry).
+_FINISH_REASONS: Final[Mapping[str, FinishReason]] = {
+    "stop": "stop",
+    "length": "length",
+    "content_filter": "content_filter",
+    "tool_calls": "tool_use",
+    "function_call": "tool_use",
+}
+
+
+def _finish_reason(value: object) -> FinishReason | None:
+    if not isinstance(value, str):
+        return None
+    return _FINISH_REASONS.get(value, "other")
 
 
 def _body_mentions_strict_unsupported(body: str) -> bool:
@@ -157,7 +175,7 @@ class OpenAICompatProvider:
 
         Returns:
             ``InferenceResult`` with content, model, input_tokens, output_tokens.
-            ``eval_count`` and ``eval_duration_ns`` are always ``None`` (cloud).
+            Cached prompt tokens and the finish reason are reported; timings are not (cloud).
         """
         body = self._build_body(messages, response_schema, json_mode, temperature, max_tokens)
         return await self._post_with_retry(body, response_schema=response_schema)
@@ -304,13 +322,18 @@ class OpenAICompatProvider:
     def _parse_response(self, resp: httpx.Response) -> InferenceResult:
         """Parse a 200 response into an ``InferenceResult``."""
         data = resp.json()
-        content: str = (data["choices"][0]["message"]["content"] or "") if data.get("choices") else ""
-        usage = data.get("usage", {})
+        choices = data.get("choices")
+        content: str = (choices[0]["message"]["content"] or "") if choices else ""
+        raw_finish = choices[0].get("finish_reason") if choices else None
+        usage = data.get("usage") or {}
+        details = usage.get("prompt_tokens_details") or {}
         return InferenceResult(
             content=content,
             model=self.model,
-            input_tokens=usage.get("prompt_tokens"),
-            output_tokens=usage.get("completion_tokens"),
+            input_tokens=count_or_none(usage.get("prompt_tokens")),
+            output_tokens=count_or_none(usage.get("completion_tokens")),
+            cached_prompt_tokens=count_or_none(details.get("cached_tokens")),
+            finish_reason=_finish_reason(raw_finish),
         )
 
     @staticmethod

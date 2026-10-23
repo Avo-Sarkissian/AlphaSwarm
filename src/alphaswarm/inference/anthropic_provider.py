@@ -18,7 +18,8 @@ Key behaviours:
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Final
 
 import anthropic
 import structlog
@@ -26,9 +27,11 @@ import structlog
 from alphaswarm.errors import AuthError, InferenceError
 from alphaswarm.inference.schema import extract_anthropic_tool_json, to_anthropic_tool
 from alphaswarm.inference.types import (
+    FinishReason,
     InferenceMessage,
     InferenceResult,
     ProviderRole,
+    count_or_none,
     parse_retry_after,
 )
 
@@ -36,6 +39,22 @@ if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
 log = structlog.get_logger(component="inference.anthropic")
+
+# Messages API stop_reason → normalized finish reason (docs/DECISIONS.md#adr-inference-telemetry).
+_STOP_REASONS: Final[Mapping[str, FinishReason]] = {
+    "end_turn": "stop",
+    "stop_sequence": "stop",
+    "max_tokens": "length",
+    "tool_use": "tool_use",
+    "refusal": "content_filter",
+    "pause_turn": "other",
+}
+
+
+def _finish_reason(value: object) -> FinishReason | None:
+    if not isinstance(value, str):
+        return None
+    return _STOP_REASONS.get(value, "other")
 
 
 class AnthropicProvider:
@@ -256,11 +275,19 @@ class AnthropicProvider:
             # Concatenate all text blocks
             content = "".join(block.text for block in resp.content if getattr(block, "type", None) == "text")
 
+        usage = resp.usage
+        uncached = count_or_none(getattr(usage, "input_tokens", None))
+        cache_read = count_or_none(getattr(usage, "cache_read_input_tokens", None))
+        cache_write = count_or_none(getattr(usage, "cache_creation_input_tokens", None))
         return InferenceResult(
             content=content,
             model=self.model,
-            input_tokens=resp.usage.input_tokens,
-            output_tokens=resp.usage.output_tokens,
+            # The API's input_tokens is the uncached remainder; the normalized prompt
+            # size adds cache reads and writes (docs/DECISIONS.md#adr-inference-telemetry).
+            input_tokens=None if uncached is None else uncached + (cache_read or 0) + (cache_write or 0),
+            output_tokens=count_or_none(getattr(usage, "output_tokens", None)),
+            cached_prompt_tokens=cache_read,
+            finish_reason=_finish_reason(getattr(resp, "stop_reason", None)),
         )
 
     @staticmethod
