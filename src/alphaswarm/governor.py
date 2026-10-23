@@ -19,7 +19,7 @@ import structlog
 from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.inference.concurrency import ConcurrencyController
-from alphaswarm.memory_monitor import MemoryMonitor, MemoryReading
+from alphaswarm.memory_monitor import MemoryMonitor, MemoryReader, MemoryReading
 
 if TYPE_CHECKING:
     from alphaswarm.state import StateStore
@@ -163,8 +163,11 @@ class ResourceGovernor:
     slots dynamically. Implements 5-state machine: RUNNING, THROTTLED, PAUSED,
     CRISIS, RECOVERING.
 
-    Constructor signature (LOCKED -- Plan 02 depends on this exact interface):
-        ResourceGovernor(settings: GovernorSettings, *, state_store: StateStore | None = None)
+    Constructor signature:
+        ResourceGovernor(settings: GovernorSettings | None = None, *,
+                         state_store: StateStore | None = None,
+                         monitor: MemoryReader | None = None)
+    ``monitor`` defaults to ``MemoryMonitor(settings)``; tests pass a scripted reader.
     """
 
     def __init__(
@@ -172,12 +175,13 @@ class ResourceGovernor:
         settings: GovernorSettings | None = None,
         *,
         state_store: StateStore | None = None,
+        monitor: MemoryReader | None = None,
     ) -> None:
         if settings is None:
             settings = GovernorSettings()
         self._settings = settings
         self._pool = TokenPool(settings.baseline_parallel)
-        self._monitor = MemoryMonitor(settings)
+        self._monitor: MemoryReader = monitor if monitor is not None else MemoryMonitor(settings)
         self._state = GovernorState.RUNNING
         self._state_store = state_store
         self._active_count = 0

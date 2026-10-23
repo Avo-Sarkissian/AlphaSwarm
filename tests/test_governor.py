@@ -11,7 +11,7 @@ import pytest
 from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.governor import GovernorState, ResourceGovernor, TokenPool
-from alphaswarm.memory_monitor import MemoryReading, PressureLevel
+from alphaswarm.memory_monitor import MemoryMonitor, MemoryReader, MemoryReading, PressureLevel
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -711,3 +711,57 @@ class TestGovernorDeadMonitor:
 
         assert exc_info.value.duration_seconds >= 12.0
         assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
+# ---------------------------------------------------------------------------
+# monitor= seam
+# ---------------------------------------------------------------------------
+
+
+class _FixedMonitor:
+    """Returns the same reading on every read (no psutil, no sysctl)."""
+
+    def __init__(self, reading: MemoryReading) -> None:
+        self._reading = reading
+        self.reads = 0
+
+    async def read_combined(self) -> MemoryReading:
+        self.reads += 1
+        return self._reading
+
+
+class TestGovernorMonitorSeam:
+    """ResourceGovernor(monitor=...) lets tests script the memory signal."""
+
+    async def test_injected_monitor_drives_the_state_machine(self) -> None:
+        settings = GovernorSettings(baseline_parallel=4).model_copy(update={"check_interval_seconds": 0.0})
+        monitor = _FixedMonitor(_reading(psutil_percent=85.0))
+        gov = ResourceGovernor(settings, monitor=monitor)
+        await gov.start_monitoring()
+        try:
+            for _ in range(50):
+                if gov.state is GovernorState.THROTTLED:
+                    break
+                await asyncio.sleep(0)
+            assert gov.state is GovernorState.THROTTLED
+            assert monitor.reads >= 1
+        finally:
+            await gov.stop_monitoring()
+
+    def test_default_monitor_is_built_from_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        built: list[GovernorSettings] = []
+
+        class _Recorder:
+            def __init__(self, settings: GovernorSettings) -> None:
+                built.append(settings)
+
+            async def read_combined(self) -> MemoryReading:
+                raise AssertionError("not read in this test")
+
+        monkeypatch.setattr("alphaswarm.governor.MemoryMonitor", _Recorder)
+        settings = GovernorSettings()
+        ResourceGovernor(settings)
+        assert built == [settings]
+
+    def test_memory_monitor_satisfies_the_reader_protocol(self) -> None:
+        assert isinstance(MemoryMonitor(GovernorSettings()), MemoryReader)
