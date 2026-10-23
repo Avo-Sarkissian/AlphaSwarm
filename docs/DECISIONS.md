@@ -596,7 +596,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p13-d-02"></a>`D-02` | Generated modifier replaced the static one for all agents in a bracket. Superseded: static round-robin modifier always applies; generated text is layered on as a 'this cycle' focus line (personas.py:generate_personas). | superseded | personas.py:generate_personas; simulation.py:963 |
 | <a id="p13-d-04"></a>`D-04` | Modifier prompt inputs: all extracted entities plus the raw rumor. | active | prompts/modifiers.py:MODIFIER_GENERATION_PROMPT,build_modifier_user_message; seed.py:generate_modifiers |
 | <a id="p13-d-05"></a>`D-05` | Output is a flat JSON dict keyed by bracket value; exactly 10 keys for a full parse. | active | prompts/modifiers.py:MODIFIER_GENERATION_PROMPT; seed.py:generate_modifiers; parsing.py:268 |
-| <a id="p13-d-06"></a>`D-06` | Modifier generation runs in the same orchestrator session as seed parsing (no reload). | active | prompts/modifiers.py:MODIFIER_GENERATION_PROMPT; seed.py:generate_modifiers; seed.py:56,95; simulation.py:952 |
+| <a id="p13-d-06"></a>`D-06` | Modifier generation runs in the same orchestrator session as seed parsing (no reload). | active | seed.py:inject_seed,generate_modifiers; simulation.py:_run_simulation |
 | <a id="p13-d-07"></a>`D-07` | Total parse failure falls back to static modifiers with a warning. | active | parsing.py:268,335 |
 | <a id="p13-d-08"></a>`D-08` | Partial failure falls back per bracket. | active | parsing.py:268,277,294 |
 | <a id="p13-d-09"></a>`D-09` | ParsedModifiersResult carries parse_tier for observability. | active | types.py:131 |
