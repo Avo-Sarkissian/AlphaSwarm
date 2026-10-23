@@ -99,7 +99,7 @@ Contents
 
 ### <a id="adr-sequential-model-lifecycle"></a>At most two models loaded; orchestrator users are serialized
 - **Decision:**
-  - `OllamaModelManager` enforces sequential loading: orchestrator for seed, then worker for the rounds and narratives, then orchestrator for advisory and report (`ollama_models.py:3`, INFRA-03).
+  - The callers set the load order; `OllamaModelManager` only serializes load and unload transitions under one lock (`ollama_models.py:OllamaModelManager`, INFRA-03). A run loads the orchestrator for the seed and unloads it (`seed.py:inject_seed`), then loads the worker once for all rounds ([adr-round-runner](#adr-round-runner)). Advisory and report load the orchestrator after the run, and decision narratives are generated on the first interview ([p11-d-11](#p11-d-11)).
   - Report and advisory never overlap: both POST routes and the post-run pipeline check the orchestrator slot (`web/guards.py:require_orchestrator_free` and `orchestrator_job_running`, backed by `StateStore.job_statuses()`).
   - After a completed run, `PostRunPipeline` (`web/post_run.py`) runs the advisory when a portfolio is loaded (and, with a cloud orchestrator, only with the opt-in), then always the report, by direct calls; the former in-process `httpx.ASGITransport` chain is gone. `SimulationManager.start()` refuses a new run with 409 `post_run_jobs_in_progress` while the pipeline task is pending or an orchestrator job runs, and `POST /api/settings/test` is refused during a run.
   - The report and advisory POST routes check for a running simulation again after their last await, right before the job starts (`web/guards.py:require_no_simulation`): a run started while they awaited Neo4j, the config or the holdings passed `start()`'s probe, because no job was marked running yet (2026-10).
@@ -966,7 +966,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 
 | ID | Requirement | Referenced from |
 |---|---|---|
-| <a id="req-infra-03"></a>INFRA-03 | Sequential model loading (orchestrator unloads before worker loads) | ollama_models.py:3; tests/test_models.py:1 |
+| <a id="req-infra-03"></a>INFRA-03 | Sequential model loading (orchestrator unloads before worker loads) | tests/test_models.py:1; the callers order the loads (`seed.py:inject_seed`, `simulation.py:_run_simulation`; [adr-sequential-model-lifecycle](#adr-sequential-model-lifecycle)) |
 | <a id="req-infra-04"></a>INFRA-04 | Async Ollama wrapper; `num_ctx` only in Modelfiles | tests/test_ollama_client.py:1 |
 | <a id="req-infra-05"></a>INFRA-05 | Cycle-scoped indexes for fast peer reads | tests/neo4j/test_graph_integration.py (test_ensure_schema_idempotent) |
 | <a id="req-infra-07"></a>INFRA-07 | TaskGroup for all batch processing; no bare create_task | batch_dispatcher.py:4,157 |
