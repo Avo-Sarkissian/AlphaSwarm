@@ -505,7 +505,7 @@ class TestConnectionTest:
         with (
             _mock_load_cfg(_ANTHROPIC_CFG),
             patch(
-                "alphaswarm.web.routes.settings._build_single_provider",
+                "alphaswarm.web.routes.settings.build_role_provider",
                 return_value=fake_provider,
             ),
             TestClient(_make_settings_test_app()) as client,
@@ -534,7 +534,7 @@ class TestConnectionTest:
         with (
             _mock_load_cfg(_ANTHROPIC_CFG),
             patch(
-                "alphaswarm.web.routes.settings._build_single_provider",
+                "alphaswarm.web.routes.settings.build_role_provider",
                 return_value=fake_provider,
             ),
             TestClient(_make_settings_test_app()) as client,
@@ -561,7 +561,7 @@ class TestConnectionTest:
         with (
             _mock_load_cfg(_ANTHROPIC_CFG),
             patch(
-                "alphaswarm.web.routes.settings._build_single_provider",
+                "alphaswarm.web.routes.settings.build_role_provider",
                 return_value=fake_provider,
             ),
             TestClient(_make_settings_test_app()) as client,
@@ -584,7 +584,7 @@ class TestConnectionTest:
         with (
             _mock_load_cfg(_ANTHROPIC_CFG),
             patch(
-                "alphaswarm.web.routes.settings._build_single_provider",
+                "alphaswarm.web.routes.settings.build_role_provider",
                 return_value=fake_provider,
             ),
             TestClient(_make_settings_test_app()) as client,

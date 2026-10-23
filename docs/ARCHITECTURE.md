@@ -118,7 +118,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - On the frontend, `useWebSocket` feeds `adapter/frame.ts`, which updates the React contexts (`FrameProviders`: Connection, FrameMeta, Telemetry, Agents, Rationales; plus Edges), which render the SVG graph.
    - Edges come over REST through one cached loader keyed by the frame's cycle_id, round and edges_version (EdgesContext). Report, advisory, replay and settings also come over REST.
 9. **Replay.** ReplayManager loads a cycle's signals from Neo4j into a ReplayStore, and the broadcaster switches its snapshot source. No inference runs, and the live phase is left alone.
-10. **Interview.** `POST /api/interview/{agent_id}` takes the request's `cycle_id` or the latest complete cycle, reads the agent's context with `read_agent_interview_context`, and runs InterviewEngine on the worker provider. The persona is rebuilt with the cycle's stored modifiers; on the first interview of (cycle, agent) the decision narrative is generated and stored on the final-round Decision.
+10. **Interview.** `POST /api/interview/{agent_id}` takes the request's `cycle_id` or the latest complete cycle, reads the agent's context with `read_agent_interview_context`, and runs InterviewEngine on the worker provider, the only one an interview builds (`InferenceRuntime.open_role`). The persona is rebuilt with the cycle's stored modifiers; on the first interview of (cycle, agent) the decision narrative is generated and stored on the final-round Decision.
 
 ## Neo4j graph model
 
