@@ -30,7 +30,7 @@ class CycleItem(BaseModel):
     cycle_id: str
     created_at: str  # ISO-8601 with offset; also the paging cursor
     seed_rumor: str
-    round_count: int  # actual cascade depth (2 or 3)
+    round_count: int  # the cycle's num_rounds, 2 or 3 (docs/DECISIONS.md#adr-num-rounds)
     status: str
     final_buy: int | None = None
     final_sell: int | None = None
@@ -77,7 +77,7 @@ async def replay_cycles(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     before: Annotated[datetime | None, Query()] = None,
 ) -> ReplayCyclesResponse:
-    """List complete cycles, newest first, one page at a time.
+    """List complete cycles, newest first, one page at a time (docs/DECISIONS.md#p32-d-12).
 
     `limit` caps the page (1-100, default 20). `before` is the `created_at`
     of the previous page's last row (URL-encoded; a naive value is read as

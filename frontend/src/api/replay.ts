@@ -6,7 +6,7 @@ export interface CycleItem {
   cycle_id: string;
   created_at: string; // ISO-8601 with offset, up to 9 fractional digits; also the paging cursor
   seed_rumor: string;
-  round_count: number; // actual cascade depth (2 or 3)
+  round_count: number; // the cycle's num_rounds, 2 or 3 (docs/DECISIONS.md#adr-num-rounds)
   status: string;
   final_buy: number | null; // null: recorded before run metrics existed
   final_sell: number | null;

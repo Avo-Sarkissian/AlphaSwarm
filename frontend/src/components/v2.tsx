@@ -457,7 +457,7 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   });
   const report = polled.data as AdvisoryReportPayload | null;
   const hadError = polled.error !== null;
-  // Detect cap-hit specifically — usePolling sets this exact message at hooks/usePolling.ts:61.
+  // Cap hit: usePolling's timeout error has this exact message (docs/DECISIONS.md#p41-6-d-19).
   const isExhausted =
     polled.error !== null && /polling timed out/i.test(polled.error.message);
 
