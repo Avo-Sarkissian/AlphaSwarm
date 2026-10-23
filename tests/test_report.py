@@ -20,7 +20,6 @@ _REPORT_TOOL_REGISTRY_KEYS = {
     "influence_leaders",
     "signal_flip_analysis",
     "entity_impact",
-    "social_post_reach",
 }
 
 
@@ -663,25 +662,6 @@ def test_entity_impact_template_escapes_pipes_and_newlines() -> None:
     assert row == "| ZZZT \\| QQQX JV | company | 0.00 | 1 | 1 | 0 | 0 |"
 
 
-def test_social_post_reach_template_reads_query_keys() -> None:
-    # Exactly the keys read_social_post_reach returns. Legacy cycles with READ_POST
-    # edges still produce such rows, and StrictUndefined must not fail them.
-    row = {
-        "post_id": "post-1",
-        "author_name": "Quants 1",
-        "bracket": "quants",
-        "signal": "buy",
-        "round_num": 1,
-        "content": "ZZZT Holdings | QQQX Robotics\nfictional deal chatter",
-        "reader_count": 12,
-    }
-    md = ReportAssembler().render_section("08_social_post_reach.j2", data=[row], cycle_id="c")
-    table_row = next(line for line in md.splitlines() if line.startswith("| 1 |"))
-    assert table_row == (
-        "| 1 | Quants 1 | quants | buy | 1 | 12 | ZZZT Holdings \\| QQQX Robotics fictional deal chatter |"
-    )
-
-
 def test_signal_flip_template_empty_state() -> None:
     md = ReportAssembler().render_section("06_signal_flip_analysis.j2", data=[], cycle_id="c")
     assert "_No agent changed position between rounds._" in md
@@ -706,3 +686,28 @@ def test_react_prompt_says_final_round_not_round_3() -> None:
     assert "Round 3" not in REACT_SYSTEM_PROMPT
     assert "rounds 1-3" not in REACT_SYSTEM_PROMPT
     assert "final round" in REACT_SYSTEM_PROMPT
+
+
+def test_social_post_reach_section_is_gone() -> None:
+    import inspect
+
+    from alphaswarm import cli
+    from alphaswarm.graph import GraphStateManager
+    from alphaswarm.report import SECTION_ORDER, TEMPLATE_DIR, TOOL_TO_TEMPLATE
+    from alphaswarm.web.routes import report as report_route
+
+    assert "social_post_reach" not in TOOL_TO_TEMPLATE
+    assert "social_post_reach" not in SECTION_ORDER
+    assert "social_post_reach" not in REACT_SYSTEM_PROMPT
+    assert not (TEMPLATE_DIR / "08_social_post_reach.j2").exists()
+    assert not hasattr(GraphStateManager, "read_social_post_reach")
+    assert "social_post_reach" not in inspect.getsource(cli._handle_report)
+    assert "social_post_reach" not in inspect.getsource(report_route._run_report_generation)
+
+
+def test_react_prompt_lists_seven_tools() -> None:
+    import re
+
+    advertised = set(re.findall(r"^- (\w+):", REACT_SYSTEM_PROMPT, flags=re.MULTILINE))
+    advertised.discard("FINAL_ANSWER")
+    assert len(advertised) == 7

@@ -1727,56 +1727,6 @@ class GraphStateManager:
             async for r in result
         ]
 
-    async def read_social_post_reach(
-        self,
-        cycle_id: str,
-        limit: int = 10,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Return top posts by READ_POST edge count for the cycle (REPORT-02).
-
-        READ_POST edges are no longer written (docs/DECISIONS.md#hist-read-post),
-        so this returns nothing for new cycles.
-
-        Args:
-            cycle_id: Simulation cycle ID.
-            limit: Maximum number of posts to return (default 10).
-
-        Returns:
-            List of dicts with post_id, author_name, bracket, signal, round_num,
-            content, reader_count.
-        """
-        records = await self._read(self._read_social_post_reach_tx, cycle_id, limit, op="read_social_post_reach")
-        self._log.debug("report_social_post_reach", cycle_id=cycle_id, count=len(records))
-        return records
-
-    @staticmethod
-    async def _read_social_post_reach_tx(
-        tx: AsyncManagedTransaction,
-        cycle_id: str,
-        limit: int,
-    ) -> list[dict]:  # type: ignore[type-arg]
-        """Transaction function for top posts by reader count."""
-        result = await tx.run(
-            """
-            MATCH (a:Agent)-[:READ_POST {cycle_id: $cycle_id}]->(p:Post)
-            WITH p, count(a) AS reader_count
-            MATCH (author:Agent {id: p.agent_id})
-            RETURN
-                p.post_id AS post_id,
-                author.name AS author_name,
-                author.bracket AS bracket,
-                p.signal AS signal,
-                p.round_num AS round_num,
-                p.content AS content,
-                reader_count
-            ORDER BY reader_count DESC
-            LIMIT $limit
-            """,
-            cycle_id=cycle_id,
-            limit=limit,
-        )
-        return [dict(record) async for record in result]
-
     async def read_latest_cycle_id(
         self,
         *,

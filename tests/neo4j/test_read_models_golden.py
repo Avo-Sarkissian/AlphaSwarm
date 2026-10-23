@@ -361,14 +361,6 @@ async def test_influence_leaders_report_influence_share(
     assert [r["influence_share"] for r in rows] == pytest.approx([count / active for _, count in HUB_CITATIONS[:10]])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T2.4: READ_POST is never written, so post reach is empty (fix: plan 06 deletes it)",
-)
-async def test_social_post_reach_has_rows(graph_reader: GraphStateManager, seeded_cycle: SeededCycle) -> None:
-    assert await graph_reader.read_social_post_reach(seeded_cycle.cycle_id) != []
-
-
 async def test_entity_impact_counts_final_round_only(
     graph_reader: GraphStateManager, seeded_cycle: SeededCycle
 ) -> None:

@@ -248,9 +248,6 @@ async def _run_report_generation(app_state: AppState, cycle_id: str) -> None:
             "entity_impact": lambda **kw: gm.read_entity_impact(
                 kw.get("cycle_id", cycle_id),
             ),
-            "social_post_reach": lambda **kw: gm.read_social_post_reach(
-                kw.get("cycle_id", cycle_id),
-            ),
         }
 
         # Phase 27 pre-seed: include shock_impact observation if a ShockEvent exists
