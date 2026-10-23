@@ -18,6 +18,7 @@ from alphaswarm.errors import (
     GovernorCrisisError,
     GraphError,
     InferenceConfigError,
+    InferenceConfigFileError,
     InferenceConfigIncompleteError,
     Neo4jQueryError,
     Neo4jUnavailableError,
@@ -35,6 +36,19 @@ def test_graph_family_shares_one_base() -> None:
     assert issubclass(RoundFailedError, AlphaSwarmError)
     assert issubclass(InferenceConfigError, AlphaSwarmError)
     assert issubclass(InferenceConfigIncompleteError, InferenceConfigError)
+
+
+def test_inference_config_file_error_is_a_domain_error_and_a_value_error() -> None:
+    # Domain errors share AlphaSwarmError; callers that catch an invalid config
+    # as ValueError keep catching it.
+    assert issubclass(InferenceConfigFileError, InferenceConfigError)
+    assert issubclass(InferenceConfigFileError, ValueError)
+    err = InferenceConfigFileError("/fictional/inference.json", "spend_cap extra_forbidden")
+    assert err.problems == "spend_cap extra_forbidden"
+    assert str(err) == "Invalid inference config at /fictional/inference.json: spend_cap extra_forbidden"
+    # Should one ever reach the UI classifier, it maps like any invalid file.
+    run_error = run_error_from_exception(err, round_num=None)
+    assert (run_error.code, run_error.message) == ("inference_config_invalid", INFERENCE_CONFIG_INVALID_MESSAGE)
 
 
 def test_existing_inference_errors_are_not_reparented() -> None:

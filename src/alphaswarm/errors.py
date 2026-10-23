@@ -3,7 +3,9 @@
 New domain errors derive from ``AlphaSwarmError``. The older inference errors
 (``InferenceError``, ``BudgetExceededError``, ``GovernorCrisisError``) keep
 their parents so existing ``except`` clauses behave exactly as before
-(docs/DECISIONS.md#adr-taskgroup-dispatch).
+(docs/DECISIONS.md#adr-taskgroup-dispatch). A domain error that callers also
+catch as a built-in type adds it as a second base (``InferenceConfigFileError``
+is also a ``ValueError``).
 """
 
 from __future__ import annotations
@@ -202,12 +204,12 @@ INFERENCE_CONFIG_INCOMPLETE_MESSAGE: Final = (
 )
 
 
-class InferenceConfigFileError(ValueError):
+class InferenceConfigFileError(InferenceConfigError, ValueError):
     """The stored inference config file fails the strict config models.
 
     ``problems`` lists each rejected key path and error type and never a value;
-    the message adds the file path. A ValueError, so every caller that treats an
-    invalid config as ValueError keeps doing so.
+    the message adds the file path. Also a ValueError, so every caller that
+    treats an invalid config as ValueError keeps doing so.
     """
 
     def __init__(self, path: object, problems: str) -> None:
