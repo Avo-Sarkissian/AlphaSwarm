@@ -115,14 +115,6 @@ class GovernorCrisisError(Exception):
         self.duration_seconds = duration_seconds
 
 
-class Neo4jConnectionError(Exception):
-    """Raised when Neo4j driver cannot connect or verify connectivity."""
-
-    def __init__(self, message: str, original_error: Exception | None = None) -> None:
-        super().__init__(message)
-        self.original_error = original_error
-
-
 class AlphaSwarmError(Exception):
     """Base class for AlphaSwarm domain errors."""
 

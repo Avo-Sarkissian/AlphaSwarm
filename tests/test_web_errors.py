@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from neo4j.exceptions import ServiceUnavailable
 from pydantic import BaseModel, Field
 
-from alphaswarm.errors import Neo4jConnectionError, Neo4jUnavailableError
+from alphaswarm.errors import Neo4jQueryError, Neo4jUnavailableError
 from alphaswarm.readiness import NEO4J_FIX
 from alphaswarm.web.errors import ApiError, error_body, install_error_handlers
 from alphaswarm.web.replay_manager import NoReplayActiveError
@@ -37,9 +37,9 @@ def _app() -> FastAPI:
     async def graph_down() -> None:
         raise Neo4jUnavailableError("refused at /Users/someone/x", op="read_cycle_status")
 
-    @app.get("/legacy-query-error")
-    async def legacy_query_error() -> None:
-        raise Neo4jConnectionError("syntax error at /Users/someone/x")
+    @app.get("/query-error")
+    async def query_error() -> None:
+        raise Neo4jQueryError("syntax error at /Users/someone/x", op="read_consensus_summary")
 
     @app.get("/driver-down")
     async def driver_down() -> None:
@@ -120,11 +120,10 @@ def test_http_exception_with_dict_detail_keeps_shape() -> None:
     assert r.json() == {"detail": {"error": "legacy_code", "message": "m"}}
 
 
-def test_query_error_wrapper_is_500_not_graph_unavailable() -> None:
-    # graph.py wraps server-side query errors (syntax, constraint) in
-    # Neo4jConnectionError; an outage arrives as DriverError instead. A query
-    # error is a bug, so it must reach the logged 500 path, not a 503.
-    r = TestClient(_app(), raise_server_exceptions=False).get("/legacy-query-error")
+def test_query_error_is_500_not_graph_unavailable() -> None:
+    # graph.py maps server-side query errors to Neo4jQueryError; a query error
+    # is a bug, so it reaches the logged 500 path, not a 503.
+    r = TestClient(_app(), raise_server_exceptions=False).get("/query-error")
     assert r.status_code == 500
     assert r.json()["detail"]["error"] == "internal_error"
     assert "/Users" not in r.text

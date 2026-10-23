@@ -22,7 +22,6 @@ from alphaswarm.simulation import OnRoundComplete, SimulationResult, run_simulat
 from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig
 from tests.engine.scenario import (
     SCENARIO_CYCLE_ID,
-    SCENARIO_ENTITY_NAMES,
     SCENARIO_MODIFIERS_JSON,
     SCENARIO_RUMOR,
     SCENARIO_SEED_JSON,
@@ -32,6 +31,7 @@ from tests.engine.scenario import (
 )
 from tests.inference.fakes import DecisionFn, ScriptedProvider, default_decision_script
 from tests.support.controllers import ImmediateController
+from tests.support.graph_fakes import SCENARIO_ENTITIES
 
 __all__ = ["SCENARIO_CYCLE_ID"]  # re-exported for fixture users; canonical home is scenario.py
 
@@ -136,7 +136,7 @@ def fake_graph() -> MagicMock:
 
     graph.write_decisions.side_effect = _write_decisions
     graph.write_posts.side_effect = _write_posts
-    graph.read_cycle_entities.return_value = list(SCENARIO_ENTITY_NAMES)
+    graph.read_cycle_entities.return_value = list(SCENARIO_ENTITIES)
     graph.compute_influence_edges.side_effect = _influence
     graph.write_shock_event.return_value = "shock-0001"
     return graph

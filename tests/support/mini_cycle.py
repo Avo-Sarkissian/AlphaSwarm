@@ -61,7 +61,7 @@ async def write_mini_cycle(
         SeedEvent(raw_rumor=MINI_RUMOR, entities=list(entities), overall_sentiment=0.3),
         num_rounds=num_rounds,
     )
-    entity_names = await gm.read_cycle_entities(cycle_id)
+    entity_names = [e.name for e in await gm.read_cycle_entities(cycle_id)]
     previous: dict[str, SignalType] = {}
     for round_num in sorted(rounds):
         if shock is not None and shock[0] == round_num:

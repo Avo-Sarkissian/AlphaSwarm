@@ -1072,7 +1072,7 @@ async def test_write_shock_event_wraps_driver_errors(mock_driver: MagicMock) -> 
 
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    with pytest.raises(Neo4jWriteError, match="Failed to write shock_event for cycle c1"):
+    with pytest.raises(Neo4jWriteError, match="write_shock_event"):
         await gsm.write_shock_event(
             cycle_id="c1",
             shock_text="anything",
@@ -1294,3 +1294,34 @@ async def test_ensure_schema_maps_driver_errors(mock_driver: MagicMock) -> None:
     with pytest.raises(Neo4jUnavailableError) as exc_info:
         await gsm.ensure_schema()
     assert exc_info.value.op == "ensure_schema"
+
+
+async def test_read_cycle_entities_returns_entity_refs(mock_driver: MagicMock) -> None:
+    from alphaswarm.episodes import EntityRef
+    from alphaswarm.graph import GraphStateManager
+
+    refs = [EntityRef("ZZZT Holdings", "company")]
+    mock_driver.session.return_value.execute_read = AsyncMock(return_value=refs)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    assert await gsm.read_cycle_entities("cycle-abc") == refs
+
+
+async def test_read_cycle_entities_tx_reads_name_and_type() -> None:
+    from alphaswarm.episodes import EntityRef
+    from alphaswarm.graph import GraphStateManager
+
+    result = MagicMock()
+    result.__aiter__.return_value = [
+        {"name": "QQQX Robotics", "type": "company"},
+        {"name": "Industrial Automation", "type": "sector"},
+    ]
+    tx = MagicMock()
+    tx.run = AsyncMock(return_value=result)
+
+    rows = await GraphStateManager._read_cycle_entities_tx(tx, "cycle-abc")
+    assert rows == [
+        EntityRef("QQQX Robotics", "company"),
+        EntityRef("Industrial Automation", "sector"),
+    ]
+    cypher = tx.run.await_args.args[0]
+    assert "(c:Cycle {cycle_id: $cycle_id})-[:MENTIONS]->(e:Entity)" in cypher

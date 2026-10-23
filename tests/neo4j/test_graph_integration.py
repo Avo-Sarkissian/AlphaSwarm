@@ -264,7 +264,7 @@ async def test_complete_reasoning_arc(
         await graph_manager_test.write_rationale_episodes(records)
 
         # Write narrative edges (REFERENCES Decision -> Entity)
-        entity_names = await graph_manager_test.read_cycle_entities(cycle_id)
+        entity_names = [e.name for e in await graph_manager_test.read_cycle_entities(cycle_id)]
         await graph_manager_test.write_narrative_edges(records, entity_names)
 
         # Update prev signal map for next round
@@ -345,7 +345,7 @@ async def test_references_edges_case_insensitive(
             cycle_id=cycle_id,
         )
     ]
-    entity_names = await graph_manager_test.read_cycle_entities(cycle_id)
+    entity_names = [e.name for e in await graph_manager_test.read_cycle_entities(cycle_id)]
     await graph_manager_test.write_rationale_episodes(records)
     await graph_manager_test.write_narrative_edges(records, entity_names)
 

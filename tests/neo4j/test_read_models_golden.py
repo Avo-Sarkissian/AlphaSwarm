@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from alphaswarm.config import DEFAULT_BRACKETS
-from alphaswarm.episodes import compute_flip_type
+from alphaswarm.episodes import EntityRef, compute_flip_type
 from alphaswarm.interview import _strip_json_instructions
 from alphaswarm.types import SeedEvent, SignalType
 from tests.support.golden import assert_golden
@@ -81,8 +81,8 @@ async def test_read_cycle_seed(graph_reader: GraphStateManager, seeded_cycle: Se
 
 
 async def test_read_cycle_entities(graph_reader: GraphStateManager, seeded_cycle: SeededCycle) -> None:
-    names = await graph_reader.read_cycle_entities(seeded_cycle.cycle_id)
-    assert sorted(names) == sorted(e.name for e in SEED_ENTITIES)
+    refs = await graph_reader.read_cycle_entities(seeded_cycle.cycle_id)
+    assert refs == sorted((EntityRef(e.name, e.type.value) for e in SEED_ENTITIES), key=lambda r: (r.name, r.type))
 
 
 async def test_read_influence_edges(graph_reader: GraphStateManager, seeded_cycle: SeededCycle) -> None:

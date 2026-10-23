@@ -1069,7 +1069,7 @@ async def run_simulation(
 
     # Phase 11: Initialize WriteBuffer and load entity names cache once (D-01, D-09)
     write_buffer = WriteBuffer(maxsize=200)
-    entity_names = await graph_manager.read_cycle_entities(cycle_id)
+    entity_names = [e.name for e in await graph_manager.read_cycle_entities(cycle_id)]
 
     # Phase 11: Push Round 1 episodes to WriteBuffer
     # (retroactive -- run_round1 already wrote decisions)

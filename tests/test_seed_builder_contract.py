@@ -7,7 +7,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from alphaswarm.episodes import compute_flip_type
+from alphaswarm.episodes import EntityRef, compute_flip_type
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.types import BracketType, SignalType
 from tests.support.seed_builder import (
@@ -27,7 +27,7 @@ CYCLE_ID = "00000000-0000-4000-8000-0000000000aa"
 def _fake_graph() -> GraphStateManager:
     gm = create_autospec(GraphStateManager, instance=True)
     gm.create_cycle_with_seed_event.return_value = CYCLE_ID
-    gm.read_cycle_entities.return_value = [e.name for e in SEED_ENTITIES]
+    gm.read_cycle_entities.return_value = [EntityRef(e.name, e.type.value) for e in SEED_ENTITIES]
     gm.write_decisions.side_effect = lambda decisions, cycle_id, round_num, **_: [
         f"d{round_num}-{i}" for i in range(len(decisions))
     ]
