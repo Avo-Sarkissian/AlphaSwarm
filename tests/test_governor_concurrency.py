@@ -22,7 +22,7 @@ from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.governor import GovernorState, ResourceGovernor, TokenPool
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.memory_monitor import MemoryReading, PressureLevel
-from alphaswarm.worker import WorkerPersonaConfig
+from alphaswarm.types import WorkerPersonaConfig
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.aio import eventually
 from tests.support.monitor import ScriptedMonitor, fast_governor_settings, reading

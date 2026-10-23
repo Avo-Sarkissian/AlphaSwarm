@@ -14,7 +14,7 @@ import pytest_asyncio
 
 from alphaswarm.config import AppSettings, GovernorSettings, generate_personas, load_bracket_configs
 from alphaswarm.governor import ResourceGovernor
-from alphaswarm.worker import WorkerPersonaConfig
+from alphaswarm.types import WorkerPersonaConfig
 from tests.support.markers import RUN_LIVE_OPTION, apply_marker_policy
 
 if TYPE_CHECKING:

@@ -18,12 +18,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from alphaswarm.errors import InferenceConfigFileError
-from alphaswarm.types import AgentPersona, BracketConfig, BracketType
+from alphaswarm.types import AgentPersona, BracketConfig, BracketType, WorkerPersonaConfig
 
 if TYPE_CHECKING:
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.types import ParsedModifiersResult, SeedEvent
-    from alphaswarm.worker import WorkerPersonaConfig
 
 logger = structlog.get_logger(component="config")
 
@@ -1278,8 +1277,6 @@ def persona_to_worker_config(persona: AgentPersona) -> WorkerPersonaConfig:
     model and the hot-path TypedDict used by agent_worker.
     Addresses review concern: WorkerPersonaConfig conversion boundary.
     """
-    from alphaswarm.worker import WorkerPersonaConfig
-
     return WorkerPersonaConfig(
         agent_id=persona.id,
         bracket=persona.bracket.value,

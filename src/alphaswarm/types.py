@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from enum import Enum
-from typing import Literal
+from typing import Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -66,6 +66,22 @@ class AgentPersona(BaseModel, frozen=True):
     temperature: float
     system_prompt: str
     influence_weight_base: float
+
+
+class WorkerPersonaConfig(TypedDict):
+    """Lightweight runtime persona config for hot-path agent inference.
+
+    Derived from the frozen AgentPersona at dispatch time via
+    persona_to_worker_config(). A TypedDict (not a pydantic model) keeps the
+    100-call inference hot path cheap.
+    """
+
+    agent_id: str
+    bracket: str  # BracketType.value string
+    influence_weight: float
+    temperature: float
+    system_prompt: str
+    risk_profile: str
 
 
 class SignalType(str, Enum):

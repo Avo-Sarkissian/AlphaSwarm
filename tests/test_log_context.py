@@ -14,7 +14,7 @@ import alphaswarm.web.routes.report as report_module
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.config import GovernorSettings
 from alphaswarm.inference.types import InferenceResult, ProviderRole
-from alphaswarm.worker import WorkerPersonaConfig
+from alphaswarm.types import WorkerPersonaConfig
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.controllers import ImmediateController
 from tests.support.web_app import CYCLE_A, route_test_settings

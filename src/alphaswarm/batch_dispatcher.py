@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.state import StateStore
-    from alphaswarm.worker import WorkerPersonaConfig
+    from alphaswarm.types import WorkerPersonaConfig
 
 log = structlog.get_logger(component="batch_dispatcher")
 

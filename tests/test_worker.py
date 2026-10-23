@@ -7,7 +7,7 @@ import pytest
 from alphaswarm.config import GovernorSettings
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
-from alphaswarm.types import AgentDecision, SignalType
+from alphaswarm.types import AgentDecision, SignalType, WorkerPersonaConfig
 from alphaswarm.worker import (
     DECISION_JSON_SCHEMA,
     MARKET_CONTEXT_GUARD,
@@ -16,7 +16,6 @@ from alphaswarm.worker import (
     UNTRUSTED_DATA_CLOSE,
     UNTRUSTED_DATA_OPEN,
     AgentWorker,
-    WorkerPersonaConfig,
     agent_worker,
 )
 from tests.inference.fakes import FakeInferenceProvider

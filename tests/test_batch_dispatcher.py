@@ -17,8 +17,7 @@ from alphaswarm.errors import (
 )
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
-from alphaswarm.types import AgentDecision, SignalType
-from alphaswarm.worker import WorkerPersonaConfig
+from alphaswarm.types import AgentDecision, SignalType, WorkerPersonaConfig
 from tests.inference.fakes import FakeInferenceProvider
 
 # ---------------------------------------------------------------------------
