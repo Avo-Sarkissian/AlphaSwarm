@@ -225,3 +225,20 @@ def test_non_boolean_flag_is_422(tmp_path: Path) -> None:
     assert r.status_code == 422
     assert r.json()["detail"]["error"] == "validation_error"
     assert _saved(app).allow_cloud_advisory is True
+
+
+def test_zero_limits_through_the_api_are_422(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    with TestClient(app) as client:
+        r = client.put("/api/settings", json={"limits": {"anthropic": {"requests_per_min": 0}}})
+    assert r.status_code == 422
+    assert r.json()["detail"]["error"] == "validation_error"
+
+
+def test_negative_spend_cap_through_the_api_is_422(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    with TestClient(app) as client:
+        r = client.put("/api/settings", json={"spend_cap_usd": "-1"})
+    assert r.status_code == 422
+    assert r.json()["detail"]["error"] == "validation_error"
+    assert _saved(app).spend_cap_usd == Decimal("3")

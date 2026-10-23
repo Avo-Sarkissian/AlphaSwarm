@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 import structlog
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from alphaswarm.types import AgentPersona, BracketConfig, BracketType
@@ -189,6 +189,8 @@ class ProviderType(StrEnum):
 class RoleConfig(BaseModel):
     """Per-role inference backend configuration."""
 
+    model_config = ConfigDict(extra="forbid")
+
     provider: ProviderType
     model: str
     base_url: str | None = None
@@ -198,9 +200,13 @@ class RoleConfig(BaseModel):
 class ProviderLimits(BaseModel):
     """Rate and concurrency limits for a provider backend."""
 
-    requests_per_min: int | None = None
-    tokens_per_min: int | None = None
-    max_in_flight: int = 24  # concurrency cap for the cloud path
+    # extra="forbid" turns a typo into an error instead of a silent default; the
+    # lower bounds stop a zero from dividing by zero or blocking forever.
+    model_config = ConfigDict(extra="forbid")
+
+    requests_per_min: int | None = Field(default=None, ge=1)
+    tokens_per_min: int | None = Field(default=None, ge=1)
+    max_in_flight: int = Field(default=24, ge=1)  # concurrency cap for the cloud path
     # HTTP retry budget for 429/5xx on the OpenAI-compatible cloud path. The
     # constructor default is 3; free tiers (e.g. NVIDIA NIM) return 429 with no
     # Retry-After and a bursty leaky-bucket refill, so a higher value lets a
@@ -212,6 +218,8 @@ class ProviderLimits(BaseModel):
 
 class ModelPrice(BaseModel):
     """USD pricing for a specific model (cost-accounting / budget enforcement)."""
+
+    model_config = ConfigDict(extra="forbid")
 
     input_per_mtok: Decimal  # USD per 1M input tokens
     output_per_mtok: Decimal  # USD per 1M output tokens
@@ -225,12 +233,17 @@ class InferenceConfig(BaseModel):
 
     Note: spec originally mentioned TOML; JSON was chosen for robust Decimal
     round-trip support via pydantic v2 without an extra dependency.
+
+    Strict: an unknown key (a typo such as ``spend_cap``) is an error rather than
+    a silently ignored setting (docs/DECISIONS.md#adr-local-first-inference).
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     orchestrator: RoleConfig
     worker: RoleConfig
     limits: dict[ProviderType, ProviderLimits] = Field(default_factory=dict)
-    spend_cap_usd: Decimal | None = None
+    spend_cap_usd: Decimal | None = Field(default=None, ge=0)
     pricing_overrides: dict[str, ModelPrice] = Field(default_factory=dict)
     # Portfolio data goes to a cloud orchestrator only with this explicit
     # opt-in; off by default (docs/DECISIONS.md#adr-advisory-pipeline).
@@ -342,7 +355,10 @@ def load_inference_config(
     """Load InferenceConfig from *path* (default: the anchored settings path).
 
     Falls back to local defaults when the file does not exist; raises ValueError
-    with a clear message when it exists but is invalid.
+    when it exists but is invalid. The message names each rejected key path and
+    error type, never a value: the file holds API keys, and one stored under a
+    misspelled key would otherwise be echoed (the chain is cut with ``from None``
+    for the same reason). The file is never rewritten here.
     """
     target = (
         path
@@ -356,8 +372,18 @@ def load_inference_config(
     raw = target.read_text(encoding="utf-8")
     try:
         return InferenceConfig.model_validate_json(raw)
-    except Exception as exc:
-        raise ValueError(f"Failed to parse inference config at {target}: {exc}") from exc
+    except ValidationError as exc:
+        problems = config_error_summary(exc)
+    raise ValueError(f"Invalid inference config at {target}: {problems}") from None
+
+
+def config_error_summary(exc: ValidationError) -> str:
+    """``"<dotted key path> <error type>"`` per error, joined by ``"; "``; never input values."""
+    parts = []
+    for err in exc.errors(include_input=False, include_url=False):
+        loc = ".".join(str(part) for part in err["loc"]) or "(root)"
+        parts.append(f"{loc} {err['type']}")
+    return "; ".join(parts)
 
 
 def save_inference_config(
@@ -488,6 +514,12 @@ class AppSettings(BaseSettings):
     app_name: str = "AlphaSwarm"
     debug: bool = False
     log_level: str = Field(default="INFO", pattern=r"^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _upper_log_level(cls, value: object) -> object:
+        """Accept any case (ALPHASWARM_LOG_LEVEL=info); the pattern then checks the name."""
+        return value.upper() if isinstance(value, str) else value
 
     # Consensus cascade depth. 3 = R1 prior + two peer rounds (legacy default,
     # full UI compat). 2 = R1 prior + one peer round — the A/B candidate that
