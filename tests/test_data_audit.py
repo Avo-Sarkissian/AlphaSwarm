@@ -123,3 +123,10 @@ def test_data_audit_empty_initially() -> None:
     store = StateStore()
     snap = store.snapshot()
     assert snap.data_source_audit == ()
+
+
+def test_data_audit_buffer_clear_empties_it() -> None:
+    buf = DataSourceAuditBuffer(max_entries=5)
+    buf.record(source="rss", query="ZZZT Holdings", result="ok")
+    buf.clear()
+    assert (buf.snapshot(), len(buf)) == ((), 0)

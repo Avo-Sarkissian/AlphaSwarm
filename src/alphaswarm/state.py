@@ -7,6 +7,7 @@ broadcaster reads an immutable StateSnapshot every 200 ms.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import time
 from collections import deque
 from collections.abc import Sequence
@@ -20,6 +21,11 @@ from alphaswarm.types import SignalType, SimulationPhase
 # Live TPS window (docs/DECISIONS.md#p10-d-05): tokens completed in the last
 # TPS_WINDOW_SECONDS of wall-clock time, summed over every parallel call.
 TPS_WINDOW_SECONDS: Final = 10.0
+
+# One process-wide counter: every StateStore/ReplayStore mutation takes the next
+# value, so a version is never reused, not even by a newer store; the
+# broadcaster keys its frames on it (docs/DECISIONS.md#adr-ws-broadcaster).
+_VERSIONS: Final = itertools.count(1)
 
 
 @dataclass(frozen=True)
@@ -209,6 +215,15 @@ class StateStore:
         self._cycle_id: str | None = None
         self._edges_version: int = 0
         self._rationale_seq: int = 0
+        self._version = next(_VERSIONS)
+
+    @property
+    def version(self) -> int:
+        """Grows on every mutation; never reused by another store."""
+        return self._version
+
+    def _bump(self) -> None:
+        self._version = next(_VERSIONS)
 
     async def update_agent_state(
         self,
@@ -219,6 +234,7 @@ class StateStore:
         """Write a single agent's decision. Called per-agent, not per-round (D-02)."""
         async with self._lock:
             self._agent_states[agent_id] = AgentState(signal=signal, confidence=confidence)
+            self._bump()
 
     async def begin_run(self, agent_ids: Sequence[str]) -> None:
         """Install the canonical roster for a new run, in config order, all pending.
@@ -234,6 +250,7 @@ class StateStore:
             self._agent_states = {
                 agent_id: AgentState(signal=None, confidence=0.0) for agent_id in dict.fromkeys(agent_ids)
             }
+            self._bump()
 
     async def set_phase(self, phase: SimulationPhase) -> None:
         """Update simulation phase. Resets agent signals to "thinking" on round transitions.
@@ -253,12 +270,16 @@ class StateStore:
             # _final_elapsed from run 1 freezes the elapsed clock for every
             # subsequent run, TPS averages across runs, and the rationale feed
             # / bracket bars show stale run-1 data during run 2's first round.
+            # Run-scoped: elapsed clock, TPS window, bracket summaries,
+            # rationale window, cycle id, edges version, applied shocks, agent
+            # signals, the data-source audit log.
             if phase == SimulationPhase.SEEDING:
                 self._start_time = time.monotonic()
                 self._final_elapsed = None
                 self._token_window.clear()
                 self._bracket_summaries = ()
                 self._rationale_window.clear()
+                self._data_source_audit.clear()
                 self._cycle_id = None
                 self._edges_version = 0
                 self._applied_shocks.clear()
@@ -283,20 +304,24 @@ class StateStore:
             # Freeze elapsed timer on COMPLETE
             if phase == SimulationPhase.COMPLETE and self._start_time is not None:
                 self._final_elapsed = time.monotonic() - self._start_time
+            self._bump()
 
     async def set_round(self, round_num: int) -> None:
         """Update the current round number."""
         async with self._lock:
             self._round_num = round_num
+            self._bump()
 
     async def set_cycle(self, cycle_id: str | None) -> None:
         """Record the cycle being simulated (called right after inject_seed)."""
         async with self._lock:
             self._cycle_id = cycle_id
+            self._bump()
 
     def bump_edges_version(self) -> None:
         """Count one finished influence-edge step for the current cycle."""
         self._edges_version += 1
+        self._bump()
 
     async def push_rationale(self, entry: RationaleEntry) -> None:
         """Append a rationale entry, stamped with ``seq`` and ``ts``, to the window (maxlen=50).
@@ -314,6 +339,7 @@ class StateStore:
         """
         self._rationale_seq += 1
         self._rationale_window.append(replace(entry, seq=self._rationale_seq, ts=time.time()))
+        self._bump()
 
     def record_tokens(self, completion_tokens: int, *, now: float | None = None) -> None:
         """Count one finished call's completion tokens for the live TPS tile.
@@ -327,6 +353,7 @@ class StateStore:
         stamp = time.monotonic() if now is None else now
         self._token_window.append((stamp, completion_tokens))
         self._prune_token_window(stamp)
+        self._bump()
 
     def _prune_token_window(self, now: float) -> None:
         cutoff = now - TPS_WINDOW_SECONDS
@@ -340,11 +367,13 @@ class StateStore:
         """
         async with self._lock:
             self._bracket_summaries = summaries
+            self._bump()
 
     async def set_last_error(self, err: RunError | None) -> None:
         """Record (or clear, with None) the error that ended the last run."""
         async with self._lock:
             self._last_error = err
+            self._bump()
 
     @property
     def last_error(self) -> RunError | None:
@@ -407,10 +436,12 @@ class StateStore:
     def update_governor_metrics(self, metrics: GovernorMetrics) -> None:
         """Store latest governor metrics."""
         self._latest_governor_metrics = metrics
+        self._bump()
 
     def set_job_status(self, kind: JobKind, status: JobStatus) -> None:
         """Record the advisory or report job status (sync: called from done-callbacks)."""
         self._jobs[kind] = status
+        self._bump()
 
     def job_statuses(self) -> JobsSnapshot:
         """Return both job statuses."""
@@ -423,6 +454,7 @@ class StateStore:
         assumes 3 rounds.
         """
         self._num_rounds = n
+        self._bump()
 
     def set_pending_shock(self, text: str | None) -> None:
         """Record the shock queued for the next round, or None when none is queued.
@@ -431,10 +463,12 @@ class StateStore:
         the queue's owner last passed here.
         """
         self._pending_shock = text
+        self._bump()
 
     def record_applied_shock(self, text: str, round_num: int) -> None:
         """Record a shock that was applied before *round_num*."""
         self._applied_shocks.append(AppliedShock(text=text, round_num=round_num))
+        self._bump()
 
     def shock_window_open(self) -> bool:
         """True while a queued shock can still reach a later round.
@@ -472,6 +506,7 @@ class StateStore:
             result=result,
             used=used,
         )
+        self._bump()
 
     def peek_data_source_audit(self) -> tuple[DataSourceAuditEntry, ...]:
         """Return the full audit buffer (peek, no drain)."""
@@ -499,6 +534,15 @@ class ReplayStore:
         self._current_round: int = 0
         self._bracket_summaries: tuple[BracketSummary, ...] = ()
         self._rationale_entries: tuple[RationaleEntry, ...] = ()
+        self._version = next(_VERSIONS)
+
+    @property
+    def version(self) -> int:
+        """Grows on every setter call; never reused by another store."""
+        return self._version
+
+    def _bump(self) -> None:
+        self._version = next(_VERSIONS)
 
     @property
     def cycle_id(self) -> str:
@@ -508,14 +552,17 @@ class ReplayStore:
     def set_round(self, round_num: int) -> None:
         """Set the active round for snapshot filtering."""
         self._current_round = round_num
+        self._bump()
 
     def set_bracket_summaries(self, summaries: tuple[BracketSummary, ...]) -> None:
         """Replace bracket summaries (called once per round transition)."""
         self._bracket_summaries = summaries
+        self._bump()
 
     def set_rationale_entries(self, entries: tuple[RationaleEntry, ...]) -> None:
         """Replace rationale entries (called once per round transition, no drain)."""
         self._rationale_entries = entries
+        self._bump()
 
     def snapshot(self) -> StateSnapshot:
         """Return immutable snapshot for the active round.

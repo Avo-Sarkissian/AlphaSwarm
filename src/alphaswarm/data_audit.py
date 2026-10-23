@@ -102,5 +102,9 @@ class DataSourceAuditBuffer:
         """Return the full buffer as an immutable tuple (oldest → newest)."""
         return tuple(self._buf)
 
+    def clear(self) -> None:
+        """Drop every entry; a new run starts with an empty audit log."""
+        self._buf.clear()
+
     def __len__(self) -> int:
         return len(self._buf)
