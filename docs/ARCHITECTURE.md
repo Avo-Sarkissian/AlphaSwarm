@@ -54,7 +54,8 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `ollama_models.py`: model load and unload.
   - `inference/`: provider protocol and types; the `ollama_provider`, `openai_provider`, and `anthropic_provider` adapters; `schema` (structured-output translation per vendor); `structured` (`chat_structured`: every orchestrator reply, decoded against its output model with tier-2 extraction and one validated retry); `budget`; `factory` (`build_providers`, `build_controller`, `inference_mode`).
 - **Persistence**
-  - `graph.py`: GraphStateManager. It covers schema, writes, influence edges, cycle status, and the report, replay, and interview queries.
+  - `graph/`: the GraphStateManager facade (`manager.py`: driver, `_read`/`_write`, error mapping, one-line delegations) over `schema_writes.py` (schema, writes, influence edges, cycle status), `analytics.py` (report, shock and influence-edge reads), `replay_interview.py` (replay, cycle lookups, agent decisions, interview rows) and `rows.py` (typed rows).
+  - `influence.py`: pure influence weights and shock aggregation.
   - `fsutil.py`: `atomic_write_text`, the all-or-nothing writer for report and advisory files.
 - **Ingestion**
   - `ingestion/`: MarketDataProvider and NewsProvider protocols with fakes, the yfinance and RSS providers, and frozen pydantic slices. Providers never raise.
@@ -139,7 +140,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 ```
 
 Signals are stored lowercase (`SignalType.value`). Schema statements (constraints
-and indexes) live in `graph.py` `SCHEMA_STATEMENTS` and are applied by
+and indexes) live in `graph/schema_writes.py` `SCHEMA_STATEMENTS` and are applied by
 `ensure_schema()`. That function also seeds the Agent nodes, drops the retired indexes
 (it deletes no data: the old Agent narrative property stays until the owner runs
 `remove_legacy_properties()` after a backup, `docs/RUNBOOK.md` §3), and skips the `decision_id_unique` constraint while

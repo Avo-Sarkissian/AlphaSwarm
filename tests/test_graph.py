@@ -10,6 +10,7 @@ import pytest
 
 from alphaswarm.errors import Neo4jWriteError
 from alphaswarm.graph import replay_interview as graph_replay_interview
+from alphaswarm.graph import schema_writes as graph_schema_writes
 from alphaswarm.types import (
     AgentDecision,
     AgentPersona,
@@ -76,7 +77,8 @@ def test_init_stores_driver_and_database(mock_driver: MagicMock) -> None:
 
 async def test_ensure_schema_runs_all_statements(mock_driver: MagicMock) -> None:
     """ensure_schema runs all SCHEMA_STATEMENTS then calls seed_agents."""
-    from alphaswarm.graph.manager import SCHEMA_STATEMENTS, GraphStateManager
+    from alphaswarm.graph.manager import GraphStateManager
+    from alphaswarm.graph.schema_writes import SCHEMA_STATEMENTS
 
     session = mock_driver.session.return_value
     session.execute_read.return_value = 0  # no duplicate decision ids
@@ -148,7 +150,7 @@ def sample_seed_event_for_graph() -> SeedEvent:
 
 def test_schema_statements_includes_entity_constraint() -> None:
     """SCHEMA_STATEMENTS contains Entity name+type uniqueness constraint."""
-    from alphaswarm.graph.manager import SCHEMA_STATEMENTS
+    from alphaswarm.graph.schema_writes import SCHEMA_STATEMENTS
 
     entity_constraints = [s for s in SCHEMA_STATEMENTS if "entity_name_type_unique" in s]
     assert len(entity_constraints) == 1, "Expected exactly one entity uniqueness constraint"
@@ -207,11 +209,10 @@ async def test_create_cycle_with_seed_event_wraps_neo4j_error(
 
 async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
     """Transaction function skips Entity UNWIND when entities list is empty."""
-    from alphaswarm.graph import GraphStateManager
 
     tx = AsyncMock()
 
-    await GraphStateManager._create_cycle_with_entities_tx(
+    await graph_schema_writes._create_cycle_with_entities_tx(
         tx,
         "test-cycle-id",
         "test rumor",
@@ -287,10 +288,9 @@ async def test_compute_influence_edges_zero_citations(mock_driver: MagicMock) ->
 
 async def test_write_influence_edges_tx_empty_edges() -> None:
     """_write_influence_edges_tx with empty edges list does not call tx.run."""
-    from alphaswarm.graph import GraphStateManager
 
     tx = AsyncMock()
-    await GraphStateManager._write_influence_edges_tx(tx, [], "cycle-1", 1)
+    await graph_schema_writes._write_influence_edges_tx(tx, [], "cycle-1", 1)
     tx.run.assert_not_awaited()
 
 
@@ -311,7 +311,7 @@ async def test_ensure_schema_never_runs_legacy_property_cleanup(mock_driver: Mag
         await gsm.ensure_schema()
 
     write_fns = [c.args[0] for c in session.execute_write.await_args_list]
-    assert GraphStateManager._legacy_property_cleanup_tx not in write_fns
+    assert graph_schema_writes._legacy_property_cleanup_tx not in write_fns
 
 
 async def test_remove_legacy_properties_runs_the_cleanup_write(mock_driver: MagicMock) -> None:
@@ -323,14 +323,14 @@ async def test_remove_legacy_properties_runs_the_cleanup_write(mock_driver: Magi
     await gsm.remove_legacy_properties()
 
     write_fns = [c.args[0] for c in session.execute_write.await_args_list]
-    assert write_fns == [GraphStateManager._legacy_property_cleanup_tx]
+    assert write_fns == [graph_schema_writes._legacy_property_cleanup_tx]
 
 
 async def test_legacy_property_cleanup_tx_runs_each_statement() -> None:
-    from alphaswarm.graph.manager import LEGACY_PROPERTY_CLEANUP, GraphStateManager
+    from alphaswarm.graph.schema_writes import LEGACY_PROPERTY_CLEANUP
 
     tx = AsyncMock()
-    await GraphStateManager._legacy_property_cleanup_tx(tx)
+    await graph_schema_writes._legacy_property_cleanup_tx(tx)
 
     assert [c.args[0] for c in tx.run.await_args_list] == list(LEGACY_PROPERTY_CLEANUP)
     assert any("REMOVE a.decision_narrative" in stmt for stmt in LEGACY_PROPERTY_CLEANUP)
@@ -538,7 +538,7 @@ async def test_write_shock_event_wraps_driver_errors(mock_driver: MagicMock) -> 
 
 def test_schema_includes_shock_id_unique_constraint() -> None:
     """SCHEMA_STATEMENTS contains a uniqueness constraint on (:ShockEvent).shock_id."""
-    from alphaswarm.graph.manager import SCHEMA_STATEMENTS
+    from alphaswarm.graph.schema_writes import SCHEMA_STATEMENTS
 
     pattern = r"CREATE CONSTRAINT shock_id_unique.*FOR \(se:ShockEvent\).*REQUIRE se\.shock_id IS UNIQUE"
     matches = [s for s in SCHEMA_STATEMENTS if re.search(pattern, s)]
@@ -742,17 +742,16 @@ async def test_read_cycle_entities_tx_reads_name_and_type() -> None:
 
 
 def test_schema_has_cycle_status_index() -> None:
-    from alphaswarm.graph.manager import SCHEMA_STATEMENTS
+    from alphaswarm.graph.schema_writes import SCHEMA_STATEMENTS
 
     assert "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)" in SCHEMA_STATEMENTS
 
 
 async def test_new_cycle_is_created_running() -> None:
-    from alphaswarm.graph import GraphStateManager
 
     tx = MagicMock()
     tx.run = AsyncMock()
-    await GraphStateManager._create_cycle_with_entities_tx(tx, "c1", "rumor", 0.4, [], 3, None, None)
+    await graph_schema_writes._create_cycle_with_entities_tx(tx, "c1", "rumor", 0.4, [], 3, None, None)
     assert "status: 'running'" in tx.run.await_args_list[0].args[0]
 
 
@@ -835,19 +834,17 @@ _DECISION_ROW = {
 
 
 async def test_persist_round_tx_raises_on_decision_shortfall() -> None:
-    from alphaswarm.graph import GraphStateManager
 
     tx = MagicMock()
     tx.run = AsyncMock(return_value=_single({"created": 1}))
     second = {**_DECISION_ROW, "decision_id": "d2", "agent_id": "ghost_99"}
     with pytest.raises(Neo4jWriteError) as exc_info:
-        await GraphStateManager._persist_round_tx(tx, "c1", 1, [_DECISION_ROW, second], [], [], [])
+        await graph_schema_writes._persist_round_tx(tx, "c1", 1, [_DECISION_ROW, second], [], [], [])
     assert exc_info.value.op == "persist_round"
     assert tx.run.await_count == 1
 
 
 async def test_persist_round_tx_raises_on_episode_shortfall() -> None:
-    from alphaswarm.graph import GraphStateManager
 
     tx = MagicMock()
     tx.run = AsyncMock(side_effect=[_single({"created": 1}), _single({"n": 0})])
@@ -860,12 +857,12 @@ async def test_persist_round_tx_raises_on_episode_shortfall() -> None:
         "cycle_id": "c1",
     }
     with pytest.raises(Neo4jWriteError) as exc_info:
-        await GraphStateManager._persist_round_tx(tx, "c1", 1, [_DECISION_ROW], [], [episode], [])
+        await graph_schema_writes._persist_round_tx(tx, "c1", 1, [_DECISION_ROW], [], [episode], [])
     assert exc_info.value.op == "persist_round"
 
 
 async def test_persist_round_tx_counts_dropped_citations() -> None:
-    from alphaswarm.graph import GraphStateManager, PersistRoundResult
+    from alphaswarm.graph import PersistRoundResult
 
     tx = MagicMock()
     tx.run = AsyncMock(
@@ -876,7 +873,7 @@ async def test_persist_round_tx_counts_dropped_citations() -> None:
             _single({"n": 2}),
         ]
     )
-    summary, dropped = await GraphStateManager._persist_round_tx(
+    summary, dropped = await graph_schema_writes._persist_round_tx(
         tx,
         "c1",
         2,
@@ -998,8 +995,8 @@ def test_decode_modifiers_drops_bad_json_and_unknown_brackets(
     raw: object,
     expected: dict[BracketType, str] | None,
 ) -> None:
-    from alphaswarm.graph.manager import _encode_modifiers
     from alphaswarm.graph.replay_interview import _decode_modifiers
+    from alphaswarm.graph.schema_writes import _encode_modifiers
 
     assert _decode_modifiers(raw) == expected
     modifiers = {BracketType.QUANTS: "a", BracketType.DEGENS: "b"}
@@ -1013,7 +1010,7 @@ def test_decode_modifiers_drops_bad_json_and_unknown_brackets(
 
 def test_schema_drops_run_before_the_decision_id_constraint() -> None:
     """A uniqueness constraint cannot coexist with the legacy plain index."""
-    from alphaswarm.graph.manager import SCHEMA_STATEMENTS
+    from alphaswarm.graph.schema_writes import SCHEMA_STATEMENTS
 
     drop = SCHEMA_STATEMENTS.index("DROP INDEX decision_id_idx IF EXISTS")
     create = next(i for i, s in enumerate(SCHEMA_STATEMENTS) if "decision_id_unique" in s)
@@ -1023,7 +1020,7 @@ def test_schema_drops_run_before_the_decision_id_constraint() -> None:
 
 def test_schema_statements_keep_the_plain_index_while_duplicates_exist() -> None:
     """Duplicate decision ids swap the constraint for the plain index; nothing else changes."""
-    from alphaswarm.graph.manager import SCHEMA_STATEMENTS, schema_statements
+    from alphaswarm.graph.schema_writes import SCHEMA_STATEMENTS, schema_statements
 
     assert schema_statements(0) == SCHEMA_STATEMENTS
     guarded = schema_statements(3)
@@ -1037,35 +1034,36 @@ def test_schema_statements_keep_the_plain_index_while_duplicates_exist() -> None
 
 async def test_ensure_schema_skips_the_constraint_over_duplicate_decision_ids(mock_driver: MagicMock) -> None:
     """Existing duplicates never fail startup: warn with the count, keep the plain index."""
-    from alphaswarm.graph.manager import GraphStateManager, schema_statements
+    from alphaswarm.graph.manager import GraphStateManager
+    from alphaswarm.graph.schema_writes import schema_statements
 
     session = mock_driver.session.return_value
     session.execute_read.return_value = 2
     gsm = GraphStateManager(driver=mock_driver, personas=[])
-    gsm._log = MagicMock()
 
-    with patch.object(gsm, "seed_agents", new_callable=AsyncMock):
+    with (
+        patch.object(gsm, "seed_agents", new_callable=AsyncMock),
+        patch.object(graph_schema_writes, "log") as log,
+    ):
         await gsm.ensure_schema()
 
     ran = [c.args[0] for c in session.run.await_args_list]
     assert ran == schema_statements(2)
-    gsm._log.warning.assert_called_once_with("decision_id_duplicates_found", count=2)
+    log.warning.assert_called_once_with("decision_id_duplicates_found", count=2)
 
 
 async def test_decision_id_duplicate_count_skips_the_scan_once_the_constraint_exists() -> None:
-    from alphaswarm.graph import GraphStateManager
 
     present = MagicMock()
     present.single = AsyncMock(return_value={"n": 1})
     tx = MagicMock()
     tx.run = AsyncMock(return_value=present)
 
-    assert await GraphStateManager._count_decision_id_duplicates_tx(tx) == 0
+    assert await graph_schema_writes._count_decision_id_duplicates_tx(tx) == 0
     tx.run.assert_awaited_once()
 
 
 async def test_decision_id_duplicate_count_scans_while_the_constraint_is_absent() -> None:
-    from alphaswarm.graph import GraphStateManager
 
     absent = MagicMock()
     absent.single = AsyncMock(return_value={"n": 0})
@@ -1074,5 +1072,5 @@ async def test_decision_id_duplicate_count_scans_while_the_constraint_is_absent(
     tx = MagicMock()
     tx.run = AsyncMock(side_effect=[absent, dupes])
 
-    assert await GraphStateManager._count_decision_id_duplicates_tx(tx) == 4
+    assert await graph_schema_writes._count_decision_id_duplicates_tx(tx) == 4
     assert "count(*) AS duplicate_ids" in tx.run.await_args_list[1].args[0]

@@ -224,6 +224,16 @@ DELEGATES: dict[str, str] = {
     "read_full_cycle_signals": "replay_interview",
     "read_latest_cycle_id": "replay_interview",
     "read_rationale_entries_for_round": "replay_interview",
+    # graph/schema_writes.py
+    "compute_influence_edges": "schema_writes",
+    "create_cycle_with_seed_event": "schema_writes",
+    "persist_round": "schema_writes",
+    "remove_legacy_properties": "schema_writes",
+    "seed_agents": "schema_writes",
+    "set_cycle_status": "schema_writes",
+    "write_cycle_metrics": "schema_writes",
+    "write_decision_narrative": "schema_writes",
+    "write_shock_event": "schema_writes",
 }
 
 
@@ -245,3 +255,31 @@ def test_graph_does_not_assemble_interviews() -> None:
         text = path.read_text(encoding="utf-8")
         assert "alphaswarm.interview" not in text, path
         assert "generate_personas" not in text, path
+
+
+def test_persist_round_takes_typed_episodes() -> None:
+    from alphaswarm.graph import schema_writes
+
+    for fn in (GraphStateManager.persist_round, schema_writes.persist_round):
+        params = inspect.signature(fn).parameters
+        assert params["episodes"].annotation == "Sequence[EpisodeRecord]", fn
+        assert params["entity_matches"].annotation == "Sequence[EntityMatch]", fn
+
+
+def test_schema_statements_live_in_schema_writes() -> None:
+    from alphaswarm.graph import manager, schema_writes
+
+    assert schema_writes.SCHEMA_STATEMENTS
+    assert all("IF NOT EXISTS" in s or "IF EXISTS" in s for s in schema_writes.SCHEMA_STATEMENTS)
+    assert not hasattr(manager, "SCHEMA_STATEMENTS")
+
+
+def test_ensure_schema_never_runs_the_legacy_cleanup() -> None:
+    """ensure_schema removes no data; the cleanup is the explicit remove_legacy_properties."""
+    from alphaswarm.graph import schema_writes
+
+    sources = inspect.getsource(GraphStateManager.ensure_schema) + inspect.getsource(
+        schema_writes.apply_data_maintenance
+    )
+    assert "legacy_property_cleanup" not in sources
+    assert "LEGACY_PROPERTY_CLEANUP" not in sources

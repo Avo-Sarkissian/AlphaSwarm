@@ -22,6 +22,7 @@ __all__ = [
     "BracketNarrativeRow",
     "BracketPivotRow",
     "BracketRoundRow",
+    "CitationPairRow",
     "CompletedCycleRow",
     "ConsensusSummaryRow",
     "CycleSignalRow",
@@ -208,6 +209,13 @@ class RationaleRoundRow(TypedDict):
     signal: str
     rationale: str
     round_num: int
+
+
+class CitationPairRow(TypedDict):
+    """A distinct (citing, cited) pair; graph-internal."""
+
+    source_id: str  # citing agent
+    target_id: str  # cited agent
 
 
 class CycleSignalRow(TypedDict):
