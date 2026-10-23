@@ -117,8 +117,9 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
   MATCH (c:Cycle) RETURN c.cycle_id, c.created_at, c.num_rounds, c.metrics_recorded_at ORDER BY c.created_at DESC LIMIT 10;
   MATCH (c:Cycle {cycle_id:$id}) RETURN c;   // run metrics: durations, flips, parse errors, final distribution
   ```
-- Compare runs: `uv run python scripts/compare_cycles.py --limit 5`.
-  It builds `AppSettings()` (`scripts/compare_cycles.py:44`), which reads the
+- Compare runs: `uv run python scripts/compare_cycles.py --limit 5`. It lists
+  complete cycles only, by the same status rule as the replay picker.
+  It builds `AppSettings()` (`scripts/compare_cycles.py:56`), which reads the
   repo root's `.env` whatever the current directory.
 
 ## 4. Running the stack for development

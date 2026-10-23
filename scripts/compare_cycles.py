@@ -6,7 +6,7 @@ half of every experiment in the improvement plan (num_rounds, peer
 diversity, composition, NUM_PARALLEL, worker model).
 
 Usage:
-    uv run python scripts/compare_cycles.py            # all metric-stamped cycles
+    uv run python scripts/compare_cycles.py            # complete cycles, newest first
     uv run python scripts/compare_cycles.py --limit 5  # most recent 5
 """
 
@@ -17,6 +17,18 @@ import argparse
 from neo4j import GraphDatabase
 
 from alphaswarm.config import AppSettings
+from alphaswarm.graph import _EFFECTIVE_STATUS
+
+# The cycles the app lists: the same completeness rule as the replay picker and the
+# report default, so a failed or cancelled cycle that carries metrics stays out
+# (docs/DECISIONS.md#adr-cycle-metrics).
+CYCLES_QUERY = f"""
+MATCH (c:Cycle)
+WHERE {_EFFECTIVE_STATUS} = 'complete'
+RETURN c
+ORDER BY c.created_at DESC
+LIMIT $limit
+"""
 
 METRIC_COLS = [
     ("num_rounds", "rounds"),
@@ -47,21 +59,11 @@ def main() -> None:
         auth=(settings.neo4j.username, settings.neo4j.require_password()),
     )
     with driver.session(database=settings.neo4j.database) as session:
-        rows = session.run(
-            """
-            MATCH (c:Cycle)
-            WHERE c.metrics_recorded_at IS NOT NULL
-            RETURN c
-            ORDER BY c.created_at DESC
-            LIMIT $limit
-            """,
-            limit=args.limit,
-        ).data()
+        rows = session.run(CYCLES_QUERY, limit=args.limit).data()
     driver.close()
 
     if not rows:
-        print("No metric-stamped cycles found. Run a simulation first — metrics")
-        print("are written at cycle completion (feat(metrics) commit onward).")
+        print("No complete cycles found. Run a simulation first.")
         return
 
     header = ["cycle", "seed", *(label for _, label in METRIC_COLS)]
