@@ -238,6 +238,7 @@ async def build_seeded_cycle(gm: GraphStateManager, *, num_rounds: int = 3) -> S
         previous = {agent_id: d.signal for agent_id, d in rows}
 
     await gm.write_cycle_metrics(cycle_id, _metrics(decisions, num_rounds))
+    await gm.set_cycle_status(cycle_id, "complete")  # mirrors run_simulation (docs/DECISIONS.md#adr-cycle-metrics)
     return SeededCycle(
         cycle_id=cycle_id,
         num_rounds=num_rounds,

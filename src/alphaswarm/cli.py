@@ -617,11 +617,12 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     orch_provider = built.orchestrator
 
     try:
-        # Resolve cycle_id: default to most recent if not provided
+        # Resolve cycle_id: default to the most recent complete cycle
+        # (docs/DECISIONS.md#adr-cycle-metrics).
         if cycle_id is None:
             cycle_id = await app.graph_manager.read_latest_cycle_id()
             if cycle_id is None:
-                print("Error: No simulation cycles found in the database.", file=sys.stderr)
+                print("Error: No complete simulation cycles found in the database.", file=sys.stderr)
                 sys.exit(1)
 
         print(

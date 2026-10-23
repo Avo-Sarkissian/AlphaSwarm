@@ -202,6 +202,9 @@ async def test_read_latest_cycle_id_returns_newest(
     event = SeedEvent(raw_rumor=SEED_RUMOR, entities=list(SEED_ENTITIES), overall_sentiment=OVERALL_SENTIMENT)
     newest = await graph_manager_test.create_cycle_with_seed_event(SEED_RUMOR, event, num_rounds=3)
     assert newest != seeded_cycle.cycle_id
+    # A new cycle is 'running': visible to a running-inclusive read, not yet a report default.
+    assert await graph_manager_test.read_latest_cycle_id(statuses=("running", "complete")) == newest
+    await graph_manager_test.set_cycle_status(newest, "complete")
     assert await graph_manager_test.read_latest_cycle_id() == newest
 
 

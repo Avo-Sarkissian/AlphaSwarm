@@ -27,6 +27,7 @@ from alphaswarm.types import SignalType
 if TYPE_CHECKING:
     from neo4j import AsyncDriver, AsyncManagedTransaction
 
+    from alphaswarm.errors import RunErrorCode
     from alphaswarm.state import AgentState
     from alphaswarm.types import AgentDecision, AgentPersona, SeedEvent
 
@@ -235,6 +236,7 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX post_cycle_round IF NOT EXISTS FOR (p:Post) ON (p.cycle_id, p.round_num)",
     "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
     "CREATE CONSTRAINT shock_id_unique IF NOT EXISTS FOR (se:ShockEvent) REQUIRE se.shock_id IS UNIQUE",
+    "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)",
 ]
 
 CycleStatus = Literal["running", "complete", "failed", "cancelled"]
@@ -248,6 +250,12 @@ _LEGACY_COMPLETE: Final = (
 # The status a reader assumes: the stored one, else the legacy rule, so the
 # readers are right even before ensure_schema() has back-filled.
 _EFFECTIVE_STATUS: Final = f"coalesce(c.status, CASE WHEN {_LEGACY_COMPLETE} THEN 'complete' ELSE 'failed' END)"
+# ensure_schema() stamps the same rule onto status-less cycles; SET-only, idempotent.
+CYCLE_STATUS_BACKFILL: Final = (
+    "MATCH (c:Cycle) WHERE c.status IS NULL "
+    f"SET c.status = CASE WHEN {_LEGACY_COMPLETE} THEN 'complete' ELSE 'failed' END "
+    "RETURN count(c) AS backfilled"
+)
 
 # One completeness rule for every reader: the stored Cycle.status, else the
 # legacy predicate (metrics stamped, or a round-3 decision), so the job routes and
@@ -393,7 +401,65 @@ class GraphStateManager:
             raise _map_graph_error(exc, op="ensure_schema", write=True) from exc
 
         self._log.info("schema_applied", statement_count=len(SCHEMA_STATEMENTS))
+        backfilled = await self._write(self._backfill_cycle_status_tx, op="backfill_cycle_status")
+        if backfilled:
+            self._log.info("cycle_status_backfilled", count=backfilled)
         await self.seed_agents(self._personas)
+
+    @staticmethod
+    async def _backfill_cycle_status_tx(tx: AsyncManagedTransaction) -> int:
+        """Give every status-less (legacy) Cycle a status; idempotent."""
+        result = await tx.run(CYCLE_STATUS_BACKFILL)
+        record = await result.single()
+        return int(record["backfilled"]) if record else 0
+
+    async def set_cycle_status(
+        self,
+        cycle_id: str,
+        status: CycleStatus,
+        *,
+        error_code: RunErrorCode | None = None,
+    ) -> None:
+        """Record a lifecycle transition (docs/DECISIONS.md#adr-cycle-metrics).
+
+        ``error_code`` is stored for ``failed`` and removed otherwise.
+
+        Raises:
+            Neo4jWriteError: no Cycle has *cycle_id*.
+        """
+        found = await self._write(
+            self._set_cycle_status_tx,
+            cycle_id,
+            status,
+            error_code,
+            op="set_cycle_status",
+        )
+        if not found:
+            raise Neo4jWriteError(
+                f"Cycle {cycle_id} not found while setting status {status}",
+                op="set_cycle_status",
+            )
+        self._log.info("cycle_status_set", cycle_id=cycle_id, status=status, error_code=error_code)
+
+    @staticmethod
+    async def _set_cycle_status_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        status: str,
+        error_code: str | None,
+    ) -> bool:
+        result = await tx.run(
+            """
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            SET c.status = $status, c.error_code = $error_code
+            RETURN count(c) AS n
+            """,
+            cycle_id=cycle_id,
+            status=status,
+            error_code=error_code,
+        )
+        record = await result.single()
+        return bool(record and record["n"])
 
     async def seed_agents(self, agents: list[AgentPersona]) -> None:
         """Seed Agent nodes from persona config via UNWIND + MERGE.
@@ -583,7 +649,7 @@ class GraphStateManager:
         entities: list[dict[str, Any]],
         num_rounds: int,
     ) -> None:
-        """Single transaction: Cycle (num_rounds) then UNWIND Entity + MENTIONS."""
+        """Single transaction: Cycle (num_rounds, status 'running') then UNWIND Entity + MENTIONS."""
         await tx.run(
             """
             CREATE (c:Cycle {
@@ -591,7 +657,8 @@ class GraphStateManager:
                 seed_rumor: $seed_rumor,
                 overall_sentiment: $overall_sentiment,
                 created_at: datetime(),
-                num_rounds: $num_rounds
+                num_rounds: $num_rounds,
+                status: 'running'
             })
             """,
             cycle_id=cycle_id,
@@ -1726,14 +1793,35 @@ class GraphStateManager:
         )
         return [dict(record) async for record in result]
 
-    async def read_latest_cycle_id(self) -> str | None:
-        """Most recent cycle_id, or None when there are no cycles."""
-        return await self._read(self._read_latest_cycle_id_tx, op="read_latest_cycle_id")
+    async def read_latest_cycle_id(
+        self,
+        *,
+        statuses: Collection[CycleStatus] = ("complete",),
+    ) -> str | None:
+        """Most recent cycle whose (effective) status is in *statuses*, or None.
+
+        The default serves `alphaswarm report`, which must never pick a running
+        or failed cycle (docs/DECISIONS.md#adr-cycle-metrics).
+        """
+        wanted = list(statuses)
+        if not wanted:
+            raise ValueError("statuses must not be empty")
+        return await self._read(self._read_latest_cycle_id_tx, wanted, op="read_latest_cycle_id")
 
     @staticmethod
-    async def _read_latest_cycle_id_tx(tx: AsyncManagedTransaction) -> str | None:
+    async def _read_latest_cycle_id_tx(
+        tx: AsyncManagedTransaction,
+        statuses: list[str],
+    ) -> str | None:
         result = await tx.run(
-            "MATCH (c:Cycle) RETURN c.cycle_id AS cycle_id ORDER BY c.created_at DESC LIMIT 1",
+            f"""
+            MATCH (c:Cycle)
+            WHERE {_EFFECTIVE_STATUS} IN $statuses
+            RETURN c.cycle_id AS cycle_id
+            ORDER BY c.created_at DESC
+            LIMIT 1
+            """,
+            statuses=statuses,
         )
         record = await result.single()
         return str(record["cycle_id"]) if record else None
@@ -2040,7 +2128,7 @@ class GraphStateManager:
         *,
         before: datetime | None = None,
     ) -> list[CompletedCycleRow]:
-        """Return complete cycles, newest first, one page at a time.
+        """Return complete cycles (Cycle.status), newest first, one page at a time.
 
         *before* is the created_at of the previous page's last row; rows
         strictly older than it are returned. A naive *before* is read as UTC.

@@ -2,8 +2,8 @@
 
 Everything goes through the public write API (create_cycle_with_seed_event,
 write_decisions, write_rationale_episodes, write_narrative_edges,
-compute_influence_edges, write_shock_event), so these tests exercise the same
-Cypher the engine runs. Fictional data only.
+compute_influence_edges, write_shock_event, set_cycle_status), so these tests
+exercise the same Cypher the engine runs. Fictional data only.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ async def write_mini_cycle(
 
     Influence edges are computed after every round >= 2 with the active
     (non-PARSE_ERROR) count, exactly as run_simulation does. `shock` is
-    (injected_before_round, text).
+    (injected_before_round, text). The cycle ends with status 'complete'.
     """
     cycle_id = await gm.create_cycle_with_seed_event(
         MINI_RUMOR,
@@ -87,6 +87,7 @@ async def write_mini_cycle(
             active = sum(1 for _, d in decisions if d.signal != SignalType.PARSE_ERROR)
             await gm.compute_influence_edges(cycle_id, up_to_round=round_num, total_agents=active)
         previous.update({agent_id: d.signal for agent_id, d in decisions})
+    await gm.set_cycle_status(cycle_id, "complete")  # mirrors run_simulation (docs/DECISIONS.md#adr-cycle-metrics)
     return cycle_id
 
 

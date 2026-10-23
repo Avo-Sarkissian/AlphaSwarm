@@ -128,6 +128,7 @@ async def test_writes_follow_the_simulation_order() -> None:
         *round_writes,
         "compute_influence_edges",
         "write_cycle_metrics",
+        "set_cycle_status",
     ]
     assert gm.create_cycle_with_seed_event.await_args.args[0] == SEED_RUMOR
     assert gm.create_cycle_with_seed_event.await_args.kwargs == {"num_rounds": 3}
@@ -142,6 +143,7 @@ async def test_writes_follow_the_simulation_order() -> None:
         100,
         6,
     )
+    gm.set_cycle_status.assert_awaited_once_with(CYCLE_ID, "complete")
 
 
 async def test_two_round_build_and_invalid_round_counts() -> None:

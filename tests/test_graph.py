@@ -1325,3 +1325,49 @@ async def test_read_cycle_entities_tx_reads_name_and_type() -> None:
     ]
     cypher = tx.run.await_args.args[0]
     assert "(c:Cycle {cycle_id: $cycle_id})-[:MENTIONS]->(e:Entity)" in cypher
+
+
+# ---------------------------------------------------------------------------
+# Cycle status lifecycle (docs/DECISIONS.md#adr-cycle-metrics)
+# ---------------------------------------------------------------------------
+
+
+def test_schema_has_cycle_status_index() -> None:
+    from alphaswarm.graph import SCHEMA_STATEMENTS
+
+    assert "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)" in SCHEMA_STATEMENTS
+
+
+async def test_new_cycle_is_created_running() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    tx = MagicMock()
+    tx.run = AsyncMock()
+    await GraphStateManager._create_cycle_with_entities_tx(tx, "c1", "rumor", 0.4, [], 3)
+    assert "status: 'running'" in tx.run.await_args_list[0].args[0]
+
+
+async def test_set_cycle_status_unknown_cycle_raises(mock_driver: MagicMock) -> None:
+    from alphaswarm.errors import Neo4jWriteError
+    from alphaswarm.graph import GraphStateManager
+
+    mock_driver.session.return_value.execute_write = AsyncMock(return_value=False)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    with pytest.raises(Neo4jWriteError) as exc_info:
+        await gsm.set_cycle_status("c-missing", "complete")
+    assert exc_info.value.op == "set_cycle_status"
+
+
+async def test_read_latest_cycle_id_passes_statuses(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value="c9")
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    assert await gsm.read_latest_cycle_id() == "c9"
+    assert session.execute_read.await_args.args[1] == ["complete"]
+    await gsm.read_latest_cycle_id(statuses=("running", "complete"))
+    assert session.execute_read.await_args.args[1] == ["running", "complete"]
+    with pytest.raises(ValueError):
+        await gsm.read_latest_cycle_id(statuses=())
