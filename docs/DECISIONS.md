@@ -324,7 +324,7 @@ Contents
   3. A fail-closed structlog PII redactor ([p37-d-05](#p37-d-05)..[p37-d-07](#p37-d-07)). Tracebacks are rendered without local variables in both modes (JSON: `ExceptionDictTransformer(show_locals=False)` before the redactor; console: `plain_traceback`), so frames never leak keys or portfolio objects (2026-10).
   4. Holdings are loaded into memory at lifespan startup (`PortfolioCache`, re-read when the CSV changes) and never persisted ([p39-d-07](#p39-d-07)).
 - **Rationale:** Uncontaminated consensus, plus privacy for real brokerage data.
-- **Gate:** `uv run lint-imports` runs in the CI `lint` job (next to strict mypy and vulture) and as a pre-commit hook, and `tests/invariants/test_importlinter_contract.py` runs it inside pytest. Ruff is not gated yet.
+- **Gate:** `uv run lint-imports` runs in the CI `lint` job and as a pre-commit hook, and `tests/invariants/test_importlinter_contract.py` runs it inside pytest. Ruff, mypy and vulture are gated in the same job.
 
 ### <a id="adr-provider-never-raise"></a>Market/news providers never raise
 - **Decision:** `MarketDataProvider` and `NewsProvider` use batch-first signatures. Failures become `staleness="fetch_failed"` slices. Fakes live next to the protocols ([p37-d-17](#p37-d-17)..[p37-d-20](#p37-d-20)).
@@ -397,9 +397,9 @@ Contents
 - **History:** Textual TUI, then Vue 3 + D3 force graph, then a React port of the Claude Design UI, then the AlphaSwarm-2 Quant Terminal. See HISTORY.md.
 
 ### <a id="adr-test-network-gate"></a>Tests are offline by default
-- **Decision:** `pytest-socket --disable-socket --allow-unix-socket` applies globally (`pyproject.toml` addopts). `tests/integration/` auto-enables sockets ([p37-d-12](#p37-d-12)). Tests marked `neo4j` get sockets (and, when async, the session event loop shared with the session-scoped driver) from a collection hook in `tests/conftest.py`, and skip unless the throwaway `neo4j-test` database answers on 127.0.0.1:7688 (`--require-neo4j` turns the skip into a failure).
-- **Note:** Phase 41.2 D-08 planned to make integration tests opt-in through an `integration` marker. That was never done; see BACKLOG.
-- **CI (2026-10):** `backend` runs `-m "not neo4j"`; `backend-neo4j` runs `-m neo4j --require-neo4j` against a `neo4j:5.26-community` service container on 7688. Every test has a 60 s timeout (`pytest-timeout`) and every job a 15-minute one. The `tests/integration/` path hook still opens sockets in `backend`, so live Yahoo and Google News calls remain in CI (BACKLOG 1.8).
+- **Decision:** `pytest-socket --disable-socket --allow-unix-socket` applies globally (`pyproject.toml` addopts). Tests opt in by marker, never by directory (`tests/support/markers.py`, applied from `tests/conftest.py`): `neo4j` (the throwaway neo4j-test database on 127.0.0.1:7688, see [adr-tests-scoped-cleanup](#adr-tests-scoped-cleanup)), `live_network` (public internet) and `ollama` (local Ollama) get sockets, and async `neo4j` tests share the session event loop with the session-scoped driver. `live_network` and `ollama` tests are skipped unless `--run-live` is given. `neo4j` tests skip when neo4j-test is unreachable unless `--require-neo4j` is given.
+- **CI:** `backend-unit` runs `-m "not neo4j and not live_network and not ollama"` with an 85% branch-coverage gate; `backend-neo4j` runs `-m neo4j --require-neo4j` against a `neo4j:5.26-community` service; `.github/workflows/nightly.yml` runs `--run-live -m live_network` daily. Every test has a 60 s timeout (`pytest-timeout`) and every job a 15-minute one.
+- **History:** a path hook used to enable sockets for everything under `tests/integration/` ([p37-d-12](#p37-d-12)), which put Yahoo and Google News calls into every CI run; Phase 41.2 D-08's planned `integration` marker was never built. The markers above replaced both in October 2026.
 
 ### <a id="adr-tests-scoped-cleanup"></a>Neo4j tests run only against a throwaway database
 - **Decision (2026-10):** Neo4j tests use the `neo4j-test` Compose service (profile `test`, `127.0.0.1:7688`, tmpfs, throwaway credential), started with `scripts/neo4j_test.sh up`. The URI is hard-coded in `tests/conftest.py`, never read from the environment. The session fixture `neo4j_test_driver` exits with code 3 on port 7687 or on a database that already holds `Cycle` nodes. `graph_manager_test` deletes only the cycles created during the test (never ids in `NEO4J_PROTECTED_CYCLES`). An autouse `hermetic_env` fixture clears `ALPHASWARM_*`, ignores `.env`, and points the inference config and holdings CSV at temp paths.
@@ -676,14 +676,14 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 |---|---|---|---|
 | <a id="p37-d-02"></a>`D-02` | Holdings-isolation import contract enforced by a pre-commit hook and (via the pytest invariant test) CI. | active | .pre-commit-config.yaml:5 |
 | <a id="p37-d-03"></a>`D-03` | Permanent test runs lint-imports against a synthetic violation to prove the contract bites. | active | tests/invariants/test_importlinter_contract.py:1 |
-| <a id="p37-d-04"></a>`D-04` | Whitelist-only: only alphaswarm.advisory and alphaswarm.web.routes.holdings may import alphaswarm.holdings. | active | pyproject.toml:130,141; web/routes/holdings.py:13,120; tests/integration/test_holdings_route.py:322,334; tests/invariants/test_importlinter_contract.py:109,112; tests/invariants/test_importlinter_coverage.py:10,11,27,107,110,117,121 |
+| <a id="p37-d-04"></a>`D-04` | Whitelist-only: only alphaswarm.advisory and alphaswarm.web.routes.holdings may import alphaswarm.holdings. | active | pyproject.toml:130,141; web/routes/holdings.py:13,120; tests/unit/test_holdings_route.py:322,334; tests/invariants/test_importlinter_contract.py:109,112; tests/invariants/test_importlinter_coverage.py:10,11,27,107,110,117,121 |
 | <a id="p37-d-05"></a>`D-05` | PII redaction: key-first detection plus value-pattern backstop. | active | logging.py:48,206,208; tests/test_pii_redaction.py:3,31 |
 | <a id="p37-d-06"></a>`D-06` | account_* values become sha256 first-8 hashes; other sensitive values become [REDACTED]. | active | logging.py:48,206,210; security/hashing.py:4; tests/test_pii_redaction.py:3,31 |
 | <a id="p37-d-07"></a>`D-07` | Redaction fails closed: on processor error, drop the event and emit a marker with no user data. | active | logging.py:5,191,206,212; tests/test_pii_redaction.py:3,206 |
 | <a id="p37-d-08"></a>`D-08` | Redaction verified by Hypothesis property tests plus tabular cases. | active | tests/test_pii_redaction.py:3,294,373 |
 | <a id="p37-d-09"></a>`D-09` | pytest-socket --disable-socket globally. | active | tests/test_network_gate.py:21 |
 | <a id="p37-d-10"></a>`D-10` | No loopback exemption; integration tests opt in explicitly. | active | tests/test_network_gate.py:28 |
-| <a id="p37-d-12"></a>`D-12` | tests/integration/ auto-applies enable_socket; one-off opt-in via marker. | active | pyproject.toml:56; tests/integration/__init__.py:4; tests/integration/conftest.py:1; tests/test_network_gate.py:43 |
+| <a id="p37-d-12"></a>`D-12` | tests/integration/ auto-applied enable_socket; one-off opt-in via marker. | superseded (2026-10: marker-based gating, [adr-test-network-gate](#adr-test-network-gate); the path hook is deleted) | tests/test_network_gate.py:43 |
 | <a id="p37-d-13"></a>`D-13` | ASCII sentinel holdings (SNTL_CANARY_*) make leaks greppable. | active | tests/invariants/conftest.py:3,29,60 |
 | <a id="p37-d-14"></a>`D-14` | Canary runs a pipeline with a sentinel portfolio and asserts no sentinel appears anywhere. | active | tests/invariants/conftest.py:60; tests/invariants/test_holdings_isolation.py:1 |
 | <a id="p37-d-15"></a>`D-15` | Leak detection across four surfaces: logs, Neo4j, WebSocket frames, worker prompts. | active | tests/invariants/conftest.py:4; tests/invariants/test_holdings_isolation.py:1,101 |
@@ -716,9 +716,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p39-d-03"></a>`D-03` | Multiple accounts merge into one PortfolioSnapshot. | active | holdings/loader.py:11; tests/test_holdings_loader.py:125,145,164 |
 | <a id="p39-d-04"></a>`D-04` | All positions included (no money-market filtering). | active | holdings/loader.py:12; tests/test_holdings_loader.py:125,129,134 |
 | <a id="p39-d-05"></a>`D-05` | Path from ALPHASWARM_HOLDINGS_CSV_PATH, default Schwab/holdings.csv, resolved against the repo root. | active | config.py:478; web/app.py:220 |
-| <a id="p39-d-06"></a>`D-06` | GET /api/holdings returns account hash, as_of, holdings with Decimals as strings. | active | web/routes/holdings.py:17,54,67; tests/integration/test_holdings_route.py:13,85,90,137 |
+| <a id="p39-d-06"></a>`D-06` | GET /api/holdings returns account hash, as_of, holdings with Decimals as strings. | active | web/routes/holdings.py:17,54,67; tests/unit/test_holdings_route.py:13,85,90,137 |
 | <a id="p39-d-07"></a>`D-07` | Holdings load at lifespan startup into PortfolioCache on app.state and reload when the CSV's mtime changes; never assigned onto AppState. Revised 2026-10 (was loaded once, with a lazy reload in the advisory route). | revised | web/app.py:218; web/routes/holdings.py:18,120 |
-| <a id="p39-d-08"></a>`D-08` | Missing/malformed CSV -> snapshot None -> structured 503; never crashes the WS loop. | active | holdings/loader.py:52; web/app.py:131,138; web/routes/holdings.py:21,82,136,146; tests/integration/test_holdings_route.py:14,215,220; tests/test_holdings_loader.py:261 |
+| <a id="p39-d-08"></a>`D-08` | Missing/malformed CSV -> snapshot None -> structured 503; never crashes the WS loop. | active | holdings/loader.py:52; web/app.py:131,138; web/routes/holdings.py:21,82,136,146; tests/unit/test_holdings_route.py:14,215,220; tests/test_holdings_loader.py:261 |
 
 ### Phase 40: Simulation context wiring
 
@@ -911,7 +911,7 @@ code. Their status is in BACKLOG.md.
 | <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:101; web/routes/advisory.py:5,260; web/routes/report.py:7,90,106,159,161,220,233,247; tests/test_web.py:69; tests/test_web_report.py:5,43,64,157,438 |
 | <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Fixed 2026-10: both writes go through `fsutil.atomic_write_text` (temp file, fsync, `os.replace`, owner-only) | fsutil.py; report.py:write_report; web/routes/advisory.py:8 |
 | <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,89; simulation.py:56; tests/test_rss_provider.py:142,164,549 |
-| <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/integration/test_holdings_route.py:14,215,259 |
+| <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/unit/test_holdings_route.py:14,215,259 |
 | <a id="t-41-6-13"></a>T-41.6-13 | XSS through interview responses. Rendered as plain text, not markdown | fe/components/interview_v2.tsx:20 |
 | <a id="t-260512-jqn-03"></a>T-260512-jqn-03 | Data-source audit buffer leaking raw bodies or env vars. Only bounded summary fields are recorded | data_audit.py:14,83; tests/test_data_audit.py:68 |
 | <a id="t-260512-jqn-09"></a>T-260512-jqn-09 | Audit buffer mistaken for a compliance trail. It is a bounded in-memory UX ring buffer only | data_audit.py:10 |

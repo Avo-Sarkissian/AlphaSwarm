@@ -151,7 +151,7 @@ prompts live in `DEFAULT_BRACKETS` in `src/alphaswarm/config.py`.
 | [uv](https://docs.astral.sh/uv/) | Package manager |
 | [Ollama](https://ollama.com/) | Local LLM inference |
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Runs Neo4j |
-| [Node 20+](https://nodejs.org/) | Builds the web UI (required: `frontend/dist/` is not committed) |
+| [Node 22+](https://nodejs.org/) | Builds the web UI (required: `frontend/dist/` is not committed) |
 
 **Hardware target:** Apple Silicon with 64GB unified memory. The resource governor dynamically adjusts concurrency for available RAM.
 

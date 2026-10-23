@@ -9,8 +9,8 @@ Run from `frontend/`:
 | `npm run lint` | ESLint: typescript-eslint and react-hooks are errors; jsx-a11y rules are warnings until the accessibility pass |
 | `npm run build` | `tsc -b` plus the production bundle |
 
-The CI `frontend` job runs `npm ci`, `npx tsc -b --noEmit`, `npm run lint`, `npx vitest run`
-and `npm run build` on Node 20.
+The CI `frontend` job runs `npm ci`, `npm audit --omit=dev --audit-level=high`, `npm run lint`,
+`npx vitest run` and `npm run build` (which runs `tsc -b`) on Node 22 (`frontend/.nvmrc`).
 
 ## Layout
 
