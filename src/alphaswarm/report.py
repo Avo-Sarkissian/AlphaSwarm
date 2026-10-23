@@ -8,8 +8,8 @@
 3. ``render_report`` renders the section templates plus the narrative and
    ``build_sections`` returns the structured view the web UI charts;
 4. ``generate_report`` writes ``{cycle_id}_report.json`` then
-   ``{cycle_id}_report.md`` atomically. CLI and web share it through
-   ``services.report.ReportService``.
+   ``{cycle_id}_report.md`` atomically. The CLI ``report`` command and the
+   web report job share it.
 
 Replaces the prompt-based ReAct loop (docs/DECISIONS.md#adr-report-react). The
 caller owns the model lifecycle (docs/DECISIONS.md#p15-d-12).

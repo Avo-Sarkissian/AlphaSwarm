@@ -1,8 +1,7 @@
 """ADVIS-01 synthesis engine: one orchestrator call over prefetched swarm data.
 
-Lifecycle: this module never loads or unloads a model; the caller
-(``services.advisory.AdvisoryService``) owns prepare/teardown
-(docs/DECISIONS.md#p41-d-08).
+Lifecycle: this module never loads or unloads a model; its caller, the
+advisory job, owns prepare/teardown (docs/DECISIONS.md#p41-d-08).
 
 The orchestrator writes only ``AdvisoryLLMOutput`` (outlook + conviction items),
 decoded through ``chat_structured`` with the tickers restricted to the ones in

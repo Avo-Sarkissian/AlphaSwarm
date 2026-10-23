@@ -165,10 +165,12 @@ class OllamaClient:
             ) from exc
 
     async def aclose(self) -> None:
-        """Close the HTTP connection pool (called by the runtime exit stack).
+        """Close the HTTP connection pool.
 
-        ``ollama.AsyncClient`` has no close method, so the ``httpx.AsyncClient``
-        it wraps is closed directly. Closing twice is a no-op.
+        Meant for process shutdown: every provider shares this client, so no
+        single operation may close it. ``ollama.AsyncClient`` has no close
+        method, so the ``httpx.AsyncClient`` it wraps is closed directly.
+        Closing twice is a no-op.
         """
         http = self._http
         if not http.is_closed:
