@@ -355,6 +355,16 @@ never the row's contents. Holdings never reach the swarm's agent prompts, Neo4j,
 WebSocket frames or logs. With a cloud or remote orchestrator the advisory also
 needs **Allow cloud advisory** in Settings → Model (see Cloud inference above).
 
+The advisory tags each holding with a sector from a local map,
+`data/sector_map.local.json` (gitignored, never committed;
+`ALPHASWARM_SECTOR_MAP_PATH` overrides the path). Until that file exists the
+fictional `examples/sector_map.example.json` is used: your real tickers then get
+the `unknown` sector and the server log says how to create the file. To set it up,
+copy the example to `data/sector_map.local.json` and replace its entries with your
+holdings; it is read on every advisory run, so edits apply without a restart.
+Advisory files are written owner-only, and only the newest 20 are kept
+(`ALPHASWARM_ADVISORY_KEEP_LAST`).
+
 ---
 
 ## What's Shipped
