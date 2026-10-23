@@ -11,7 +11,7 @@ from alphaswarm.config import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.interview import InterviewContext
 
 # ---------------------------------------------------------------------------
-# Task 1: Data types tests
+# Data types tests
 # ---------------------------------------------------------------------------
 
 
@@ -108,7 +108,7 @@ class TestStripJsonInstructions:
 
 
 # ---------------------------------------------------------------------------
-# Task 2: InterviewEngine tests
+# InterviewEngine tests
 # ---------------------------------------------------------------------------
 
 
