@@ -99,6 +99,7 @@ Contents
 - **Constraints:** untrusted text never moves into the system role (F3; the market and peer blocks stay fenced in the user message), and `AGENT_HEADER_RE` keeps matching the header.
 - **Kept only if** mean R2-R3 `prefill_ms` drops by at least 10% with unchanged final distributions (docs/experiments.md, arm A2).
 - **Where:** `personas.py`, `types.py`, `interview.py`, `worker.py`, `batch_dispatcher.py`, `inference/anthropic_provider.py`.
+- **Anthropic:** several system messages are sent as text blocks with cache_control on the second-to-last one (the persona's shared block for the worker). Anthropic only caches prefixes above the model's minimum (1,024 tokens or more), so the about 600-token worker prefix is usually not cached; cache hits show up as cached_prompt_tokens in inference_call. Cache writes cost 1.25x and reads 0.1x the input price while BudgetMeter prices all prompt tokens at 1x (pricing belongs to the cloud-pricing work).
 
 ### <a id="adr-think-off"></a>Orchestrator reasoning ("think") is off everywhere
 - **Decision:** Every local inference call passes `think=False`. It is hardcoded in `OllamaProvider.chat` (`inference/ollama_provider.py:162`), so it covers worker and orchestrator alike: seed, modifiers, rounds, narratives, advisory, report, and interview. No call site sets it individually.
