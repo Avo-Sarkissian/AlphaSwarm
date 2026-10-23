@@ -61,6 +61,16 @@ def test_running_cycle_is_readable(tmp_path: Path) -> None:
     assert [d["round_num"] for d in resp.json()["decisions"]] == [1]
 
 
+def test_cycle_without_rows_for_the_agent_returns_an_empty_list(tmp_path: Path) -> None:
+    # Round 1 still running: the cycle exists but no decision has been persisted yet.
+    graph = FakeCycleGraph({CYCLE_A: "running"})
+    with _client(tmp_path, graph) as client:
+        resp = client.get(URL, params={"cycle_id": CYCLE_A})
+    assert resp.status_code == 200
+    assert resp.json() == {"agent_id": "quants_01", "cycle_id": CYCLE_A, "decisions": []}
+    assert graph.decision_calls == [(CYCLE_A, "quants_01")]
+
+
 def test_unknown_cycle_is_404_and_skips_the_read(tmp_path: Path) -> None:
     graph = FakeCycleGraph({CYCLE_A: "complete"})
     with _client(tmp_path, graph) as client:
