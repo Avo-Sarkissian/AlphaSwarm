@@ -12,13 +12,15 @@ import asyncio
 import contextlib
 import enum
 import time
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Final
 
 import structlog
 
 from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReader, MemoryReading
 from alphaswarm.settings import GovernorSettings
+from alphaswarm.types import GovernorTelemetryState
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -26,6 +28,10 @@ if TYPE_CHECKING:
     from alphaswarm.state import StateStore
 
 log = structlog.get_logger(component="governor")
+
+# Clock for the time-in-state bookkeeping only; tests replace it. The crisis
+# timeout keeps calling time.monotonic() directly.
+_clock: Callable[[], float] = time.monotonic
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +47,18 @@ class GovernorState(enum.StrEnum):
     PAUSED = "paused"
     CRISIS = "crisis"
     RECOVERING = "recovering"
+
+
+# States whose duration is reported in the cycle metrics (docs/DECISIONS.md#adr-inference-telemetry).
+_TRACKED_STATES: Final[Mapping[GovernorState, GovernorTelemetryState]] = {
+    GovernorState.THROTTLED: "throttled",
+    GovernorState.PAUSED: "paused",
+    GovernorState.CRISIS: "crisis",
+}
+
+
+def _zero_time_in_state() -> dict[GovernorTelemetryState, float]:
+    return {"throttled": 0.0, "paused": 0.0, "crisis": 0.0}
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +200,10 @@ class ResourceGovernor:
         self._monitor_task: asyncio.Task[None] | None = None
         self._resume_event = asyncio.Event()
         self._resume_event.set()  # Start in RUNNING state (not blocked)
+        # Per-session telemetry: seconds per tracked state and peak memory.
+        self._time_in_state: dict[GovernorTelemetryState, float] = _zero_time_in_state()
+        self._peak_memory_percent = 0.0
+        self._state_entered_at = _clock()
 
     # --- Public API ---
 
@@ -240,6 +262,7 @@ class ResourceGovernor:
     async def start_monitoring(self) -> None:
         """Start background memory monitoring loop."""
         if self._monitor_task is None or self._monitor_task.done():
+            self._reset_telemetry()
             self._monitor_task = asyncio.create_task(self._monitor_loop())
             self._monitor_task.add_done_callback(self._on_monitor_done)
 
@@ -265,6 +288,7 @@ class ResourceGovernor:
                 await self._monitor_task
             self._monitor_task = None
 
+        self._close_state_interval(self._state, _clock())
         # Bug 1 fix: reset state machine so stale PAUSED/CRISIS doesn't bleed
         self._state = GovernorState.RUNNING
         self._crisis_start = None
@@ -275,6 +299,31 @@ class ResourceGovernor:
         self._active_count = 0
 
         self._resume_event.set()
+
+    def time_in_state(self) -> dict[GovernorTelemetryState, float]:
+        """Seconds THROTTLED, PAUSED and CRISIS in this (or the last) monitoring session."""
+        totals = dict(self._time_in_state)
+        tracked = _TRACKED_STATES.get(self._state)
+        if tracked is not None:
+            totals[tracked] += max(0.0, _clock() - self._state_entered_at)
+        return totals
+
+    @property
+    def peak_memory_percent(self) -> float:
+        """Highest memory percent read in this (or the last) monitoring session."""
+        return self._peak_memory_percent
+
+    def _close_state_interval(self, state: GovernorState, now: float) -> None:
+        """Add the time since the last transition to ``state``'s total."""
+        tracked = _TRACKED_STATES.get(state)
+        if tracked is not None:
+            self._time_in_state[tracked] += max(0.0, now - self._state_entered_at)
+        self._state_entered_at = now
+
+    def _reset_telemetry(self) -> None:
+        self._time_in_state = _zero_time_in_state()
+        self._peak_memory_percent = 0.0
+        self._state_entered_at = _clock()
 
     def report_wave_failures(self, success_count: int, failure_count: int) -> None:
         """Report wave batch results and shrink if failure rate exceeds threshold.
@@ -387,6 +436,7 @@ class ResourceGovernor:
         - CRISIS: green -> RECOVERING (reset to baseline), timeout -> raise error
         - RECOVERING: crisis -> CRISIS, at baseline -> RUNNING
         """
+        self._peak_memory_percent = max(self._peak_memory_percent, reading.psutil_percent)
         old_state = self._state
         reason = f"sysctl={reading.pressure_level.value}, psutil={reading.psutil_percent:.1f}%"
 
@@ -403,6 +453,7 @@ class ResourceGovernor:
 
         new_state = self._state
         if old_state != new_state:
+            self._close_state_interval(old_state, _clock())
             log.warning(
                 "governor state transition",
                 old_state=old_state.value,

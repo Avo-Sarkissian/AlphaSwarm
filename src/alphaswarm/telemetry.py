@@ -11,9 +11,11 @@ from __future__ import annotations
 import asyncio
 import math
 from collections.abc import Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Final, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
 import psutil
+
+from alphaswarm.types import GovernorTelemetryState
 
 if TYPE_CHECKING:
     from alphaswarm.inference.types import InferenceResult
@@ -32,7 +34,6 @@ DOCKER_VM_PROCESS_NAMES: Final[frozenset[str]] = frozenset(
     }
 )
 
-GovernorTelemetryState = Literal["throttled", "paused", "crisis"]
 LoadedModels = Callable[[], Awaitable[Sequence[str]]]
 
 

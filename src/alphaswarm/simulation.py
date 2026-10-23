@@ -33,6 +33,7 @@ from alphaswarm.rounds import (
     run_round,
 )
 from alphaswarm.seed import generate_modifiers, inject_seed
+from alphaswarm.telemetry import governor_metrics
 from alphaswarm.types import SignalType, SimulationPhase
 
 if TYPE_CHECKING:
@@ -456,7 +457,7 @@ async def _run_simulation(
         total_seconds=time.monotonic() - sim_start,
         git_sha=git_sha,
         git_dirty=git_dirty,
-        extra={"seed_seconds": round(seed_seconds, 1)},
+        extra={"seed_seconds": round(seed_seconds, 1), **governor_metrics(deps.controller)},
     )
     # Every round is persisted and metrics were attempted (docs/DECISIONS.md#adr-cycle-metrics).
     await graph.set_cycle_status(cycle_id, "complete")
