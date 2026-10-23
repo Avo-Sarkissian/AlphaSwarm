@@ -935,6 +935,13 @@ class _RunTracker:
     cycle_id: str | None = None
 
 
+# A managed write keeps retrying an unreachable database for the driver's
+# max_transaction_retry_time (30 s), and the failed/cancelled write runs before
+# the exception reaches the caller, so it is bounded: Stop and a failed run
+# return promptly while Neo4j is down (docs/DECISIONS.md#adr-cycle-metrics).
+_TERMINAL_STATUS_TIMEOUT_S: Final = 5.0
+
+
 async def _record_terminal_status(
     graph_manager: GraphStateManager,
     cycle_id: str | None,
@@ -944,13 +951,15 @@ async def _record_terminal_status(
     """Best-effort terminal status write; never masks the error being raised.
 
     docs/DECISIONS.md#adr-cycle-metrics: failed/cancelled are written from
-    the except path; a write failure is logged and the original exception
-    keeps propagating.
+    the except path; a write that fails or outlasts
+    ``_TERMINAL_STATUS_TIMEOUT_S`` is logged, the cycle stays ``running``,
+    and the original exception keeps propagating.
     """
     if cycle_id is None:
         return  # the run failed before the Cycle existed
     try:
-        await graph_manager.set_cycle_status(cycle_id, status, error_code=error_code)
+        async with asyncio.timeout(_TERMINAL_STATUS_TIMEOUT_S):
+            await graph_manager.set_cycle_status(cycle_id, status, error_code=error_code)
     except Exception:
         logger.warning(
             "cycle_status_write_failed",
@@ -1697,7 +1706,8 @@ async def run_simulation(
     Cycle status (docs/DECISIONS.md#adr-cycle-metrics): the Cycle is created
     ``running``; ``complete`` is written after the last round and the metrics
     attempt; ``failed`` (+ error_code) on any exception and ``cancelled`` on
-    cancellation are written here, then the exception propagates unchanged.
+    cancellation are written here, best effort and within
+    ``_TERMINAL_STATUS_TIMEOUT_S``, then the exception propagates unchanged.
     """
     tracker = _RunTracker()
     try:

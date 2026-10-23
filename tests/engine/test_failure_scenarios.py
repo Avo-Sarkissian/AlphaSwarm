@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from structlog.testing import capture_logs
 
 from alphaswarm.config import AppSettings
 from alphaswarm.errors import BudgetExceededError, Neo4jUnavailableError, RoundFailedError
@@ -421,3 +422,64 @@ async def test_complete_status_write_failure_fails_the_run(
     assert second.args == (CYCLE_ID, "failed")
     assert second.kwargs == {"error_code": "graph_unavailable"}
     assert SimulationPhase.COMPLETE not in store.phases
+
+
+async def _never_answers(*_args: object, **_kwargs: object) -> None:
+    """A set_cycle_status that hangs, like a managed write retrying against a stopped Neo4j."""
+    await asyncio.Event().wait()
+
+
+async def test_a_hung_status_write_gives_up_on_a_failed_run(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("alphaswarm.simulation._TERMINAL_STATUS_TIMEOUT_S", 0.01)
+    graph.set_cycle_status.side_effect = _never_answers
+
+    def decide(agent_id: str, round_num: int, call: ScriptedCall) -> AgentDecision | BaseException:
+        if round_num == 2:
+            return BudgetExceededError(Decimal("5.00"), Decimal("4.00"))
+        return default_decision_script(agent_id, round_num, call)
+
+    run = run_case(
+        settings=scenario_settings,
+        graph=graph,
+        worker=ScriptedProvider(personas=all_personas, decide=decide),
+        personas=all_personas,
+        brackets=all_brackets,
+    )
+    with capture_logs() as logs, pytest.raises(BudgetExceededError):
+        await asyncio.wait_for(run, timeout=5)
+    graph.set_cycle_status.assert_awaited_once_with(CYCLE_ID, "failed", error_code="budget_exceeded")
+    assert [e["status"] for e in logs if e["event"] == "cycle_status_write_failed"] == ["failed"]
+
+
+async def test_a_hung_status_write_gives_up_on_a_stopped_run(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("alphaswarm.simulation._TERMINAL_STATUS_TIMEOUT_S", 0.01)
+    graph.set_cycle_status.side_effect = _never_answers
+    worker = BlockOnRound2(personas=all_personas)
+    task = asyncio.create_task(
+        run_case(
+            settings=scenario_settings,
+            graph=graph,
+            worker=worker,
+            personas=all_personas,
+            brackets=all_brackets,
+        )
+    )
+    await asyncio.wait_for(worker.reached_round_2.wait(), timeout=5)
+    task.cancel()
+    done, _ = await asyncio.wait({task}, timeout=5)
+
+    assert done == {task}
+    assert task.cancelled()
+    graph.set_cycle_status.assert_awaited_once_with(CYCLE_ID, "cancelled", error_code=None)
