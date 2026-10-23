@@ -157,7 +157,7 @@ class TestGovernorStateTransitions:
         assert gov.current_limit == 1
 
     async def test_crisis_to_recovering_on_green(self) -> None:
-        """D-03: Crisis -> RECOVERING when green, resets to baseline."""
+        """D-03 target, D-01 ramp: CRISIS -> RECOVERING with one step up from 1 slot."""
         settings = GovernorSettings(baseline_parallel=8)
         gov = ResourceGovernor(settings)
         # Enter crisis
@@ -165,10 +165,10 @@ class TestGovernorStateTransitions:
         assert gov.state == GovernorState.CRISIS
         assert gov.current_limit == 1
 
-        # Green reading -> RECOVERING, reset to baseline
+        # Green reading -> RECOVERING, first step toward baseline
         await gov._apply_state_transition(_reading(used_percent=50.0))
         assert gov.state == GovernorState.RECOVERING
-        assert gov.current_limit == 8
+        assert gov.current_limit == 3
 
     async def test_recovering_to_running(self) -> None:
         """Recovery completes when baseline reached."""
@@ -180,7 +180,7 @@ class TestGovernorStateTransitions:
         # Recover
         await gov._apply_state_transition(_reading(used_percent=50.0))
         assert gov.state == GovernorState.RECOVERING
-        # Since recovery resets to baseline immediately, next green -> RUNNING
+        # baseline 4: crisis exit gives 1 + 2 = 3, the next green adds 1 -> 4 -> RUNNING
         await gov._apply_state_transition(_reading(used_percent=50.0))
         assert gov.state == GovernorState.RUNNING
 
@@ -699,3 +699,20 @@ class TestPauseEscalation:
         await gov._apply_state_transition(_reading(used_percent=50.0))
         assert gov.state is GovernorState.RUNNING
         assert gov._paused_since is None
+
+
+async def test_recovery_ramps_by_step_until_baseline() -> None:
+    """docs/DECISIONS.md#p3-d-01 + #p3-d-03: 1 -> 3 -> 5 -> 7 -> 8, then RUNNING."""
+    gov = ResourceGovernor(GovernorSettings(baseline_parallel=8, slot_adjustment_step=2))
+    await gov._apply_state_transition(_reading(pressure_level=PressureLevel.RED))
+    limits = []
+    for _ in range(5):
+        await gov._apply_state_transition(_reading(used_percent=50.0))
+        limits.append((gov.state, gov.current_limit))
+    assert limits == [
+        (GovernorState.RECOVERING, 3),
+        (GovernorState.RECOVERING, 5),
+        (GovernorState.RECOVERING, 7),
+        (GovernorState.RUNNING, 8),
+        (GovernorState.RUNNING, 8),
+    ]

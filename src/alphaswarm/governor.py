@@ -562,16 +562,19 @@ class ResourceGovernor:
             return
         self._state = GovernorState.RECOVERING
         self._crisis_start = None
-        # Reset to baseline (docs/DECISIONS.md#p3-d-03).
-        grow_amount = self._settings.baseline_parallel - self._limit
-        if grow_amount > 0:
-            self._set_limit(self._settings.baseline_parallel)
+        # D-03 sets the target (baseline, not the pre-incident count); D-01 says
+        # how to get there: one step now, one step per calm check in RECOVERING
+        # (docs/DECISIONS.md#p3-d-01, #p3-d-03).
+        target = min(self._settings.baseline_parallel, self._limit + self._settings.slot_adjustment_step)
+        if target > self._limit:
+            amount = target - self._limit
+            self._set_limit(target)
             log.info(
                 "slot adjustment",
                 action="grow",
-                amount=grow_amount,
+                amount=amount,
                 new_limit=self._limit,
-                reason="crisis recovery reset to baseline",
+                reason="crisis cleared: first recovery step toward baseline",
             )
         self._sync_gate()
 

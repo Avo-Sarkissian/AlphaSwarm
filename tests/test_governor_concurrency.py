@@ -169,10 +169,6 @@ async def test_paused_escalates_to_crisis_after_the_timeout(make_governor: MakeG
     await eventually(lambda: gov.state is GovernorState.CRISIS, what="escalation to CRISIS")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T1.4: crisis recovery snaps straight to baseline instead of ramping by slot_adjustment_step (fix: plan 18)",
-)
 async def test_crisis_recovery_ramps_toward_baseline_by_adjustment_step(
     make_governor: MakeGovernor,
 ) -> None:
