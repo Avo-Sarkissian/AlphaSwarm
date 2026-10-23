@@ -141,8 +141,6 @@ async def test_schema_request_body_has_json_schema() -> None:
     assert result.content == '{"signal":"buy"}'
     assert result.input_tokens == 10
     assert result.output_tokens == 5
-    assert result.eval_count is None
-    assert result.eval_duration_ns is None
 
 
 # ---------------------------------------------------------------------------

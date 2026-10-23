@@ -114,7 +114,7 @@ async def test_ollama_provider_maps_schema_to_format() -> None:
     assert fc.kwargs["format"] == {"a": 1}
     assert fc.kwargs["think"] is False
     assert fc.kwargs["options"]["temperature"] == 0.4
-    assert out.eval_count == 12
+    assert out.output_tokens == 12
     assert out.input_tokens == 30
 
 
@@ -223,13 +223,6 @@ async def test_max_tokens_accepted_but_ignored() -> None:
 # ---------------------------------------------------------------------------
 # InferenceResult token fields
 # ---------------------------------------------------------------------------
-
-
-async def test_eval_count_and_duration_forwarded() -> None:
-    p, _, _ = _make_provider()
-    out = await p.chat([{"role": "user", "content": "x"}])
-    assert out.eval_count == 12
-    assert out.eval_duration_ns == 1_000_000
 
 
 async def test_token_counts_come_from_ollama() -> None:

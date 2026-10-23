@@ -171,6 +171,4 @@ class OllamaProvider:
             # (only cloud providers are wrapped by BudgetTrackingProvider).
             input_tokens=getattr(resp, "prompt_eval_count", None),
             output_tokens=getattr(resp, "eval_count", None),
-            eval_count=resp.eval_count,
-            eval_duration_ns=resp.eval_duration,
         )

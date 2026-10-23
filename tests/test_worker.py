@@ -40,8 +40,7 @@ def _fake_provider(content: str = _VALID_BUY_JSON, *, n: int = 1) -> FakeInferen
         InferenceResult(
             content=content,
             model="fake-model",
-            eval_count=50,
-            eval_duration_ns=1_000_000_000,
+            output_tokens=50,
         )
         for _ in range(n)
     ]
@@ -361,8 +360,7 @@ async def test_agent_worker_with_fake_provider_returns_parsed_decision(
             '"rationale": "strong upward momentum", "cited_agents": []}'
         ),
         model="fake-model",
-        eval_count=42,
-        eval_duration_ns=1_000_000_000,
+        output_tokens=42,
     )
 
     provider = FakeInferenceProvider(

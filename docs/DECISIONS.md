@@ -246,6 +246,14 @@ Contents
 - **Rationale:** The MLX runner relies on prompt adherence rather than hard grammar enforcement, so the prompt must spell out the keys. Never trust format=schema alone.
 - **Orchestrator replies** (seed, modifiers, report narrative, advisory) go through inference.structured.chat_structured: the output model's portable JSON schema as response_schema, tier-2 candidate extraction, one retry carrying field errors but never input values, then StructuredOutputError. Boundary validators normalise "BUY" and percentage confidences. Worker decisions keep DECISION_JSON_SCHEMA and parse_agent_decision, now recording parse_tier (r{n}_parse_tier1..3). Clamping cannot fix NaN, so every number on an LLM-facing model keeps its range: a NaN then fails inside chat_structured, where it is retried, instead of later in a domain model (`SeedLLMOutput.overall_sentiment`, 2026-10).
 
+### <a id="adr-inference-telemetry"></a>Inference telemetry: one normalized result, one log line, per-round aggregates
+- **Decision:** Every provider returns `InferenceResult` with `input_tokens` ("prompt_tokens"), `output_tokens` ("completion_tokens"), `cached_prompt_tokens`, `prefill_ms`, `decode_ms`, `load_ms` and `finish_reason` (`stop | length | content_filter | tool_use | error | other`). Unknown values stay `None`; they are never written as 0.
+- **Normalization:**
+  - Ollama: `prompt_eval_count` / `eval_count` / `prompt_eval_duration` / `eval_duration` / `load_duration`; `done_reason` `stop`/`length`, anything else `other`. `prompt_eval_count` counts only tokens actually prefilled, so a reused KV prefix lowers it.
+  - OpenAI-compatible: `usage.prompt_tokens` (cache included), `prompt_tokens_details.cached_tokens`, `finish_reason` (`tool_calls` → `tool_use`). No timings.
+  - Anthropic: prompt tokens = `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` (the API's `input_tokens` is the uncached remainder); `stop_reason` `end_turn`/`stop_sequence` → `stop`, `max_tokens` → `length`, `refusal` → `content_filter`. No timings. The budget meter therefore prices cache reads at the full input rate (an overestimate, the safe direction for a spend cap).
+- **Where:** `inference/types.py`, the three adapters in `inference/`.
+
 ### <a id="adr-governor"></a>Memory-aware ResourceGovernor
 - **Decision:**
   - A queue-based TokenPool with a 5-state machine: RUNNING, THROTTLED, PAUSED, CRISIS, RECOVERING (`governor.py`).

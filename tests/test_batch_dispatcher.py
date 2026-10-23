@@ -39,8 +39,7 @@ def _fake_provider(content: str = _VALID_BUY_JSON, *, n: int = 1000) -> FakeInfe
         InferenceResult(
             content=content,
             model="fake-model",
-            eval_count=50,
-            eval_duration_ns=1_000_000_000,
+            output_tokens=50,
         )
         for _ in range(n)
     ]

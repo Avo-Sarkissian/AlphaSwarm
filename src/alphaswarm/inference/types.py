@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from enum import StrEnum
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 # Cap any honored Retry-After so a misbehaving gateway can't park a worker for
 # minutes/hours.
@@ -47,6 +47,20 @@ def parse_retry_after(raw: str | None, *, default: float) -> float:
     return max(0.0, min(delay, _MAX_RETRY_AFTER_SECONDS))
 
 
+def count_or_none(value: object) -> int | None:
+    """A token count reported by a backend, or None when absent or not an integer.
+
+    Shared by the providers so partial responses (older servers, test fakes)
+    degrade to "unknown" instead of raising (docs/DECISIONS.md#adr-inference-telemetry).
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+FinishReason = Literal["stop", "length", "content_filter", "tool_use", "error", "other"]
+
+
 class ProviderRole(StrEnum):
     """Distinguishes the two inference roles in AlphaSwarm.
 
@@ -79,22 +93,31 @@ class InferenceMessage(TypedDict):
 class InferenceResult:
     """Normalized output from any inference provider.
 
+    Telemetry fields are ``None`` when the backend does not report them
+    (docs/DECISIONS.md#adr-inference-telemetry).
+
     Attributes:
         content: The generated text (raw or JSON string).
         model: The model identifier that produced the response.
-        input_tokens: Number of prompt tokens consumed (None if provider
-            does not report this).
-        output_tokens: Number of completion tokens generated (None if
-            provider does not report this).
-        eval_count: Ollama-specific completion token count alias (None for
-            non-Ollama providers).
-        eval_duration_ns: Ollama-specific wall-clock duration in nanoseconds
-            (None for non-Ollama providers).
+        input_tokens: Prompt tokens ("prompt_tokens" in logs and metrics). Ollama:
+            ``prompt_eval_count``, the tokens actually prefilled (a reused KV prefix
+            is not counted). Cloud: the whole prompt, cached tokens included.
+        output_tokens: Completion tokens ("completion_tokens"). Ollama: ``eval_count``.
+        cached_prompt_tokens: Prompt tokens served from a provider cache (OpenAI
+            ``prompt_tokens_details.cached_tokens``, Anthropic ``cache_read_input_tokens``).
+        prefill_ms: Prompt evaluation time (Ollama ``prompt_eval_duration``).
+        decode_ms: Generation time (Ollama ``eval_duration``).
+        load_ms: Model load time paid by this call (Ollama ``load_duration``).
+        finish_reason: Why generation stopped, normalized across providers;
+            ``"length"`` means the output cap cut the reply.
     """
 
     content: str
     model: str
     input_tokens: int | None = None
     output_tokens: int | None = None
-    eval_count: int | None = None
-    eval_duration_ns: int | None = None
+    cached_prompt_tokens: int | None = None
+    prefill_ms: float | None = None
+    decode_ms: float | None = None
+    load_ms: float | None = None
+    finish_reason: FinishReason | None = None
