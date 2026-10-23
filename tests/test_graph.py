@@ -1371,3 +1371,151 @@ async def test_read_latest_cycle_id_passes_statuses(mock_driver: MagicMock) -> N
     assert session.execute_read.await_args.args[1] == ["running", "complete"]
     with pytest.raises(ValueError):
         await gsm.read_latest_cycle_id(statuses=())
+
+
+# ---------------------------------------------------------------------------
+# persist_round: one transaction per round (docs/DECISIONS.md#p4-d-08)
+# ---------------------------------------------------------------------------
+
+
+def _single(value: dict[str, object]) -> MagicMock:
+    result = MagicMock()
+    result.single = AsyncMock(return_value=value)
+    return result
+
+
+def _rows(rows: list[dict[str, object]]) -> MagicMock:
+    result = MagicMock()
+    result.__aiter__.return_value = rows
+    return result
+
+
+_DECISION_ROW = {
+    "decision_id": "d1",
+    "agent_id": "quants_01",
+    "signal": "parse_error",
+    "confidence": 0.0,
+    "sentiment": 0.0,
+    "rationale": "Inference failed",
+    "error_kind": "inference",
+    "control": False,
+}
+
+
+async def test_persist_round_tx_raises_on_decision_shortfall() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    tx = MagicMock()
+    tx.run = AsyncMock(return_value=_single({"created": 1}))
+    second = {**_DECISION_ROW, "decision_id": "d2", "agent_id": "ghost_99"}
+    with pytest.raises(Neo4jWriteError) as exc_info:
+        await GraphStateManager._persist_round_tx(tx, "c1", 1, [_DECISION_ROW, second], [], [], [])
+    assert exc_info.value.op == "persist_round"
+    assert tx.run.await_count == 1
+
+
+async def test_persist_round_tx_raises_on_episode_shortfall() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    tx = MagicMock()
+    tx.run = AsyncMock(side_effect=[_single({"created": 1}), _single({"n": 0})])
+    episode = {
+        "decision_id": "d1",
+        "rationale": "r",
+        "peer_context_received": "",
+        "flip_type": "none",
+        "round_num": 1,
+        "cycle_id": "c1",
+    }
+    with pytest.raises(Neo4jWriteError) as exc_info:
+        await GraphStateManager._persist_round_tx(tx, "c1", 1, [_DECISION_ROW], [], [episode], [])
+    assert exc_info.value.op == "persist_round"
+
+
+async def test_persist_round_tx_counts_dropped_citations() -> None:
+    from alphaswarm.graph import GraphStateManager, PersistRoundResult
+
+    tx = MagicMock()
+    tx.run = AsyncMock(
+        side_effect=[
+            _single({"created": 1}),
+            _rows([{"cited_id": "quants_02", "written": True}, {"cited_id": "ghost_99", "written": False}]),
+            _single({"n": 1}),
+            _single({"n": 2}),
+        ]
+    )
+    summary, dropped = await GraphStateManager._persist_round_tx(
+        tx,
+        "c1",
+        2,
+        [_DECISION_ROW],
+        [{"decision_id": "d1", "cited_id": "quants_02"}, {"decision_id": "d1", "cited_id": "ghost_99"}],
+        [
+            {
+                "decision_id": "d1",
+                "rationale": "r",
+                "peer_context_received": "",
+                "flip_type": "none",
+                "round_num": 2,
+                "cycle_id": "c1",
+            }
+        ],
+        [{"decision_id": "d1", "entity_name": "ZZZT Holdings", "match_type": "substring"}],
+    )
+    assert summary == PersistRoundResult(
+        decision_ids=("d1",),
+        decisions_written=1,
+        episodes_written=1,
+        citations_written=1,
+        citations_dropped=1,
+        references_written=2,
+    )
+    assert dropped == ("ghost_99",)
+    assert tx.run.await_args_list[0].kwargs["decisions"][0]["error_kind"] == "inference"
+
+
+async def test_persist_round_rejects_misaligned_ids(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    decisions = [("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.6))]
+    with pytest.raises(ValueError):
+        await gsm.persist_round("c1", 1, decisions, decision_ids=[], episodes=[], entity_matches=[])
+
+
+async def test_persist_round_sends_one_write_with_all_rows(mock_driver: MagicMock) -> None:
+    from alphaswarm.episodes import EntityMatch, EpisodeRecord
+    from alphaswarm.graph import GraphStateManager, PersistRoundResult
+
+    session = mock_driver.session.return_value
+    expected = PersistRoundResult(("d1",), 1, 1, 1, 0, 1)
+    session.execute_write = AsyncMock(return_value=(expected, ()))
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    decisions = [
+        (
+            "quants_01",
+            AgentDecision(signal=SignalType.BUY, confidence=0.6, rationale="ZZZT", cited_agents=["degens_01"]),
+        )
+    ]
+    episode = EpisodeRecord("d1", "quants_01", "ZZZT", "", "none", 1, "c1")
+    match = EntityMatch("d1", "ZZZT Holdings", "company", "substring")
+
+    result = await gsm.persist_round(
+        "c1",
+        1,
+        decisions,
+        decision_ids=["d1"],
+        episodes=[episode],
+        entity_matches=[match],
+    )
+    assert result == expected
+    session.execute_write.assert_awaited_once()
+    _, cycle_id, round_num, decision_rows, cited_rows, episode_rows, reference_rows = (
+        session.execute_write.await_args.args
+    )
+    assert (cycle_id, round_num) == ("c1", 1)
+    assert decision_rows[0]["error_kind"] is None and decision_rows[0]["signal"] == "buy"
+    assert decision_rows[0]["control"] is False
+    assert cited_rows == [{"decision_id": "d1", "cited_id": "degens_01"}]
+    assert episode_rows[0]["round_num"] == 1
+    assert reference_rows == [{"decision_id": "d1", "entity_name": "ZZZT Holdings", "match_type": "substring"}]

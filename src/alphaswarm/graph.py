@@ -27,6 +27,7 @@ from alphaswarm.types import SignalType
 if TYPE_CHECKING:
     from neo4j import AsyncDriver, AsyncManagedTransaction
 
+    from alphaswarm.episodes import EntityMatch, EpisodeRecord
     from alphaswarm.errors import RunErrorCode
     from alphaswarm.state import AgentState
     from alphaswarm.types import AgentDecision, AgentPersona, SeedEvent
@@ -75,6 +76,18 @@ class RankedPost:
     content: str
     influence_weight: float
     round_num: int
+
+
+@dataclass(frozen=True)
+class PersistRoundResult:
+    """What one persist_round transaction wrote (docs/DECISIONS.md#p4-d-08)."""
+
+    decision_ids: tuple[str, ...]
+    decisions_written: int
+    episodes_written: int
+    citations_written: int
+    citations_dropped: int  # CITED targets that matched no Agent -> r{n}_citations_dropped
+    references_written: int
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +275,62 @@ CYCLE_STATUS_BACKFILL: Final = (
 # read_completed_cycles never disagree about a cycle (docs/DECISIONS.md#adr-cycle-metrics).
 _CYCLE_STATUS_QUERY: Final = f"MATCH (c:Cycle {{cycle_id: $cycle_id}}) RETURN {_EFFECTIVE_STATUS} AS status"
 _CYCLE_STATUSES: Final[frozenset[str]] = frozenset(get_args(CycleStatus))
+
+# persist_round's four statements, run in one transaction (docs/DECISIONS.md#p4-d-08).
+_PERSIST_DECISIONS: Final = """
+UNWIND $decisions AS d
+MATCH (a:Agent {id: d.agent_id})
+MATCH (c:Cycle {cycle_id: $cycle_id})
+CREATE (dec:Decision {
+    decision_id: d.decision_id,
+    cycle_id: $cycle_id,
+    round: $round_num,
+    signal: d.signal,
+    confidence: d.confidence,
+    sentiment: d.sentiment,
+    rationale: d.rationale,
+    control: d.control,
+    error_kind: d.error_kind
+})
+CREATE (a)-[:MADE]->(dec)
+CREATE (dec)-[:FOR]->(c)
+RETURN count(dec) AS created
+"""
+
+# OPTIONAL MATCH + FOREACH: a citation of an unknown agent id is reported
+# back (written = false) instead of silently matching nothing.
+_PERSIST_CITATIONS: Final = """
+UNWIND $cited AS c
+MATCH (dec:Decision {decision_id: c.decision_id})
+OPTIONAL MATCH (agent:Agent {id: c.cited_id})
+FOREACH (ignored IN CASE WHEN agent IS NULL THEN [] ELSE [1] END |
+    CREATE (dec)-[:CITED]->(agent))
+RETURN c.cited_id AS cited_id, agent IS NOT NULL AS written
+"""
+
+_PERSIST_EPISODES: Final = """
+UNWIND $episodes AS ep
+MATCH (d:Decision {decision_id: ep.decision_id})
+CREATE (re:RationaleEpisode {
+    rationale: ep.rationale,
+    timestamp: datetime(),
+    peer_context_received: ep.peer_context_received,
+    flip_type: ep.flip_type,
+    round: ep.round_num,
+    cycle_id: ep.cycle_id
+})
+CREATE (d)-[:HAS_EPISODE]->(re)
+RETURN count(re) AS n
+"""
+
+# Name-only MATCH keeps the baseline semantics (docs/DECISIONS.md#p11-d-08).
+_PERSIST_REFERENCES: Final = """
+UNWIND $matches AS m
+MATCH (d:Decision {decision_id: m.decision_id})
+MATCH (e:Entity {name: m.entity_name})
+CREATE (d)-[:REFERENCES {match_type: m.match_type}]->(e)
+RETURN count(*) AS n
+"""
 
 # Bracket display names and order come from config so report rows match the
 # live frame (simulation.compute_bracket_summaries) — docs/DECISIONS.md#adr-swarm-composition-v2.
@@ -684,6 +753,145 @@ class GraphStateManager:
         """Close the Neo4j driver connection."""
         await self._driver.close()
         self._log.info("driver_closed")
+
+    async def persist_round(
+        self,
+        cycle_id: str,
+        round_num: int,
+        decisions: Sequence[tuple[str, AgentDecision]],
+        *,
+        decision_ids: Sequence[str],
+        episodes: Sequence[EpisodeRecord],
+        entity_matches: Sequence[EntityMatch],
+    ) -> PersistRoundResult:
+        """Write one round in a single transaction (docs/DECISIONS.md#p4-d-08).
+
+        Decisions (with error_kind), CITED, RationaleEpisodes and REFERENCES
+        commit together or not at all. Fewer Decisions or episodes than
+        passed raises Neo4jWriteError and rolls the round back; citations of
+        unknown agents are counted and logged, never raised. Every Decision
+        is stored with control = false (no seeded holdout on this path;
+        docs/DECISIONS.md#adr-diverse-peer-context).
+        """
+        if len(decision_ids) != len(decisions):
+            raise ValueError(f"decision_ids length {len(decision_ids)} != decisions length {len(decisions)}")
+        pairs = list(zip(decision_ids, decisions, strict=True))
+        decision_rows = [
+            {
+                "decision_id": did,
+                "agent_id": agent_id,
+                "signal": d.signal.value,
+                "confidence": d.confidence,
+                "sentiment": d.sentiment,
+                "rationale": d.rationale,
+                "control": False,
+                "error_kind": d.error_kind,
+            }
+            for did, (agent_id, d) in pairs
+        ]
+        cited_rows = [{"decision_id": did, "cited_id": cited} for did, (_, d) in pairs for cited in d.cited_agents]
+        episode_rows = [
+            {
+                "decision_id": e.decision_id,
+                "rationale": e.rationale,
+                "peer_context_received": e.peer_context_received,
+                "flip_type": e.flip_type,
+                "round_num": e.round_num,
+                "cycle_id": e.cycle_id,
+            }
+            for e in episodes
+        ]
+        reference_rows = [
+            {"decision_id": m.decision_id, "entity_name": m.entity_name, "match_type": m.match_type}
+            for m in entity_matches
+        ]
+        summary, dropped = await self._write(
+            self._persist_round_tx,
+            cycle_id,
+            round_num,
+            decision_rows,
+            cited_rows,
+            episode_rows,
+            reference_rows,
+            op="persist_round",
+        )
+        if dropped:
+            self._log.warning(
+                "citations_dropped",
+                cycle_id=cycle_id,
+                round_num=round_num,
+                count=len(dropped),
+                cited_ids=",".join(sorted(set(dropped))[:20]),
+            )
+        self._log.info(
+            "round_persisted",
+            cycle_id=cycle_id,
+            round_num=round_num,
+            decisions=summary.decisions_written,
+            episodes=summary.episodes_written,
+            citations=summary.citations_written,
+            references=summary.references_written,
+        )
+        return summary
+
+    @staticmethod
+    async def _persist_round_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        round_num: int,
+        decisions: list[dict[str, Any]],
+        cited: list[dict[str, str]],
+        episodes: list[dict[str, Any]],
+        references: list[dict[str, str]],
+    ) -> tuple[PersistRoundResult, tuple[str, ...]]:
+        """Transaction body; raising here rolls the whole round back."""
+        result = await tx.run(_PERSIST_DECISIONS, decisions=decisions, cycle_id=cycle_id, round_num=round_num)
+        record = await result.single()
+        created = int(record["created"]) if record else 0
+        if created < len(decisions):
+            raise Neo4jWriteError(
+                f"persist_round created {created} of {len(decisions)} decisions "
+                f"(cycle {cycle_id}, round {round_num}): missing Agent or Cycle node",
+                op="persist_round",
+            )
+
+        citations_written = 0
+        dropped: list[str] = []
+        if cited:
+            result = await tx.run(_PERSIST_CITATIONS, cited=cited)
+            async for row in result:
+                if row["written"]:
+                    citations_written += 1
+                else:
+                    dropped.append(str(row["cited_id"]))
+
+        episodes_written = 0
+        if episodes:
+            result = await tx.run(_PERSIST_EPISODES, episodes=episodes)
+            record = await result.single()
+            episodes_written = int(record["n"]) if record else 0
+            if episodes_written < len(episodes):
+                raise Neo4jWriteError(
+                    f"persist_round created {episodes_written} of {len(episodes)} episodes "
+                    f"(cycle {cycle_id}, round {round_num})",
+                    op="persist_round",
+                )
+
+        references_written = 0
+        if references:
+            result = await tx.run(_PERSIST_REFERENCES, matches=references)
+            record = await result.single()
+            references_written = int(record["n"]) if record else 0
+
+        summary = PersistRoundResult(
+            decision_ids=tuple(str(d["decision_id"]) for d in decisions),
+            decisions_written=created,
+            episodes_written=episodes_written,
+            citations_written=citations_written,
+            citations_dropped=len(dropped),
+            references_written=references_written,
+        )
+        return summary, tuple(dropped)
 
     # ------------------------------------------------------------------
     # Decision write/read methods (Plan 02)
