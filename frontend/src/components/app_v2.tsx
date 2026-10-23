@@ -471,7 +471,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
       <InlineError error={actionError} onDismiss={() => setActionError(null)} />
       <RunErrorBanner />
 
-      {/* Signal Wire ticker — real ported component (DEV-only mock per KR-41.6-14) */}
+      {/* Signal Wire ticker — live data_source_audit slice (docs/DECISIONS.md#kr-41-1-02) */}
       <SignalWire onInspect={() => setUi((u) => ({ ...u, dataSourcesOpen: true }))} />
 
       {/* Governor paused/crisis warning — dismissible banner, NOT a takeover.

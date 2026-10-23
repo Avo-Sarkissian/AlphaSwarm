@@ -39,10 +39,10 @@ Decision context lives in [DECISIONS.md](DECISIONS.md), and anchors are cited as
 | # | Item | Status | Evidence |
 |---|---|---|---|
 | 2.1 | Remove the unused `textual` dependency (BUGFIX B20). The TUI was deleted in 76b7537 | done (2026-10: `uv remove textual`) | `pyproject.toml:14`; no `textual` import in `src/` or `tests/` |
-| 2.2 | Remove dead code. Peer context: `_dispatch_round` (docstring says "UNUSED IN PRODUCTION"; `tests/test_simulation.py` still exercises it, so those tests go too), `GraphStateManager.read_peer_decisions`, `read_ranked_posts`, and `write_read_post_edges` unless 1.1 revives it. Also: `_push_top_rationales` (its calls were removed in 260512-jqn; only `tests/test_state.py:375` calls it), `OllamaClient.generate()` (no production caller; narratives go through `provider.chat`, `simulation.py:1626`), and the frontend `MemoryPausedState` (exported, never imported) plus the DEV tweak "Demo state → Mem ceiling", which sets a `demoState` nothing reads | partly done (2026-10): backend dead code removed; frontend `MemoryPausedState` and the Demo-state tweak remain | `simulation.py:741-913`, `simulation.py:317`; `graph.py:585` (`read_ranked_posts`), `graph.py:671` (`write_read_post_edges`), `graph.py:727` (`read_peer_decisions`); `ollama_client.py:132-195`; `fe/components/states.jsx:116`, `fe/components/tweaks.jsx:53-63`, `fe/components/app_v2.tsx:32,271-277` |
+| 2.2 | Remove dead code. Peer context: `_dispatch_round` (docstring says "UNUSED IN PRODUCTION"; `tests/test_simulation.py` still exercises it, so those tests go too), `GraphStateManager.read_peer_decisions`, `read_ranked_posts`, and `write_read_post_edges` unless 1.1 revives it. Also: `_push_top_rationales` (its calls were removed in 260512-jqn; only `tests/test_state.py:375` calls it), `OllamaClient.generate()` (no production caller; narratives go through `provider.chat`, `simulation.py:1626`), and the frontend `MemoryPausedState` (exported, never imported) plus the DEV tweak "Demo state → Mem ceiling", which sets a `demoState` nothing reads | done (2026-10): backend dead code removed; frontend `MemoryPausedState` and the Tweaks panel deleted | `simulation.py:741-913`, `simulation.py:317`; `graph.py:585` (`read_ranked_posts`), `graph.py:671` (`write_read_post_edges`), `graph.py:727` (`read_peer_decisions`); `ollama_client.py:132-195`; `fe/components/states.jsx:116`, `fe/components/tweaks.jsx:53-63`, `fe/components/app_v2.tsx:32,271-277` |
 | 2.3 | Remove the TUI sentinel `.alphaswarm/last_report.json` writer, which no longer has a reader (Phase 15 D-05) | done (2026-10) | `report.py:346-364` (`write_sentinel`), called from `cli.py:796` and `web/routes/report.py:394`; files exist at `.alphaswarm/last_report.json` and `frontend/.alphaswarm/last_report.json` |
 | 2.4 | Remove dead config `OllamaSettings.num_parallel` and `max_loaded_models`, which are never read. `.env.example` sets the misleading `ALPHASWARM_OLLAMA__NUM_PARALLEL=16`. The real knob is the Ollama server env (RUNBOOK) | open | `config.py:40-41`; `.env.example` (Ollama block) |
-| 2.5 | Fix stale comments: `simulation.py:1100-1103` (claims R2 uses `read_ranked_posts`); `fe/components/v2.tsx:14-16` and `app_v2.tsx:4` (KR-41.6-08 hardcoded model, now closed); `web/simulation_manager.py:157,212` (cite `simulation.py:1109`, actual ~1507); `web/app.py:219-221` ("Vue SPA", "Vue Router"); `fe/components/v2.tsx:954-967` (25-50 min advisory copy predates MLX, now about 2-5 min); `web/routes/replay.py:29` and `fe/api/replay.ts:11` (claim `round_count` is "always 3", false since 2-round cycles) | partly done (2026-10): fixed are the `simulation.py` comment (it says the in-memory diverse path replaced `read_ranked_posts`, which was deleted in 2026-10), the `web/simulation_manager.py` line citations, the `web/app.py` Vue wording and the `round_count` comments (the cycle's `num_rounds`, 2 or 3). Open: the `fe/components/v2.tsx` and `app_v2.tsx` model notes and the `v2.tsx` advisory wait copy | as listed |
+| 2.5 | Fix stale comments: `simulation.py:1100-1103` (claims R2 uses `read_ranked_posts`); `fe/components/v2.tsx:14-16` and `app_v2.tsx:4` (KR-41.6-08 hardcoded model, now closed); `web/simulation_manager.py:157,212` (cite `simulation.py:1109`, actual ~1507); `web/app.py:219-221` ("Vue SPA", "Vue Router"); `fe/components/v2.tsx:954-967` (25-50 min advisory copy predates MLX, now about 2-5 min); `web/routes/replay.py:29` and `fe/api/replay.ts:11` (claim `round_count` is "always 3"; fixed 2026-10) | partly done (2026-10): fixed are the `simulation.py` comment (it says the in-memory diverse path replaced `read_ranked_posts`, which was deleted in 2026-10), the `web/simulation_manager.py` line citations, the `web/app.py` Vue wording and the `round_count` comments (the cycle's `num_rounds`, 2 or 3). Open: the `fe/components/v2.tsx` and `app_v2.tsx` model notes and the `v2.tsx` advisory wait copy | as listed |
 | 2.6 | Replace `.planning/...` comment links with DECISIONS anchors | done (2026-10-03, GSD retirement) | `seed.py:70`; `simulation.py:1103`; `tests/test_seed_pipeline.py:93`; `modelfiles/Modelfile.orchestrator:17`; `web/routes/holdings.py:28,58` |
 | 2.7 | Fold `tests/test_replay_red.py` (a "TDD RED" scaffold that now passes) into the regular replay tests (Phase 41.2 D-07) | open (low) | `tests/test_replay_red.py:1-12` |
 | 2.8 | Give the import-linter subprocess test its own `UV_CACHE_DIR` (Phase 41.2 D-09) | open (low) | `tests/invariants/test_importlinter_contract.py:27-30` |
@@ -88,15 +88,11 @@ needs fresh cycles, because history before June 2026 was wiped
 These are accepted gaps; see DECISIONS §4 for evidence. Open ones that would
 improve the product:
 - Per-agent `flipped` and `roundLastSpoke` on the wire (KR-41.1-03).
-- Cycle-list metrics: the data already exists on the Cycle node (KR-41.1-07).
 - Rationale citations on the wire (KR-41.1-10).
 - Streaming interviews (KR-41.1-11).
 - Replay rewind (KR-41.1-06).
-- Structured error stream (KR-41.1-08).
 - AdvisoryV2 shares, basis, last price, sentiment (KR-41.6-01), and the Risk tab (KR-41.6-05).
-- Cycle compare (KR-41.6-07).
 - Runtime governor and agent-count settings (KR-41.6-06).
-- Live Data Sources view (KR-41.1-02).
 - Overflow-menu placeholders "Coming in v6.x": What-if Compare, Multi-seed Synthesis, Portfolio Stress Test, Customize Brackets (KR-41.6-02).
 
 ## 6. Roadmap phases left open in `.planning/ROADMAP.md`
@@ -126,17 +122,19 @@ tick them off there.
 | Agent dots fill in progressively during a round and do not vanish at round entry | `state.py` (`StateStore.begin_run`, `set_phase`); `batch_dispatcher.py` (`_safe_agent_inference`) | likely done |
 | Rationale feed updates live mid-round; R3 rationales stay after completion | `state.py` `_rationale_window`; `web/wire.py` (`build_frame`) | likely done |
 | PARALLEL SLOTS shows live numbers | `fe/adapter/frame.ts:140-149` | likely done |
-| Signal Wire shows real provider calls, not the mock seed | `data_audit.py`; `fe/hooks/useDataSourceAudit.ts` | likely done (falls back to the DEV mock when empty) |
+| Signal Wire shows real provider calls, not the mock seed | `data_audit.py`; `fe/hooks/useDataSourceAudit.ts`; `fe/lib/dataSources.ts` | likely done (no mock fallback since 2026-10: an empty audit says so) |
 | From round 2 on, Top Influencers ranks by CITED BY (citations received) for the round on screen, and the top strip shows "N active edges" | `fe/lib/influence.ts`; `fe/hooks/useCycleEdges.ts`; `fe/components/app_v2.tsx` (Top Influencers panel) | likely done |
 | Advisory auto-fires, one item per holding, Overview tiles show real values; report auto-generates afterwards | `web/app.py:118`; `advisory/engine.py:148-260`; `web/routes/advisory.py:288` | likely done |
 | InterviewV2 returns real `/api/interview` answers (no PERSONA filler) | `fe/components/interview_v2.tsx` | likely done |
 | Onboarding lists each required component that is down with its fix, offers Re-check and Skip to dashboard, and enables Run only when /api/health is ok | `fe/components/onboarding.tsx` (`ObSeedStep`); `fe/lib/health.ts` | likely done |
 | AdvisoryV2 four tabs render against a completed cycle; stubs show "—" | `fe/components/v2.tsx` (`AdvisoryV2`) | unknown |
 | BracketDeepDive shows members live, and influence counts for the round on screen from round 2's edges on ("—" before them) | `fe/components/bracket_deep.tsx`; `fe/hooks/useCycleEdges.ts` | unknown |
-| Memory-paused overlay via a DEV tweak (41.1 row 26) | The full-screen `MemoryPausedState` (`fe/components/states.jsx:116`) is never imported, and the tweak "Demo state → Mem ceiling" (`tweaks.jsx:59`) sets a `demoState` nothing reads. Live governor PAUSED/CRISIS shows a dismissible banner instead (`app_v2.tsx:259-263, 508-534`) | superseded: retire the row and delete the dead code (item 2.2) |
+| Memory-paused overlay via a DEV tweak (41.1 row 26) | The full-screen `MemoryPausedState` and the "Demo state → Mem ceiling" tweak were deleted (2026-10, item 2.2). Live governor PAUSED/CRISIS shows a dismissible banner instead (`app_v2.tsx:255-263, 477-503`) | superseded: retire the row |
 | CycleHistory, Settings, and Report modals render as styled takeovers | `fe/styles.css` (ch-/st- blocks) | likely done |
 
 ## 8. Closed by later work (kept for traceability)
+
+- **Fake UI removed (2026-10).** KR-41.1-02, KR-41.1-07, KR-41.1-08, KR-41.6-07 and KR-41.6-11 closed; KR-41.6-14 obsolete; cycle history pages past the newest ten cycles. See DECISIONS §4.
 
 - **Debug `parallel-swarm-serial-dispatch` (2026-05-07): done.**
   - Dispatch was never serial.
