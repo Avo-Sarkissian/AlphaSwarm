@@ -216,8 +216,7 @@ function Legend() {
 interface UiState {
   shockOpen: boolean;
   cyclePickerOpen: boolean;
-  interviewAgent: any | null;
-  interviewV2Agent: any | null;
+  interviewAgentId: string | null;
   reportOpen: boolean;
   reportCycleId: string | null; // cycle picked in CycleHistory (null = current)
   advisoryOpen: boolean;
@@ -271,8 +270,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
   const [ui, setUi] = useState<UiState>({
     shockOpen: false,
     cyclePickerOpen: false,
-    interviewAgent: null,
-    interviewV2Agent: null,
+    interviewAgentId: null,
     reportOpen: false,
     reportCycleId: null,
     advisoryOpen: false,
@@ -335,11 +333,8 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
     const rect = e.currentTarget.closest('.canvas-wrap').getBoundingClientRect();
     setUi(u => ({ ...u, tooltip: { agent, x: e.clientX - rect.left, y: e.clientY - rect.top } }));
   };
-  const onAgentClick = (agent: any) => setUi(u => ({ ...u, interviewV2Agent: agent }));
-  const onCiteClick = (agentId: string) => {
-    const a = agents.find(x => x.id === agentId);
-    if (a) setUi(u => ({ ...u, interviewAgent: a }));
-  };
+  const openInterview = (agentId: string) => setUi((u) => ({ ...u, interviewAgentId: agentId }));
+  const onAgentClick = (agent: { id: string }) => openInterview(agent.id);
 
   // Run gate: cost confirmation for cloud/mixed runs, then simStart. It keeps
   // the failure message and a pending flag for the Run control. After an
@@ -537,7 +532,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
                 </div>
               ) : topInfluencers.map(r => (
                 <div key={r.id} className="influencer-row">
-                  <span className="infl-id" onClick={() => onCiteClick(r.id)}>{r.id}</span>
+                  <span className="infl-id" onClick={() => openInterview(r.id)}>{r.id}</span>
                   <span className="infl-bracket">{r.bracket}</span>
                   <div className="infl-bar"><span style={{width: `${r.barPct}%`}} /></div>
                   <span className="infl-num">{r.citedBy}</span>
@@ -623,8 +618,8 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
             <div className="panel-body">
               <RationaleFeed
                 rows={feedRows}
-                onAgentClick={onCiteClick}
-                onCiteClick={onCiteClick}
+                onAgentClick={openInterview}
+                onCiteClick={openInterview}
               />
             </div>
           </div>
@@ -633,23 +628,14 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
 
       {/* W4 real-wired modal mounts (Plan 41.6-04 task 2). All stub overlays
           replaced — InterviewV2 and BracketDeepDive now mount real components. */}
-      {ui.interviewV2Agent && (
-        <InterviewV2
-          agent={ui.interviewV2Agent}
-          onClose={() => setUi((u) => ({ ...u, interviewV2Agent: null }))}
-        />
-      )}
-      {ui.interviewAgent && (
-        <InterviewV2
-          agent={ui.interviewAgent}
-          onClose={() => setUi((u) => ({ ...u, interviewAgent: null }))}
-        />
+      {ui.interviewAgentId && (
+        <InterviewV2 agentId={ui.interviewAgentId} onClose={() => setUi((u) => ({ ...u, interviewAgentId: null }))} />
       )}
       {ui.bracketDeepDive && (
         <BracketDeepDive
           bracket={ui.bracketDeepDive}
           agents={agents.filter((a) => a.bracket === ui.bracketDeepDive.bracket)}
-          onAgentInterview={(a) => setUi((u) => ({ ...u, bracketDeepDive: null, interviewV2Agent: a }))}
+          onAgentInterview={(a) => setUi((u) => ({ ...u, bracketDeepDive: null, interviewAgentId: a.id }))}
           onClose={() => setUi((u) => ({ ...u, bracketDeepDive: null }))}
         />
       )}

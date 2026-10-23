@@ -14,12 +14,13 @@ export interface InterviewResponse {
 export async function askAgent(
   agentId: string,
   message: string,
+  cycleId?: string | null,
 ): Promise<InterviewResponse> {
   const trimmed = message.trim();
   if (!trimmed) throw new Error('message required');
-  return apiPost<InterviewResponse>(
-    `/api/interview/${encodeURIComponent(agentId)}`,
-    { message: trimmed },
-    { timeoutMs: INTERVIEW_TIMEOUT_MS },
-  );
+  const body: { message: string; cycle_id?: string } = { message: trimmed };
+  if (cycleId) body.cycle_id = cycleId;
+  return apiPost<InterviewResponse>(`/api/interview/${encodeURIComponent(agentId)}`, body, {
+    timeoutMs: INTERVIEW_TIMEOUT_MS,
+  });
 }
