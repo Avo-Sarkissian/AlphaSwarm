@@ -126,7 +126,7 @@ ignore_missing_imports = true
 root_package = "alphaswarm"
 
 [[tool.importlinter.contracts]]
-name = "Holdings isolation — only advisory, services.advisory and web.routes.{holdings,advisory} may import alphaswarm.holdings"
+name = "Holdings isolation — only advisory, services.advisory and web.routes.holdings may import alphaswarm.holdings"
 type = "forbidden"
 source_modules = [
     "alphaswarm.app",
@@ -222,13 +222,11 @@ forbidden_modules = ["alphaswarm.holdings"]
 ignore_imports = [
     "alphaswarm.web.routes.holdings -> alphaswarm.holdings",
     "alphaswarm.web.routes.holdings -> alphaswarm.holdings.loader",
-    # Phase 41 D-20 (advisory wiring): the advisory route is in source_modules
-    # (so the FastAPI layer keeps its forbidden-import coverage), but it must
-    # be able to import the whitelisted alphaswarm.advisory package AND type-
-    # annotate PortfolioSnapshot via a TYPE_CHECKING import. Both are allowed
-    # because alphaswarm.advisory is itself on the D-04 whitelist.
+    # The advisory route is in source_modules (so the FastAPI layer keeps its
+    # forbidden-import coverage) and imports the whitelisted alphaswarm.advisory
+    # package for AdvisoryReport; it reaches holdings only through AdvisoryService
+    # (docs/DECISIONS.md#adr-holdings-isolation).
     "alphaswarm.web.routes.advisory -> alphaswarm.advisory",
-    "alphaswarm.web.routes.advisory -> alphaswarm.holdings.types",
     # The advisory service is the third sanctioned holdings consumer. It may import
     # the advisory package and the holdings TYPES only, never the loader
     # (docs/DECISIONS.md#adr-holdings-isolation).

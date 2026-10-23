@@ -162,11 +162,6 @@ async def wire_web_state(
     # (docs/DECISIONS.md#p35-d-06).
     app.state.interview_sessions = {}
     stack.push_async_callback(close_interview_sessions, app)
-    # Slots read by the route-level advisory job starter until that route moves
-    # onto AdvisoryService.
-    app.state.advisory_task = None
-    app.state.advisory_generation_error = {}
-    stack.push_async_callback(_cancel_route_jobs, app)
     # Pin run provenance to the code this process loaded: cycles stamp this
     # revision even if HEAD moves before the first run (docs/DECISIONS.md#adr-cycle-metrics).
     await asyncio.to_thread(current_git_revision)
@@ -224,15 +219,6 @@ async def wire_web_state(
     broadcaster_task = start_broadcaster(app_state.state_store, connection_manager, replay_manager)
     app.state.broadcaster_task = broadcaster_task
     stack.push_async_callback(_cancel_and_wait, broadcaster_task)
-
-
-async def _cancel_route_jobs(app: FastAPI) -> None:
-    """Cancel an advisory task the route-level starter left running."""
-    task = getattr(app.state, "advisory_task", None)
-    if task is not None and not task.done():
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
 
 
 def _warn_legacy_origin_settings(settings: AppSettings) -> None:

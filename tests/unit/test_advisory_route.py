@@ -1,30 +1,34 @@
-"""POST/GET /api/advisory/{cycle_id} (docs/DECISIONS.md#adr-background-tasks)."""
+"""POST/GET /api/advisory/{cycle_id} over AdvisoryService + JobRunner (docs/DECISIONS.md#adr-background-tasks)."""
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
-import os
-import stat
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import alphaswarm.web.guards as guards_module
+import alphaswarm.services.runtime as runtime_module
 import alphaswarm.web.routes.advisory as advisory_module
 from alphaswarm.advisory import AdvisoryItem, AdvisoryReport
 from alphaswarm.errors import InferenceConfigError, Neo4jUnavailableError
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
-from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
-from alphaswarm.inference.factory import BuiltProviders
+from alphaswarm.services.advisory import (
+    CLOUD_ADVISORY_MESSAGE,
+    MODEL_CHECK_FAILED_MESSAGE,
+    AdvisoryNotAllowedError,
+    AdvisoryService,
+)
 from alphaswarm.state import JobStatus, StateStore
 from alphaswarm.web.routes.advisory import router as advisory_router
 from tests.support.log_capture import RenderedLog
@@ -34,11 +38,11 @@ from tests.support.web_app import (
     CYCLE_UNKNOWN,
     FakeCycleGraph,
     StaticPortfolioCache,
+    block_service_jobs,
     make_route_app,
+    offline_runtime,
     route_test_settings,
 )
-
-_REAL_SYNTHESIS = advisory_module._run_advisory_synthesis
 
 
 def _portfolio() -> PortfolioSnapshot:
@@ -78,11 +82,17 @@ def _unreadable_contents() -> list[str]:
 
 
 @pytest.fixture(autouse=True)
-def _blocked_synthesis(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _blocked(app_state: Any, cycle_id: str, portfolio: Any) -> None:
-        await asyncio.Event().wait()
+def _blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    block_service_jobs(monkeypatch)
 
-    monkeypatch.setattr(advisory_module, "_run_advisory_synthesis", _blocked)
+
+def _no_job_started(app: FastAPI) -> bool:
+    return _store(app).job_statuses().advisory.state != "running"
+
+
+def _use_ollama_client(app: FastAPI, client: object) -> None:
+    """Swap the OllamaClient the advisory gate reads its host from (the shared runtime's)."""
+    app.state.runtime.inference._ollama_client = client
 
 
 def _app(
@@ -111,7 +121,6 @@ def test_post_202_for_complete_cycle_while_phase_is_idle(tmp_path: Path) -> None
         assert r.status_code == 202
         assert r.json() == {"status": "accepted", "cycle_id": CYCLE_A}
         assert _store(app).job_statuses().advisory == JobStatus("running", CYCLE_A)
-        assert isinstance(app.state.advisory_task, asyncio.Task)
 
 
 def test_post_404_for_unknown_cycle_starts_nothing(tmp_path: Path) -> None:
@@ -120,7 +129,7 @@ def test_post_404_for_unknown_cycle_starts_nothing(tmp_path: Path) -> None:
         r = client.post(f"/api/advisory/{CYCLE_UNKNOWN}")
         assert r.status_code == 404
         assert r.json()["detail"]["error"] == "cycle_not_found"
-        assert app.state.advisory_task is None
+        assert _no_job_started(app)
 
 
 def test_post_422_for_unfinished_cycle(tmp_path: Path) -> None:
@@ -140,38 +149,34 @@ def test_post_409_while_a_simulation_runs(tmp_path: Path) -> None:
     assert r.json()["detail"]["error"] == "simulation_running"
 
 
-class _RunStartsDuringHoldingsRead(StaticPortfolioCache):
-    """POST /api/simulate/start lands while the route awaits the holdings.
+def test_post_409_when_a_run_starts_during_the_gate(tmp_path: Path) -> None:
+    """POST /api/simulate/start lands while the route awaits the gate (config, holdings).
 
-    The run's start() probe passes because no job is marked running yet, so
-    the route must check again before it starts the job.
+    The run's start() probe passes because no job is marked running yet, so the
+    route must check again before it starts the job.
     """
-
-    def __init__(self, snapshot: object, sim_manager: Any) -> None:
-        super().__init__(snapshot)
-        self._sim_manager = sim_manager
-
-    async def get(self) -> object | None:
-        self._sim_manager._is_running = True
-        return await super().get()
-
-
-def test_post_409_when_a_run_starts_during_the_holdings_read(tmp_path: Path) -> None:
     app = _app(tmp_path, portfolio=_portfolio())
     with TestClient(app) as client:
-        app.state.portfolio_cache = _RunStartsDuringHoldingsRead(
-            _portfolio(),
-            app.state.sim_manager,
-        )
+        service = app.state.advisory_service
+        real_gate = service.gate
+
+        async def _gate(cycle_id: str) -> Any:
+            app.state.sim_manager._is_running = True
+            return await real_gate(cycle_id)
+
+        service.gate = _gate
         r = client.post(f"/api/advisory/{CYCLE_A}")
         assert r.status_code == 409
         assert r.json()["detail"]["error"] == "simulation_running"
-        assert app.state.advisory_task is None
         assert _store(app).job_statuses().advisory == JobStatus()
 
 
-def test_post_503_without_holdings(tmp_path: Path) -> None:
-    with TestClient(_app(tmp_path, portfolio=None)) as client:
+@pytest.mark.parametrize("empty", [False, True], ids=["no-file", "no-holdings"])
+def test_post_503_without_holdings(tmp_path: Path, empty: bool) -> None:
+    portfolio = (
+        PortfolioSnapshot(holdings=(), as_of=datetime.now(UTC), account_number_hash="cafebabe") if empty else None
+    )
+    with TestClient(_app(tmp_path, portfolio=portfolio)) as client:
         r = client.post(f"/api/advisory/{CYCLE_A}")
     assert r.status_code == 503
     assert r.json()["detail"]["error"] == "holdings_unavailable"
@@ -204,7 +209,7 @@ def test_post_409_for_cloud_orchestrator_without_opt_in(tmp_path: Path) -> None:
         r = client.post(f"/api/advisory/{CYCLE_A}")
         assert r.status_code == 409
         assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
-        assert app.state.advisory_task is None
+        assert _no_job_started(app)
 
 
 def test_cloud_guard_runs_before_the_holdings_are_touched(tmp_path: Path) -> None:
@@ -236,7 +241,7 @@ def test_unreadable_inference_config_fails_closed_without_path(tmp_path: Path) -
         assert r.status_code == 422
         assert r.json()["detail"]["error"] == "inference_config_invalid"
         assert str(tmp_path) not in r.text
-        assert app.state.advisory_task is None
+        assert _no_job_started(app)
         assert app.state.portfolio_cache.get_calls == 0
 
 
@@ -287,12 +292,7 @@ def test_get_404_500_and_409(tmp_path: Path) -> None:
     app = _app(tmp_path)
     with TestClient(app) as client:
         assert client.get(f"/api/advisory/{CYCLE_A}").json()["detail"]["error"] == ("advisory_not_found")
-        app.state.advisory_generation_error = {
-            CYCLE_A: {
-                "error": "advisory_generation_failed",
-                "message": "Advisory generation failed",
-            },
-        }
+        app.state.runtime.jobs.record_refusal("advisory", CYCLE_A, "advisory_generation_failed")
         failed = client.get(f"/api/advisory/{CYCLE_A}")
         assert failed.status_code == 500
         assert failed.json()["detail"]["cycle_id"] == CYCLE_A
@@ -302,85 +302,30 @@ def test_get_404_500_and_409(tmp_path: Path) -> None:
         assert running.json()["detail"]["error"] == "advisory_generation_in_progress"
 
 
-async def test_done_callback_failure_records_class_name_only() -> None:
-    app = FastAPI()
-    app.state.app_state = SimpleNamespace(state_store=StateStore())
-    app.state.advisory_generation_error = {}
+async def test_get_500_after_a_failed_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failed job is recorded per cycle; GET answers its code with fixed text only."""
 
-    async def _fail() -> None:
+    async def _fail(self: AdvisoryService, cycle_id: str) -> None:
         raise ValueError("ZZZT leaked into an exception message")
 
-    task = asyncio.create_task(_fail())
-    with pytest.raises(ValueError):
-        await task
-    advisory_module._on_advisory_task_done(task, CYCLE_A, app)
-    assert app.state.advisory_generation_error[CYCLE_A] == {
+    monkeypatch.setattr(AdvisoryService, "generate", _fail)
+    app = _app(tmp_path, portfolio=_portfolio())
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            assert (await client.post(f"/api/advisory/{CYCLE_A}")).status_code == 202
+            task = next(t for t in asyncio.all_tasks() if t.get_name() == f"advisory_{CYCLE_A}")
+            with contextlib.suppress(ValueError):
+                await task
+            response = await client.get(f"/api/advisory/{CYCLE_A}")
+    assert response.status_code == 500
+    assert response.json()["detail"] == {
         "error": "advisory_generation_failed",
-        "message": "Advisory generation failed (ValueError)",
+        "message": "Advisory generation failed; see the server log",
+        "cycle_id": CYCLE_A,
     }
-    assert app.state.app_state.state_store.job_statuses().advisory == JobStatus(
-        "failed",
-        CYCLE_A,
-        "advisory_generation_failed",
-    )
-
-
-class _FakeProvider:
-    role = "orchestrator"
-    model = "fake-orch"
-
-    async def prepare(self) -> None:
-        return None
-
-    async def teardown(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
-
-
-class _FakeReport:
-    affected_holdings = 1
-
-    def model_dump_json(self, *, indent: int) -> str:
-        return json.dumps({"cycle_id": CYCLE_A, "items": []}, indent=indent)
-
-
-async def test_synthesis_writes_atomically_into_advisory_dir(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    provider = _FakeProvider()
-    built = BuiltProviders(
-        orchestrator=provider,  # type: ignore[arg-type]
-        worker=provider,  # type: ignore[arg-type]
-        budget_meter=BudgetMeter(None, {}),
-    )
-
-    async def _synthesize(**_: Any) -> _FakeReport:
-        return _FakeReport()
-
-    # load_inference_config is not patched: route_test_settings points it at a missing
-    # file, so the job's cloud re-check sees the local default config.
-    monkeypatch.setattr(advisory_module, "build_providers", lambda *a, **k: built)
-    monkeypatch.setattr(advisory_module, "synthesize", _synthesize)
-    # The job asks the shared client for its host and whether the model runs remotely.
-    client = SimpleNamespace(
-        base_url="http://127.0.0.1:11434",
-        is_remote_model=AsyncMock(return_value=False),
-    )
-    app_state = SimpleNamespace(
-        settings=route_test_settings(tmp_path),
-        graph_manager=object(),
-        ollama_client=client,
-        model_manager=object(),
-    )
-    await _REAL_SYNTHESIS(app_state, CYCLE_A, _portfolio())  # type: ignore[arg-type]
-    out = tmp_path / "advisory" / f"{CYCLE_A}_advisory.json"
-    assert json.loads(out.read_text(encoding="utf-8"))["cycle_id"] == CYCLE_A
-    assert sorted(p.name for p in out.parent.iterdir()) == [out.name]
-    if os.name == "posix":
-        assert stat.S_IMODE(out.stat().st_mode) == 0o600
+    assert "ZZZT" not in response.text
+    assert _store(app).job_statuses().advisory == JobStatus("failed", CYCLE_A, "advisory_generation_failed")
 
 
 async def test_synthesis_fails_with_a_fixed_error_on_an_invalid_config(
@@ -396,27 +341,28 @@ async def test_synthesis_fails_with_a_fixed_error_on_an_invalid_config(
         "worker": {"provider": "ollama", "model": "alphaswarm-worker"},
     }
     settings.inference_config_path.write_text(json.dumps(roles), encoding="utf-8")
+    monkeypatch.undo()  # the real generate, not block_service_jobs' stand-in
     rendered = RenderedLog()
-    monkeypatch.setattr(advisory_module, "log", rendered)
-    monkeypatch.setattr(guards_module, "log", rendered, raising=False)
-    client = SimpleNamespace(
-        base_url="http://127.0.0.1:11434",
-        is_remote_model=AsyncMock(return_value=False),
-    )
-    app_state = SimpleNamespace(
-        settings=settings,
-        graph_manager=object(),
-        ollama_client=client,
-        model_manager=object(),
+    monkeypatch.setattr(runtime_module, "log", rendered)
+    runtime = offline_runtime(settings, graph=FakeCycleGraph({CYCLE_A: "complete"}))
+    graph: Any = runtime.app_state.graph_manager
+    portfolio = StaticPortfolioCache(_portfolio())
+    service = AdvisoryService(
+        graph=graph,
+        inference=runtime.inference,
+        jobs=runtime.jobs,
+        advisory_dir=tmp_path / "advisory",
+        portfolio=portfolio.get,  # type: ignore[arg-type]
     )
     with pytest.raises(InferenceConfigError) as exc_info:
-        await _REAL_SYNTHESIS(app_state, CYCLE_A, _portfolio())  # type: ignore[arg-type]
+        await service.generate(CYCLE_A)
     assert exc_info.value.__cause__ is None
     assert exc_info.value.__suppress_context__ is True
     assert canary not in str(exc_info.value)
-    assert rendered.events == ["job_inference_config_invalid"]
+    assert rendered.events == ["inference_config_invalid"]
     assert canary not in rendered.text
     assert '"error_type": "InferenceConfigFileError"' in rendered.text
+    assert portfolio.get_calls == 0
 
 
 # ------ Cloud-advisory guard: host and model checks at the route ------
@@ -456,7 +402,7 @@ def test_a_cloud_or_remote_ollama_orchestrator_needs_the_opt_in(
     """The guard reads the host the shared OllamaClient really connects to."""
     app = _ollama_cfg_app(tmp_path, model, opt_in=opt_in)
     with TestClient(app) as client:
-        app.state.app_state.ollama_client = SimpleNamespace(base_url=ollama_host)
+        _use_ollama_client(app, SimpleNamespace(base_url=ollama_host))
         r = client.post(f"/api/advisory/{CYCLE_A}")
         if opt_in:
             assert r.status_code == 202
@@ -464,13 +410,13 @@ def test_a_cloud_or_remote_ollama_orchestrator_needs_the_opt_in(
             assert r.status_code == 409
             assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
             assert "remote" in r.json()["detail"]["message"]
-            assert app.state.advisory_task is None
+            assert _no_job_started(app)
 
 
 def test_no_ollama_client_fails_closed(tmp_path: Path) -> None:
     app = _app(tmp_path, portfolio=_portfolio())
     with TestClient(app) as client:
-        app.state.app_state.ollama_client = None
+        _use_ollama_client(app, None)
         r = client.post(f"/api/advisory/{CYCLE_A}")
         assert r.status_code == 409
         assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
@@ -484,13 +430,13 @@ def test_a_permission_denied_config_fails_closed(
     def _denied(_settings: Any) -> InferenceConfig:
         raise PermissionError("permission denied")
 
-    monkeypatch.setattr("alphaswarm.web.guards.load_inference_config", _denied)
+    monkeypatch.setattr("alphaswarm.inference.config.load_inference_config", _denied)
     app = _app(tmp_path, portfolio=_portfolio())
     with TestClient(app) as client:
         r = client.post(f"/api/advisory/{CYCLE_A}")
         assert r.status_code == 422
         assert r.json()["detail"]["error"] == "inference_config_invalid"
-        assert app.state.advisory_task is None
+        assert _no_job_started(app)
         assert app.state.portfolio_cache.get_calls == 0
 
 
@@ -503,31 +449,60 @@ def test_a_refused_post_is_recorded_so_get_stops_reporting_pending(tmp_path: Pat
         r = client.get(f"/api/advisory/{CYCLE_A}")
     assert r.status_code == 500
     assert r.json()["detail"]["error"] == "cloud_advisory_disabled"
+    assert r.json()["detail"]["message"] == CLOUD_ADVISORY_MESSAGE
 
 
-async def test_a_refused_job_keeps_its_own_fixed_message() -> None:
-    """A job refused by the /api/show check keeps that check's message, not the generic one."""
-    app = FastAPI()
-    app.state.app_state = SimpleNamespace(state_store=StateStore())
+async def test_a_refused_job_is_reported_with_its_fixed_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A job refused under the lock (Settings switched to a cloud orchestrator) keeps
+    the cloud_advisory_disabled code and its fixed message for GET."""
 
-    async def _refused() -> None:
-        raise advisory_module.CloudAdvisoryDisabledError(
-            advisory_module._MODEL_CHECK_FAILED_MESSAGE,
-        )
+    async def _refused(self: AdvisoryService, cycle_id: str) -> None:
+        raise AdvisoryNotAllowedError("cloud_advisory_disabled", MODEL_CHECK_FAILED_MESSAGE)
 
-    task = asyncio.create_task(_refused())
-    with pytest.raises(advisory_module.CloudAdvisoryDisabledError):
-        await task
-    advisory_module._on_advisory_task_done(task, CYCLE_A, app)
-    assert app.state.advisory_generation_error[CYCLE_A] == {
-        "error": "cloud_advisory_disabled",
-        "message": advisory_module._MODEL_CHECK_FAILED_MESSAGE,
+    monkeypatch.setattr(AdvisoryService, "generate", _refused)
+    app = _app(tmp_path, portfolio=_portfolio())
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            assert (await client.post(f"/api/advisory/{CYCLE_A}")).status_code == 202
+            task = next(t for t in asyncio.all_tasks() if t.get_name() == f"advisory_{CYCLE_A}")
+            with contextlib.suppress(AdvisoryNotAllowedError):
+                await task
+            response = await client.get(f"/api/advisory/{CYCLE_A}")
+    assert response.status_code == 500
+    assert response.json()["detail"]["error"] == "cloud_advisory_disabled"
+    assert response.json()["detail"]["message"] == CLOUD_ADVISORY_MESSAGE
+    assert _store(app).job_statuses().advisory == JobStatus("failed", CYCLE_A, "cloud_advisory_disabled")
+
+
+def test_get_legacy_advisory_file_is_200(tmp_path: Path) -> None:
+    """Files written before ``stats``/``source`` existed still validate."""
+    legacy = {
+        "cycle_id": CYCLE_A,
+        "generated_at": "2026-09-01T12:00:00+00:00",
+        "portfolio_outlook": "Old.",
+        "items": [
+            {
+                "ticker": "ZZZT",
+                "consensus_signal": "BUY",
+                "confidence": 0.8,
+                "rationale_summary": "Old.",
+                "position_exposure": "1234.56",
+            }
+        ],
+        "total_holdings": 1,
+        "affected_holdings": 1,
     }
-    assert app.state.app_state.state_store.job_statuses().advisory == JobStatus(
-        "failed",
-        CYCLE_A,
-        "cloud_advisory_disabled",
-    )
+    (tmp_path / "advisory").mkdir()
+    (tmp_path / "advisory" / f"{CYCLE_A}_advisory.json").write_text(json.dumps(legacy))
+    with TestClient(_app(tmp_path)) as client:
+        response = client.get(f"/api/advisory/{CYCLE_A}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"][0]["source"] == "swarm"
+    assert body["stats"] is None and body["holdings_as_of"] is None
 
 
 @pytest.mark.parametrize("content", _unreadable_contents(), ids=["older-shape", "not-json", "extra-field"])

@@ -10,8 +10,9 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Final
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import APIRouter, FastAPI
@@ -192,6 +193,37 @@ def offline_runtime_factory(
                 events.append("runtime_close")
 
     return _factory
+
+
+def advisory_service_for(
+    settings: AppSettings,
+    *,
+    portfolio: object | None,
+    graph: object | None = None,
+    ollama_client: object | None = None,
+) -> AdvisoryService:
+    """An AdvisoryService over an offline runtime, wired like the web app.
+
+    The default Ollama client is a loopback host whose model runs locally, so the
+    advisory's cloud guards pass; *portfolio* sits behind StaticPortfolioCache.
+    """
+    app_state = offline_runtime(settings, graph=graph if graph is not None else object()).app_state
+    app_state.ollama_client = (  # type: ignore[assignment]
+        ollama_client
+        if ollama_client is not None
+        else SimpleNamespace(base_url="http://127.0.0.1:11434", is_remote_model=AsyncMock(return_value=False))
+    )
+    runtime = runtime_for(app_state)
+    service_graph: Any = app_state.graph_manager
+    return AdvisoryService(
+        graph=service_graph,
+        inference=runtime.inference,
+        jobs=runtime.jobs,
+        advisory_dir=settings.resolve_path(settings.advisory_dir),
+        portfolio=StaticPortfolioCache(portfolio).get,  # type: ignore[arg-type]
+        keep_last=settings.advisory_keep_last,
+        sector_map_path=settings.resolve_path(settings.sector_map_path),
+    )
 
 
 def block_service_jobs(monkeypatch: pytest.MonkeyPatch) -> None:

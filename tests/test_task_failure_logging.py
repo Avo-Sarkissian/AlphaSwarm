@@ -12,7 +12,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import FastAPI
 
 
 class _RecordingLog:
@@ -74,19 +73,3 @@ async def test_simulation_failure_is_logged_with_exc_info(monkeypatch: pytest.Mo
         "simulation_task_failed",
         {"error_type": "RuntimeError", "exc_info": late},
     ) in log.calls
-
-
-async def test_advisory_task_failure_is_logged_with_exc_info(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from alphaswarm.web.routes import advisory as module
-
-    log = _RecordingLog()
-    monkeypatch.setattr(module, "log", log)
-    boom = RuntimeError("synthesis exploded")
-    app = FastAPI()
-
-    module._on_advisory_task_done(await _failed_task(boom), "cycle-1", app)
-
-    assert log.kwargs_for("advisory_task_exception_recorded")["exc_info"] is boom
-    assert app.state.advisory_generation_error["cycle-1"]["error"] == "advisory_generation_failed"

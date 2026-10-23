@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 import structlog
 
-import alphaswarm.web.routes.advisory as advisory_module
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.services.report import ReportService
@@ -17,7 +16,7 @@ from alphaswarm.settings import GovernorSettings
 from alphaswarm.types import WorkerPersonaConfig
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.controllers import ImmediateController
-from tests.support.web_app import CYCLE_A, offline_runtime, route_test_settings
+from tests.support.web_app import CYCLE_A, advisory_service_for, offline_runtime, route_test_settings
 
 _BUY = '{"signal": "buy", "confidence": 0.8, "sentiment": 0.4, "rationale": "ok", "cited_agents": []}'
 
@@ -78,10 +77,12 @@ async def test_advisory_job_binds_cycle_and_job(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The JobRunner binds cycle_id and job inside the advisory job's task."""
     seen: list[dict[str, Any]] = []
-    monkeypatch.setattr(advisory_module, "load_inference_config", _record_then_stop(seen))
+    monkeypatch.setattr("alphaswarm.inference.config.load_inference_config", _record_then_stop(seen))
+    service = advisory_service_for(route_test_settings(tmp_path), portfolio=None)
     with pytest.raises(_StopError):
-        await advisory_module._run_advisory_synthesis(_app_state(tmp_path), CYCLE_A, object())  # type: ignore[arg-type]
+        await service.start(CYCLE_A)
     assert (seen[0]["cycle_id"], seen[0]["job"]) == (CYCLE_A, "advisory")
 
 

@@ -167,14 +167,12 @@ def test_settings_point_at_the_gitignored_local_file(monkeypatch: pytest.MonkeyP
 async def test_advisory_job_loads_the_map_from_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Each advisory run reads settings.sector_map_path, so edits apply without a restart."""
     from types import SimpleNamespace
-    from unittest.mock import AsyncMock
 
-    import alphaswarm.web.routes.advisory as advisory_module
     from alphaswarm.inference.budget import BudgetMeter
     from alphaswarm.inference.factory import BuiltProviders
     from alphaswarm.inference.types import ProviderRole
     from tests.inference.fakes import FakeInferenceProvider
-    from tests.support.web_app import CYCLE_A, route_test_settings
+    from tests.support.web_app import CYCLE_A, advisory_service_for, route_test_settings
 
     settings = route_test_settings(tmp_path)
     _write(settings.sector_map_path, {"tickers": {"ZZZT": ENTRY}})
@@ -185,24 +183,18 @@ async def test_advisory_job_loads_the_map_from_settings(tmp_path: Path, monkeypa
         raise RuntimeError("stop after capture")
 
     provider = FakeInferenceProvider(role=ProviderRole.ORCHESTRATOR, model="fake", scripted=[])
-    monkeypatch.setattr(advisory_module, "synthesize", _synthesize)
+    monkeypatch.setattr("alphaswarm.services.advisory.synthesize", _synthesize)
     monkeypatch.setattr(
-        advisory_module,
-        "build_providers",
+        "alphaswarm.inference.factory.build_providers",
         lambda *_a, **_k: BuiltProviders(
             orchestrator=provider,  # type: ignore[arg-type]
             worker=provider,  # type: ignore[arg-type]
             budget_meter=BudgetMeter(None, {}),
         ),
     )
-    app_state = SimpleNamespace(
-        settings=settings,
-        graph_manager=object(),
-        # A loopback Ollama whose model is local, so the advisory's cloud guards pass.
-        ollama_client=SimpleNamespace(base_url="http://127.0.0.1:11434", is_remote_model=AsyncMock(return_value=False)),
-        model_manager=object(),
-    )
+    # A loopback Ollama whose model is local, so the advisory's cloud guards pass.
+    service = advisory_service_for(settings, portfolio=SimpleNamespace(holdings=("fictional",)))
     with pytest.raises(RuntimeError, match="stop after capture"):
-        await advisory_module._run_advisory_synthesis(app_state, CYCLE_A, object())  # type: ignore[arg-type]
+        await service.generate(CYCLE_A)
     assert captured["sector_map"].source == "local"
     assert set(captured["sector_map"].entries) == {"ZZZT"}

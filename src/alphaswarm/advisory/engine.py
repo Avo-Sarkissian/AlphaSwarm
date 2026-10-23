@@ -220,7 +220,7 @@ async def synthesize(
         StructuredOutputError: if the orchestrator returns an invalid reply twice.
         ValueError: if the portfolio holds no tickers (the loader never returns one).
         Any exception from graph_manager or the provider propagates unchanged so the
-        advisory job's done-callback can record it in app.state.advisory_generation_error
+        advisory job's JobRunner can record the cycle's failure for GET
         (docs/DECISIONS.md#p41-d-13).
     """
     log.info(

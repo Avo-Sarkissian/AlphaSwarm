@@ -62,7 +62,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `report.py` + `templates/report/*.j2`: data collection, one grounded narrative call (`chat_structured`), rendering and sections.
   - `interview.py`: a multi-turn engine keeping up to 12 user/assistant pairs; older pairs are folded six at a time into a summary.
   - `advisory/`: synthesis, prompt, sector map, types.
-  - `holdings/`: CSV loader and types. Only `advisory` and `web.routes.{holdings,advisory}` may import it; import-linter enforces this.
+  - `holdings/`: CSV loader and types. Only `advisory`, `services.advisory` (types only) and `web.routes.holdings` may import it; import-linter enforces this.
 - **State and observability**
   - `state.py`: StateStore, ReplayStore, snapshot dataclasses, and the `StateSink` protocol: the StateStore methods the engine (`run_simulation`, `run_round`, `dispatch_wave`, `AgentWorker`) writes through. `StateStore` satisfies it; web-only calls such as `set_last_error` stay off it ([adr-round-runner](DECISIONS.md#adr-round-runner)).
   - `data_audit.py`.

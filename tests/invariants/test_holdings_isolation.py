@@ -42,7 +42,6 @@ REVIEW MEDIUM (Codex): canary searches for ALL sentinel representations
 
 from __future__ import annotations
 
-import asyncio
 import re
 from pathlib import Path
 from typing import Any
@@ -56,7 +55,7 @@ from alphaswarm.advisory import synthesize
 from alphaswarm.holdings.types import PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.factory import BuiltProviders
-from tests.support.web_app import CYCLE_A, FakeCycleGraph, make_route_app, route_test_settings
+from tests.support.web_app import CYCLE_A, FakeCycleGraph, block_service_jobs, make_route_app, route_test_settings
 
 from .conftest import (
     SENTINEL_ACCT,
@@ -265,11 +264,15 @@ def _fresh_advisory_loggers(monkeypatch: pytest.MonkeyPatch) -> None:
     when an earlier test cached them under another structlog configuration."""
     import alphaswarm.advisory.engine as engine_module
     import alphaswarm.inference.structured as structured_module
+    import alphaswarm.services.advisory as advisory_service
+    import alphaswarm.services.jobs as jobs_module
     import alphaswarm.web.routes.advisory as advisory_route
 
     monkeypatch.setattr(engine_module, "log", structlog.get_logger(component="advisory"))
     monkeypatch.setattr(structured_module, "log", structlog.get_logger(component="inference.structured"))
     monkeypatch.setattr(advisory_route, "log", structlog.get_logger(component="web.advisory"))
+    monkeypatch.setattr(advisory_service, "log", structlog.get_logger(component="services.advisory"))
+    monkeypatch.setattr(jobs_module, "log", structlog.get_logger(component="services.jobs"))
 
 
 async def test_invalid_first_response_leaks_nothing(
@@ -319,8 +322,7 @@ def test_invalid_twice_leaks_nothing_to_logs_or_http(
         contents=[canary_invalid_advisory_json(), canary_invalid_advisory_json()],
     )
     monkeypatch.setattr(
-        advisory_route,
-        "build_providers",
+        "alphaswarm.inference.factory.build_providers",
         lambda *_a, **_k: BuiltProviders(
             orchestrator=provider,  # type: ignore[arg-type]
             worker=provider,  # type: ignore[arg-type]
@@ -351,7 +353,7 @@ def test_invalid_twice_leaks_nothing_to_logs_or_http(
                 break
             response = client.get(f"/api/advisory/{CYCLE_A}")
     assert response.status_code == 500
-    assert response.json()["detail"]["message"] == "Advisory generation failed (StructuredOutputError)"
+    assert response.json()["detail"]["message"] == "Advisory generation failed; see the server log"
     log_output = capture_logs.getvalue()
     assert "advisory_generation_failed" in log_output  # positive control
     for sentinel in all_sentinel_representations():
@@ -371,10 +373,7 @@ def test_holdings_never_land_on_app_state(
     (docs/DECISIONS.md#adr-holdings-isolation)."""
     import alphaswarm.web.routes.advisory as advisory_route
 
-    async def _blocked(*_args: Any) -> None:
-        await asyncio.Event().wait()
-
-    monkeypatch.setattr(advisory_route, "_run_advisory_synthesis", _blocked)
+    block_service_jobs(monkeypatch)
     app = make_route_app(
         advisory_route.router,
         settings=route_test_settings(tmp_path),

@@ -12,25 +12,25 @@ import stat
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
 
-import alphaswarm.web.routes.advisory as advisory_module
+import alphaswarm.services.advisory as advisory_module
 from alphaswarm.errors import StructuredOutputError
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.factory import BuiltProviders
 from alphaswarm.inference.types import InferenceResult, ProviderRole
+from alphaswarm.services.advisory import AdvisoryService
 from alphaswarm.settings import AppSettings
 from tests.inference.fakes import FakeInferenceProvider
-from tests.support.web_app import CYCLE_A, CYCLE_B, CYCLE_UNKNOWN, route_test_settings
+from tests.support.web_app import CYCLE_A, CYCLE_B, CYCLE_UNKNOWN, advisory_service_for, route_test_settings
 
 
 class _FakeReport:
+    total_holdings = 1
     affected_holdings = 0
 
     def model_dump_json(self, *, indent: int) -> str:
@@ -64,21 +64,20 @@ class _SwarmReads:
         return "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
 
 
-def _job_app_state(
+def _job_service(
     settings: AppSettings,
     monkeypatch: pytest.MonkeyPatch,
     *,
     provider: FakeInferenceProvider | None = None,
-) -> SimpleNamespace:
-    """An offline app state whose advisory job runs through the real route path.
+) -> AdvisoryService:
+    """An offline AdvisoryService whose job runs the real service path.
 
     Without *provider* the synthesis is faked and returns a fixed report; with
     one, the real ``synthesize`` runs on *provider* over ``_SwarmReads``.
     """
     orchestrator = provider or FakeInferenceProvider(role=ProviderRole.ORCHESTRATOR, model="fake", scripted=[])
     monkeypatch.setattr(
-        advisory_module,
-        "build_providers",
+        "alphaswarm.inference.factory.build_providers",
         lambda *_a, **_k: BuiltProviders(
             orchestrator=orchestrator,  # type: ignore[arg-type]
             worker=orchestrator,  # type: ignore[arg-type]
@@ -95,16 +94,10 @@ def _job_app_state(
             return _FakeReport()
 
         monkeypatch.setattr(advisory_module, "synthesize", _synthesize)
-    # The job asks the shared client for its host and whether the model runs remotely.
-    client = SimpleNamespace(
-        base_url="http://127.0.0.1:11434",
-        is_remote_model=AsyncMock(return_value=False),
-    )
-    return SimpleNamespace(
-        settings=settings,
-        graph_manager=object() if provider is None else _SwarmReads(),
-        ollama_client=client,
-        model_manager=object(),
+    return advisory_service_for(
+        settings,
+        portfolio=_portfolio(),
+        graph=None if provider is None else _SwarmReads(),
     )
 
 
@@ -123,8 +116,7 @@ async def test_job_writes_owner_only_and_keeps_the_newest(
     settings = route_test_settings(tmp_path, advisory_keep_last=2)
     advisory_dir = tmp_path / "advisory"
     _write_old_advisories(advisory_dir, CYCLE_B, CYCLE_UNKNOWN)
-    app_state = _job_app_state(settings, monkeypatch)
-    await advisory_module._run_advisory_synthesis(app_state, CYCLE_A, _portfolio())  # type: ignore[arg-type]
+    await _job_service(settings, monkeypatch).generate(CYCLE_A)
     names = sorted(p.name for p in advisory_dir.iterdir())
     assert names == sorted([f"{CYCLE_A}_advisory.json", f"{CYCLE_UNKNOWN}_advisory.json"])
     if os.name == "posix":
@@ -139,13 +131,13 @@ async def test_a_failed_prune_does_not_fail_the_advisory(
     settings = route_test_settings(tmp_path, advisory_keep_last=1)
     advisory_dir = tmp_path / "advisory"
     _write_old_advisories(advisory_dir, CYCLE_B)
-    app_state = _job_app_state(settings, monkeypatch)
+    service = _job_service(settings, monkeypatch)
 
     def _boom(*_a: Any, **_k: Any) -> list[Path]:
         raise PermissionError("read-only directory")
 
     monkeypatch.setattr(advisory_module, "prune_old_files", _boom)
-    await advisory_module._run_advisory_synthesis(app_state, CYCLE_A, _portfolio())  # type: ignore[arg-type]
+    await service.generate(CYCLE_A)
     names = sorted(p.name for p in advisory_dir.iterdir())
     assert names == sorted([f"{CYCLE_A}_advisory.json", f"{CYCLE_B}_advisory.json"])
 
@@ -164,9 +156,9 @@ async def test_two_invalid_replies_write_no_file(
         model="fake",
         scripted=[InferenceResult(content="prose, not JSON", model="fake")] * 2,
     )
-    app_state = _job_app_state(settings, monkeypatch, provider=provider)
+    service = _job_service(settings, monkeypatch, provider=provider)
     with pytest.raises(StructuredOutputError):
-        await advisory_module._run_advisory_synthesis(app_state, CYCLE_A, _portfolio())  # type: ignore[arg-type]
+        await service.generate(CYCLE_A)
     assert len(provider.calls) == 2
     assert sorted(p.name for p in advisory_dir.iterdir()) == [f"{CYCLE_B}_advisory.json"]
 

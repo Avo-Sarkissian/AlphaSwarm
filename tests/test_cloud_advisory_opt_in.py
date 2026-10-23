@@ -18,7 +18,6 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-import alphaswarm.web.routes.advisory as advisory_module
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
@@ -94,9 +93,6 @@ def ledger(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     async def _synthesize(**_kwargs: Any) -> _FakeReport:
         return _FakeReport()
 
-    # The POST route builds through its own module; the services through the factory.
-    monkeypatch.setattr(advisory_module, "build_providers", _build)
-    monkeypatch.setattr(advisory_module, "synthesize", _synthesize)
     monkeypatch.setattr("alphaswarm.inference.factory.build_providers", _build)
     monkeypatch.setattr("alphaswarm.services.advisory.synthesize", _synthesize)
     return state
