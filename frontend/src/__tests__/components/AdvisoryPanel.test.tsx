@@ -3,7 +3,7 @@
 // fixed round, so a 2-round run does not read "3 rounds" or "post-R3".
 import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AdvisoryV2 } from '../../features/advisory/AdvisoryPanel';
+import { AdvisoryPanel } from '../../features/advisory/AdvisoryPanel';
 import { renderAt } from '../helpers/lifecycleFrames';
 
 beforeEach(() => {
@@ -16,15 +16,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('AdvisoryV2 rounds', () => {
+describe('AdvisoryPanel rounds', () => {
   it('describes the swarm layer with the run round count', () => {
-    renderAt(<AdvisoryV2 onClose={vi.fn()} />, 'complete', { numRounds: 2, roundNum: 2 });
+    renderAt(<AdvisoryPanel onClose={vi.fn()} />, 'complete', { numRounds: 2, roundNum: 2 });
     fireEvent.click(screen.getByRole('button', { name: 'Isolation' }));
     expect(screen.queryByText('100 agents · 2 rounds · real market data')).not.toBeNull();
   });
 
   it('waits for the advisory without naming a round', () => {
-    renderAt(<AdvisoryV2 onClose={vi.fn()} />, 'complete', { numRounds: 2, roundNum: 2 });
+    renderAt(<AdvisoryPanel onClose={vi.fn()} />, 'complete', { numRounds: 2, roundNum: 2 });
     const card = screen.getByText(/Generating advisory/).closest('.advisory-card');
     expect(card?.textContent).toMatch(/post-run narrative generation/);
     expect(card?.textContent).not.toMatch(/\bR\d\b/);
@@ -48,7 +48,7 @@ const ADVISORY = {
   holdings_as_of: null,
 };
 
-describe('AdvisoryV2 backend stats', () => {
+describe('AdvisoryPanel backend stats', () => {
   it('shows the backend swarm view and tags placeholder holdings', async () => {
     vi.stubGlobal(
       'fetch',
@@ -59,7 +59,7 @@ describe('AdvisoryV2 backend stats', () => {
         }),
       ),
     );
-    renderAt(<AdvisoryV2 onClose={vi.fn()} />, 'complete', { numRounds: 2, roundNum: 2 });
+    renderAt(<AdvisoryPanel onClose={vi.fn()} />, 'complete', { numRounds: 2, roundNum: 2 });
     expect(await screen.findByText('SELL 100%')).toBeTruthy();
     expect(screen.getByText('dominant of 1 conviction items')).toBeTruthy();
     const tags = screen.getAllByText('PLACEHOLDER');

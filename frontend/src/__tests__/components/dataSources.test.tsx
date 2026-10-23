@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { fireEvent, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DataSourcesTakeover } from '../../features/advisory/AdvisoryPanel';
+import { DataSourcesTakeover } from '../../features/wire/DataSourcesTakeover';
 import wsSnapshot from '../fixtures/ws_snapshot.json';
 import { stubFetch } from '../helpers/fetchStub';
 import { renderWithFrame } from '../helpers/renderWithFrame';

@@ -22,16 +22,9 @@ const FILES: readonly string[] = walk(SRC)
 const read = (file: string): string => readFileSync(join(SRC, file), 'utf8');
 const isSource = (file: string): boolean => /\.(ts|tsx|css)$/.test(file) && !file.startsWith('__tests__/');
 
-// Files that still carry the v2 names (AdvisoryV2 and its importer, stylesheet
-// section titles). The AdvisoryPanel.tsx split empties it.
-const PENDING_V2: readonly string[] = [
-  'app/AppShell.tsx',
-  'features/advisory/AdvisoryPanel.tsx',
-  'styles.css',
-];
 // File names and mentions (v2.tsx, app_v2, interview_v2, components/v2),
-// identifiers (InterviewPanel, AdvisoryV2, ReportModalV2), class prefixes (rpt-,
-// itv-) and class suffixes (report-panel, ds-recent-row-item).
+// identifiers (InterviewV2, AdvisoryV2, ReportModalV2), class prefixes (rv2-,
+// iv2-) and class suffixes (report-v2, ds-recent-row-v2).
 const V2_NAME =
   /(^|\/)(app_|interview_)?v2\.tsx$|\bv2\.tsx\b|\b(rv2|iv2)-|\b[a-z]+(?:-[a-z]+)*-v2\b|\b[A-Z]\w*V2\b|app_v2|interview_v2|components\/v2\b/;
 
@@ -42,6 +35,6 @@ describe('frontend structure', () => {
 
   it('has no prototype v2 file names, identifiers or class prefixes', () => {
     const offenders = FILES.filter((file) => isSource(file) && (V2_NAME.test(file) || V2_NAME.test(read(file))));
-    expect(offenders).toEqual([...PENDING_V2].sort());
+    expect(offenders).toEqual([]);
   });
 });

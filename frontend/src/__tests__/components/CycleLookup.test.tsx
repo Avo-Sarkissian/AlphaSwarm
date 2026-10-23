@@ -5,7 +5,7 @@
 import { act, cleanup, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ReportModal } from '../../features/report/ReportModal';
-import { AdvisoryV2 } from '../../features/advisory/AdvisoryPanel';
+import { AdvisoryPanel } from '../../features/advisory/AdvisoryPanel';
 import { renderAt } from '../helpers/lifecycleFrames';
 
 afterEach(() => {
@@ -55,7 +55,7 @@ describe('default cycle lookup', () => {
 
   it('advisory: a later open looks again instead of trusting the old empty answer', async () => {
     const answer = holdCyclesLookup();
-    renderAt(<AdvisoryV2 onClose={() => {}} />, 'idle');
+    renderAt(<AdvisoryPanel onClose={() => {}} />, 'idle');
     expect(screen.queryByText('Finding the latest completed cycle…')).not.toBeNull();
     expect(screen.queryByText('No completed cycle to advise on.')).toBeNull();
     await answer([]);

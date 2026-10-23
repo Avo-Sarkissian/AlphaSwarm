@@ -2,7 +2,7 @@
 // The advisory always shows the not-investment-advice banner, in every state and tab.
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AdvisoryV2 as AdvisoryPanel } from '../../features/advisory/AdvisoryPanel';
+import { AdvisoryPanel } from '../../features/advisory/AdvisoryPanel';
 import { AdvisoryDisclaimer } from '../../features/advisory/AdvisoryDisclaimer';
 import { ADVISORY_DISCLAIMER } from '../../features/advisory/disclaimer';
 import { renderWithFrame } from '../helpers/renderWithFrame';

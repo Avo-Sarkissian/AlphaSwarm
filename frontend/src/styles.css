@@ -675,7 +675,7 @@ body { background: var(--bg); }
   font-style: italic;
 }
 
-/* SignalWire inner classes (the ported v2.tsx uses different names than archive's
+/* SignalWire inner classes (features/wire/SignalWire.tsx uses different names than archive's
    sw-track/sw-tick — design redesign uses sw-scroll-wrap + sw-event flow). */
 .sw-label {
   display: flex; align-items: center; gap: 6px;
@@ -746,7 +746,7 @@ body { background: var(--bg); }
 .ms-ops { display: flex; gap: 4px; font-family: var(--font-mono); font-size: 10px; color: var(--text-3); }
 .ms-op { padding: 0 4px; }
 
-/* ===== AdvisoryV2 takeover (W3 port) =====
+/* ===== AdvisoryPanel takeover (W3 port) =====
    The component was ported in 41.6-03 but its CSS was never lifted from the
    AlphaSwarm-2 reference (the reference HTML only ships .advisory-card; the
    takeover/header/tab classes were invented at port time). Without these
@@ -1078,7 +1078,7 @@ body { background: var(--bg); }
   flex-shrink: 0;
 }
 
-/* ===== AdvisoryV2 loading state polish =====
+/* ===== AdvisoryPanel loading state polish =====
    The bare 'Loading advisory…' panel reads as a glitch. Centre + emphasize. */
 .adv-body .advisory-card {
   align-self: center;
