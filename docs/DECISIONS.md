@@ -105,6 +105,16 @@ Contents
   - The report and advisory POST routes check for a running simulation again after their last await, right before the job starts (`web/guards.py:require_no_simulation`): a run started while they awaited Neo4j, the config or the holdings passed `start()`'s probe, because no job was marked running yet (2026-10).
 - **Rationale:** On 64 GB the worker and orchestrator cannot both stay warm, and either task unloading the orchestrator under the other corrupts the run.
 
+### <a id="adr-round-runner"></a>One round implementation and one worker session for all rounds (revises D-05 and D-06, 2026-10)
+- **Decision:**
+  - `rounds.run_round(ctx, round_num, prev, shocks)` is the only implementation of a round: shock-gate side effects, per-reader peer context, dispatch, the round-abort check, `persist_round`, influence edges, bracket summaries, the round's metrics and the `on_round_complete` callback (`rounds.py`).
+  - `simulation.run_simulation(rumor, deps, personas, brackets, *, on_round_complete, consume_shock)` seeds the cycle, builds the Round 1 market context, sets each round's phase and number, consumes a pending shock after the round has started, loops over `settings.num_rounds`, and writes the cycle metrics and status.
+  - Dependencies arrive in a frozen `SimulationDeps` (settings, graph, controller, orchestrator and worker providers, state sink, market and news providers). Providers are required and built by `inference.factory`; `simulation`, `rounds` and `peers` never import `ollama_provider`, `ollama_client` or `ollama_models` (import-linter contract).
+  - The worker is prepared once before Round 1 and torn down once after the last round, inside one governor monitoring session ([p7-d-05](#p7-d-05) and [p7-d-06](#p7-d-06) revised). `inject_seed` tears the orchestrator down before the worker loads, so the two are never co-resident during rounds.
+  - Only the Ollama worker provider unloads resident AlphaSwarm models before it loads (`OllamaProvider(clean_state_on_prepare=True)`, set by `build_providers`); orchestrator jobs (report, advisory) never evict a worker that an interview is using.
+- **Rationale:** The Round 2 and Round 3 blocks were copy-pasted and had drifted (T9.1). Nothing used Ollama between Round 1 and Round 2, so tearing down the ~20 GB MLX worker and reloading it cost a cold load (MLX kernel compilation plus a warm-up call) for nothing. D-05 accepted that cost when the worker was a 5 GB GGUF. Letting the caller own the lifecycle keeps the modularity D-05 wanted without the reload.
+- **Consequences:** The UI stays on `seeding` while the worker loads (it used to show `round_1`); `r{n}_seconds` measure the round alone, without model loads; the governor's pool is no longer reset between Round 1 and Round 2; a cloud worker no longer triggers a local `ensure_clean_state()`.
+
 ### <a id="adr-swarm-composition-v2"></a>Swarm composition v2 (2026-06-10)
 - **Decision:** Ten brackets that model the price-setting margin of the narrative ecosystem. Counts and weights live in `personas.py:DEFAULT_BRACKETS`; the rationale is in the `types.py:BracketType` docstring.
 
@@ -521,11 +531,11 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p7-d-03"></a>`D-03` | Peer context carries a header naming the source round. | active | simulation.py:353 |
-| <a id="p7-d-04"></a>`D-04` | Single run_simulation() orchestrates all rounds, reusing run_round1() for Round 1. | active | simulation.py:899 |
-| <a id="p7-d-05"></a>`D-05` | Worker reloaded once after run_round1() (which unloads in its finally) and kept warm for later rounds. | active | simulation.py:923,1095 |
-| <a id="p7-d-06"></a>`D-06` | run_round1 owns its governor monitoring session; run_simulation starts a fresh one for Rounds 2-3. | active | simulation.py:917,924,1098 |
+| <a id="p7-d-04"></a>`D-04` | Single run_simulation() orchestrates all rounds. **Revised 2026-10:** every round runs through rounds.run_round(); run_round1() is gone ([adr-round-runner](#adr-round-runner)). | partial | simulation.py:run_simulation; rounds.py:run_round |
+| <a id="p7-d-05"></a>`D-05` | Worker reloaded once after run_round1() (which unloads in its finally) and kept warm for later rounds. **Superseded 2026-10** by [adr-round-runner](#adr-round-runner): the worker is prepared once before Round 1 and torn down once after the last round. | superseded | simulation.py:_run_simulation |
+| <a id="p7-d-06"></a>`D-06` | run_round1 owned its governor monitoring session and run_simulation started a fresh one for Rounds 2-3. **Superseded 2026-10** by [adr-round-runner](#adr-round-runner): one monitoring session covers every round. | superseded | simulation.py:_run_simulation |
 | <a id="p7-d-07"></a>`D-07` | Phase machine IDLE -> SEEDING -> ROUND_1..N -> FINALIZING -> COMPLETE. FINALIZING covers the metrics and the status write (narratives are lazy since 2026-10). StateStore.set_phase drives the UI. | active | simulation.py (`run_simulation`); types.py (`SimulationPhase`) |
-| <a id="p7-d-08"></a>`D-08` | SimulationResult is one frozen container for all rounds plus shift metrics. | active | simulation.py:274 |
+| <a id="p7-d-08"></a>`D-08` | SimulationResult is one frozen container for all rounds plus shift metrics. **Revised 2026-10:** `rounds: tuple[RoundOutcome, ...]` with roundN_* compatibility properties. | partial | simulation.py:SimulationResult; rounds.py:RoundOutcome |
 | <a id="p7-d-09"></a>`D-09` | Round N reads peer context from round N-1, personalised per agent (self excluded). | active | simulation.py:726,1101,1272 |
 | <a id="p7-d-10"></a>`D-10` | Peer contexts are built per agent BEFORE dispatch and passed into dispatch_wave. | active | simulation.py:726,812 |
 | <a id="p7-d-11"></a>`D-11` | Track signal flips between rounds with a transition breakdown. | active | simulation.py:483,501 |
