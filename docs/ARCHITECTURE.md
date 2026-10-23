@@ -63,7 +63,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `logging.py`: structlog plus the fail-closed PII redaction processor.
   - `security/hashing.py`.
 - **Web**
-  - `web/`: `simulation_manager`, `replay_manager`, `post_run` (PostRunPipeline), `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `wire` (the versioned `StateFrame` and its mapper), `connection_manager`, and `origin_guard` (a CSRF Origin guard).
+  - `web/`: `simulation_manager`, `replay_manager`, `post_run` (PostRunPipeline), `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `wire` (the versioned `StateFrame` and its mapper), `connection_manager`, and `origin_guard` (the single Origin policy for HTTP and the WebSocket; `web/app.py` also installs `TrustedHostMiddleware`).
   - `web/routes/`: health (component readiness: the Neo4j, Ollama and alias probes are cached 5 s, the stored inference config is read on every request; plus `/api/health/live`), simulation (start/stop/shock), edges, replay, interview, holdings, report, advisory, settings, websocket, agents (per-agent decision history).
 - **Evaluation**
   - `evaluation.py`: eval records, outcome labels and forecast scoring (pure; `docs/DECISIONS.md#adr-eval-harness`).
