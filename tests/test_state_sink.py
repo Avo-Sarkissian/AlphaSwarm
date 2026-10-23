@@ -12,7 +12,7 @@ ENGINE_METHODS = {
     "update_agent_state",
     "push_rationale",
     "set_bracket_summaries",
-    "update_tps",
+    "record_tokens",
     "set_cycle",
     "set_num_rounds",
     "bump_edges_version",

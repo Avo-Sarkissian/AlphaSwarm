@@ -586,7 +586,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p10-d-02"></a>`D-02` | Rationale feed fed by top-influence agents after each round. Superseded by per-agent streaming push_rationale + 50-entry sliding window (260512-jqn ITEM 4). The end-of-round calls were removed then, and `_push_top_rationales` itself was deleted in 2026-10. | superseded | batch_dispatcher.py (`_safe_agent_inference`) |
 | <a id="p10-d-03"></a>`D-03` | Rationale feed entries truncated to ~50 chars by the producer (sanitize_rationale(max_len=50)). | active | batch_dispatcher.py (`_safe_agent_inference`, the producer); state.py (`RationaleEntry`) |
 | <a id="p10-d-04"></a>`D-04` | Feed shows newest first. Restored in the web UI (2026-10): the frontend sorts by the wire `seq` and keys rows by it. | active | fe/lib/rationaleFeed.ts; state.py:72 |
-| <a id="p10-d-05"></a>`D-05` | TPS computed from Ollama eval_count/eval_duration and accumulated in StateStore.update_tps. | active | state.py:216; worker.py:200 |
+| <a id="p10-d-05"></a>`D-05` | Live TPS = completion tokens finished in the last 10 s of wall-clock time, summed over every parallel call, divided by 10 (StateStore.record_tokens; SEEDING empties the window). Replaced the per-stream eval_count/eval_duration mean, which understated throughput by about NUM_PARALLEL. | revised 2026-10 | state.py (record_tokens); worker.py (infer) |
 | <a id="p10-d-08"></a>`D-08` | StateStore.set_bracket_summaries after each round; all 10 brackets always shown. | active | state.py:229 |
 
 ### Phase 11: Live graph memory

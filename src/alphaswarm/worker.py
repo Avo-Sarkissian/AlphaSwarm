@@ -214,9 +214,8 @@ class AgentWorker:
 
         # Compute total billable tokens for this call. Used by agent_worker
         # context manager to pass result_tokens to governor.release() so
-        # the RateLimitController can reconcile TPM usage. LOCAL providers
-        # (Ollama) return None for both fields → last_total_tokens stays None;
-        # the local ResourceGovernor.release ignores result_tokens entirely.
+        # the RateLimitController can reconcile TPM usage. Ollama reports token
+        # counts too, but the local ResourceGovernor.release ignores result_tokens.
         # For the cloud RateLimitController, a None here on a SUCCESSFUL call
         # (provider omitted usage) keeps the upfront avg reservation; only a
         # FAILED call (success=False) refunds it — see RateLimitController.release.
@@ -225,12 +224,10 @@ class AgentWorker:
         else:
             self.last_total_tokens = None
 
-        # Extract TPS data from result metadata (docs/DECISIONS.md#p10-d-05)
-        if self._state_store is not None:
-            eval_count = result.eval_count
-            eval_duration_ns = result.eval_duration_ns
-            if eval_count is not None and eval_duration_ns is not None and eval_duration_ns > 0:
-                self._state_store.update_tps(eval_count, eval_duration_ns)
+        # Live TPS counts completed tokens across every parallel call
+        # (docs/DECISIONS.md#p10-d-05).
+        if self._state_store is not None and result.output_tokens:
+            self._state_store.record_tokens(result.output_tokens)
 
         decision = parse_agent_decision(result.content)
 

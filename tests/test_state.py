@@ -244,26 +244,8 @@ async def test_rationale_window_survives_round_transitions() -> None:
     assert snap.rationale_entries[0].agent_id == "R1_AGENT"
 
 
-async def test_update_tps_single() -> None:
-    """update_tps(100, 1_000_000_000) results in tps == 100.0."""
-    store = StateStore()
-    store.update_tps(eval_count=100, eval_duration_ns=1_000_000_000)
-    snap = store.snapshot()
-    assert snap.tps == pytest.approx(100.0)
-
-
-async def test_update_tps_accumulates() -> None:
-    """Two update_tps calls accumulate correctly: (100+200) / ((1e9+2e9)/1e9) = 100.0."""
-    store = StateStore()
-    store.update_tps(eval_count=100, eval_duration_ns=1_000_000_000)
-    store.update_tps(eval_count=200, eval_duration_ns=2_000_000_000)
-    snap = store.snapshot()
-    expected_tps = 300 / 3.0  # 300 tokens / 3 seconds
-    assert snap.tps == pytest.approx(expected_tps)
-
-
 async def test_tps_default_zero() -> None:
-    """No update_tps calls; snapshot tps is 0.0."""
+    """No record_tokens calls; snapshot tps is 0.0."""
     store = StateStore()
     snap = store.snapshot()
     assert snap.tps == 0.0
@@ -332,20 +314,6 @@ def test_bracket_summary_frozen() -> None:
     )
     with pytest.raises(AttributeError):
         bs.bracket = "quants"  # type: ignore[misc]
-
-
-# ---------------------------------------------------------------------------
-# Task 2 Tests: Integration data flow tests
-# ---------------------------------------------------------------------------
-
-
-async def test_tps_from_worker_path() -> None:
-    """StateStore.update_tps with realistic values produces correct tps in snapshot."""
-    store = StateStore()
-    # Simulate 500 tokens in 2 seconds (2e9 nanoseconds)
-    store.update_tps(eval_count=500, eval_duration_ns=2_000_000_000)
-    snap = store.snapshot()
-    assert snap.tps == pytest.approx(250.0)
 
 
 # ---------------------------------------------------------------------------

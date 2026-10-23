@@ -139,8 +139,8 @@ class OllamaProvider:
 
         Returns:
             ``InferenceResult`` with ``content``, ``model``, ``eval_count``,
-            and ``eval_duration_ns`` populated.  ``input_tokens`` and
-            ``output_tokens`` are always ``None`` (local inference is free).
+            and ``eval_duration_ns`` populated.  ``input_tokens`` /
+            ``output_tokens`` come from ``prompt_eval_count`` / ``eval_count``.
         """
         # Resolve format (schema wins over json_mode)
         if response_schema is not None:
@@ -167,9 +167,10 @@ class OllamaProvider:
         return InferenceResult(
             content=resp.message.content or "",
             model=self.model,
-            # Local path: input_tokens / output_tokens intentionally None
-            input_tokens=None,
-            output_tokens=None,
+            # Token counts for telemetry and live TPS; local calls are never billed
+            # (only cloud providers are wrapped by BudgetTrackingProvider).
+            input_tokens=getattr(resp, "prompt_eval_count", None),
+            output_tokens=getattr(resp, "eval_count", None),
             eval_count=resp.eval_count,
             eval_duration_ns=resp.eval_duration,
         )

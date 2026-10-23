@@ -9,6 +9,7 @@ import pytest
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.settings import GovernorSettings
+from alphaswarm.state import StateStore
 from alphaswarm.types import AgentDecision, SignalType, WorkerPersonaConfig
 from alphaswarm.worker import (
     DECISION_JSON_SCHEMA,
@@ -574,3 +575,29 @@ def test_risk_profile_is_the_personas_float() -> None:
     # The module uses `from __future__ import annotations`, so TypedDict stores
     # ForwardRef objects; get_type_hints resolves them to the real types.
     assert typing.get_type_hints(WorkerPersonaConfig)["risk_profile"] is float
+
+
+async def test_infer_records_completed_tokens_for_live_tps(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    store = StateStore()
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[InferenceResult(content=_VALID_BUY_JSON, model="fake-model", output_tokens=42)],
+    )
+    await AgentWorker(sample_persona, provider, state_store=store).infer(user_message="ZZZT")
+    assert store.snapshot().tps == pytest.approx(4.2)  # 42 tokens / 10 s window
+
+
+async def test_infer_without_token_counts_records_nothing(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    store = StateStore()
+    provider = FakeInferenceProvider(
+        role=ProviderRole.WORKER,
+        model="fake-model",
+        scripted=[InferenceResult(content=_VALID_BUY_JSON, model="fake-model")],
+    )
+    await AgentWorker(sample_persona, provider, state_store=store).infer(user_message="ZZZT")
+    assert store.snapshot().tps == 0.0

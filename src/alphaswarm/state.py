@@ -17,6 +17,10 @@ from alphaswarm.data_audit import DataSourceAuditBuffer, DataSourceAuditEntry
 from alphaswarm.errors import RunError
 from alphaswarm.types import SignalType, SimulationPhase
 
+# Live TPS window (docs/DECISIONS.md#p10-d-05): tokens completed in the last
+# TPS_WINDOW_SECONDS of wall-clock time, summed over every parallel call.
+TPS_WINDOW_SECONDS: Final = 10.0
+
 
 @dataclass(frozen=True)
 class GovernorMetrics:
@@ -161,7 +165,7 @@ class StateStore:
 
     Phase 10 additions (docs/DECISIONS.md#p10-d-02, #p10-d-05, #p10-d-08):
     - _rationale_window: 50-entry sliding window for the rationale feed
-    - _cumulative_tokens/_cumulative_eval_ns: TPS accumulation from Ollama metadata
+    - _token_window: completion tokens finished in the last TPS_WINDOW_SECONDS (live TPS)
     - _bracket_summaries: latest round's bracket distribution for the bracket panel
     """
 
@@ -185,9 +189,9 @@ class StateStore:
         self._data_source_audit: DataSourceAuditBuffer = DataSourceAuditBuffer(
             max_entries=100,
         )
-        # TPS accumulation from Ollama response metadata (docs/DECISIONS.md#p10-d-05)
-        self._cumulative_tokens: int = 0
-        self._cumulative_eval_ns: int = 0
+        # (monotonic time, completion tokens) for each finished call, kept for
+        # TPS_WINDOW_SECONDS (docs/DECISIONS.md#p10-d-05).
+        self._token_window: deque[tuple[float, int]] = deque()
         # Latest bracket summaries (docs/DECISIONS.md#p10-d-08)
         self._bracket_summaries: tuple[BracketSummary, ...] = ()
         self._last_error: RunError | None = None
@@ -252,8 +256,7 @@ class StateStore:
             if phase == SimulationPhase.SEEDING:
                 self._start_time = time.monotonic()
                 self._final_elapsed = None
-                self._cumulative_tokens = 0
-                self._cumulative_eval_ns = 0
+                self._token_window.clear()
                 self._bracket_summaries = ()
                 self._rationale_window.clear()
                 self._cycle_id = None
@@ -312,18 +315,23 @@ class StateStore:
         self._rationale_seq += 1
         self._rationale_window.append(replace(entry, seq=self._rationale_seq, ts=time.time()))
 
-    def update_tps(self, eval_count: int, eval_duration_ns: int) -> None:
-        """Accumulate TPS from Ollama response metadata (docs/DECISIONS.md#p10-d-05).
+    def record_tokens(self, completion_tokens: int, *, now: float | None = None) -> None:
+        """Count one finished call's completion tokens for the live TPS tile.
 
-        Called by AgentWorker.infer() after each successful inference.
-        GIL protects int addition -- no asyncio.Lock needed for this hot-path call.
-
-        Args:
-            eval_count: Number of tokens evaluated (response.eval_count).
-            eval_duration_ns: Evaluation duration in nanoseconds (response.eval_duration).
+        TPS is the tokens finished in the last TPS_WINDOW_SECONDS divided by the
+        window, so four parallel streams show four times one stream's rate
+        (docs/DECISIONS.md#p10-d-05). ``now`` (monotonic seconds) is for tests.
         """
-        self._cumulative_tokens += eval_count
-        self._cumulative_eval_ns += eval_duration_ns
+        if completion_tokens <= 0:
+            return
+        stamp = time.monotonic() if now is None else now
+        self._token_window.append((stamp, completion_tokens))
+        self._prune_token_window(stamp)
+
+    def _prune_token_window(self, now: float) -> None:
+        cutoff = now - TPS_WINDOW_SECONDS
+        while self._token_window and self._token_window[0][0] <= cutoff:
+            self._token_window.popleft()
 
     async def set_bracket_summaries(self, summaries: tuple[BracketSummary, ...]) -> None:
         """Store bracket summaries after each round completes (docs/DECISIONS.md#p10-d-08).
@@ -344,10 +352,9 @@ class StateStore:
         return self._last_error
 
     def _compute_tps(self) -> float:
-        """Compute running tokens-per-second from accumulated values."""
-        if self._cumulative_eval_ns <= 0:
-            return 0.0
-        return self._cumulative_tokens / (self._cumulative_eval_ns / 1e9)
+        """Tokens per second over the sliding window (0.0 when idle)."""
+        self._prune_token_window(time.monotonic())
+        return round(sum(tokens for _, tokens in self._token_window) / TPS_WINDOW_SECONDS, 1)
 
     def snapshot(self) -> StateSnapshot:
         """Return immutable snapshot of current state.
@@ -556,7 +563,7 @@ class StateSink(Protocol):
 
     async def set_bracket_summaries(self, summaries: tuple[BracketSummary, ...]) -> None: ...
 
-    def update_tps(self, eval_count: int, eval_duration_ns: int) -> None: ...
+    def record_tokens(self, completion_tokens: int, *, now: float | None = None) -> None: ...
 
     async def set_cycle(self, cycle_id: str | None) -> None: ...
 

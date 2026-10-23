@@ -34,6 +34,7 @@ class _FakeOllama:
         class _Resp:
             message = _Msg()
             eval_count = 12
+            prompt_eval_count = 30
             eval_duration = 1_000_000
 
         return _Resp()
@@ -114,7 +115,7 @@ async def test_ollama_provider_maps_schema_to_format() -> None:
     assert fc.kwargs["think"] is False
     assert fc.kwargs["options"]["temperature"] == 0.4
     assert out.eval_count == 12
-    assert out.input_tokens is None
+    assert out.input_tokens == 30
 
 
 # ---------------------------------------------------------------------------
@@ -231,12 +232,10 @@ async def test_eval_count_and_duration_forwarded() -> None:
     assert out.eval_duration_ns == 1_000_000
 
 
-async def test_input_output_tokens_are_none() -> None:
-    """Local inference is free; input_tokens/output_tokens stay None."""
+async def test_token_counts_come_from_ollama() -> None:
     p, _, _ = _make_provider()
     out = await p.chat([{"role": "user", "content": "x"}])
-    assert out.input_tokens is None
-    assert out.output_tokens is None
+    assert (out.input_tokens, out.output_tokens) == (30, 12)
 
 
 async def test_content_forwarded() -> None:
