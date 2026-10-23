@@ -244,8 +244,9 @@ def estimate_run(
     Call breakdown
     --------------
     - ``agents * rounds`` worker inference calls.
-    - ``narrative_calls`` additional worker calls for post-sim narrative generation
-      (typically ``agents`` when narratives are enabled, which is the default).
+    - ``narrative_calls`` additional worker calls, priced at the worker rate. A
+      run makes none (default 0): decision narratives are generated on an
+      agent's first interview (docs/DECISIONS.md#p11-d-11).
     - 3 orchestrator calls (seed synthesis, advisory, report).
 
     Pricing resolution
