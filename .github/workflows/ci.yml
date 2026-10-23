@@ -30,6 +30,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: ruff check
+        run: uv run ruff check src tests
+
+      - name: ruff format
+        run: uv run ruff format --check src tests
+
       - name: mypy (strict; modules in [[tool.mypy.overrides]] exempt)
         run: uv run mypy src
 

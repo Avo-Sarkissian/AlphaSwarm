@@ -58,8 +58,16 @@ def test_lint_job_runs_the_static_gates() -> None:
         "uv run mypy src",
         "uv run lint-imports",
         "uv run vulture src vulture_whitelist.py --min-confidence 80",
+        "uv run ruff check src tests",
+        "uv run ruff format --check src tests",
     ):
         assert command in job, command
+
+
+def test_pre_commit_runs_ruff_and_import_linter() -> None:
+    config = _text(REPO / ".pre-commit-config.yaml")
+    for hook in ("id: ruff-check", "id: ruff-format", "id: lint-imports"):
+        assert hook in config, hook
 
 
 def test_frontend_job_runs_eslint_before_the_unit_tests() -> None:
