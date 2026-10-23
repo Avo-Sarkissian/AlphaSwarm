@@ -2002,7 +2002,8 @@ class GraphStateManager:
             injected_before_round: 2 or 3 — the round that receives the shock.
 
         Raises:
-            Neo4jWriteError: wraps any underlying Neo4jError.
+            Neo4jWriteError / Neo4jUnavailableError: When the write fails, or
+                when the database is unreachable or rejects the credentials.
         """
         shock_id = str(uuid.uuid4())
         await self._write(

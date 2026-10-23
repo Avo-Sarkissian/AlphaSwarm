@@ -250,8 +250,12 @@ class RateLimitController:
     async def acquire(self) -> None:
         """Claim an in-flight slot, then pace via RPM + TPM buckets.
 
-        If a shrink is pending, we drain one semaphore token (decrement
-        ``_shrink_pending``) and loop to acquire a real slot next time.
+        If a shrink is pending, the caller first claims it (decrements
+        ``_shrink_pending``) and takes one semaphore token, which stays held
+        back for good, then acquires its own slot in the same call. A caller
+        cancelled while waiting for that token hands the claim back; one
+        cancelled while pacing returns its slot and refunds both bucket
+        reservations, so a cancelled waiter never leaks a permit or tokens.
         """
         # Drain a pending shrink token first. Claim the shrink before waiting so
         # two concurrent callers never both drain it; if this caller is

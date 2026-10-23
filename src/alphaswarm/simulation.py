@@ -1538,8 +1538,8 @@ async def _run_simulation(
                 r3_seconds = time.monotonic() - r3_start
 
             # FINALIZING: every round is persisted; narratives (while still
-            # eager) and metrics follow, so the UI no longer sits on the last
-            # round's label (docs/DECISIONS.md#p7-d-07).
+            # eager), metrics and the status write follow, so the UI no longer
+            # sits on the last round's label (docs/DECISIONS.md#p7-d-07).
             phase = SimulationPhase.FINALIZING
             logger.info("simulation_phase_transition", phase=phase.value, cycle_id=cycle_id)
             if state_store is not None:
