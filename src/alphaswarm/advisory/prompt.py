@@ -15,60 +15,43 @@ from typing import Any
 
 from alphaswarm.inference.types import InferenceMessage
 
-_SYSTEM_INSTRUCTIONS = """You are the orchestrator of a 100-agent AI trading swarm.
+_SYSTEM_INSTRUCTIONS = """You are the orchestrator of a 100-agent AI market-simulation swarm.
 A simulation cycle has just completed. Using the prefetched swarm data and the
-user's portfolio, produce a JSON advisory with the EXACT schema below.
+user's holdings list, write a portfolio advisory as ONE JSON object with exactly
+these keys:
 
-SCHEMA:
 {
-  "cycle_id": string,
-  "generated_at": ISO-8601 UTC string,
-  "portfolio_outlook": string (1-3 thorough paragraphs covering the swarm's
-                               overall market reading and its implications for
-                               this portfolio — substantive, NOT a one-liner),
+  "portfolio_outlook": string  (1-3 substantive paragraphs: the swarm's overall
+                                reading and what it implies for these holdings),
   "items": [
     {
-      "ticker": string,                       // exact ticker as supplied in holdings
-      "consensus_signal": "BUY" | "SELL" | "HOLD",
+      "ticker": string          (one of the tickers in the holdings list, exactly as given),
+      "signal": "BUY" | "SELL" | "HOLD",
       "confidence": number in [0.0, 1.0],
-      "rationale_summary": string (1-2 sentences),
-      "position_exposure": "0"                // always "0"; the engine fills in the real exposure
+      "rationale": string       (1-2 sentences grounded in the swarm data),
+      "risk": string            (one short sentence: the main downside),
+      "upside": string          (one short sentence: the main upside)
     }
-  ],
-  "total_holdings": integer (count of holdings supplied),
-  "affected_holdings": integer
+  ]
 }
 
 EMIT CONVICTION ITEMS ONLY.
-Emit one items[] entry for each holding where the swarm produced a CLEAR
-directional view — BUY/SELL signal, or HOLD with confidence > 0.4.
-Skip holdings the swarm had no strong view on; the engine pads those in
-after you return so the user still sees their full portfolio. This saves
-prompt tokens for the conviction cases you DO have something to say about.
+Include a holding only when the swarm produced a CLEAR directional view: a BUY or
+SELL signal, or HOLD with confidence above 0.4. The engine pads every other
+holding after you reply, so the user still sees the full portfolio.
 
-`affected_holdings` = count of items you actually emit.
-`total_holdings` will be overwritten by the engine to match the full
-portfolio count; emit whatever — it will be replaced.
-
-The portfolio block lists the held tickers with sector tags only; quantities and
-cost basis are never shared with you, so do not guess them.
-
-DO NOT output markdown, commentary, or fields outside this schema. Only return
-the JSON object."""
+Do not output markdown, commentary or any other key. Return only the JSON object."""
 
 
-_WORKED_EXAMPLE = """EXAMPLE (shape only — use the real data below for the actual output):
+_WORKED_EXAMPLE = """EXAMPLE (shape only; ZZZT is a placeholder ticker, use the real data below):
 {
-  "cycle_id": "abc12345",
-  "generated_at": "2026-04-19T22:00:00+00:00",
-  "portfolio_outlook": "The swarm converged BUY on industrial automation... ...",
+  "portfolio_outlook": "The swarm converged on BUY for industrial automation names...",
   "items": [
-    {"ticker": "ZZZT", "consensus_signal": "BUY", "confidence": 0.82,
-     "rationale_summary": "Order-book strength reiterated across Quants and Sell-Side.",
-     "position_exposure": "0"}
-  ],
-  "total_holdings": 7,
-  "affected_holdings": 1
+    {"ticker": "ZZZT", "signal": "BUY", "confidence": 0.82,
+     "rationale": "Event-Driven and Sell-Side agents read the deal as accretive.",
+     "risk": "Regulatory review could delay closing.",
+     "upside": "A completed deal re-rates the combined margin profile."}
+  ]
 }"""
 
 

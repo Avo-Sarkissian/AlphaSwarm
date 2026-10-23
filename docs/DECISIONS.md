@@ -783,8 +783,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p41-d-03"></a>`D-03` | Original: the orchestrator decides which holdings are affected and omits the rest. Superseded by one item per holding with server-side HOLD padding (260512-jqn ITEM 6, SWEEP B-7). | superseded | tests/unit/test_advisory.py:228 |
 | <a id="p41-d-04"></a>`D-04` | Prefetch all swarm data from Neo4j in parallel (asyncio.gather) before the single LLM call. | active | advisory/engine.py:109 |
 | <a id="p41-d-05"></a>`D-05` | One orchestrator call with swarm data plus the held tickers; this is the only place holdings enter a prompt. The prompt gets one entry per ticker with sector tags, never quantities, cost basis or account data; the engine adds the cost-basis exposure afterwards. Revised 2026-10 (the prompt carried each holding's ticker, quantity and cost basis). | revised | advisory/engine.py (`_ticker_entries`); tests/invariants/test_holdings_isolation.py (rendered-prompt canary) |
-| <a id="p41-d-06"></a>`D-06` | AdvisoryItem schema (ticker, consensus_signal, confidence, rationale_summary, position_exposure). | active | advisory/prompt.py:88; advisory/types.py (`AdvisoryItem`) |
-| <a id="p41-d-07"></a>`D-07` | Rank by confidence x (exposure / total cost basis); denominator must be positive (F-29). | active | advisory/engine.py:138,255 |
+| <a id="p41-d-06"></a>`D-06` | AdvisoryItem schema (ticker, consensus_signal, confidence, rationale_summary, position_exposure). | active | advisory/types.py (`AdvisoryItem`); advisory/engine.py (`assemble_advisory_report`) |
+| <a id="p41-d-07"></a>`D-07` | Rank by confidence x (exposure / total cost basis); denominator must be positive (F-29). | active | advisory/engine.py (`assemble_advisory_report`) |
 | <a id="p41-d-08"></a>`D-08` | Route owns orchestrator load/unload in try/finally; advisory never runs concurrently with report generation (bidirectional 409). | active | advisory/engine.py:6; web/app.py:104; web/routes/advisory.py:105,334 |
 | <a id="p41-d-09"></a>`D-09` | POST /api/advisory/{cycle_id} returns 202 and spawns a background task. | active | web/routes/advisory.py:86,98 |
 | <a id="p41-d-10"></a>`D-10` | GET reads advisory/{cycle_id}_advisory.json: 200 ready, 409 advisory_generation_in_progress while generating, 500 recorded failure or refusal, 404 absent. Revised 2026-10 (404 meant "still generating"). | revised | web/routes/advisory.py:196 |
@@ -899,8 +899,8 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-26"></a>F-26 | `/replay/start` skipped the cycle_id guard | 66d680f | web/routes/replay.py:112 |
 | <a id="f-27"></a>F-27 | A binary WS frame dropped the connection | 66d680f | web/routes/websocket.py:89 |
 | <a id="f-28"></a>F-28 | Sector seed-match used bare substrings (false positives) | 35471d4 | advisory/engine.py:65 |
-| <a id="f-29"></a>F-29 | A negative aggregate cost basis inverted the ranking | 35471d4 | advisory/engine.py:141 |
-| <a id="f-30"></a>F-30 | Inconsistent ticker casing across items | 35471d4 | advisory/engine.py:218 |
+| <a id="f-29"></a>F-29 | A negative aggregate cost basis inverted the ranking | 35471d4 | advisory/engine.py (`assemble_advisory_report`) |
+| <a id="f-30"></a>F-30 | Inconsistent ticker casing across items | 35471d4 | advisory/engine.py (`assemble_advisory_report`) |
 | <a id="f-31"></a>F-31 | Inverted governor thresholds passed validation | 902d7b5 | settings.py:GovernorSettings |
 | <a id="f-32"></a>F-32 | A failed unload aborted `ensure_clean_state`, risking the two-model invariant | 66d680f | ollama_models.py:OllamaModelManager.unload_model, OllamaModelManager.ensure_clean_state |
 | <a id="f-33"></a>F-33 | Double-click could start two simulations | df2f26a | fe/hooks/useRunGate.tsx:51 |

@@ -264,9 +264,11 @@ def _fresh_advisory_loggers(monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the advisory loggers at fresh proxies so capture_logs sees them even
     when an earlier test cached them under another structlog configuration."""
     import alphaswarm.advisory.engine as engine_module
+    import alphaswarm.inference.structured as structured_module
     import alphaswarm.web.routes.advisory as advisory_route
 
     monkeypatch.setattr(engine_module, "log", structlog.get_logger(component="advisory"))
+    monkeypatch.setattr(structured_module, "log", structlog.get_logger(component="inference.structured"))
     monkeypatch.setattr(advisory_route, "log", structlog.get_logger(component="web.advisory"))
 
 
@@ -291,8 +293,9 @@ async def test_invalid_first_response_leaks_nothing(
     )
     log_output = capture_logs.getvalue()
     retry_prompt = capture_jinja_renders[1]
-    assert "advisory_validation_retry" in log_output  # positive control: the retry was logged
-    assert "failed validation" in retry_prompt  # positive control: the retry prompt was captured
+    assert "structured_output_invalid" in log_output  # positive control: the retry was logged
+    # positive control: the retry prompt was captured
+    assert "did not match the required JSON schema" in retry_prompt
     for sentinel in all_sentinel_representations():
         assert sentinel not in log_output, f"sentinel representation {sentinel!r} leaked into logs"
         if sentinel != SENTINEL_TICKER:
@@ -351,7 +354,7 @@ def test_invalid_twice_leaks_nothing_to_logs_or_http(
                 break
             response = client.get(f"/api/advisory/{CYCLE_A}")
     assert response.status_code == 500
-    assert response.json()["detail"]["message"] == "Advisory generation failed (ValidationError)"
+    assert response.json()["detail"]["message"] == "Advisory generation failed (StructuredOutputError)"
     log_output = capture_logs.getvalue()
     assert "advisory_generation_failed" in log_output  # positive control
     for sentinel in all_sentinel_representations():
