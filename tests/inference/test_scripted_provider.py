@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 
 import pytest
 
 from alphaswarm.errors import InferenceError
 from alphaswarm.inference.provider import InferenceProvider
-from alphaswarm.inference.types import InferenceMessage, ProviderRole
+from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
 from alphaswarm.interview import _strip_json_instructions
 from alphaswarm.parsing import parse_agent_decision
 from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas
@@ -17,6 +18,7 @@ from alphaswarm.worker import DECISION_JSON_SCHEMA
 from tests.inference.fakes import (
     AGENT_HEADER_RE,
     PEER_LINE_RE,
+    SCRIPTED_TELEMETRY,
     ScriptedCall,
     ScriptedProvider,
     default_decision_script,
@@ -161,3 +163,32 @@ def test_default_decision_script_is_deterministic_and_cites_shown_peers() -> Non
     assert (first.confidence, first.sentiment) == (0.91, 0.76)
     assert first.cited_agents == ["sell_side_01", "narrators_02"]
     assert first.rationale == "institutions_01 round 1: scripted hold view"
+
+
+async def test_decision_results_carry_scripted_telemetry() -> None:
+    worker = ScriptedProvider(personas=PERSONAS)
+    result = await worker.chat(
+        [
+            {"role": "system", "content": PERSONAS[0].system_prompt},
+            {"role": "user", "content": "ZZZT Holdings rumor"},
+        ],
+        response_schema=DECISION_JSON_SCHEMA,
+    )
+    assert {name: getattr(result, name) for name in SCRIPTED_TELEMETRY} == dict(SCRIPTED_TELEMETRY)
+
+
+async def test_result_hook_rewrites_decision_results() -> None:
+    def hook(call: ScriptedCall, result: InferenceResult) -> InferenceResult:
+        assert call.kind == "decision"
+        return dataclasses.replace(result, finish_reason="length")
+
+    worker = ScriptedProvider(personas=PERSONAS, result_hook=hook)
+    result = await worker.chat(
+        [
+            {"role": "system", "content": PERSONAS[0].system_prompt},
+            {"role": "user", "content": "ZZZT Holdings rumor"},
+        ],
+        response_schema=DECISION_JSON_SCHEMA,
+    )
+    assert result.finish_reason == "length"
+    assert worker.calls_for("decision")[0].agent_id == PERSONAS[0].id

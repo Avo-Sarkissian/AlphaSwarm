@@ -231,6 +231,7 @@
   },
   "state_call_counts": {
     "push_rationale": 200,
+    "record_tokens": 200,
     "update_agent_state": 200
   },
   "state_calls": [

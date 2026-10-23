@@ -11,6 +11,7 @@ Pattern (docs/DECISIONS.md#adr-agent-worker):
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from alphaswarm.inference.concurrency import ConcurrencyController
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.state import StateSink
+    from alphaswarm.telemetry import RoundTelemetry
 
 logger = structlog.get_logger(component="worker")
 
@@ -139,10 +141,12 @@ class AgentWorker:
         persona: WorkerPersonaConfig,
         provider: InferenceProvider,
         state_store: StateSink | None = None,
+        telemetry: RoundTelemetry | None = None,
     ) -> None:
         self._persona = persona
         self._provider = provider
         self._state_store = state_store
+        self._telemetry = telemetry
         self.last_total_tokens: int | None = None
 
     async def infer(
@@ -205,6 +209,7 @@ class AgentWorker:
 
         # agent_id joins cycle_id/round on every log line of this call, including the
         # provider's inference_call (docs/DECISIONS.md#adr-inference-telemetry).
+        started = time.perf_counter()
         with structlog.contextvars.bound_contextvars(agent_id=self._persona["agent_id"]):
             result = await self._provider.chat(
                 messages,
@@ -214,6 +219,8 @@ class AgentWorker:
                 # Without this, every agent ran at the Modelfile's temperature
                 # and the bracket temperature design was dead config.
             )
+        if self._telemetry is not None:
+            self._telemetry.record(result, latency_ms=(time.perf_counter() - started) * 1000)
 
         # Compute total billable tokens for this call. Used by agent_worker
         # context manager to pass result_tokens to governor.release() so
@@ -233,6 +240,15 @@ class AgentWorker:
             self._state_store.record_tokens(result.output_tokens)
 
         decision = parse_agent_decision(result.content)
+        if decision.error_kind == "parse" and result.finish_reason == "length":
+            # The reply hit the output cap mid-JSON: a truncation, not a malformed
+            # answer (docs/DECISIONS.md#adr-inference-telemetry).
+            decision = decision.model_copy(update={"error_kind": "truncated"})
+            logger.warning(
+                "decision_truncated",
+                agent_id=self._persona["agent_id"],
+                completion_tokens=result.output_tokens,
+            )
 
         logger.debug(
             "agent inference complete",
@@ -251,6 +267,8 @@ async def agent_worker(
     governor: ConcurrencyController,
     provider: InferenceProvider,
     state_store: StateSink | None = None,
+    *,
+    telemetry: RoundTelemetry | None = None,
 ) -> AsyncGenerator[AgentWorker, None]:
     """Async context manager for agent inference with semaphore guarding.
 
@@ -264,13 +282,15 @@ async def agent_worker(
         governor: ResourceGovernor for concurrency slot management.
         provider: InferenceProvider for LLM calls (local or cloud).
         state_store: Optional StateSink for TPS metric collection (docs/DECISIONS.md#p10-d-05).
+        telemetry: Optional per-round telemetry the call is recorded in
+            (docs/DECISIONS.md#adr-inference-telemetry).
 
     Yields:
         AgentWorker -- call worker.infer() to run inference.
     """
     await governor.acquire()
     _success = True
-    worker = AgentWorker(persona, provider, state_store=state_store)
+    worker = AgentWorker(persona, provider, state_store=state_store, telemetry=telemetry)
     try:
         yield worker
     except Exception:

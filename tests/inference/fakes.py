@@ -9,8 +9,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Final, Literal
 
 from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
@@ -129,6 +130,18 @@ _NARRATIVE_AGENT_RE: Final = re.compile(r"^Agent: (?P<name>.+?) \([a-z_]+\)$", r
 # LLM-facing decision fields only; never engine fields such as error_kind/parse_tier.
 _LLM_DECISION_FIELDS: Final = frozenset({"signal", "confidence", "sentiment", "rationale", "cited_agents"})
 _SCRIPTED_SIGNALS: Final = (SignalType.BUY, SignalType.SELL, SignalType.HOLD)
+# Deterministic per-call telemetry stamped on every decision result, so the
+# telemetry metric keys appear in scenario goldens with stable values.
+SCRIPTED_TELEMETRY: Final[Mapping[str, Any]] = MappingProxyType(
+    {
+        "input_tokens": 1400,
+        "output_tokens": 150,
+        "prefill_ms": 600.0,
+        "decode_ms": 2700.0,
+        "load_ms": 0.0,
+        "finish_reason": "stop",
+    }
+)
 
 CallKind = Literal["decision", "narrative", "orchestrator", "chat"]
 
@@ -146,6 +159,7 @@ class ScriptedCall:
 
 
 DecisionFn = Callable[[str, int, ScriptedCall], AgentDecision | BaseException]
+ResultHook = Callable[[ScriptedCall, InferenceResult], InferenceResult]
 
 
 def default_decision_script(agent_id: str, round_num: int, call: ScriptedCall) -> AgentDecision:
@@ -170,7 +184,8 @@ class ScriptedProvider(FakeInferenceProvider):
     persona header; otherwise ``narrative``. Agent identity comes from the
     header's name (decision/chat) or the narrative prompt's ``Agent:`` line.
     Round = ``round_source()`` when given, else a per-agent decision counter.
-    A DecisionFn that returns an exception makes ``chat`` raise it.
+    A DecisionFn that returns an exception makes ``chat`` raise it. Decision results
+    carry SCRIPTED_TELEMETRY; ``result_hook`` may rewrite them (e.g. a truncation).
     """
 
     def __init__(
@@ -183,9 +198,11 @@ class ScriptedProvider(FakeInferenceProvider):
         orchestrator_script: Sequence[str] | Callable[[ScriptedCall], str] = (),
         round_source: Callable[[], int] | None = None,
         is_local: bool = True,
+        result_hook: ResultHook | None = None,
     ) -> None:
         super().__init__(role, model, scripted=self._respond, is_local=is_local)
         self.decide = decide
+        self.result_hook = result_hook
         self._ids_by_name = {p.name: p.id for p in personas}
         if callable(orchestrator_script):
             self._orchestrator_fn: Callable[[ScriptedCall], str] | None = orchestrator_script
@@ -272,7 +289,8 @@ class ScriptedProvider(FakeInferenceProvider):
             if isinstance(outcome, BaseException):
                 raise outcome
             payload = outcome.model_dump(mode="json", include=set(_LLM_DECISION_FIELDS))
-            return InferenceResult(content=json.dumps(payload), model=self.model)
+            result = InferenceResult(content=json.dumps(payload), model=self.model, **SCRIPTED_TELEMETRY)
+            return self.result_hook(call, result) if self.result_hook is not None else result
         if kind == "chat":
             return InferenceResult(content=f"Scripted interview reply from {agent_id}.", model=self.model)
         return InferenceResult(content=f"Scripted narrative for {agent_id}.", model=self.model)
