@@ -12,6 +12,7 @@ import pytest
 
 from alphaswarm.errors import Neo4jWriteError
 from alphaswarm.types import AgentDecision, SeedEvent, SignalType
+from tests.support.graph_fakes import write_round
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
@@ -49,7 +50,7 @@ async def test_schema_applied_then_100_decisions_persist(
         (p.id, AgentDecision(signal=SignalType.HOLD, confidence=0.5, rationale="fresh install")) for p in all_personas
     ]
 
-    ids = await graph_manager_test.write_decisions(decisions, cycle_id, 1)
+    ids = await write_round(graph_manager_test, cycle_id, 1, decisions)
 
     assert len(ids) == 100
     assert await _decision_count(graph_manager_test, cycle_id) == 100
@@ -64,6 +65,6 @@ async def test_writes_for_agents_without_nodes_raise_instead_of_vanishing(
     cycle_id = await _new_cycle(graph_manager_test)
     decisions = [(f"unseeded_{i:03d}", AgentDecision(signal=SignalType.BUY, confidence=0.7)) for i in range(100)]
 
-    with pytest.raises(Neo4jWriteError, match="Wrote 0 of 100 decisions"):
-        await graph_manager_test.write_decisions(decisions, cycle_id, 1)
+    with pytest.raises(Neo4jWriteError, match="created 0 of 100 decisions"):
+        await write_round(graph_manager_test, cycle_id, 1, decisions)
     assert await _decision_count(graph_manager_test, cycle_id) == 0

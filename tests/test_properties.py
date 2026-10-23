@@ -10,9 +10,9 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from alphaswarm.config import DEFAULT_BRACKETS, generate_personas
+from alphaswarm.episodes import compute_flip_type
 from alphaswarm.parsing import parse_agent_decision
 from alphaswarm.types import AgentDecision, FlipType, SignalType
-from alphaswarm.write_buffer import compute_flip_type
 
 PERSONAS = generate_personas(list(DEFAULT_BRACKETS))
 AGENT_IDS = [p.id for p in PERSONAS]

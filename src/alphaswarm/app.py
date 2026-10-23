@@ -109,12 +109,14 @@ def create_app_state(
             settings.neo4j.uri,
             auth=(settings.neo4j.username, settings.neo4j.require_password()),
             max_connection_pool_size=50,
+            connection_acquisition_timeout=settings.neo4j.connection_acquisition_timeout,
         )
 
         graph_manager = GraphStateManager(
             driver=driver,
             personas=personas,
             database=settings.neo4j.database,
+            query_timeout_s=settings.neo4j.query_timeout_s,
         )
 
     return AppState(

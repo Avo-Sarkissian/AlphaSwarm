@@ -18,6 +18,7 @@ from alphaswarm.types import (
     SeedEvent,
     SignalType,
 )
+from tests.support.graph_fakes import fake_persist_round
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -123,14 +124,13 @@ def mock_model_manager() -> AsyncMock:
 
 @pytest.fixture()
 def mock_graph_manager() -> AsyncMock:
-    """Mock GraphStateManager with write_decisions and compute_influence_edges."""
+    """Mock GraphStateManager with persist_round and compute_influence_edges."""
     gm = AsyncMock()
-    gm.write_decisions = AsyncMock(return_value=[])  # Phase 11: returns list[str] of decision_ids
+    gm.persist_round = AsyncMock(side_effect=fake_persist_round)  # one transaction per round
+    gm.set_cycle_status = AsyncMock()
     gm.compute_influence_edges = AsyncMock(return_value={})
     gm.read_cycle_entities = AsyncMock(return_value=[])  # Phase 11
     gm.write_decision_narratives = AsyncMock()  # Phase 11
-    gm.write_rationale_episodes = AsyncMock()  # Phase 11 (called via WriteBuffer.flush)
-    gm.write_narrative_edges = AsyncMock()  # Phase 11 (called via WriteBuffer.flush)
     # Phase 12: Post node methods
     gm.write_posts = AsyncMock(return_value=["post_id_1", "post_id_2"])
     # Phase 35.1 — shock injection writer (B1 wiring fix)
@@ -380,7 +380,7 @@ async def test_run_round1_persists_decisions_round_1(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """graph_manager.write_decisions is called with round_num=1."""
+    """graph_manager.persist_round is called once for round 1."""
     from alphaswarm.simulation import run_round1
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -397,9 +397,13 @@ async def test_run_round1_persists_decisions_round_1(
         pre_injected=_PRE_INJECTED,
     )
 
-    mock_graph_manager.write_decisions.assert_awaited_once()
-    call_args = mock_graph_manager.write_decisions.call_args
-    assert call_args[1]["round_num"] == 1 or call_args[0][2] == 1
+    mock_graph_manager.persist_round.assert_awaited_once()
+    call = mock_graph_manager.persist_round.await_args
+    assert call.args[:2] == ("test-cycle-id", 1)
+    episodes = call.kwargs["episodes"]
+    assert len(episodes) == len(TEST_PERSONAS)
+    assert all(e.round_num == 1 and e.peer_context_received == "" for e in episodes)
+    assert all(e.flip_type == "none" for e in episodes)
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -1245,7 +1249,7 @@ def _mock_round1_result():
             ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="fading the pump")),
             ("degens_02", AgentDecision(signal=SignalType.SELL, confidence=0.5, rationale="exit liquidity")),
         ],
-        decision_ids=[],  # Phase 11: empty list OK -- no episodes pushed from empty zip
+        decision_ids=[],  # round 1 is persisted inside the mocked run_round1
     )
 
 
@@ -1415,7 +1419,7 @@ async def test_run_simulation_persists_all_rounds(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """write_decisions called for round 2 and round 3 (round 1 via run_round1)."""
+    """persist_round called for round 2 and round 3 (round 1 via run_round1)."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
@@ -1433,15 +1437,9 @@ async def test_run_simulation_persists_all_rounds(
         brackets=TEST_BRACKETS,
     )
 
-    # write_decisions called twice by run_simulation (round 2, round 3)
-    # round 1 is done inside run_round1 which is mocked
-    assert mock_graph_manager.write_decisions.await_count == 2
-    round_nums = [
-        call.kwargs.get("round_num", call.args[2] if len(call.args) > 2 else None)
-        for call in mock_graph_manager.write_decisions.await_args_list
-    ]
-    assert 2 in round_nums
-    assert 3 in round_nums
+    # Round 1 is persisted inside run_round1, which is mocked here.
+    rounds = [c.args[1] for c in mock_graph_manager.persist_round.await_args_list]
+    assert rounds == [2, 3]
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
@@ -2037,7 +2035,7 @@ def test_round_complete_event_has_bracket_summaries() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 11 Plan 03 Tests: WriteBuffer integration and narrative generation
+# Round persistence and narrative generation
 # ---------------------------------------------------------------------------
 
 
@@ -2052,13 +2050,11 @@ async def test_run_round1_returns_decision_ids(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """Round1Result.decision_ids has the IDs returned by write_decisions."""
+    """Round1Result.decision_ids are the ids persist_round wrote."""
     from alphaswarm.simulation import Round1Result, run_round1
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_dispatch.return_value = _default_decisions(len(TEST_PERSONAS))
-    expected_ids = ["id-1", "id-2", "id-3", "id-4"]
-    mock_graph_manager.write_decisions = AsyncMock(return_value=expected_ids)
 
     result = await run_round1(
         rumor=MOCK_RUMOR,
@@ -2072,13 +2068,15 @@ async def test_run_round1_returns_decision_ids(
     )
 
     assert isinstance(result, Round1Result)
-    assert result.decision_ids == expected_ids
+    sent_ids = list(mock_graph_manager.persist_round.await_args.kwargs["decision_ids"])
+    assert len(sent_ids) == len(TEST_PERSONAS)
+    assert result.decision_ids == sent_ids
 
 
 @patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
 @patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
-async def test_run_simulation_flushes_write_buffer(
+async def test_run_simulation_persists_episode_records(
     mock_inject: AsyncMock,
     mock_round1: AsyncMock,
     mock_dispatch_wave: AsyncMock,
@@ -2088,117 +2086,38 @@ async def test_run_simulation_flushes_write_buffer(
     mock_graph_manager: AsyncMock,
     mock_governor: AsyncMock,
 ) -> None:
-    """WriteBuffer.flush is called 3 times during run_simulation (once per round)."""
-    from unittest.mock import patch as mock_patch
-
+    """Each round's EpisodeRecords reach persist_round with the right round and flip types."""
     from alphaswarm.simulation import run_simulation
 
     mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
     mock_round1.return_value = _mock_round1_result()
     mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
 
-    flush_call_count = 0
-
-    async def mock_flush(graph_manager, entity_names):
-        nonlocal flush_call_count
-        flush_call_count += 1
-        return 0
-
-    with mock_patch("alphaswarm.simulation.WriteBuffer") as mock_wb_cls:
-        mock_wb_instance = AsyncMock()
-        mock_wb_instance.push = AsyncMock()
-        mock_wb_instance.flush = AsyncMock(side_effect=mock_flush)
-        mock_wb_cls.return_value = mock_wb_instance
-
-        await run_simulation(
-            rumor=MOCK_RUMOR,
-            settings=mock_settings,
-            ollama_client=mock_ollama_client,
-            model_manager=mock_model_manager,
-            graph_manager=mock_graph_manager,
-            governor=mock_governor,
-            personas=TEST_PERSONAS,
-            brackets=TEST_BRACKETS,
-            generate_narratives=False,
-        )
-
-    assert mock_wb_instance.flush.await_count == 3
-
-
-@patch("alphaswarm.simulation.dispatch_wave", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.run_round1", new_callable=AsyncMock)
-@patch("alphaswarm.simulation.inject_seed", new_callable=AsyncMock)
-async def test_run_simulation_pushes_episode_records(
-    mock_inject: AsyncMock,
-    mock_round1: AsyncMock,
-    mock_dispatch_wave: AsyncMock,
-    mock_settings: AppSettings,
-    mock_ollama_client: MagicMock,
-    mock_model_manager: AsyncMock,
-    mock_graph_manager: AsyncMock,
-    mock_governor: AsyncMock,
-) -> None:
-    """EpisodeRecord objects pushed to WriteBuffer have round_num set correctly."""
-    from unittest.mock import patch as mock_patch
-
-    from alphaswarm.simulation import run_simulation
-
-    mock_inject.return_value = ("test-cycle-id", MOCK_PARSED_RESULT, None)
-    # Give round1 some decision_ids and round2 ids
-    r1_result = _mock_round1_result()
-    # Patch decision_ids to match the agent_decisions count
-    from alphaswarm.simulation import Round1Result
-
-    r1_with_ids = Round1Result(
-        cycle_id=r1_result.cycle_id,
-        parsed_result=r1_result.parsed_result,
-        agent_decisions=r1_result.agent_decisions,
-        decision_ids=[f"r1-{aid}" for aid, _ in r1_result.agent_decisions],
-    )
-    mock_round1.return_value = r1_with_ids
-    mock_dispatch_wave.return_value = _default_decisions(len(TEST_PERSONAS))
-    # Make write_decisions return matching IDs for rounds 2 and 3
-    mock_graph_manager.write_decisions = AsyncMock(
-        side_effect=[
-            [f"r2-{p.id}" for p in TEST_PERSONAS],  # round 2
-            [f"r3-{p.id}" for p in TEST_PERSONAS],  # round 3
-        ]
+    await run_simulation(
+        rumor=MOCK_RUMOR,
+        settings=mock_settings,
+        ollama_client=mock_ollama_client,
+        model_manager=mock_model_manager,
+        graph_manager=mock_graph_manager,
+        governor=mock_governor,
+        personas=TEST_PERSONAS,
+        brackets=TEST_BRACKETS,
+        generate_narratives=False,
     )
 
-    pushed_records: list = []
-
-    async def capture_push(record):
-        pushed_records.append(record)
-
-    with mock_patch("alphaswarm.simulation.WriteBuffer") as mock_wb_cls:
-        mock_wb_instance = AsyncMock()
-        mock_wb_instance.push = AsyncMock(side_effect=capture_push)
-        mock_wb_instance.flush = AsyncMock(return_value=0)
-        mock_wb_cls.return_value = mock_wb_instance
-
-        await run_simulation(
-            rumor=MOCK_RUMOR,
-            settings=mock_settings,
-            ollama_client=mock_ollama_client,
-            model_manager=mock_model_manager,
-            graph_manager=mock_graph_manager,
-            governor=mock_governor,
-            personas=TEST_PERSONAS,
-            brackets=TEST_BRACKETS,
-            generate_narratives=False,
-        )
-
-    # Round 1 + Round 2 + Round 3: 4 personas each = 12 pushes
-    assert len(pushed_records) == 12
-    round_nums = [r.round_num for r in pushed_records]
-    assert round_nums.count(1) == 4
-    assert round_nums.count(2) == 4
-    assert round_nums.count(3) == 4
-    # Round 1 episodes have empty peer_context
-    r1_records = [r for r in pushed_records if r.round_num == 1]
-    assert all(r.peer_context_received == "" for r in r1_records)
-    # Round 1 episodes have flip_type "none" (no prev signal)
-    assert all(r.flip_type == "none" for r in r1_records)
+    episodes_by_round = {c.args[1]: c.kwargs["episodes"] for c in mock_graph_manager.persist_round.await_args_list}
+    assert sorted(episodes_by_round) == [2, 3]
+    for round_num, episodes in episodes_by_round.items():
+        assert len(episodes) == len(TEST_PERSONAS)
+        assert {e.round_num for e in episodes} == {round_num}
+    # Mocked round 1: quants BUY, degens SELL; rounds 2 and 3 are all BUY.
+    assert {e.agent_id: e.flip_type for e in episodes_by_round[2]} == {
+        "quants_01": "none",
+        "quants_02": "none",
+        "degens_01": "sell_to_buy",
+        "degens_02": "sell_to_buy",
+    }
+    assert {e.flip_type for e in episodes_by_round[3]} == {"none"}
 
 
 @patch("alphaswarm.simulation._generate_decision_narratives", new_callable=AsyncMock)
@@ -2393,17 +2312,13 @@ async def test_run_simulation_two_rounds_skips_round3(
     assert result.round3_summaries == ()
     assert len(result.round2_decisions) == len(TEST_PERSONAS)
     # No round-3 Neo4j writes.
-    r3_writes = [
-        c
-        for c in mock_graph_manager.write_decisions.await_args_list
-        if c.kwargs.get("round_num") == 3 or (len(c.args) >= 3 and c.args[2] == 3)
-    ]
-    assert r3_writes == []
+    assert [c.args[1] for c in mock_graph_manager.persist_round.await_args_list] == [2]
     # Metrics: num_rounds recorded, final distribution from Round 2 (all BUY).
     _, metrics = mock_graph_manager.write_cycle_metrics.await_args.args
     assert metrics["num_rounds"] == 2
     assert metrics["r3_seconds"] == 0.0
     assert metrics["final_buy"] == len(TEST_PERSONAS)
+    assert "r3_citations_dropped" not in metrics
 
 
 # ---------------------------------------------------------------------------
@@ -3600,6 +3515,9 @@ async def test_run_simulation_writes_cycle_metrics(
         "r1_inference_errors",
         "r2_inference_errors",
         "r3_inference_errors",
+        "r1_citations_dropped",
+        "r2_citations_dropped",
+        "r3_citations_dropped",
         "final_round",
     }
     assert set(metrics.keys()) == (expected_keys | _EXPOSURE_KEYS_TEST_BRACKETS | _CONTROL_KEYS | _PROVENANCE_KEYS)

@@ -6,9 +6,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from alphaswarm.episodes import EntityRef
 from alphaswarm.types import AgentDecision, EntityType, SeedEntity, SeedEvent, SignalType
-from alphaswarm.write_buffer import EpisodeRecord
 from tests.conftest import NEO4J_TEST_DATABASE
+from tests.support.graph_fakes import write_round
 
 if TYPE_CHECKING:
     from neo4j import AsyncDriver
@@ -67,7 +68,7 @@ async def test_influence_edges_skip_self_citations_and_collapse_duplicates(
         ("degens_01", _decision(SignalType.SELL, ("sell_side_01",))),
         ("sell_side_01", _decision(SignalType.HOLD)),
     ]
-    await graph_manager_test.write_decisions(decisions, cycle_id, 2)
+    await write_round(graph_manager_test, cycle_id, 2, decisions)
     weights = await graph_manager_test.compute_influence_edges(cycle_id, up_to_round=2, total_agents=3)
     assert weights == {"sell_side_01": pytest.approx(2 / 3)}
     rows = await _rows(
@@ -97,9 +98,9 @@ async def test_influence_edges_are_cumulative_and_stamped_per_round(
     graph_manager_test: GraphStateManager, neo4j_test_driver: AsyncDriver
 ) -> None:
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(_RUMOR, _EVENT, num_rounds=3)
-    await graph_manager_test.write_decisions([("quants_01", _decision(SignalType.BUY, ("macro_01",)))], cycle_id, 2)
+    await write_round(graph_manager_test, cycle_id, 2, [("quants_01", _decision(SignalType.BUY, ("macro_01",)))])
     await graph_manager_test.compute_influence_edges(cycle_id, up_to_round=2, total_agents=4)
-    await graph_manager_test.write_decisions([("degens_01", _decision(SignalType.SELL, ("macro_01",)))], cycle_id, 3)
+    await write_round(graph_manager_test, cycle_id, 3, [("degens_01", _decision(SignalType.SELL, ("macro_01",)))])
     weights = await graph_manager_test.compute_influence_edges(cycle_id, up_to_round=3, total_agents=4)
     assert weights == {"macro_01": pytest.approx(2 / 4)}
     rows = await _rows(
@@ -119,13 +120,11 @@ async def test_rationale_episodes_are_stamped_from_each_record(
     graph_manager_test: GraphStateManager, neo4j_test_driver: AsyncDriver
 ) -> None:
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(_RUMOR, _EVENT, num_rounds=3)
-    first = await graph_manager_test.write_decisions([("quants_01", _decision(SignalType.BUY))], cycle_id, 1)
-    second = await graph_manager_test.write_decisions([("quants_01", _decision(SignalType.SELL))], cycle_id, 2)
-    records = [
-        EpisodeRecord(first[0], "quants_01", "r", "", "none", 1, cycle_id),
-        EpisodeRecord(second[0], "quants_01", "r", "peers", "buy_to_sell", 2, cycle_id),
-    ]
-    await graph_manager_test.write_rationale_episodes(records)  # one batch, two rounds
+    round1 = [("quants_01", _decision(SignalType.BUY))]
+    await write_round(graph_manager_test, cycle_id, 1, round1)
+    await write_round(
+        graph_manager_test, cycle_id, 2, [("quants_01", _decision(SignalType.SELL))], prev=round1, peer_context="peers"
+    )
     rows = await _rows(
         neo4j_test_driver,
         "MATCH (d:Decision {cycle_id: $cid})-[:HAS_EPISODE]->(re:RationaleEpisode) "
@@ -143,13 +142,13 @@ async def test_narrative_edges_link_decisions_case_insensitively(
     graph_manager_test: GraphStateManager, neo4j_test_driver: AsyncDriver
 ) -> None:
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(_RUMOR, _EVENT, num_rounds=3)
-    ids = await graph_manager_test.write_decisions(
-        [("quants_01", _decision(SignalType.BUY, rationale="zzzt holdings looks cheap"))],
+    ids = await write_round(
+        graph_manager_test,
         cycle_id,
         1,
+        [("quants_01", _decision(SignalType.BUY, rationale="zzzt holdings looks cheap"))],
+        entities=[EntityRef("ZZZT Holdings", "company")],
     )
-    record = EpisodeRecord(ids[0], "quants_01", "zzzt holdings looks cheap", "", "none", 1, cycle_id)
-    await graph_manager_test.write_narrative_edges([record], ["ZZZT Holdings"])
     rows = await _rows(
         neo4j_test_driver,
         "MATCH (d:Decision {decision_id: $did})-[r:REFERENCES]->(e:Entity) "

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from alphaswarm.config import JSON_OUTPUT_INSTRUCTIONS
-from alphaswarm.errors import Neo4jConnectionError
+from alphaswarm.errors import Neo4jQueryError
 from alphaswarm.interview import InterviewContext
 from alphaswarm.types import AgentPersona, BracketType
 
@@ -268,7 +268,7 @@ class TestReadAgentInterviewContext:
         assert JSON_OUTPUT_INSTRUCTIONS not in ctx.interview_system_prompt
         assert "quantitative analyst" in ctx.interview_system_prompt
 
-    async def test_raises_neo4j_connection_error_on_failure(
+    async def test_raises_neo4j_query_error_on_failure(
         self,
         mock_driver: MagicMock,
         sample_personas_for_interview: list[AgentPersona],
@@ -281,7 +281,7 @@ class TestReadAgentInterviewContext:
         session.execute_read = AsyncMock(side_effect=Neo4jError("Connection lost"))
 
         gsm = GraphStateManager(mock_driver, sample_personas_for_interview)
-        with pytest.raises(Neo4jConnectionError):
+        with pytest.raises(Neo4jQueryError):
             await gsm.read_agent_interview_context("quants_01", "cycle-123")
 
 

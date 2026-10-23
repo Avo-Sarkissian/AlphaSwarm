@@ -39,15 +39,6 @@ def mock_driver() -> MagicMock:
     return driver
 
 
-def _ack_rows(_tx_fn: object, rows: list[object], *_args: object) -> int:
-    """execute_write stand-in that reports every row as created.
-
-    write_decisions compares the created count with its input (T2.1), so mock
-    sessions must return a count instead of a bare MagicMock.
-    """
-    return len(rows)
-
-
 @pytest.fixture()
 def sample_personas_for_graph() -> list[AgentPersona]:
     """Create 2 test AgentPersona objects for seed_agents testing."""
@@ -133,194 +124,6 @@ async def test_close_calls_driver_close(mock_driver: MagicMock) -> None:
     await gsm.close()
 
     mock_driver.close.assert_awaited_once()
-
-
-# ---------------------------------------------------------------------------
-# Plan 02: write_decisions tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def sample_agent_decisions() -> list[tuple[str, AgentDecision]]:
-    """Create 3 test (agent_id, AgentDecision) tuples."""
-    return [
-        (
-            "quants_01",
-            AgentDecision(
-                signal=SignalType.BUY,
-                confidence=0.8,
-                sentiment=0.5,
-                rationale="bullish signal",
-                cited_agents=["degens_01"],
-            ),
-        ),
-        (
-            "degens_01",
-            AgentDecision(
-                signal=SignalType.SELL,
-                confidence=0.6,
-                sentiment=-0.3,
-                rationale="bearish momentum",
-                cited_agents=[],
-            ),
-        ),
-        (
-            "macro_01",
-            AgentDecision(
-                signal=SignalType.HOLD,
-                confidence=0.5,
-                sentiment=0.0,
-                rationale="neutral stance",
-                cited_agents=["quants_01", "degens_01"],
-            ),
-        ),
-    ]
-
-
-async def test_write_decisions_single_transaction(
-    mock_driver: MagicMock,
-    sample_agent_decisions: list[tuple[str, AgentDecision]],
-) -> None:
-    """write_decisions calls execute_write exactly once (single transaction)."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    session.execute_write.side_effect = _ack_rows
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1)
-
-    session.execute_write.assert_awaited_once()
-
-
-async def test_write_decisions_generates_client_side_uuids(
-    mock_driver: MagicMock,
-    sample_agent_decisions: list[tuple[str, AgentDecision]],
-) -> None:
-    """write_decisions generates client-side uuid4 for each decision_id."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    session.execute_write.side_effect = _ack_rows
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1)
-
-    call_args = session.execute_write.call_args
-    # Params list is second positional arg (after tx function)
-    params = call_args[0][1]
-    uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    for p in params:
-        assert re.match(uuid4_pattern, p["decision_id"]), f"Not a valid UUID4: {p['decision_id']}"
-
-
-async def test_write_decisions_transforms_signal_to_value(
-    mock_driver: MagicMock,
-) -> None:
-    """write_decisions converts SignalType enum to its string value."""
-    from alphaswarm.graph import GraphStateManager
-
-    decisions = [
-        (
-            "quants_01",
-            AgentDecision(
-                signal=SignalType.BUY,
-                confidence=0.8,
-                sentiment=0.5,
-                rationale="test",
-            ),
-        ),
-    ]
-    session = mock_driver.session.return_value
-    session.execute_write.side_effect = _ack_rows
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    await gsm.write_decisions(decisions, "test-cycle-id", 1)
-
-    call_args = session.execute_write.call_args
-    params = call_args[0][1]
-    assert params[0]["signal"] == "buy"
-
-
-async def test_batch_write_tx_skips_cited_when_empty() -> None:
-    """_batch_write_decisions_tx calls tx.run once when all cited_agents are empty."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-    tx.run.return_value.single = AsyncMock(return_value={"created": 2})
-    decisions = [
-        {
-            "decision_id": "d1",
-            "agent_id": "a1",
-            "signal": "buy",
-            "confidence": 0.5,
-            "sentiment": 0.0,
-            "rationale": "test",
-            "cited_agents": [],
-        },
-        {
-            "decision_id": "d2",
-            "agent_id": "a2",
-            "signal": "sell",
-            "confidence": 0.6,
-            "sentiment": -0.1,
-            "rationale": "test",
-            "cited_agents": [],
-        },
-    ]
-
-    created = await GraphStateManager._batch_write_decisions_tx(tx, decisions, "cycle-1", 1)
-
-    # Only 1 tx.run call (Decision creation, no CITED)
-    assert tx.run.await_count == 1
-    assert created == 2
-
-
-async def test_batch_write_tx_creates_cited_when_present() -> None:
-    """_batch_write_decisions_tx calls tx.run twice when cited_agents are non-empty."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-    tx.run.return_value.single = AsyncMock(return_value={"created": 1})
-    decisions = [
-        {
-            "decision_id": "d1",
-            "agent_id": "a1",
-            "signal": "buy",
-            "confidence": 0.5,
-            "sentiment": 0.0,
-            "rationale": "test",
-            "cited_agents": ["a2"],
-        },
-    ]
-
-    await GraphStateManager._batch_write_decisions_tx(tx, decisions, "cycle-1", 1)
-
-    # 2 tx.run calls (Decision creation + CITED creation)
-    assert tx.run.await_count == 2
-
-
-async def test_write_decisions_wraps_neo4j_error(
-    mock_driver: MagicMock,
-) -> None:
-    """write_decisions wraps neo4j.exceptions.Neo4jError as Neo4jWriteError."""
-    from neo4j.exceptions import Neo4jError
-
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    original_exc = Neo4jError("simulated failure")
-    session.execute_write = AsyncMock(side_effect=original_exc)
-
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-    decisions = [
-        ("quants_01", AgentDecision(signal=SignalType.HOLD, confidence=0.5)),
-    ]
-
-    with pytest.raises(Neo4jWriteError) as exc_info:
-        await gsm.write_decisions(decisions, "test-cycle", 1)
-
-    assert exc_info.value.original_error is original_exc
 
 
 # ---------------------------------------------------------------------------
@@ -488,229 +291,8 @@ async def test_write_influence_edges_tx_empty_edges() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 11 Plan 02: write_decisions refactor + new episode/edge/entity methods
+# Narrative and entity methods
 # ---------------------------------------------------------------------------
-
-
-async def test_write_decisions_returns_decision_ids(
-    mock_driver: MagicMock,
-    sample_agent_decisions: list[tuple[str, AgentDecision]],
-) -> None:
-    """write_decisions returns a list of decision_id strings (one per decision)."""
-    import re
-
-    from alphaswarm.graph import GraphStateManager
-
-    mock_driver.session.return_value.execute_write.side_effect = _ack_rows
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    result = await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1)
-
-    assert isinstance(result, list)
-    assert len(result) == len(sample_agent_decisions)
-    uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    for did in result:
-        assert isinstance(did, str)
-        assert re.match(uuid4_pattern, did), f"Not a valid UUID4: {did}"
-
-
-async def test_write_decisions_accepts_pregenerated_ids(
-    mock_driver: MagicMock,
-    sample_agent_decisions: list[tuple[str, AgentDecision]],
-) -> None:
-    """write_decisions uses pre-generated decision_ids when provided and returns them."""
-    from alphaswarm.graph import GraphStateManager
-
-    pre_ids = [f"pre-id-{i}" for i in range(len(sample_agent_decisions))]
-    mock_driver.session.return_value.execute_write.side_effect = _ack_rows
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    result = await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1, decision_ids=pre_ids)
-
-    assert result == pre_ids
-    # Verify the pre-generated IDs were actually passed to execute_write
-    session = mock_driver.session.return_value
-    call_args = session.execute_write.call_args
-    params = call_args[0][1]
-    assert [p["decision_id"] for p in params] == pre_ids
-
-
-async def test_write_decisions_raises_on_mismatched_ids(
-    mock_driver: MagicMock,
-    sample_agent_decisions: list[tuple[str, AgentDecision]],
-) -> None:
-    """write_decisions raises ValueError if decision_ids length != agent_decisions length."""
-    from alphaswarm.graph import GraphStateManager
-
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-    wrong_ids = ["only-one-id"]  # 3 decisions, 1 id
-
-    with pytest.raises(ValueError, match="decision_ids length"):
-        await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1, decision_ids=wrong_ids)
-
-
-async def test_write_rationale_episodes(mock_driver: MagicMock) -> None:
-    """write_rationale_episodes calls execute_write once with episode data."""
-    from alphaswarm.graph import GraphStateManager
-    from alphaswarm.write_buffer import EpisodeRecord
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    records = [
-        EpisodeRecord(
-            decision_id="dec-001",
-            agent_id="quants_01",
-            rationale="bullish on NVIDIA",
-            peer_context_received="",
-            flip_type="none",
-            round_num=1,
-            cycle_id="cycle-abc",
-        ),
-        EpisodeRecord(
-            decision_id="dec-002",
-            agent_id="degens_01",
-            rationale="bearish momentum",
-            peer_context_received="peer said buy",
-            flip_type="buy_to_sell",
-            round_num=1,
-            cycle_id="cycle-abc",
-        ),
-    ]
-
-    await gsm.write_rationale_episodes(records)
-
-    session.execute_write.assert_awaited_once()
-    call_args = session.execute_write.call_args
-    # Second positional arg is the episodes list
-    episodes_param = call_args[0][1]
-    assert len(episodes_param) == 2
-    assert episodes_param[0]["decision_id"] == "dec-001"
-    assert episodes_param[0]["rationale"] == "bullish on NVIDIA"
-    assert episodes_param[1]["flip_type"] == "buy_to_sell"
-
-
-async def test_write_rationale_episodes_empty_is_noop(mock_driver: MagicMock) -> None:
-    """write_rationale_episodes with empty list does not open a session."""
-    from alphaswarm.graph import GraphStateManager
-
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-    await gsm.write_rationale_episodes([])
-    mock_driver.session.assert_not_called()
-
-
-async def test_write_narrative_edges_case_insensitive(mock_driver: MagicMock) -> None:
-    """write_narrative_edges matches entity names case-insensitively."""
-    from alphaswarm.graph import GraphStateManager
-    from alphaswarm.write_buffer import EpisodeRecord
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    # Entity name is "NVIDIA" (uppercase), rationale mentions "nvidia" (lowercase)
-    records = [
-        EpisodeRecord(
-            decision_id="dec-001",
-            agent_id="quants_01",
-            rationale="bullish on nvidia semiconductor",  # lowercase mention
-            peer_context_received="",
-            flip_type="none",
-            round_num=1,
-            cycle_id="cycle-abc",
-        ),
-    ]
-    entity_names = ["NVIDIA", "Apple"]  # original casing
-
-    await gsm.write_narrative_edges(records, entity_names)
-
-    # Should have matched "nvidia" in rationale against "NVIDIA"
-    session.execute_write.assert_awaited_once()
-    call_args = session.execute_write.call_args
-    matches_param = call_args[0][1]
-    assert len(matches_param) == 1
-    assert matches_param[0]["decision_id"] == "dec-001"
-
-
-async def test_write_narrative_edges_original_casing(mock_driver: MagicMock) -> None:
-    """write_narrative_edges preserves original entity name casing in the matched pairs."""
-    from alphaswarm.graph import GraphStateManager
-    from alphaswarm.write_buffer import EpisodeRecord
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    records = [
-        EpisodeRecord(
-            decision_id="dec-001",
-            agent_id="quants_01",
-            rationale="bullish on NVIDIA semiconductors",
-            peer_context_received="",
-            flip_type="none",
-            round_num=1,
-            cycle_id="cycle-abc",
-        ),
-    ]
-    entity_names = ["NVIDIA"]  # original uppercase casing
-
-    await gsm.write_narrative_edges(records, entity_names)
-
-    call_args = session.execute_write.call_args
-    matches_param = call_args[0][1]
-    # entity_name must be "NVIDIA" (original casing), NOT "nvidia"
-    assert matches_param[0]["entity_name"] == "NVIDIA"
-
-
-async def test_write_narrative_edges_no_match_skips_write(mock_driver: MagicMock) -> None:
-    """write_narrative_edges skips execute_write when no entities match rationales."""
-    from alphaswarm.graph import GraphStateManager
-    from alphaswarm.write_buffer import EpisodeRecord
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    records = [
-        EpisodeRecord(
-            decision_id="dec-001",
-            agent_id="quants_01",
-            rationale="general market trend",  # no entity mention
-            peer_context_received="",
-            flip_type="none",
-            round_num=1,
-            cycle_id="cycle-abc",
-        ),
-    ]
-    entity_names = ["NVIDIA", "Apple"]  # not mentioned in rationale
-
-    await gsm.write_narrative_edges(records, entity_names)
-
-    session.execute_write.assert_not_awaited()
-
-
-async def test_write_narrative_edges_empty_is_noop(mock_driver: MagicMock) -> None:
-    """write_narrative_edges with empty records or entity_names is a no-op."""
-    from alphaswarm.graph import GraphStateManager
-    from alphaswarm.write_buffer import EpisodeRecord
-
-    session = mock_driver.session.return_value
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    record = EpisodeRecord(
-        decision_id="dec-001",
-        agent_id="quants_01",
-        rationale="bullish on NVIDIA",
-        peer_context_received="",
-        flip_type="none",
-        round_num=1,
-        cycle_id="cycle-abc",
-    )
-
-    # Empty records
-    await gsm.write_narrative_edges([], ["NVIDIA"])
-    session.execute_write.assert_not_awaited()
-
-    # Empty entity_names
-    await gsm.write_narrative_edges([record], [])
-    session.execute_write.assert_not_awaited()
 
 
 async def test_write_decision_narratives(mock_driver: MagicMock) -> None:
@@ -1072,7 +654,7 @@ async def test_write_shock_event_wraps_driver_errors(mock_driver: MagicMock) -> 
 
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    with pytest.raises(Neo4jWriteError, match="Failed to write shock_event for cycle c1"):
+    with pytest.raises(Neo4jWriteError, match="write_shock_event"):
         await gsm.write_shock_event(
             cycle_id="c1",
             shock_text="anything",
@@ -1090,7 +672,7 @@ def test_schema_includes_shock_id_unique_constraint() -> None:
 
 
 # ---------------------------------------------------------------------------
-# T2.1: connectivity check and the decision write-count check
+# Connectivity check and influence-edge guards
 # ---------------------------------------------------------------------------
 
 
@@ -1100,63 +682,6 @@ async def test_verify_connectivity_delegates_to_the_driver(mock_driver: MagicMoc
     mock_driver.verify_connectivity = AsyncMock()
     await GraphStateManager(driver=mock_driver, personas=[]).verify_connectivity()
     mock_driver.verify_connectivity.assert_awaited_once()
-
-
-async def test_verify_connectivity_propagates_driver_errors(mock_driver: MagicMock) -> None:
-    from neo4j.exceptions import ServiceUnavailable
-
-    from alphaswarm.graph import GraphStateManager
-
-    mock_driver.verify_connectivity = AsyncMock(side_effect=ServiceUnavailable("down"))
-    with pytest.raises(ServiceUnavailable):
-        await GraphStateManager(driver=mock_driver, personas=[]).verify_connectivity()
-
-
-async def test_write_decisions_raises_when_rows_are_dropped(
-    mock_driver: MagicMock,
-    sample_agent_decisions: list[tuple[str, AgentDecision]],
-) -> None:
-    """A MATCH that finds no Agent/Cycle silently drops rows; that must fail loudly."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    session.execute_write.side_effect = lambda _fn, rows, *_a: len(rows) - 1
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    with pytest.raises(Neo4jWriteError, match=r"Wrote 2 of 3 decisions .* ensure_schema"):
-        await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1)
-
-
-async def test_write_decisions_with_no_rows_writes_nothing_and_succeeds(
-    mock_driver: MagicMock,
-) -> None:
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-    session.execute_write.side_effect = _ack_rows
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-    assert await gsm.write_decisions([], "test-cycle-id", 1) == []
-
-
-async def test_batch_write_tx_returns_the_cypher_created_count() -> None:
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-    tx.run.return_value.single = AsyncMock(return_value={"created": 0})
-    rows = [
-        {
-            "decision_id": "d1",
-            "agent_id": "ghost",
-            "signal": "buy",
-            "confidence": 0.5,
-            "sentiment": 0.0,
-            "rationale": "x",
-            "cited_agents": [],
-        }
-    ]
-
-    assert await GraphStateManager._batch_write_decisions_tx(tx, rows, "cycle-1", 1) == 0
-    assert "RETURN count(dec) AS created" in tx.run.await_args_list[0].args[0]
 
 
 async def test_compute_influence_edges_skips_when_no_active_agents(mock_driver: MagicMock) -> None:
@@ -1183,3 +708,390 @@ async def test_create_cycle_rejects_non_positive_num_rounds() -> None:
             SeedEvent(raw_rumor="rumor", entities=[], overall_sentiment=0.0),
             num_rounds=0,
         )
+
+
+# ---------------------------------------------------------------------------
+# Error mapping, _read/_write helpers, query timeouts (docs/DECISIONS.md#p4-d-07)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("exc_factory", "write", "expected"),
+    [
+        ("service_unavailable", False, "Neo4jUnavailableError"),
+        ("session_expired", True, "Neo4jUnavailableError"),
+        ("auth", False, "Neo4jUnavailableError"),
+        ("pool_timeout", True, "Neo4jUnavailableError"),
+        ("syntax", False, "Neo4jQueryError"),
+        ("syntax", True, "Neo4jWriteError"),
+    ],
+)
+def test_map_graph_error(exc_factory: str, write: bool, expected: str) -> None:
+    from neo4j.exceptions import AuthError as Neo4jAuthError
+    from neo4j.exceptions import ClientError, ServiceUnavailable, SessionExpired
+
+    from alphaswarm.graph import _map_graph_error
+
+    original = {
+        "service_unavailable": ServiceUnavailable("Couldn't connect to 127.0.0.1:7688"),
+        "session_expired": SessionExpired("session expired"),
+        "auth": Neo4jAuthError("The client is unauthorized due to authentication failure."),
+        "pool_timeout": ClientError("failed to obtain a connection from the pool within 10.0s (timeout)"),
+        "syntax": ClientError("Invalid input 'MATC'"),
+    }[exc_factory]
+    mapped = _map_graph_error(original, op="probe", write=write)
+    assert type(mapped).__name__ == expected
+    assert mapped.op == "probe"
+    assert mapped.original_error is original
+
+
+async def test_read_maps_driver_errors(mock_driver: MagicMock) -> None:
+    from neo4j.exceptions import ServiceUnavailable
+
+    from alphaswarm.errors import Neo4jUnavailableError
+    from alphaswarm.graph import GraphStateManager
+
+    original = ServiceUnavailable("down")
+    mock_driver.session.return_value.execute_read = AsyncMock(side_effect=original)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    with pytest.raises(Neo4jUnavailableError) as exc_info:
+        await gsm._read(AsyncMock(), "c1", op="probe_read")
+    assert exc_info.value.op == "probe_read"
+    assert exc_info.value.__cause__ is original
+
+
+async def test_write_maps_server_errors(mock_driver: MagicMock) -> None:
+    from neo4j.exceptions import Neo4jError
+
+    from alphaswarm.errors import Neo4jWriteError
+    from alphaswarm.graph import GraphStateManager
+
+    mock_driver.session.return_value.execute_write = AsyncMock(side_effect=Neo4jError("boom"))
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    with pytest.raises(Neo4jWriteError):
+        await gsm._write(AsyncMock(), op="probe_write")
+
+
+async def test_helpers_apply_the_query_timeout(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value=7)
+    gsm = GraphStateManager(driver=mock_driver, personas=[], query_timeout_s=2.5)
+
+    async def _tx(tx: object, value: int) -> int:
+        return value
+
+    assert await gsm._read(_tx, 1, op="probe") == 7
+    passed_fn = session.execute_read.await_args.args[0]
+    assert passed_fn.timeout == 2.5
+    assert session.execute_read.await_args.args[1:] == (1,)
+
+
+async def test_no_timeout_passes_the_function_through(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_write = AsyncMock(return_value=None)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    async def _tx(tx: object) -> None:
+        return None
+
+    await gsm._write(_tx, op="probe")
+    assert session.execute_write.await_args.args[0] is _tx
+
+
+async def test_verify_connectivity_maps_to_unavailable(mock_driver: MagicMock) -> None:
+    from neo4j.exceptions import ServiceUnavailable
+
+    from alphaswarm.errors import Neo4jUnavailableError
+    from alphaswarm.graph import GraphStateManager
+
+    original = ServiceUnavailable("down")
+    mock_driver.verify_connectivity = AsyncMock(side_effect=original)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    with pytest.raises(Neo4jUnavailableError) as exc_info:
+        await gsm.verify_connectivity()
+    assert exc_info.value.op == "verify_connectivity"
+    assert exc_info.value.original_error is original
+
+
+async def test_ensure_schema_maps_driver_errors(mock_driver: MagicMock) -> None:
+    from neo4j.exceptions import ServiceUnavailable
+
+    from alphaswarm.errors import Neo4jUnavailableError
+    from alphaswarm.graph import GraphStateManager
+
+    mock_driver.session.return_value.run = AsyncMock(side_effect=ServiceUnavailable("down"))
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    with pytest.raises(Neo4jUnavailableError) as exc_info:
+        await gsm.ensure_schema()
+    assert exc_info.value.op == "ensure_schema"
+
+
+async def test_read_cycle_entities_returns_entity_refs(mock_driver: MagicMock) -> None:
+    from alphaswarm.episodes import EntityRef
+    from alphaswarm.graph import GraphStateManager
+
+    refs = [EntityRef("ZZZT Holdings", "company")]
+    mock_driver.session.return_value.execute_read = AsyncMock(return_value=refs)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    assert await gsm.read_cycle_entities("cycle-abc") == refs
+
+
+async def test_read_cycle_entities_tx_reads_name_and_type() -> None:
+    from alphaswarm.episodes import EntityRef
+    from alphaswarm.graph import GraphStateManager
+
+    result = MagicMock()
+    result.__aiter__.return_value = [
+        {"name": "QQQX Robotics", "type": "company"},
+        {"name": "Industrial Automation", "type": "sector"},
+    ]
+    tx = MagicMock()
+    tx.run = AsyncMock(return_value=result)
+
+    rows = await GraphStateManager._read_cycle_entities_tx(tx, "cycle-abc")
+    assert rows == [
+        EntityRef("QQQX Robotics", "company"),
+        EntityRef("Industrial Automation", "sector"),
+    ]
+    cypher = tx.run.await_args.args[0]
+    assert "(c:Cycle {cycle_id: $cycle_id})-[:MENTIONS]->(e:Entity)" in cypher
+
+
+# ---------------------------------------------------------------------------
+# Cycle status lifecycle (docs/DECISIONS.md#adr-cycle-metrics)
+# ---------------------------------------------------------------------------
+
+
+def test_schema_has_cycle_status_index() -> None:
+    from alphaswarm.graph import SCHEMA_STATEMENTS
+
+    assert "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)" in SCHEMA_STATEMENTS
+
+
+async def test_new_cycle_is_created_running() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    tx = MagicMock()
+    tx.run = AsyncMock()
+    await GraphStateManager._create_cycle_with_entities_tx(tx, "c1", "rumor", 0.4, [], 3)
+    assert "status: 'running'" in tx.run.await_args_list[0].args[0]
+
+
+async def test_set_cycle_status_unknown_cycle_raises(mock_driver: MagicMock) -> None:
+    from alphaswarm.errors import Neo4jWriteError
+    from alphaswarm.graph import GraphStateManager
+
+    mock_driver.session.return_value.execute_write = AsyncMock(return_value=False)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    with pytest.raises(Neo4jWriteError) as exc_info:
+        await gsm.set_cycle_status("c-missing", "complete")
+    assert exc_info.value.op == "set_cycle_status"
+
+
+async def test_set_cycle_status_stores_the_error_code_with_failed(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_write = AsyncMock(return_value=True)
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    await gsm.set_cycle_status("c1", "failed", error_code="round_failed")
+    assert session.execute_write.await_args.args[1:] == ("c1", "failed", "round_failed")
+    await gsm.set_cycle_status("c1", "complete")
+    assert session.execute_write.await_args.args[1:] == ("c1", "complete", None)
+
+
+@pytest.mark.parametrize("status", ["running", "complete", "cancelled"])
+async def test_set_cycle_status_rejects_an_error_code_without_failed(mock_driver: MagicMock, status: str) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    with pytest.raises(ValueError, match="error_code"):
+        await gsm.set_cycle_status("c1", status, error_code="round_failed")
+    mock_driver.session.assert_not_called()
+
+
+async def test_read_latest_cycle_id_passes_statuses(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    session.execute_read = AsyncMock(return_value="c9")
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+
+    assert await gsm.read_latest_cycle_id() == "c9"
+    assert session.execute_read.await_args.args[1] == ["complete"]
+    await gsm.read_latest_cycle_id(statuses=("running", "complete"))
+    assert session.execute_read.await_args.args[1] == ["running", "complete"]
+    with pytest.raises(ValueError):
+        await gsm.read_latest_cycle_id(statuses=())
+
+
+# ---------------------------------------------------------------------------
+# persist_round: one transaction per round (docs/DECISIONS.md#p4-d-08)
+# ---------------------------------------------------------------------------
+
+
+def _single(value: dict[str, object]) -> MagicMock:
+    result = MagicMock()
+    result.single = AsyncMock(return_value=value)
+    return result
+
+
+def _rows(rows: list[dict[str, object]]) -> MagicMock:
+    result = MagicMock()
+    result.__aiter__.return_value = rows
+    return result
+
+
+_DECISION_ROW = {
+    "decision_id": "d1",
+    "agent_id": "quants_01",
+    "signal": "parse_error",
+    "confidence": 0.0,
+    "sentiment": 0.0,
+    "rationale": "Inference failed",
+    "error_kind": "inference",
+    "control": False,
+}
+
+
+async def test_persist_round_tx_raises_on_decision_shortfall() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    tx = MagicMock()
+    tx.run = AsyncMock(return_value=_single({"created": 1}))
+    second = {**_DECISION_ROW, "decision_id": "d2", "agent_id": "ghost_99"}
+    with pytest.raises(Neo4jWriteError) as exc_info:
+        await GraphStateManager._persist_round_tx(tx, "c1", 1, [_DECISION_ROW, second], [], [], [])
+    assert exc_info.value.op == "persist_round"
+    assert tx.run.await_count == 1
+
+
+async def test_persist_round_tx_raises_on_episode_shortfall() -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    tx = MagicMock()
+    tx.run = AsyncMock(side_effect=[_single({"created": 1}), _single({"n": 0})])
+    episode = {
+        "decision_id": "d1",
+        "rationale": "r",
+        "peer_context_received": "",
+        "flip_type": "none",
+        "round_num": 1,
+        "cycle_id": "c1",
+    }
+    with pytest.raises(Neo4jWriteError) as exc_info:
+        await GraphStateManager._persist_round_tx(tx, "c1", 1, [_DECISION_ROW], [], [episode], [])
+    assert exc_info.value.op == "persist_round"
+
+
+async def test_persist_round_tx_counts_dropped_citations() -> None:
+    from alphaswarm.graph import GraphStateManager, PersistRoundResult
+
+    tx = MagicMock()
+    tx.run = AsyncMock(
+        side_effect=[
+            _single({"created": 1}),
+            _rows([{"cited_id": "quants_02", "written": True}, {"cited_id": "ghost_99", "written": False}]),
+            _single({"n": 1}),
+            _single({"n": 2}),
+        ]
+    )
+    summary, dropped = await GraphStateManager._persist_round_tx(
+        tx,
+        "c1",
+        2,
+        [_DECISION_ROW],
+        [{"decision_id": "d1", "cited_id": "quants_02"}, {"decision_id": "d1", "cited_id": "ghost_99"}],
+        [
+            {
+                "decision_id": "d1",
+                "rationale": "r",
+                "peer_context_received": "",
+                "flip_type": "none",
+                "round_num": 2,
+                "cycle_id": "c1",
+            }
+        ],
+        [{"decision_id": "d1", "entity_name": "ZZZT Holdings", "match_type": "substring"}],
+    )
+    assert summary == PersistRoundResult(
+        decision_ids=("d1",),
+        decisions_written=1,
+        episodes_written=1,
+        citations_written=1,
+        citations_dropped=1,
+        references_written=2,
+    )
+    assert dropped == ("ghost_99",)
+    assert tx.run.await_args_list[0].kwargs["decisions"][0]["error_kind"] == "inference"
+
+
+async def test_persist_round_rejects_misaligned_ids(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager
+
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    decisions = [("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.6))]
+    with pytest.raises(ValueError):
+        await gsm.persist_round("c1", 1, decisions, decision_ids=[], episodes=[], entity_matches=[])
+
+
+async def test_persist_round_sends_one_write_with_all_rows(mock_driver: MagicMock) -> None:
+    from alphaswarm.episodes import EntityMatch, EpisodeRecord
+    from alphaswarm.graph import GraphStateManager, PersistRoundResult
+
+    session = mock_driver.session.return_value
+    expected = PersistRoundResult(("d1",), 1, 1, 1, 0, 1)
+    session.execute_write = AsyncMock(return_value=(expected, ()))
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    decisions = [
+        (
+            "quants_01",
+            AgentDecision(signal=SignalType.BUY, confidence=0.6, rationale="ZZZT", cited_agents=["degens_01"]),
+        )
+    ]
+    episode = EpisodeRecord("d1", "quants_01", "ZZZT", "", "none", 1, "c1")
+    match = EntityMatch("d1", "ZZZT Holdings", "company", "substring")
+
+    result = await gsm.persist_round(
+        "c1",
+        1,
+        decisions,
+        decision_ids=["d1"],
+        episodes=[episode],
+        entity_matches=[match],
+    )
+    assert result == expected
+    session.execute_write.assert_awaited_once()
+    _, cycle_id, round_num, decision_rows, cited_rows, episode_rows, reference_rows = (
+        session.execute_write.await_args.args
+    )
+    assert (cycle_id, round_num) == ("c1", 1)
+    assert decision_rows[0]["error_kind"] is None and decision_rows[0]["signal"] == "buy"
+    assert decision_rows[0]["control"] is False
+    assert cited_rows == [{"decision_id": "d1", "cited_id": "degens_01"}]
+    assert episode_rows[0]["round_num"] == 1
+    assert reference_rows == [{"decision_id": "d1", "entity_name": "ZZZT Holdings", "match_type": "substring"}]
+
+
+async def test_persist_round_marks_only_control_ids_as_control(mock_driver: MagicMock) -> None:
+    from alphaswarm.graph import GraphStateManager, PersistRoundResult
+
+    session = mock_driver.session.return_value
+    session.execute_write = AsyncMock(return_value=(PersistRoundResult(("d1", "d2"), 2, 0, 0, 0, 0), ()))
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    decisions = [
+        ("quants_01", AgentDecision(signal=SignalType.BUY, confidence=0.6)),
+        ("degens_01", AgentDecision(signal=SignalType.SELL, confidence=0.5)),
+    ]
+
+    await gsm.persist_round(
+        "c1", 2, decisions, decision_ids=["d1", "d2"], episodes=[], entity_matches=[], control_ids={"degens_01"}
+    )
+    decision_rows = session.execute_write.await_args.args[3]
+    assert [(r["agent_id"], r["control"]) for r in decision_rows] == [("quants_01", False), ("degens_01", True)]

@@ -64,9 +64,12 @@ async def check_neo4j(gm: GraphStateManager | None, *, timeout_s: float = 1.0) -
             fix=NEO4J_FIX,
         )
     except Exception as exc:
-        exc_type = exc.__class__.__name__
+        # GraphStateManager wraps the driver error (docs/DECISIONS.md#p4-d-07);
+        # classify on that cause so a rejected password keeps its own fix.
+        cause = getattr(exc, "original_error", None) or exc
+        exc_type = cause.__class__.__name__
         log.warning("readiness_neo4j_failed", exc_type=exc_type)
-        if isinstance(exc, Neo4jAuthError):
+        if isinstance(cause, Neo4jAuthError):
             return ComponentStatus(
                 "neo4j",
                 ok=False,

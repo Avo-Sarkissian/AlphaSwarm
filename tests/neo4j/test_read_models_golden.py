@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from alphaswarm.config import DEFAULT_BRACKETS
+from alphaswarm.episodes import EntityRef, compute_flip_type
 from alphaswarm.interview import _strip_json_instructions
 from alphaswarm.types import SeedEvent, SignalType
-from alphaswarm.write_buffer import compute_flip_type
 from tests.support.golden import assert_golden
 from tests.support.seed_builder import (
     HUB_CITATIONS,
@@ -81,8 +81,8 @@ async def test_read_cycle_seed(graph_reader: GraphStateManager, seeded_cycle: Se
 
 
 async def test_read_cycle_entities(graph_reader: GraphStateManager, seeded_cycle: SeededCycle) -> None:
-    names = await graph_reader.read_cycle_entities(seeded_cycle.cycle_id)
-    assert sorted(names) == sorted(e.name for e in SEED_ENTITIES)
+    refs = await graph_reader.read_cycle_entities(seeded_cycle.cycle_id)
+    assert refs == sorted((EntityRef(e.name, e.type.value) for e in SEED_ENTITIES), key=lambda r: (r.name, r.type))
 
 
 async def test_read_influence_edges(graph_reader: GraphStateManager, seeded_cycle: SeededCycle) -> None:
@@ -202,6 +202,9 @@ async def test_read_latest_cycle_id_returns_newest(
     event = SeedEvent(raw_rumor=SEED_RUMOR, entities=list(SEED_ENTITIES), overall_sentiment=OVERALL_SENTIMENT)
     newest = await graph_manager_test.create_cycle_with_seed_event(SEED_RUMOR, event, num_rounds=3)
     assert newest != seeded_cycle.cycle_id
+    # A new cycle is 'running': visible to a running-inclusive read, not yet a report default.
+    assert await graph_manager_test.read_latest_cycle_id(statuses=("running", "complete")) == newest
+    await graph_manager_test.set_cycle_status(newest, "complete")
     assert await graph_manager_test.read_latest_cycle_id() == newest
 
 

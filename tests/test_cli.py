@@ -194,6 +194,32 @@ def test_main_inject_failure_prints_error_to_stderr(
     assert "Error:" in captured.err
 
 
+async def test_handle_inject_marks_the_seed_only_cycle_failed(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    fallback_parsed_result: ParsedSeedResult,
+) -> None:
+    """No run ever follows inject, so its cycle must not read as running (docs/DECISIONS.md#adr-cycle-metrics)."""
+    from alphaswarm.cli import _handle_inject
+
+    graph = AsyncMock()
+    app = MagicMock(graph_manager=graph)
+    built = MagicMock()
+    built.orchestrator.aclose = AsyncMock()
+    inject = AsyncMock(return_value=("c-seed-only", fallback_parsed_result, None))
+    monkeypatch.setattr("alphaswarm.app.create_app_state", MagicMock(return_value=app))
+    monkeypatch.setattr("alphaswarm.config.load_inference_config", MagicMock())
+    monkeypatch.setattr("alphaswarm.inference.factory.build_providers", MagicMock(return_value=built))
+    monkeypatch.setattr("alphaswarm.seed.inject_seed", inject)
+
+    await _handle_inject("ZZZT Holdings is in late-stage talks to acquire QQQX Robotics.")
+
+    assert inject.await_args.kwargs["orchestrator"] is built.orchestrator
+    graph.set_cycle_status.assert_awaited_once_with("c-seed-only", "failed")
+    graph.close.assert_awaited_once()
+    assert "c-seed-only" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------------------
 # Phase 06: Run subcommand and report tests
 # ---------------------------------------------------------------------------

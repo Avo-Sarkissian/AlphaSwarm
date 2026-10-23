@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from neo4j.exceptions import AuthError as Neo4jAuthError
+from neo4j.exceptions import ServiceUnavailable
 
 from alphaswarm.errors import Neo4jUnavailableError
 from alphaswarm.readiness import (
@@ -29,6 +30,10 @@ class _Graph:
             raise Neo4jUnavailableError("refused", op="verify_connectivity")
         if self.behaviour == "auth":
             raise Neo4jAuthError("unauthorized")
+        if self.behaviour == "mapped_down":
+            raise Neo4jUnavailableError("unavailable", ServiceUnavailable("refused"), op="verify_connectivity")
+        if self.behaviour == "mapped_auth":
+            raise Neo4jUnavailableError("unavailable", Neo4jAuthError("unauthorized"), op="verify_connectivity")
         if self.behaviour == "hang":
             await asyncio.sleep(10)
 
@@ -77,6 +82,14 @@ async def test_neo4j_rejected_password_names_the_password_fix() -> None:
     )
     assert "ALPHASWARM_NEO4J__PASSWORD" in NEO4J_AUTH_FIX
     assert "docker" not in NEO4J_AUTH_FIX
+
+
+async def test_neo4j_classifies_the_wrapped_driver_error() -> None:
+    """GraphStateManager maps driver errors (docs/DECISIONS.md#p4-d-07); the probe reads the cause."""
+    auth = await check_neo4j(_Graph("mapped_auth"))  # type: ignore[arg-type]
+    assert (auth.detail, auth.fix) == ("credentials rejected (AuthError)", NEO4J_AUTH_FIX)
+    down = await check_neo4j(_Graph("mapped_down"))  # type: ignore[arg-type]
+    assert (down.detail, down.fix) == ("unreachable (ServiceUnavailable)", NEO4J_FIX)
 
 
 def test_neo4j_start_fix_covers_a_container_you_created_yourself() -> None:

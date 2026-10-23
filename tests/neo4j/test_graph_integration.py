@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from alphaswarm.types import AgentDecision, SignalType
+from tests.support.graph_fakes import write_round
 
 # The `neo4j` marker adds enable_socket and the session event loop (tests/conftest.py).
 pytestmark = pytest.mark.neo4j
@@ -96,7 +97,7 @@ async def test_create_cycle_returns_uuid(graph_manager_test: GraphStateManager) 
 async def test_batch_write_100_decisions(
     graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
-    """write_decisions persists 100 Decision nodes in a single batch."""
+    """persist_round persists 100 Decision nodes in a single batch."""
     cycle_id = await _new_cycle(graph_manager_test, "Batch write test")
 
     decisions = [
@@ -113,7 +114,7 @@ async def test_batch_write_100_decisions(
         for persona in all_personas
     ]
 
-    await graph_manager_test.write_decisions(decisions, cycle_id, 1)
+    await write_round(graph_manager_test, cycle_id, 1, decisions)
 
     async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
@@ -124,10 +125,10 @@ async def test_batch_write_100_decisions(
         assert record["c"] == 100
 
 
-async def test_write_decisions_creates_cited_relationships(
+async def test_persist_round_creates_cited_relationships(
     graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
-    """write_decisions creates CITED relationships when cited_agents is non-empty."""
+    """persist_round creates CITED relationships when cited_agents is non-empty."""
     cycle_id = await _new_cycle(graph_manager_test, "Citation test")
 
     decisions = [
@@ -153,7 +154,7 @@ async def test_write_decisions_creates_cited_relationships(
         ),
     ]
 
-    await graph_manager_test.write_decisions(decisions, cycle_id, 1)
+    await write_round(graph_manager_test, cycle_id, 1, decisions)
 
     async with graph_manager_test._driver.session(database="neo4j") as session:
         result = await session.run(
@@ -164,7 +165,7 @@ async def test_write_decisions_creates_cited_relationships(
         assert record["c"] == 1
 
 
-async def test_write_decisions_empty_citations_still_persists(
+async def test_persist_round_empty_citations_still_persists(
     graph_manager_test: GraphStateManager, all_personas: list[AgentPersona]
 ) -> None:
     """Decisions with empty cited_agents still persist. Zero CITED relationships."""
@@ -184,7 +185,7 @@ async def test_write_decisions_empty_citations_still_persists(
         for i in range(1, 6)
     ]
 
-    await graph_manager_test.write_decisions(decisions, cycle_id, 1)
+    await write_round(graph_manager_test, cycle_id, 1, decisions)
 
     async with graph_manager_test._driver.session(database="neo4j") as session:
         # All 5 decisions exist
@@ -216,7 +217,6 @@ async def test_complete_reasoning_arc(
     a complete reasoning arc for any agent: decisions, rationale episodes,
     influence relationships, and entity references (SC-3)."""
     from alphaswarm.types import SignalType
-    from alphaswarm.write_buffer import EpisodeRecord, compute_flip_type
 
     # 1. Create cycle with seed event (Entity nodes created via MENTIONS edges)
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(
@@ -227,7 +227,8 @@ async def test_complete_reasoning_arc(
 
     # 2. Write decisions and episodes for 3 rounds (use first 3 personas for speed)
     test_personas = all_personas[:3]
-    prev_signal_map: dict[str, SignalType] = {}
+    entities = await graph_manager_test.read_cycle_entities(cycle_id)
+    previous: list[tuple[str, AgentDecision]] | None = None
 
     for round_num in range(1, 4):
         decisions = [
@@ -243,33 +244,17 @@ async def test_complete_reasoning_arc(
             )
             for p in test_personas
         ]
-        ids = await graph_manager_test.write_decisions(decisions, cycle_id, round_num)
-
-        # 3. Write episodes for each round
-        records = [
-            EpisodeRecord(
-                decision_id=did,
-                agent_id=aid,
-                rationale=dec.rationale,
-                peer_context_received="" if round_num == 1 else "Peer context here",
-                flip_type=compute_flip_type(
-                    prev_signal_map.get(aid),
-                    dec.signal,
-                ).value,
-                round_num=round_num,
-                cycle_id=cycle_id,
-            )
-            for did, (aid, dec) in zip(ids, decisions, strict=True)
-        ]
-        await graph_manager_test.write_rationale_episodes(records)
-
-        # Write narrative edges (REFERENCES Decision -> Entity)
-        entity_names = await graph_manager_test.read_cycle_entities(cycle_id)
-        await graph_manager_test.write_narrative_edges(records, entity_names)
-
-        # Update prev signal map for next round
-        for aid, dec in decisions:
-            prev_signal_map[aid] = dec.signal
+        # 3. One persist_round per round: decisions, episodes and REFERENCES
+        await write_round(
+            graph_manager_test,
+            cycle_id,
+            round_num,
+            decisions,
+            prev=previous,
+            entities=entities,
+            peer_context="Peer context here",  # stored as "" in round 1
+        )
+        previous = decisions
 
     # 4. Query complete reasoning arc for first agent
     agent_id = test_personas[0].id
@@ -313,7 +298,6 @@ async def test_references_edges_case_insensitive(
     Entity stored as 'NVIDIA', rationale mentions 'nvidia' lowercase.
     """
     from alphaswarm.types import SignalType
-    from alphaswarm.write_buffer import EpisodeRecord
 
     cycle_id = await graph_manager_test.create_cycle_with_seed_event(
         sample_seed_event.raw_rumor,
@@ -332,22 +316,8 @@ async def test_references_edges_case_insensitive(
             ),
         )
     ]
-    ids = await graph_manager_test.write_decisions(decisions, cycle_id, round_num=1)
-
-    records = [
-        EpisodeRecord(
-            decision_id=ids[0],
-            agent_id=all_personas[0].id,
-            rationale="i think nvidia will dominate the market",
-            peer_context_received="",
-            flip_type="none",
-            round_num=1,
-            cycle_id=cycle_id,
-        )
-    ]
-    entity_names = await graph_manager_test.read_cycle_entities(cycle_id)
-    await graph_manager_test.write_rationale_episodes(records)
-    await graph_manager_test.write_narrative_edges(records, entity_names)
+    entities = await graph_manager_test.read_cycle_entities(cycle_id)
+    ids = await write_round(graph_manager_test, cycle_id, 1, decisions, entities=entities)
 
     # Verify REFERENCES edge exists with original entity casing preserved
     async with graph_manager_test._driver.session(database="neo4j") as session:
@@ -417,7 +387,7 @@ async def test_write_posts_filters_parse_error_integration(
         ),
     ]
 
-    decision_ids = await graph_manager_test.write_decisions(decisions, cycle_id, 1)
+    decision_ids = await write_round(graph_manager_test, cycle_id, 1, decisions)
     post_ids = await graph_manager_test.write_posts(decisions, decision_ids, cycle_id, round_num=1)
 
     # Only 1 post should exist (PARSE_ERROR filtered)

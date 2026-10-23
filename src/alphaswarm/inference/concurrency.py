@@ -7,7 +7,10 @@ either concrete type behind this protocol so callers remain backend-agnostic.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 
 @runtime_checkable
@@ -46,4 +49,9 @@ class ConcurrencyController(Protocol):
 
     async def __aenter__(self) -> ConcurrencyController: ...
 
-    async def __aexit__(self, *args: object) -> None: ...
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None: ...

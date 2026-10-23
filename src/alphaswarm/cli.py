@@ -497,7 +497,9 @@ async def _handle_inject(rumor: str) -> None:
     2. ensure_schema() for idempotent schema setup
     3. inject_seed() for orchestrator parse + atomic persist
     4. Print structured summary
-    5. Close Neo4j driver in finally block
+    5. Mark the seed-only Cycle failed: no run follows, so it must not stay
+       ``running`` (docs/DECISIONS.md#adr-cycle-metrics)
+    6. Close Neo4j driver in finally block
     """
     from alphaswarm.app import create_app_state
     from alphaswarm.config import load_inference_config
@@ -532,6 +534,8 @@ async def _handle_inject(rumor: str) -> None:
             graph_manager=app.graph_manager,
         )
         _print_injection_summary(cycle_id, parsed_result)
+        # The status the back-fill gives a legacy seed-only cycle.
+        await app.graph_manager.set_cycle_status(cycle_id, "failed")
     finally:
         # Close Neo4j driver and cloud provider if any
         with contextlib.suppress(Exception):
@@ -580,7 +584,7 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
 
     Lifecycle (per D-12: caller manages model lifecycle):
     1. Create AppState with Ollama + Neo4j
-    2. Resolve cycle_id (default to most recent)
+    2. Resolve cycle_id (default: the most recent complete cycle)
     3. Print model lifecycle warning
     4. Load orchestrator model
     5. Build tool registry -> run ReACT engine -> collect observations
@@ -617,11 +621,12 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     orch_provider = built.orchestrator
 
     try:
-        # Resolve cycle_id: default to most recent if not provided
+        # Resolve cycle_id: default to the most recent complete cycle
+        # (docs/DECISIONS.md#adr-cycle-metrics).
         if cycle_id is None:
             cycle_id = await app.graph_manager.read_latest_cycle_id()
             if cycle_id is None:
-                print("Error: No simulation cycles found in the database.", file=sys.stderr)
+                print("Error: No complete simulation cycles found in the database.", file=sys.stderr)
                 sys.exit(1)
 
         print(
@@ -752,7 +757,7 @@ def main() -> None:
         "--cycle",
         type=str,
         default=None,
-        help="Cycle ID to report on (defaults to most recent)",
+        help="Cycle ID to report on (defaults to the most recent complete cycle)",
     )
     report_parser.add_argument(
         "--output",

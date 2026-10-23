@@ -166,6 +166,6 @@ class SimulationPhase(str, Enum):
     ROUND_1 = "round_1"
     ROUND_2 = "round_2"
     ROUND_3 = "round_3"
-    FINALIZING = "finalizing"  # after the last round: narratives, metrics
+    FINALIZING = "finalizing"  # after the last round: narratives, metrics, the status write
     COMPLETE = "complete"
     REPLAY = "replay"

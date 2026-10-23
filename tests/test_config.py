@@ -341,3 +341,35 @@ def test_simulation_settings_rejects_out_of_range(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(ValidationError, match=field):
         AppSettings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_neo4j_timeouts_default() -> None:
+    from alphaswarm.config import Neo4jSettings
+
+    s = Neo4jSettings()
+    assert (s.query_timeout_s, s.connection_acquisition_timeout) == (30.0, 10.0)
+
+
+@pytest.mark.parametrize(
+    ("field", "bad"),
+    [
+        ("query_timeout_s", 0.5),
+        ("query_timeout_s", 601.0),
+        ("connection_acquisition_timeout", 0.5),
+        ("connection_acquisition_timeout", 121.0),
+    ],
+)
+def test_neo4j_timeout_bounds(field: str, bad: float) -> None:
+    from alphaswarm.config import Neo4jSettings
+
+    with pytest.raises(ValidationError):
+        Neo4jSettings(**{field: bad})
+
+
+def test_neo4j_timeouts_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    clear_alphaswarm_env(monkeypatch)
+    monkeypatch.setenv("ALPHASWARM_NEO4J__QUERY_TIMEOUT_S", "45")
+    monkeypatch.setenv("ALPHASWARM_NEO4J__CONNECTION_ACQUISITION_TIMEOUT", "3")
+    settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.neo4j.query_timeout_s == 45.0
+    assert settings.neo4j.connection_acquisition_timeout == 3.0

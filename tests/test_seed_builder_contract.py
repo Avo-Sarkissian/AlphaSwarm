@@ -7,9 +7,10 @@ from unittest.mock import create_autospec
 
 import pytest
 
+from alphaswarm.episodes import EntityRef, compute_flip_type
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.types import BracketType, SignalType
-from alphaswarm.write_buffer import compute_flip_type
+from tests.support.graph_fakes import fake_persist_round
 from tests.support.seed_builder import (
     HUB_CITATIONS,
     PARSE_ERRORS_BY_ROUND,
@@ -27,10 +28,8 @@ CYCLE_ID = "00000000-0000-4000-8000-0000000000aa"
 def _fake_graph() -> GraphStateManager:
     gm = create_autospec(GraphStateManager, instance=True)
     gm.create_cycle_with_seed_event.return_value = CYCLE_ID
-    gm.read_cycle_entities.return_value = [e.name for e in SEED_ENTITIES]
-    gm.write_decisions.side_effect = lambda decisions, cycle_id, round_num, **_: [
-        f"d{round_num}-{i}" for i in range(len(decisions))
-    ]
+    gm.read_cycle_entities.return_value = [EntityRef(e.name, e.type.value) for e in SEED_ENTITIES]
+    gm.persist_round.side_effect = fake_persist_round
     gm.compute_influence_edges.return_value = {}
     gm.write_shock_event.return_value = "shock-1"
     return gm
@@ -117,7 +116,7 @@ async def test_build_is_deterministic() -> None:
 
 async def test_writes_follow_the_simulation_order() -> None:
     _, gm = await _build()
-    round_writes = ["write_decisions", "write_rationale_episodes", "write_narrative_edges"]
+    round_writes = ["persist_round"]
     assert [call[0] for call in gm.mock_calls] == [
         "create_cycle_with_seed_event",
         "read_cycle_entities",
@@ -128,6 +127,7 @@ async def test_writes_follow_the_simulation_order() -> None:
         *round_writes,
         "compute_influence_edges",
         "write_cycle_metrics",
+        "set_cycle_status",
     ]
     assert gm.create_cycle_with_seed_event.await_args.args[0] == SEED_RUMOR
     assert gm.create_cycle_with_seed_event.await_args.kwargs == {"num_rounds": 3}
@@ -142,6 +142,7 @@ async def test_writes_follow_the_simulation_order() -> None:
         100,
         6,
     )
+    gm.set_cycle_status.assert_awaited_once_with(CYCLE_ID, "complete")
 
 
 async def test_two_round_build_and_invalid_round_counts() -> None:
@@ -150,3 +151,13 @@ async def test_two_round_build_and_invalid_round_counts() -> None:
     assert gm.compute_influence_edges.await_count == 1
     with pytest.raises(ValueError, match="num_rounds must be 2 or 3"):
         await build_seeded_cycle(_fake_graph(), num_rounds=4)
+
+
+async def test_parse_errors_carry_both_engine_error_kinds() -> None:
+    seeded, _ = await _build()
+    for round_num, rows in seeded.decisions.items():
+        failed = [d for _, d in rows if d.signal is SignalType.PARSE_ERROR]
+        kinds = sorted(d.error_kind or "" for d in failed)
+        assert kinds == ["inference"] + ["parse"] * (len(kinds) - 1), round_num
+        ok = [d for _, d in rows if d.signal is not SignalType.PARSE_ERROR]
+        assert all(d.error_kind is None for d in ok), round_num

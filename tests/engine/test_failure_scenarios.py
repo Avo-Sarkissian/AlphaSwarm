@@ -6,6 +6,7 @@ fake_graph and scenario_settings (jitter 0). All values are fictional.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable, Sequence
 from decimal import Decimal
@@ -13,9 +14,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from structlog.testing import capture_logs
 
 from alphaswarm.config import AppSettings
-from alphaswarm.errors import BudgetExceededError, RoundFailedError
+from alphaswarm.errors import BudgetExceededError, Neo4jUnavailableError, RoundFailedError
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.simulation import SimulationResult, run_simulation
 from alphaswarm.state import StateStore
@@ -245,3 +247,239 @@ async def test_phase_sequence_includes_finalizing(
         "narratives": SimulationPhase.FINALIZING,
         "metrics": SimulationPhase.FINALIZING,
     }
+
+
+class BlockOnRound2(ScriptedProvider):
+    """Worker that never answers a round-2 decision call, so a test can cancel mid-round."""
+
+    def __init__(self, *, personas: Sequence[AgentPersona]) -> None:
+        super().__init__(personas=personas)
+        self.reached_round_2 = asyncio.Event()
+        self._decision_calls = 0
+        self._agents = len(personas)
+
+    async def chat(self, messages: Any, **kwargs: Any) -> Any:
+        if kwargs.get("response_schema") is not None:
+            self._decision_calls += 1
+            if self._decision_calls > self._agents:
+                self.reached_round_2.set()
+                await asyncio.Event().wait()
+        return await super().chat(messages, **kwargs)
+
+
+async def test_successful_run_marks_cycle_complete(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    await run_case(
+        settings=scenario_settings,
+        graph=graph,
+        worker=ScriptedProvider(personas=all_personas),
+        personas=all_personas,
+        brackets=all_brackets,
+    )
+    graph.set_cycle_status.assert_awaited_once_with(CYCLE_ID, "complete")
+
+
+async def test_round_failure_marks_cycle_failed(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    def decide(agent_id: str, round_num: int, call: ScriptedCall) -> AgentDecision | BaseException:
+        if round_num == 2:
+            return RuntimeError("model server died")
+        return default_decision_script(agent_id, round_num, call)
+
+    with pytest.raises(RoundFailedError):
+        await run_case(
+            settings=scenario_settings,
+            graph=graph,
+            worker=ScriptedProvider(personas=all_personas, decide=decide),
+            personas=all_personas,
+            brackets=all_brackets,
+        )
+    graph.set_cycle_status.assert_awaited_once_with(CYCLE_ID, "failed", error_code="round_failed")
+
+
+async def test_budget_error_marks_cycle_failed(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    def decide(agent_id: str, round_num: int, call: ScriptedCall) -> AgentDecision | BaseException:
+        if round_num == 3:
+            return BudgetExceededError(Decimal("5.00"), Decimal("4.00"))
+        return default_decision_script(agent_id, round_num, call)
+
+    with pytest.raises(BudgetExceededError):
+        await run_case(
+            settings=scenario_settings,
+            graph=graph,
+            worker=ScriptedProvider(personas=all_personas, decide=decide),
+            personas=all_personas,
+            brackets=all_brackets,
+        )
+    graph.set_cycle_status.assert_awaited_once_with(CYCLE_ID, "failed", error_code="budget_exceeded")
+
+
+async def test_cancel_mid_round_marks_cycle_cancelled(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    # Stop pressed during round 2.
+    worker = BlockOnRound2(personas=all_personas)
+    task = asyncio.create_task(
+        run_case(
+            settings=scenario_settings,
+            graph=graph,
+            worker=worker,
+            personas=all_personas,
+            brackets=all_brackets,
+        )
+    )
+    await asyncio.wait_for(worker.reached_round_2.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    graph.set_cycle_status.assert_awaited_once_with(CYCLE_ID, "cancelled", error_code=None)
+    assert persisted_rounds(graph) == [1]
+
+
+async def test_failure_before_the_cycle_exists_writes_no_status(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    def _crash(call: ScriptedCall) -> str:
+        raise RuntimeError("orchestrator crashed while parsing the seed")
+
+    with pytest.raises(RuntimeError):
+        await run_case(
+            settings=scenario_settings,
+            graph=graph,
+            worker=ScriptedProvider(personas=all_personas),
+            personas=all_personas,
+            brackets=all_brackets,
+            orch=orchestrator(all_personas, script=_crash),
+        )
+    graph.create_cycle_with_seed_event.assert_not_awaited()
+    graph.set_cycle_status.assert_not_awaited()
+
+
+async def test_status_write_failure_never_masks_the_original_error(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    graph.set_cycle_status.side_effect = Neo4jUnavailableError("down", op="set_cycle_status")
+
+    def decide(agent_id: str, round_num: int, call: ScriptedCall) -> AgentDecision | BaseException:
+        if round_num == 2:
+            return BudgetExceededError(Decimal("5.00"), Decimal("4.00"))
+        return default_decision_script(agent_id, round_num, call)
+
+    with pytest.raises(BudgetExceededError):
+        await run_case(
+            settings=scenario_settings,
+            graph=graph,
+            worker=ScriptedProvider(personas=all_personas, decide=decide),
+            personas=all_personas,
+            brackets=all_brackets,
+        )
+
+
+async def test_complete_status_write_failure_fails_the_run(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+) -> None:
+    graph.set_cycle_status.side_effect = [
+        Neo4jUnavailableError("down", op="set_cycle_status"),  # "complete"
+        None,  # "failed"
+    ]
+    store = RecordingStateStore()
+    with pytest.raises(Neo4jUnavailableError):
+        await run_case(
+            settings=scenario_settings,
+            graph=graph,
+            worker=ScriptedProvider(personas=all_personas),
+            personas=all_personas,
+            brackets=all_brackets,
+            state_store=store,
+        )
+    second = graph.set_cycle_status.await_args_list[1]
+    assert second.args == (CYCLE_ID, "failed")
+    assert second.kwargs == {"error_code": "graph_unavailable"}
+    assert SimulationPhase.COMPLETE not in store.phases
+
+
+async def _never_answers(*_args: object, **_kwargs: object) -> None:
+    """A set_cycle_status that hangs, like a managed write retrying against a stopped Neo4j."""
+    await asyncio.Event().wait()
+
+
+async def test_a_hung_status_write_gives_up_on_a_failed_run(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("alphaswarm.simulation._TERMINAL_STATUS_TIMEOUT_S", 0.01)
+    graph.set_cycle_status.side_effect = _never_answers
+
+    def decide(agent_id: str, round_num: int, call: ScriptedCall) -> AgentDecision | BaseException:
+        if round_num == 2:
+            return BudgetExceededError(Decimal("5.00"), Decimal("4.00"))
+        return default_decision_script(agent_id, round_num, call)
+
+    run = run_case(
+        settings=scenario_settings,
+        graph=graph,
+        worker=ScriptedProvider(personas=all_personas, decide=decide),
+        personas=all_personas,
+        brackets=all_brackets,
+    )
+    with capture_logs() as logs, pytest.raises(BudgetExceededError):
+        await asyncio.wait_for(run, timeout=5)
+    graph.set_cycle_status.assert_awaited_once_with(CYCLE_ID, "failed", error_code="budget_exceeded")
+    assert [e["status"] for e in logs if e["event"] == "cycle_status_write_failed"] == ["failed"]
+
+
+async def test_a_hung_status_write_gives_up_on_a_stopped_run(
+    graph: MagicMock,
+    scenario_settings: AppSettings,
+    all_personas: list[AgentPersona],
+    all_brackets: list[BracketConfig],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("alphaswarm.simulation._TERMINAL_STATUS_TIMEOUT_S", 0.01)
+    graph.set_cycle_status.side_effect = _never_answers
+    worker = BlockOnRound2(personas=all_personas)
+    task = asyncio.create_task(
+        run_case(
+            settings=scenario_settings,
+            graph=graph,
+            worker=worker,
+            personas=all_personas,
+            brackets=all_brackets,
+        )
+    )
+    await asyncio.wait_for(worker.reached_round_2.wait(), timeout=5)
+    task.cancel()
+    done, _ = await asyncio.wait({task}, timeout=5)
+
+    assert done == {task}
+    assert task.cancelled()
+    graph.set_cycle_status.assert_awaited_once_with(CYCLE_ID, "cancelled", error_code=None)

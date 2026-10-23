@@ -34,6 +34,7 @@ import alphaswarm.manifest as manifest
 import alphaswarm.web.app as web_app
 from alphaswarm.app import AppState, create_app_state
 from alphaswarm.config import AppSettings
+from alphaswarm.errors import Neo4jUnavailableError, Neo4jWriteError
 from alphaswarm.graph import GraphStateManager
 from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
 from alphaswarm.types import AgentPersona
@@ -131,7 +132,19 @@ async def test_lifespan_verifies_neo4j_then_applies_the_schema(probe: LifespanPr
 
 @pytest.mark.parametrize(
     "error",
-    [ServiceUnavailable("connection refused"), Neo4jAuthError("unauthorized")],
+    [
+        # What GraphStateManager.verify_connectivity() raises (docs/DECISIONS.md#p4-d-07).
+        Neo4jUnavailableError(
+            "Neo4j is unavailable (verify_connectivity)",
+            ServiceUnavailable("connection refused"),
+            op="verify_connectivity",
+        ),
+        Neo4jUnavailableError(
+            "Neo4j is unavailable (verify_connectivity)",
+            Neo4jAuthError("unauthorized"),
+            op="verify_connectivity",
+        ),
+    ],
     ids=["neo4j-down", "wrong-password"],
 )
 async def test_lifespan_keeps_serving_when_neo4j_is_unavailable(probe: LifespanProbe, error: Exception) -> None:
@@ -251,8 +264,22 @@ class _RecordingLog:
 @pytest.mark.parametrize(
     ("error", "expected_fix"),
     [
-        (ServiceUnavailable("connection refused"), NEO4J_FIX),
-        (Neo4jAuthError("unauthorized"), NEO4J_AUTH_FIX),
+        (
+            Neo4jUnavailableError(
+                "Neo4j is unavailable (verify_connectivity)",
+                ServiceUnavailable("connection refused"),
+                op="verify_connectivity",
+            ),
+            NEO4J_FIX,
+        ),
+        (
+            Neo4jUnavailableError(
+                "Neo4j is unavailable (verify_connectivity)",
+                Neo4jAuthError("unauthorized"),
+                op="verify_connectivity",
+            ),
+            NEO4J_AUTH_FIX,
+        ),
     ],
     ids=["neo4j-down", "wrong-password"],
 )
@@ -348,3 +375,15 @@ def test_every_path_setting_points_under_tmp_path(lifespan_settings: AppSettings
         name: path for name, path in paths.items() if not lifespan_settings.resolve_path(path).is_relative_to(tmp_path)
     }
     assert outside == {}
+
+
+async def test_lifespan_keeps_serving_when_the_schema_write_fails(probe: LifespanProbe) -> None:
+    # A reachable database that rejects a schema statement is not ready either.
+    probe.graph.ensure_schema.side_effect = Neo4jWriteError(
+        "Neo4j write failed (ensure_schema)",
+        op="ensure_schema",
+    )
+    async with probe.app.router.lifespan_context(probe.app):
+        assert probe.app.state.neo4j_ready is False
+        response = await _get_health(probe.app)
+        assert response.status_code == 200

@@ -26,7 +26,6 @@ from tests.inference.fakes import (
 
 SCENARIO_CYCLE_ID: Final = "00000000-0000-4000-8000-000000000001"
 SCENARIO_RUMOR: Final = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
-SCENARIO_ENTITY_NAMES: Final = ("ZZZT Holdings", "QQQX Robotics", "Industrial Automation")
 SCENARIO_SHOCK_TEXT: Final = "QQQX Robotics board rejects the offer as undervalued."
 SCENARIO_SEED_JSON: Final = json.dumps(
     {
@@ -59,15 +58,14 @@ class RecordingStateStore(StateStore):
 
 
 def recorded_decisions(graph: MagicMock) -> dict[int, list[tuple[str, AgentDecision]]]:
-    """Decisions handed to the graph's decision-write API, keyed by round.
+    """Decisions handed to GraphStateManager.persist_round, keyed by round.
 
-    Today that API is write_decisions(agent_decisions, cycle_id, round_num=...).
-    When decision persistence moves to a per-round API, re-point this helper.
+    The engine calls persist_round(cycle_id, round_num, decisions, decision_ids=..., ...)
+    once per round (docs/DECISIONS.md#p4-d-08).
     """
     out: dict[int, list[tuple[str, AgentDecision]]] = {}
-    for call in graph.write_decisions.await_args_list:
-        round_num = call.kwargs["round_num"] if "round_num" in call.kwargs else call.args[2]
-        out[int(round_num)] = list(call.args[0])
+    for call in graph.persist_round.await_args_list:
+        out[int(call.args[1])] = list(call.args[2])
     return out
 
 

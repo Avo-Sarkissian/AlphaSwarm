@@ -434,10 +434,6 @@ class TestRateLimitControllerCancellation:
             await _cancel_quietly(follower)
         ctrl.release()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="T1.7: RateLimitController.acquire leaks its slot when cancelled during the pacing sleep (fix: plan 05)",
-    )
     async def test_cancel_during_pacing_sleep_returns_the_slot(self) -> None:
         clock = FakeClock()
         ctrl = RateLimitController(max_in_flight=1, requests_per_min=1, tokens_per_min=None, now=clock)
@@ -455,3 +451,89 @@ class TestRateLimitControllerCancellation:
             await eventually(follower.done, what="acquire after a cancelled pacing sleep")
         finally:
             await _cancel_quietly(follower)
+
+
+class TestRateLimitCancellation:
+    """Cancellation never leaks a permit or a reservation."""
+
+    async def test_cancel_while_pacing_returns_permit_and_reservations(self) -> None:
+        clock = FakeClock()
+        ctrl = RateLimitController(
+            max_in_flight=1,
+            requests_per_min=60,
+            tokens_per_min=6000,
+            avg_tokens_per_call=100,
+            now=clock,
+        )
+        ctrl._rpm_bucket.reserve(60)  # drained: the next acquire must wait ~1 s
+        rpm_before = ctrl._rpm_bucket._tokens
+        tpm_before = ctrl._tpm_bucket._tokens
+
+        task = asyncio.create_task(ctrl.acquire())
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert ctrl._in_flight == 1  # holding the permit while it sleeps
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert ctrl._in_flight == 0
+        assert not ctrl._semaphore.locked()
+        assert ctrl._rpm_bucket._tokens == rpm_before
+        assert ctrl._tpm_bucket._tokens == tpm_before
+
+    async def test_cancel_while_draining_a_shrink_keeps_the_shrink(self) -> None:
+        ctrl = RateLimitController(max_in_flight=2, requests_per_min=None, tokens_per_min=None)
+        await ctrl.acquire()
+        await ctrl.acquire()
+        ctrl.report_wave_failures(success_count=0, failure_count=10)
+        assert ctrl._shrink_pending == 1
+
+        task = asyncio.create_task(ctrl.acquire())  # blocks draining the shrink token
+        for _ in range(5):
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert ctrl._shrink_pending == 1
+
+        ctrl.release()
+        ctrl.release()
+        await asyncio.wait_for(ctrl.acquire(), timeout=1)  # drains one, takes the other
+        assert ctrl._shrink_pending == 0
+        assert ctrl._semaphore.locked()
+
+    async def test_concurrent_waiters_drain_a_pending_shrink_only_once(self) -> None:
+        ctrl = RateLimitController(max_in_flight=3, requests_per_min=None, tokens_per_min=None)
+        for _ in range(3):
+            await ctrl.acquire()
+        ctrl.report_wave_failures(success_count=0, failure_count=10)  # target 3 -> 2
+        assert ctrl._shrink_pending == 1
+
+        first = asyncio.create_task(ctrl.acquire())  # claims the shrink, waits for a token
+        second = asyncio.create_task(ctrl.acquire())  # no shrink left: waits for a slot
+        for _ in range(5):
+            await asyncio.sleep(0)
+        for _ in range(3):
+            ctrl.release()
+        await asyncio.wait_for(asyncio.gather(first, second), timeout=1)
+
+        assert ctrl._shrink_pending == 0  # never negative: the shrink was drained once
+        assert ctrl._in_flight == 2  # two callers hold slots; one token stays held back
+        assert ctrl._semaphore.locked()
+
+    async def test_context_manager_failure_refunds_tpm(self) -> None:
+        clock = FakeClock()
+        ctrl = RateLimitController(
+            max_in_flight=1,
+            requests_per_min=None,
+            tokens_per_min=6000,
+            avg_tokens_per_call=100,
+            now=clock,
+        )
+        before = ctrl._tpm_bucket._tokens
+        with pytest.raises(RuntimeError):
+            async with ctrl:
+                raise RuntimeError("provider 500")
+        assert ctrl._tpm_bucket._tokens == before  # release(success=False) refunded
+        assert ctrl._in_flight == 0

@@ -227,7 +227,7 @@ Contents
   - `num_rounds` is stamped on the Cycle when it is created (`create_cycle_with_seed_event`), so running and failed cycles carry it too. The completion metrics write the same value.
   - Report and advisory reads resolve the final round inside Cypher with `coalesce(c.num_rounds, 3)`, because cycles from before 2026-10 that lack the property were all 3-round. The replay cycle list reports the same value as `round_count`.
   - Prompts describe the rounds that ran: the ReAct report prompt says "final round", and the eager narrative prompt names the agent's round count. The CLI summary uses the last round that ran and reports convergence only for 3-round runs, since it compares R1→R2 flips with R2→R3 flips.
-  - With 2 rounds, the round-3 result fields are empty, and completed-cycle listing relies on `Cycle.metrics_recorded_at`.
+  - With 2 rounds, the round-3 result fields are empty, and completed-cycle listing relies on `Cycle.status` ([adr-cycle-metrics](#adr-cycle-metrics)).
 - **Rationale:** Most flips happen in Round 2, and 2 rounds save about a third of wall time. Keep the default at 3 until the 2-vs-3-round ablation is done. The UI reads `num_rounds` from the frame (`useRounds()`), so a 2-round run renders correctly end to end.
 
 ### <a id="adr-structured-output"></a>Structured outputs plus a 3-tier parser
@@ -302,10 +302,17 @@ Contents
   - Readers take rationale text from `Decision.rationale`. `RationaleEpisode.rationale` duplicates it and is still written, but replay no longer reads it (2026-10).
 - **Rationale:** Cycle-scoped edges keep reads fast without pruning history.
 
-### <a id="adr-cycle-metrics"></a>Per-cycle run metrics on the Cycle node
-- **Decision:** At the end of a run, `write_cycle_metrics` stamps durations, flips, parse errors, `r{n}_inference_errors` (the subset of `r{n}_parse_errors` whose `error_kind` is `"inference"`, for the rounds actually run), `final_round` and the final distribution onto the Cycle node (`graph.py`). `metrics_recorded_at` marks a cycle as complete for listing (`graph.py`, `read_completed_cycles`) and for the report, advisory and interview gates (`read_cycle_status`, which also accepts a round-3 decision until cycles store a status). Compare runs with `scripts/compare_cycles.py` against `scripts/benchmark_seeds.json`.
+### <a id="adr-cycle-metrics"></a>Cycle status lifecycle and per-cycle run metrics
+- **Decision:**
+  - `Cycle.status` ∈ {`running`, `complete`, `failed`, `cancelled`}. `running` is set in the transaction that creates the Cycle. That write is the last step of seeding, after the persona modifiers are generated and the orchestrator is released, so a seeding failure (teardown included) leaves no Cycle, and nothing runs between that write and `run_simulation` recording the id of the Cycle it must mark. `run_simulation` writes `complete` after the last round is persisted and metrics were attempted, `failed` plus `Cycle.error_code` (a `RunErrorCode`) on any exception, and `cancelled` on cancellation. A status-write failure is logged and never masks the original error. The `failed`/`cancelled` write is bounded to 5 s (`_TERMINAL_STATUS_TIMEOUT_S`): a managed write retries an unreachable database for the driver's 30 s, which would hold Stop or a failed run that long, so on timeout the cycle stays `running` instead. Indexed (`cycle_status`).
+  - Listings and defaults filter on status: `read_completed_cycles` and `read_latest_cycle_id()` return `complete` cycles only, and the report, advisory and interview gates read the same status (`read_cycle_status`). Cycles written before the status existed are back-filled idempotently by `ensure_schema()` (`complete` if `metrics_recorded_at` is set or a round-3 decision exists, otherwise `failed`), and every reader applies the same rule to a cycle that has not been back-filled yet.
+  - A process killed outright (`kill -9`, OOM), or a terminal write that times out, leaves its cycle `running`; it is never listed as complete ([BACKLOG 1.15](BACKLOG.md)).
+  - A Stop or a hard stop during FINALIZING (eager narratives, metrics) marks a cycle whose rounds are all persisted `cancelled` or `failed`, so it is not listed ([BACKLOG 1.16](BACKLOG.md)).
+  - `alphaswarm inject` stores a seed-only cycle that no run will ever finish, so it marks it `failed`, the status the back-fill gives a legacy seed-only cycle.
+  - Each round's Decisions, CITED edges, RationaleEpisodes and REFERENCES are persisted by one `GraphStateManager.persist_round` transaction ([p4-d-08](#p4-d-08)).
+  - At the end of a run, `write_cycle_metrics` stamps durations, flips, parse errors, `r{n}_inference_errors` (the subset of `r{n}_parse_errors` whose `error_kind` is `"inference"`, for the rounds actually run), `r{n}_citations_dropped`, `final_round` and the final distribution onto the Cycle node. A metrics-write failure is logged and does not block `complete`. Compare runs with `scripts/compare_cycles.py` against `scripts/benchmark_seeds.json`.
 - **Provenance and peer keys:** each cycle also records `orchestrator_provider` / `worker_provider` (`ollama` for local providers, `cloud` otherwise; the model id identifies the cloud provider), `orchestrator_model`, `worker_model`, `inference_mode` (`local` / `cloud` / `mixed`), `git_sha` (empty when unknown) and `git_dirty` (omitted when unknown, because a Neo4j property cannot be null), the effective peer parameters (`peer_selection_version`, `peer_limit`, `peer_min_brackets`, `peer_bracket_cap`, `peer_budget_chars`, `peer_personal_boost`, `peer_seed_source`), the experiment knobs `own_prior_memory` and `control_fraction`, and the per-round exposure and holdout keys from [adr-diverse-peer-context](#adr-diverse-peer-context). Older cycles lack these keys, so every reader must tolerate missing keys. `git_revision` lives in `alphaswarm/manifest.py`; `current_git_revision` reads it once per process, and the web lifespan makes that read at startup, so a server stamps the revision whose code it runs even after a later commit.
-- **Rationale:** A/B experiments (rounds, peers, models) need durable numbers. All history before June 2026 was lost (see [adr-tests-scoped-cleanup](#adr-tests-scoped-cleanup)).
+- **Rationale:** Completion used to be inferred from `metrics_recorded_at` or a round-3 decision, so finished 2-round cycles could vanish, crashed cycles lingered, and `alphaswarm report` could default to a running cycle. A/B experiments (rounds, peers, models) need durable numbers; all history before June 2026 was lost (see [adr-tests-scoped-cleanup](#adr-tests-scoped-cleanup)).
 
 ### <a id="adr-eval-harness"></a>Point-in-time evaluation harness (P7.7, P7.8)
 - **Decision:**
@@ -483,8 +490,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p4-d-03"></a>`D-03` | cited_agents stored as explicit (Decision)-[:CITED]->(Agent) edges (raw LLM output), separate from computed INFLUENCED_BY. | active | graph.py:384 |
 | <a id="p4-d-05"></a>`D-05` | Schema applied idempotently at startup via ensure_schema() (CREATE ... IF NOT EXISTS). Since 2026-10 a web server whose Neo4j was down or rejected the password at startup still starts; once the database answers, the first `/api/health` probe applies the schema (no restart for a database that was only stopped). | active | graph.py:99; web/app.py (`_prepare_neo4j`); web/routes/health.py; readiness.py |
 | <a id="p4-d-06"></a>`D-06` | All 100 Agent nodes seeded eagerly in ensure_schema() from persona config. | active | graph.py:112 |
-| <a id="p4-d-07"></a>`D-07` | Session-per-method: each GraphStateManager method opens its own short-lived async session; callers never manage sessions. | active | graph.py:82 |
-| <a id="p4-d-08"></a>`D-08` | Keep the GraphStateManager API minimal and batch writes via UNWIND (one transaction per round, not per agent). | active | graph.py:82,384 |
+| <a id="p4-d-07"></a>`D-07` | Session-per-method: each GraphStateManager method opens its own short-lived async session; callers never manage sessions. Sessions are opened only by the `_read`/`_write` helpers (plus `ensure_schema`'s DDL), which apply `Neo4jSettings.query_timeout_s` through `unit_of_work` and map driver/server errors to the `GraphError` family (`Neo4jUnavailableError`, `Neo4jQueryError`, `Neo4jWriteError`). | active | graph.py (`_read`, `_write`, `_map_graph_error`) |
+| <a id="p4-d-08"></a>`D-08` | Keep the GraphStateManager API minimal and batch writes via UNWIND (one transaction per round, not per agent). `persist_round` writes a round's Decisions, CITED, RationaleEpisodes and REFERENCES in one transaction; the round's Posts (`write_posts`) and influence edges (`compute_influence_edges`) still follow in their own transactions. | active | graph.py (`persist_round`) |
 | <a id="p4-d-09"></a>`D-09` | Pre-dynamic-topology peer ranking by static influence_weight_base (read_peer_decisions). Deleted with the dead _dispatch_round path in 2026-10. | superseded | — |
 | <a id="p4-d-10"></a>`D-10` | cycle_id is a uuid4. | active | graph.py:188 |
 
@@ -503,7 +510,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p7-d-04"></a>`D-04` | Single run_simulation() orchestrates all rounds, reusing run_round1() for Round 1. | active | simulation.py:899 |
 | <a id="p7-d-05"></a>`D-05` | Worker reloaded once after run_round1() (which unloads in its finally) and kept warm for later rounds. | active | simulation.py:923,1095 |
 | <a id="p7-d-06"></a>`D-06` | run_round1 owns its governor monitoring session; run_simulation starts a fresh one for Rounds 2-3. | active | simulation.py:917,924,1098 |
-| <a id="p7-d-07"></a>`D-07` | Phase machine IDLE -> SEEDING -> ROUND_1..N -> FINALIZING -> COMPLETE. FINALIZING covers narratives (while eager) and metrics. StateStore.set_phase drives the UI. | active | simulation.py (run_simulation); types.py (SimulationPhase) |
+| <a id="p7-d-07"></a>`D-07` | Phase machine IDLE -> SEEDING -> ROUND_1..N -> FINALIZING -> COMPLETE. FINALIZING covers narratives (while eager), metrics and the status write. StateStore.set_phase drives the UI. | active | simulation.py (`run_simulation`); types.py (`SimulationPhase`) |
 | <a id="p7-d-08"></a>`D-08` | SimulationResult is one frozen container for all rounds plus shift metrics. | active | simulation.py:274 |
 | <a id="p7-d-09"></a>`D-09` | Round N reads peer context from round N-1, personalised per agent (self excluded). | active | simulation.py:726,1101,1272 |
 | <a id="p7-d-10"></a>`D-10` | Peer contexts are built per agent BEFORE dispatch and passed into dispatch_wave. | active | simulation.py:726,812 |
@@ -547,13 +554,13 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p11-d-01"></a>`D-01` | WriteBuffer queues per-agent episodes and flushes in one UNWIND batch per round. | active | simulation.py:1037; write_buffer.py:1 |
-| <a id="p11-d-02"></a>`D-02` | WriteBuffer is separate from GraphStateManager (queueing vs Cypher). | active | write_buffer.py:1 |
+| <a id="p11-d-01"></a>`D-01` | WriteBuffer queued per-agent episodes and flushed them after the decisions. Superseded: `persist_round` writes each round in one transaction and `write_buffer.py` is deleted. | superseded | graph.py (`persist_round`); episodes.py |
+| <a id="p11-d-02"></a>`D-02` | WriteBuffer was separate from GraphStateManager (queueing vs Cypher). Superseded with p11-d-01; the pure value objects live in `episodes.py`. | superseded | episodes.py |
 | <a id="p11-d-04"></a>`D-04` | RationaleEpisode linked 1:1 via (Decision)-[:HAS_EPISODE]->(RationaleEpisode). | active | graph.py:803 |
 | <a id="p11-d-06"></a>`D-06` | flip_type enum stored on each episode (NONE for round 1). | active | types.py:75 |
 | <a id="p11-d-07"></a>`D-07` | Episode properties: rationale, timestamp, peer_context_received, flip_type, round, cycle_id. | active | graph.py:803 |
 | <a id="p11-d-08"></a>`D-08` | Decision-[:REFERENCES]->Entity via case-insensitive substring match; no NLP dependency. The match is on the name only, so a REFERENCES edge can also reach a same-name entity of another type or cycle, and a seed that lists an entity twice writes duplicate MENTIONS and REFERENCES edges. Report entity impact therefore joins through the cycle's own `MENTIONS` and counts each (entity, decision) pair once (2026-10). | active | graph.py:875; tests/neo4j/test_graph_integration.py (test_references_edges_case_insensitive); tests/neo4j/test_report_reads.py (test_entity_impact_counts_each_decision_once_for_the_cycles_own_entities) |
-| <a id="p11-d-09"></a>`D-09` | REFERENCES written in the same post-round flush; entity names loaded once per cycle. | active | graph.py:875,922; simulation.py:1037 |
+| <a id="p11-d-09"></a>`D-09` | REFERENCES are written in the same transaction as the round's decisions (`persist_round`); the cycle's entities are read once before Round 1. | active | graph.py (`persist_round`); simulation.py (`run_simulation`) |
 | <a id="p11-d-10"></a>`D-10` | Post-simulation decision_narrative per agent written to Agent nodes (used by interviews/advisory). | active | graph.py:941; simulation.py:1427,1519,1531; tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc, test_write_decision_narratives_integration) |
 | <a id="p11-d-11"></a>`D-11` | Narratives generated eagerly as 100 worker calls after the last round. Lazy generation is an open backlog idea. | active | simulation.py:1427,1519,1531 |
 
@@ -652,7 +659,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p32-d-12"></a>`D-12` | GET /api/replay/cycles is a real Neo4j query (completion now keyed on Cycle.metrics_recorded_at). | active | web/routes/replay.py:80 |
+| <a id="p32-d-12"></a>`D-12` | GET /api/replay/cycles is a real Neo4j query (completion keyed on `Cycle.status`, [adr-cycle-metrics](#adr-cycle-metrics)). | active | web/routes/replay.py (`replay_cycles`) |
 
 ### Phase 34: Replay mode (web)
 

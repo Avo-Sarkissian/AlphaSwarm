@@ -115,14 +115,6 @@ class GovernorCrisisError(Exception):
         self.duration_seconds = duration_seconds
 
 
-class Neo4jConnectionError(Exception):
-    """Raised when Neo4j driver cannot connect or verify connectivity."""
-
-    def __init__(self, message: str, original_error: Exception | None = None) -> None:
-        super().__init__(message)
-        self.original_error = original_error
-
-
 class AlphaSwarmError(Exception):
     """Base class for AlphaSwarm domain errors."""
 
@@ -131,7 +123,7 @@ class GraphError(AlphaSwarmError):
     """A Neo4j operation failed.
 
     ``op`` names the GraphStateManager operation (for example
-    ``"write_decisions"``; None when the raise site does not say) so logs and
+    ``"persist_round"``; None when the raise site does not say) so logs and
     the UI can say what was being done without quoting driver text
     (docs/DECISIONS.md#adr-taskgroup-dispatch).
     """

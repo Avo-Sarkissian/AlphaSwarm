@@ -140,12 +140,12 @@ def test_split_flips_ignores_parse_errors() -> None:
     assert split_flips(prev, curr, {"a", "c"}) == (1, 1)
 
 
-def test_write_decisions_takes_control_ids_keyword_only() -> None:
+def test_persist_round_takes_control_ids_keyword_only() -> None:
     import inspect
 
     from alphaswarm.graph import GraphStateManager
 
-    param = inspect.signature(GraphStateManager.write_decisions).parameters["control_ids"]
+    param = inspect.signature(GraphStateManager.persist_round).parameters["control_ids"]
 
     assert param.kind is inspect.Parameter.KEYWORD_ONLY
     assert tuple(param.default) == ()

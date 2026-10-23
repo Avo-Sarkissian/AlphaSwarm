@@ -12,11 +12,11 @@ from typing import TYPE_CHECKING
 import structlog
 from fastapi import FastAPI
 from neo4j.exceptions import AuthError as Neo4jAuthError
-from neo4j.exceptions import DriverError, Neo4jError
 from starlette.staticfiles import StaticFiles
 
 from alphaswarm.app import create_app_state
 from alphaswarm.config import AppSettings, generate_personas, load_bracket_configs
+from alphaswarm.errors import GraphError
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.manifest import current_git_revision
 from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
@@ -55,7 +55,7 @@ async def _prepare_neo4j(graph_manager: GraphStateManager | None) -> bool:
     ensure_schema() also seeds the 100 Agent nodes every write MATCHes, so a
     fresh database persists nothing until it has run (docs/DECISIONS.md#p4-d-05).
     A down or misconfigured database must not stop the server from starting,
-    so driver and auth errors are logged (with the fix for that failure, the
+    so the mapped graph errors are logged (with the fix for that failure, the
     same text /api/health shows) and reported as not ready. Once the database
     answers, /api/health applies the schema.
     """
@@ -64,12 +64,15 @@ async def _prepare_neo4j(graph_manager: GraphStateManager | None) -> bool:
     try:
         await graph_manager.verify_connectivity()
         await graph_manager.ensure_schema()
-    except (DriverError, Neo4jError) as exc:
-        fix = NEO4J_AUTH_FIX if isinstance(exc, Neo4jAuthError) else NEO4J_FIX
+    except GraphError as exc:
+        # GraphStateManager maps driver, auth and server errors (docs/DECISIONS.md#p4-d-07);
+        # degraded mode keeps serving and /api/health reports it (docs/DECISIONS.md#p4-d-05).
+        fix = NEO4J_AUTH_FIX if isinstance(exc.original_error, Neo4jAuthError) else NEO4J_FIX
         log.warning(
             "neo4j_unavailable_at_startup",
             error_type=type(exc).__name__,
             error=str(exc),
+            op=exc.op,
             fix=fix,
         )
         return False

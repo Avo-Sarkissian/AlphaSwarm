@@ -1,6 +1,6 @@
 """Seed injection pipeline for AlphaSwarm.
 
-Orchestrates: prepare orchestrator provider -> parse seed rumor ->
+Orchestrates: prepare orchestrator provider -> parse seed rumor -> generate persona modifiers ->
 persist to Neo4j -> teardown provider.
 Called by CLI inject subcommand. Self-contained model lifecycle per D-07.
 """
@@ -52,11 +52,15 @@ async def inject_seed(
 ) -> tuple[str, ParsedSeedResult, ParsedModifiersResult | None]:
     """End-to-end seed injection pipeline. Returns (cycle_id, parsed_result, modifier_result).
 
-    When modifier_generator is provided (Phase 13), calls it after seed parsing
-    completes but before the orchestrator provider is torn down (D-06: same session).
+    When modifier_generator is provided (Phase 13), calls it after seed parsing and
+    BEFORE the Cycle is persisted, in the same orchestrator session
+    (docs/DECISIONS.md#p13-d-06), so a failure leaves no orphan Cycle.
     modifier_result is None when no callback is provided.
 
-    Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence.
+    Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence,
+    after the orchestrator is released: nothing that can fail runs between
+    the write and the return, so the caller learns the id of the ``running``
+    Cycle it must later mark (docs/DECISIONS.md#adr-cycle-metrics).
     """
     logger.info("seed_injection_start", rumor_preview=rumor[:100])
 
@@ -86,31 +90,34 @@ async def inject_seed(
                 raw_preview=raw_content[:300],
             )
 
-        # 4. Persist to Neo4j atomically (addresses review concern #2: no orphan Cycles)
-        cycle_id = await graph_manager.create_cycle_with_seed_event(
-            rumor,
-            parsed_result.seed_event,
-            num_rounds=settings.num_rounds,
-        )
-
-        # 5. Phase 13: Generate modifiers while orchestrator is still loaded (D-06)
+        # 4. Generate modifiers while the orchestrator is still loaded, BEFORE
+        #    persisting: a failed call must leave no orphan Cycle
+        #    (docs/DECISIONS.md#p13-d-06).
         modifier_result: ParsedModifiersResult | None = None
         if modifier_generator is not None:
             modifier_result = await modifier_generator(
                 parsed_result.seed_event,
                 orchestrator,
             )
-
-        logger.info(
-            "seed_injection_complete",
-            cycle_id=cycle_id,
-            entity_count=len(parsed_result.seed_event.entities),
-            overall_sentiment=parsed_result.seed_event.overall_sentiment,
-            parse_tier=parsed_result.parse_tier,
-            modifier_parse_tier=modifier_result.parse_tier if modifier_result else None,
-        )
-        return cycle_id, parsed_result, modifier_result
-
     finally:
-        # 6. Always unload orchestrator model (per D-07)
+        # 5. Always unload orchestrator model (per D-07)
         await orchestrator.teardown()
+
+    # 6. Persist Cycle + Entities atomically; the Cycle starts as "running". Last,
+    #    so a failed or cancelled teardown leaves no Cycle that no run will ever
+    #    mark failed or cancelled (docs/DECISIONS.md#adr-cycle-metrics).
+    cycle_id = await graph_manager.create_cycle_with_seed_event(
+        rumor,
+        parsed_result.seed_event,
+        num_rounds=settings.num_rounds,
+    )
+
+    logger.info(
+        "seed_injection_complete",
+        cycle_id=cycle_id,
+        entity_count=len(parsed_result.seed_event.entities),
+        overall_sentiment=parsed_result.seed_event.overall_sentiment,
+        parse_tier=parsed_result.parse_tier,
+        modifier_parse_tier=modifier_result.parse_tier if modifier_result else None,
+    )
+    return cycle_id, parsed_result, modifier_result

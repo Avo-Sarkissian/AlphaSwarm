@@ -70,6 +70,11 @@ class Neo4jSettings(BaseModel):
     # credential through require_password(), which fails loudly when unset.
     password: str = ""
     database: str = "neo4j"
+    # Server-side transaction timeout applied to every GraphStateManager
+    # read/write, and the driver's wait for a pooled connection
+    # (docs/DECISIONS.md#p4-d-07).
+    query_timeout_s: float = Field(default=30.0, ge=1.0, le=600.0)
+    connection_acquisition_timeout: float = Field(default=10.0, ge=1.0, le=120.0)
 
     def require_password(self) -> str:
         """Return the configured password, raising if none was supplied.

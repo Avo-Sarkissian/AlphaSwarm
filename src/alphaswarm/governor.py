@@ -22,6 +22,8 @@ from alphaswarm.inference.concurrency import ConcurrencyController
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReader, MemoryReading
 
 if TYPE_CHECKING:
+    from types import TracebackType
+
     from alphaswarm.state import StateStore
 
 log = structlog.get_logger(component="governor")
@@ -341,8 +343,14 @@ class ResourceGovernor:
         await self.acquire()
         return self
 
-    async def __aexit__(self, *args: object) -> None:
-        self.release()
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        # A failed call must not reset the crisis clock (docs/DECISIONS.md#p3-d-08).
+        self.release(success=exc_type is None)
 
     # --- Internal monitoring ---
 

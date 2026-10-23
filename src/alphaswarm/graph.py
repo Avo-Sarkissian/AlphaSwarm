@@ -3,26 +3,60 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, cast, get_args
+from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, TypeVar, cast, get_args
 
 import structlog
-from neo4j.exceptions import Neo4jError
+from neo4j import unit_of_work
+from neo4j.exceptions import AuthError as Neo4jAuthError
+from neo4j.exceptions import DriverError, Neo4jError
 
 from alphaswarm.config import DEFAULT_BRACKETS
-from alphaswarm.errors import Neo4jConnectionError, Neo4jWriteError
+from alphaswarm.episodes import EntityRef
+from alphaswarm.errors import (
+    GraphError,
+    Neo4jQueryError,
+    Neo4jUnavailableError,
+    Neo4jWriteError,
+)
 from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
     from neo4j import AsyncDriver, AsyncManagedTransaction
 
+    from alphaswarm.episodes import EntityMatch, EpisodeRecord
+    from alphaswarm.errors import RunErrorCode
     from alphaswarm.state import AgentState
     from alphaswarm.types import AgentDecision, AgentPersona, SeedEvent
 
 log = structlog.get_logger(component="graph")
+
+T = TypeVar("T")
+
+# neo4j 5.x raises a pool-acquisition timeout as a code-less ClientError
+# (6.0 plans to make it a DriverError).
+_POOL_ACQUISITION_TIMEOUT_MARKER: Final = "failed to obtain a connection from the pool"
+
+
+def _map_graph_error(exc: Exception, *, op: str, write: bool) -> GraphError:
+    """Map a neo4j driver/server error onto the GraphError family.
+
+    ServiceUnavailable and SessionExpired subclass DriverError, not
+    Neo4jError; a wrong password is neo4j's AuthError (a ClientError); a
+    pool-acquisition timeout is a code-less ClientError. All three mean the
+    database is unreachable (docs/DECISIONS.md#p4-d-07).
+    """
+    unavailable = isinstance(exc, (DriverError, Neo4jAuthError)) or (
+        isinstance(exc, Neo4jError) and exc.code is None and _POOL_ACQUISITION_TIMEOUT_MARKER in str(exc)
+    )
+    if unavailable:
+        return Neo4jUnavailableError(f"Neo4j is unavailable ({op})", exc, op=op)
+    if write:
+        return Neo4jWriteError(f"Neo4j write failed ({op})", exc, op=op)
+    return Neo4jQueryError(f"Neo4j query failed ({op})", exc, op=op)
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +76,18 @@ class RankedPost:
     content: str
     influence_weight: float
     round_num: int
+
+
+@dataclass(frozen=True)
+class PersistRoundResult:
+    """What one persist_round transaction wrote (docs/DECISIONS.md#p4-d-08)."""
+
+    decision_ids: tuple[str, ...]
+    decisions_written: int
+    episodes_written: int
+    citations_written: int
+    citations_dropped: int  # CITED targets that matched no Agent -> r{n}_citations_dropped
+    references_written: int
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +249,7 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX post_cycle_round IF NOT EXISTS FOR (p:Post) ON (p.cycle_id, p.round_num)",
     "CREATE INDEX post_id_idx IF NOT EXISTS FOR (p:Post) ON (p.post_id)",
     "CREATE CONSTRAINT shock_id_unique IF NOT EXISTS FOR (se:ShockEvent) REQUIRE se.shock_id IS UNIQUE",
+    "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)",
 ]
 
 CycleStatus = Literal["running", "complete", "failed", "cancelled"]
@@ -216,12 +263,76 @@ _LEGACY_COMPLETE: Final = (
 # The status a reader assumes: the stored one, else the legacy rule, so the
 # readers are right even before ensure_schema() has back-filled.
 _EFFECTIVE_STATUS: Final = f"coalesce(c.status, CASE WHEN {_LEGACY_COMPLETE} THEN 'complete' ELSE 'failed' END)"
+# ensure_schema() stamps the same rule onto status-less cycles; SET-only, idempotent.
+CYCLE_STATUS_BACKFILL: Final = (
+    "MATCH (c:Cycle) WHERE c.status IS NULL "
+    f"SET c.status = CASE WHEN {_LEGACY_COMPLETE} THEN 'complete' ELSE 'failed' END "
+    "RETURN count(c) AS backfilled"
+)
 
 # One completeness rule for every reader: the stored Cycle.status, else the
 # legacy predicate (metrics stamped, or a round-3 decision), so the job routes and
 # read_completed_cycles never disagree about a cycle (docs/DECISIONS.md#adr-cycle-metrics).
 _CYCLE_STATUS_QUERY: Final = f"MATCH (c:Cycle {{cycle_id: $cycle_id}}) RETURN {_EFFECTIVE_STATUS} AS status"
 _CYCLE_STATUSES: Final[frozenset[str]] = frozenset(get_args(CycleStatus))
+# read_latest_cycle_id's default; typed so the literal is not widened to str.
+_COMPLETE_ONLY: Final[tuple[CycleStatus, ...]] = ("complete",)
+
+# persist_round's four statements, run in one transaction (docs/DECISIONS.md#p4-d-08).
+_PERSIST_DECISIONS: Final = """
+UNWIND $decisions AS d
+MATCH (a:Agent {id: d.agent_id})
+MATCH (c:Cycle {cycle_id: $cycle_id})
+CREATE (dec:Decision {
+    decision_id: d.decision_id,
+    cycle_id: $cycle_id,
+    round: $round_num,
+    signal: d.signal,
+    confidence: d.confidence,
+    sentiment: d.sentiment,
+    rationale: d.rationale,
+    control: d.control,
+    error_kind: d.error_kind
+})
+CREATE (a)-[:MADE]->(dec)
+CREATE (dec)-[:FOR]->(c)
+RETURN count(dec) AS created
+"""
+
+# OPTIONAL MATCH + FOREACH: a citation of an unknown agent id is reported
+# back (written = false) instead of silently matching nothing.
+_PERSIST_CITATIONS: Final = """
+UNWIND $cited AS c
+MATCH (dec:Decision {decision_id: c.decision_id})
+OPTIONAL MATCH (agent:Agent {id: c.cited_id})
+FOREACH (ignored IN CASE WHEN agent IS NULL THEN [] ELSE [1] END |
+    CREATE (dec)-[:CITED]->(agent))
+RETURN c.cited_id AS cited_id, agent IS NOT NULL AS written
+"""
+
+_PERSIST_EPISODES: Final = """
+UNWIND $episodes AS ep
+MATCH (d:Decision {decision_id: ep.decision_id})
+CREATE (re:RationaleEpisode {
+    rationale: ep.rationale,
+    timestamp: datetime(),
+    peer_context_received: ep.peer_context_received,
+    flip_type: ep.flip_type,
+    round: ep.round_num,
+    cycle_id: ep.cycle_id
+})
+CREATE (d)-[:HAS_EPISODE]->(re)
+RETURN count(re) AS n
+"""
+
+# Name-only MATCH keeps the baseline semantics (docs/DECISIONS.md#p11-d-08).
+_PERSIST_REFERENCES: Final = """
+UNWIND $matches AS m
+MATCH (d:Decision {decision_id: m.decision_id})
+MATCH (e:Entity {name: m.entity_name})
+CREATE (d)-[:REFERENCES {match_type: m.match_type}]->(e)
+RETURN count(*) AS n
+"""
 
 # Bracket display names and order come from config so report rows match the
 # live frame (simulation.compute_bracket_summaries) — docs/DECISIONS.md#adr-swarm-composition-v2.
@@ -301,19 +412,51 @@ class GraphStateManager:
         driver: AsyncDriver,
         personas: list[AgentPersona],
         database: str = "neo4j",
+        *,
+        query_timeout_s: float | None = None,
     ) -> None:
         self._driver = driver
         self._personas = personas
         self._database = database
+        self._query_timeout_s = query_timeout_s
         self._log = structlog.get_logger(component="graph")
 
-    async def verify_connectivity(self) -> None:
-        """Check that Neo4j is reachable and accepts the configured credential.
+    def _unit(self, fn: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+        """Attach the server-side transaction timeout, when one is configured."""
+        if self._query_timeout_s is None:
+            return fn
+        return unit_of_work(timeout=self._query_timeout_s)(fn)
 
-        Raises the driver's own errors (ServiceUnavailable, AuthError, ...); the
-        web lifespan turns them into a not-ready flag instead of crashing.
+    async def _read(self, fn: Callable[..., Awaitable[T]], *args: Any, op: str) -> T:
+        """Run *fn* in a managed read transaction on a fresh session.
+
+        The only place (with _write and ensure_schema's DDL) that opens a
+        session; driver errors leave as GraphError (docs/DECISIONS.md#p4-d-07).
         """
-        await self._driver.verify_connectivity()
+        try:
+            async with self._driver.session(database=self._database) as session:
+                return await session.execute_read(self._unit(fn), *args)
+        except (DriverError, Neo4jError) as exc:
+            raise _map_graph_error(exc, op=op, write=False) from exc
+
+    async def _write(self, fn: Callable[..., Awaitable[T]], *args: Any, op: str) -> T:
+        """Run *fn* in a managed write transaction on a fresh session."""
+        try:
+            async with self._driver.session(database=self._database) as session:
+                return await session.execute_write(self._unit(fn), *args)
+        except (DriverError, Neo4jError) as exc:
+            raise _map_graph_error(exc, op=op, write=True) from exc
+
+    async def verify_connectivity(self) -> None:
+        """Fail fast when the database is unreachable (docs/DECISIONS.md#p4-d-05).
+
+        Raises only GraphError subclasses (Neo4jUnavailableError for driver and
+        auth errors); the web lifespan turns them into a not-ready flag.
+        """
+        try:
+            await self._driver.verify_connectivity()
+        except (DriverError, Neo4jError) as exc:
+            raise _map_graph_error(exc, op="verify_connectivity", write=False) from exc
 
     async def ensure_schema(self) -> None:
         """Apply idempotent schema constraints and indexes, then seed agents.
@@ -321,12 +464,78 @@ class GraphStateManager:
         Per D-05: open one session, execute each statement sequentially,
         then seed all agent nodes.
         """
-        async with self._driver.session(database=self._database) as session:
-            for stmt in SCHEMA_STATEMENTS:
-                await session.run(stmt)
+        try:
+            async with self._driver.session(database=self._database) as session:
+                for stmt in SCHEMA_STATEMENTS:
+                    await session.run(stmt)
+        except (DriverError, Neo4jError) as exc:
+            raise _map_graph_error(exc, op="ensure_schema", write=True) from exc
 
         self._log.info("schema_applied", statement_count=len(SCHEMA_STATEMENTS))
+        backfilled = await self._write(self._backfill_cycle_status_tx, op="backfill_cycle_status")
+        if backfilled:
+            self._log.info("cycle_status_backfilled", count=backfilled)
         await self.seed_agents(self._personas)
+
+    @staticmethod
+    async def _backfill_cycle_status_tx(tx: AsyncManagedTransaction) -> int:
+        """Give every status-less (legacy) Cycle a status; idempotent."""
+        result = await tx.run(CYCLE_STATUS_BACKFILL)
+        record = await result.single()
+        return int(record["backfilled"]) if record else 0
+
+    async def set_cycle_status(
+        self,
+        cycle_id: str,
+        status: CycleStatus,
+        *,
+        error_code: RunErrorCode | None = None,
+    ) -> None:
+        """Record a lifecycle transition (docs/DECISIONS.md#adr-cycle-metrics).
+
+        ``error_code`` goes only with ``failed``; writing any other status
+        removes a stored code.
+
+        Raises:
+            ValueError: an ``error_code`` was given with a status other than ``failed``.
+            Neo4jWriteError: no Cycle has *cycle_id*, or the write failed.
+            Neo4jUnavailableError: the database is unreachable.
+        """
+        if error_code is not None and status != "failed":
+            raise ValueError(f"error_code goes only with status 'failed', not {status!r}")
+        found = await self._write(
+            self._set_cycle_status_tx,
+            cycle_id,
+            status,
+            error_code,
+            op="set_cycle_status",
+        )
+        if not found:
+            raise Neo4jWriteError(
+                f"Cycle {cycle_id} not found while setting status {status}",
+                op="set_cycle_status",
+            )
+        self._log.info("cycle_status_set", cycle_id=cycle_id, status=status, error_code=error_code)
+
+    @staticmethod
+    async def _set_cycle_status_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+        status: str,
+        error_code: str | None,
+    ) -> bool:
+        result = await tx.run(
+            """
+            MATCH (c:Cycle {cycle_id: $cycle_id})
+            SET c.status = $status, c.error_code = $error_code
+            RETURN count(c) AS n
+            """,
+            cycle_id=cycle_id,
+            status=status,
+            error_code=error_code,
+        )
+        record = await result.single()
+        return bool(record and record["n"])
 
     async def seed_agents(self, agents: list[AgentPersona]) -> None:
         """Seed Agent nodes from persona config via UNWIND + MERGE.
@@ -352,12 +561,8 @@ class GraphStateManager:
         ]
         current_ids = [a.id for a in agents]
 
-        async with self._driver.session(database=self._database) as session:
-            await session.execute_write(self._seed_agents_tx, agent_params)
-            pruned = await session.execute_write(
-                self._prune_stale_agents_tx,
-                current_ids,
-            )
+        await self._write(self._seed_agents_tx, agent_params, op="seed_agents")
+        pruned = await self._write(self._prune_stale_agents_tx, current_ids, op="prune_stale_agents")
 
         if pruned:
             self._log.info("stale_agents_pruned", count=pruned)
@@ -419,18 +624,7 @@ class GraphStateManager:
         scalars: int, float, str or bool (a Neo4j property cannot hold null or
         a map).
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                await session.execute_write(
-                    self._write_cycle_metrics_tx,
-                    cycle_id,
-                    metrics,
-                )
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to write cycle metrics for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        await self._write(self._write_cycle_metrics_tx, cycle_id, metrics, op="write_cycle_metrics")
         self._log.info("cycle_metrics_written", cycle_id=cycle_id, keys=len(metrics))
 
     @staticmethod
@@ -456,17 +650,7 @@ class GraphStateManager:
         SEED_RUMOR prompt block and the relevance scorer's seed_match term
         operate on the real rumor text instead of an empty string.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                result = await session.execute_read(
-                    self._read_cycle_seed_tx,
-                    cycle_id,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read seed rumor for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        result = await self._read(self._read_cycle_seed_tx, cycle_id, op="read_cycle_seed")
         return result
 
     @staticmethod
@@ -514,21 +698,15 @@ class GraphStateManager:
             }
             for e in seed_event.entities
         ]
-        try:
-            async with self._driver.session(database=self._database) as session:
-                await session.execute_write(
-                    self._create_cycle_with_entities_tx,
-                    cycle_id,
-                    seed_rumor,
-                    seed_event.overall_sentiment,
-                    entity_params,
-                    num_rounds,
-                )
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to create cycle with seed event for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        await self._write(
+            self._create_cycle_with_entities_tx,
+            cycle_id,
+            seed_rumor,
+            seed_event.overall_sentiment,
+            entity_params,
+            num_rounds,
+            op="create_cycle_with_seed_event",
+        )
         self._log.info(
             "cycle_with_seed_event_created",
             cycle_id=cycle_id,
@@ -547,7 +725,7 @@ class GraphStateManager:
         entities: list[dict[str, Any]],
         num_rounds: int,
     ) -> None:
-        """Single transaction: Cycle (num_rounds) then UNWIND Entity + MENTIONS."""
+        """Single transaction: Cycle (num_rounds, status 'running') then UNWIND Entity + MENTIONS."""
         await tx.run(
             """
             CREATE (c:Cycle {
@@ -555,7 +733,8 @@ class GraphStateManager:
                 seed_rumor: $seed_rumor,
                 overall_sentiment: $overall_sentiment,
                 created_at: datetime(),
-                num_rounds: $num_rounds
+                num_rounds: $num_rounds,
+                status: 'running'
             })
             """,
             cycle_id=cycle_id,
@@ -582,138 +761,147 @@ class GraphStateManager:
         await self._driver.close()
         self._log.info("driver_closed")
 
-    # ------------------------------------------------------------------
-    # Decision write/read methods (Plan 02)
-    # ------------------------------------------------------------------
-
-    async def write_decisions(
+    async def persist_round(
         self,
-        agent_decisions: list[tuple[str, AgentDecision]],
         cycle_id: str,
         round_num: int,
+        decisions: Sequence[tuple[str, AgentDecision]],
         *,
-        decision_ids: list[str] | None = None,
+        decision_ids: Sequence[str],
+        episodes: Sequence[EpisodeRecord],
+        entity_matches: Sequence[EntityMatch],
         control_ids: Collection[str] = (),
-    ) -> list[str]:
-        """Batch-write agent decisions via UNWIND. Per D-08, D-01, D-03.
+    ) -> PersistRoundResult:
+        """Write one round in a single transaction (docs/DECISIONS.md#p4-d-08).
 
-        Args:
-            agent_decisions: List of (agent_id, AgentDecision) tuples.
-            cycle_id: Current simulation cycle ID.
-            round_num: Current round number (1, 2, or 3).
-            decision_ids: Optional pre-generated decision IDs. If provided, must have
-                the same length as agent_decisions. If None, UUIDs are generated
-                internally (backward compatible). Pre-generating IDs allows the caller
-                to pass the same IDs to WriteBuffer.push() before Decision nodes exist
-                in Neo4j.
-            control_ids: Agents in the seeded no-peer holdout; their decisions get
-                d.control = true, every other decision false
-                (docs/DECISIONS.md#adr-diverse-peer-context).
-
-        Returns:
-            list[str]: The decision_id strings for each decision written.
-                Callers can pass these to WriteBuffer.push() to link EpisodeRecords.
+        Decisions (with error_kind), CITED, RationaleEpisodes and REFERENCES
+        commit together or not at all. Fewer Decisions or episodes than
+        passed raises Neo4jWriteError and rolls the round back; citations of
+        unknown agents are counted and logged, never raised. Every Decision
+        stores ``control``: true for the agents in ``control_ids`` (the seeded
+        no-peer holdout), false otherwise
+        (docs/DECISIONS.md#adr-diverse-peer-context).
         """
-        if decision_ids is not None and len(decision_ids) != len(agent_decisions):
-            raise ValueError(
-                f"decision_ids length {len(decision_ids)} != agent_decisions length {len(agent_decisions)}"
-            )
-        ids = decision_ids if decision_ids is not None else [str(uuid.uuid4()) for _ in agent_decisions]
+        if len(decision_ids) != len(decisions):
+            raise ValueError(f"decision_ids length {len(decision_ids)} != decisions length {len(decisions)}")
+        pairs = list(zip(decision_ids, decisions, strict=True))
         control_set = frozenset(control_ids)
-        params = [
+        decision_rows = [
             {
                 "decision_id": did,
                 "agent_id": agent_id,
-                "signal": decision.signal.value,
-                "confidence": decision.confidence,
-                "sentiment": decision.sentiment,
-                "rationale": decision.rationale,
-                "cited_agents": list(decision.cited_agents),
+                "signal": d.signal.value,
+                "confidence": d.confidence,
+                "sentiment": d.sentiment,
+                "rationale": d.rationale,
                 "control": agent_id in control_set,
+                "error_kind": d.error_kind,
             }
-            for did, (agent_id, decision) in zip(ids, agent_decisions, strict=True)
+            for did, (agent_id, d) in pairs
         ]
-        try:
-            async with self._driver.session(database=self._database) as session:
-                created = await session.execute_write(self._batch_write_decisions_tx, params, cycle_id, round_num)
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to write {len(agent_decisions)} decisions for cycle {cycle_id} round {round_num}",
-                original_error=exc,
-            ) from exc
-        # The MATCH on Agent/Cycle drops rows silently: on an empty database
-        # nothing is written and no error is raised. Fail loudly instead.
-        if created < len(params):
-            raise Neo4jWriteError(
-                f"Wrote {created} of {len(params)} decisions for cycle {cycle_id} round "
-                f"{round_num}: Agent or Cycle nodes are missing (was ensure_schema() run?)"
+        cited_rows = [{"decision_id": did, "cited_id": cited} for did, (_, d) in pairs for cited in d.cited_agents]
+        episode_rows = [
+            {
+                "decision_id": e.decision_id,
+                "rationale": e.rationale,
+                "peer_context_received": e.peer_context_received,
+                "flip_type": e.flip_type,
+                "round_num": e.round_num,
+                "cycle_id": e.cycle_id,
+            }
+            for e in episodes
+        ]
+        reference_rows = [
+            {"decision_id": m.decision_id, "entity_name": m.entity_name, "match_type": m.match_type}
+            for m in entity_matches
+        ]
+        summary, dropped = await self._write(
+            self._persist_round_tx,
+            cycle_id,
+            round_num,
+            decision_rows,
+            cited_rows,
+            episode_rows,
+            reference_rows,
+            op="persist_round",
+        )
+        if dropped:
+            self._log.warning(
+                "citations_dropped",
+                cycle_id=cycle_id,
+                round_num=round_num,
+                count=len(dropped),
+                cited_ids=",".join(sorted(set(dropped))[:20]),
             )
         self._log.info(
-            "decisions_written",
+            "round_persisted",
             cycle_id=cycle_id,
             round_num=round_num,
-            count=len(agent_decisions),
+            decisions=summary.decisions_written,
+            episodes=summary.episodes_written,
+            citations=summary.citations_written,
+            references=summary.references_written,
         )
-        return ids
+        return summary
 
     @staticmethod
-    async def _batch_write_decisions_tx(
+    async def _persist_round_tx(
         tx: AsyncManagedTransaction,
-        decisions: list[dict],  # type: ignore[type-arg]
         cycle_id: str,
         round_num: int,
-    ) -> int:
-        """Transaction function for UNWIND batch decision creation.
-
-        Two-statement split avoids the empty-UNWIND pitfall:
-        Statement 1: Decision nodes + MADE + FOR relationships.
-        Statement 2: CITED relationships (only if any citations exist).
-
-        Returns the number of Decision nodes created, which write_decisions
-        compares with its input.
-        """
-        # Statement 1: Create Decision nodes with MADE and FOR relationships
-        result = await tx.run(
-            """
-            UNWIND $decisions AS d
-            MATCH (a:Agent {id: d.agent_id})
-            MATCH (c:Cycle {cycle_id: $cycle_id})
-            CREATE (dec:Decision {
-                decision_id: d.decision_id,
-                cycle_id: $cycle_id,
-                round: $round_num,
-                signal: d.signal,
-                confidence: d.confidence,
-                sentiment: d.sentiment,
-                rationale: d.rationale,
-                control: d.control
-            })
-            CREATE (a)-[:MADE]->(dec)
-            CREATE (dec)-[:FOR]->(c)
-            RETURN count(dec) AS created
-            """,
-            decisions=decisions,
-            cycle_id=cycle_id,
-            round_num=round_num,
-        )
+        decisions: list[dict[str, Any]],
+        cited: list[dict[str, str]],
+        episodes: list[dict[str, Any]],
+        references: list[dict[str, str]],
+    ) -> tuple[PersistRoundResult, tuple[str, ...]]:
+        """Transaction body; raising here rolls the whole round back."""
+        result = await tx.run(_PERSIST_DECISIONS, decisions=decisions, cycle_id=cycle_id, round_num=round_num)
         record = await result.single()
-        created = int(record["created"]) if record is not None else 0
-
-        # Statement 2: Create CITED relationships (only if any citations exist)
-        cited_params = [
-            {"decision_id": d["decision_id"], "cited_id": cid} for d in decisions for cid in d["cited_agents"]
-        ]
-        if cited_params:
-            await tx.run(
-                """
-                UNWIND $cited AS c
-                MATCH (dec:Decision {decision_id: c.decision_id})
-                MATCH (agent:Agent {id: c.cited_id})
-                CREATE (dec)-[:CITED]->(agent)
-                """,
-                cited=cited_params,
+        created = int(record["created"]) if record else 0
+        if created < len(decisions):
+            raise Neo4jWriteError(
+                f"persist_round created {created} of {len(decisions)} decisions "
+                f"(cycle {cycle_id}, round {round_num}): missing Agent or Cycle node",
+                op="persist_round",
             )
-        return created
+
+        citations_written = 0
+        dropped: list[str] = []
+        if cited:
+            result = await tx.run(_PERSIST_CITATIONS, cited=cited)
+            async for row in result:
+                if row["written"]:
+                    citations_written += 1
+                else:
+                    dropped.append(str(row["cited_id"]))
+
+        episodes_written = 0
+        if episodes:
+            result = await tx.run(_PERSIST_EPISODES, episodes=episodes)
+            record = await result.single()
+            episodes_written = int(record["n"]) if record else 0
+            if episodes_written < len(episodes):
+                raise Neo4jWriteError(
+                    f"persist_round created {episodes_written} of {len(episodes)} episodes "
+                    f"(cycle {cycle_id}, round {round_num})",
+                    op="persist_round",
+                )
+
+        references_written = 0
+        if references:
+            result = await tx.run(_PERSIST_REFERENCES, matches=references)
+            record = await result.single()
+            references_written = int(record["n"]) if record else 0
+
+        summary = PersistRoundResult(
+            decision_ids=tuple(str(d["decision_id"]) for d in decisions),
+            decisions_written=created,
+            episodes_written=episodes_written,
+            citations_written=citations_written,
+            citations_dropped=len(dropped),
+            references_written=references_written,
+        )
+        return summary, tuple(dropped)
 
     # ------------------------------------------------------------------
     # Phase 12: Post nodes for social influence dynamics
@@ -733,7 +921,7 @@ class GraphStateManager:
 
         Args:
             agent_decisions: List of (agent_id, AgentDecision) tuples.
-            decision_ids: Pre-generated decision IDs from write_decisions(). Must match
+            decision_ids: The round's decision IDs from persist_round(). Must match
                 length of agent_decisions. PARSE_ERROR entries are skipped along with
                 their corresponding decision_id.
             cycle_id: Current simulation cycle ID.
@@ -763,19 +951,7 @@ class GraphStateManager:
             )
         if not posts:
             return []
-        try:
-            async with self._driver.session(database=self._database) as session:
-                await session.execute_write(
-                    self._batch_write_posts_tx,
-                    posts,
-                    cycle_id,
-                    round_num,
-                )
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to write {len(posts)} posts for cycle {cycle_id} round {round_num}",
-                original_error=exc,
-            ) from exc
+        await self._write(self._batch_write_posts_tx, posts, cycle_id, round_num, op="write_posts")
         self._log.info(
             "posts_written",
             cycle_id=cycle_id,
@@ -816,146 +992,30 @@ class GraphStateManager:
         )
 
     # ------------------------------------------------------------------
-    # Phase 11: RationaleEpisode writes, entity reads, narrative writes
+    # Entity reads and narrative writes
     # ------------------------------------------------------------------
 
-    async def write_rationale_episodes(
-        self,
-        records: list,  # list of EpisodeRecord or dicts with same fields
-    ) -> None:
-        """Batch-write RationaleEpisode nodes linked to Decision via HAS_EPISODE (D-04, D-07).
+    async def read_cycle_entities(self, cycle_id: str) -> list[EntityRef]:
+        """Entities the cycle MENTIONS, in their original casing (docs/DECISIONS.md#p11-d-09).
 
-        Called by WriteBuffer.flush() after write_decisions() ensures Decision nodes exist.
-        Single UNWIND transaction for all episodes in the batch.
+        Read once per cycle before Round 1; ordered by name, then type.
         """
-        if not records:
-            return
-        episodes = [
-            {
-                "decision_id": r.decision_id if hasattr(r, "decision_id") else r["decision_id"],
-                "rationale": r.rationale if hasattr(r, "rationale") else r["rationale"],
-                "peer_context_received": (
-                    r.peer_context_received if hasattr(r, "peer_context_received") else r["peer_context_received"]
-                ),
-                "flip_type": r.flip_type if hasattr(r, "flip_type") else r["flip_type"],
-                "round_num": r.round_num if hasattr(r, "round_num") else r["round_num"],
-                "cycle_id": r.cycle_id if hasattr(r, "cycle_id") else r["cycle_id"],
-            }
-            for r in records
-        ]
-        # episodes[0] is used only for this method's log/error context; each
-        # node is stamped per-record inside the tx (see below).
-        cycle_id = episodes[0]["cycle_id"]
-        round_num = episodes[0]["round_num"]
-        try:
-            async with self._driver.session(database=self._database) as session:
-                await session.execute_write(self._batch_write_episodes_tx, episodes)
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to write {len(episodes)} rationale episodes for cycle {cycle_id} round {round_num}",
-                original_error=exc,
-            ) from exc
-        self._log.info(
-            "episodes_written",
+        return await self._read(self._read_cycle_entities_tx, cycle_id, op="read_cycle_entities")
+
+    @staticmethod
+    async def _read_cycle_entities_tx(
+        tx: AsyncManagedTransaction,
+        cycle_id: str,
+    ) -> list[EntityRef]:
+        result = await tx.run(
+            """
+            MATCH (c:Cycle {cycle_id: $cycle_id})-[:MENTIONS]->(e:Entity)
+            RETURN e.name AS name, e.type AS type
+            ORDER BY name, type
+            """,
             cycle_id=cycle_id,
-            round_num=round_num,
-            count=len(episodes),
         )
-
-    @staticmethod
-    async def _batch_write_episodes_tx(
-        tx: AsyncManagedTransaction,
-        episodes: list[dict],  # type: ignore[type-arg]
-    ) -> None:
-        """UNWIND batch create RationaleEpisode nodes linked to Decision nodes.
-
-        Each episode is stamped with its OWN round/cycle (ep.round_num /
-        ep.cycle_id), not batch-level values — a single flush could in principle
-        carry records from more than one round/cycle (U1).
-        """
-        await tx.run(
-            """
-            UNWIND $episodes AS ep
-            MATCH (d:Decision {decision_id: ep.decision_id})
-            CREATE (re:RationaleEpisode {
-                rationale: ep.rationale,
-                timestamp: datetime(),
-                peer_context_received: ep.peer_context_received,
-                flip_type: ep.flip_type,
-                round: ep.round_num,
-                cycle_id: ep.cycle_id
-            })
-            CREATE (d)-[:HAS_EPISODE]->(re)
-            """,
-            episodes=episodes,
-        )
-
-    async def write_narrative_edges(
-        self,
-        records: list,  # list of EpisodeRecord or dicts
-        entity_names: list[str],
-    ) -> None:
-        """Create REFERENCES edges between Decision and Entity nodes (D-08, D-09).
-
-        Python-side case-insensitive substring matching determines which decisions
-        reference which entities. Matched pairs are then written via UNWIND.
-        Entity names are passed as ORIGINAL casing (not lowercased) to match
-        Entity nodes in Neo4j (Pitfall 4).
-        """
-        if not records or not entity_names:
-            return
-        # Python-side matching (avoids N*M Cypher cross-product)
-        matches: list[dict] = []  # type: ignore[type-arg]
-        for r in records:
-            rationale = (r.rationale if hasattr(r, "rationale") else r["rationale"]).lower()
-            decision_id = r.decision_id if hasattr(r, "decision_id") else r["decision_id"]
-            for name in entity_names:
-                if name.lower() in rationale:
-                    matches.append({"decision_id": decision_id, "entity_name": name})
-        if not matches:
-            self._log.debug("no_entity_matches", record_count=len(records), entity_count=len(entity_names))
-            return
-        try:
-            async with self._driver.session(database=self._database) as session:
-                await session.execute_write(self._batch_write_references_tx, matches)
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to write {len(matches)} REFERENCES edges",
-                original_error=exc,
-            ) from exc
-        self._log.info("references_written", match_count=len(matches))
-
-    @staticmethod
-    async def _batch_write_references_tx(
-        tx: AsyncManagedTransaction,
-        matches: list[dict],  # type: ignore[type-arg]
-    ) -> None:
-        """UNWIND batch create REFERENCES edges from Decision to Entity."""
-        await tx.run(
-            """
-            UNWIND $matches AS m
-            MATCH (d:Decision {decision_id: m.decision_id})
-            MATCH (e:Entity {name: m.entity_name})
-            CREATE (d)-[:REFERENCES {match_type: "substring"}]->(e)
-            """,
-            matches=matches,
-        )
-
-    async def read_cycle_entities(self, cycle_id: str) -> list[str]:
-        """Read entity names for a cycle. Loaded once at cycle start, cached by caller (D-09).
-
-        Returns entity names in their ORIGINAL casing (same as stored during seed injection).
-        Callers must NOT lowercase these names; they are used as-is in MATCH clauses.
-        """
-        async with self._driver.session(database=self._database) as session:
-            result = await session.run(
-                """
-                MATCH (c:Cycle {cycle_id: $cycle_id})-[:MENTIONS]->(e:Entity)
-                RETURN e.name AS name
-                """,
-                cycle_id=cycle_id,
-            )
-            return [record["name"] async for record in result]
+        return [EntityRef(str(r["name"]), str(r["type"])) async for r in result]
 
     async def write_decision_narratives(
         self,
@@ -968,14 +1028,7 @@ class GraphStateManager:
         """
         if not narratives:
             return
-        try:
-            async with self._driver.session(database=self._database) as session:
-                await session.execute_write(self._batch_write_narratives_tx, narratives)
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to write {len(narratives)} decision narratives",
-                original_error=exc,
-            ) from exc
+        await self._write(self._batch_write_narratives_tx, narratives, op="write_decision_narratives")
         self._log.info("narratives_written", count=len(narratives))
 
     @staticmethod
@@ -1030,62 +1083,43 @@ class GraphStateManager:
             )
             return {}
 
-        try:
-            async with self._driver.session(database=self._database) as session:
-                # Read citation PAIRS (source_id, target_id) for pair-aware INFLUENCED_BY edges
-                pairs = await session.execute_read(
-                    self._read_citation_pairs_tx,
-                    cycle_id,
-                    up_to_round,
-                )
-                if not pairs:
-                    self._log.info(
-                        "no_citations_found",
-                        cycle_id=cycle_id,
-                        up_to_round=up_to_round,
-                    )
-                    return {}
+        pairs = await self._read(
+            self._read_citation_pairs_tx,
+            cycle_id,
+            up_to_round,
+            op="read_citation_pairs",
+        )
+        if not pairs:
+            self._log.info("no_citations_found", cycle_id=cycle_id, up_to_round=up_to_round)
+            return {}
 
-                # Compute per-target citation frequency from deduplicated pairs
-                target_counts: Counter[str] = Counter(p["target_id"] for p in pairs)
-
-                # Compute normalized weights (D-01: weight = citations / total_agents)
-                weights: dict[str, float] = {
-                    agent_id: count / total_agents for agent_id, count in target_counts.items()
-                }
-
-                # Build edge list: each unique (source, target) pair gets the target's weight
-                edges = [
-                    {
-                        "source_id": p["source_id"],
-                        "target_id": p["target_id"],
-                        "weight": weights[p["target_id"]],
-                    }
-                    for p in pairs
-                ]
-
-                # Batch-write INFLUENCED_BY edges
-                await session.execute_write(
-                    self._write_influence_edges_tx,
-                    edges,
-                    cycle_id,
-                    up_to_round,
-                )
-
-            self._log.info(
-                "influence_edges_computed",
-                cycle_id=cycle_id,
-                up_to_round=up_to_round,
-                edge_count=len(edges),
-                agents_with_influence=len(weights),
-            )
-            return weights
-
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to compute influence edges for cycle {cycle_id} round {up_to_round}",
-                original_error=exc,
-            ) from exc
+        # Per-target citation frequency from deduplicated pairs; weight =
+        # citations / active agents (docs/DECISIONS.md#p8-d-01).
+        target_counts: Counter[str] = Counter(p["target_id"] for p in pairs)
+        weights: dict[str, float] = {agent_id: count / total_agents for agent_id, count in target_counts.items()}
+        edges = [
+            {
+                "source_id": p["source_id"],
+                "target_id": p["target_id"],
+                "weight": weights[p["target_id"]],
+            }
+            for p in pairs
+        ]
+        await self._write(
+            self._write_influence_edges_tx,
+            edges,
+            cycle_id,
+            up_to_round,
+            op="write_influence_edges",
+        )
+        self._log.info(
+            "influence_edges_computed",
+            cycle_id=cycle_id,
+            up_to_round=up_to_round,
+            edge_count=len(edges),
+            agents_with_influence=len(weights),
+        )
+        return weights
 
     @staticmethod
     async def _read_citation_pairs_tx(
@@ -1158,18 +1192,7 @@ class GraphStateManager:
         Returns:
             InfluenceEdgeRow list (source_id, target_id, weight).
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_influence_edges_tx,
-                    cycle_id,
-                    round_num,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read influence edges for cycle {cycle_id} round {round_num}",
-                original_error=exc,
-            ) from exc
+        records = await self._read(self._read_influence_edges_tx, cycle_id, round_num, op="read_influence_edges")
         self._log.debug(
             "influence_edges_read",
             cycle_id=cycle_id,
@@ -1227,20 +1250,11 @@ class GraphStateManager:
             InterviewContext with persona, narrative, and per-round decisions.
 
         Raises:
-            Neo4jConnectionError: When Neo4j query fails.
+            Neo4jQueryError / Neo4jUnavailableError: When the read fails.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_interview_context_tx,
-                    agent_id,
-                    cycle_id,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read interview context for agent {agent_id} cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        records = await self._read(
+            self._read_interview_context_tx, agent_id, cycle_id, op="read_agent_interview_context"
+        )
 
         # Look up persona from in-memory list (D-06: avoids second Neo4j query)
         persona = next((p for p in self._personas if p.id == agent_id), None)
@@ -1316,20 +1330,9 @@ class GraphStateManager:
         rounds finished so far (docs/DECISIONS.md#p14-d-06).
 
         Raises:
-            Neo4jConnectionError: When Neo4j query fails.
+            Neo4jQueryError / Neo4jUnavailableError: When the read fails.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                rows = await session.execute_read(
-                    self._read_agent_decisions_tx,
-                    cycle_id,
-                    agent_id,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read decisions for agent {agent_id} cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        rows = await self._read(self._read_agent_decisions_tx, cycle_id, agent_id, op="read_agent_decisions")
         self._log.debug(
             "agent_decisions_read",
             cycle_id=cycle_id,
@@ -1384,14 +1387,7 @@ class GraphStateManager:
         The final round is Cycle.num_rounds (legacy cycles without it: 3),
         resolved inside the query (docs/DECISIONS.md#adr-num-rounds).
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                row = await session.execute_read(self._read_consensus_summary_tx, cycle_id)
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read consensus summary for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        row = await self._read(self._read_consensus_summary_tx, cycle_id, op="read_consensus_summary")
         self._log.debug("report_consensus_summary", cycle_id=cycle_id, total=row["total"])
         return row
 
@@ -1435,14 +1431,7 @@ class GraphStateManager:
 
     async def read_round_timeline(self, cycle_id: str) -> list[RoundTimelineRow]:
         """Per-round counts for every round that ran, ascending."""
-        try:
-            async with self._driver.session(database=self._database) as session:
-                rows = await session.execute_read(self._read_round_timeline_tx, cycle_id)
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read round timeline for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        rows = await self._read(self._read_round_timeline_tx, cycle_id, op="read_round_timeline")
         self._log.debug("report_round_timeline", cycle_id=cycle_id, count=len(rows))
         return rows
 
@@ -1484,14 +1473,7 @@ class GraphStateManager:
         Totals and averages exclude PARSE_ERROR; a bracket whose agents all
         failed has total 0 and majority None (never a default BUY).
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                rows = await session.execute_read(self._read_bracket_narratives_tx, cycle_id)
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read bracket narratives for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        rows = await self._read(self._read_bracket_narratives_tx, cycle_id, op="read_bracket_narratives")
         self._log.debug("report_bracket_narratives", cycle_id=cycle_id, count=len(rows))
         return rows
 
@@ -1549,14 +1531,7 @@ class GraphStateManager:
         PARSE_ERROR decisions are excluded before the majority is computed, so
         a failed agent is never a dissenter and an all-failed bracket yields none.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                rows = await session.execute_read(self._read_key_dissenters_tx, cycle_id)
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read key dissenters for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        rows = await self._read(self._read_key_dissenters_tx, cycle_id, op="read_key_dissenters")
         self._log.debug("report_key_dissenters", cycle_id=cycle_id, count=len(rows))
         return rows
 
@@ -1614,18 +1589,7 @@ class GraphStateManager:
         no longer the quadratic sum of incoming weights
         (docs/DECISIONS.md#p8-d-01).
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                rows = await session.execute_read(
-                    self._read_influence_leaders_tx,
-                    cycle_id,
-                    limit,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read influence leaders for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        rows = await self._read(self._read_influence_leaders_tx, cycle_id, limit, op="read_influence_leaders")
         self._log.debug("report_influence_leaders", cycle_id=cycle_id, count=len(rows))
         return rows
 
@@ -1676,17 +1640,7 @@ class GraphStateManager:
         final_signal is the (uppercase) signal after the flip in that round.
         Rows are ordered by round, bracket, then agent id.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                rows = await session.execute_read(
-                    self._read_signal_flips_tx,
-                    cycle_id,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read signal flips for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        rows = await self._read(self._read_signal_flips_tx, cycle_id, op="read_signal_flips")
         self._log.debug("report_signal_flips", cycle_id=cycle_id, count=len(rows))
         return rows
 
@@ -1731,17 +1685,7 @@ class GraphStateManager:
         Each decision counts once per entity, even when a seed that listed the
         entity twice left duplicate MENTIONS and REFERENCES edges.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                rows = await session.execute_read(
-                    self._read_entity_impact_tx,
-                    cycle_id,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read entity impact for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        rows = await self._read(self._read_entity_impact_tx, cycle_id, op="read_entity_impact")
         self._log.debug("report_entity_impact", cycle_id=cycle_id, count=len(rows))
         return rows
 
@@ -1801,18 +1745,7 @@ class GraphStateManager:
             List of dicts with post_id, author_name, bracket, signal, round_num,
             content, reader_count.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_social_post_reach_tx,
-                    cycle_id,
-                    limit,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read social post reach for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        records = await self._read(self._read_social_post_reach_tx, cycle_id, limit, op="read_social_post_reach")
         self._log.debug("report_social_post_reach", cycle_id=cycle_id, count=len(records))
         return records
 
@@ -1844,23 +1777,38 @@ class GraphStateManager:
         )
         return [dict(record) async for record in result]
 
-    async def read_latest_cycle_id(self) -> str | None:
-        """Return the most recent cycle_id from Neo4j, or None if no cycles exist.
+    async def read_latest_cycle_id(
+        self,
+        *,
+        statuses: Collection[CycleStatus] = _COMPLETE_ONLY,
+    ) -> str | None:
+        """Most recent cycle whose (effective) status is in *statuses*, or None.
 
-        Used by CLI `--cycle` flag default: `alphaswarm report` without explicit cycle.
+        The default serves `alphaswarm report`, which must never pick a running
+        or failed cycle (docs/DECISIONS.md#adr-cycle-metrics).
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                result = await session.run(
-                    "MATCH (c:Cycle) RETURN c.cycle_id AS cycle_id ORDER BY c.created_at DESC LIMIT 1",
-                )
-                record = await result.single()
-                return str(record["cycle_id"]) if record else None
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                "Failed to read latest cycle_id",
-                original_error=exc,
-            ) from exc
+        wanted = list(statuses)
+        if not wanted:
+            raise ValueError("statuses must not be empty")
+        return await self._read(self._read_latest_cycle_id_tx, wanted, op="read_latest_cycle_id")
+
+    @staticmethod
+    async def _read_latest_cycle_id_tx(
+        tx: AsyncManagedTransaction,
+        statuses: list[str],
+    ) -> str | None:
+        result = await tx.run(
+            f"""
+            MATCH (c:Cycle)
+            WHERE {_EFFECTIVE_STATUS} IN $statuses
+            RETURN c.cycle_id AS cycle_id
+            ORDER BY c.created_at DESC
+            LIMIT 1
+            """,
+            statuses=statuses,
+        )
+        record = await result.single()
+        return str(record["cycle_id"]) if record else None
 
     async def read_cycle_status(self, cycle_id: str) -> CycleStatus | None:
         """Lifecycle status of *cycle_id*, or ``None`` when no such cycle exists.
@@ -1868,8 +1816,7 @@ class GraphStateManager:
         Job routes gate on this instead of the in-memory phase, which a restart
         resets to idle (docs/DECISIONS.md#adr-background-tasks).
         """
-        async with self._driver.session(database=self._database) as session:
-            return await session.execute_read(self._read_cycle_status_tx, cycle_id)
+        return await self._read(self._read_cycle_status_tx, cycle_id, op="read_cycle_status")
 
     async def cycle_exists(self, cycle_id: str) -> bool:
         """True when a Cycle node with *cycle_id* exists, whatever its status."""
@@ -1904,17 +1851,7 @@ class GraphStateManager:
             Dict with shock_id, shock_text, injected_before_round, created_at,
             or None if no ShockEvent exists for the cycle.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                record = await session.execute_read(
-                    self._read_shock_event_tx,
-                    cycle_id,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read shock_event for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        record = await self._read(self._read_shock_event_tx, cycle_id, op="read_shock_event")
         self._log.debug("read_shock_event", cycle_id=cycle_id)
         return record
 
@@ -1945,14 +1882,7 @@ class GraphStateManager:
         shocked round; agents with a PARSE_ERROR on either side are excluded.
         Zero-filled when the cycle has no shock or no comparable agents.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                row = await session.execute_read(self._read_shock_impact_tx, cycle_id)
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read shock_impact for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        row = await self._read(self._read_shock_impact_tx, cycle_id, op="read_shock_impact")
         self._log.debug(
             "read_shock_impact",
             cycle_id=cycle_id,
@@ -2074,23 +2004,13 @@ class GraphStateManager:
             injected_before_round: 2 or 3 — the round that receives the shock.
 
         Raises:
-            Neo4jWriteError: wraps any underlying Neo4jError.
+            Neo4jWriteError / Neo4jUnavailableError: When the write fails, or
+                when the database is unreachable or rejects the credentials.
         """
         shock_id = str(uuid.uuid4())
-        try:
-            async with self._driver.session(database=self._database) as session:
-                await session.execute_write(
-                    self._write_shock_event_tx,
-                    cycle_id,
-                    shock_id,
-                    shock_text,
-                    injected_before_round,
-                )
-        except Neo4jError as exc:
-            raise Neo4jWriteError(
-                f"Failed to write shock_event for cycle {cycle_id}",
-                original_error=exc,
-            ) from exc
+        await self._write(
+            self._write_shock_event_tx, cycle_id, shock_id, shock_text, injected_before_round, op="write_shock_event"
+        )
         self._log.info(
             "shock_event_written",
             cycle_id=cycle_id,
@@ -2148,17 +2068,7 @@ class GraphStateManager:
         from alphaswarm.state import AgentState as _AgentState
 
         t0 = _time.perf_counter()
-        try:
-            async with self._driver.session(database=self._database) as session:
-                records = await session.execute_read(
-                    self._read_full_cycle_signals_tx,
-                    cycle_id,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read full cycle signals for {cycle_id}",
-                original_error=exc,
-            ) from exc
+        records = await self._read(self._read_full_cycle_signals_tx, cycle_id, op="read_full_cycle_signals")
         elapsed_ms = (_time.perf_counter() - t0) * 1000
         self._log.debug(
             "read_full_cycle_signals",
@@ -2203,23 +2113,14 @@ class GraphStateManager:
         *,
         before: datetime | None = None,
     ) -> list[CompletedCycleRow]:
-        """Return complete cycles, newest first, one page at a time.
+        """Return complete cycles (Cycle.status), newest first, one page at a time.
 
         *before* is the created_at of the previous page's last row; rows
         strictly older than it are returned. A naive *before* is read as UTC.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                rows: list[CompletedCycleRow] = await session.execute_read(
-                    self._read_completed_cycles_tx,
-                    limit,
-                    _as_utc(before),
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                "Failed to read completed cycles",
-                original_error=exc,
-            ) from exc
+        rows: list[CompletedCycleRow] = await self._read(
+            self._read_completed_cycles_tx, limit, _as_utc(before), op="read_completed_cycles"
+        )
         self._log.debug("completed_cycles_read", count=len(rows), paged=before is not None)
         return rows
 
@@ -2285,18 +2186,9 @@ class GraphStateManager:
         total and averages exclude PARSE_ERROR, matching the live frame's
         compute_bracket_summaries; the replay manager maps display names.
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                rows = await session.execute_read(
-                    self._read_bracket_narratives_for_round_tx,
-                    cycle_id,
-                    round_num,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read bracket narratives for cycle {cycle_id} round {round_num}",
-                original_error=exc,
-            ) from exc
+        rows = await self._read(
+            self._read_bracket_narratives_for_round_tx, cycle_id, round_num, op="read_bracket_narratives_for_round"
+        )
         self._log.debug(
             "read_bracket_narratives_for_round",
             cycle_id=cycle_id,
@@ -2353,19 +2245,9 @@ class GraphStateManager:
 
         RationaleEpisode.rationale is no longer the source (docs/DECISIONS.md#adr-neo4j-schema).
         """
-        try:
-            async with self._driver.session(database=self._database) as session:
-                rows = await session.execute_read(
-                    self._read_rationale_entries_for_round_tx,
-                    cycle_id,
-                    round_num,
-                    limit,
-                )
-        except Neo4jError as exc:
-            raise Neo4jConnectionError(
-                f"Failed to read rationale entries for cycle {cycle_id} round {round_num}",
-                original_error=exc,
-            ) from exc
+        rows = await self._read(
+            self._read_rationale_entries_for_round_tx, cycle_id, round_num, limit, op="read_rationale_entries_for_round"
+        )
         self._log.debug(
             "read_rationale_entries_for_round",
             cycle_id=cycle_id,

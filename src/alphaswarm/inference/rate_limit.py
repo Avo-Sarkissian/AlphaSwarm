@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from alphaswarm.inference.concurrency import ConcurrencyController
 
 if TYPE_CHECKING:
-    pass
+    from types import TracebackType
 
 logger = logging.getLogger(__name__)
 
@@ -250,26 +250,48 @@ class RateLimitController:
     async def acquire(self) -> None:
         """Claim an in-flight slot, then pace via RPM + TPM buckets.
 
-        If a shrink is pending, we drain one semaphore token (decrement
-        ``_shrink_pending``) and loop to acquire a real slot next time.
+        If a shrink is pending, the caller first claims it (decrements
+        ``_shrink_pending``) and takes one semaphore token, which stays held
+        back for good, then acquires its own slot in the same call. A caller
+        cancelled while waiting for that token hands the claim back; one
+        cancelled while pacing returns its slot and refunds both bucket
+        reservations, so a cancelled waiter never leaks a permit or tokens.
         """
-        # Handle any pending shrink tokens: acquire but don't return them,
-        # effectively reducing the available pool by 1.
+        # Drain a pending shrink token first. Claim the shrink before waiting so
+        # two concurrent callers never both drain it; if this caller is
+        # cancelled before the token is taken, hand the claim back
+        # (docs/DECISIONS.md#adr-governor).
         if self._shrink_pending > 0:
             self._shrink_pending -= 1
-            await self._semaphore.acquire()
-            # Do NOT release — this token is now permanently held back.
-            # Now acquire again for the actual request.
+            try:
+                await self._semaphore.acquire()
+            except BaseException:
+                self._shrink_pending += 1
+                raise
+            # This token is now permanently held back; acquire the real slot next.
 
         await self._semaphore.acquire()
         self._in_flight += 1
-
-        # Rate-limit: reserve estimated cost and wait if needed
-        rpm_wait = self._rpm_bucket.reserve(1)
-        tpm_wait = self._tpm_bucket.reserve(self._avg_tokens_per_call)
-        wait = max(rpm_wait, tpm_wait)
-        if wait > 0:
-            await asyncio.sleep(wait)
+        reserved_rpm = reserved_tpm = False
+        try:
+            # Rate-limit: reserve estimated cost and wait if needed.
+            rpm_wait = self._rpm_bucket.reserve(1)
+            reserved_rpm = True
+            tpm_wait = self._tpm_bucket.reserve(self._avg_tokens_per_call)
+            reserved_tpm = True
+            wait = max(rpm_wait, tpm_wait)
+            if wait > 0:
+                await asyncio.sleep(wait)
+        except BaseException:
+            # Cancelled (or interrupted) while pacing: the caller never gets the
+            # slot, so return the permit and refund both reservations.
+            if reserved_rpm:
+                self._rpm_bucket.refund(1)
+            if reserved_tpm:
+                self._tpm_bucket.refund(self._avg_tokens_per_call)
+            self._in_flight = max(0, self._in_flight - 1)
+            self._semaphore.release()
+            raise
 
     def release(self, *, success: bool = True, result_tokens: int | None = None) -> None:
         """Free the in-flight slot and reconcile TPM bucket if token count known.
@@ -358,9 +380,14 @@ class RateLimitController:
         await self.acquire()
         return self
 
-    async def __aexit__(self, *args: object) -> None:
-        """Release the concurrency slot (async context manager exit)."""
-        self.release()
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Release the slot with the call's real outcome (failed calls refund TPM)."""
+        self.release(success=exc_type is None)
 
     # ------------------------------------------------------------------
     # Internal
