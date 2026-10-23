@@ -1,11 +1,13 @@
-"""Sequential model loading and unloading for Ollama.
+"""Ollama model loading and unloading.
 
-Enforces the INFRA-03 contract: orchestrator model loads, unloads completely,
-then worker model loads. No dual-model coexistence.
+Rounds never run with the orchestrator and the worker loaded together: seeding loads
+and unloads the orchestrator, then the worker is loaded once for every round
+(docs/DECISIONS.md#adr-round-runner). Ollama itself may hold up to two models
+(CLAUDE.md constraint 2), for example an interview's worker next to a report's
+orchestrator.
 
 Uses an asyncio.Lock to serialize all model transitions, preventing race
-conditions from concurrent async calls. Addresses review concern about
-model transition serialization.
+conditions from concurrent async calls.
 """
 
 from __future__ import annotations
@@ -46,14 +48,8 @@ class OllamaModelManager:
         configured_aliases: set[str] | None = None,
     ) -> None:
         self._client = client
-        self._current_model: str | None = None
         self._lock = asyncio.Lock()
         self._configured_aliases: set[str] = configured_aliases or set()
-
-    @property
-    def current_model(self) -> str | None:
-        """Return the currently loaded model tag, or None."""
-        return self._current_model
 
     async def load_model(self, model: str) -> None:
         """Load a model into Ollama memory.
@@ -89,7 +85,6 @@ class OllamaModelManager:
                     message=f"Model {model} not found in ps() after load attempt",
                     model=model,
                 )
-            self._current_model = model
             await logger.ainfo("model loaded", model=model)
 
     async def unload_model(self, model: str) -> None:
@@ -112,14 +107,10 @@ class OllamaModelManager:
                 )
                 await logger.ainfo("model unloaded", model=model)
             except Exception:
-                # Best-effort unload: some Ollama builds reject an empty
-                # messages list. A failed unload must not abort the caller
-                # (ensure_clean_state loops over models) nor leave _current_model
-                # stale — clear it in finally regardless (F-32).
+                # Best-effort unload: some Ollama builds reject an empty messages
+                # list, and a failed unload must not abort the caller
+                # (ensure_clean_state loops over models; docs/DECISIONS.md#f-32).
                 await logger.awarning("unload_model_failed", model=model, exc_info=True)
-            finally:
-                if self._current_model == model:
-                    self._current_model = None
 
     async def is_model_loaded(self, model: str) -> bool:
         """Check if a model is currently loaded via ps().
@@ -169,8 +160,7 @@ class OllamaModelManager:
             if name is None:
                 continue
             if name.removesuffix(":latest") in bare_aliases:
-                # unload_model is best-effort (it swallows its own errors and
-                # clears state in a finally), so one stuck model can't abort the
-                # loop and leave the rest resident — preserving the max-2-models
-                # invariant (F-32).
+                # unload_model is best-effort (it swallows its own errors), so one
+                # stuck model can't abort the loop and leave the rest resident,
+                # preserving the max-2-models invariant (docs/DECISIONS.md#f-32).
                 await self.unload_model(name)

@@ -902,7 +902,7 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-29"></a>F-29 | A negative aggregate cost basis inverted the ranking | 35471d4 | advisory/engine.py:141 |
 | <a id="f-30"></a>F-30 | Inconsistent ticker casing across items | 35471d4 | advisory/engine.py:218 |
 | <a id="f-31"></a>F-31 | Inverted governor thresholds passed validation | 902d7b5 | settings.py:GovernorSettings |
-| <a id="f-32"></a>F-32 | A failed unload aborted `ensure_clean_state`, risking the two-model invariant | 66d680f | ollama_models.py:118,175 |
+| <a id="f-32"></a>F-32 | A failed unload aborted `ensure_clean_state`, risking the two-model invariant | 66d680f | ollama_models.py:OllamaModelManager.unload_model, OllamaModelManager.ensure_clean_state |
 | <a id="f-33"></a>F-33 | Double-click could start two simulations | df2f26a | fe/hooks/useRunGate.tsx:51 |
 | <a id="f-34"></a>F-34 | `parseInfluences` produced duplicate React keys | df2f26a | fe/__tests__/advisoryParse.test.ts:81; fe/lib/advisoryParse.ts:175 |
 | <a id="f-35"></a>F-35 | Top Influencers showed "0" filler rows | df2f26a | fe/lib/influence.ts:5 |
