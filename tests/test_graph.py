@@ -998,7 +998,8 @@ def test_decode_modifiers_drops_bad_json_and_unknown_brackets(
     raw: object,
     expected: dict[BracketType, str] | None,
 ) -> None:
-    from alphaswarm.graph.manager import _decode_modifiers, _encode_modifiers
+    from alphaswarm.graph.manager import _encode_modifiers
+    from alphaswarm.graph.replay_interview import _decode_modifiers
 
     assert _decode_modifiers(raw) == expected
     modifiers = {BracketType.QUANTS: "a", BracketType.DEGENS: "b"}

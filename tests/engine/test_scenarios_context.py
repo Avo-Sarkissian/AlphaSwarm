@@ -7,12 +7,13 @@ from unittest.mock import MagicMock
 
 from alphaswarm.ingestion.providers import FakeMarketDataProvider, FakeNewsProvider
 from alphaswarm.ingestion.types import NewsSlice
-from alphaswarm.interview import InterviewContext, RoundDecision, ensure_decision_narrative
+from alphaswarm.interview import InterviewContext, ensure_decision_narrative
 from alphaswarm.types import AgentPersona
 from alphaswarm.worker import MARKET_CONTEXT_GUARD, UNTRUSTED_DATA_OPEN
 from tests.engine.scenario import RunScenario, recorded_decisions, round_calls
 from tests.inference.fakes import ScriptedProvider
 from tests.support.controllers import ImmediateController
+from tests.support.interview_fakes import decision_row
 
 HEADLINE = "ZZZT Holdings confirms a strategic review"
 
@@ -68,7 +69,7 @@ async def test_narrative_prompts_identify_every_agent(
             bracket=persona.bracket.value,
             interview_system_prompt=persona.system_prompt,
             decision_narrative="",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.5, sentiment=0.1, rationale="r")],
+            decisions=[decision_row(round_num=1, signal="buy", confidence=0.5, sentiment=0.1, rationale="r")],
         )
         await ensure_decision_narrative(_Store(), scripted_worker, context, cycle_id="scenario-cycle")
     narratives = scripted_worker.calls_for("narrative")

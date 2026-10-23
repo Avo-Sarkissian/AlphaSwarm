@@ -11,7 +11,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from alphaswarm.types import SimulationPhase
+from alphaswarm.web.routes import interview as interview_routes
 from tests.support.aio import eventually
+from tests.support.interview_fakes import decision_row
 from tests.support.web_app import CYCLE_A
 
 # ---------------------------------------------------------------------------
@@ -144,7 +146,7 @@ def test_interview_404_no_cycles() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_interview_404_empty_context() -> None:
+def test_interview_404_empty_context(monkeypatch: pytest.MonkeyPatch) -> None:
     """POST /api/interview/{agent_id} returns 404 when the agent is unknown for the cycle."""
     from unittest.mock import AsyncMock, MagicMock
 
@@ -154,9 +156,10 @@ def test_interview_404_empty_context() -> None:
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
         from alphaswarm.errors import AgentNotFoundError
 
-        mock_gm.read_agent_interview_context = AsyncMock(
+        loader = AsyncMock(
             side_effect=AgentNotFoundError("agent_1", "c1"),
         )
+        monkeypatch.setattr(interview_routes, "load_interview_context", loader)
         app.state.app_state.graph_manager = mock_gm
         app.state.app_state.ollama_client = MagicMock()
         _mock_complete_app_state(app)
@@ -196,11 +199,11 @@ def test_interview_422_message_too_long() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_interview_endpoint_returns_response() -> None:
+def test_interview_endpoint_returns_response(monkeypatch: pytest.MonkeyPatch) -> None:
     """POST /api/interview/{agent_id} returns 200 with {"response": "..."} on happy path."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from alphaswarm.interview import InterviewContext, RoundDecision
+    from alphaswarm.interview import InterviewContext
 
     app = _make_interview_test_app()
     with TestClient(app) as client:
@@ -210,11 +213,12 @@ def test_interview_endpoint_returns_response() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="TestAgent decided to BUY.",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good news")],
+            decisions=[decision_row(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good news")],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
-        mock_gm.read_agent_interview_context = AsyncMock(return_value=mock_context)
+        loader = AsyncMock(return_value=mock_context)
+        monkeypatch.setattr(interview_routes, "load_interview_context", loader)
         app.state.app_state.graph_manager = mock_gm
         app.state.app_state.ollama_client = MagicMock()
         _mock_complete_app_state(app)
@@ -235,11 +239,11 @@ def test_interview_endpoint_returns_response() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_interview_multi_turn() -> None:
+def test_interview_multi_turn(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two sequential POSTs for same agent_id reuse the same InterviewEngine."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from alphaswarm.interview import InterviewContext, RoundDecision
+    from alphaswarm.interview import InterviewContext
 
     app = _make_interview_test_app()
     with TestClient(app) as client:
@@ -249,11 +253,12 @@ def test_interview_multi_turn() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="TestAgent decided to BUY.",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good")],
+            decisions=[decision_row(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="good")],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
-        mock_gm.read_agent_interview_context = AsyncMock(return_value=mock_context)
+        loader = AsyncMock(return_value=mock_context)
+        monkeypatch.setattr(interview_routes, "load_interview_context", loader)
         app.state.app_state.graph_manager = mock_gm
         app.state.app_state.ollama_client = MagicMock()
         _mock_complete_app_state(app)
@@ -272,15 +277,15 @@ def test_interview_multi_turn() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 10: Session reuse — read_agent_interview_context called once across 2 requests
+# Test 10: Session reuse — load_interview_context called once across 2 requests
 # ---------------------------------------------------------------------------
 
 
-def test_interview_session_reuse() -> None:
-    """read_agent_interview_context is called exactly once across 2 requests to same agent."""
+def test_interview_session_reuse(monkeypatch: pytest.MonkeyPatch) -> None:
+    """load_interview_context is called exactly once across 2 requests to same agent."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from alphaswarm.interview import InterviewContext, RoundDecision
+    from alphaswarm.interview import InterviewContext
 
     app = _make_interview_test_app()
     with TestClient(app) as client:
@@ -290,11 +295,12 @@ def test_interview_session_reuse() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="Narrative.",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.8, sentiment=0.6, rationale="ok")],
+            decisions=[decision_row(round_num=1, signal="buy", confidence=0.8, sentiment=0.6, rationale="ok")],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
-        mock_gm.read_agent_interview_context = AsyncMock(return_value=mock_context)
+        loader = AsyncMock(return_value=mock_context)
+        monkeypatch.setattr(interview_routes, "load_interview_context", loader)
         app.state.app_state.graph_manager = mock_gm
         app.state.app_state.ollama_client = MagicMock()
         _mock_complete_app_state(app)
@@ -305,7 +311,7 @@ def test_interview_session_reuse() -> None:
         with patch("alphaswarm.web.routes.interview.InterviewEngine", return_value=mock_engine):
             client.post("/api/interview/agent_1", json={"message": "Q1"})
             client.post("/api/interview/agent_1", json={"message": "Q2"})
-            assert mock_gm.read_agent_interview_context.call_count == 1
+            assert loader.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -313,11 +319,11 @@ def test_interview_session_reuse() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_interview_concurrent_same_agent_serializes() -> None:
+async def test_interview_concurrent_same_agent_serializes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two concurrent POSTs for same agent_id both complete; engine.ask never runs in parallel."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from alphaswarm.interview import InterviewContext, RoundDecision
+    from alphaswarm.interview import InterviewContext
 
     app = _make_interview_test_app()
 
@@ -327,11 +333,12 @@ async def test_interview_concurrent_same_agent_serializes() -> None:
         bracket="quants",
         interview_system_prompt="You are TestAgent.",
         decision_narrative="Narrative.",
-        decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
+        decisions=[decision_row(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
     )
     mock_gm = AsyncMock()
     mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
-    mock_gm.read_agent_interview_context = AsyncMock(return_value=mock_context)
+    loader = AsyncMock(return_value=mock_context)
+    monkeypatch.setattr(interview_routes, "load_interview_context", loader)
 
     # Track concurrency overlap
     max_concurrent = 0
@@ -507,12 +514,12 @@ def test_interview_route_registered_in_production_app() -> None:
     )
 
 
-def test_first_interview_generates_and_stores_lazy_narrative() -> None:
+def test_first_interview_generates_and_stores_lazy_narrative(monkeypatch: pytest.MonkeyPatch) -> None:
     """The route enriches the context with a lazy narrative before building the engine."""
     from dataclasses import replace
     from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
-    from alphaswarm.interview import InterviewContext, RoundDecision
+    from alphaswarm.interview import InterviewContext
 
     app = _make_interview_test_app()
     with TestClient(app) as client:
@@ -522,12 +529,13 @@ def test_first_interview_generates_and_stores_lazy_narrative() -> None:
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
+            decisions=[decision_row(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
         )
         enriched = replace(context, decision_narrative="Generated arc.")
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": "c1"}])
-        mock_gm.read_agent_interview_context = AsyncMock(return_value=context)
+        loader = AsyncMock(return_value=context)
+        monkeypatch.setattr(interview_routes, "load_interview_context", loader)
         app.state.app_state.graph_manager = mock_gm
         app.state.app_state.ollama_client = MagicMock()
         _mock_complete_app_state(app)
@@ -552,7 +560,9 @@ def test_first_interview_generates_and_stores_lazy_narrative() -> None:
 
 
 @pytest.mark.parametrize("close_error", [None, RuntimeError("connection reset")])
-def test_failed_session_setup_closes_the_built_worker(close_error: Exception | None) -> None:
+def test_failed_session_setup_closes_the_built_worker(
+    monkeypatch: pytest.MonkeyPatch, close_error: Exception | None
+) -> None:
     """A failure after build_providers closes the worker no session owns.
 
     The narrative write fails here; the worker is closed (a failing close is
@@ -561,7 +571,7 @@ def test_failed_session_setup_closes_the_built_worker(close_error: Exception | N
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from alphaswarm.errors import Neo4jWriteError
-    from alphaswarm.interview import InterviewContext, RoundDecision
+    from alphaswarm.interview import InterviewContext
     from alphaswarm.services.runtime import InferenceRuntime
 
     app = _make_interview_test_app()
@@ -574,11 +584,12 @@ def test_failed_session_setup_closes_the_built_worker(close_error: Exception | N
             bracket="quants",
             interview_system_prompt="You are TestAgent.",
             decision_narrative="",
-            decisions=[RoundDecision(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
+            decisions=[decision_row(round_num=1, signal="buy", confidence=0.9, sentiment=0.7, rationale="ok")],
         )
         mock_gm = AsyncMock()
         mock_gm.read_completed_cycles = AsyncMock(return_value=[{"cycle_id": CYCLE_A}])
-        mock_gm.read_agent_interview_context = AsyncMock(return_value=context)
+        loader = AsyncMock(return_value=context)
+        monkeypatch.setattr(interview_routes, "load_interview_context", loader)
         app.state.app_state.graph_manager = mock_gm
         _mock_complete_app_state(app)
 

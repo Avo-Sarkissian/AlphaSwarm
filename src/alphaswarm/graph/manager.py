@@ -15,7 +15,6 @@ from neo4j.exceptions import DriverError, Neo4jError
 
 from alphaswarm.episodes import EntityRef
 from alphaswarm.errors import (
-    AgentNotFoundError,
     GraphError,
     Neo4jQueryError,
     Neo4jUnavailableError,
@@ -26,6 +25,7 @@ from alphaswarm.graph.rows import (
     _COMPLETE_ONLY,
     _LEGACY_COMPLETE,
     AgentDecisionRow,
+    AgentInterviewRows,
     BracketNarrativeRow,
     BracketRoundRow,
     CompletedCycleRow,
@@ -43,11 +43,6 @@ from alphaswarm.graph.rows import (
     SignalFlipRow,
 )
 from alphaswarm.influence import citation_weights
-from alphaswarm.interview import InterviewContext, RoundDecision, _strip_json_instructions
-from alphaswarm.personas import (
-    generate_personas,
-    load_bracket_configs,
-)
 from alphaswarm.types import BracketType
 
 if TYPE_CHECKING:
@@ -72,21 +67,6 @@ def _encode_modifiers(modifiers: Mapping[BracketType, str] | None) -> str | None
         sort_keys=True,
         ensure_ascii=False,
     )
-
-
-def _decode_modifiers(raw: object) -> dict[BracketType, str] | None:
-    """Inverse of _encode_modifiers; unknown brackets and bad JSON are dropped."""
-    if not isinstance(raw, str):
-        return None
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        log.warning("cycle_modifiers_decode_failed")
-        return None
-    if not isinstance(data, dict):
-        return None
-    known = {b.value for b in BracketType}
-    return {BracketType(k): v for k, v in data.items() if k in known and isinstance(v, str)}
 
 
 # neo4j 5.x raises a pool-acquisition timeout as a code-less ClientError
@@ -972,95 +952,8 @@ class GraphStateManager:
     # Phase 14: Interview context reads
     # ------------------------------------------------------------------
 
-    async def read_agent_interview_context(
-        self,
-        agent_id: str,
-        cycle_id: str,
-    ) -> InterviewContext:
-        """Interview context for one agent in one cycle.
-
-        The persona is rebuilt from config with the cycle's stored modifiers, so
-        the agent keeps the focus line it had in that run
-        (docs/DECISIONS.md#p14-d-06). The narrative is the one stored on this
-        cycle's final-round Decision, never another cycle's.
-
-        Raises:
-            AgentNotFoundError: no Agent node, or the agent is not in the roster.
-            Neo4jQueryError / Neo4jUnavailableError: When the read fails.
-        """
-        rows = await self._read(
-            self._read_interview_context_tx,
-            agent_id,
-            cycle_id,
-            op="read_agent_interview_context",
-        )
-        if not rows:
-            raise AgentNotFoundError(agent_id, cycle_id)
-        personas = generate_personas(
-            load_bracket_configs(),
-            modifiers=_decode_modifiers(rows[0]["modifiers_json"]),
-        )
-        persona = next((p for p in personas if p.id == agent_id), None)
-        if persona is None:
-            raise AgentNotFoundError(agent_id, cycle_id)
-        decided = [r for r in rows if r["round_num"] is not None]
-        decisions = [
-            RoundDecision(
-                round_num=int(r["round_num"]),
-                signal=str(r["signal"]),
-                confidence=float(r["confidence"]),
-                sentiment=float(r["sentiment"]),
-                rationale=str(r["rationale"] or ""),
-                cited_agents=tuple(sorted(r["cited_agents"])),
-            )
-            for r in decided
-        ]
-        narrative = str(decided[-1]["narrative"] or "") if decided else ""
-        self._log.debug(
-            "interview_context_read",
-            agent_id=agent_id,
-            cycle_id=cycle_id,
-            decision_count=len(decisions),
-        )
-        return InterviewContext(
-            agent_id=agent_id,
-            agent_name=str(rows[0]["name"]),
-            bracket=str(rows[0]["bracket"]),
-            interview_system_prompt=_strip_json_instructions(persona.system_prompt),
-            decision_narrative=narrative,
-            decisions=decisions,
-        )
-
-    @staticmethod
-    async def _read_interview_context_tx(
-        tx: AsyncManagedTransaction,
-        agent_id: str,
-        cycle_id: str,
-    ) -> list[dict[str, Any]]:
-        """One row per stored round (or one null-decision row) with the cycle's modifiers."""
-        result = await tx.run(
-            """
-            MATCH (a:Agent {id: $agent_id})
-            OPTIONAL MATCH (c:Cycle {cycle_id: $cycle_id})
-            OPTIONAL MATCH (a)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
-            OPTIONAL MATCH (d)-[:CITED]->(cited:Agent)
-            WITH a, c, d, collect(DISTINCT cited.id) AS cited_agents
-            RETURN a.name AS name,
-                   a.bracket AS bracket,
-                   c.modifiers_json AS modifiers_json,
-                   d.round AS round_num,
-                   d.signal AS signal,
-                   d.confidence AS confidence,
-                   d.sentiment AS sentiment,
-                   d.rationale AS rationale,
-                   d.narrative AS narrative,
-                   cited_agents
-            ORDER BY round_num
-            """,
-            agent_id=agent_id,
-            cycle_id=cycle_id,
-        )
-        return [dict(record) async for record in result]
+    async def read_agent_interview_rows(self, agent_id: str, cycle_id: str) -> AgentInterviewRows:
+        return await replay_interview.read_agent_interview_rows(self._read, agent_id, cycle_id)
 
     async def read_agent_decisions(self, cycle_id: str, agent_id: str) -> list[AgentDecisionRow]:
         return await replay_interview.read_agent_decisions(self._read, cycle_id, agent_id)

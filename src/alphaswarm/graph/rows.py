@@ -14,9 +14,11 @@ from dataclasses import dataclass
 from typing import Any, Final, Literal, Protocol, TypedDict, TypeVar
 
 from alphaswarm.influence import BracketPivotRow, PivotAgentRow, ShockImpactRow
+from alphaswarm.types import BracketType
 
 __all__ = [
     "AgentDecisionRow",
+    "AgentInterviewRows",
     "BracketNarrativeRow",
     "BracketPivotRow",
     "BracketRoundRow",
@@ -175,6 +177,18 @@ class AgentDecisionRow(TypedDict):
     sentiment: float
     rationale: str
     cited_agents: list[str]
+
+
+class AgentInterviewRows(TypedDict):
+    """What the graph knows about one agent in one cycle; interview.py builds the
+    InterviewContext from it (docs/DECISIONS.md#p14-d-06)."""
+
+    agent_id: str
+    name: str
+    bracket: str
+    modifiers: dict[BracketType, str] | None  # None for cycles created before modifiers were stored
+    narrative: str  # this cycle's final-round Decision.narrative, "" when absent
+    decisions: list[AgentDecisionRow]  # all rounds, ascending; cited_agents sorted
 
 
 class BracketRoundRow(TypedDict):

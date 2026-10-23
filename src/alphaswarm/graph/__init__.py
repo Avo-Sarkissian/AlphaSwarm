@@ -7,6 +7,7 @@ implementation lives in the modules of this package.
 from alphaswarm.graph.manager import GraphStateManager
 from alphaswarm.graph.rows import (
     AgentDecisionRow,
+    AgentInterviewRows,
     BracketNarrativeRow,
     BracketPivotRow,
     BracketRoundRow,
@@ -28,6 +29,7 @@ from alphaswarm.graph.rows import (
 
 __all__ = [
     "AgentDecisionRow",
+    "AgentInterviewRows",
     "BracketNarrativeRow",
     "BracketPivotRow",
     "BracketRoundRow",

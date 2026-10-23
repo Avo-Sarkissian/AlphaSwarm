@@ -7,7 +7,7 @@
   "ensure_schema": "(self) -> 'None'",
   "persist_round": "(self, cycle_id: 'str', round_num: 'int', decisions: 'Sequence[tuple[str, AgentDecision]]', *, decision_ids: 'Sequence[str]', episodes: 'Sequence[EpisodeRecord]', entity_matches: 'Sequence[EntityMatch]', control_ids: 'Collection[str]' = ()) -> 'PersistRoundResult'",
   "read_agent_decisions": "(self, cycle_id: 'str', agent_id: 'str') -> 'list[AgentDecisionRow]'",
-  "read_agent_interview_context": "(self, agent_id: 'str', cycle_id: 'str') -> 'InterviewContext'",
+  "read_agent_interview_rows": "(self, agent_id: 'str', cycle_id: 'str') -> 'AgentInterviewRows'",
   "read_bracket_narratives": "(self, cycle_id: 'str') -> 'list[BracketNarrativeRow]'",
   "read_bracket_narratives_for_round": "(self, cycle_id: 'str', round_num: 'int') -> 'list[BracketRoundRow]'",
   "read_completed_cycles": "(self, limit: 'int' = 20, *, before: 'datetime | None' = None) -> 'list[CompletedCycleRow]'",

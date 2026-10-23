@@ -624,7 +624,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 |---|---|---|---|
 | <a id="p14-d-04"></a>`D-04` | Interview system prompt = persona + decision narrative + per-round decisions (hybrid context). The persona is rebuilt with the cycle's stored modifiers (2026-10). | active | graph.py:1176 |
 | <a id="p14-d-05"></a>`D-05` | Strip JSON output instructions from the persona for conversational answers. | active | interview.py:59 |
-| <a id="p14-d-06"></a>`D-06` | Context reconstructed from Neo4j at session start (read_agent_interview_context); persona rebuilt from config plus Cycle.modifiers_json; unknown or off-roster agents raise AgentNotFoundError (404). | active | graph.py:1176,1202 |
+| <a id="p14-d-06"></a>`D-06` | Context reconstructed from Neo4j at session start: the graph returns the agent's rows (read_agent_interview_rows) and `interview.load_interview_context` rebuilds the persona from config plus Cycle.modifiers_json; unknown or off-roster agents raise AgentNotFoundError (404). | active | graph/replay_interview.py (`read_agent_interview_rows`); interview.py (`load_interview_context`) |
 | <a id="p14-d-08"></a>`D-08` | Interview history keeps up to 12 user/assistant pairs; past that the oldest 6 are summarized in one call. A turn is committed only after the provider answers. Revised 2026-10 (was a 10-pair window trimmed one pair per turn). | revised | interview.py:172,230 |
 | <a id="p14-d-09"></a>`D-09` | Dropped turns summarised into a prepended system message. | active | interview.py:216 |
 | <a id="p14-d-10"></a>`D-10` | Summary produced by the same worker model. | active | interview.py:259 |

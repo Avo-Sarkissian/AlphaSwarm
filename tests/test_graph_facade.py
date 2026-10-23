@@ -109,7 +109,7 @@ OUTAGE_CALLS: dict[str, Call] = {
     "cycle_exists": lambda gm: gm.cycle_exists(CYCLE_ID),
     "ensure_schema": lambda gm: gm.ensure_schema(),
     "read_agent_decisions": lambda gm: gm.read_agent_decisions(CYCLE_ID, "quants_01"),
-    "read_agent_interview_context": lambda gm: gm.read_agent_interview_context("quants_01", CYCLE_ID),
+    "read_agent_interview_rows": lambda gm: gm.read_agent_interview_rows("quants_01", CYCLE_ID),
     "read_bracket_narratives": lambda gm: gm.read_bracket_narratives(CYCLE_ID),
     "read_bracket_narratives_for_round": lambda gm: gm.read_bracket_narratives_for_round(CYCLE_ID, 1),
     "read_completed_cycles": lambda gm: gm.read_completed_cycles(),
@@ -214,6 +214,7 @@ DELEGATES: dict[str, str] = {
     # graph/replay_interview.py
     "cycle_exists": "replay_interview",
     "read_agent_decisions": "replay_interview",
+    "read_agent_interview_rows": "replay_interview",
     "read_bracket_narratives_for_round": "replay_interview",
     "read_completed_cycles": "replay_interview",
     "read_cycle_entities": "replay_interview",
@@ -234,3 +235,13 @@ def test_facade_method_delegates_to_its_module(method: str, module: str) -> None
     assert inspect.iscoroutinefunction(getattr(operations, method, None)), f"{module}.{method}"
     body = "".join(inspect.getsource(getattr(GraphStateManager, method)).split())
     assert f"{module}.{method}(self._" in body, body
+
+
+def test_graph_does_not_assemble_interviews() -> None:
+    from alphaswarm.graph import manager
+
+    assert not hasattr(manager.GraphStateManager, "read_agent_interview_context")
+    for path in _graph_sources():
+        text = path.read_text(encoding="utf-8")
+        assert "alphaswarm.interview" not in text, path
+        assert "generate_personas" not in text, path

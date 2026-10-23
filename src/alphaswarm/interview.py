@@ -9,12 +9,17 @@ import structlog
 
 from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS
 from alphaswarm.episodes import compute_flip_type
+from alphaswarm.errors import AgentNotFoundError
 from alphaswarm.inference.types import InferenceMessage
+from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
+    from alphaswarm.graph import GraphStateManager
+    from alphaswarm.graph.rows import AgentDecisionRow, AgentInterviewRows
     from alphaswarm.inference.provider import InferenceProvider
+    from alphaswarm.types import AgentPersona
 
 log = structlog.get_logger(component="interview")
 
@@ -22,18 +27,6 @@ log = structlog.get_logger(component="interview")
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class RoundDecision:
-    """Immutable record of an agent's decision in a single simulation round."""
-
-    round_num: int
-    signal: str
-    confidence: float
-    sentiment: float
-    rationale: str
-    cited_agents: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -49,7 +42,7 @@ class InterviewContext:
     bracket: str
     interview_system_prompt: str  # persona system_prompt with JSON instructions stripped
     decision_narrative: str  # this cycle's final-round Decision.narrative, "" when absent
-    decisions: list[RoundDecision]
+    decisions: list[AgentDecisionRow]
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +56,38 @@ def _strip_json_instructions(system_prompt: str) -> str:
     Interviews are conversational prose, not JSON-structured decisions (D-05).
     """
     return system_prompt.replace(JSON_OUTPUT_INSTRUCTIONS, "").rstrip()
+
+
+def interview_persona(rows: AgentInterviewRows, cycle_id: str) -> AgentPersona:
+    """The agent's persona as it ran in this cycle: config plus the cycle's
+    stored modifiers (docs/DECISIONS.md#p14-d-06).
+
+    Raises:
+        AgentNotFoundError: the agent is not in the current roster.
+    """
+    personas = generate_personas(load_bracket_configs(), modifiers=rows["modifiers"])
+    persona = next((p for p in personas if p.id == rows["agent_id"]), None)
+    if persona is None:
+        raise AgentNotFoundError(rows["agent_id"], cycle_id)
+    return persona
+
+
+def build_interview_context(rows: AgentInterviewRows, persona: AgentPersona) -> InterviewContext:
+    """Interview context from graph rows; JSON instructions stripped (docs/DECISIONS.md#p14-d-05)."""
+    return InterviewContext(
+        agent_id=rows["agent_id"],
+        agent_name=rows["name"],
+        bracket=rows["bracket"],
+        interview_system_prompt=_strip_json_instructions(persona.system_prompt),
+        decision_narrative=rows["narrative"],
+        decisions=list(rows["decisions"]),
+    )
+
+
+async def load_interview_context(graph: GraphStateManager, agent_id: str, cycle_id: str) -> InterviewContext:
+    """Read the agent's rows for the cycle and build its interview context."""
+    rows = await graph.read_agent_interview_rows(agent_id, cycle_id)
+    return build_interview_context(rows, interview_persona(rows, cycle_id))
 
 
 # ---------------------------------------------------------------------------
@@ -92,15 +117,15 @@ def build_narrative_messages(context: InterviewContext) -> list[InferenceMessage
     lines = [f"Agent: {context.agent_name} ({context.bracket})", ""]
     previous: SignalType | None = None
     for decision in context.decisions:
-        current = _signal_or_none(decision.signal)
+        current = _signal_or_none(decision["signal"])
         flip = compute_flip_type(previous, current).value if current is not None else "none"
         lines.append(
-            f"Round {decision.round_num}: {decision.signal.upper()} "
-            f"(confidence: {decision.confidence:.2f}, sentiment: {decision.sentiment:.2f}) "
+            f"Round {decision['round_num']}: {decision['signal'].upper()} "
+            f"(confidence: {decision['confidence']:.2f}, sentiment: {decision['sentiment']:.2f}) "
             f"flip: {flip}"
         )
-        if decision.cited_agents:
-            lines.append(f"  Cited: {', '.join(decision.cited_agents)}")
+        if decision["cited_agents"]:
+            lines.append(f"  Cited: {', '.join(decision['cited_agents'])}")
         previous = current
     prompt = (
         f"Summarize this agent's {len(context.decisions)}-round decision arc in 2-3 sentences. "
@@ -195,8 +220,11 @@ class InterviewEngine:
             lines += ["Narrative Summary:", self._context.decision_narrative, ""]
         lines.append("Round-by-Round Decisions:")
         for d in self._context.decisions:
-            lines.append(f"Round {d.round_num}: Signal={d.signal}, Confidence={d.confidence}, Sentiment={d.sentiment}")
-            lines.append(f"Rationale: {d.rationale}")
+            lines.append(
+                f"Round {d['round_num']}: Signal={d['signal']}, "
+                f"Confidence={d['confidence']}, Sentiment={d['sentiment']}"
+            )
+            lines.append(f"Rationale: {d['rationale']}")
         return "\n".join(lines)
 
     def _build_messages(self) -> list[InferenceMessage]:

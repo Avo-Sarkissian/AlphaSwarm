@@ -8,18 +8,21 @@ graph/rows.py.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Collection
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Final, cast, get_args
+from typing import TYPE_CHECKING, Any, Final, cast, get_args
 
 import structlog
 
 from alphaswarm.episodes import EntityRef
+from alphaswarm.errors import AgentNotFoundError
 from alphaswarm.graph.rows import (
     _COMPLETE_ONLY,
     _EFFECTIVE_STATUS,
     AgentDecisionRow,
+    AgentInterviewRows,
     BracketRoundRow,
     CompletedCycleRow,
     CycleSignalRow,
@@ -28,7 +31,7 @@ from alphaswarm.graph.rows import (
     TxRunner,
 )
 from alphaswarm.state import AgentState
-from alphaswarm.types import SignalType
+from alphaswarm.types import BracketType, SignalType
 
 if TYPE_CHECKING:
     from neo4j import AsyncManagedTransaction
@@ -511,3 +514,91 @@ async def _read_cycle_entities_tx(
         cycle_id=cycle_id,
     )
     return [EntityRef(str(r["name"]), str(r["type"])) async for r in result]
+
+
+async def read_agent_interview_rows(read: TxRunner, agent_id: str, cycle_id: str) -> AgentInterviewRows:
+    """One agent's identity, the cycle's stored modifiers, and its decisions and
+    narrative in that cycle (docs/DECISIONS.md#p14-d-06).
+
+    The narrative is the one stored on this cycle's final-round Decision, never
+    another cycle's.
+
+    Raises:
+        AgentNotFoundError: there is no Agent node with this id.
+        Neo4jQueryError / Neo4jUnavailableError: When the read fails.
+    """
+    records = await read(_read_interview_context_tx, agent_id, cycle_id, op="read_agent_interview_rows")
+    if not records:
+        raise AgentNotFoundError(agent_id, cycle_id)
+    decided = [r for r in records if r["round_num"] is not None]
+    decisions = [
+        AgentDecisionRow(
+            round_num=int(r["round_num"]),
+            signal=str(r["signal"]),
+            confidence=float(r["confidence"]),
+            sentiment=float(r["sentiment"]),
+            rationale=str(r["rationale"] or ""),
+            cited_agents=sorted(str(c) for c in r["cited_agents"]),
+        )
+        for r in decided
+    ]
+    log.debug(
+        "interview_rows_read",
+        agent_id=agent_id,
+        cycle_id=cycle_id,
+        decision_count=len(decisions),
+    )
+    return AgentInterviewRows(
+        agent_id=agent_id,
+        name=str(records[0]["name"]),
+        bracket=str(records[0]["bracket"]),
+        modifiers=_decode_modifiers(records[0]["modifiers_json"]),
+        narrative=str(decided[-1]["narrative"] or "") if decided else "",
+        decisions=decisions,
+    )
+
+
+async def _read_interview_context_tx(
+    tx: AsyncManagedTransaction,
+    agent_id: str,
+    cycle_id: str,
+) -> list[dict[str, Any]]:
+    """One row per stored round (or one null-decision row) with the cycle's modifiers."""
+    result = await tx.run(
+        """
+        MATCH (a:Agent {id: $agent_id})
+        OPTIONAL MATCH (c:Cycle {cycle_id: $cycle_id})
+        OPTIONAL MATCH (a)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+        OPTIONAL MATCH (d)-[:CITED]->(cited:Agent)
+        WITH a, c, d, collect(DISTINCT cited.id) AS cited_agents
+        RETURN a.name AS name,
+               a.bracket AS bracket,
+               c.modifiers_json AS modifiers_json,
+               d.round AS round_num,
+               d.signal AS signal,
+               d.confidence AS confidence,
+               d.sentiment AS sentiment,
+               d.rationale AS rationale,
+               d.narrative AS narrative,
+               cited_agents
+        ORDER BY round_num
+        """,
+        agent_id=agent_id,
+        cycle_id=cycle_id,
+    )
+    return [dict(record) async for record in result]
+
+
+def _decode_modifiers(raw: object) -> dict[BracketType, str] | None:
+    """Inverse of _encode_modifiers; unknown brackets and bad JSON are dropped."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        log.warning("cycle_modifiers_decode_failed")
+        return None
+    if not isinstance(data, dict):
+        return None
+    known = {b.value for b in BracketType}
+    return {BracketType(k): v for k, v in data.items() if k in known and isinstance(v, str)}

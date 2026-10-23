@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from alphaswarm.episodes import EntityRef, compute_flip_type
-from alphaswarm.interview import _strip_json_instructions
+from alphaswarm.interview import _strip_json_instructions, load_interview_context
 from alphaswarm.personas import DEFAULT_BRACKETS
 from alphaswarm.types import SeedEvent, SignalType
 from tests.support.golden import assert_golden
@@ -105,10 +105,10 @@ async def test_read_agent_interview_context(graph_reader: GraphStateManager, see
     personas = {p.id: p for p in seeded_cycle.personas}
     contexts: dict[str, dict[str, object]] = {}
     for agent_id in ("sell_side_01", "degens_07"):
-        ctx = await graph_reader.read_agent_interview_context(agent_id, seeded_cycle.cycle_id)
+        ctx = await load_interview_context(graph_reader, agent_id, seeded_cycle.cycle_id)
         expected_prompt = _strip_json_instructions(personas[agent_id].system_prompt)
         assert ctx.interview_system_prompt == expected_prompt
-        assert [(d.round_num, d.signal) for d in ctx.decisions] == [
+        assert [(d["round_num"], d["signal"]) for d in ctx.decisions] == [
             (r, _round(seeded_cycle, r)[agent_id].signal.value) for r in range(1, seeded_cycle.num_rounds + 1)
         ]
         # The narrative is pinned per cycle in tests/neo4j/test_interview_context.py.

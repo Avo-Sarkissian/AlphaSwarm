@@ -123,3 +123,16 @@ def test_cycle_status_and_tx_runner_live_in_graph_rows() -> None:
     assert get_args(rows.CycleStatus) == ("running", "complete", "failed", "cancelled")
     assert graph.CycleStatus is rows.CycleStatus
     assert rows.TxRunner.__module__ == "alphaswarm.graph.rows"
+
+
+def test_agent_interview_rows_keys() -> None:
+    from alphaswarm.graph import AgentInterviewRows
+
+    assert set(AgentInterviewRows.__required_keys__) == {
+        "agent_id",
+        "name",
+        "bracket",
+        "modifiers",
+        "narrative",
+        "decisions",
+    }
