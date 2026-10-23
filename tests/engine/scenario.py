@@ -26,7 +26,6 @@ from tests.inference.fakes import (
 
 SCENARIO_CYCLE_ID: Final = "00000000-0000-4000-8000-000000000001"
 SCENARIO_RUMOR: Final = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
-SCENARIO_ENTITY_NAMES: Final = ("ZZZT Holdings", "QQQX Robotics", "Industrial Automation")
 SCENARIO_SHOCK_TEXT: Final = "QQQX Robotics board rejects the offer as undervalued."
 SCENARIO_SEED_JSON: Final = json.dumps(
     {

@@ -291,7 +291,7 @@ async def test_write_influence_edges_tx_empty_edges() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 11 Plan 02: narrative and entity methods
+# Narrative and entity methods
 # ---------------------------------------------------------------------------
 
 

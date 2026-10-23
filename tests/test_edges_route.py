@@ -54,9 +54,6 @@ def _make_test_app_with_fake_graph(fake_edges: list[dict[str, Any]]) -> FastAPI:
             self.calls.append((cycle_id, round_num))
             return list(self._edges)
 
-        async def read_latest_cycle_id(self) -> str | None:
-            return "latest-cycle"
-
         async def close(self) -> None:
             return None
 

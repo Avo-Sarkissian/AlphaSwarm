@@ -2035,7 +2035,7 @@ def test_round_complete_event_has_bracket_summaries() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 11 Plan 03 Tests: round persistence and narrative generation
+# Round persistence and narrative generation
 # ---------------------------------------------------------------------------
 
 
