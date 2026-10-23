@@ -351,9 +351,8 @@ async def _run_pipeline(
 ) -> None:
     """Async pipeline: schema -> multi-round simulation -> final summary.
 
-    _run_pipeline runs the full multi-round simulation (run_simulation;
-    docs/DECISIONS.md#p7-d-17). Reports print DURING the simulation through the
-    on_round_complete callback (docs/DECISIONS.md#p7-d-14).
+    Runs the full multi-round simulation (docs/DECISIONS.md#p7-d-17); reports print DURING
+    the simulation via the on_round_complete callback (docs/DECISIONS.md#p7-d-14).
     Addresses Gemini/Codex review: truly progressive output, not buffered.
 
     Providers and the controller are required: ``_handle_run`` builds them from
