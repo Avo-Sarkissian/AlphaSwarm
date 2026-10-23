@@ -590,7 +590,8 @@ class AppSettings(BaseSettings):
 
     # Host header values the server answers (TrustedHostMiddleware, DNS-rebinding
     # defence, installed in web/app.py). JSON list in ALPHASWARM_TRUSTED_HOSTS;
-    # hosts only, no port.
+    # hosts only, no port. Entries are lower-cased, and a malformed one fails
+    # startup (web/origin_guard.normalized_trusted_hosts).
     trusted_hosts: tuple[str, ...] = DEFAULT_TRUSTED_HOSTS
 
 

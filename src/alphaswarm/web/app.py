@@ -31,7 +31,7 @@ from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers
 from alphaswarm.web.guards import orchestrator_job_running
-from alphaswarm.web.origin_guard import install_origin_guard
+from alphaswarm.web.origin_guard import install_origin_guard, normalized_trusted_hosts
 from alphaswarm.web.post_run import AdvisoryGate, PostRunJobBusyError, PostRunPipeline
 from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.routes.advisory import advisory_refusal, start_advisory_job
@@ -316,10 +316,11 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     # DNS-rebinding guard (docs/DECISIONS.md#adr-security-2026-08): a page that
     # re-points its own name at 127.0.0.1 still sends that name as Host, so only
     # the Host values in settings.trusted_hosts reach any route or the WebSocket.
-    # Added after the origin guard so it is the outermost middleware.
+    # Added after the origin guard so it is the outermost middleware. A malformed
+    # entry raises ValueError here, at startup.
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=list(resolved.trusted_hosts),
+        allowed_hosts=normalized_trusted_hosts(resolved.trusted_hosts),
         www_redirect=False,
     )
     _warn_legacy_origin_settings(resolved)

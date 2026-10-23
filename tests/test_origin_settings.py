@@ -12,7 +12,7 @@ from alphaswarm.config import (
     AppSettings,
     legacy_origin_settings,
 )
-from alphaswarm.web.origin_guard import is_allowed, normalized_allowlist
+from alphaswarm.web.origin_guard import is_allowed, normalized_allowlist, normalized_trusted_hosts
 
 
 def _settings() -> AppSettings:
@@ -71,6 +71,24 @@ def test_is_allowed_is_the_one_policy(origin: str | None, expected: bool) -> Non
 def test_invalid_allow_list_entries_fail_fast(bad: str) -> None:
     with pytest.raises(ValueError, match="not an origin"):
         normalized_allowlist([bad])
+
+
+def test_trusted_hosts_are_lower_cased_in_order() -> None:
+    assert normalized_trusted_hosts([*DEFAULT_TRUSTED_HOSTS, " LAN-Box.local ", "*.Example.com"]) == [
+        "localhost",
+        "127.0.0.1",
+        "[::1]",
+        "lan-box.local",
+        "*.example.com",
+    ]
+
+
+@pytest.mark.parametrize(
+    "bad", ["localhost:8000", "[::1]:8000", "[not-ipv6]", "*", "*.", "a.*.b", "lan box", "user@host"]
+)
+def test_invalid_trusted_hosts_fail_fast(bad: str) -> None:
+    with pytest.raises(ValueError, match="is not a host name"):
+        normalized_trusted_hosts([bad])
 
 
 def test_legacy_origin_variables_are_reported(tmp_path: Path) -> None:

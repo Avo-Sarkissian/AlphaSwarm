@@ -64,3 +64,35 @@ def test_lan_host_needs_explicit_opt_in(web_test_settings: AppSettings) -> None:
     )
     allowed = TestClient(create_app(opened), raise_server_exceptions=False)
     assert allowed.get("/api/health/live", headers=lan).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "localhost:8000",  # a port: Starlette compares the Host without its port, so it never matches
+        "http://localhost",  # a scheme
+        "localhost/",  # a path
+        "",
+        "*",  # would turn the Host check off
+        "app.*",  # Starlette asserts on the first request (500) for a misplaced wildcard
+        "*example.com",
+    ],
+)
+def test_malformed_trusted_hosts_fail_at_startup(web_test_settings: AppSettings, bad: str) -> None:
+    settings = web_test_settings.model_copy(update={"trusted_hosts": (*web_test_settings.trusted_hosts, bad)})
+    with pytest.raises(ValueError, match="trusted_hosts entry"):
+        create_app(settings)
+
+
+def test_trusted_host_entries_ignore_case(web_test_settings: AppSettings) -> None:
+    """Browsers send the Host in lower case; an entry typed with capitals still matches."""
+    settings = web_test_settings.model_copy(update={"trusted_hosts": ("LAN-Box.local", "testserver")})
+    client = TestClient(create_app(settings), raise_server_exceptions=False)
+    assert client.get("/api/health/live", headers={"host": "lan-box.local:8000"}).status_code == 200
+
+
+def test_a_domain_wildcard_is_accepted(web_test_settings: AppSettings) -> None:
+    settings = web_test_settings.model_copy(update={"trusted_hosts": ("*.lan-box.local", "testserver")})
+    client = TestClient(create_app(settings), raise_server_exceptions=False)
+    assert client.get("/api/health/live", headers={"host": "ui.lan-box.local:8000"}).status_code == 200
+    assert client.get("/api/health/live", headers={"host": "attacker.example:8000"}).status_code == 400

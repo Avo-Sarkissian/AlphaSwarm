@@ -4,8 +4,9 @@ The API and the /ws/state stream have no authentication; they bind to 127.0.0.1
 and rely on three layers (docs/DECISIONS.md#adr-security-2026-08):
 
 1. TrustedHostMiddleware (web/app.py) answers only the Host values in
-   AppSettings.trusted_hosts, which defeats DNS rebinding: a page that re-points
-   its own name at 127.0.0.1 still sends its own name as Host.
+   AppSettings.trusted_hosts (checked by normalized_trusted_hosts), which defeats
+   DNS rebinding: a page that re-points its own name at 127.0.0.1 still sends its
+   own name as Host.
 2. OriginGuardMiddleware (this module) rejects state-changing HTTP requests whose
    Origin (or, without Origin, Referer) is not in AppSettings.allowed_origins.
 3. web/routes/websocket.py applies the same is_allowed() check to the WebSocket
@@ -25,6 +26,7 @@ Policy (is_allowed)
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Collection, Iterable, Sequence
 from urllib.parse import urlsplit
 
@@ -83,6 +85,46 @@ def normalized_allowlist(origins: Iterable[str]) -> frozenset[str]:
             raise ValueError(f"allowed_origins entry {entry!r} is not an origin of the form scheme://host[:port]")
         allowed.add(normalized)
     return frozenset(allowed)
+
+
+def _trusted_host_problem(host: str) -> str | None:
+    """Why *host* (already stripped and lower-cased) cannot be a trusted-host entry."""
+    if not host:
+        return "it is empty"
+    if host == "*":
+        return "'*' would turn the Host check off"
+    if host.startswith("[") and host.endswith("]"):
+        try:
+            ipaddress.IPv6Address(host[1:-1])
+        except ValueError:
+            return "it is not a bracketed IPv6 address"
+        return None
+    if not host.isascii():
+        return "use the ASCII (punycode) form of the name"
+    if any(char in host for char in ":/@?# \t"):
+        return "give the host only, without a scheme, port, path or user"
+    if "*" in host and not (host.startswith("*.") and len(host) > 2 and "*" not in host[2:]):
+        return "a wildcard is allowed only as a leading '*.', as in '*.example.com'"
+    return None
+
+
+def normalized_trusted_hosts(hosts: Iterable[str]) -> list[str]:
+    """Lower-case every trusted-host entry; raise ValueError for a malformed one.
+
+    TrustedHostMiddleware compares the Host header up to its first ":" with each
+    entry exactly, so an entry with a port ("localhost:8000") or a scheme never
+    matches and every request gets 400, and a misplaced wildcard trips Starlette's
+    assertion on the first request. Called when the app is built, so those typos
+    fail at startup instead (docs/DECISIONS.md#adr-security-2026-08).
+    """
+    normalized: list[str] = []
+    for entry in hosts:
+        host = entry.strip().lower()
+        problem = _trusted_host_problem(host)
+        if problem is not None:
+            raise ValueError(f"trusted_hosts entry {entry!r} is not a host name: {problem}")
+        normalized.append(host)
+    return normalized
 
 
 def is_allowed(origin: str | None, allowed: Collection[str]) -> bool:
