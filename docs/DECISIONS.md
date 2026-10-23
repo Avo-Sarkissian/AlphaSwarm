@@ -83,7 +83,7 @@ Contents
 - **Decision:** All inference uses the aliases `alphaswarm-worker` and `alphaswarm-orchestrator` (`settings.py:OllamaSettings`), built with `ollama create ... -f modelfiles/Modelfile.*`. `OllamaClient` strips any per-request `num_ctx` (`ollama_client.py:25-30`). Output caps are sent per request: OllamaProvider forwards max_tokens as options["num_predict"], a sampling option that does not reload the model; the Modelfile num_predict is only the fallback, so a base tag chosen in Settings is capped too (2026-10). See [adr-output-caps](#adr-output-caps).
 - **Rationale:** A per-request `num_ctx` makes Ollama silently reload the model.
 - **Caveats:**
-  - `OllamaSettings.worker_model` and `orchestrator_model` are no longer read anywhere (the CLI banner that displayed them was removed; see [adr-cli-ux](#adr-cli-ux)). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
+  - `OllamaSettings.worker_model` and `orchestrator_model` are not read by any code path: the banner that `alphaswarm web` and `alphaswarm doctor` print (2026-10) shows the model each role calls, from the inference config. Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
   - `OllamaSettings.num_parallel` and `max_loaded_models` were removed in 2026-10: they were never read. Old `.env` files that still set them load with one `ollama_retired_settings_ignored` warning. The real values are the Ollama server variables (RUNBOOK §1), checked by `alphaswarm doctor`.
 
 ### <a id="adr-output-caps"></a>Explicit output caps at every call site

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Coroutine
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -950,3 +951,61 @@ def _result_from_round_fields(
         for n, (decisions, shift, summaries) in per_round.items()
     )
     return SimulationResult(cycle_id=cycle_id, parsed_result=parsed_result, rounds=rounds)
+
+
+def test_render_banner_lists_mode_and_role_models() -> None:
+    from alphaswarm.cli import render_banner
+    from alphaswarm.inference.config import ProviderType, RoleConfig
+
+    lines = render_banner(
+        version="0.6.0",
+        agents=100,
+        brackets=10,
+        mode="mixed",
+        orchestrator=RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-haiku-4-5"),
+        worker=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker"),
+    ).splitlines()
+    assert lines[1] == "  AlphaSwarm v0.6.0"
+    assert "  Inference: mixed" in lines
+    assert "  Orchestrator: claude-haiku-4-5 (anthropic)" in lines
+    assert "  Worker: alphaswarm-worker (ollama)" in lines
+
+
+def test_banner_for_defaults_to_the_local_aliases(tmp_path: Path) -> None:
+    from alphaswarm.cli import banner_for
+    from alphaswarm.settings import AppSettings
+
+    settings = AppSettings(  # type: ignore[call-arg]
+        _env_file=None, inference_config_path=tmp_path / "missing.json"
+    )
+    lines = banner_for(settings).splitlines()
+    assert "  Agents: 100 across 10 brackets" in lines
+    assert "  Inference: local" in lines
+    assert "  Orchestrator: alphaswarm-orchestrator (ollama)" in lines
+    assert "  Worker: alphaswarm-worker (ollama)" in lines
+
+
+def test_banner_for_survives_an_invalid_config(tmp_path: Path) -> None:
+    from alphaswarm.cli import banner_for
+    from alphaswarm.settings import AppSettings
+
+    bad = tmp_path / "inference.json"
+    bad.write_text("{not json", encoding="utf-8")
+    settings = AppSettings(_env_file=None, inference_config_path=bad)  # type: ignore[call-arg]
+    assert "  Inference: invalid config (open Settings)" in banner_for(settings).splitlines()
+
+
+def test_web_prints_the_banner_to_stderr(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    import uvicorn
+
+    from alphaswarm import cli
+
+    monkeypatch.setenv("ALPHASWARM_INFERENCE_CONFIG_PATH", str(tmp_path / "missing.json"))
+    started: list[dict[str, object]] = []
+    monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: started.append(kwargs))
+    cli._handle_web("127.0.0.1", 8123)
+    err = capsys.readouterr().err
+    assert "  Inference: local" in err
+    assert started and started[0]["workers"] == 1
