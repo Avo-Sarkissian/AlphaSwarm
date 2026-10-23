@@ -7,12 +7,13 @@
 //   • InterviewModal — superseded by W4 InterviewV2 (D-11)
 //   • ReportModal    — superseded by ./ReportModal.tsx (Phase 41.2 D-04 + D-20 rich)
 //   • AdvisoryModal  — superseded by AdvisoryV2 in ./v2.tsx (D-08 / D-22)
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Icon } from './icons';
 import { simShock } from '../api/simulation';
-import { listCycles, replayAdvance, replayStop } from '../api/replay';
+import { replayAdvance, replayStop } from '../api/replay';
 import { useConnection } from '../context/ConnectionContext';
 import { useFrameMeta } from '../context/FrameMetaContext';
+import { useCyclePages } from '../hooks/useCyclePages';
 import { useRounds } from '../hooks/useRounds';
 import { formatApiError } from '../lib/apiError';
 import { SHOCK_MAX_CHARS, SHOCK_MIN_CHARS, shockLengthError, shockTargetRound } from '../lib/shock';
@@ -181,65 +182,32 @@ export function ReplayBar() {
 // ─── CyclePickerModal ────────────────────────────────────────────────────
 
 export function CyclePickerModal({ onPick, onClose }) {
-  const [cycles, setCycles] = useState(null); // null = loading
-  const [err, setErr] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    listCycles()
-      .then((cs) => {
-        if (!cancelled) setCycles(cs);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        // KR-41.1-08: errors console.logged + surfaced to UI label.
-        // eslint-disable-next-line no-console
-        console.error('listCycles failed', e);
-        setErr(e);
-        setCycles([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { cycles, error, hasMore, loadingMore, loadMore } = useCyclePages();
+  const [pickError, setPickError] = useState(null);
+  const err = pickError ?? error;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(720px, 94%)' }}
-      >
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(720px, 94%)' }}>
         <div className="modal-head">
           <Icon name="replay" />
-          <span
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 11,
-              letterSpacing: '0.12em',
-              textTransform: 'uppercase',
-              color: 'var(--text-2)',
-            }}
-          >
+          <span className="label" style={{ color: 'var(--text-2)', letterSpacing: '0.12em' }}>
             SELECT CYCLE TO REPLAY
           </span>
           <div className="sp" />
-          <button className="btn ghost" onClick={onClose}>
+          <button className="btn ghost" onClick={onClose} aria-label="Close cycle picker">
             <Icon name="close" />
           </button>
         </div>
         <div className="modal-body no-pad">
-          {cycles === null && (
+          {cycles === null && !err && (
             <div style={{ padding: '30px 20px' }} className="label">
               Loading cycles…
             </div>
           )}
           {err && (
-            <div
-              style={{ padding: '30px 20px', color: 'var(--sell)' }}
-              className="label"
-            >
-              {formatApiError(err)}
+            <div style={{ padding: '30px 20px', color: 'var(--sell)' }} className="label" role="alert">
+              {err}
             </div>
           )}
           {cycles && cycles.length === 0 && !err && (
@@ -262,32 +230,30 @@ export function CyclePickerModal({ onPick, onClose }) {
                 }}
                 onClick={async () => {
                   try {
-                    // onPick may be async (app_v2 fires replayStart) — surface
-                    // failures (e.g. 409 replay already active) in the existing
-                    // err label instead of silently closing.
+                    setPickError(null);
                     await onPick(c);
                   } catch (e) {
-                    // KR-41.1-08: errors console.logged + surfaced to UI label.
-                    // eslint-disable-next-line no-console
-                    console.error('replay start failed', e);
-                    setErr(e);
+                    setPickError(formatApiError(e));
                   }
                 }}
                 onMouseOver={(e) => (e.currentTarget.style.background = 'var(--bg-3)')}
                 onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 <div>
-                  <div
-                    style={{ fontSize: 14, color: 'var(--text)', marginBottom: 4 }}
-                  >
-                    "{c.seed_rumor}"
-                  </div>
+                  <div style={{ fontSize: 14, color: 'var(--text)', marginBottom: 4 }}>"{c.seed_rumor}"</div>
                   <div className="label">{c.cycle_id}</div>
                 </div>
                 <div className="label">{c.created_at}</div>
                 <div className="label">{c.round_count}R</div>
               </div>
             ))}
+          {hasMore && (
+            <div style={{ padding: '12px 20px' }}>
+              <button className="btn ghost" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? 'Loading…' : 'Load older cycles'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

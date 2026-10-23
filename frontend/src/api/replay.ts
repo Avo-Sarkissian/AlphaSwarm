@@ -1,21 +1,36 @@
-// Replay endpoints: listCycles + replayStart/advance/stop.
-// GET /api/replay/cycles returns only { cycle_id, created_at, seed_rumor, round_count }.
-// KR-41.1-07 is the parity deviation — consensus/flips/duration/shocks
-// columns are not on this list endpoint and the UI renders em-dash placeholders.
+// Replay endpoints. GET /api/replay/cycles returns one page of complete cycles,
+// newest first, with the run metrics stored on each Cycle.
 import { apiFetch, apiPost } from './client';
 
 export interface CycleItem {
   cycle_id: string;
-  created_at: string; // ISO-8601
+  created_at: string; // ISO-8601 with offset, up to 9 fractional digits; also the paging cursor
   seed_rumor: string;
-  round_count: number; // the cycle's num_rounds, 2 or 3 (docs/DECISIONS.md#adr-num-rounds)
+  round_count: number; // actual cascade depth (2 or 3)
+  status: string;
+  final_buy: number | null; // null: recorded before run metrics existed
+  final_sell: number | null;
+  final_hold: number | null;
+  total_flips: number | null;
+  total_seconds: number | null;
+  agent_count: number | null;
 }
 
-export async function listCycles(): Promise<CycleItem[]> {
-  const { cycles } = await apiFetch<{ cycles: CycleItem[] }>(
-    '/api/replay/cycles',
+export interface CyclePage {
+  cycles: CycleItem[];
+  nextBefore: string | null;
+}
+
+export const CYCLE_PAGE_SIZE = 20;
+
+export async function listCycles(opts: { limit?: number; before?: string | null } = {}): Promise<CyclePage> {
+  // URLSearchParams encodes '+' and ':' in the cursor; a raw '+' would decode as a space.
+  const params = new URLSearchParams({ limit: String(opts.limit ?? CYCLE_PAGE_SIZE) });
+  if (opts.before) params.set('before', opts.before);
+  const body = await apiFetch<{ cycles: CycleItem[]; next_before: string | null }>(
+    `/api/replay/cycles?${params.toString()}`,
   );
-  return cycles;
+  return { cycles: body.cycles ?? [], nextBefore: body.next_before ?? null };
 }
 
 export interface ReplayStartResponse {
