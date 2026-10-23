@@ -19,16 +19,18 @@ import json
 from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
+from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.providers import FakeMarketDataProvider, FakeNewsProvider
-from alphaswarm.ingestion.types import NewsSlice
+from alphaswarm.ingestion.types import Fundamentals, MarketSlice, NewsSlice
 from alphaswarm.types import AgentPersona
-from tests.engine.scenario import SCENARIO_SHOCK_TEXT, RecordingStateStore, RunScenario
+from tests.engine.scenario import SCENARIO_MODIFIERS_JSON, SCENARIO_SHOCK_TEXT, RecordingStateStore, RunScenario
 from tests.inference.fakes import ScriptedProvider
 from tests.support.golden import assert_golden
 
@@ -47,6 +49,21 @@ ORDERED_STATE_CALLS = frozenset(
 COUNTED_STATE_CALLS = frozenset({"update_agent_state", "push_rationale", "update_tps"})
 SECOND_SHOCK_TEXT = "ZZZT Holdings raises its offer for QQQX Robotics to $4.6B in cash."
 HEADLINE = "ZZZT Holdings confirms a strategic review"
+# Only ticker-shaped entity names reach MarketDataProvider.get_prices, so the market
+# trace's seed names one ticker next to a company name and a sector.
+TICKER = "QQQX"
+TICKER_HEADLINE = "QQQX Robotics board weighs the ZZZT offer"
+MARKET_SEED_JSON = json.dumps(
+    {
+        "entities": [
+            {"name": "ZZZT Holdings", "type": "company", "relevance": 0.95, "sentiment": 0.6},
+            {"name": TICKER, "type": "company", "relevance": 0.9, "sentiment": 0.7},
+            {"name": "Industrial Automation", "type": "sector", "relevance": 0.6, "sentiment": 0.4},
+        ],
+        "overall_sentiment": 0.55,
+    }
+)
+FETCHED_AT = datetime(2026, 10, 3, tzinfo=UTC)
 
 
 def _plain(value: object) -> object:
@@ -173,13 +190,13 @@ def check_trace(
     fake_graph: MagicMock,
     all_personas: list[AgentPersona],
 ) -> Any:
-    def _check(golden: str) -> None:
+    def _check(golden: str, *, orchestrator: ScriptedProvider | None = None) -> None:
         assert_golden(
             f"scenarios/{golden}",
             _trace(
                 store=scenario_store,
                 worker=scripted_worker,
-                orchestrator=scripted_orchestrator,
+                orchestrator=orchestrator if orchestrator is not None else scripted_orchestrator,
                 graph=fake_graph,
                 personas=all_personas,
             ),
@@ -203,16 +220,41 @@ async def test_trace_two_shocks(run_scenario: RunScenario, check_trace: Any) -> 
     check_trace("trace_two_shocks.json")
 
 
-async def test_trace_market_context(run_scenario: RunScenario, check_trace: Any) -> None:
+async def test_trace_market_context(
+    run_scenario: RunScenario, check_trace: Any, all_personas: list[AgentPersona]
+) -> None:
+    """Round 1's market block: price, fundamentals and a headline for the ticker, a
+    headline for the company name, and no block for the sector, which has no data."""
+    orchestrator = ScriptedProvider(
+        role=ProviderRole.ORCHESTRATOR,
+        model="scripted-orchestrator",
+        personas=all_personas,
+        orchestrator_script=[MARKET_SEED_JSON, SCENARIO_MODIFIERS_JSON],
+    )
+    market = FakeMarketDataProvider(
+        {
+            TICKER: MarketSlice(
+                ticker=TICKER,
+                price=Decimal("41.27"),
+                volume=1_250_000,
+                fundamentals=Fundamentals(
+                    pe_ratio=Decimal("18.4"), eps=Decimal("2.24"), market_cap=Decimal("4200000000")
+                ),
+                fetched_at=FETCHED_AT,
+                source="fake_market_data",
+            )
+        }
+    )
     news = FakeNewsProvider(
         {
             "ZZZT Holdings": NewsSlice(
                 entity="ZZZT Holdings",
                 headlines=(HEADLINE,),
-                fetched_at=datetime(2026, 10, 3, tzinfo=UTC),
+                fetched_at=FETCHED_AT,
                 source="fake_news",
-            )
+            ),
+            TICKER: NewsSlice(entity=TICKER, headlines=(TICKER_HEADLINE,), fetched_at=FETCHED_AT, source="fake_news"),
         }
     )
-    await run_scenario(market_provider=FakeMarketDataProvider(), news_provider=news)
-    check_trace("trace_market_context.json")
+    await run_scenario(orchestrator=orchestrator, market_provider=market, news_provider=news)
+    check_trace("trace_market_context.json", orchestrator=orchestrator)
