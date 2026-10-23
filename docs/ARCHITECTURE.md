@@ -23,6 +23,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 - **Entry points and composition**
   - `__main__.py`, `cli.py`: subcommands `inject | run | report | web`. `run` takes `--context-fixture PATH` (a point-in-time ContextPacket replaces the live fetch) or `--no-market-context` (no market block); either way no yfinance or RSS provider is built.
   - `app.py`: `AppState`, a container for the settings, StateStore, ResourceGovernor, Ollama client and model manager, GraphStateManager, and the market and news providers, plus `create_app_state()`.
+  - `services/`: `runtime` (`InferenceRuntime`, `Runtime`, `build_runtime`, `open_runtime`, `open_simulation`), `jobs` (`JobRunner`: one orchestrator job at a time, per-cycle failure codes), `report` (`ReportService`), `advisory` (`AdvisoryService`, the only service that touches holdings) and `post_run` (`PostRunPipeline` and `ServicePostRunJobs`, which runs it over the services).
   - `web/app.py`: the lifespan. It builds AppState, the Simulation, Replay, and Connection managers and the `PostRunPipeline`, loads the holdings into `PortfolioCache`, and starts the broadcaster.
 - **Domain and config**
   - `types.py`: enums, BracketConfig, AgentPersona, WorkerPersonaConfig, SeedEvent, AgentDecision.
@@ -69,7 +70,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `logging.py`: structlog plus the fail-closed PII redaction processor.
   - `security/hashing.py`.
 - **Web**
-  - `web/`: `simulation_manager`, `replay_manager`, `post_run` (PostRunPipeline), `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `wire` (the versioned `StateFrame` and its mapper), `connection_manager`, and `origin_guard` (the single Origin policy for HTTP and the WebSocket; `web/app.py` also installs `TrustedHostMiddleware`).
+  - `web/`: `simulation_manager`, `replay_manager`, `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `wire` (the versioned `StateFrame` and its mapper), `connection_manager`, and `origin_guard` (the single Origin policy for HTTP and the WebSocket; `web/app.py` also installs `TrustedHostMiddleware`).
   - `web/routes/`: health (component readiness: the Neo4j, Ollama and alias probes are cached 5 s, the stored inference config is read on every request; plus `/api/health/live`), simulation (start/stop/shock), edges, replay, interview, holdings, report, advisory, settings, websocket, agents (per-agent decision history).
 - **Evaluation**
   - `evaluation.py`: eval records, outcome labels and forecast scoring (pure; `docs/DECISIONS.md#adr-eval-harness`).

@@ -114,6 +114,11 @@ class AdvisoryService:
     def advisory_dir(self) -> Path:
         return self._advisory_dir
 
+    @property
+    def jobs(self) -> JobRunner:
+        """The JobRunner this service starts its jobs on (refusals are recorded there)."""
+        return self._jobs
+
     async def gate(self, cycle_id: str) -> Gate:
         """Whether the advisory may run now for *cycle_id*.
 

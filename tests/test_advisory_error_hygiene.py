@@ -19,7 +19,7 @@ import pytest
 from fastapi import FastAPI
 from pydantic import ValidationError
 
-import alphaswarm.web.post_run as post_run_module
+import alphaswarm.services.post_run as post_run_module
 import alphaswarm.web.routes.advisory as advisory_module
 from alphaswarm.advisory import AdvisoryReport, synthesize
 from alphaswarm.holdings.types import Holding, PortfolioSnapshot
@@ -27,7 +27,7 @@ from alphaswarm.inference.budget import BudgetMeter
 from alphaswarm.inference.factory import BuiltProviders
 from alphaswarm.inference.types import InferenceResult, ProviderRole
 from alphaswarm.logging import validation_error_summary
-from alphaswarm.web.post_run import AdvisoryGate, PostRunPipeline
+from alphaswarm.services.post_run import AdvisoryGate, PostRunPipeline
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.web_app import CYCLE_A, route_test_settings
 

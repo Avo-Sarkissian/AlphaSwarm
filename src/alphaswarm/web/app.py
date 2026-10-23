@@ -23,13 +23,14 @@ from alphaswarm.logging import configure_logging
 from alphaswarm.manifest import current_git_revision
 from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
+from alphaswarm.services.jobs import JobInProgressError
+from alphaswarm.services.post_run import AdvisoryGate, PostRunPipeline
 from alphaswarm.settings import AppSettings, legacy_origin_settings
 from alphaswarm.web.broadcaster import start_broadcaster
 from alphaswarm.web.connection_manager import ConnectionManager
 from alphaswarm.web.errors import install_error_handlers
 from alphaswarm.web.guards import orchestrator_job_running
 from alphaswarm.web.origin_guard import install_origin_guard, normalized_trusted_hosts
-from alphaswarm.web.post_run import AdvisoryGate, PostRunJobBusyError, PostRunPipeline
 from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.routes.advisory import advisory_refusal, start_advisory_job
 from alphaswarm.web.routes.advisory import router as advisory_router
@@ -150,7 +151,8 @@ class WebPostRunJobs:
 
     async def run_advisory(self, cycle_id: str) -> None:
         if orchestrator_job_running(self._app.state.app_state):
-            raise PostRunJobBusyError("advisory")
+            jobs = self._app.state.app_state.state_store.job_statuses()
+            raise JobInProgressError("report" if jobs.report.state == "running" else "advisory")
         portfolio = await self._app.state.portfolio_cache.get()
         if portfolio is None:
             raise RuntimeError("holdings disappeared before the advisory started")
@@ -161,7 +163,8 @@ class WebPostRunJobs:
 
     async def run_report(self, cycle_id: str) -> None:
         if orchestrator_job_running(self._app.state.app_state):
-            raise PostRunJobBusyError("report")
+            jobs = self._app.state.app_state.state_store.job_statuses()
+            raise JobInProgressError("report" if jobs.report.state == "running" else "advisory")
         await start_report_job(self._app, cycle_id)
 
 

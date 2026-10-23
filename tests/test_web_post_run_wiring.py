@@ -15,17 +15,17 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+import alphaswarm.services.post_run as post_run_module
 import alphaswarm.web.guards as guards_module
-import alphaswarm.web.post_run as post_run_module
 import alphaswarm.web.routes.advisory as advisory_module
 import alphaswarm.web.routes.report as report_module
 from alphaswarm.app import create_app_state
 from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig, save_inference_config
 from alphaswarm.personas import generate_personas, load_bracket_configs
+from alphaswarm.services.post_run import PostRunPipeline
 from alphaswarm.state import JobStatus
 from alphaswarm.web.app import WebPostRunJobs
 from alphaswarm.web.errors import install_error_handlers
-from alphaswarm.web.post_run import PostRunPipeline
 from alphaswarm.web.routes.advisory import router as advisory_router
 from tests.support.log_capture import RenderedLog
 from tests.support.web_app import CYCLE_A, CYCLE_B, StaticPortfolioCache, route_test_settings

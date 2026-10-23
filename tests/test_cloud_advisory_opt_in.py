@@ -28,9 +28,9 @@ from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfi
 from alphaswarm.inference.factory import BuiltProviders
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.personas import generate_personas, load_bracket_configs
+from alphaswarm.services.post_run import PostRunPipeline
 from alphaswarm.settings import AppSettings
 from alphaswarm.web.app import WebPostRunJobs
-from alphaswarm.web.post_run import PostRunPipeline
 from alphaswarm.web.routes.advisory import router as advisory_router
 from tests.inference.fakes import FakeInferenceProvider
 from tests.support.web_app import (

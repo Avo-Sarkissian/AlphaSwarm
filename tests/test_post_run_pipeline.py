@@ -8,11 +8,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import alphaswarm.web.post_run as post_run_module
+import alphaswarm.services.post_run as post_run_module
 from alphaswarm.errors import AuthError, BudgetExceededError
-from alphaswarm.web.post_run import (
+from alphaswarm.services.jobs import JobInProgressError
+from alphaswarm.services.post_run import (
     AdvisoryGate,
-    PostRunJobBusyError,
     PostRunOutcome,
     PostRunPipeline,
 )
@@ -122,7 +122,7 @@ async def test_gate_failure_counts_as_failed_advisory(recorder: MagicMock) -> No
 
 
 async def test_busy_slots_are_skipped(recorder: MagicMock) -> None:
-    jobs = FakeJobs(advisory_exc=PostRunJobBusyError("advisory"), report_exc=PostRunJobBusyError("report"))
+    jobs = FakeJobs(advisory_exc=JobInProgressError("report"), report_exc=JobInProgressError("advisory"))
     outcome = await PostRunPipeline(jobs=jobs).on_complete(CYCLE)
     assert (outcome.advisory, outcome.report) == ("skipped_busy", "skipped_busy")
 
