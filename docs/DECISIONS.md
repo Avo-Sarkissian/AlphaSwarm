@@ -217,7 +217,7 @@ Contents
 
 - **Leftovers:**
   - `read_ranked_posts`, `_dispatch_round`, and `read_peer_decisions` were dead code and were deleted in 2026-10.
-  - READ_POST edges are no longer written, which empties the report's `social_post_reach` section. See BACKLOG.
+  - The report's `social_post_reach` section and the Post writes were removed (2026-10).
 - **Control holdout (decided 2026-10 under the owner's delegation):** `control_fraction` defaults to 0.0, so product runs keep every reader's peer context; experiment and eval runs set `ALPHASWARM_SIMULATION__CONTROL_FRACTION=0.2` (20 seeded readers, round-half-up per bracket, never see peers).
 - **Own prior (2026-10):** from Round 2 on, each reader's user message starts with its own previous decision (`Your Round N position: SIGNAL (conf X): rationale`, sanitized to one line and left out after a PARSE_ERROR; `ALPHASWARM_SIMULATION__OWN_PRIOR_MEMORY`, default true). Holdout readers keep it, so their flips measure everything except peers. Holdout decisions carry `d.control = true` in Rounds 2-3 (Round 1 decisions carry false), and the cycle metrics add `r{n}_control_agents`, `r{n}_flips_control` and `r{n}_flips_treated`.
 
@@ -226,7 +226,7 @@ Contents
   - Round 1 is the uninfluenced prior and should not be touched.
   - `num_rounds` is stamped on the Cycle when it is created (`create_cycle_with_seed_event`), so running and failed cycles carry it too. The completion metrics write the same value.
   - Report and advisory reads resolve the final round inside Cypher with `coalesce(c.num_rounds, 3)`, because cycles from before 2026-10 that lack the property were all 3-round. The replay cycle list reports the same value as `round_count`.
-  - Prompts describe the rounds that ran: the ReAct report prompt says "final round", and the eager narrative prompt names the agent's round count. The CLI summary uses the last round that ran and reports convergence only for 3-round runs, since it compares R1→R2 flips with R2→R3 flips.
+  - Prompts describe the rounds that ran: the ReAct report prompt says "final round", and the lazy narrative prompt (generated on first interview) names the agent's round count. The CLI summary uses the last round that ran and reports convergence only for 3-round runs, since it compares R1→R2 flips with R2→R3 flips.
   - With 2 rounds, the round-3 result fields are empty, and completed-cycle listing relies on `Cycle.status` ([adr-cycle-metrics](#adr-cycle-metrics)).
 - **Rationale:** Most flips happen in Round 2, and 2 rounds save about a third of wall time. Keep the default at 3 until the 2-vs-3-round ablation is done. The UI reads `num_rounds` from the frame (`useRounds()`), so a 2-round run renders correctly end to end.
 
@@ -249,10 +249,10 @@ Contents
 
 ### <a id="adr-taskgroup-dispatch"></a>All agent fan-out uses `asyncio.TaskGroup`, with jitter
 - **Decision:**
-  - `dispatch_wave` creates one task per persona inside a TaskGroup, with no bare `create_task` (INFRA-07). Narrative generation fans out the same way.
+  - `dispatch_wave` creates one task per persona inside a TaskGroup, with no bare `create_task` (INFRA-07). Narratives are no longer a fan-out: one worker call on an agent's first interview ([p11-d-11](#p11-d-11)).
   - Random 0.5-1.5 s jitter runs before acquiring a slot ([p3-d-14](#p3-d-14)).
   - A failed agent becomes a PARSE_ERROR decision with `error_kind` `"inference"` (the call raised) or `"parse"` (tier-3 parse fallback), and the round continues. Cycle metrics count `r{n}_inference_errors` separately from `r{n}_parse_errors`.
-  - Hard stops (`HARD_STOP_ERRORS` in `batch_dispatcher.py`: `BudgetExceededError`, `AuthError`, `GovernorCrisisError`) are never converted. `dispatch_wave` and `_generate_decision_narratives` unwrap the TaskGroup's `ExceptionGroup` with `except*` and re-raise the first one bare, chained `from` the group.
+  - Hard stops (`HARD_STOP_ERRORS` in `batch_dispatcher.py`: `BudgetExceededError`, `AuthError`, `GovernorCrisisError`) are never converted. `dispatch_wave` unwraps the TaskGroup's `ExceptionGroup` with `except*` and re-raises the first one bare, chained `from` the group; `ensure_decision_narrative` lets them propagate and turns any other narrative failure into an interview without a narrative.
   - Round abort: after `dispatch_wave` and before the round's first Neo4j write, a round in which `failed * 100 > GovernorSettings.round_abort_failure_percent * total` (default 50; `failed` = PARSE_ERROR of any kind) raises `RoundFailedError`; an empty round always fails. Failed agents are not re-dispatched.
   - `SimulationManager._run` turns any non-cancel failure into a `RunError` on `StateStore.last_error` (code, fixed-template message, round, timestamp) and logs it once with `exc_info`; `start()` clears it and cancellation never sets it. Messages never quote exception text, so they cannot leak a path or a key. A failure raised outside that handler (a provider `aclose` in `_run`'s `finally`) sets no `RunError`; the task's done-callback logs it with `exc_info`.
   - New domain errors derive from `AlphaSwarmError`; the `GraphError` family (`Neo4jUnavailableError`, `Neo4jQueryError`, `Neo4jWriteError`) carries an `op` that names the failed operation. `InferenceError`, `BudgetExceededError` and `GovernorCrisisError` keep their parents, so existing `except` clauses behave as before.
@@ -298,8 +298,12 @@ Contents
   - This supersedes Phase 4's planned Decision→Decision INFLUENCED_BY edge.
   - Writes are UNWIND batches. Sessions are opened per method. 100 shared Agent nodes.
   - The `neo4j` driver is pinned below 6.0.
-  - The Cycle stores `num_rounds` from creation ([adr-num-rounds](#adr-num-rounds)).
-  - Readers take rationale text from `Decision.rationale`. `RationaleEpisode.rationale` duplicates it and is still written, but replay no longer reads it (2026-10).
+  - Since 2026-10, Post nodes, `AUTHORED`/`HAS_POST` and `(:Decision)-[:FOR]->(:Cycle)` are no longer written; existing ones remain as history and no reader uses them. `RationaleEpisode.rationale` is no longer written (readers use `d.rationale`).
+  - The Cycle stores `num_rounds` ([adr-num-rounds](#adr-num-rounds)), `modifiers_json` (the per-cycle persona focus lines) and `prompt_template_hash` (sha256 of the static persona prompt pieces, `compute_prompt_template_hash`) at creation; interviews rebuild the persona from config plus `modifiers_json`.
+  - A final-round Decision may carry `narrative`, generated on the first interview of that agent in that cycle ([p11-d-11](#p11-d-11)).
+  - REFERENCES link a decision to the cycle's own `(:Entity {name, type})` through `MENTIONS`, matched on whole tokens (`episodes.match_entities`, `match_type: "token"`); a name the cycle lists under two types is skipped. A seed that lists an entity twice still yields one REFERENCES edge per decision.
+  - Schema: `decision_id_unique`; indexes `decision_cycle_round`, `decision_cycle`, `influenced_by_cycle_round`, `cycle_created`, `cycle_status`. `ensure_schema` drops `agent_id_idx`, `decision_id_idx`, `post_cycle_round`, `post_id_idx`, `episode_cycle_round` first (the constraint cannot coexist with the old plain index) and removes the retired `Agent.decision_narrative` property.
+  - While `decision_id_unique` does not exist yet, `ensure_schema` first counts duplicate decision ids (read-only). If there are any, it keeps `decision_id_idx` in place of the constraint, logs `decision_id_duplicates_found` with the count (never the ids) and continues; no data is deleted, and the constraint is created on the first start after the duplicates are resolved.
 - **Rationale:** Cycle-scoped edges keep reads fast without pruning history.
 
 ### <a id="adr-cycle-metrics"></a>Cycle status lifecycle and per-cycle run metrics
@@ -307,7 +311,7 @@ Contents
   - `Cycle.status` ∈ {`running`, `complete`, `failed`, `cancelled`}. `running` is set in the transaction that creates the Cycle. That write is the last step of seeding, after the persona modifiers are generated and the orchestrator is released, so a seeding failure (teardown included) leaves no Cycle, and nothing runs between that write and `run_simulation` recording the id of the Cycle it must mark. `run_simulation` writes `complete` after the last round is persisted and metrics were attempted, `failed` plus `Cycle.error_code` (a `RunErrorCode`) on any exception, and `cancelled` on cancellation. A status-write failure is logged and never masks the original error. The `failed`/`cancelled` write is bounded to 5 s (`_TERMINAL_STATUS_TIMEOUT_S`): a managed write retries an unreachable database for the driver's 30 s, which would hold Stop or a failed run that long, so on timeout the cycle stays `running` instead. Indexed (`cycle_status`).
   - Listings and defaults filter on status: `read_completed_cycles` and `read_latest_cycle_id()` return `complete` cycles only, and the report, advisory and interview gates read the same status (`read_cycle_status`). Cycles written before the status existed are back-filled idempotently by `ensure_schema()` (`complete` if `metrics_recorded_at` is set or a round-3 decision exists, otherwise `failed`), and every reader applies the same rule to a cycle that has not been back-filled yet.
   - A process killed outright (`kill -9`, OOM), or a terminal write that times out, leaves its cycle `running`; it is never listed as complete ([BACKLOG 1.15](BACKLOG.md)).
-  - A Stop or a hard stop during FINALIZING (eager narratives, metrics) marks a cycle whose rounds are all persisted `cancelled` or `failed`, so it is not listed ([BACKLOG 1.16](BACKLOG.md)).
+  - A Stop or a hard stop during FINALIZING (now only the metrics write, since narratives are lazy) marks a cycle whose rounds are all persisted `cancelled` or `failed`, so it is not listed ([BACKLOG 1.16](BACKLOG.md)).
   - `alphaswarm inject` stores a seed-only cycle that no run will ever finish, so it marks it `failed`, the status the back-fill gives a legacy seed-only cycle.
   - Each round's Decisions, CITED edges, RationaleEpisodes and REFERENCES are persisted by one `GraphStateManager.persist_round` transaction ([p4-d-08](#p4-d-08)).
   - At the end of a run, `write_cycle_metrics` stamps durations, flips, parse errors, `r{n}_inference_errors` (the subset of `r{n}_parse_errors` whose `error_kind` is `"inference"`, for the rounds actually run), `r{n}_citations_dropped`, `final_round` and the final distribution onto the Cycle node. A metrics-write failure is logged and does not block `complete`. Compare runs with `scripts/compare_cycles.py` against `scripts/benchmark_seeds.json`.
@@ -375,7 +379,7 @@ Contents
   - Signals in the typed report rows are upper-case (`BUY`, `SELL`, `HOLD`). Replay rows stay lower-case because they map onto `SignalType`.
   - The shock section analyses only the earliest shock of a cycle. A second shock queued before Round 3 is not analysed.
   - Entity impact counts only the cycle's own `MENTIONS` entities, once per (entity, decision) pair ([p11-d-08](#p11-d-08)).
-  - `social_post_reach` remains until the section is removed. It returns rows only for cycles with READ_POST edges (written before June 2026), and its template reads the query's `author_name`.
+  - The `social_post_reach` tool, its template (`08_social_post_reach.j2`), the prompt line and both registry entries were removed: READ_POST edges have not been written since June 2026, so the section was always empty. The prompt lists 7 tools and describes the *final* round.
 
 ### <a id="adr-background-tasks"></a>Long LLM jobs: 202 + background task + polling
 - **Decision:** Report and advisory POSTs return 202 and run `asyncio` tasks.
@@ -449,7 +453,7 @@ Contents
 | <a id="hist-v3-ticker-pipeline"></a>v3.0 SEC-validated ticker extraction, yfinance + Alpha Vantage pipeline with a disk cache, bracket-tailored enrichment, TickerDecision output (Phases 16-23, 2026-04-05..08) | First attempt at grounding in real data | **Lost.** Commit `7226d2e` (2026-04-09, mislabelled `feat(24-01)`) deleted `enrichment.py`, `market_data.py`, `ticker_validator.py`, and their tests: about 4.4k lines of source and tests. Most of the commit's 25.6k deleted lines (about 20.6k) were v3.0 planning docs. v6.0 Phases 37-40 rebuilt grounding as `alphaswarm.ingestion`. |
 | <a id="hist-miro"></a>Miro API v2 live visualization; batcher stubbed (Phase 8 D-09/D-10) | Planned spatial visualization | **Dropped** for the web graph. `miro.py` was deleted in `76b7537` (2026-06-11). |
 | <a id="hist-tui"></a>Textual TUI as the primary UI (Phases 9-10, 14, 26-28) | First interface | **Retired** in favor of the web UI. `tui.py` was deleted in `76b7537`. The StateStore contracts it introduced survive. |
-| <a id="hist-read-post"></a>Posts ranked by INFLUENCED_BY weight via `read_ranked_posts`; READ_POST edges from every agent to every prior post (Phase 12 D-07..D-11) | Social-influence layer | **Superseded** by [adr-diverse-peer-context](#adr-diverse-peer-context). Post nodes are still written, but READ_POST edges are not, so `read_social_post_reach` returns nothing for new cycles. |
+| <a id="hist-read-post"></a>Posts ranked by INFLUENCED_BY weight via `read_ranked_posts`; READ_POST edges from every agent to every prior post (Phase 12 D-07..D-11) | Social-influence layer | **Superseded** by [adr-diverse-peer-context](#adr-diverse-peer-context). READ_POST edges stopped in June 2026; Post writes and the report's social-reach section were removed in October 2026. |
 | <a id="hist-schwab-report-only"></a>Schwab CSV loaded in memory only during the report step | Privacy | **Changed:** now loaded at web lifespan startup into `PortfolioCache` and re-read when the CSV changes ([p39-d-07](#p39-d-07)). Still memory-only and never persisted. |
 
 ---
@@ -486,12 +490,12 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p4-d-01"></a>`D-01` | A Decision is a node (Agent-[:MADE]->Decision-[:FOR]->Cycle) holding signal/confidence/sentiment/rationale, not a relationship. | active | graph.py:384 |
+| <a id="p4-d-01"></a>`D-01` | A Decision is a node (Agent-[:MADE]->Decision-[:FOR]->Cycle) holding signal/confidence/sentiment/rationale, not a relationship. The `FOR` edge is no longer written (2026-10); decisions carry `cycle_id`. | active | graph.py:384 |
 | <a id="p4-d-03"></a>`D-03` | cited_agents stored as explicit (Decision)-[:CITED]->(Agent) edges (raw LLM output), separate from computed INFLUENCED_BY. | active | graph.py:384 |
 | <a id="p4-d-05"></a>`D-05` | Schema applied idempotently at startup via ensure_schema() (CREATE ... IF NOT EXISTS). Since 2026-10 a web server whose Neo4j was down or rejected the password at startup still starts; once the database answers, the first `/api/health` probe applies the schema (no restart for a database that was only stopped). | active | graph.py:99; web/app.py (`_prepare_neo4j`); web/routes/health.py; readiness.py |
 | <a id="p4-d-06"></a>`D-06` | All 100 Agent nodes seeded eagerly in ensure_schema() from persona config. | active | graph.py:112 |
 | <a id="p4-d-07"></a>`D-07` | Session-per-method: each GraphStateManager method opens its own short-lived async session; callers never manage sessions. Sessions are opened only by the `_read`/`_write` helpers (plus `ensure_schema`'s DDL), which apply `Neo4jSettings.query_timeout_s` through `unit_of_work` and map driver/server errors to the `GraphError` family (`Neo4jUnavailableError`, `Neo4jQueryError`, `Neo4jWriteError`). | active | graph.py (`_read`, `_write`, `_map_graph_error`) |
-| <a id="p4-d-08"></a>`D-08` | Keep the GraphStateManager API minimal and batch writes via UNWIND (one transaction per round, not per agent). `persist_round` writes a round's Decisions, CITED, RationaleEpisodes and REFERENCES in one transaction; the round's Posts (`write_posts`) and influence edges (`compute_influence_edges`) still follow in their own transactions. | active | graph.py (`persist_round`) |
+| <a id="p4-d-08"></a>`D-08` | Keep the GraphStateManager API minimal and batch writes via UNWIND (one transaction per round, not per agent). `persist_round` writes a round's Decisions, CITED, RationaleEpisodes and REFERENCES in one transaction; the round's influence edges (`compute_influence_edges`) still follow in their own transaction. Posts are no longer written (2026-10). | active | graph.py (`persist_round`) |
 | <a id="p4-d-09"></a>`D-09` | Pre-dynamic-topology peer ranking by static influence_weight_base (read_peer_decisions). Deleted with the dead _dispatch_round path in 2026-10. | superseded | — |
 | <a id="p4-d-10"></a>`D-10` | cycle_id is a uuid4. | active | graph.py:188 |
 
@@ -510,7 +514,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p7-d-04"></a>`D-04` | Single run_simulation() orchestrates all rounds, reusing run_round1() for Round 1. | active | simulation.py:899 |
 | <a id="p7-d-05"></a>`D-05` | Worker reloaded once after run_round1() (which unloads in its finally) and kept warm for later rounds. | active | simulation.py:923,1095 |
 | <a id="p7-d-06"></a>`D-06` | run_round1 owns its governor monitoring session; run_simulation starts a fresh one for Rounds 2-3. | active | simulation.py:917,924,1098 |
-| <a id="p7-d-07"></a>`D-07` | Phase machine IDLE -> SEEDING -> ROUND_1..N -> FINALIZING -> COMPLETE. FINALIZING covers narratives (while eager), metrics and the status write. StateStore.set_phase drives the UI. | active | simulation.py (`run_simulation`); types.py (`SimulationPhase`) |
+| <a id="p7-d-07"></a>`D-07` | Phase machine IDLE -> SEEDING -> ROUND_1..N -> FINALIZING -> COMPLETE. FINALIZING covers the metrics and the status write (narratives are lazy since 2026-10). StateStore.set_phase drives the UI. | active | simulation.py (`run_simulation`); types.py (`SimulationPhase`) |
 | <a id="p7-d-08"></a>`D-08` | SimulationResult is one frozen container for all rounds plus shift metrics. | active | simulation.py:274 |
 | <a id="p7-d-09"></a>`D-09` | Round N reads peer context from round N-1, personalised per agent (self excluded). | active | simulation.py:726,1101,1272 |
 | <a id="p7-d-10"></a>`D-10` | Peer contexts are built per agent BEFORE dispatch and passed into dispatch_wave. | active | simulation.py:726,812 |
@@ -558,11 +562,11 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p11-d-02"></a>`D-02` | WriteBuffer was separate from GraphStateManager (queueing vs Cypher). Superseded with p11-d-01; the pure value objects live in `episodes.py`. | superseded | episodes.py |
 | <a id="p11-d-04"></a>`D-04` | RationaleEpisode linked 1:1 via (Decision)-[:HAS_EPISODE]->(RationaleEpisode). | active | graph.py:803 |
 | <a id="p11-d-06"></a>`D-06` | flip_type enum stored on each episode (NONE for round 1). | active | types.py:75 |
-| <a id="p11-d-07"></a>`D-07` | Episode properties: rationale, timestamp, peer_context_received, flip_type, round, cycle_id. | active | graph.py:803 |
-| <a id="p11-d-08"></a>`D-08` | Decision-[:REFERENCES]->Entity via case-insensitive substring match; no NLP dependency. The match is on the name only, so a REFERENCES edge can also reach a same-name entity of another type or cycle, and a seed that lists an entity twice writes duplicate MENTIONS and REFERENCES edges. Report entity impact therefore joins through the cycle's own `MENTIONS` and counts each (entity, decision) pair once (2026-10). | active | graph.py:875; tests/neo4j/test_graph_integration.py (test_references_edges_case_insensitive); tests/neo4j/test_report_reads.py (test_entity_impact_counts_each_decision_once_for_the_cycles_own_entities) |
+| <a id="p11-d-07"></a>`D-07` | Episode properties: rationale, timestamp, peer_context_received, flip_type, round, cycle_id. `rationale` is no longer written (2026-10); readers use `Decision.rationale`. | active | graph.py:803 |
+| <a id="p11-d-08"></a>`D-08` | Decision-[:REFERENCES]->Entity, matched in Python. Superseded 2026-10: whole-token, case-insensitive matching on the cycle's typed entities; ambiguous names skipped (`episodes.match_entities`). | superseded | graph.py:875; tests/neo4j/test_graph_integration.py (test_references_edges_case_insensitive); tests/neo4j/test_report_reads.py (test_entity_impact_counts_each_decision_once_for_the_cycles_own_entities) |
 | <a id="p11-d-09"></a>`D-09` | REFERENCES are written in the same transaction as the round's decisions (`persist_round`); the cycle's entities are read once before Round 1. | active | graph.py (`persist_round`); simulation.py (`run_simulation`) |
-| <a id="p11-d-10"></a>`D-10` | Post-simulation decision_narrative per agent written to Agent nodes (used by interviews/advisory). | active | graph.py:941; simulation.py:1427,1519,1531; tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc, test_write_decision_narratives_integration) |
-| <a id="p11-d-11"></a>`D-11` | Narratives generated eagerly as 100 worker calls after the last round. Lazy generation is an open backlog idea. | active | simulation.py:1427,1519,1531 |
+| <a id="p11-d-10"></a>`D-10` | Post-simulation decision narrative per agent. Superseded 2026-10: stored on the agent's final-round Decision (`d.narrative`), never on the shared Agent node. | superseded | graph.py:941; simulation.py:1427,1519,1531; tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc, test_write_decision_narratives_integration) |
+| <a id="p11-d-11"></a>`D-11` | Narratives generated eagerly as 100 worker calls after the last round. Superseded 2026-10: generated lazily on the first interview of (cycle, agent). | superseded | simulation.py:1427,1519,1531 |
 
 ### Phase 12: Richer agent interactions (posts)
 
@@ -571,8 +575,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p12-d-04"></a>`D-04` | Peer context budget: 4000 chars, K posts, greedy fill, last post truncated at a word boundary. | active | simulation.py:349 |
 | <a id="p12-d-05"></a>`D-05` | Unified peer-context block format (now `[agent_id|bracket] SIGNAL (conf)` lines so agents can cite IDs). | active | simulation.py:349 |
 | <a id="p12-d-06"></a>`D-06` | _format_peer_context accepts post objects and applies the budget. | active | simulation.py:349 |
-| <a id="p12-d-12"></a>`D-12` | Per-round write order: decisions -> posts -> (formerly READ_POST edges) -> next dispatch. READ_POST edges no longer written since Jun 2026. | partial | simulation.py:1186 |
-| <a id="p12-d-13"></a>`D-13` | Round 1 has no peer context; posts written after R1 so R2 can read them. | active | simulation.py:1058 |
+| <a id="p12-d-12"></a>`D-12` | Per-round write order: decisions -> posts -> (formerly READ_POST edges) -> next dispatch. READ_POST edges no longer written since Jun 2026. Post writes removed 2026-10. | superseded | simulation.py:1186 |
+| <a id="p12-d-13"></a>`D-13` | Round 1 has no peer context. Posts are no longer written (2026-10); Round 2 peers come from in-memory decisions. | superseded | simulation.py:1058 |
 
 ### Phase 13: Dynamic persona generation (modifiers)
 
@@ -594,9 +598,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p14-d-04"></a>`D-04` | Interview system prompt = persona + decision narrative + per-round decisions (hybrid context). | active | graph.py:1176 |
+| <a id="p14-d-04"></a>`D-04` | Interview system prompt = persona + decision narrative + per-round decisions (hybrid context). The persona is rebuilt with the cycle's stored modifiers (2026-10). | active | graph.py:1176 |
 | <a id="p14-d-05"></a>`D-05` | Strip JSON output instructions from the persona for conversational answers. | active | interview.py:59 |
-| <a id="p14-d-06"></a>`D-06` | Context reconstructed from Neo4j at session start (read_agent_interview_context); persona from memory. | active | graph.py:1176,1202 |
+| <a id="p14-d-06"></a>`D-06` | Context reconstructed from Neo4j at session start (read_agent_interview_context); persona rebuilt from config plus Cycle.modifiers_json; unknown or off-roster agents raise AgentNotFoundError (404). | active | graph.py:1176,1202 |
 | <a id="p14-d-08"></a>`D-08` | 10-turn sliding window. | active | interview.py:72 |
 | <a id="p14-d-09"></a>`D-09` | Dropped turns summarised into a prepended system message. | active | interview.py:73 |
 | <a id="p14-d-10"></a>`D-10` | Summary produced by the same worker model. | active | interview.py:74 |
@@ -772,7 +776,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p41-2-d-03"></a>`D-03` | OllamaClient.generate() accepts system= so narrative generation stops failing silently. Narratives have since moved to `provider.chat` with a system message, and `generate()`, left without a production caller, was deleted in 2026-10. | superseded | simulation.py (`_generate_decision_narratives`) |
+| <a id="p41-2-d-03"></a>`D-03` | OllamaClient.generate() accepts system= so narrative generation stops failing silently. Narratives have since moved to `provider.chat` with a system message, and `generate()`, left without a production caller, was deleted in 2026-10. | superseded | interview.py (`ensure_decision_narrative`) |
 | <a id="p41-2-d-04"></a>`D-04` | Replace the mock ReportModalV2 with the real backend-wired ReportModal. | active | fe/components/ReportModal.tsx:2; fe/components/modals.jsx:8 |
 | <a id="p41-2-d-05"></a>`D-05` | Render portfolio_outlook + items[] in the advisory surface (now AdvisoryV2). | active | fe/lib/markdown.ts:2 |
 
@@ -951,7 +955,7 @@ implemented. MEM-01 is also cited in the superpowers spec.
 | <a id="req-graph-03"></a>GRAPH-03 | Decision→Entity REFERENCES edges | tests/neo4j/test_graph_integration.py (test_complete_reasoning_arc) |
 | <a id="req-int-01"></a>INT-01 | Interview context reconstructed from Neo4j | graph.py:1176 |
 | <a id="req-report-02"></a>REPORT-02 | Cypher report tools (bracket, influence, entity, flips, posts) | graph.py:1276,1320,1359,1399,1454,1507,1553,1601 |
-| <a id="req-social-01"></a>SOCIAL-01 / SOCIAL-02 | Rationale posts as Post nodes / top-K posts in peer context (SOCIAL-02 ranking superseded, see [§2](#hist-read-post)) | SOCIAL-01: graph.py (`write_posts`). SOCIAL-02: its ranking read (`read_ranked_posts`) and READ_POST writer (`write_read_post_edges`) were deleted in 2026-10 |
+| <a id="req-social-01"></a>SOCIAL-01 / SOCIAL-02 | Rationale posts as Post nodes / top-K posts in peer context (SOCIAL-02 ranking superseded, see [§2](#hist-read-post)) | SOCIAL-01: `write_posts` and its Post writes were deleted in 2026-10. SOCIAL-02: its ranking read (`read_ranked_posts`) and READ_POST writer (`write_read_post_edges`) were deleted in 2026-10 |
 | <a id="req-replay-01"></a>REPLAY-01 | Replay from Neo4j without re-inference | graph.py:2032,2150,2205; tests/test_graph.py:1555,1580,1602,1625 |
 | <a id="req-vis-03"></a>VIS-03 | Edges endpoint for the web graph (Phase 31 ID) | tests/test_web.py:754 |
 | <a id="req-shock"></a>SHOCK-04 / SHOCK-05 | Phase 27-internal IDs (never added to REQUIREMENTS.md). SHOCK-04: `read_shock_event` / `read_shock_impact` (bracket deltas, pivot count, comparable agents) plus the old TUI bracket-panel delta mode. SHOCK-05: shock-impact report section (`11_shock_impact.j2`, `TOOL_TO_TEMPLATE['shock_impact']`, CLI pre-seeding of the `shock_impact` observation) | SHOCK-04: graph.py:1683; tests/test_graph.py:1438,1459,1473,1514. SHOCK-05: tests/test_cli.py:893,943; tests/test_report.py:517,522,533,562,612,633 |
