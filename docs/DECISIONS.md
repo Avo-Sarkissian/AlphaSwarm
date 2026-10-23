@@ -324,7 +324,7 @@ Contents
   - The frame carries `schema_version` (1), `mode` (`live`/`replay`/`idle`, derived from the phase), `cycle_id` (set right after `inject_seed`, reset on SEEDING), `num_rounds` (the configured depth from process start, so idle frames carry it too), `edges_version` (influence-edge steps finished for the cycle; in replay, round − 1), `jobs` (advisory/report status from the live store, also during replay), `last_error`, the shock fields, and a monotonic `seq` plus wall-clock `ts` on each rationale entry.
   - Adding a field keeps `schema_version`; renaming, removing or changing the meaning of a field bumps it together with the frontend adapter's `SUPPORTED_SCHEMA_VERSION`.
   - `tests/test_wire_contract.py` writes golden frames into `frontend/src/__tests__/fixtures/`; the frontend tests read them, and `tsc` checks their keys against the TypeScript mirror in `frontend/src/types.ts`.
-  - Each client gets an `asyncio.Queue(maxsize=100)` with drop-oldest and its own writer task, which cleans up its registry entry in `finally` (B7).
+  - Each client gets an `asyncio.Queue(maxsize=1)`: latest-wins, which is still drop-oldest, so a slow client sees the newest frame instead of up to 20 s of backlog (2026-10). Its own writer task cleans up its registry entry in `finally` (B7).
   - Host RAM% is overlaid on every frame ([p999-3-d-01](#p999-3-d-01)).
   - `/ws/state` is unauthenticated, but the handshake Origin is validated (Aug 2026).
 - **Rationale:** The simulation must never block on a slow client (CLAUDE.md hard constraint 4). An explicit, versioned frame turns a renamed internal field into a failing test instead of a silently broken UI, and gives the UI the cycle identity it needs to fetch the right cycle's edges.
