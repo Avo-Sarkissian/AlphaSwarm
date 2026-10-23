@@ -25,11 +25,9 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.log_level == "INFO"
     # Model decision 2026-06-11: MLX-format variants (OLLAMA_USE_MLX=1) —
     # 2.8x worker prefill / 30x orchestrator prefill vs GGUF on M1 Max.
-    # Benchmarks + requirements in modelfiles/. num_parallel stays 4
-    # (16 spills KV cache to CPU on M1 Max, per the 41.4 decision log).
+    # Benchmarks + requirements in modelfiles/.
     assert settings.ollama.orchestrator_model == "qwen3.6:27b-nvfp4"
     assert settings.ollama.worker_model == "qwen3.6:35b-a3b-nvfp4"
-    assert settings.ollama.num_parallel == 4
     assert settings.neo4j.uri == "bolt://localhost:7687"
     assert settings.governor.baseline_parallel == 8
     assert settings.governor.memory_throttle_percent == 80.0
@@ -41,12 +39,12 @@ def test_settings_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     clear_alphaswarm_env(monkeypatch)
     monkeypatch.setenv("ALPHASWARM_DEBUG", "true")
     monkeypatch.setenv("ALPHASWARM_LOG_LEVEL", "DEBUG")
-    monkeypatch.setenv("ALPHASWARM_OLLAMA__NUM_PARALLEL", "4")
+    monkeypatch.setenv("ALPHASWARM_OLLAMA__WORKER_MODEL_ALIAS", "alphaswarm-worker-test")
     settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
 
     assert settings.debug is True
     assert settings.log_level == "DEBUG"
-    assert settings.ollama.num_parallel == 4
+    assert settings.ollama.worker_model_alias == "alphaswarm-worker-test"
 
 
 def test_settings_invalid_log_level(monkeypatch: pytest.MonkeyPatch) -> None:

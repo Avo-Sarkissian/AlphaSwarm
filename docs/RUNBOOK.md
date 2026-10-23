@@ -12,8 +12,8 @@ This file covers what README does not, and points to README where they overlap.
 ## 1. Ollama server environment (the most common cause of a slow simulation)
 
 AlphaSwarm's throughput depends on Ollama **server** environment variables.
-`ALPHASWARM_OLLAMA__NUM_PARALLEL` and `ALPHASWARM_OLLAMA__MAX_LOADED_MODELS`
-in `.env` are dead config: the app never reads them (`settings.py:OllamaSettings`).
+The app has no setting for these: they are Ollama server variables. Old `.env` lines
+`ALPHASWARM_OLLAMA__NUM_PARALLEL` / `ALPHASWARM_OLLAMA__MAX_LOADED_MODELS` are ignored with a warning.
 
 | Variable | Value | Why |
 |---|---|---|

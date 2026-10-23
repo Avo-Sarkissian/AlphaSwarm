@@ -12,8 +12,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
 
+import structlog
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+log = structlog.get_logger(component="settings")
 
 #: Repository root. Relative runtime paths (.env, reports/, advisory/, the holdings
 #: CSV, .secrets/inference.json) resolve against it, never against the working
@@ -34,8 +37,6 @@ class OllamaSettings(BaseModel):
     # M1 Max. See modelfiles/ for benchmarks and requirements.
     orchestrator_model: str = "qwen3.6:27b-nvfp4"
     worker_model: str = "qwen3.6:35b-a3b-nvfp4"
-    num_parallel: int = Field(default=4, ge=1, le=32)
-    max_loaded_models: int = Field(default=2, ge=1, le=4)
     base_url: str = "http://localhost:11434"
     # Per-role HTTP timeouts (docs/DECISIONS.md#adr-inference-timeouts). Worker
     # calls take seconds on MLX, so a stalled one is cut at 120 s; orchestrator
@@ -68,6 +69,26 @@ class OllamaSettings(BaseModel):
             stacklevel=2,
         )
         return mapped
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_retired_keys(cls, data: Any) -> Any:
+        """Ignore num_parallel / max_loaded_models from old .env files.
+
+        They were never read; server parallelism and the loaded-model count are
+        Ollama server variables (docs/DECISIONS.md#adr-model-aliases).
+        """
+        if not isinstance(data, dict):
+            return data
+        retired = sorted(k for k in ("num_parallel", "max_loaded_models") if k in data)
+        if not retired:
+            return data
+        log.warning(
+            "ollama_retired_settings_ignored",
+            keys=retired,
+            hint="set OLLAMA_NUM_PARALLEL / OLLAMA_MAX_LOADED_MODELS on the Ollama server",
+        )
+        return {k: v for k, v in data.items() if k not in retired}
 
 
 class Neo4jSettings(BaseModel):

@@ -84,7 +84,7 @@ Contents
 - **Rationale:** A per-request `num_ctx` makes Ollama silently reload the model.
 - **Caveats:**
   - `OllamaSettings.worker_model` and `orchestrator_model` are no longer read anywhere (the CLI banner that displayed them was removed; see [adr-cli-ux](#adr-cli-ux)). Changing them does not change the model; edit the Modelfile and re-run `ollama create`.
-  - `OllamaSettings.num_parallel` and `max_loaded_models` are never read, so they are dead config. The real values are Ollama server environment variables (see RUNBOOK).
+  - `OllamaSettings.num_parallel` and `max_loaded_models` were removed in 2026-10: they were never read. Old `.env` files that still set them load with one `ollama_retired_settings_ignored` warning. The real values are the Ollama server variables (RUNBOOK §1), checked by `alphaswarm doctor`.
 
 ### <a id="adr-output-caps"></a>Explicit output caps at every call site
 - **Decision:** Every `chat`/`chat_structured` call passes `max_tokens`. The values live in `inference/caps.py` (worker decision 400, decision narrative 400, interview reply 600 and summary 300, seed 1024, modifiers 1024), except the report narrative (1200, `report.py`) and the advisory (3000, `advisory/engine.py`), which sit next to their prompts. Ollama receives the cap as `num_predict` on each request; the Modelfiles keep `num_predict` 400 (worker) and 4096 (orchestrator) as fallbacks. Anthropic defaults: 512 for the worker role, 8192 for the orchestrator.
