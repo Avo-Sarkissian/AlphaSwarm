@@ -632,7 +632,7 @@ def test_round1_result_is_frozen() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_sanitize_rationale_in_utils() -> None:
+def test_sanitize_rationale_in_security_sanitize() -> None:
     """sanitize_rationale in security/sanitize.py works identically to old _sanitize_rationale."""
     from alphaswarm.security.sanitize import sanitize_rationale
 
