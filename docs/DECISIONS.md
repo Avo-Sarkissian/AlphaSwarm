@@ -687,9 +687,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p37-d-06"></a>`D-06` | account_* values become sha256 first-8 hashes; other sensitive values become [REDACTED]. | active | logging.py:49,197,201; security/hashing.py:4; tests/test_pii_redaction.py:3,31 |
 | <a id="p37-d-07"></a>`D-07` | Redaction fails closed: on processor error, drop the event and emit a marker with no user data. | active | logging.py:5,184,197,203; tests/test_pii_redaction.py:3,196 |
 | <a id="p37-d-08"></a>`D-08` | Redaction verified by Hypothesis property tests plus tabular cases. | active | tests/test_pii_redaction.py:3,284,363 |
-| <a id="p37-d-09"></a>`D-09` | pytest-socket --disable-socket globally. | active | tests/test_network_gate.py:21 |
-| <a id="p37-d-10"></a>`D-10` | No loopback exemption; integration tests opt in explicitly. | active | tests/test_network_gate.py:28 |
-| <a id="p37-d-12"></a>`D-12` | tests/integration/ auto-applied enable_socket; one-off opt-in via marker. | superseded (2026-10: marker-based gating, [adr-test-network-gate](#adr-test-network-gate); the path hook is deleted) | tests/test_network_gate.py:43 |
+| <a id="p37-d-09"></a>`D-09` | pytest-socket --disable-socket globally. | active | tests/test_network_gate.py:17 |
+| <a id="p37-d-10"></a>`D-10` | No loopback exemption; integration tests opt in explicitly. | active | tests/test_network_gate.py:23 |
+| <a id="p37-d-12"></a>`D-12` | tests/integration/ auto-applied enable_socket; one-off opt-in via marker. | superseded (2026-10: marker-based gating, [adr-test-network-gate](#adr-test-network-gate); the path hook is deleted) | tests/test_network_gate.py:30 |
 | <a id="p37-d-13"></a>`D-13` | ASCII sentinel holdings (SNTL_CANARY_*) make leaks greppable. | active | tests/invariants/conftest.py:3,29,60 |
 | <a id="p37-d-14"></a>`D-14` | Canary runs a pipeline with a sentinel portfolio and asserts no sentinel appears anywhere. | active | tests/invariants/conftest.py:60; tests/invariants/test_holdings_isolation.py:1 |
 | <a id="p37-d-15"></a>`D-15` | Leak detection across four surfaces: logs, Neo4j, WebSocket frames, worker prompts. | active | tests/invariants/conftest.py:4; tests/invariants/test_holdings_isolation.py:1,100 |
