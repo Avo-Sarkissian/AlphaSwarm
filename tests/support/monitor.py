@@ -23,7 +23,7 @@ def reading(
     """A MemoryReading whose thresholds come from ``settings`` (defaults 80/90/60)."""
     s = settings if settings is not None else GovernorSettings()
     return MemoryReading(
-        psutil_percent=percent,
+        used_percent=percent,
         pressure_level=pressure,
         timestamp=time.monotonic(),
         throttle_threshold=s.memory_throttle_percent,

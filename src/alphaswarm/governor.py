@@ -349,7 +349,7 @@ class ResourceGovernor:
             "governor_transition_context",
             old_state=old.value,
             new_state=new.value,
-            memory_percent=reading.psutil_percent,
+            memory_percent=reading.used_percent,
             **context,
         )
 
@@ -476,9 +476,9 @@ class ResourceGovernor:
         - CRISIS: green -> RECOVERING (reset to baseline), timeout -> raise error
         - RECOVERING: crisis -> CRISIS, at baseline -> RUNNING
         """
-        self._peak_memory_percent = max(self._peak_memory_percent, reading.psutil_percent)
+        self._peak_memory_percent = max(self._peak_memory_percent, reading.used_percent)
         old_state = self._state
-        reason = f"sysctl={reading.pressure_level.value}, psutil={reading.psutil_percent:.1f}%"
+        reason = f"sysctl={reading.pressure_level.value}, psutil={reading.used_percent:.1f}%"
 
         if self._state == GovernorState.RUNNING:
             await self._handle_running(reading)
@@ -513,7 +513,7 @@ class ResourceGovernor:
                     current_slots=self._pool.current_limit,
                     active_count=self._active_count,
                     pressure_level=reading.pressure_level.value,
-                    memory_percent=reading.psutil_percent,
+                    memory_percent=reading.used_percent,
                     governor_state=self._state.value,
                     timestamp=time.monotonic(),
                 )

@@ -54,7 +54,7 @@ class MemoryReading:
     (throttle, pause) only apply when pressure_level is GREEN.
     """
 
-    psutil_percent: float
+    used_percent: float
     pressure_level: PressureLevel
     timestamp: float  # monotonic
     throttle_threshold: float
@@ -72,7 +72,7 @@ class MemoryReading:
 
         sysctl is master: if crisis, this returns False even if psutil is high.
         """
-        return not self.is_crisis and self.psutil_percent >= self.throttle_threshold
+        return not self.is_crisis and self.used_percent >= self.throttle_threshold
 
     @property
     def is_pause_zone(self) -> bool:
@@ -80,14 +80,14 @@ class MemoryReading:
 
         sysctl is master: if crisis, this returns False even if psutil is high.
         """
-        return not self.is_crisis and self.psutil_percent >= self.pause_threshold
+        return not self.is_crisis and self.used_percent >= self.pause_threshold
 
     @property
     def is_scale_up_eligible(self) -> bool:
         """True when psutil < scale_up threshold AND kernel says GREEN."""
         return (
             not self.is_crisis
-            and self.psutil_percent < self.scale_up_threshold
+            and self.used_percent < self.scale_up_threshold
             and self.pressure_level == PressureLevel.GREEN
         )
 
@@ -171,7 +171,7 @@ class MemoryMonitor:
         psutil_pct = await self.read_psutil_percent()
         pressure = await self.read_macos_pressure()
         return MemoryReading(
-            psutil_percent=psutil_pct,
+            used_percent=psutil_pct,
             pressure_level=pressure,
             timestamp=time.monotonic(),
             throttle_threshold=self._settings.memory_throttle_percent,

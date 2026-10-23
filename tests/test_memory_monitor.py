@@ -150,12 +150,12 @@ class TestMemoryReading:
 
     def _reading(
         self,
-        psutil_percent: float = 50.0,
+        used_percent: float = 50.0,
         pressure_level: PressureLevel = PressureLevel.GREEN,
     ) -> MemoryReading:
         """Helper to create a MemoryReading with default thresholds."""
         return MemoryReading(
-            psutil_percent=psutil_percent,
+            used_percent=used_percent,
             pressure_level=pressure_level,
             timestamp=0.0,
             throttle_threshold=80.0,
@@ -164,68 +164,68 @@ class TestMemoryReading:
         )
 
     def test_is_throttle_zone_true_when_psutil_ge_80_and_green(self) -> None:
-        r = self._reading(psutil_percent=80.0, pressure_level=PressureLevel.GREEN)
+        r = self._reading(used_percent=80.0, pressure_level=PressureLevel.GREEN)
         assert r.is_throttle_zone is True
 
     def test_is_throttle_zone_false_when_psutil_below_80(self) -> None:
-        r = self._reading(psutil_percent=79.9)
+        r = self._reading(used_percent=79.9)
         assert r.is_throttle_zone is False
 
     def test_is_pause_zone_true_when_psutil_ge_90_and_green(self) -> None:
-        r = self._reading(psutil_percent=90.0, pressure_level=PressureLevel.GREEN)
+        r = self._reading(used_percent=90.0, pressure_level=PressureLevel.GREEN)
         assert r.is_pause_zone is True
 
     def test_is_pause_zone_false_when_psutil_below_90(self) -> None:
-        r = self._reading(psutil_percent=89.9)
+        r = self._reading(used_percent=89.9)
         assert r.is_pause_zone is False
 
     def test_is_crisis_true_when_yellow(self) -> None:
-        r = self._reading(psutil_percent=50.0, pressure_level=PressureLevel.YELLOW)
+        r = self._reading(used_percent=50.0, pressure_level=PressureLevel.YELLOW)
         assert r.is_crisis is True
 
     def test_is_crisis_true_when_red(self) -> None:
-        r = self._reading(psutil_percent=50.0, pressure_level=PressureLevel.RED)
+        r = self._reading(used_percent=50.0, pressure_level=PressureLevel.RED)
         assert r.is_crisis is True
 
     def test_is_crisis_false_when_green(self) -> None:
-        r = self._reading(psutil_percent=95.0, pressure_level=PressureLevel.GREEN)
+        r = self._reading(used_percent=95.0, pressure_level=PressureLevel.GREEN)
         assert r.is_crisis is False
 
     def test_is_scale_up_eligible_true_when_low_and_green(self) -> None:
-        r = self._reading(psutil_percent=55.0, pressure_level=PressureLevel.GREEN)
+        r = self._reading(used_percent=55.0, pressure_level=PressureLevel.GREEN)
         assert r.is_scale_up_eligible is True
 
     def test_is_scale_up_eligible_false_when_psutil_high(self) -> None:
-        r = self._reading(psutil_percent=65.0, pressure_level=PressureLevel.GREEN)
+        r = self._reading(used_percent=65.0, pressure_level=PressureLevel.GREEN)
         assert r.is_scale_up_eligible is False
 
     def test_is_scale_up_eligible_false_when_yellow(self) -> None:
-        r = self._reading(psutil_percent=30.0, pressure_level=PressureLevel.YELLOW)
+        r = self._reading(used_percent=30.0, pressure_level=PressureLevel.YELLOW)
         assert r.is_scale_up_eligible is False
 
     # --- Dual-signal precedence tests ---
 
     def test_crisis_overrides_throttle_zone(self) -> None:
         """sysctl=YELLOW, psutil=75% => is_crisis=True, is_throttle_zone=False."""
-        r = self._reading(psutil_percent=75.0, pressure_level=PressureLevel.YELLOW)
+        r = self._reading(used_percent=75.0, pressure_level=PressureLevel.YELLOW)
         assert r.is_crisis is True
         assert r.is_throttle_zone is False
 
     def test_crisis_overrides_pause_zone(self) -> None:
         """sysctl=RED, psutil=85% => is_crisis=True, is_pause_zone=False."""
-        r = self._reading(psutil_percent=85.0, pressure_level=PressureLevel.RED)
+        r = self._reading(used_percent=85.0, pressure_level=PressureLevel.RED)
         assert r.is_crisis is True
         assert r.is_pause_zone is False
 
     def test_crisis_yellow_high_psutil_overrides_throttle(self) -> None:
         """sysctl=YELLOW, psutil=85% => is_crisis=True, is_throttle_zone=False."""
-        r = self._reading(psutil_percent=85.0, pressure_level=PressureLevel.YELLOW)
+        r = self._reading(used_percent=85.0, pressure_level=PressureLevel.YELLOW)
         assert r.is_crisis is True
         assert r.is_throttle_zone is False
 
     def test_green_high_psutil_is_throttle_not_crisis(self) -> None:
         """sysctl=GREEN, psutil=85% => is_crisis=False, is_throttle_zone=True."""
-        r = self._reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN)
+        r = self._reading(used_percent=85.0, pressure_level=PressureLevel.GREEN)
         assert r.is_crisis is False
         assert r.is_throttle_zone is True
 
@@ -347,8 +347,15 @@ class TestMemoryMonitor:
             mock_psutil.virtual_memory.return_value = mock_vmem
             result = await monitor.read_combined()
         assert isinstance(result, MemoryReading)
-        assert result.psutil_percent == 65.0
+        assert result.used_percent == 65.0
         assert result.pressure_level == PressureLevel.GREEN
         assert result.throttle_threshold == 80.0
         assert result.pause_threshold == 90.0
         assert result.scale_up_threshold == 60.0
+
+
+def test_memory_reading_names_the_figure_used_percent() -> None:
+    """The figure is the kernel's on macOS (docs/DECISIONS.md#p3-d-12), so the name is neutral."""
+    from dataclasses import fields
+
+    assert [f.name for f in fields(MemoryReading)][0] == "used_percent"
