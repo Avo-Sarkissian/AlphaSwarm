@@ -82,7 +82,7 @@ class ResourceGovernor:
     limiter through a 5-state machine: RUNNING, THROTTLED, PAUSED, CRISIS,
     RECOVERING.
 
-    Constructor (contracts C-TEST-15):
+    Constructor:
         ResourceGovernor(settings=None, *, state_store=None, monitor=None)
     ``monitor`` defaults to ``MemoryMonitor(settings)``; tests pass a scripted reader.
     """

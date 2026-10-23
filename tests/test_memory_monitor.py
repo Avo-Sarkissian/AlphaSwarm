@@ -246,7 +246,7 @@ def test_memory_reading_names_the_figure_used_percent() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Kernel signal via ctypes, psutil fallback (T11.3; docs/DECISIONS.md#p3-d-12)
+# Kernel signal via ctypes, psutil fallback (docs/DECISIONS.md#p3-d-12)
 # ---------------------------------------------------------------------------
 
 
@@ -319,7 +319,7 @@ class TestKernelSignal:
         assert (r.throttle_threshold, r.pause_threshold, r.scale_up_threshold) == (80.0, 90.0, 60.0)
 
     async def test_non_macos_uses_psutil_and_never_calls_sysctl(self) -> None:
-        """Review Focus 2: glibc has no sysctlbyname; Linux/CI must never touch it."""
+        """glibc has no sysctlbyname; Linux/CI must never touch it."""
 
         def _explode(name: str) -> int:
             raise AssertionError(f"sysctl called off macOS: {name}")
@@ -337,7 +337,7 @@ class TestKernelSignal:
         assert MemoryMonitor(GovernorSettings()).signal_source == "kernel"
 
     async def test_reads_never_spawn_a_subprocess(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """P6.4 verify: zero sysctl subprocesses during a run (was ~1,800 forks per hour)."""
+        """Zero sysctl subprocesses during a run (was ~1,800 forks per hour)."""
         import subprocess
 
         async def _no_exec(*args: object, **kwargs: object) -> None:

@@ -130,7 +130,12 @@ class MemoryReading:
 
 @runtime_checkable
 class MemoryReader(Protocol):
-    """Anything that produces a combined MemoryReading (contracts C-TEST-15)."""
+    """Anything that produces a combined MemoryReading.
+
+    ResourceGovernor depends on this protocol rather than on MemoryMonitor, so
+    tests can drive the real state machine with scripted readings
+    (docs/DECISIONS.md#adr-governor).
+    """
 
     async def read_combined(self) -> MemoryReading: ...
 
@@ -154,7 +159,7 @@ class MemoryMonitor:
         self._kernel = (sys.platform == "darwin") if kernel is None else kernel
         self._sysctl = sysctl
         self._psutil_percent = psutil_percent
-        # Last successfully-read pressure level, for fail-stale reads (F-17).
+        # Last successfully-read pressure level, for fail-stale reads (docs/DECISIONS.md#f-17).
         self._last_pressure: PressureLevel = PressureLevel.GREEN
         self._warned: set[str] = set()
 
@@ -163,7 +168,7 @@ class MemoryMonitor:
         return "kernel" if self._kernel else "psutil"
 
     def _warn_once(self, event: str, **context: object) -> None:
-        """Log a degraded read once per monitor, not every 2 s (T11.3 step 3)."""
+        """Log a degraded read once per monitor, not every 2 s (docs/DECISIONS.md#p3-d-12)."""
         if event not in self._warned:
             self._warned.add(event)
             log.warning(event, **context)
@@ -191,7 +196,7 @@ class MemoryMonitor:
         try:
             raw = self._sysctl(PRESSURE_LEVEL_SYSCTL)
         except OSError as exc:
-            # Fail-stale: a failed read must not clear an active crisis (F-17).
+            # Fail-stale: a failed read must not clear an active crisis (docs/DECISIONS.md#f-17).
             self._warn_once(
                 "pressure_level_read_failed",
                 sysctl=PRESSURE_LEVEL_SYSCTL,
