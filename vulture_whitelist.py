@@ -9,3 +9,4 @@ only for a parameter or name an external protocol requires, with the reason.
 
 cls  # @classmethod and pydantic validators (holdings/loader.py, evaluation.py, routes/settings.py)
 method_name  # structlog processor signature (logging.py: pii_redaction_processor)
+tb  # async context manager __aexit__ signature (governor.py, inference/concurrency.py, inference/rate_limit.py)

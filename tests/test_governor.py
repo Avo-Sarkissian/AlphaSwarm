@@ -226,6 +226,25 @@ class TestResourceGovernorBasic:
         assert gov.active_count == 0
 
 
+async def test_context_manager_failure_does_not_reset_crisis_clock() -> None:
+    """A failed call must not count as a success (docs/DECISIONS.md#p3-d-08)."""
+    gov = ResourceGovernor(GovernorSettings(baseline_parallel=2))
+    gov._last_successful_inference = -1.0
+    with pytest.raises(RuntimeError):
+        async with gov:
+            raise RuntimeError("model call failed")
+    assert gov._last_successful_inference == -1.0
+    assert gov.active_count == 0
+
+
+async def test_context_manager_success_resets_crisis_clock() -> None:
+    gov = ResourceGovernor(GovernorSettings(baseline_parallel=2))
+    gov._last_successful_inference = -1.0
+    async with gov:
+        pass
+    assert gov._last_successful_inference > -1.0
+
+
 # ---------------------------------------------------------------------------
 # State transition tests
 # ---------------------------------------------------------------------------
