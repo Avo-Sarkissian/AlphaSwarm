@@ -517,5 +517,5 @@ def persona_to_worker_config(persona: AgentPersona) -> WorkerPersonaConfig:
         influence_weight=persona.influence_weight_base,
         temperature=persona.temperature,
         system_prompt=persona.system_prompt,
-        risk_profile=str(persona.risk_profile),
+        risk_profile=persona.risk_profile,
     )

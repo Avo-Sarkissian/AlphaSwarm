@@ -32,7 +32,7 @@ def _persona(agent_id: str, bracket: str) -> WorkerPersonaConfig:
         "influence_weight": 0.5,
         "temperature": 0.5,
         "system_prompt": "p",
-        "risk_profile": "0.5",
+        "risk_profile": 0.5,
     }
 
 

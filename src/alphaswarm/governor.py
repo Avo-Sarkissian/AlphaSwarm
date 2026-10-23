@@ -33,7 +33,7 @@ log = structlog.get_logger(component="governor")
 # ---------------------------------------------------------------------------
 
 
-class GovernorState(enum.Enum):
+class GovernorState(enum.StrEnum):
     """State machine states for ResourceGovernor."""
 
     RUNNING = "running"

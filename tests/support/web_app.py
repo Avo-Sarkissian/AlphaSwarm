@@ -6,6 +6,7 @@ Every value here is fictional.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
@@ -167,11 +168,31 @@ def runtime_for(app_state: AppState) -> Runtime:
     )
 
 
+def with_stub_ollama(runtime: Runtime) -> Runtime:
+    """*runtime* whose InferenceRuntime has a stub OllamaClient.
+
+    inference.factory refuses to build a local role without a client, and route
+    tests never chat with the provider. ``app_state.ollama_client`` is left as it
+    is, so health and readiness checks are unchanged.
+    """
+    return dataclasses.replace(
+        runtime,
+        inference=InferenceRuntime(
+            runtime.settings,
+            ollama_client=MagicMock(name="OllamaClient"),
+            model_manager=runtime.app_state.model_manager,
+        ),
+    )
+
+
 def offline_runtime(settings: AppSettings, *, graph: object | None = None) -> Runtime:
-    """build_runtime without Ollama or Neo4j; *graph* (a fake) becomes the graph manager."""
+    """build_runtime without Ollama or Neo4j; *graph* (a fake) becomes the graph manager.
+
+    The InferenceRuntime gets a stub OllamaClient (see ``with_stub_ollama``).
+    """
     runtime = build_runtime(settings, with_ollama=False, with_neo4j=False)
     runtime.app_state.graph_manager = graph  # type: ignore[assignment]
-    return runtime_for(runtime.app_state)
+    return with_stub_ollama(runtime_for(runtime.app_state))
 
 
 def offline_runtime_factory(

@@ -40,7 +40,7 @@ def _make_interview_test_app() -> FastAPI:
     from alphaswarm.web.replay_manager import ReplayManager
     from alphaswarm.web.routes.interview import router as interview_router
     from alphaswarm.web.simulation_manager import SimulationManager
-    from tests.support.web_app import runtime_for
+    from tests.support.web_app import runtime_for, with_stub_ollama
 
     @asynccontextmanager
     async def _interview_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -60,7 +60,7 @@ def _make_interview_test_app() -> FastAPI:
         connection_manager = ConnectionManager()
 
         app.state.app_state = app_state
-        app.state.runtime = runtime_for(app_state)
+        app.state.runtime = with_stub_ollama(runtime_for(app_state))
         app.state.sim_manager = sim_manager
         app.state.replay_manager = replay_manager
         app.state.connection_manager = connection_manager

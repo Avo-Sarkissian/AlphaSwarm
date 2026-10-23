@@ -40,7 +40,7 @@ def persona() -> WorkerPersonaConfig:
         influence_weight=0.7,
         temperature=0.3,
         system_prompt="You are a quantitative analyst. Analyze data and form opinions.",
-        risk_profile="0.4",
+        risk_profile=0.4,
     )
 
 

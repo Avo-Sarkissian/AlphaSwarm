@@ -138,7 +138,7 @@ def sample_personas() -> list[WorkerPersonaConfig]:
             influence_weight=0.7,
             temperature=0.3,
             system_prompt="test",
-            risk_profile="0.4",
+            risk_profile=0.4,
         ),
         WorkerPersonaConfig(
             agent_id="quants_02",
@@ -146,7 +146,7 @@ def sample_personas() -> list[WorkerPersonaConfig]:
             influence_weight=0.7,
             temperature=0.3,
             system_prompt="test",
-            risk_profile="0.4",
+            risk_profile=0.4,
         ),
         WorkerPersonaConfig(
             agent_id="degens_01",
@@ -154,7 +154,7 @@ def sample_personas() -> list[WorkerPersonaConfig]:
             influence_weight=0.3,
             temperature=1.2,
             system_prompt="test",
-            risk_profile="0.95",
+            risk_profile=0.95,
         ),
         WorkerPersonaConfig(
             agent_id="degens_02",
@@ -162,7 +162,7 @@ def sample_personas() -> list[WorkerPersonaConfig]:
             influence_weight=0.3,
             temperature=1.2,
             system_prompt="test",
-            risk_profile="0.95",
+            risk_profile=0.95,
         ),
     ]
 

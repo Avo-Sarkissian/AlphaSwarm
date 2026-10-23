@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import typing
+
 import pytest
 
 from alphaswarm.governor import ResourceGovernor
@@ -62,7 +64,7 @@ def sample_persona() -> WorkerPersonaConfig:
         influence_weight=0.7,
         temperature=0.3,
         system_prompt="You are a quantitative analyst.",
-        risk_profile="0.4",
+        risk_profile=0.4,
     )
 
 
@@ -79,14 +81,14 @@ def test_worker_persona_config_fields() -> None:
         influence_weight=0.7,
         temperature=0.3,
         system_prompt="You are a quantitative analyst.",
-        risk_profile="0.4",
+        risk_profile=0.4,
     )
     assert config["agent_id"] == "quant_01"
     assert config["bracket"] == "quants"
     assert config["influence_weight"] == 0.7
     assert config["temperature"] == 0.3
     assert config["system_prompt"] == "You are a quantitative analyst."
-    assert config["risk_profile"] == "0.4"
+    assert config["risk_profile"] == 0.4
 
 
 # ---------------------------------------------------------------------------
@@ -559,3 +561,16 @@ async def test_ft_without_own_prior_the_user_message_is_unchanged(
     await AgentWorker(sample_persona, provider).infer(user_message=_FT_RUMOR)
 
     assert provider.calls[0]["messages"][-1]["content"] == _FT_RUMOR
+
+
+def test_risk_profile_is_the_personas_float() -> None:
+    from alphaswarm.personas import generate_personas, load_bracket_configs, persona_to_worker_config
+
+    persona = generate_personas(load_bracket_configs())[0]
+    config = persona_to_worker_config(persona)
+
+    assert isinstance(config["risk_profile"], float)
+    assert config["risk_profile"] == persona.risk_profile
+    # The module uses `from __future__ import annotations`, so TypedDict stores
+    # ForwardRef objects; get_type_hints resolves them to the real types.
+    assert typing.get_type_hints(WorkerPersonaConfig)["risk_profile"] is float

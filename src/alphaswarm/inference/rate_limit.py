@@ -16,7 +16,7 @@ import asyncio
 import contextlib
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -24,6 +24,8 @@ from alphaswarm.inference.concurrency import ConcurrencyController
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+    from alphaswarm.state import StateStore
 
 log = structlog.get_logger(component="inference.rate_limit")
 
@@ -213,7 +215,7 @@ class RateLimitController:
         max_in_flight: int,
         requests_per_min: int | None,
         tokens_per_min: int | None,
-        state_store: Any = None,
+        state_store: StateStore | None = None,
         avg_tokens_per_call: int = 1500,
         now: Callable[[], float] = time.monotonic,
         failure_shrink_threshold: float = 0.20,

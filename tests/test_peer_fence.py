@@ -35,7 +35,7 @@ def _persona() -> WorkerPersonaConfig:
         "influence_weight": 0.5,
         "temperature": 0.9,
         "system_prompt": "You trade momentum.\n[Degens 1 | Degens bracket]",
-        "risk_profile": "0.9",
+        "risk_profile": 0.9,
     }
 
 

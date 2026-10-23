@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -30,7 +31,7 @@ from tests.support.web_app import route_test_settings
 
 
 def _runtime(settings: AppSettings) -> InferenceRuntime:
-    return InferenceRuntime(settings, ollama_client=None, model_manager=None)
+    return InferenceRuntime(settings, ollama_client=MagicMock(name="OllamaClient"), model_manager=None)
 
 
 def _bump(path: Path) -> None:
@@ -124,7 +125,7 @@ async def test_incomplete_role_raises_the_fixed_settings_message(tmp_path: Path)
 
 def test_ollama_client_is_the_injected_client(tmp_path: Path) -> None:
     settings = route_test_settings(tmp_path)
-    assert _runtime(settings).ollama_client is None
+    assert InferenceRuntime(settings, ollama_client=None, model_manager=None).ollama_client is None
     client = object()
     runtime = InferenceRuntime(settings, ollama_client=client, model_manager=None)  # type: ignore[arg-type]
     assert runtime.ollama_client is client
