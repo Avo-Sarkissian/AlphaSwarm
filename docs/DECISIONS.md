@@ -628,7 +628,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p14-d-08"></a>`D-08` | Interview history keeps up to 12 user/assistant pairs; past that the oldest 6 are summarized in one call. A turn is committed only after the provider answers. Revised 2026-10 (was a 10-pair window trimmed one pair per turn). | revised | interview.py:172,230 |
 | <a id="p14-d-09"></a>`D-09` | Dropped turns summarised into a prepended system message. | active | interview.py:216 |
 | <a id="p14-d-10"></a>`D-10` | Summary produced by the same worker model. | active | interview.py:259 |
-| <a id="p14-d-13"></a>`D-13` | Interviews bypass the governor and use only the worker provider (`InferenceRuntime.open_role`); no orchestrator client is built. Revised 2026-10 (was OllamaClient.chat directly, then a full provider pair of which only the worker was used). | revised | web/routes/interview.py:interview_chat; services/runtime.py:InferenceRuntime.open_role |
+| <a id="p14-d-13"></a>`D-13` | Interviews bypass the governor and use only the worker provider (`InferenceRuntime.open_role`); no orchestrator client is built. Revised 2026-10 (was OllamaClient.chat directly, then a full provider pair of which only the worker was used). | revised | web/routes/interview.py:interview_agent; services/runtime.py:InferenceRuntime.open_role |
 
 ### Phase 15: Post-simulation report (ReAct)
 
