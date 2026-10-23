@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -65,7 +66,7 @@ def test_all_components_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     with TestClient(_app(tmp_path, monkeypatch, probes)) as client:
         data = client.get("/api/health").json()
     assert data["status"] == "ok"
-    assert set(data["components"]) == {"neo4j", "ollama", "aliases"}
+    assert set(data["components"]) == {"neo4j", "ollama", "aliases", "inference_config"}
     assert data["components"]["neo4j"] == {
         "ok": True,
         "required": True,
@@ -134,3 +135,102 @@ def test_live_endpoint_does_not_probe(tmp_path: Path, monkeypatch: pytest.Monkey
     with TestClient(_app(tmp_path, monkeypatch, probes)) as client:
         assert client.get("/api/health/live").json() == {"status": "ok"}
     assert probes.neo4j_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# inference_config: the stored file is reported, never rewritten
+# ---------------------------------------------------------------------------
+
+
+def _inference_config(client: TestClient) -> tuple[str, dict[str, Any]]:
+    data = client.get("/api/health").json()
+    return data["status"], data["components"]["inference_config"]
+
+
+def test_no_stored_config_is_ok_with_local_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    with TestClient(_app(tmp_path, monkeypatch, _Probes())) as client:
+        status, component = _inference_config(client)
+    assert status == "ok"
+    assert component == {
+        "ok": True,
+        "required": True,
+        "detail": "no file: local defaults",
+        "fix": None,
+        "missing": [],
+    }
+
+
+def test_valid_stored_config_is_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = _app(tmp_path, monkeypatch, _Probes())
+    local = RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-worker")
+    save_inference_config(InferenceConfig(orchestrator=local, worker=local), tmp_path / "inference.json")
+    with TestClient(app) as client:
+        status, component = _inference_config(client)
+    assert (status, component["ok"], component["detail"]) == ("ok", True, "stored file")
+
+
+def test_rejected_stored_config_is_degraded_naming_keys_not_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = _app(tmp_path, monkeypatch, _Probes())
+    stored = tmp_path / "inference.json"
+    raw = json.dumps(
+        {
+            "orchestrator": {"provider": "anthropic", "model": "claude-test", "apikey": "sk-typo-secret-5678"},
+            "worker": {"provider": "ollama", "model": "alphaswarm-worker"},
+            "spend_cap": "5",
+            "limits": {"anthropic": {"requests_per_min": 0}},
+        }
+    )
+    stored.write_text(raw, encoding="utf-8")
+    with TestClient(app) as client:
+        r = client.get("/api/health")
+    status, component = r.json()["status"], r.json()["components"]["inference_config"]
+    assert status == "degraded"
+    assert component["ok"] is False
+    assert component["required"] is True
+    assert "orchestrator.apikey extra_forbidden" in component["detail"]
+    assert "spend_cap extra_forbidden" in component["detail"]
+    assert "limits.anthropic.requests_per_min greater_than_equal" in component["detail"]
+    assert "ALPHASWARM_INFERENCE_CONFIG_PATH" in component["fix"]
+    assert "sk-typo-secret-5678" not in r.text
+    assert str(tmp_path) not in r.text
+    assert stored.read_text(encoding="utf-8") == raw  # never rewritten
+
+
+def test_corrupt_stored_config_is_degraded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = _app(tmp_path, monkeypatch, _Probes())
+    (tmp_path / "inference.json").write_text('{"api_key": "sk-cut-secret', encoding="utf-8")
+    with TestClient(app) as client:
+        r = client.get("/api/health")
+    component = r.json()["components"]["inference_config"]
+    assert (r.json()["status"], component["ok"], component["detail"]) == (
+        "degraded",
+        False,
+        "rejected: (root) json_invalid",
+    )
+    assert "sk-cut-secret" not in r.text
+
+
+def test_unreadable_stored_config_is_degraded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _denied(*_: object, **__: object) -> InferenceConfig:
+        raise PermissionError(13, "Permission denied", str(tmp_path / "inference.json"))
+
+    monkeypatch.setattr(health_module, "load_inference_config", _denied)
+    with TestClient(_app(tmp_path, monkeypatch, _Probes())) as client:
+        r = client.get("/api/health")
+    component = r.json()["components"]["inference_config"]
+    assert (component["ok"], component["detail"]) == (False, "unreadable (PermissionError)")
+    assert str(tmp_path) not in r.text
+
+
+def test_inference_config_is_not_cached(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fixing the file shows up on the next poll, not after the probe cache expires."""
+    clock = [1000.0]
+    monkeypatch.setattr(health_module, "_clock", lambda: clock[0])
+    stored = tmp_path / "inference.json"
+    with TestClient(_app(tmp_path, monkeypatch, _Probes())) as client:
+        stored.write_text("{", encoding="utf-8")
+        assert _inference_config(client)[1]["ok"] is False
+        stored.unlink()
+        assert _inference_config(client)[1]["ok"] is True

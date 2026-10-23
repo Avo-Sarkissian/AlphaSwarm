@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from alphaswarm.config import InferenceConfig, load_inference_config
-from alphaswarm.errors import InferenceConfigError
+from alphaswarm.errors import INFERENCE_CONFIG_INVALID_MESSAGE, InferenceConfigError
 from alphaswarm.web.errors import ApiError
 
 if TYPE_CHECKING:
@@ -133,6 +133,4 @@ def job_config_error(exc: Exception, *, job: JobKind, cycle_id: str) -> Inferenc
         cycle_id=cycle_id,
         error_type=type(exc).__name__,
     )
-    return InferenceConfigError(
-        "The saved inference configuration is invalid. Open Settings and save a valid configuration."
-    )
+    return InferenceConfigError(INFERENCE_CONFIG_INVALID_MESSAGE)

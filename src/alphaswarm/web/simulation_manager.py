@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.errors import InferenceConfigError, run_error_from_exception
+from alphaswarm.errors import INFERENCE_CONFIG_INVALID_MESSAGE, InferenceConfigError, run_error_from_exception
 from alphaswarm.types import SimulationPhase
 
 if TYPE_CHECKING:
@@ -194,9 +194,7 @@ class SimulationManager:
                 # values, API keys included, so neither the UI nor the log gets
                 # it (docs/DECISIONS.md#adr-local-first-inference).
                 log.error("inference_config_invalid", error_type=type(exc).__name__)
-                raise InferenceConfigError(
-                    "The saved inference configuration is invalid. Open Settings and save a valid configuration."
-                ) from None
+                raise InferenceConfigError(INFERENCE_CONFIG_INVALID_MESSAGE) from None
             controller = build_controller(
                 cfg,
                 self._app_state.settings.governor,

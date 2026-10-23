@@ -178,6 +178,29 @@ class InferenceConfigError(AlphaSwarmError):
     """The persisted inference configuration could not be loaded or built."""
 
 
+# Shown wherever the stored inference config stops a run, a report or an
+# advisory. Settings cannot open an invalid file either, so the fix is the file
+# itself (docs/DECISIONS.md#adr-local-first-inference).
+INFERENCE_CONFIG_INVALID_MESSAGE: Final = (
+    "The saved inference configuration is invalid. Fix or move aside the file named by "
+    "ALPHASWARM_INFERENCE_CONFIG_PATH (the health check lists the rejected keys), then save "
+    "Settings again."
+)
+
+
+class InferenceConfigFileError(ValueError):
+    """The stored inference config file fails the strict config models.
+
+    ``problems`` lists each rejected key path and error type and never a value;
+    the message adds the file path. A ValueError, so every caller that treats an
+    invalid config as ValueError keeps doing so.
+    """
+
+    def __init__(self, path: object, problems: str) -> None:
+        super().__init__(f"Invalid inference config at {path}: {problems}")
+        self.problems = problems
+
+
 class AgentNotFoundError(AlphaSwarmError):
     """The agent, or its persona, is unknown for this cycle.
 
@@ -285,6 +308,6 @@ def _describe(exc: BaseException) -> tuple[RunErrorCode, str]:
     if isinstance(exc, InferenceConfigError):
         return (
             "inference_config_invalid",
-            "The saved inference configuration is invalid. Open Settings and save a valid configuration.",
+            INFERENCE_CONFIG_INVALID_MESSAGE,
         )
     return ("internal_error", f"Unexpected {type(exc).__name__}. See the server log for details.")

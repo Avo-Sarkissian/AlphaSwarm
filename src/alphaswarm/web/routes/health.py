@@ -2,6 +2,10 @@
 
 `status` is "degraded" when any required component is not ok; the onboarding
 screen uses `components` to show what is down and the command that fixes it.
+The `inference_config` component reads the stored inference config on every
+request (no cache, so a fixed file shows up on the next poll); an invalid file
+is reported by key path and error type, never rewritten
+(docs/DECISIONS.md#adr-local-first-inference).
 When Neo4j comes back after a failed startup, the schema is applied once
 (docs/DECISIONS.md#p4-d-05).
 """
@@ -11,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 import psutil
 import structlog
@@ -20,8 +24,12 @@ from pydantic import BaseModel, Field
 
 from alphaswarm import __version__
 from alphaswarm.config import InferenceConfig, ProviderType, load_inference_config
+from alphaswarm.errors import InferenceConfigFileError
 from alphaswarm.inference.factory import inference_mode
 from alphaswarm.readiness import ComponentStatus, check_neo4j, check_ollama
+
+if TYPE_CHECKING:
+    from alphaswarm.config import AppSettings
 
 log = structlog.get_logger(component="web.health")
 
@@ -30,6 +38,11 @@ router = APIRouter()
 COMPONENT_CACHE_TTL_S: Final = 5.0
 # Indirection so tests can move the cache clock without patching time.monotonic globally.
 _clock: Callable[[], float] = time.monotonic
+
+INFERENCE_CONFIG_FIX: Final = (
+    "Fix or move aside the file named by ALPHASWARM_INFERENCE_CONFIG_PATH "
+    "(default .secrets/inference.json); Settings then opens and can save again"
+)
 
 
 class ComponentOut(BaseModel):
@@ -68,11 +81,11 @@ async def health(request: Request) -> HealthResponse:
     """Readiness: phase, memory, inference mode, spend and per-component status."""
     app_state = request.app.state.app_state
     snap = app_state.state_store.snapshot()
-    cfg: InferenceConfig | None = None
+    cfg, config_status = await asyncio.to_thread(_read_inference_config, app_state.settings)
     mode: Literal["local", "cloud", "mixed"] = "local"
     try:
-        cfg = await asyncio.to_thread(load_inference_config, app_state.settings)
-        mode = inference_mode(cfg)
+        if cfg is not None:
+            mode = inference_mode(cfg)
     except Exception:
         log.debug("health_check_inference_mode_fallback")
     spent: float | None = None
@@ -83,7 +96,7 @@ async def health(request: Request) -> HealthResponse:
     except Exception:
         log.debug("health_check_spent_usd_fallback")
 
-    components = await _components(request, cfg)
+    components = {**await _components(request, cfg), "inference_config": config_status}
     degraded = any(c.required and not c.ok for c in components.values())
     return HealthResponse(
         status="degraded" if degraded else "ok",
@@ -103,6 +116,34 @@ async def health(request: Request) -> HealthResponse:
             )
             for name, c in components.items()
         },
+    )
+
+
+def _read_inference_config(settings: AppSettings) -> tuple[InferenceConfig | None, ComponentStatus]:
+    """Blocking: load the stored inference config and describe it as a component.
+
+    The file is only read. The detail names key paths and error types, never a
+    value (the file holds API keys) or the file path.
+    """
+    path = settings.resolve_path(settings.inference_config_path)
+    try:
+        cfg = load_inference_config(settings, path)
+    except InferenceConfigFileError as exc:
+        return None, _inference_config_invalid(f"rejected: {exc.problems}")
+    except Exception as exc:
+        log.debug("health_check_inference_config_unreadable", error_type=type(exc).__name__)
+        return None, _inference_config_invalid(f"unreadable ({type(exc).__name__})")
+    detail = "stored file" if path.exists() else "no file: local defaults"
+    return cfg, ComponentStatus("inference_config", ok=True, required=True, detail=detail)
+
+
+def _inference_config_invalid(detail: str) -> ComponentStatus:
+    return ComponentStatus(
+        "inference_config",
+        ok=False,
+        required=True,
+        detail=detail,
+        fix=INFERENCE_CONFIG_FIX,
     )
 
 

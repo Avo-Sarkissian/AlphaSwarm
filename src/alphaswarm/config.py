@@ -17,6 +17,7 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from alphaswarm.errors import InferenceConfigFileError
 from alphaswarm.types import AgentPersona, BracketConfig, BracketType
 
 if TYPE_CHECKING:
@@ -373,11 +374,11 @@ def load_inference_config(
     try:
         return InferenceConfig.model_validate_json(raw)
     except ValidationError as exc:
-        problems = config_error_summary(exc)
-    raise ValueError(f"Invalid inference config at {target}: {problems}") from None
+        problems = _config_error_summary(exc)
+    raise InferenceConfigFileError(target, problems) from None
 
 
-def config_error_summary(exc: ValidationError) -> str:
+def _config_error_summary(exc: ValidationError) -> str:
     """``"<dotted key path> <error type>"`` per error, joined by ``"; "``; never input values."""
     parts = []
     for err in exc.errors(include_input=False, include_url=False):
