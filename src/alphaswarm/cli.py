@@ -343,34 +343,27 @@ async def _run_pipeline(
     personas: list[AgentPersona],
     brackets: list[BracketConfig],
     *,
-    orchestrator_provider: InferenceProvider | None = None,
-    worker_provider: InferenceProvider | None = None,
-    controller: ConcurrencyController | None = None,
+    orchestrator_provider: InferenceProvider,
+    worker_provider: InferenceProvider,
+    controller: ConcurrencyController,
     context_fixture: ContextPacket | None = None,
     market_context: bool = True,
 ) -> None:
     """Async pipeline: schema -> multi-round simulation -> final summary.
 
-    Per D-17: _run_pipeline calls run_simulation() instead of run_round1().
+    Per D-17: _run_pipeline runs the full multi-round simulation (run_simulation).
     Per D-14: reports print DURING simulation via on_round_complete callback.
     Addresses Gemini/Codex review: truly progressive output, not buffered.
 
-    Inference backend: when ``orchestrator_provider``/``worker_provider`` and
-    ``controller`` are injected (by ``_handle_run`` from the .secrets/inference.json
-    config), cloud backends (e.g. NVIDIA NIM) are honored — mirroring the web
-    simulation_manager. When omitted (the default / unit-test path), it falls
-    back to the local Ollama governor and lets ``run_simulation`` build Ollama
-    providers internally, preserving prior behavior exactly.
+    Providers and the controller are required: ``_handle_run`` builds them from
+    .secrets/inference.json with ``build_providers`` / ``build_controller``
+    (docs/DECISIONS.md#adr-round-runner).
     """
     import contextlib
 
-    from alphaswarm.simulation import run_simulation
+    from alphaswarm.simulation import SimulationDeps, run_simulation
 
     assert app.graph_manager is not None
-    assert app.ollama_client is not None
-    assert app.model_manager is not None
-
-    governor: ConcurrencyController = controller if controller is not None else app.governor
 
     try:
         await app.graph_manager.ensure_schema()
@@ -386,34 +379,33 @@ async def _run_pipeline(
         market_provider = YFinanceMarketDataProvider() if live else None
         news_provider = RSSNewsProvider() if live else None
 
+        deps = SimulationDeps(
+            settings=settings,
+            graph=app.graph_manager,
+            controller=controller,
+            orchestrator=orchestrator_provider,
+            worker=worker_provider,
+            state=app.state_store,
+            market=market_provider,
+            news=news_provider,
+            context_fixture=context_fixture,
+        )
         result = await run_simulation(
             rumor=rumor,
-            settings=settings,
-            ollama_client=app.ollama_client,
-            model_manager=app.model_manager,
-            graph_manager=app.graph_manager,
-            governor=governor,
+            deps=deps,
             personas=personas,
             brackets=brackets,
             on_round_complete=handler,
-            state_store=app.state_store,
-            market_provider=market_provider,
-            news_provider=news_provider,
-            orchestrator_provider=orchestrator_provider,
-            worker_provider=worker_provider,
-            context_fixture=context_fixture,
         )
 
         # Final summary (only this prints AFTER run_simulation returns)
         _print_simulation_summary(result, personas, brackets, num_rounds=settings.num_rounds)
 
     finally:
-        # Close injected cloud providers (httpx/anthropic clients). OllamaProvider
-        # and the None default treat aclose as a no-op / are skipped.
+        # Close the providers (httpx/anthropic clients); OllamaProvider.aclose is a no-op.
         for _provider in (orchestrator_provider, worker_provider):
-            if _provider is not None:
-                with contextlib.suppress(Exception):
-                    await _provider.aclose()
+            with contextlib.suppress(Exception):
+                await _provider.aclose()
         await app.graph_manager.close()
 
 

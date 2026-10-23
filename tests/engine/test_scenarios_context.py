@@ -99,20 +99,16 @@ async def test_market_context_reaches_round_1_only(
     assert HEADLINE in round_calls(scripted_worker, 1)[0].messages[-1]["content"]
 
 
-async def test_worker_lifecycle_two_sessions_d05(
+async def test_worker_lifecycle_single_session(
     run_scenario: RunScenario,
     scripted_worker: ScriptedProvider,
     scripted_orchestrator: ScriptedProvider,
     scenario_controller: ImmediateController,
-    fake_model_manager: MagicMock,
 ) -> None:
-    """Pins docs/DECISIONS.md#p7-d-05 and #p7-d-06 (worker reload and a fresh governor
-    session for rounds 2-3). It is kept out of the scenario goldens on purpose, so a
-    revision of that lifecycle rewrites only this test."""
+    """One worker load and one governor session for every round
+    (docs/DECISIONS.md#adr-round-runner, revising #p7-d-05 and #p7-d-06). Kept out of
+    the scenario goldens on purpose."""
     await run_scenario()
     assert (scripted_orchestrator.prepare_calls, scripted_orchestrator.teardown_calls) == (1, 1)
-    assert (scripted_worker.prepare_calls, scripted_worker.teardown_calls) == (2, 2)
-    assert (scenario_controller.monitoring_starts, scenario_controller.monitoring_stops) == (2, 2)
-    assert fake_model_manager.ensure_clean_state.await_count == 2
-    fake_model_manager.load_model.assert_not_awaited()
-    fake_model_manager.unload_model.assert_not_awaited()
+    assert (scripted_worker.prepare_calls, scripted_worker.teardown_calls) == (1, 1)
+    assert (scenario_controller.monitoring_starts, scenario_controller.monitoring_stops) == (1, 1)

@@ -178,9 +178,10 @@ class SimulationManager:
         import asyncio as _asyncio
         import contextlib as _ctx
 
+        from alphaswarm.errors import Neo4jUnavailableError
         from alphaswarm.inference.config import load_inference_config
         from alphaswarm.inference.factory import build_controller, build_providers, inference_mode
-        from alphaswarm.simulation import run_simulation
+        from alphaswarm.simulation import SimulationDeps, run_simulation
 
         # `built` may remain None if cancelled before build_providers completes.
         # The finally block guards aclose() accordingly.
@@ -227,21 +228,25 @@ class SimulationManager:
                 mode=self._app_state.inference_mode,  # type: ignore[attr-defined]
             )
 
+            graph = self._app_state.graph_manager
+            if graph is None:
+                raise Neo4jUnavailableError("Neo4j is not connected; cannot start a simulation", op="simulation_start")
+            deps = SimulationDeps(
+                settings=self._app_state.settings,
+                graph=graph,
+                controller=controller,
+                orchestrator=built.orchestrator,
+                worker=built.worker,
+                state=self._app_state.state_store,
+                market=self._app_state.market_provider,
+                news=self._app_state.news_provider,
+            )
             result = await run_simulation(
                 rumor=seed,
-                settings=self._app_state.settings,
-                ollama_client=self._app_state.ollama_client,
-                model_manager=self._app_state.model_manager,
-                graph_manager=self._app_state.graph_manager,
-                governor=controller,
+                deps=deps,
                 personas=list(self._app_state.personas),
                 brackets=list(self._brackets),
-                state_store=self._app_state.state_store,
                 consume_shock=self.consume_shock,
-                market_provider=self._app_state.market_provider,
-                news_provider=self._app_state.news_provider,
-                orchestrator_provider=built.orchestrator,
-                worker_provider=built.worker,
             )
             self._last_cycle_id = result.cycle_id
             # B10: do NOT set COMPLETE here — run_simulation is the single

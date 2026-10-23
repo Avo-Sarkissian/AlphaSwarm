@@ -15,11 +15,9 @@ from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.types import ProviderRole
 from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
 from alphaswarm.ingestion.types import ContextPacket
-from alphaswarm.ollama_client import OllamaClient
-from alphaswarm.ollama_models import OllamaModelManager
 from alphaswarm.rounds import OnRoundComplete
 from alphaswarm.settings import AppSettings, GovernorSettings
-from alphaswarm.simulation import SimulationResult, run_simulation
+from alphaswarm.simulation import SimulationDeps, SimulationResult, run_simulation
 from alphaswarm.types import AgentPersona, BracketConfig
 from tests.engine.scenario import (
     SCENARIO_CYCLE_ID,
@@ -125,23 +123,17 @@ def fake_graph() -> MagicMock:
 
 
 @pytest.fixture
-def fake_model_manager() -> MagicMock:
-    return create_autospec(OllamaModelManager, instance=True)
-
-
-@pytest.fixture
 def run_scenario(
     scripted_worker: ScriptedProvider,
     scripted_orchestrator: ScriptedProvider,
     fake_graph: MagicMock,
-    fake_model_manager: MagicMock,
     scenario_settings: AppSettings,
     scenario_store: RecordingStateStore,
     scenario_controller: ImmediateController,
     all_personas: list[AgentPersona],
     all_brackets: list[BracketConfig],
 ) -> RunScenario:
-    """Run the real run_simulation on scripted fakes."""
+    """Run the real run_simulation on scripted fakes through SimulationDeps."""
 
     async def _run(
         *,
@@ -160,28 +152,24 @@ def run_scenario(
         def consume_shock() -> str | None:
             return pending.pop(scenario_store.snapshot().round_num, None)
 
-        ollama_client = create_autospec(OllamaClient, instance=True)
-        ollama_client.chat.side_effect = AssertionError("scenarios must not reach OllamaClient")
-        chosen_worker = worker if worker is not None else scripted_worker
-        chosen_orchestrator = orchestrator if orchestrator is not None else scripted_orchestrator
-        chosen_controller = controller if controller is not None else scenario_controller
-        return await run_simulation(
-            rumor=SCENARIO_RUMOR,
+        deps = SimulationDeps(
             settings=scenario_settings.model_copy(update={"num_rounds": num_rounds}),
-            ollama_client=ollama_client,
-            model_manager=fake_model_manager,
-            graph_manager=fake_graph,
-            governor=chosen_controller,
-            personas=list(all_personas),
-            brackets=list(all_brackets),
-            on_round_complete=on_round_complete,
-            state_store=scenario_store,
-            consume_shock=consume_shock,
-            market_provider=market_provider,
-            news_provider=news_provider,
-            orchestrator_provider=chosen_orchestrator,
-            worker_provider=chosen_worker,
+            graph=fake_graph,
+            controller=controller if controller is not None else scenario_controller,
+            orchestrator=orchestrator if orchestrator is not None else scripted_orchestrator,
+            worker=worker if worker is not None else scripted_worker,
+            state=scenario_store,
+            market=market_provider,
+            news=news_provider,
             context_fixture=context_fixture,
+        )
+        return await run_simulation(
+            SCENARIO_RUMOR,
+            deps,
+            list(all_personas),
+            list(all_brackets),
+            on_round_complete=on_round_complete,
+            consume_shock=consume_shock,
         )
 
     return _run

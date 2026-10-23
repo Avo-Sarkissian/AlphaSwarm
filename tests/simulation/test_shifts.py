@@ -17,25 +17,6 @@ from tests.simulation.support import (
 )
 
 
-def test_round1_result_is_frozen() -> None:
-    """Round1Result is a frozen dataclass with no redundant decisions field."""
-    from alphaswarm.simulation import Round1Result
-
-    assert dataclasses.is_dataclass(Round1Result)
-    field_names = {f.name for f in dataclasses.fields(Round1Result)}
-    assert "agent_decisions" in field_names
-    assert "decisions" not in field_names, "Round1Result should not have a redundant 'decisions' field"
-
-    # Verify frozen
-    result = Round1Result(
-        cycle_id="test",
-        parsed_result=MOCK_PARSED_RESULT,
-        agent_decisions=[],
-    )
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        result.cycle_id = "mutated"  # type: ignore[misc]
-
-
 def test_compute_shifts_signal_flips() -> None:
     """2 agents BUY->SELL and 1 SELL->HOLD produces correct ShiftMetrics."""
     from alphaswarm.rounds import compute_shifts
@@ -183,39 +164,20 @@ def test_shift_metrics_is_frozen() -> None:
 
 
 def test_simulation_result_is_frozen() -> None:
-    """SimulationResult is frozen dataclass with tuple fields for round decisions."""
-    from alphaswarm.rounds import ShiftMetrics
+    """SimulationResult is a frozen container of per-round outcomes (docs/DECISIONS.md#p7-d-08)."""
     from alphaswarm.simulation import SimulationResult
 
     assert dataclasses.is_dataclass(SimulationResult)
-
-    dummy_shift = ShiftMetrics(
-        signal_transitions=(),
-        total_flips=0,
-        bracket_confidence_delta=(),
-        agents_shifted=0,
-    )
-
-    result = SimulationResult(
-        cycle_id="test",
-        parsed_result=MOCK_PARSED_RESULT,
-        round1_decisions=(),
-        round2_decisions=(),
-        round3_decisions=(),
-        round2_shifts=dummy_shift,
-        round3_shifts=dummy_shift,
-        round1_summaries=(),
-        round2_summaries=(),
-        round3_summaries=(),
-    )
+    result = SimulationResult(cycle_id="test", parsed_result=MOCK_PARSED_RESULT, rounds=())
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.cycle_id = "mutated"  # type: ignore[misc]
-
-    # Verify tuple fields
-    fields = {f.name: f for f in dataclasses.fields(SimulationResult)}
-    assert "round1_decisions" in fields
-    assert "round2_decisions" in fields
-    assert "round3_decisions" in fields
+    assert [f.name for f in dataclasses.fields(SimulationResult)] == [
+        "cycle_id",
+        "parsed_result",
+        "rounds",
+    ]
+    assert (result.round1_decisions, result.round3_summaries) == ((), ())
+    assert result.round2_shifts.total_flips == 0
 
 
 # ---------------------------------------------------------------------------
@@ -413,18 +375,12 @@ def test_compute_bracket_summaries_avg_confidence() -> None:
 
 
 def test_simulation_result_has_bracket_summaries() -> None:
-    """SimulationResult contains round1_summaries, round2_summaries, round3_summaries fields."""
-    from alphaswarm.rounds import ShiftMetrics
+    """roundN_summaries read each RoundOutcome's bracket summaries."""
+    from alphaswarm.rounds import RoundOutcome
     from alphaswarm.simulation import SimulationResult
     from alphaswarm.state import BracketSummary
 
-    dummy_shift = ShiftMetrics(
-        signal_transitions=(),
-        total_flips=0,
-        bracket_confidence_delta=(),
-        agents_shifted=0,
-    )
-    dummy_summary = BracketSummary(
+    summary = BracketSummary(
         bracket="quants",
         display_name="Quants",
         buy_count=1,
@@ -434,25 +390,27 @@ def test_simulation_result_has_bracket_summaries() -> None:
         avg_confidence=0.8,
         avg_sentiment=0.4,
     )
-
-    result = SimulationResult(
-        cycle_id="test",
-        parsed_result=MOCK_PARSED_RESULT,
-        round1_decisions=(),
-        round2_decisions=(),
-        round3_decisions=(),
-        round2_shifts=dummy_shift,
-        round3_shifts=dummy_shift,
-        round1_summaries=(dummy_summary,),
-        round2_summaries=(dummy_summary,),
-        round3_summaries=(dummy_summary,),
+    rounds = tuple(
+        RoundOutcome(
+            round_num=n,
+            decisions=(),
+            decision_ids=(),
+            exposures=(),
+            shift=None,
+            bracket_summaries=(summary,),
+            influence_weights={},
+            applied_shocks=(),
+            seconds=0.0,
+            metrics={},
+        )
+        for n in (1, 2, 3)
     )
 
-    assert isinstance(result.round1_summaries, tuple)
-    assert isinstance(result.round2_summaries, tuple)
-    assert isinstance(result.round3_summaries, tuple)
-    assert len(result.round1_summaries) == 1
-    assert isinstance(result.round1_summaries[0], BracketSummary)
+    result = SimulationResult(cycle_id="test", parsed_result=MOCK_PARSED_RESULT, rounds=rounds)
+
+    assert result.round1_summaries == result.round2_summaries == result.round3_summaries == (summary,)
+    assert result.outcome(2) is rounds[1]
+    assert result.outcome(4) is None
 
 
 def test_round_complete_event_has_bracket_summaries() -> None:
