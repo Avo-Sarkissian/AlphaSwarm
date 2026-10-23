@@ -32,6 +32,13 @@ const EXPLICIT_ANY = /:\s*any\b|\bas\s+any\b|<any>|\bany\[\]|\|\s*any\b|\bany\s*
 const V2_NAME =
   /(^|\/)(app_|interview_)?v2\.tsx$|\bv2\.tsx\b|\b(rv2|iv2)-|\b[a-z]+(?:-[a-z]+)*-v2\b|\b[A-Z]\w*V2\b|app_v2|interview_v2|components\/v2\b/;
 
+// Oversized components were an audit finding (the shell had 798 lines, the
+// prototype feature file 1,343).
+const LINE_CAPS: Readonly<Record<string, number>> = {
+  'app/AppShell.tsx': 200,
+  'features/dashboard/Dashboard.tsx': 350,
+};
+
 describe('frontend structure', () => {
   it('has no JavaScript sources', () => {
     expect(FILES.filter((file) => /\.jsx?$/.test(file))).toEqual([]);
@@ -45,5 +52,11 @@ describe('frontend structure', () => {
   it('has no explicit any outside tests', () => {
     const offenders = FILES.filter((file) => /\.tsx?$/.test(file) && isSource(file) && EXPLICIT_ANY.test(code(file)));
     expect(offenders).toEqual([]);
+  });
+
+  it('keeps the shell and the dashboard small', () => {
+    for (const [file, cap] of Object.entries(LINE_CAPS)) {
+      expect(read(file).split('\n').length, file).toBeLessThanOrEqual(cap);
+    }
   });
 });
