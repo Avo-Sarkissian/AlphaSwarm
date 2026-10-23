@@ -9,9 +9,9 @@
 // Wiring map (Plan 41.6-03):
 //   • SignalWire / DataSourcesTakeover — the live data_source_audit slice
 //     only; there are no mocks (docs/DECISIONS.md#kr-41-1-02).
-//   • ModelStatus — wired to useTelemetry() + useConnection(); model name
-//     hardcoded 'qwen3:8b' per KR-41.6-08 (matches src/alphaswarm/settings.py
-//     OllamaSettings.worker_model default).
+//   • ModelStatus — wired to useTelemetry() + useConnection(), plus a 10 s
+//     /api/health poll for the inference mode and spend; it shows no model name
+//     (docs/DECISIONS.md#kr-41-6-08).
 //   • AdvisoryV2 — derive-or-stub per D-08; portfolio_outlook via renderMarkdown()
 //     per D-09; 4 tabs per D-10; "HOLDINGS AFFECTED" relabel per D-22; strict
 //     intersection citation count per gemini #G2 (closes KR-41.6-10);
