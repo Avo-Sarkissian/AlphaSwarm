@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 from unittest.mock import MagicMock
@@ -40,6 +41,7 @@ class FakeCycleGraph:
         error: BaseException | None = None,
         signals: Mapping[str, Mapping[tuple[str, int], object]] | None = None,
         contexts: Mapping[tuple[str, str], object] | None = None,
+        cycles: Sequence[Mapping[str, object]] = (),
     ) -> None:
         self.statuses: dict[str, str] = dict(statuses or {})
         self.latest = latest
@@ -48,6 +50,8 @@ class FakeCycleGraph:
         self.contexts = dict(contexts or {})
         self.status_calls: list[str] = []
         self.context_calls: list[tuple[str, str]] = []
+        self.cycles: list[dict[str, object]] = [dict(c) for c in cycles]
+        self.cycle_calls: list[tuple[int, datetime | None]] = []
 
     async def read_cycle_status(self, cycle_id: str) -> str | None:
         self.status_calls.append(cycle_id)
@@ -83,8 +87,16 @@ class FakeCycleGraph:
     async def read_influence_edges(self, cycle_id: str, round_num: int) -> list[dict[str, object]]:
         return []
 
-    async def read_completed_cycles(self, limit: int = 10) -> list[dict[str, object]]:
-        return [{"cycle_id": self.latest}] if self.latest else []
+    async def read_completed_cycles(
+        self, limit: int = 20, *, before: datetime | None = None,
+    ) -> list[dict[str, object]]:
+        """The *cycles* page older than *before*; falls back to *latest* when no cycles are set."""
+        self.cycle_calls.append((limit, before))
+        rows = self.cycles or ([{"cycle_id": self.latest}] if self.latest else [])
+        if before is not None:
+            cursor = before if before.tzinfo is not None else before.replace(tzinfo=UTC)
+            rows = [r for r in rows if datetime.fromisoformat(str(r["created_at"])) < cursor]
+        return rows[:limit]
 
     async def read_agent_interview_context(self, agent_id: str, cycle_id: str) -> object | None:
         """The stored context for (cycle, agent); None for an unknown agent."""

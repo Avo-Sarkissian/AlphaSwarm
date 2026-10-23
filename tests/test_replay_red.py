@@ -23,7 +23,9 @@ def test_replay_response_models_exist() -> None:
     )
 
     # CycleItem fields
-    ci = CycleItem(cycle_id="x", created_at="2026-01-01", seed_rumor="test", round_count=3)
+    ci = CycleItem(
+        cycle_id="x", created_at="2026-01-01", seed_rumor="test", round_count=3, status="complete",
+    )
     assert ci.cycle_id == "x"
     assert ci.round_count == 3
 
