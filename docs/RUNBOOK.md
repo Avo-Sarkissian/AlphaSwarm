@@ -116,6 +116,22 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
     neo4j-admin database load neo4j --from-path=/backups --overwrite-destination=true
   docker start alphaswarm-neo4j
   ```
+- **Memory caps (2026-10).** The Compose `neo4j` service runs with a 1 GB heap,
+  512 MB page cache, 512 MB transaction memory, `mem_limit: 2500m`,
+  `stop_grace_period: 60s` and `-XX:+ExitOnOutOfMemoryError`. Check with
+  `docker stats --no-stream alphaswarm-neo4j` (usage stays below 2.44 GiB) and
+  give Docker Desktop 3-4 GiB of memory. A hand-made container (for example one
+  named `neo4j`, created with `docker run`) does not read the Compose file: the
+  container limit can be applied in place with
+  `docker update --memory 2500m --memory-swap 2500m <name>`, but the heap and
+  page-cache settings are environment variables fixed at creation, so they need
+  a backup, then a recreate with the same volume plus
+  `-e NEO4J_server_memory_heap_initial__size=1g -e NEO4J_server_memory_heap_max__size=1g`
+  `-e NEO4J_server_memory_pagecache_size=512m -e NEO4J_db_memory_transaction_total_max=512m`
+  `-e JDK_JAVA_OPTIONS=-XX:+ExitOnOutOfMemoryError --memory 2500m --stop-timeout 60`.
+  Shrinking the governor's slots barely changes the models' footprint (server
+  parallelism is fixed by `OLLAMA_NUM_PARALLEL`); the governor prevents stalls,
+  it is not a memory lever.
 - **Retired properties (one-off, optional):** narratives now live on each cycle's
   final-round Decision, and nothing reads the old `Agent.decision_narrative`
   property. Startup never removes it (`GraphStateManager.remove_legacy_properties()` does,
