@@ -140,9 +140,9 @@ async def test_url_routing_ticker_vs_topic(monkeypatch: pytest.MonkeyPatch) -> N
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
     monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
-    await provider.get_headlines(["AAPL", "EV battery"])
+    await provider.get_headlines(["ZZZT", "EV battery"])
     urls = [c["url"] for c in _MockAsyncClient.calls]
-    assert "https://finance.yahoo.com/rss/headline?s=AAPL" in urls
+    assert "https://finance.yahoo.com/rss/headline?s=ZZZT" in urls
     assert any(u.startswith("https://news.google.com/rss/search?q=EV+battery") for u in urls)
 
 
@@ -197,7 +197,7 @@ async def test_user_agent_header_is_sent_on_every_request(
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
     monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
-    await provider.get_headlines(["AAPL", "MSFT", "US-Iran war"])
+    await provider.get_headlines(["ZZZT", "MSFT", "US-Iran war"])
     assert len(_MockAsyncClient.calls) == 3
     for call in _MockAsyncClient.calls:
         assert call["headers"].get("User-Agent") == "Mozilla/5.0 AlphaSwarm/6.0"
@@ -216,7 +216,7 @@ async def test_httpx_asyncclient_constructed_with_explicit_timeout(
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
     monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
-    await provider.get_headlines(["AAPL"])
+    await provider.get_headlines(["ZZZT"])
     assert len(_MockAsyncClient.init_kwargs_log) == 1, "expected exactly one AsyncClient construction"
     kwargs = _MockAsyncClient.init_kwargs_log[0]
     assert "timeout" in kwargs, (
@@ -372,10 +372,10 @@ async def test_get_headlines_fetch_failed_on_exception(
     _MockAsyncClient.configure(responder=responder)
     monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
-    result = await provider.get_headlines(["AAPL"])
-    assert result["AAPL"].staleness == "fetch_failed"
-    assert result["AAPL"].headlines == ()
-    assert result["AAPL"].source == "rss"
+    result = await provider.get_headlines(["ZZZT"])
+    assert result["ZZZT"].staleness == "fetch_failed"
+    assert result["ZZZT"].headlines == ()
+    assert result["ZZZT"].source == "rss"
 
 
 async def test_http_429_raises_for_status_and_returns_fetch_failed(
@@ -385,8 +385,8 @@ async def test_http_429_raises_for_status_and_returns_fetch_failed(
     _MockAsyncClient.configure(responder=lambda url: _MockResponse("", status_code=429))
     monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
-    result = await provider.get_headlines(["AAPL"])
-    assert result["AAPL"].staleness == "fetch_failed"
+    result = await provider.get_headlines(["ZZZT"])
+    assert result["ZZZT"].staleness == "fetch_failed"
 
 
 async def test_httpx_timeout_exception_returns_fetch_failed(
@@ -401,8 +401,8 @@ async def test_httpx_timeout_exception_returns_fetch_failed(
     _MockAsyncClient.configure(responder=responder)
     monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
-    result = await provider.get_headlines(["AAPL"])
-    assert result["AAPL"].staleness == "fetch_failed"
+    result = await provider.get_headlines(["ZZZT"])
+    assert result["ZZZT"].staleness == "fetch_failed"
 
 
 async def test_zero_entries_with_http_200_is_fresh_not_fetch_failed(
@@ -414,9 +414,9 @@ async def test_zero_entries_with_http_200_is_fresh_not_fetch_failed(
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(empty_feed_xml))
     monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
-    result = await provider.get_headlines(["AAPL"])
-    assert result["AAPL"].staleness == "fresh"
-    assert result["AAPL"].headlines == ()
+    result = await provider.get_headlines(["ZZZT"])
+    assert result["ZZZT"].staleness == "fresh"
+    assert result["ZZZT"].headlines == ()
 
 
 # --------- Pitfall 9 empty-list, duplicate entities ---------
@@ -439,8 +439,8 @@ async def test_duplicate_entities_collapse_to_single_key(
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
     monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
-    result = await provider.get_headlines(["AAPL", "AAPL", "AAPL"])
-    assert set(result.keys()) == {"AAPL"}
+    result = await provider.get_headlines(["ZZZT", "ZZZT", "ZZZT"])
+    assert set(result.keys()) == {"ZZZT"}
 
 
 # --------- Async signature & Protocol conformance ---------
@@ -453,7 +453,7 @@ def test_get_headlines_is_async_def() -> None:
 
 async def _news_consumer(p: NewsProvider) -> list[str]:
     """mypy conformance probe — RSSNewsProvider must structurally conform."""
-    result = await p.get_headlines(["AAPL"], max_age_hours=48)
+    result = await p.get_headlines(["ZZZT"], max_age_hours=48)
     return list(result.keys())
 
 
@@ -465,7 +465,7 @@ async def test_structural_conformance_against_news_provider_protocol(
     monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     keys = await _news_consumer(provider)
-    assert keys == ["AAPL"]
+    assert keys == ["ZZZT"]
 
 
 # --------- Module-level meta checks ---------

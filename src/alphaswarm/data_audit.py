@@ -28,7 +28,7 @@ class DataSourceAuditEntry:
     Attributes:
         ts: Wall-clock timestamp of the call (seconds since epoch).
         source: Provider identifier — 'yfinance' | 'fred' | 'rss' | etc.
-        query: Human-readable query summary (e.g. 'AAPL 1d OHLCV').
+        query: Human-readable query summary (e.g. 'ZZZT 1d OHLCV').
         result: Short status — 'ok' | 'cached' | 'error: <short msg>' |
                 '<n_bytes>'. MUST NOT contain raw response data or secrets.
         used: True if the result fed into a worker prompt; False if it was

@@ -177,10 +177,10 @@ def test_seed_parse_tier2_code_fenced_json() -> None:
     """Tier 2: Code-fenced JSON extracts correctly."""
     from alphaswarm.parsing import parse_seed_event
 
-    raw = '```json\n{"entities": [{"name": "TSLA", "type": "company", "relevance": 0.8, "sentiment": -0.3}], "overall_sentiment": -0.2}\n```'
+    raw = '```json\n{"entities": [{"name": "QQQX", "type": "company", "relevance": 0.8, "sentiment": -0.3}], "overall_sentiment": -0.2}\n```'
     result = parse_seed_event(raw, original_rumor="Tesla rumor")
     assert result.parse_tier == 2
-    assert result.seed_event.entities[0].name == "TSLA"
+    assert result.seed_event.entities[0].name == "QQQX"
 
 
 def test_seed_parse_tier2_embedded_in_prose() -> None:

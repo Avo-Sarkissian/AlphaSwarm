@@ -18,7 +18,7 @@ KNOWN LIMITATION (Phase 40, REVIEWS concern #2):
 Entities are joined to market slices by exact string equality between
 `entity` (from packet.entities) and `MarketSlice.ticker`. The orchestrator
 LLM (seed.py:24) emits human-readable entity names ("NVIDIA", "Apple",
-"Federal Reserve"), not ticker symbols ("NVDA", "AAPL"). As a result, for
+"Federal Reserve"), not ticker symbols ("ZZZT", "QQQX"). As a result, for
 typical real-world rumors the market block will be empty and the entity
 block will contain only news headlines. News attaches correctly because
 RSSNewsProvider handles company-name queries natively.

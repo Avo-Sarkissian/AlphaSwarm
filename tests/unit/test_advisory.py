@@ -104,18 +104,18 @@ def _portfolio(ticker_to_cost: dict[str, str]) -> PortfolioSnapshot:
 def test_advisory_item_schema() -> None:
     # Valid minimal payload
     item = AdvisoryItem(
-        ticker="AAPL",
+        ticker="ZZZT",
         consensus_signal="BUY",
         confidence=0.75,
         rationale_summary="ok",
         position_exposure=Decimal("100"),
     )
-    assert item.ticker == "AAPL"
+    assert item.ticker == "ZZZT"
 
     # Rejects unknown fields (extra='forbid')
     with pytest.raises(ValidationError):
         AdvisoryItem(
-            ticker="AAPL",
+            ticker="ZZZT",
             consensus_signal="BUY",
             confidence=0.5,
             rationale_summary="r",
@@ -159,31 +159,31 @@ def test_extra_forbid() -> None:
 
 
 async def test_synthesize_returns_ranked_list() -> None:
-    portfolio = _portfolio({"AAPL": "100", "NVDA": "400", "TSLA": "200"})
+    portfolio = _portfolio({"ZZZT": "100", "QQQX": "400", "XQZW": "200"})
     # LLM returns items in arbitrary order; synthesize must rerank by
     # score = confidence × (exposure / total_cost_basis). total = 700.
-    # AAPL  0.9 × 100/700 = 0.1286
-    # NVDA  0.5 × 400/700 = 0.2857  <- highest
-    # TSLA  0.7 × 200/700 = 0.2000
-    # Expected order: NVDA, TSLA, AAPL
+    # ZZZT  0.9 × 100/700 = 0.1286
+    # QQQX  0.5 × 400/700 = 0.2857  <- highest
+    # XQZW  0.7 × 200/700 = 0.2000
+    # Expected order: QQQX, XQZW, ZZZT
     canned = _valid_advisory_payload(
         items=[
             {
-                "ticker": "AAPL",
+                "ticker": "ZZZT",
                 "consensus_signal": "BUY",
                 "confidence": 0.9,
                 "rationale_summary": "a",
                 "position_exposure": "100",
             },
             {
-                "ticker": "NVDA",
+                "ticker": "QQQX",
                 "consensus_signal": "BUY",
                 "confidence": 0.5,
                 "rationale_summary": "n",
                 "position_exposure": "400",
             },
             {
-                "ticker": "TSLA",
+                "ticker": "XQZW",
                 "consensus_signal": "HOLD",
                 "confidence": 0.7,
                 "rationale_summary": "t",
@@ -207,7 +207,7 @@ async def test_synthesize_returns_ranked_list() -> None:
     )
 
     tickers_in_order = [i.ticker for i in report.items]
-    assert tickers_in_order == ["NVDA", "TSLA", "AAPL"]
+    assert tickers_in_order == ["QQQX", "XQZW", "ZZZT"]
     assert report.total_holdings == 3
     assert report.affected_holdings == 3
 
@@ -218,10 +218,10 @@ async def test_synthesize_returns_ranked_list() -> None:
 async def test_ticker_join_filters_unmatched() -> None:
     portfolio = _portfolio(
         {
-            "AAPL": "100",
-            "NVDA": "400",
-            "TSLA": "200",
-            "AMZN": "300",
+            "ZZZT": "100",
+            "QQQX": "400",
+            "XQZW": "200",
+            "ZQXY": "300",
             "MSFT": "150",
         }
     )
@@ -229,14 +229,14 @@ async def test_ticker_join_filters_unmatched() -> None:
     canned = _valid_advisory_payload(
         items=[
             {
-                "ticker": "NVDA",
+                "ticker": "QQQX",
                 "consensus_signal": "BUY",
                 "confidence": 0.8,
                 "rationale_summary": "n",
                 "position_exposure": "400",
             },
             {
-                "ticker": "TSLA",
+                "ticker": "XQZW",
                 "consensus_signal": "SELL",
                 "confidence": 0.6,
                 "rationale_summary": "t",
@@ -266,9 +266,9 @@ async def test_ticker_join_filters_unmatched() -> None:
     # affected_holdings counts only LLM conviction items, NOT padded HOLDs.
     assert report.affected_holdings == 2
     # All 5 tickers present: 2 from the LLM + 3 padded by the engine.
-    assert {i.ticker for i in report.items} == {"AAPL", "NVDA", "TSLA", "AMZN", "MSFT"}
+    assert {i.ticker for i in report.items} == {"ZZZT", "QQQX", "XQZW", "ZQXY", "MSFT"}
     # Padded items are HOLD@0.30 with the canonical placeholder message.
-    padded = [i for i in report.items if i.ticker in {"AAPL", "AMZN", "MSFT"}]
+    padded = [i for i in report.items if i.ticker in {"ZZZT", "ZQXY", "MSFT"}]
     assert len(padded) == 3
     assert all(i.consensus_signal == "HOLD" for i in padded)
     assert all(abs(float(i.confidence) - 0.30) < 1e-9 for i in padded)
@@ -276,7 +276,7 @@ async def test_ticker_join_filters_unmatched() -> None:
     # Top 15 enriched tickers reach the LLM prompt; with only 5 holdings here
     # the whole portfolio is in the top-15 slice so all 5 still appear.
     prompt_text = "\n".join(m["content"] for m in fake_provider.calls[0]["messages"])
-    for t in ["AAPL", "NVDA", "TSLA", "AMZN", "MSFT"]:
+    for t in ["ZZZT", "QQQX", "XQZW", "ZQXY", "MSFT"]:
         assert t in prompt_text
 
 
@@ -284,7 +284,7 @@ async def test_ticker_join_filters_unmatched() -> None:
 
 
 async def test_prefetch_order() -> None:
-    portfolio = _portfolio({"AAPL": "100"})
+    portfolio = _portfolio({"ZZZT": "100"})
     canned = _valid_advisory_payload(items=[], total=1)
     fake_graph = FakeGraphManager()
     fake_provider = FakeInferenceProvider(
@@ -315,7 +315,7 @@ async def test_prefetch_order() -> None:
 
 
 async def test_synthesize_retry_on_validation_error() -> None:
-    portfolio = _portfolio({"AAPL": "100"})
+    portfolio = _portfolio({"ZZZT": "100"})
     malformed = '{"cycle_id": "unit_cycle", "oops": true}'  # missing required fields
     valid = _valid_advisory_payload(items=[], total=1)
 
@@ -349,7 +349,7 @@ async def test_infer_with_retry_passes_json_mode() -> None:
     think=False internally; the synthesize() boundary contracts on json_mode=True
     for both calls.
     """
-    portfolio = _portfolio({"AAPL": "100"})
+    portfolio = _portfolio({"ZZZT": "100"})
     malformed = '{"cycle_id": "unit_cycle", "oops": true}'  # missing required fields
     valid = _valid_advisory_payload(items=[], total=1)
 
@@ -373,7 +373,7 @@ async def test_infer_with_retry_passes_json_mode() -> None:
 
 
 async def test_synthesize_retry_then_fail() -> None:
-    portfolio = _portfolio({"AAPL": "100"})
+    portfolio = _portfolio({"ZZZT": "100"})
     bad1 = '{"no": "good"}'
     bad2 = '{"still": "broken"}'
 
@@ -408,9 +408,9 @@ def _portfolio_with_lots(lots: list[tuple[str, str]]) -> PortfolioSnapshot:
 
 
 async def test_duplicate_lots_pad_once_with_aggregated_exposure() -> None:
-    """MRVL held in taxable AND Roth (two lots) yields ONE padded item with
+    """ZZZT held in taxable AND Roth (two lots) yields ONE padded item with
     the cost basis aggregated across lots; total_holdings counts unique tickers."""
-    portfolio = _portfolio_with_lots([("MRVL", "100"), ("MRVL", "50"), ("AAPL", "300")])
+    portfolio = _portfolio_with_lots([("ZZZT", "100"), ("ZZZT", "50"), ("QQQX", "300")])
     canned = _valid_advisory_payload(items=[], total=3)
 
     report = await synthesize(
@@ -425,15 +425,15 @@ async def test_duplicate_lots_pad_once_with_aggregated_exposure() -> None:
     )
 
     assert report.total_holdings == 2  # unique tickers, not lots
-    assert sorted(i.ticker for i in report.items) == ["AAPL", "MRVL"]
-    mrvl = next(i for i in report.items if i.ticker == "MRVL")
-    assert mrvl.position_exposure == Decimal("150")  # 100 + 50 aggregated
+    assert sorted(i.ticker for i in report.items) == ["QQQX", "ZZZT"]
+    zzzt = next(i for i in report.items if i.ticker == "ZZZT")
+    assert zzzt.position_exposure == Decimal("150")  # 100 + 50 aggregated
 
 
 async def test_hallucinated_tickers_filtered_and_exposure_overwritten() -> None:
     """LLM items for unowned tickers are dropped; kept items get the actual
     aggregated cost basis instead of the LLM-invented exposure."""
-    portfolio = _portfolio_with_lots([("AAPL", "100"), ("NVDA", "250"), ("NVDA", "150")])
+    portfolio = _portfolio_with_lots([("ZZZT", "100"), ("QQQX", "250"), ("QQQX", "150")])
     canned = _valid_advisory_payload(
         items=[
             {
@@ -444,7 +444,7 @@ async def test_hallucinated_tickers_filtered_and_exposure_overwritten() -> None:
                 "position_exposure": "123456",
             },
             {
-                "ticker": "NVDA",
+                "ticker": "QQQX",
                 "consensus_signal": "BUY",
                 "confidence": 0.8,
                 "rationale_summary": "real",
@@ -467,23 +467,23 @@ async def test_hallucinated_tickers_filtered_and_exposure_overwritten() -> None:
 
     tickers = {i.ticker for i in report.items}
     assert "GME" not in tickers
-    assert tickers == {"AAPL", "NVDA"}
-    nvda = next(i for i in report.items if i.ticker == "NVDA")
-    assert nvda.position_exposure == Decimal("400")  # 250 + 150 actual lots
-    assert report.affected_holdings == 1  # only the kept NVDA conviction item
+    assert tickers == {"ZZZT", "QQQX"}
+    qqqx = next(i for i in report.items if i.ticker == "QQQX")
+    assert qqqx.position_exposure == Decimal("400")  # 250 + 150 actual lots
+    assert report.affected_holdings == 1  # only the kept QQQX conviction item
 
 
 async def test_padded_items_sort_after_conviction_items() -> None:
     """Padded HOLD@0.30 placeholders rank AFTER conviction items even when
     their raw score (confidence × exposure share) is higher — sort key is
     (is_padded, -score)."""
-    # SWYXX dominates exposure: padded score 0.30 × ~1.0 beats the tiny AAPL
-    # conviction score 0.35 × ~0.0001 — old ranking put SWYXX first.
-    portfolio = _portfolio_with_lots([("AAPL", "10"), ("SWYXX", "100000")])
+    # ZZZT dominates exposure: padded score 0.30 × ~1.0 beats the tiny QQQX
+    # conviction score 0.35 × ~0.0001 — old ranking put ZZZT first.
+    portfolio = _portfolio_with_lots([("QQQX", "10"), ("ZZZT", "100000")])
     canned = _valid_advisory_payload(
         items=[
             {
-                "ticker": "AAPL",
+                "ticker": "QQQX",
                 "consensus_signal": "BUY",
                 "confidence": 0.35,
                 "rationale_summary": "small but conviction",
@@ -504,25 +504,25 @@ async def test_padded_items_sort_after_conviction_items() -> None:
         ),
     )
 
-    assert [i.ticker for i in report.items] == ["AAPL", "SWYXX"]
+    assert [i.ticker for i in report.items] == ["QQQX", "ZZZT"]
     assert report.items[1].consensus_signal == "HOLD"
     assert abs(float(report.items[1].confidence) - 0.30) < 1e-9
 
 
 async def test_llm_duplicate_ticker_items_deduped_keep_highest_confidence() -> None:
     """If the LLM emits the same ticker twice, keep the higher-confidence item."""
-    portfolio = _portfolio_with_lots([("NVDA", "400")])
+    portfolio = _portfolio_with_lots([("ZZZT", "400")])
     canned = _valid_advisory_payload(
         items=[
             {
-                "ticker": "NVDA",
+                "ticker": "ZZZT",
                 "consensus_signal": "HOLD",
                 "confidence": 0.5,
                 "rationale_summary": "weak",
                 "position_exposure": "400",
             },
             {
-                "ticker": "NVDA",
+                "ticker": "ZZZT",
                 "consensus_signal": "BUY",
                 "confidence": 0.8,
                 "rationale_summary": "strong",
@@ -550,7 +550,7 @@ async def test_llm_duplicate_ticker_items_deduped_keep_highest_confidence() -> N
 
 async def test_cycle_id_overwritten_with_caller_value() -> None:
     """The LLM-echoed cycle_id never persists — the caller's value wins."""
-    portfolio = _portfolio_with_lots([("AAPL", "100")])
+    portfolio = _portfolio_with_lots([("ZZZT", "100")])
     canned = _valid_advisory_payload(items=[], total=1)  # echoes "unit_cycle"
 
     report = await synthesize(
@@ -627,10 +627,10 @@ def test_enrich_holdings_entity_impact_drives_ranking() -> None:
     from alphaswarm.advisory.engine import _enrich_holdings
 
     holdings = [
-        {"ticker": "DBX", "qty": "10", "cost_basis": "1000"},
-        {"ticker": "NVDA", "qty": "10", "cost_basis": "1000"},
+        {"ticker": "ZZZT", "qty": "10", "cost_basis": "1000"},
+        {"ticker": "QQQX", "qty": "10", "cost_basis": "1000"},
     ]
-    # NVDA carries a strong directional impact; DBX none. No seed match for either.
-    ranked = _enrich_holdings(holdings, {"NVDA": -0.9}, seed_text="an unrelated rumor")
-    assert ranked[0]["ticker"] == "NVDA"
+    # QQQX carries a strong directional impact; ZZZT none. No seed match for either.
+    ranked = _enrich_holdings(holdings, {"QQQX": -0.9}, seed_text="an unrelated rumor")
+    assert ranked[0]["ticker"] == "QQQX"
     assert float(ranked[0]["relevance_score"]) > float(ranked[1]["relevance_score"])

@@ -50,7 +50,7 @@ def _valid_advisory_json(items: list[dict[str, Any]] | None = None) -> str:
     )
 
 
-def _portfolio(ticker: str = "AAPL", cost: str = "100") -> PortfolioSnapshot:
+def _portfolio(ticker: str = "ZZZT", cost: str = "100") -> PortfolioSnapshot:
     return PortfolioSnapshot(
         holdings=(Holding(ticker=ticker, qty=Decimal("10"), cost_basis=Decimal(cost)),),
         as_of=datetime.now(UTC),
@@ -394,7 +394,7 @@ class TestAdvisoryRouteBuildsProvider:
         from alphaswarm.holdings.types import Holding, PortfolioSnapshot
 
         portfolio = PortfolioSnapshot(
-            holdings=(Holding(ticker="AAPL", qty=Decimal("10"), cost_basis=Decimal("100")),),
+            holdings=(Holding(ticker="ZZZT", qty=Decimal("10"), cost_basis=Decimal("100")),),
             as_of=datetime.now(UTC),
             account_number_hash="deadbeef",
         )

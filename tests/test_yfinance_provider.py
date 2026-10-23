@@ -30,7 +30,7 @@ class _FakeFastInfo:
 
 
 class _FakeTicker:
-    """Happy-path fake — returns AAPL-shaped data for any ticker symbol."""
+    """Happy-path fake — returns ZZZT-shaped data for any ticker symbol."""
 
     def __init__(self, ticker: str) -> None:
         self._ticker = ticker
@@ -154,7 +154,7 @@ def test_all_methods_are_async_def() -> None:
 
 async def _market_consumer(p: MarketDataProvider) -> list[str]:
     """mypy conformance probe — YFinanceMarketDataProvider must structurally conform."""
-    result = await p.get_prices(["AAPL"])
+    result = await p.get_prices(["ZZZT"])
     return list(result.keys())
 
 
@@ -164,7 +164,7 @@ async def test_structural_conformance_against_market_data_provider_protocol(
     monkeypatch.setattr("alphaswarm.ingestion.yfinance_provider.yf.Ticker", _FakeTicker)
     provider = YFinanceMarketDataProvider()
     keys = await _market_consumer(provider)
-    assert keys == ["AAPL"]
+    assert keys == ["ZZZT"]
 
 
 # --------- Field mapping ---------
@@ -173,9 +173,9 @@ async def test_structural_conformance_against_market_data_provider_protocol(
 async def test_get_prices_returns_market_slices(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("alphaswarm.ingestion.yfinance_provider.yf.Ticker", _FakeTicker)
     provider = YFinanceMarketDataProvider()
-    result = await provider.get_prices(["AAPL"])
-    assert "AAPL" in result
-    s = result["AAPL"]
+    result = await provider.get_prices(["ZZZT"])
+    assert "ZZZT" in result
+    s = result["ZZZT"]
     assert isinstance(s, MarketSlice)
     assert s.price == Decimal("270.23")
     assert s.volume == 61_314_800
@@ -204,12 +204,12 @@ async def test_get_fundamentals_and_get_volume_return_same_slice_shape(
     """All 3 Protocol methods delegate to _fetch_batch_shared — same slice content."""
     monkeypatch.setattr("alphaswarm.ingestion.yfinance_provider.yf.Ticker", _FakeTicker)
     provider = YFinanceMarketDataProvider()
-    prices = await provider.get_prices(["AAPL"])
-    fundamentals = await provider.get_fundamentals(["AAPL"])
-    volume = await provider.get_volume(["AAPL"])
-    assert prices["AAPL"].price == fundamentals["AAPL"].price == volume["AAPL"].price
-    assert prices["AAPL"].volume == fundamentals["AAPL"].volume == volume["AAPL"].volume
-    assert prices["AAPL"].fundamentals == fundamentals["AAPL"].fundamentals
+    prices = await provider.get_prices(["ZZZT"])
+    fundamentals = await provider.get_fundamentals(["ZZZT"])
+    volume = await provider.get_volume(["ZZZT"])
+    assert prices["ZZZT"].price == fundamentals["ZZZT"].price == volume["ZZZT"].price
+    assert prices["ZZZT"].volume == fundamentals["ZZZT"].volume == volume["ZZZT"].volume
+    assert prices["ZZZT"].fundamentals == fundamentals["ZZZT"].fundamentals
 
 
 # --------- NaN/Inf guard (Gemini review) ---------
@@ -306,8 +306,8 @@ async def test_duplicate_tickers_collapse_to_single_key(
     """Matches FakeMarketDataProvider duplicate-handling semantics."""
     monkeypatch.setattr("alphaswarm.ingestion.yfinance_provider.yf.Ticker", _FakeTicker)
     provider = YFinanceMarketDataProvider()
-    result = await provider.get_prices(["AAPL", "AAPL", "AAPL"])
-    assert set(result.keys()) == {"AAPL"}
+    result = await provider.get_prices(["ZZZT", "ZZZT", "ZZZT"])
+    assert set(result.keys()) == {"ZZZT"}
 
 
 # --------- Module-level meta checks ---------

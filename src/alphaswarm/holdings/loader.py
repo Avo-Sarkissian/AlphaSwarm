@@ -117,8 +117,8 @@ class HoldingsLoader:
             raise HoldingsLoadError("CSV has no data rows")
 
         # Same-ticker multi-account contract (Gemini + Codex LOW): each CSV row
-        # produces ONE Holding entry. If AAPL appears in both `individual` and
-        # `roth_ira` the output tuple contains two AAPL Holdings. No summing,
+        # produces ONE Holding entry. If ZZZT appears in both `individual` and
+        # `roth_ira` the output tuple contains two ZZZT Holdings. No summing,
         # no weighted averaging, no dedup — per-row granularity preserves audit
         # traceability (IRA vs taxable lots are tax-distinct).
         holdings_list: list[Holding] = []

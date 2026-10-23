@@ -32,7 +32,7 @@ SENTINEL_ACCT = "SNTL_CANARY_ACCT_000"
 
 
 def test_processor_redacts_holdings_key_to_redacted_literal() -> None:
-    result = pii_redaction_processor(None, "info", {"event": "x", "holdings": ["AAPL", "MSFT"]})
+    result = pii_redaction_processor(None, "info", {"event": "x", "holdings": ["ZZZT", "MSFT"]})
     assert result["holdings"] == "[REDACTED]"
     assert result["event"] == "x"
 
@@ -85,7 +85,7 @@ def test_processor_matches_case_and_separator_variants(variant_key: str) -> None
 def test_processor_matches_positions_by_account_variant() -> None:
     """REVIEW HIGH — 'positions_by_account' and 'positionsByAccount' both redacted."""
     for key in ("positions_by_account", "positionsByAccount", "Positions-By-Account"):
-        result = pii_redaction_processor(None, "info", {"event": "x", key: {"AAPL": 100}})
+        result = pii_redaction_processor(None, "info", {"event": "x", key: {"ZZZT": 100}})
         assert result[key] == "[REDACTED]"
 
 
@@ -115,7 +115,7 @@ def test_account_number_hash_is_not_rehashed() -> None:
 
 def test_processor_recurses_into_nested_dict() -> None:
     """REVIEW HIGH (Codex) — top-level-only redaction would leak this."""
-    event = {"event": "x", "payload": {"portfolio": ["AAPL", "MSFT"]}}
+    event = {"event": "x", "payload": {"portfolio": ["ZZZT", "MSFT"]}}
     result = pii_redaction_processor(None, "info", event)
     assert result["payload"]["portfolio"] == "[REDACTED]"
 
@@ -181,7 +181,7 @@ def test_processor_scrubs_ssn_pattern_in_free_text_key() -> None:
 def test_processor_does_not_scrub_currency_in_non_free_text_key() -> None:
     """REVIEW MEDIUM (Codex) — scrubbing every string clobbers ordinary market prices.
 
-    A MarketSlice diagnostic event might log {'ticker': 'AAPL', 'price_display': '$185.50'};
+    A MarketSlice diagnostic event might log {'ticker': 'ZZZT', 'price_display': '$185.50'};
     price_display is NOT a free-text key, must be preserved verbatim."""
     result = pii_redaction_processor(None, "info", {"event": "price_log", "price_display": "$185.50"})
     assert result["price_display"] == "$185.50"  # NOT redacted
@@ -406,7 +406,7 @@ def test_fuzz_no_sensitive_value_renders_verbatim_nested(payload: dict[str, Any]
 @pytest.mark.parametrize(
     "event_dict,banned_substrings",
     [
-        ({"event": "x", "holdings": ["AAPL"]}, ["AAPL"]),
+        ({"event": "x", "holdings": ["ZZZT"]}, ["ZZZT"]),
         ({"event": "x", "cost_basis": "150.25"}, ["150.25"]),
         ({"event": "x", "costBasis": "150.25"}, ["150.25"]),  # variant case
         ({"event": "x", "account_number": "ACC-999"}, ["ACC-999"]),
