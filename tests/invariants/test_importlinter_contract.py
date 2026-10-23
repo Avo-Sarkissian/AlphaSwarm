@@ -124,7 +124,11 @@ def test_pyproject_declares_the_acyclic_siblings_contract() -> None:
 
 
 def test_lint_imports_detects_a_synthetic_cycle(tmp_path: Path) -> None:
-    """The acyclic machinery fails on a two-module cycle (guards the contract type)."""
+    """The acyclic machinery fails on a two-module cycle (guards the contract type).
+
+    A config or usage error (an unknown contract type, a missing field) also exits
+    non-zero, so the test asserts the contract's BROKEN verdict, not only the exit code.
+    """
     pkg = tmp_path / "fake_cycle"
     pkg.mkdir()
     (pkg / "__init__.py").write_text("")
@@ -155,4 +159,7 @@ def test_lint_imports_detects_a_synthetic_cycle(tmp_path: Path) -> None:
         env=env,
         check=False,
     )
-    assert result.returncode != 0, result.stdout + result.stderr
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert "Synthetic acyclic siblings (must fail) BROKEN" in result.stdout, output
+    assert "Contracts: 0 kept, 1 broken." in result.stdout, output
