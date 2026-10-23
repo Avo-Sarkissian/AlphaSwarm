@@ -9,7 +9,6 @@
 //   • useAgents() → agents (replaces source's design-mock agent builder)
 //   • bracketTallies(agents) → live bracket bars (lib/tally.ts)
 //   • useRationales() → rationale feed (replaces source's static fixture)
-//   • useConnection() → reconnectFailed gate for ErrorState
 //   • useRunGate() (cost gate, then simStart) and simStop() → RunControls;
 //     useAwaitRunFrame holds Run on "Starting…" until the run reaches the frame
 //   • Lifecycle (lib/lifecycle.ts, from the frame): the shell and topbar always
@@ -29,8 +28,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Icon } from './icons';
 import { Viz } from './viz';
 import { BracketList, RationaleFeed, KpiStrip, ConsensusRing } from './panels';
-import { IdleState, SeedingState, ErrorState } from './states';
-import { TweaksPanelLoader } from './TweaksPanelLoader';
+import { IdleState, SeedingState } from './states';
 import { useAgents } from '../context/AgentsContext';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useRationales } from '../context/RationalesContext';
@@ -39,9 +37,11 @@ import { useEdgesCtx } from '../context/EdgesContext';
 import { simStop } from '../api/simulation';
 import { useAwaitRunFrame } from '../hooks/useAwaitRunFrame';
 import { useRunGate } from '../hooks/useRunGate';
+import { useSampleHistory } from '../hooks/useSampleHistory';
 import { replayStart } from '../api/replay';
-import { normalizeBracketKey } from '../data';
+import { bracketSpec } from '../data';
 import { rankInfluencers } from '../lib/influence';
+import { buildFeed, indexAgents } from '../lib/rationaleFeed';
 import { signalClass, signalLabel } from '../lib/signals';
 import { bracketTallies } from '../lib/tally';
 import { phaseLabelFor } from '../lib/phase';
@@ -84,6 +84,7 @@ interface TooltipInfo {
 }
 
 function Tooltip({ info }: { info: TooltipInfo | null }) {
+  const { finalRound } = useRounds();
   if (!info) return null;
   const { agent, x, y } = info;
   return (
@@ -91,7 +92,7 @@ function Tooltip({ info }: { info: TooltipInfo | null }) {
       <div className="t-head">{agent.id} <span style={{color:'var(--text-3)', fontSize:10}}>· {agent.bracketDisplay}</span></div>
       <div className="t-row"><span>Signal</span><strong className={signalClass(agent.signal)} style={{padding:'1px 5px'}}>{signalLabel(agent.signal)}</strong></div>
       <div className="t-row"><span>Confidence</span><strong>{(agent.confidence*100).toFixed(0)}%</strong></div>
-      <div className="t-row"><span>Flipped R1→R3</span><strong>{agent.flipped ? 'Yes' : 'No'}</strong></div>
+      <div className="t-row"><span>Flipped R1→R{finalRound}</span><strong>{agent.flipped ? 'Yes' : 'No'}</strong></div>
       <div style={{marginTop:6, fontSize:10, color:'var(--text-3)'}}>Click to interview →</div>
     </div>
   );
@@ -215,8 +216,7 @@ function Legend() {
 interface UiState {
   shockOpen: boolean;
   cyclePickerOpen: boolean;
-  interviewAgent: any | null;
-  interviewV2Agent: any | null;
+  interviewAgentId: string | null;
   reportOpen: boolean;
   reportCycleId: string | null; // cycle picked in CycleHistory (null = current)
   advisoryOpen: boolean;
@@ -225,17 +225,16 @@ interface UiState {
   historyOpen: boolean;
   bracketDeepDive: any | null;
   overflowOpen: boolean;
-  seedSuggestOpen: boolean;
   tooltip: TooltipInfo | null;
   // Coming-in-v6.x placeholders surfaced from the overflow menu.
   comingSoon: 'whatif' | 'multiseed' | 'stress' | 'brackets' | null;
 }
 
-export function App() {
+export function App({ initialSeed = '' }: { initialSeed?: string }) {
   // Live data via 6-context tree (W1 Plan 01 wiring).
   const { agents } = useAgents();
   const { rationales } = useRationales();
-  const { reconnectFailed, connected } = useConnection();
+  const { connected, lastFrame } = useConnection();
   const tel = useTelemetry();
   const meta = useFrameMeta();
   const lifecycle = lifecycleOf(meta);
@@ -246,7 +245,9 @@ export function App() {
     [edges],
   );
   const phase = tel.phase;
+  const shockWindowOpen = lastFrame?.shockWindowOpen ?? false;
   const tps = tel.telemetry.tps;
+  const tpsHistory = useSampleHistory(tps, tel.ts);
   const memMb = tel.telemetry.memMb;
   const slotsUsed = tel.telemetry.slotsUsed;
   const slotsMax = tel.telemetry.slotsMax;
@@ -262,23 +263,14 @@ export function App() {
   }, [governorPaused]);
 
   // Local UI state — chrome only (no live data here).
-  const [seed, setSeed] = useState<string>('');
+  const [seed, setSeed] = useState<string>(initialSeed);
   const [actionError, setActionError] = useState<string | null>(null);
   const [layout, setLayout] = useState<'force' | 'radial' | 'grid'>('force');
   const [hintsDismissed, setHintsDismissed] = useState(false);
-  const [tweaksOpen, setTweaksOpen] = useState(false);
-  const [tweakState, setTweakState] = useState<{
-    layout: string; density: string; phase: any; sigMix: { buy: number; sell: number; hold: number };
-    demoState: string;
-  }>({
-    layout: 'force', density: 'comfortable', phase: 2,
-    sigMix: { buy: 0.30, sell: 0.45, hold: 0.25 }, demoState: 'live',
-  });
   const [ui, setUi] = useState<UiState>({
     shockOpen: false,
     cyclePickerOpen: false,
-    interviewAgent: null,
-    interviewV2Agent: null,
+    interviewAgentId: null,
     reportOpen: false,
     reportCycleId: null,
     advisoryOpen: false,
@@ -287,7 +279,6 @@ export function App() {
     historyOpen: false,
     bracketDeepDive: null,
     overflowOpen: false,
-    seedSuggestOpen: false,
     tooltip: null,
     comingSoon: null,
   });
@@ -299,6 +290,7 @@ export function App() {
     () =>
       bracketTallies(agents).map((b) => ({
         bracket: b.bracket,
+        color: bracketSpec(b.bracket)?.color ?? 'var(--accent)',
         display_name: b.display,
         total: b.total,
         buy_count: b.tally.buy,
@@ -307,26 +299,11 @@ export function App() {
       })),
     [agents],
   );
-  // RationaleFeed expects {agent, bracket, signal, round, text, cites}.
-  // RationaleView ships {agentId, signal, round, text, citations, sources, ts}.
-  // signal comes from the wire RationaleEntry itself — using the agent's
-  // CURRENT signal retagged old entries whenever the agent flipped.
-  // KR-41.1-10: citations are stubbed [] in the adapter; render shows no cites
-  // until backend RationaleEntry carries cited_agents.
-  const feedRationales = useMemo(
-    () => rationales.map(r => {
-      const a = agents.find(ag => ag.id === r.agentId);
-      return {
-        agent: r.agentId,
-        bracket: a?.bracketDisplay ?? '',
-        signal: r.signal,
-        round: r.round,
-        text: r.text,
-        cites: r.citations ?? [],
-      };
-    }),
-    [rationales, agents],
-  );
+  // Feed rows carry the per-entry wire signal, not the agent's current one, so
+  // a flip never retags old entries. Citations are stubbed [] in the adapter
+  // (docs/DECISIONS.md#kr-41-1-10).
+  const agentsById = useMemo(() => indexAgents(agents), [agents]);
+  const feedRows = useMemo(() => buildFeed(rationales, agentsById), [rationales, agentsById]);
 
   // Top Influencers: agents cited by the most distinct peers in the round on
   // screen (in-degree). Nothing to rank until round 2's edges exist.
@@ -356,11 +333,8 @@ export function App() {
     const rect = e.currentTarget.closest('.canvas-wrap').getBoundingClientRect();
     setUi(u => ({ ...u, tooltip: { agent, x: e.clientX - rect.left, y: e.clientY - rect.top } }));
   };
-  const onAgentClick = (agent: any) => setUi(u => ({ ...u, interviewV2Agent: agent }));
-  const onCiteClick = (agentId: string) => {
-    const a = agents.find(x => x.id === agentId);
-    if (a) setUi(u => ({ ...u, interviewAgent: a }));
-  };
+  const openInterview = (agentId: string) => setUi((u) => ({ ...u, interviewAgentId: agentId }));
+  const onAgentClick = (agent: { id: string }) => openInterview(agent.id);
 
   // Run gate: cost confirmation for cloud/mixed runs, then simStart. It keeps
   // the failure message and a pending flag for the Run control. After an
@@ -387,11 +361,6 @@ export function App() {
       setActionError(formatApiError(err));
     }
   };
-
-  // Only a dead WebSocket replaces the dashboard; every other lifecycle renders the shell (overlays below).
-  if (reconnectFailed) {
-    return <ErrorState onRetry={() => window.location.reload()} />;
-  }
 
   return (
     <div className="app" data-dir="a" data-density="comfortable" data-screen-label="01 Dashboard">
@@ -420,11 +389,7 @@ export function App() {
               placeholder="Seed rumor…"
               aria-label="Seed rumor"
             />
-            <span className="seed-entities">3 entities</span>
           </div>
-          <button className="btn ghost-btn" title="Inspire — suggest a seed scenario"
-            style={{color: ui.seedSuggestOpen ? 'var(--accent)' : undefined}}
-            onClick={() => setUi(u => ({...u, seedSuggestOpen: !u.seedSuggestOpen}))}>✦</button>
         </div>
 
         <RunControls
@@ -438,7 +403,12 @@ export function App() {
 
         <div className="topbar-divider" />
 
-        <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, shockOpen: !u.shockOpen}))} title="Inject shock event">
+        <button
+          className="btn ghost-btn"
+          onClick={() => setUi(u => ({...u, shockOpen: !u.shockOpen}))}
+          disabled={!shockWindowOpen}
+          title={shockWindowOpen ? 'Inject shock event' : 'Shock window closed: a shock can only reach a later round'}
+        >
           <Icon name="bolt" />
         </button>
         <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, cyclePickerOpen: true}))} title="Watch / replay">
@@ -485,7 +455,7 @@ export function App() {
                     width:'100%', padding:'9px 14px',
                     background:'transparent', border:'none', borderBottom:'1px solid var(--border)',
                     color:'var(--text-2)', cursor:'pointer',
-                    fontFamily:"'JetBrains Mono', monospace", fontSize:11, letterSpacing:'0.04em',
+                    fontFamily: 'var(--font-mono)', fontSize:11, letterSpacing:'0.04em',
                     textAlign:'left', transition:'all .1s',
                   }}>
                   <span style={{color:'var(--text-3)', flexShrink:0}}><Icon name={item.icon} /></span>
@@ -501,7 +471,7 @@ export function App() {
       <InlineError error={actionError} onDismiss={() => setActionError(null)} />
       <RunErrorBanner />
 
-      {/* Signal Wire ticker — real ported component (DEV-only mock per KR-41.6-14) */}
+      {/* Signal Wire ticker — live data_source_audit slice (docs/DECISIONS.md#kr-41-1-02) */}
       <SignalWire onInspect={() => setUi((u) => ({ ...u, dataSourcesOpen: true }))} />
 
       {/* Governor paused/crisis warning — dismissible banner, NOT a takeover.
@@ -553,7 +523,7 @@ export function App() {
               <span className="panel-title">Top Influencers</span>
               <span className="label">CITED BY</span>
             </div>
-            <div className="panel-body" style={{fontFamily:'JetBrains Mono', fontSize:11}}>
+            <div className="panel-body" style={{fontFamily: 'var(--font-mono)', fontSize:11}}>
               {topInfluencers.length === 0 ? (
                 <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 10 }}>
                   {hasEdges
@@ -562,7 +532,7 @@ export function App() {
                 </div>
               ) : topInfluencers.map(r => (
                 <div key={r.id} className="influencer-row">
-                  <span className="infl-id" onClick={() => onCiteClick(r.id)}>{r.id}</span>
+                  <span className="infl-id" onClick={() => openInterview(r.id)}>{r.id}</span>
                   <span className="infl-bracket">{r.bracket}</span>
                   <div className="infl-bar"><span style={{width: `${r.barPct}%`}} /></div>
                   <span className="infl-num">{r.citedBy}</span>
@@ -575,12 +545,6 @@ export function App() {
         {/* Center */}
         <div className="col col-center">
           <div className="canvas-topstrip">
-            <div className="round-tabs">
-              {[1,2,3].map(r => (
-                <button key={r} className="round-tab" data-active={round === r && phase !== 'complete'}>R{r}</button>
-              ))}
-              <button className="round-tab" data-active={phase === 'complete'}>FINAL</button>
-            </div>
             <span className="topstrip-meta">{agents.filter(a => a.flipped).length} flips since R1 · {hasEdges ? `${edges.length} active edges` : `${agents.length} agents`}</span>
             <div className="layout-tabs">
               <span className="label" style={{marginRight:6}}>LAYOUT</span>
@@ -624,17 +588,19 @@ export function App() {
                 onShowHistory={() => setUi((u) => ({ ...u, historyOpen: true }))}
               />
             )}
-            {lifecycle === 'seeding' && <SeedingState seed={seed} />}
+            {lifecycle === 'seeding' && <SeedingState seed={seed} elapsedSeconds={elapsedSeconds} />}
           </div>
 
           <KpiStrip
             agents={agents}
             tps={tps}
+            tpsHistory={tpsHistory}
             mem={Math.round(memMb)}
             slots={slotsUsed}
             slotsMax={slotsMax}
             elapsed={Math.round(elapsedSeconds)}
             round={round}
+            numRounds={numRounds}
           />
         </div>
 
@@ -651,9 +617,9 @@ export function App() {
             </div>
             <div className="panel-body">
               <RationaleFeed
-                rationales={feedRationales}
-                onAgentClick={onCiteClick}
-                onCiteClick={onCiteClick}
+                rows={feedRows}
+                onAgentClick={openInterview}
+                onCiteClick={openInterview}
               />
             </div>
           </div>
@@ -662,23 +628,14 @@ export function App() {
 
       {/* W4 real-wired modal mounts (Plan 41.6-04 task 2). All stub overlays
           replaced — InterviewV2 and BracketDeepDive now mount real components. */}
-      {ui.interviewV2Agent && (
-        <InterviewV2
-          agent={ui.interviewV2Agent}
-          onClose={() => setUi((u) => ({ ...u, interviewV2Agent: null }))}
-        />
-      )}
-      {ui.interviewAgent && (
-        <InterviewV2
-          agent={ui.interviewAgent}
-          onClose={() => setUi((u) => ({ ...u, interviewAgent: null }))}
-        />
+      {ui.interviewAgentId && (
+        <InterviewV2 agentId={ui.interviewAgentId} onClose={() => setUi((u) => ({ ...u, interviewAgentId: null }))} />
       )}
       {ui.bracketDeepDive && (
         <BracketDeepDive
           bracket={ui.bracketDeepDive}
-          agents={agents.filter((a) => normalizeBracketKey(a.bracket) === normalizeBracketKey(ui.bracketDeepDive.bracket))}
-          onAgentInterview={(a) => setUi((u) => ({ ...u, bracketDeepDive: null, interviewV2Agent: a }))}
+          agents={agents.filter((a) => a.bracket === ui.bracketDeepDive.bracket)}
+          onAgentInterview={(a) => setUi((u) => ({ ...u, bracketDeepDive: null, interviewAgentId: a.id }))}
           onClose={() => setUi((u) => ({ ...u, bracketDeepDive: null }))}
         />
       )}
@@ -740,15 +697,6 @@ export function App() {
 
       {/* Pre-run cost confirmation modal (cloud/mixed mode only). */}
       {runConfirmModal}
-
-      {/* Dev-only TweaksPanel mount — gated to import.meta.env.DEV inside loader */}
-      {tweaksOpen && (
-        <TweaksPanelLoader
-          state={tweakState}
-          setState={setTweakState as any}
-          onClose={() => setTweaksOpen(false)}
-        />
-      )}
     </div>
   );
 }

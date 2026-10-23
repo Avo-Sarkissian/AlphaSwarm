@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 // The topbar mode chip shows what GET /api/health reports and never guesses
 // "Local" before an answer arrives or after the request fails.
-import { cleanup, waitFor } from '@testing-library/react';
+import { cleanup, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ModelStatus } from '../../components/v2';
 import { stubFetchRoutes } from '../helpers/fetchRoutes';
+import { renderAt } from '../helpers/lifecycleFrames';
 import { renderWithFrame } from '../helpers/renderWithFrame';
 
 afterEach(() => {
@@ -38,5 +39,13 @@ describe('ModelStatus mode chip', () => {
     stubFetchRoutes({ 'GET /api/health': { body: { inference_mode: 'mixed', spent_usd: null } } });
     renderWithFrame(<ModelStatus />);
     await waitFor(() => expect(chipText()).toBe('Mixed'));
+  });
+});
+
+describe('ModelStatus round', () => {
+  it('shows the round against num_rounds', async () => {
+    stubFetchRoutes({ 'GET /api/health': { body: { status: 'ok', inference_mode: 'local', spent_usd: null } } });
+    renderAt(<ModelStatus />, 'live', { numRounds: 2, roundNum: 2 });
+    expect(await screen.findByText('round 2/2')).toBeDefined();
   });
 });

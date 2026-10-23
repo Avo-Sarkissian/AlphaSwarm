@@ -1,9 +1,8 @@
 // Inference / Models settings section — writable backend-owned config.
 //
-// Policy (D-23 / codex MEDIUM-8):
+// Policy (docs/DECISIONS.md#p41-6-d-23):
 //   Model / provider / api_key values are BACKEND-owned.
-//   They NEVER touch localStorage. Only UI-tweak keys (density / layout /
-//   theme / hintVisibility) may be persisted by settings.tsx.
+//   They NEVER touch localStorage; nothing in Settings is stored in the browser.
 //
 // Wiring:
 //   • On mount: getSettings() populates form state from the backend config.
@@ -137,7 +136,7 @@ function RoleForm({
               color: 'var(--text-1)',
               fontSize: 12,
               borderRadius: 3,
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: 'var(--font-mono)',
             }}
           >
             <option value="">— Custom —</option>
@@ -167,7 +166,7 @@ function RoleForm({
             color: 'var(--text-1)',
             fontSize: 12,
             borderRadius: 3,
-            fontFamily: "'JetBrains Mono', monospace",
+            fontFamily: 'var(--font-mono)',
           }}
         >
           <option value="ollama">{providerLabel('ollama')}</option>
@@ -196,7 +195,7 @@ function RoleForm({
             color: 'var(--text-1)',
             fontSize: 12,
             borderRadius: 3,
-            fontFamily: "'JetBrains Mono', monospace",
+            fontFamily: 'var(--font-mono)',
           }}
         />
         <datalist id={listId}>
@@ -224,7 +223,7 @@ function RoleForm({
               color: 'var(--text-1)',
               fontSize: 12,
               borderRadius: 3,
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: 'var(--font-mono)',
             }}
           />
         </div>
@@ -248,7 +247,7 @@ function RoleForm({
               color: 'var(--text-1)',
               fontSize: 12,
               borderRadius: 3,
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: 'var(--font-mono)',
             }}
           />
         </div>
@@ -477,7 +476,7 @@ export function InferenceSettings({ onSaved }: InferenceSettingsProps) {
                 color: 'var(--text-1)',
                 fontSize: 12,
                 borderRadius: 3,
-                fontFamily: "'JetBrains Mono', monospace",
+                fontFamily: 'var(--font-mono)',
               }}
             />
           </div>

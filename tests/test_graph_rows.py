@@ -49,7 +49,19 @@ EXPECTED_KEYS: dict[str, set[str]] = {
         "bracket_pivots",
     },
     "InfluenceEdgeRow": {"source_id", "target_id", "weight"},
-    "CompletedCycleRow": {"cycle_id", "created_at", "seed_rumor", "round_count"},
+    "CompletedCycleRow": {
+        "cycle_id",
+        "created_at",
+        "seed_rumor",
+        "round_count",
+        "status",
+        "final_buy",
+        "final_sell",
+        "final_hold",
+        "total_flips",
+        "total_seconds",
+        "agent_count",
+    },
     "BracketRoundRow": {
         "bracket",
         "buy_count",
@@ -60,6 +72,14 @@ EXPECTED_KEYS: dict[str, set[str]] = {
         "avg_sentiment",
     },
     "RationaleRoundRow": {"agent_id", "signal", "rationale", "round_num"},
+    "AgentDecisionRow": {
+        "round_num",
+        "signal",
+        "confidence",
+        "sentiment",
+        "rationale",
+        "cited_agents",
+    },
 }
 
 

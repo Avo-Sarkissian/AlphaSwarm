@@ -34,6 +34,9 @@ vi.mock('../../context/EdgesContext', async () => {
     useEdgesCtx: () => ({ ...indexEdges(h.edges), target: null }),
   };
 });
+// The idle overlay polls /api/health; these tests do not cover it (idleState.test.tsx
+// does), and a pending check keeps unstubbed tests off the network.
+vi.mock('../../api/health', () => ({ fetchHealth: () => new Promise<never>(() => {}) }));
 vi.mock('../../components/v2', () => ({
   SignalWire: () => null,
   ModelStatus: () => null,
@@ -90,7 +93,7 @@ describe('Brackets panel', () => {
     renderAt(<DashboardShell />, 'live', {
       agents: [makeAgent('sell_side_01', 'buy'), makeAgent('sell_side_02', null)],
     });
-    const row = screen.getByText('sell_side').closest('.bracket-row') as HTMLElement;
+    const row = screen.getByText('Sell-Side', { selector: '.bracket-name' }).closest('.bracket-row') as HTMLElement;
     expect(row.querySelector('.bracket-count')?.textContent).toBe('2');
     expect((row.querySelector('.b-buy') as HTMLElement).style.width).toBe('50%');
     expect((row.querySelector('.b-hold') as HTMLElement).style.width).toBe('0%');
@@ -108,7 +111,7 @@ describe('dashboard lifecycle', () => {
 
   it('shows the seeding overlay, the SEEDING label and Stop while seeding', () => {
     renderAt(<DashboardShell />, 'seeding');
-    expect(screen.queryByText('Spawning agents…')).not.toBeNull();
+    expect(screen.queryByText('Preparing the swarm…')).not.toBeNull();
     expect(screen.queryByText('SEEDING')).not.toBeNull();
     expect(screen.queryByRole('button', { name: /stop/i })).not.toBeNull();
   });
@@ -116,7 +119,7 @@ describe('dashboard lifecycle', () => {
   it('shows the graph without overlays during a live round', () => {
     renderAt(<DashboardShell />, 'live');
     expect(screen.queryByText('Swarm is dormant.')).toBeNull();
-    expect(screen.queryByText('Spawning agents…')).toBeNull();
+    expect(screen.queryByText('Preparing the swarm…')).toBeNull();
     expect(screen.queryByText('ROUND 2/3')).not.toBeNull();
   });
 

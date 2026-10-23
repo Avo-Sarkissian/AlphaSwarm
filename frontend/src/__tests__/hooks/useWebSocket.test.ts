@@ -65,7 +65,7 @@ describe('useWebSocket — reconnect backoff', () => {
     act(() => FakeWebSocket.latest().open());
     act(() => FakeWebSocket.latest().drop());
     expect(result.current.connected).toBe(false);
-    expect(result.current.reconnectFailed).toBe(false);
+    expect(result.current.status).toBe('closed');
   });
 
   it('resets the delay to 1 s after a successful open', () => {

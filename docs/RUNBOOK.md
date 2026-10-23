@@ -136,8 +136,7 @@ npm --prefix frontend run dev                           # http://localhost:5173
   backend** after backend edits, and hard-refresh the browser for frontend edits.
 - With the backend stopped, actions on :5173 show "Cannot reach the backend. Is it running
   on port 8000?": the dev proxy answers 502 `backend_unreachable` and logs `http proxy error`.
-- Fast smoke runs: `ALPHASWARM_NUM_ROUNDS=2`. The phase pill, replay bar and edges follow
-  the frame's `num_rounds`; a few labels still show "/3" until BACKLOG 1.4 closes.
+- Fast smoke runs: `ALPHASWARM_NUM_ROUNDS=2`. The UI follows the frame's `num_rounds`.
 - Headless run with live progress output: `uv run python -m alphaswarm run "<rumor>"`.
   It honors `.secrets/inference.json` since 342b285.
 
@@ -195,7 +194,7 @@ that names a held company exercises the advisory. Then check:
   - Click "Get started" and type a seed of at least 10 characters (or click an example). The step lists `neo4j` with its fix, and the run button reads "Fix the items above first" and stays disabled.
   - Start Neo4j again (`docker compose start neo4j`, or `docker start <name>`) and wait until it accepts connections, which takes several seconds: `docker compose ps` shows it `healthy`, or `docker logs <name>` ends with `Started.` for your own container. Press Re-check: the status reads "Backend ready" and "Run first cycle" is enabled.
   - Stop the backend and press Re-check: the status reads "Backend unreachable" and the button "Start backend first". Start the backend again before the next check.
-- [ ] Governor warning: when `governor_state` is `paused` or `crisis`, a dismissible banner appears over the dashboard (`app_v2.tsx:258-262, 507-533`). There is no way to force it from the UI: the DEV tweaks "Demo state → Mem ceiling" button is a no-op, and the old full-screen `MemoryPausedState` is dead code (BACKLOG 2.2).
+- [ ] Governor warning: when `governor_state` is `paused` or `crisis`, a dismissible banner appears over the dashboard (`app_v2.tsx:255-263, 477-503`). There is no way to force it from the UI; the DEV tweaks panel and the old full-screen `MemoryPausedState` were deleted (2026-10).
 - [ ] If a shock is injected: the report's shock-impact section shows non-zero percentages and arrows (F-03).
 - [ ] `uv run python scripts/compare_cycles.py --limit 1` shows the new cycle's metrics. `r*_parse_errors` should be low.
 

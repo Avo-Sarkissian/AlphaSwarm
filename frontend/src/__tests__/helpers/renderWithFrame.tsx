@@ -19,7 +19,7 @@ export interface RenderWithFrameOptions {
 export function withFrame(ui: ReactElement, opts: RenderWithFrameOptions = {}): ReactElement {
   const frame: StateFrame = { ...adaptSnapshot(opts.raw ?? liveFrame), ...opts.frame };
   return (
-    <FrameProviders frame={frame} connected reconnectFailed={false}>
+    <FrameProviders frame={frame} connected status="open">
       {ui}
     </FrameProviders>
   );

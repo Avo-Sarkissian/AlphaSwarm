@@ -4,7 +4,6 @@ import type { AgentView, StateFrame } from '../types';
 
 export interface AgentsCtxValue {
   agents: AgentView[];
-  consensus: number | null;
 }
 
 const Ctx = createContext<AgentsCtxValue | null>(null);
@@ -17,8 +16,8 @@ export function AgentsProvider({
   children: ReactNode;
 }) {
   const value = useMemo<AgentsCtxValue>(
-    () => ({ agents: frame.agents, consensus: frame.consensus }),
-    [frame.agents, frame.consensus],
+    () => ({ agents: frame.agents }),
+    [frame.agents],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

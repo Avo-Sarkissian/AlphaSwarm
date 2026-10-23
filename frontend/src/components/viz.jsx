@@ -11,21 +11,12 @@
 // NaN. The Viz component now enriches agents with both fields before passing
 // them downstream, restoring the deterministic layout.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BRACKETS, normalizeBracketKey } from '../data';
+import { BRACKETS } from '../data';
 import { signalColor } from '../lib/signals';
 
-// Backend BracketKey is PascalCase ('Quants', 'SellSide', 'EventDriven')
-// while BRACKETS const values are snake_case ('quants', 'sell_side', 'event_driven').
-// Normalize on lookup (shared helper in ../data) so all agents get their proper
-// per-bracket radius instead of falling through to the default and rendering
-// uniform tiny dots.
-const _BRACKET_RADIUS_BY_VALUE = Object.fromEntries(BRACKETS.map((b) => [b.value, b.radius]));
-const BRACKET_RADIUS = new Proxy(_BRACKET_RADIUS_BY_VALUE, {
-  get(target, prop) {
-    if (typeof prop !== 'string') return undefined;
-    return target[prop] ?? target[normalizeBracketKey(prop)];
-  },
-});
+// Node radius by registry position (5..14), unchanged from the design export.
+// Keys are wire snake_case, the same as AgentView.bracket.
+const BRACKET_RADIUS = Object.fromEntries(BRACKETS.map((b, i) => [b.key, 5 + i]));
 
 function layoutForce(agents, w, h) {
   // Cheap circle-packed clustering — group agents by bracket, place clusters on a large ring.

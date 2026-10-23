@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 from alphaswarm.web.errors import ApiError
@@ -21,18 +22,29 @@ router = APIRouter()
 
 
 class CycleItem(BaseModel):
-    """Single completed cycle in the replay listing."""
+    """One complete cycle in the replay/history listing.
+
+    Metric fields are None for cycles recorded before run metrics existed.
+    """
 
     cycle_id: str
-    created_at: str  # ISO-8601 string (datetime serialized)
+    created_at: str  # ISO-8601 with offset; also the paging cursor
     seed_rumor: str
-    round_count: int  # Always 3 for completed cycles
+    round_count: int  # the cycle's num_rounds, 2 or 3 (docs/DECISIONS.md#adr-num-rounds)
+    status: str
+    final_buy: int | None = None
+    final_sell: int | None = None
+    final_hold: int | None = None
+    total_flips: int | None = None
+    total_seconds: float | None = None
+    agent_count: int | None = None
 
 
 class ReplayCyclesResponse(BaseModel):
-    """Response for GET /replay/cycles."""
+    """Response for GET /replay/cycles: one page plus the cursor for the next."""
 
     cycles: list[CycleItem]
+    next_before: str | None = None
 
 
 class ReplayStartResponse(BaseModel):
@@ -60,28 +72,26 @@ class ReplayStopResponse(BaseModel):
 
 
 @router.get("/replay/cycles", response_model=ReplayCyclesResponse)
-async def replay_cycles(request: Request) -> ReplayCyclesResponse:
-    """List completed cycles eligible for replay (D-12); 503 without Neo4j.
+async def replay_cycles(
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    before: Annotated[datetime | None, Query()] = None,
+) -> ReplayCyclesResponse:
+    """List complete cycles, newest first, one page at a time (docs/DECISIONS.md#p32-d-12).
 
-    Completed means the cycle stamped its metrics at simulation end, or (for
-    cycles predating the stamp) has a round-3 decision; cycles still running
-    are excluded (docs/DECISIONS.md#adr-cycle-metrics).
+    `limit` caps the page (1-100, default 20). `before` is the `created_at`
+    of the previous page's last row (URL-encoded; a naive value is read as
+    UTC). `next_before` is the cursor for the next page, or null when this
+    page is not full. Status-based: running, failed and cancelled cycles are
+    excluded (docs/DECISIONS.md#adr-cycle-metrics). 503 `graph_unavailable`
+    without Neo4j; 422 `validation_error` for a bad limit or cursor.
     """
     graph = require_graph(request.app.state.app_state)
-    raw_cycles = await graph.read_completed_cycles()
-    cycles = [
-        CycleItem(
-            cycle_id=c["cycle_id"],
-            created_at=(c["created_at"].isoformat() if isinstance(c["created_at"], datetime) else str(c["created_at"])),
-            seed_rumor=c.get("seed_rumor", ""),
-            # Actual cascade depth (2 under ALPHASWARM_NUM_ROUNDS=2);
-            # cycles predating metrics stamping default to 3.
-            round_count=c.get("round_count", 3),
-        )
-        for c in raw_cycles
-    ]
-    log.info("replay_cycles_listed", count=len(cycles))
-    return ReplayCyclesResponse(cycles=cycles)
+    rows = await graph.read_completed_cycles(limit, before=before)
+    cycles = [CycleItem.model_validate(row) for row in rows]
+    next_before = cycles[-1].created_at if len(cycles) == limit else None
+    log.info("replay_cycles_listed", count=len(cycles), limit=limit, paged=before is not None)
+    return ReplayCyclesResponse(cycles=cycles, next_before=next_before)
 
 
 @router.post("/replay/start/{cycle_id}", response_model=ReplayStartResponse)

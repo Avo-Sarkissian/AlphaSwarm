@@ -181,14 +181,14 @@ describe('extractErrorDetail', () => {
     expect(extractErrorDetail(err)).toBe('invalid model name');
   });
 
-  it('falls back to "Error <status>" for a non-object body', () => {
+  it('falls back to the status for a non-envelope body', () => {
     expect(extractErrorDetail(new ApiError(500, 'internal error', '/api/settings'))).toBe(
-      'Error 500',
+      'Request failed (HTTP 500)',
     );
   });
 
-  it('uses the message of a plain Error and stringifies anything else', () => {
+  it('uses the message of a plain Error and a generic text for anything else', () => {
     expect(extractErrorDetail(new Error('network down'))).toBe('network down');
-    expect(extractErrorDetail(42)).toBe('42');
+    expect(extractErrorDetail(42)).toBe('Something went wrong.');
   });
 });

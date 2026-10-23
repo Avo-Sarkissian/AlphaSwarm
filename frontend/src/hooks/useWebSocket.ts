@@ -2,37 +2,64 @@ import { useEffect, useRef, useState } from 'react';
 import { adaptSnapshot } from '../adapter/frame';
 import type { StateFrame } from '../types';
 
-// Connect to /ws/state. Parses JSON in try/catch; exponential backoff
-// (1s, 2s, 4s, then capped at 5s) retrying INDEFINITELY — a transient backend
-// restart must not strand the UI on a terminal error. Consumers surface
-// `connected:false` subtly (LIVE badge → RECONNECTING) instead.
-export interface UseWebSocketResult {
-  connected: boolean;
-  lastFrame: StateFrame | null;
-  lastRaw: unknown;
-  /** Kept for interface compat; no longer set (retries never give up). */
-  reconnectFailed: boolean;
-}
+/**
+ * connecting: no socket has opened yet.  open: frames are arriving.
+ * stale: the socket is open but no frame for FRAME_STALE_MS.
+ * closed: the socket closed or was replaced; reconnecting.
+ */
+export type ConnectionStatus = 'connecting' | 'open' | 'stale' | 'closed';
 
+/** The broadcaster sends ~5 frames/s (docs/DECISIONS.md#adr-ws-broadcaster). */
+export const FRAME_STALE_MS = 2000;
+export const FRAME_RECONNECT_MS = 5000;
+const WATCHDOG_TICK_MS = 500;
 const BACKOFF_MS = [1000, 2000, 4000, 5000];
 
+export interface UseWebSocketResult {
+  connected: boolean;
+  status: ConnectionStatus;
+  lastFrame: StateFrame | null;
+  lastRaw: unknown;
+}
+
+// Connect to /ws/state and retry forever with backoff (1 s, 2 s, 4 s, then 5 s).
+// A watchdog marks the channel stale after FRAME_STALE_MS without a frame and
+// replaces the socket at FRAME_RECONNECT_MS, so a half-dead socket (sleep/wake,
+// proxy stall) cannot freeze the dashboard on old data. The watchdog only
+// watches a socket that has opened; a socket still connecting is left to the
+// browser's own connect timeout and the onclose retry.
 export function useWebSocket(path: string = '/ws/state'): UseWebSocketResult {
   const [connected, setConnected] = useState<boolean>(false);
+  const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [lastFrame, setLastFrame] = useState<StateFrame | null>(null);
   const [lastRaw, setLastRaw] = useState<unknown>(null);
-  const [reconnectFailed, setReconnectFailed] = useState<boolean>(false);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const openWsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef<boolean>(false);
+  const lastFrameAtRef = useRef<number>(0);
 
   useEffect(() => {
     cancelledRef.current = false;
 
+    const detach = (ws: WebSocket) => {
+      ws.onmessage = null;
+      ws.onopen = null;
+      ws.onerror = null;
+      ws.onclose = null;
+    };
+
+    const scheduleRetry = () => {
+      if (cancelledRef.current) return;
+      const delay = BACKOFF_MS[Math.min(retryRef.current, BACKOFF_MS.length - 1)];
+      retryRef.current += 1;
+      timerRef.current = setTimeout(connect, delay);
+    };
+
     const connect = () => {
       if (cancelledRef.current) return;
-
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const url = `${proto}//${window.location.host}${path}`;
       let ws: WebSocket;
@@ -46,57 +73,71 @@ export function useWebSocket(path: string = '/ws/state'): UseWebSocketResult {
 
       ws.onopen = () => {
         if (cancelledRef.current) return;
+        openWsRef.current = ws;
+        lastFrameAtRef.current = Date.now();
         setConnected(true);
-        setReconnectFailed(false);
+        setStatus('open');
         retryRef.current = 0;
       };
 
       ws.onmessage = (ev: MessageEvent) => {
         if (cancelledRef.current) return;
+        lastFrameAtRef.current = Date.now();
+        setStatus('open');
         try {
           const raw = JSON.parse(String(ev.data));
           setLastRaw(raw);
           setLastFrame(adaptSnapshot(raw));
         } catch {
-          // swallow: malformed frame, wait for next
+          // malformed frame: wait for the next one
         }
       };
 
       ws.onerror = () => {
-        // onclose will follow; handle retry there
+        // onclose follows; the retry happens there
       };
 
       ws.onclose = () => {
         if (cancelledRef.current) return;
+        detach(ws);
+        if (wsRef.current === ws) wsRef.current = null;
+        if (openWsRef.current === ws) openWsRef.current = null;
         setConnected(false);
-        ws.onmessage = null;
-        ws.onopen = null;
-        ws.onerror = null;
-        ws.onclose = null;
+        setStatus('closed');
         scheduleRetry();
       };
     };
 
-    const scheduleRetry = () => {
-      if (cancelledRef.current) return;
-      // Exponential backoff capped at 5s; never gives up.
-      const delay =
-        BACKOFF_MS[Math.min(retryRef.current, BACKOFF_MS.length - 1)];
-      retryRef.current += 1;
-      timerRef.current = setTimeout(connect, delay);
-    };
+    const watchdog = setInterval(() => {
+      const ws = wsRef.current;
+      if (cancelledRef.current || ws === null || openWsRef.current !== ws) return;
+      const silentMs = Date.now() - lastFrameAtRef.current;
+      if (silentMs >= FRAME_RECONNECT_MS) {
+        detach(ws);
+        wsRef.current = null;
+        openWsRef.current = null;
+        try {
+          ws.close();
+        } catch {
+          // already closing
+        }
+        setConnected(false);
+        setStatus('closed');
+        connect();
+      } else if (silentMs >= FRAME_STALE_MS) {
+        setStatus('stale');
+      }
+    }, WATCHDOG_TICK_MS);
 
     connect();
 
     return () => {
       cancelledRef.current = true;
+      clearInterval(watchdog);
       if (timerRef.current) clearTimeout(timerRef.current);
       const ws = wsRef.current;
       if (ws) {
-        ws.onmessage = null;
-        ws.onopen = null;
-        ws.onerror = null;
-        ws.onclose = null;
+        detach(ws);
         try {
           ws.close();
         } catch {
@@ -106,5 +147,5 @@ export function useWebSocket(path: string = '/ws/state'): UseWebSocketResult {
     };
   }, [path]);
 
-  return { connected, lastFrame, lastRaw, reconnectFailed };
+  return { connected, status, lastFrame, lastRaw };
 }

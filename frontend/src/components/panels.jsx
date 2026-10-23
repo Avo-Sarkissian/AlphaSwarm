@@ -3,6 +3,7 @@
 // to native ES modules per D-03 (panel components were attached as globals
 // before the conversion).
 
+import { sparkBars } from '../lib/spark';
 import { consensusLeader, tallySignals } from '../lib/tally';
 
 export function BracketList({ summaries, onClick }) {
@@ -21,7 +22,7 @@ export function BracketList({ summaries, onClick }) {
         const hp = s.hold_count / Math.max(1, s.total);
         return (
           <div key={s.bracket} className="bracket-row" onClick={() => onClick && onClick(s)}>
-            <span className="bracket-chip" style={{ background: 'var(--accent)' }} />
+            <span className="bracket-chip" style={{ background: s.color ?? 'var(--accent)' }} />
             <span className="bracket-name">{s.display_name}</span>
             <span className="bracket-count num">{s.total}</span>
             <div className="bracket-bar">
@@ -36,25 +37,28 @@ export function BracketList({ summaries, onClick }) {
   );
 }
 
-export function RationaleFeed({ rationales, onAgentClick, onCiteClick }) {
+export function RationaleFeed({ rows, onAgentClick, onCiteClick }) {
   // Highlight entity-style words
-  const render = (text) => {
-    return text.split(/(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)/g).map((frag, i) =>
-      /^(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)$/.test(frag)
-        ? <span key={i} className="highlight">{frag}</span>
-        : frag
+  const render = (text) =>
+    text.split(/(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)/g).map((frag, i) =>
+      /^(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)$/.test(frag) ? (
+        <span key={i} className="highlight">{frag}</span>
+      ) : (
+        frag
+      ),
     );
-  };
-  if (!rationales || rationales.length === 0) {
+  if (!rows || rows.length === 0) {
     return <div className="panel-empty">no rationales yet — agents thinking…</div>;
   }
   return (
     <div>
-      {rationales.map((r, i) => (
-        <div key={i} className="rationale-item">
+      {rows.map((r) => (
+        <div key={r.seq} className="rationale-item">
           <div className="rationale-head">
-            <span className="rationale-agent" onClick={() => onAgentClick && onAgentClick(r.agent)} style={{cursor:'pointer'}}>{r.agent}</span>
-            <span className="rationale-bracket">{r.bracket}</span>
+            <span className="rationale-agent" onClick={() => onAgentClick && onAgentClick(r.agentId)} style={{ cursor: 'pointer' }}>
+              {r.agentId}
+            </span>
+            <span className="rationale-bracket">{r.bracketDisplay}</span>
             <span className={`rationale-signal sig-${r.signal}`}>{r.signal.toUpperCase()}</span>
             <span className="rationale-round">R{r.round}</span>
           </div>
@@ -64,7 +68,9 @@ export function RationaleFeed({ rationales, onAgentClick, onCiteClick }) {
               <>
                 {' '}
                 {r.cites.map((c, j) => (
-                  <span key={j} className="cite" onClick={() => onCiteClick && onCiteClick(c)}>↳ {c}</span>
+                  <span key={j} className="cite" onClick={() => onCiteClick && onCiteClick(c)}>
+                    ↳ {c}
+                  </span>
                 ))}
               </>
             )}
@@ -75,7 +81,7 @@ export function RationaleFeed({ rationales, onAgentClick, onCiteClick }) {
   );
 }
 
-export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round }) {
+export function KpiStrip({ agents, tps, tpsHistory = /** @type {number[]} */ ([]), mem, slots, slotsMax, elapsed, round, numRounds }) {
   // Pending (null) and failed (parse_error) agents are never HOLD; the share is
   // over decided agents only (docs/DECISIONS.md#adr-streaming-state).
   const tally = tallySignals(agents);
@@ -103,11 +109,10 @@ export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round }) 
       <div className="kpi">
         <span className="kpi-label">Tokens / sec</span>
         <span className="kpi-value">{tps.toFixed(1)}<small>tps</small></span>
-        <div className="spark">
-          {Array.from({length: 22}).map((_, i) => {
-            const h = 6 + ((i*13 + Math.floor(tps))%16);
-            return <span key={i} style={{ height: h }} className={i>17?'hi':''} />;
-          })}
+        <div className="spark" title={`Tokens/s over the last ${tpsHistory.length} frames`}>
+          {sparkBars(tpsHistory).map((h, i, bars) => (
+            <span key={i} style={{ height: h }} className={i === bars.length - 1 ? 'hi' : ''} />
+          ))}
         </div>
       </div>
       <div className="kpi">
@@ -121,9 +126,9 @@ export function KpiStrip({ agents, tps, mem, slots, slotsMax, elapsed, round }) 
         <div className="kpi-bar"><span style={{ width: `${slots/slotCap*100}%` }} /></div>
       </div>
       <div className="kpi">
-        <span className="kpi-label">Elapsed · R{round}/3</span>
+        <span className="kpi-label">Elapsed · R{round}/{numRounds}</span>
         <span className="kpi-value">{fmt(elapsed)}</span>
-        <div className="kpi-bar"><span style={{ width: `${(round/3)*100}%` }} /></div>
+        <div className="kpi-bar"><span style={{ width: `${(round/numRounds)*100}%` }} /></div>
       </div>
     </div>
   );

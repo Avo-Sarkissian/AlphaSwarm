@@ -64,3 +64,13 @@ The CI `frontend` job runs `npm ci`, `npm audit --omit=dev --audit-level=high`, 
 The first lint run (October 2026) had 0 errors and 94 warnings: 72 jsx-a11y, 13 `no-explicit-any`
 in `components/app_v2.tsx`, 7 `react-hooks/set-state-in-effect`, 2 `react-hooks/refs`. New code
 should add none.
+
+## Dead-code and placebo gates
+
+- `npm run knip` fails on unused files, exports and dependencies (`knip.json`). `d3-scale` is ignored until the graph redesign imports it.
+- ESLint rejects any `<button>` without `onClick` or `type="submit"`: delete a placebo control instead of disabling it.
+- `src/__tests__/helpers/fetchStub.ts`: `stubFetch(routes)` answers `fetch` from a route table matched on the full URL including the query (unmatched requests get a 404 envelope) and returns the mock, so `requestedUrls(mock)` can assert encoded query strings; `ensureResizeObserver()` for components that render the SVG graph.
+- `src/__tests__/helpers/fetchRoutes.ts`: `stubFetchRoutes(routes)` routes on method and path only (the query is ignored), and a handler can answer by call count; it stays for the tests already written against it.
+- `src/__tests__/helpers/renderShell.tsx`: `renderShell(ui, opts)` is `renderWithFrame` plus the real `EdgesProvider`; use it for the dashboard, the interview takeover and the bracket deep dive, which read `useEdgesCtx()`.
+- The frame watchdog is tested with the shared `FakeWebSocket` helper and fake timers (`hooks/useWebSocket.watchdog.test.tsx`).
+- Pure logic lives in `src/lib/` and is tested in node; component tests use `// @vitest-environment happy-dom` and `renderWithFrame`.

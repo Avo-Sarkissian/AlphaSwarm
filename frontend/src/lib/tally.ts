@@ -2,7 +2,6 @@
 // null, still thinking this round) and failed agents (parse_error) are never
 // counted as HOLD; percentages use decided agents (buy + sell + hold) only
 // (docs/DECISIONS.md#adr-streaming-state).
-import { normalizeBracketKey } from '../data';
 import type { AgentView } from '../types';
 
 export interface SignalTally {
@@ -52,7 +51,7 @@ export interface BracketTally {
 export function bracketTallies(agents: readonly AgentView[]): BracketTally[] {
   const groups = new Map<string, { display: string; members: AgentView[] }>();
   for (const a of agents) {
-    const key = normalizeBracketKey(a.bracket);
+    const key = a.bracket;
     const group = groups.get(key) ?? { display: a.bracketDisplay, members: [] };
     group.members.push(a);
     groups.set(key, group);

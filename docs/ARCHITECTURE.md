@@ -16,7 +16,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 | Neo4j 5.26 | `docker-compose.yml`, bolt on `127.0.0.1:7687` | Durable graph of cycles, decisions, episodes, and influence |
 | External data | yfinance, Google/Yahoo RSS | Round 1 market context (prices and headlines) |
 | Files | `reports/`, `advisory/`, `Schwab/holdings.csv` | Report markdown, advisory JSON, holdings input (gitignored). Paths resolve against the repo root. |
-| React SPA | `frontend/` (Vite, TypeScript, D3) | Live dashboard, deterministic SVG agent graph, replay, interview, report and advisory modals, settings |
+| React SPA | `frontend/` (Vite, TypeScript, React-rendered SVG, d3-scale) | Live dashboard, deterministic SVG agent graph, replay, interview, report and advisory modals, settings |
 
 ## Modules (`src/alphaswarm/`)
 
@@ -64,7 +64,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `security/hashing.py`.
 - **Web**
   - `web/`: `simulation_manager`, `replay_manager`, `post_run` (PostRunPipeline), `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `wire` (the versioned `StateFrame` and its mapper), `connection_manager`, and `origin_guard` (a CSRF Origin guard).
-  - `web/routes/`: health (component readiness, cached 5 s, plus `/api/health/live`), simulation (start/stop/shock), edges, replay, interview, holdings, report, advisory, settings, websocket.
+  - `web/routes/`: health (component readiness, cached 5 s, plus `/api/health/live`), simulation (start/stop/shock), edges, replay, interview, holdings, report, advisory, settings, websocket, agents (per-agent decision history).
 - **Evaluation**
   - `evaluation.py`: eval records, outcome labels and forecast scoring (pure; `docs/DECISIONS.md#adr-eval-harness`).
   - `ingestion/fixture.py`: point-in-time `ContextPacket` fixtures for `alphaswarm run --context-fixture`.

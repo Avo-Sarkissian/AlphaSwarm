@@ -1,16 +1,17 @@
 // CONTRACT-shaped frontend types. Backend snapshot -> adapter -> StateFrame.
 
+/** Wire bracket keys (BracketType.value), in DEFAULT_BRACKETS order. */
 export type BracketKey =
-  | 'Institutions'
-  | 'SellSide'
-  | 'EventDriven'
-  | 'Quants'
-  | 'Degens'
-  | 'Narrators'
-  | 'Algos'
-  | 'Macro'
-  | 'Shorts'
-  | 'Allocators';
+  | 'institutions'
+  | 'sell_side'
+  | 'event_driven'
+  | 'quants'
+  | 'degens'
+  | 'narrators'
+  | 'algos'
+  | 'macro'
+  | 'shorts'
+  | 'allocators';
 
 // Agent discrete signal — backend emits lowercase 'buy'|'sell'|'hold'|
 // 'parse_error' on the wire; 'parse_error' gets a distinct muted treatment.
@@ -18,7 +19,7 @@ export type AgentSignal = 'buy' | 'sell' | 'hold' | 'parse_error';
 
 export interface AgentView {
   id: string;
-  bracket: BracketKey;
+  bracket: BracketKey | 'unknown';
   bracketDisplay: string; // human-readable bracket label (backend BracketSummary.display_name)
   signal: AgentSignal | null; // null = pending: no decision yet this round (never shown as HOLD)
   confidence: number;
@@ -28,16 +29,13 @@ export interface AgentView {
 }
 
 export interface BracketSummaryView {
-  bracket: BracketKey;
+  bracket: BracketKey | 'unknown';
   display: string; // BracketSummary.display_name
   buy: number; // BracketSummary.buy_count
   sell: number; // BracketSummary.sell_count
   hold: number; // BracketSummary.hold_count
   total: number; // BracketSummary.total
   avgConfidence: number; // BracketSummary.avg_confidence (0..1)
-  // consensusSignal/agentCount kept for Wave 1 compat (read by tests/tools if any).
-  consensusSignal: number;
-  agentCount: number;
 }
 
 export interface TelemetrySlice {
@@ -106,7 +104,6 @@ export interface StateFrame {
   bracketSummaries: BracketSummaryView[];
   rationales: RationaleView[];
   telemetry: TelemetrySlice;
-  consensus: number | null;
   // ITEM 5 of 260512-jqn — live provider-call audit log for SignalWire.
   dataSourceAudit: DataSourceAuditView[];
   jobs: JobsView;
@@ -217,17 +214,4 @@ export interface WireStateFrame {
   pending_shock: string | null;
   applied_shocks: WireAppliedShock[];
   shock_window_open: boolean;
-}
-
-export interface EdgeView {
-  source: string;
-  target: string;
-  weight: number;
-}
-
-export interface CycleMeta {
-  cycle_id: string;
-  started_at?: string;
-  seed?: string;
-  final_consensus?: number | null;
 }

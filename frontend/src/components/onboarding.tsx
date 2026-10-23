@@ -13,7 +13,8 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './icons';
 import { InlineError } from './InlineError';
-import { apiFetch } from '../api/client';
+import { fetchHealth } from '../api/health';
+import { roundsFor } from '../hooks/useRounds';
 import { useRunGate } from '../hooks/useRunGate';
 import { ONBOARDING_PRIVACY_LINE } from '../lib/privacyCopy';
 import { formatApiError } from '../lib/apiError';
@@ -22,9 +23,11 @@ import { SEED_MAX_LENGTH, seedProblem } from '../lib/seed';
 
 interface OnboardingProps {
   onComplete: (seed: string) => void;
+  /** The frame's num_rounds, or null before the first frame arrives. */
+  numRounds?: number | null;
 }
 
-export function Onboarding({ onComplete }: OnboardingProps) {
+export function Onboarding({ onComplete, numRounds = null }: OnboardingProps) {
   const [step, setStep] = useState<0 | 1>(0);
   const [seed, setSeed] = useState<string>('');
 
@@ -47,7 +50,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           ))}
         </div>
 
-        {step === 0 && <ObStep0 onNext={next} />}
+        {step === 0 && <ObStep0 onNext={next} numRounds={numRounds} />}
         {step === 1 && (
           <ObSeedStep
             seed={seed}
@@ -65,7 +68,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 // ────────────────────────────────────────────────────────────────────────────
 // Step 0 — What is AlphaSwarm
 // ────────────────────────────────────────────────────────────────────────────
-function ObStep0({ onNext }: { onNext: () => void }) {
+function ObStep0({ onNext, numRounds }: { onNext: () => void; numRounds: number | null }) {
+  // Onboarding renders above the frame providers, so App passes the frame's
+  // num_rounds; until a frame arrives no count is shown (docs/DECISIONS.md#adr-num-rounds).
+  const roundsLabel = numRounds === null ? null : `${roundsFor(numRounds, null).numRounds} rounds`;
   const [tick, setTick] = useState<number>(0);
   useEffect(() => {
     const iv = setInterval(() => setTick((t) => t + 1), 120);
@@ -102,7 +108,8 @@ function ObStep0({ onNext }: { onNext: () => void }) {
         <h1 className="ob-title">AlphaSwarm</h1>
         <p className="ob-lede">
           Feed it a market rumor. Watch 100 AI personas — quants, degens, short-sellers,
-          policy wonks — debate it across 3 rounds and converge toward consensus.{' '}
+          policy wonks — debate it {roundsLabel ? `across ${roundsLabel}` : 'round by round'} and
+          converge toward consensus.{' '}
           {ONBOARDING_PRIVACY_LINE}
         </p>
         <div className="ob-pills">
@@ -112,7 +119,7 @@ function ObStep0({ onNext }: { onNext: () => void }) {
           <div className="ob-pill-divider" />
           <div className="ob-pill">100 agents</div>
           <div className="ob-pill">10 brackets</div>
-          <div className="ob-pill">3 rounds</div>
+          {roundsLabel && <div className="ob-pill">{roundsLabel}</div>}
         </div>
         <button className="btn primary ob-next" onClick={onNext}>Get started →</button>
       </div>
@@ -157,7 +164,7 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
   // Each answer replaces the previous one; until it arrives the last one stays on screen.
   useEffect(() => {
     let cancelled = false;
-    apiFetch<unknown>('/api/health')
+    fetchHealth()
       .then((raw) => {
         if (cancelled) return;
         setHealth(parseHealth(raw));
