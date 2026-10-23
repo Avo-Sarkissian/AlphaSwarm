@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 log = structlog.get_logger(component="memory_monitor")
 
 
-class PressureLevel(enum.Enum):
+class PressureLevel(enum.StrEnum):
     """macOS kernel memory pressure level from sysctl."""
 
     GREEN = "green"

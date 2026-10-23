@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from enum import Enum
+from enum import StrEnum
 from typing import Final, Literal, TypedDict
 
 from pydantic import BaseModel, Field, field_validator
@@ -56,7 +56,7 @@ def normalize_signed_unit(value: object) -> object:
 ErrorKind = Literal["inference", "parse", "truncated"]
 
 
-class BracketType(str, Enum):
+class BracketType(StrEnum):
     """The 10 market participant archetypes (v2 composition, 2026-06-10).
 
     Models the ACTIVE price-setting margin of the narrative ecosystem — who
@@ -126,7 +126,7 @@ class WorkerPersonaConfig(TypedDict):
     risk_profile: str
 
 
-class SignalType(str, Enum):
+class SignalType(StrEnum):
     """Trading signal types."""
 
     BUY = "buy"
@@ -135,7 +135,7 @@ class SignalType(str, Enum):
     PARSE_ERROR = "parse_error"
 
 
-class FlipType(str, Enum):
+class FlipType(StrEnum):
     """Signal transition types between consecutive rounds (D-06)."""
 
     NONE = "none"
@@ -147,7 +147,7 @@ class FlipType(str, Enum):
     HOLD_TO_SELL = "hold_to_sell"
 
 
-class EntityType(str, Enum):
+class EntityType(StrEnum):
     """Named entity types extracted from seed rumors."""
 
     COMPANY = "company"
@@ -254,7 +254,7 @@ class AgentDecision(BaseModel, frozen=True):
         return normalize_signed_unit(value)
 
 
-class SimulationPhase(str, Enum):
+class SimulationPhase(StrEnum):
     """Lifecycle phases of a simulation run."""
 
     IDLE = "idle"
