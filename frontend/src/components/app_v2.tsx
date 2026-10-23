@@ -439,7 +439,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
               overflow:'hidden',
             }}
               onMouseLeave={() => setUi(u => ({...u, overflowOpen: false}))}>
-              {[
+              {([
                 { label:'What-if Compare',       icon:'graph',    action: (u: UiState) => ({...u, comingSoon: 'whatif' as const,    overflowOpen: false}) },
                 { label:'Multi-seed Synthesis',  icon:'bolt',     action: (u: UiState) => ({...u, comingSoon: 'multiseed' as const, overflowOpen: false}) },
                 { label:'Data Sources',          icon:'search',   action: (u: UiState) => ({...u, dataSourcesOpen: true,            overflowOpen: false}) },
@@ -447,7 +447,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
                 { label:'Advisory (v6.0)',       icon:'brief',    action: (u: UiState) => ({...u, advisoryOpen: true,               overflowOpen: false}) },
                 { label:'Customize Brackets',    icon:'settings', action: (u: UiState) => ({...u, comingSoon: 'brackets' as const,  overflowOpen: false}) },
                 { label:'Cycle History',         icon:'replay',   action: (u: UiState) => ({...u, historyOpen: true,                overflowOpen: false}) },
-              ].map(item => (
+              ] as const).map(item => (
                 <button key={item.label} onClick={() => setUi(item.action)}
                   style={{
                     display:'flex', alignItems:'center', gap:10,
@@ -547,13 +547,13 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
             <span className="topstrip-meta">{agents.filter(a => a.flipped).length} flips since R1 · {hasEdges ? `${edges.length} active edges` : `${agents.length} agents`}</span>
             <div className="layout-tabs">
               <span className="label" style={{marginRight:6}}>LAYOUT</span>
-              {[
+              {([
                 { k: 'force', icon: 'graph', label: 'Force' },
                 { k: 'radial', icon: 'radial', label: 'Radial' },
                 { k: 'grid', icon: 'grid', label: 'Grid' },
-              ].map(l => (
+              ] as const).map(l => (
                 <button key={l.k} className="layout-btn" data-active={layout === l.k}
-                  onClick={() => setLayout(l.k as any)} title={l.label}><Icon name={l.icon} /></button>
+                  onClick={() => setLayout(l.k)} title={l.label}><Icon name={l.icon} /></button>
               ))}
             </div>
           </div>
