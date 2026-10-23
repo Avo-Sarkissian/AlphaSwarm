@@ -366,7 +366,8 @@ CREATE (dec:Decision {
     sentiment: d.sentiment,
     rationale: d.rationale,
     control: d.control,
-    error_kind: d.error_kind
+    error_kind: d.error_kind,
+    parse_tier: d.parse_tier
 })
 CREATE (a)-[:MADE]->(dec)
 RETURN count(dec) AS created
@@ -900,7 +901,7 @@ class GraphStateManager:
     ) -> PersistRoundResult:
         """Write one round in a single transaction (docs/DECISIONS.md#p4-d-08).
 
-        Decisions (with error_kind), CITED, RationaleEpisodes and REFERENCES
+        Decisions (with error_kind and parse_tier), CITED, RationaleEpisodes and REFERENCES
         commit together or not at all. Fewer Decisions or episodes than
         passed raises Neo4jWriteError and rolls the round back; citations of
         unknown agents are counted and logged, never raised. Every Decision
@@ -922,6 +923,7 @@ class GraphStateManager:
                 "rationale": d.rationale,
                 "control": agent_id in control_set,
                 "error_kind": d.error_kind,
+                "parse_tier": d.parse_tier,
             }
             for did, (agent_id, d) in pairs
         ]

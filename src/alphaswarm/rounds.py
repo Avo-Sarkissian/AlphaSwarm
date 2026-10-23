@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
+from collections import Counter
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from typing import TYPE_CHECKING
 
@@ -337,6 +338,20 @@ def _round_metrics(
     return metrics
 
 
+def parse_tier_metrics(
+    round_num: int,
+    decisions: Sequence[tuple[str, AgentDecision]],
+) -> dict[str, int]:
+    """Worker parse tiers for one round: ``r{n}_parse_tier1..3``.
+
+    Decisions without a tier (the dispatcher's inference failures) are not
+    counted; ``r{n}_parse_tier3`` equals the parse errors the parser produced
+    (docs/DECISIONS.md#adr-structured-output).
+    """
+    counts: Counter[int | None] = Counter(decision.parse_tier for _, decision in decisions)
+    return {f"r{round_num}_parse_tier{tier}": counts[tier] for tier in (1, 2, 3)}
+
+
 async def run_round(
     ctx: RoundContext,
     round_num: int,
@@ -474,6 +489,7 @@ async def run_round(
             seconds=seconds,
         )
     )
+    metrics.update(parse_tier_metrics(round_num, decisions))
     logger.info(
         "round_complete",
         cycle_id=ctx.cycle_id,
