@@ -428,11 +428,14 @@ def generate_personas(
 ) -> list[AgentPersona]:
     """Generate all agent personas from bracket definitions.
 
-    Each persona gets an enriched system prompt assembled from:
-    - Agent header line (~8 words)
-    - Bracket system_prompt_template (120-200 words)
-    - Personality modifier (~12 words, generated or static round-robin)
-    - JSON output instructions (~40 words)
+    Each persona's system prompt is assembled shared text first
+    (docs/DECISIONS.md#adr-prefix-reuse):
+    - JSON output instructions (identical for every agent)
+    - the bracket system_prompt_template
+    - this cycle's generated focus line for the bracket, when modifiers are given
+    - the agent's static round-robin modifier
+    - the agent header "[<Name> | <Display> bracket]", last
+    shared_prompt_chars is the length of the first three parts.
 
     When modifiers is provided (Phase 13), uses the single generated modifier
     for all agents in a bracket (per D-02). When modifiers is None, falls back
@@ -443,6 +446,11 @@ def generate_personas(
     Returns a flat list of 100 AgentPersona instances with unique IDs.
     """
     validate_bracket_counts(brackets)
+    # Shared text first and agent text last, so consecutive prompts share a KV
+    # prefix (docs/DECISIONS.md#adr-prefix-reuse): the JSON rules (every agent), the
+    # bracket template and this cycle's bracket focus (one bracket), then the
+    # agent's own modifier and its header.
+    rules = JSON_OUTPUT_INSTRUCTIONS.strip()
     personas: list[AgentPersona] = []
     for bracket in brackets:
         static_mods = BRACKET_MODIFIERS.get(bracket.bracket_type, [])
@@ -456,17 +464,13 @@ def generate_personas(
             # replacement made all N agents in a bracket identical, which
             # collapsed intra-bracket variance (the old D-02 behavior).
             modifier = static_mods[(i - 1) % len(static_mods)] if static_mods else ""
-            modifier_line = f"\nYou are a {modifier}.\n" if modifier else ""
-            if modifiers is not None and bracket.bracket_type in modifiers:
-                generated = modifiers[bracket.bracket_type]
-                if generated:
-                    modifier_line += f"This cycle you are focused as a {generated}.\n"
-            system_prompt = (
-                f"[{agent_name} | {bracket.display_name} bracket]\n"
-                f"{bracket.system_prompt_template}"
-                f"{modifier_line}"
-                f"{JSON_OUTPUT_INSTRUCTIONS}"
-            )
+            generated = (modifiers or {}).get(bracket.bracket_type, "")
+            shared = f"{rules}\n\n{bracket.system_prompt_template.strip()}\n"
+            if generated:
+                shared += f"This cycle you are focused as a {generated}.\n"
+            tail = f"You are a {modifier}.\n" if modifier else ""
+            tail += f"[{agent_name} | {bracket.display_name} bracket]"
+            system_prompt = shared + tail
             personas.append(
                 AgentPersona(
                     id=agent_id,
@@ -476,6 +480,7 @@ def generate_personas(
                     temperature=bracket.temperature,
                     system_prompt=system_prompt,
                     influence_weight_base=bracket.influence_weight_base,
+                    shared_prompt_chars=len(shared),
                 )
             )
     return personas
@@ -518,4 +523,5 @@ def persona_to_worker_config(persona: AgentPersona) -> WorkerPersonaConfig:
         temperature=persona.temperature,
         system_prompt=persona.system_prompt,
         risk_profile=persona.risk_profile,
+        shared_prompt_chars=persona.shared_prompt_chars,
     )

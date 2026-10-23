@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final, Protocol
 
@@ -56,11 +57,14 @@ class InterviewContext:
 
 
 def _strip_json_instructions(system_prompt: str) -> str:
-    """Remove JSON_OUTPUT_INSTRUCTIONS from a persona system prompt.
+    """Remove JSON_OUTPUT_INSTRUCTIONS from a persona system prompt, wherever it sits.
 
-    Interviews are conversational prose, not JSON-structured decisions (D-05).
+    Interviews are conversational prose, not JSON-structured decisions
+    (docs/DECISIONS.md#p14-d-05); the rules open the prompt since
+    docs/DECISIONS.md#adr-prefix-reuse.
     """
-    return system_prompt.replace(JSON_OUTPUT_INSTRUCTIONS, "").rstrip()
+    text = system_prompt.replace(JSON_OUTPUT_INSTRUCTIONS.strip(), "")
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 def interview_persona(rows: AgentInterviewRows, cycle_id: str) -> AgentPersona:

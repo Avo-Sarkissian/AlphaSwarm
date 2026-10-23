@@ -189,8 +189,8 @@ def test_generate_personas_with_modifiers_same_bracket_same_modifier() -> None:
     # All Quants share the same generated focus line...
     for p in quants:
         assert "This cycle you are focused as a shared modifier for quants." in p.system_prompt
-    # ...but their static round-robin modifiers still differ across agents.
-    static_lines = {p.system_prompt.split("This cycle")[0] for p in quants}
+    # ...but the text after it (static round-robin modifier and header) differs.
+    static_lines = {p.system_prompt.split("This cycle")[1] for p in quants}
     assert len(static_lines) > 1
 
 

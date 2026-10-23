@@ -93,6 +93,13 @@ Contents
 - **Guard:** `tests/invariants/test_output_caps.py` fails for a call without a cap.
 - **Rationale and citations:** the decode schema caps rationale at 280 characters and cited_agents at 5 items, and the instructions ask for one or two sentences of at most 40 words. AgentDecision is not capped, so a backend that ignores maxLength/maxItems still parses. Long rationales also pushed peers out of the 4,000-character peer budget. Kept or reverted by gate G-24 (docs/experiments.md, arm A1).
 
+### <a id="adr-prefix-reuse"></a>Prompt layout for KV-prefix reuse (experiment, gate G-22)
+- **Decision (pending G-22):** persona prompts put shared text first and agent text last: the JSON rules (every agent), the bracket template and this cycle's bracket focus (one bracket), then the agent's static modifier and the header `[<Name> | <Display> bracket]`. `AgentPersona.shared_prompt_chars` marks the end of the shared part. Arm A2 also includes: the worker sends the fixed guards first and the persona as two system messages (shared, then agent), local dispatch has no jitter so prompts reach Ollama in bracket order, and Anthropic gets a cache breakpoint after the shared block.
+- **Rationale:** every prompt opened with a unique header, so two agents of a bracket shared about 14 characters of prefix. The realistic gain is the 400-600 tokens of rules and template per call, and only if the MLX runner reuses a KV prefix, which is unverified.
+- **Constraints:** untrusted text never moves into the system role (F3; the market and peer blocks stay fenced in the user message), and `AGENT_HEADER_RE` keeps matching the header.
+- **Kept only if** mean R2-R3 `prefill_ms` drops by at least 10% with unchanged final distributions (docs/experiments.md, arm A2).
+- **Where:** `personas.py`, `types.py`, `interview.py`, `worker.py`, `batch_dispatcher.py`, `inference/anthropic_provider.py`.
+
 ### <a id="adr-think-off"></a>Orchestrator reasoning ("think") is off everywhere
 - **Decision:** Every local inference call passes `think=False`. It is hardcoded in `OllamaProvider.chat` (`inference/ollama_provider.py:162`), so it covers worker and orchestrator alike: seed, modifiers, rounds, narratives, advisory, report, and interview. No call site sets it individually.
 - **Rationale:** The 2026-05-06 probe on qwen3.6:27b measured 274.6 s per call with thinking against 9.5 s without. Both produced valid JSON, and neither output was clearly better. With 11.3 t/s MLX decode, thinking also pushed advisory past the 600 s timeout (quick task 260611-rlx).
@@ -659,7 +666,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p14-d-04"></a>`D-04` | Interview system prompt = persona + decision narrative + per-round decisions (hybrid context). The persona is rebuilt with the cycle's stored modifiers (2026-10). | active | interview.py (`load_interview_context`, `interview_persona`); graph/replay_interview.py (`read_agent_interview_rows`) |
-| <a id="p14-d-05"></a>`D-05` | Strip JSON output instructions from the persona for conversational answers. | active | interview.py:59 |
+| <a id="p14-d-05"></a>`D-05` | Strip JSON output instructions from the persona for conversational answers (wherever they sit, since [adr-prefix-reuse](#adr-prefix-reuse)). | active | interview.py:_strip_json_instructions |
 | <a id="p14-d-06"></a>`D-06` | Context reconstructed from Neo4j at session start: the graph returns the agent's rows (read_agent_interview_rows) and `interview.load_interview_context` rebuilds the persona from config plus Cycle.modifiers_json; unknown or off-roster agents raise AgentNotFoundError (404). | active | graph/replay_interview.py (`read_agent_interview_rows`); interview.py (`load_interview_context`) |
 | <a id="p14-d-08"></a>`D-08` | Interview history keeps up to 12 user/assistant pairs; past that the oldest 6 are summarized in one call. A turn is committed only after the provider answers. Revised 2026-10 (was a 10-pair window trimmed one pair per turn). | revised | interview.py:172,230 |
 | <a id="p14-d-09"></a>`D-09` | Dropped turns summarised into a prepended system message. | active | interview.py:216 |
