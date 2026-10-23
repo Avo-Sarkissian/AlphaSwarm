@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import enum
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Final
 
 import structlog
@@ -32,6 +32,11 @@ log = structlog.get_logger(component="governor")
 # Clock for the time-in-state bookkeeping only; tests replace it. The crisis
 # timeout keeps calling time.monotonic() directly.
 _clock: Callable[[], float] = time.monotonic
+
+# Context logged on each state change: loaded models and Docker VM memory
+# (docs/DECISIONS.md#adr-inference-telemetry).
+TransitionProbe = Callable[[], Awaitable[Mapping[str, object]]]
+_TRANSITION_PROBE_TIMEOUT_SECONDS: Final = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +209,7 @@ class ResourceGovernor:
         self._time_in_state: dict[GovernorTelemetryState, float] = _zero_time_in_state()
         self._peak_memory_percent = 0.0
         self._state_entered_at = _clock()
+        self._transition_probe: TransitionProbe | None = None
 
     # --- Public API ---
 
@@ -312,6 +318,40 @@ class ResourceGovernor:
     def peak_memory_percent(self) -> float:
         """Highest memory percent read in this (or the last) monitoring session."""
         return self._peak_memory_percent
+
+    def set_transition_probe(self, probe: TransitionProbe | None) -> None:
+        """Context gathered and logged on every state change (docs/DECISIONS.md#adr-inference-telemetry)."""
+        self._transition_probe = probe
+
+    @property
+    def transition_probe(self) -> TransitionProbe | None:
+        """The probe set by the composition root, if any."""
+        return self._transition_probe
+
+    async def _log_transition_context(self, old: GovernorState, new: GovernorState, reading: MemoryReading) -> None:
+        if self._transition_probe is None:
+            return
+        try:
+            # asyncio.timeout, not wait_for: on Python 3.11 wait_for can swallow a
+            # cancellation that arrives as the probe finishes, and stop_monitoring()
+            # would then wait forever on a monitor task that never stops.
+            async with asyncio.timeout(_TRANSITION_PROBE_TIMEOUT_SECONDS):
+                context = await self._transition_probe()
+        except Exception:  # observability never stops monitoring (docs/DECISIONS.md#f-21)
+            log.warning(
+                "governor_transition_probe_failed",
+                old_state=old.value,
+                new_state=new.value,
+                exc_info=True,
+            )
+            return
+        log.info(
+            "governor_transition_context",
+            old_state=old.value,
+            new_state=new.value,
+            memory_percent=reading.psutil_percent,
+            **context,
+        )
 
     def _close_state_interval(self, state: GovernorState, now: float) -> None:
         """Add the time since the last transition to ``state``'s total."""
@@ -461,6 +501,7 @@ class ResourceGovernor:
                 reason=reason,
             )
             self._emit_metrics(reading)
+            await self._log_transition_context(old_state, new_state, reading)
 
     def _emit_metrics(self, reading: MemoryReading) -> None:
         """Emit GovernorMetrics to StateStore on state change (D-09, D-11)."""

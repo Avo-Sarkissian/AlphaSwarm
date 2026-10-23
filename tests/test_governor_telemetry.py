@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 import structlog
+from structlog.testing import capture_logs
 
 import alphaswarm.governor as governor_module
 from alphaswarm.governor import GovernorState, ResourceGovernor
@@ -105,3 +108,69 @@ async def test_a_new_session_starts_from_zero(clock: _ManualClock) -> None:
         assert gov.peak_memory_percent == 0.0
     finally:
         await gov.stop_monitoring()
+
+
+async def test_transition_logs_the_probe_context(clock: _ManualClock) -> None:
+    monitor = ScriptedMonitor([], repeat_last=False)
+    gov = ResourceGovernor(fast_governor_settings(), monitor=monitor)
+
+    async def probe() -> dict[str, object]:
+        return {"loaded_models": "alphaswarm-worker", "docker_vm_rss_mb": 2048.0}
+
+    gov.set_transition_probe(probe)
+    assert gov.transition_probe is probe
+    with capture_logs() as logs:
+        await gov.start_monitoring()
+        try:
+            monitor.push(reading(85.0))
+            await eventually(
+                lambda: any(e["event"] == "governor_transition_context" for e in logs),
+                what="transition context log",
+            )
+        finally:
+            await gov.stop_monitoring()
+    [event] = [e for e in logs if e["event"] == "governor_transition_context"]
+    assert (event["old_state"], event["new_state"], event["memory_percent"]) == ("running", "throttled", 85.0)
+    assert (event["loaded_models"], event["docker_vm_rss_mb"]) == ("alphaswarm-worker", 2048.0)
+
+
+async def test_a_failing_probe_never_stops_monitoring(clock: _ManualClock) -> None:
+    monitor = ScriptedMonitor([], repeat_last=False)
+    gov = ResourceGovernor(fast_governor_settings(), monitor=monitor)
+
+    async def broken() -> dict[str, object]:
+        raise RuntimeError("ollama ps unreachable")
+
+    gov.set_transition_probe(broken)
+    with capture_logs() as logs:
+        await gov.start_monitoring()
+        try:
+            await _step(gov, monitor, 85.0, GovernorState.THROTTLED)
+            await _step(gov, monitor, 92.0, GovernorState.PAUSED)
+        finally:
+            await gov.stop_monitoring()  # returns: a probe failure never wedges the monitor task
+    assert len([e for e in logs if e["event"] == "governor_transition_probe_failed"]) == 2
+
+
+async def test_a_hanging_probe_times_out(clock: _ManualClock, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A zero timeout makes asyncio.timeout expire on the next loop turn while the
+    # probe is still waiting, so the timeout path runs without real waiting.
+    monkeypatch.setattr(governor_module, "_TRANSITION_PROBE_TIMEOUT_SECONDS", 0.0)
+    monitor = ScriptedMonitor([], repeat_last=False)
+    gov = ResourceGovernor(fast_governor_settings(), monitor=monitor)
+
+    async def hangs() -> dict[str, object]:
+        await asyncio.Event().wait()
+        return {}
+
+    gov.set_transition_probe(hangs)
+    with capture_logs() as logs:
+        await gov.start_monitoring()
+        try:
+            await _step(gov, monitor, 85.0, GovernorState.THROTTLED)
+            await eventually(
+                lambda: any(e["event"] == "governor_transition_probe_failed" for e in logs),
+                what="probe timeout log",
+            )
+        finally:
+            await gov.stop_monitoring()

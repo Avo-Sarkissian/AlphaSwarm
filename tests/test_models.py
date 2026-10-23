@@ -215,3 +215,8 @@ def test_model_manager_no_longer_tracks_a_current_model() -> None:
     from alphaswarm.ollama_models import OllamaModelManager
 
     assert not hasattr(OllamaModelManager, "current_model")
+
+
+async def test_loaded_models_lists_every_resident_model(model_manager: Any, mock_raw_client: AsyncMock) -> None:
+    mock_raw_client.ps = AsyncMock(return_value=_make_ps_response(["llama3:8b", "alphaswarm-worker"]))
+    assert await model_manager.loaded_models() == ["alphaswarm-worker", "llama3:8b"]
