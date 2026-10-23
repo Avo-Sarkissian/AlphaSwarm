@@ -12,6 +12,7 @@ from alphaswarm.worker import (
     DECISION_JSON_SCHEMA,
     MARKET_CONTEXT_GUARD,
     PEER_CONTEXT_GUARD,
+    PEER_FENCE_CLOSE,
     UNTRUSTED_DATA_CLOSE,
     UNTRUSTED_DATA_OPEN,
     AgentWorker,
@@ -542,11 +543,12 @@ async def test_ft_own_prior_goes_into_the_user_message_before_the_rumor(
     user = messages[-1]["content"]
 
     assert messages[-1]["role"] == "user"
-    assert user.index(_FT_OWN) < user.index(_FT_RUMOR)
+    # The fenced peer block, then the own prior, then the rumor.
+    assert user.index(PEER_FENCE_CLOSE) < user.index(_FT_OWN) < user.index(_FT_RUMOR)
     system_contents = [m["content"] for m in messages if m["role"] == "system"]
-    # The persona prompt, then the peer block, which still travels as a system message. That is a
-    # known defect (untrusted peer text belongs in the user message); its fix leaves a fixed guard
-    # in that slot, so the count stays 2. No market_context here, so no market guard.
+    # The persona prompt, then the fixed PEER_CONTEXT_GUARD; the peer text itself is fenced in
+    # the user message. No market_context here, so no market guard.
+    assert system_contents[1] == PEER_CONTEXT_GUARD
     assert len(system_contents) == 2
     assert all(_FT_OWN not in c for c in system_contents)
 

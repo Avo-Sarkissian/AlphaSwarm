@@ -195,8 +195,8 @@ class AgentWorker:
             AgentDecision -- always returns, never raises (parse fallback).
         """
         if own_prior:
-            # Own prior travels with the user message: after any fenced market block,
-            # before the rumor.
+            # Own prior travels with the user message: after the fenced market and peer
+            # blocks, before the rumor.
             user_message = f"{own_prior}\n\n{user_message}"
 
         from alphaswarm.inference.types import InferenceMessage

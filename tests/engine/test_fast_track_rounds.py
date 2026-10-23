@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 from alphaswarm.config import AppSettings, SimulationSettings
 from alphaswarm.types import AgentPersona
+from alphaswarm.worker import PEER_CONTEXT_GUARD, PEER_FENCE_CLOSE
 from tests.engine.scenario import SCENARIO_RUMOR, RunScenario, round_calls
 from tests.inference.fakes import ScriptedProvider
 
@@ -49,10 +50,13 @@ async def test_rounds_two_and_three_carry_the_own_prior(
         assert len(calls) == 100
         for call in calls:
             user = call.messages[-1]["content"]
-            assert marker in user and user.index(marker) < user.index(SCENARIO_RUMOR)
+            # The fenced peer block, then the own prior, then the rumor.
+            assert marker in user
+            assert user.index(PEER_FENCE_CLOSE) < user.index(marker) < user.index(SCENARIO_RUMOR)
             system_contents = [m["content"] for m in call.messages if m["role"] == "system"]
-            # The persona prompt, then the peer block, which still travels as a system message (a
-            # known defect; its fix leaves a fixed guard in that slot, so the count stays 2).
+            # The persona prompt, then the fixed PEER_CONTEXT_GUARD; the peer text itself is
+            # fenced in the user message.
+            assert system_contents[1] == PEER_CONTEXT_GUARD
             assert len(system_contents) == 2
             assert all(marker not in c for c in system_contents)
     assert len(round_calls(scripted_worker, 1)) == 100
