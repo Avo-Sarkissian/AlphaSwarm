@@ -34,16 +34,19 @@ import { usePolling } from '../hooks/usePolling';
 import { useDataSourceAudit } from '../hooks/useDataSourceAudit';
 import { usePrivacyFacts } from '../hooks/usePrivacyFacts';
 import { advisoryLine, dataSourcesNote } from '../lib/privacyCopy';
-import { advisoryFetch, type AdvisoryContent } from '../api/advisory';
+import {
+  advisoryFetch,
+  type AdvisoryContent,
+  type AdvisoryReportPayload,
+} from '../api/advisory';
 import type { ConvergenceRow, InfluenceRow } from '../api/report';
 import { renderMarkdown } from '../lib/markdown';
 import { AdvisoryDisclaimer } from '../features/advisory/AdvisoryDisclaimer';
 import {
   parseOutlook,
-  extractTickerSection,
-  extractField,
   countAgentCitationsAgainst, // gemini #G2 — strict intersection (NOT bare countAgentCitations)
 } from '../lib/advisoryParse';
+import { isPlaceholder, overviewStats, recLabel } from '../lib/advisoryView';
 import { recentFor, summarizeAudit } from '../lib/dataSources';
 import { convergenceBars, influenceBars } from '../lib/reportSections';
 
@@ -394,20 +397,6 @@ function DsStat({
 // directly from backend. gemini #G2 strict-intersection citation count.
 // codex HIGH-3: NO advisory POST trigger — backend auto-fires on FINAL round.
 // ──────────────────────────────────────────────────────────────────────
-interface AdvisoryItemPayload {
-  ticker: string;
-  consensus_signal: 'BUY' | 'SELL' | 'HOLD';
-  confidence: number;
-  rationale_summary: string;
-  position_exposure: string | number;
-}
-interface AdvisoryReportPayload extends AdvisoryContent {
-  items?: AdvisoryItemPayload[];
-  portfolio_outlook?: string;
-  total_holdings?: number;
-  affected_holdings?: number;
-}
-
 interface HoldingAnalysis {
   ticker: string;
   swarmSignal: 'BUY' | 'SELL' | 'HOLD';
@@ -423,6 +412,7 @@ interface HoldingAnalysis {
   sentiment: number;
   risk: string | null;
   upside: string | null;
+  placeholder: boolean;
 }
 
 export function AdvisoryV2({ onClose }: { onClose: () => void }) {
@@ -470,22 +460,14 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
       (sum, item) => sum + Number(item.position_exposure || 0),
       0,
     );
-    const outlookMd = report.portfolio_outlook || '';
     return report.items.map((item) => {
       const value = Number(item.position_exposure || 0);
       const weight = totalExposure > 0 ? (value / totalExposure) * 100 : 0;
-      const tickerSection = extractTickerSection(outlookMd, item.ticker);
       return {
         ticker: item.ticker,
         swarmSignal: item.consensus_signal,
         recTone: item.consensus_signal.toLowerCase() as 'buy' | 'sell' | 'hold',
-        rec:
-          (tickerSection && extractField(tickerSection, 'rec')) ||
-          (item.consensus_signal === 'BUY'
-            ? 'CONSIDER ADDING'
-            : item.consensus_signal === 'SELL'
-              ? 'CONSIDER TRIMMING'
-              : 'NO ACTION'),
+        rec: recLabel(item.consensus_signal),
         rationale: item.rationale_summary,
         value,
         weight,
@@ -496,9 +478,10 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
         basis: null,
         last: null,
         sentiment: 0,
-        // PARSE per-ticker section (KR-41.6-12 if missing):
-        risk: tickerSection ? extractField(tickerSection, 'risk') : null,
-        upside: tickerSection ? extractField(tickerSection, 'upside') : null,
+        // Written per item by the orchestrator; null when it gave none.
+        risk: item.risk ?? null,
+        upside: item.upside ?? null,
+        placeholder: isPlaceholder(item),
       };
     });
   }, [report, liveAgentIds]);
@@ -520,31 +503,24 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
   // D-22 — display as `${affected}/${total}` directly from backend.
   const holdingsAffectedDisplay = `${affectedHoldings}/${totalHoldings}`;
 
-  // CONFIDENCE: average across items, label HIGH (>0.7) / MED (>0.4) / LOW
-  const avgConfidence = report?.items?.length
-    ? report.items.reduce((a, i) => a + (i.confidence || 0), 0) / report.items.length
-    : 0;
+  // Backend stats over conviction items only: placeholders never skew them.
+  const overview = useMemo(() => (report ? overviewStats(report) : null), [report]);
+  const avgConfidence = overview?.avgConfidence ?? null;
   const confidenceLabel =
-    avgConfidence > 0.7 ? 'HIGH' : avgConfidence > 0.4 ? 'MED' : 'LOW';
+    avgConfidence === null
+      ? '—'
+      : avgConfidence > 0.7
+        ? 'HIGH'
+        : avgConfidence > 0.4
+          ? 'MED'
+          : 'LOW';
   const confidenceTone: 'buy' | 'sell' | 'hold' =
-    avgConfidence > 0.7 ? 'buy' : avgConfidence > 0.4 ? 'hold' : 'sell';
-
-  // SWARM VIEW: dominant of items.consensus_signal counts
-  const swarmCounts = useMemo(() => {
-    const c = { BUY: 0, SELL: 0, HOLD: 0 };
-    for (const item of report?.items ?? []) c[item.consensus_signal] += 1;
-    return c;
-  }, [report]);
-  const swarmTotal = swarmCounts.BUY + swarmCounts.SELL + swarmCounts.HOLD;
-  const swarmDominant: 'BUY' | 'SELL' | 'HOLD' =
-    swarmCounts.SELL >= swarmCounts.BUY && swarmCounts.SELL >= swarmCounts.HOLD
-      ? 'SELL'
-      : swarmCounts.BUY >= swarmCounts.HOLD
-        ? 'BUY'
-        : 'HOLD';
-  const swarmDominantPct = swarmTotal
-    ? Math.round((swarmCounts[swarmDominant] / swarmTotal) * 100)
-    : 0;
+    avgConfidence !== null && avgConfidence > 0.7
+      ? 'buy'
+      : avgConfidence !== null && avgConfidence > 0.4
+        ? 'hold'
+        : 'sell';
+  const swarmDominant = overview?.dominant ?? null;
   const swarmTone: 'buy' | 'sell' | 'hold' =
     swarmDominant === 'BUY' ? 'buy' : swarmDominant === 'SELL' ? 'sell' : 'hold';
 
@@ -660,14 +636,18 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
               />
               <AdvStat
                 label="SWARM VIEW"
-                value={`${swarmDominant} ${swarmDominantPct}%`}
-                sub="dominant signal"
+                value={swarmDominant ? `${swarmDominant} ${overview?.dominantPct ?? 0}%` : '—'}
+                sub={`dominant of ${overview?.convictionCount ?? 0} conviction items`}
                 tone={swarmTone}
               />
               <AdvStat
                 label="CONFIDENCE"
                 value={confidenceLabel}
-                sub={`avg ${(avgConfidence * 100).toFixed(0)}%`}
+                sub={
+                  avgConfidence === null
+                    ? 'no conviction items'
+                    : `avg ${(avgConfidence * 100).toFixed(0)}%`
+                }
                 tone={confidenceTone}
               />
             </div>
@@ -702,7 +682,17 @@ export function AdvisoryV2({ onClose }: { onClose: () => void }) {
             {holdingAnalysis.map((h) => (
               <div key={h.ticker} className="adv-holding-card">
                 <div className="adv-hc-head">
-                  <div className="adv-hc-ticker">{h.ticker}</div>
+                  <div className="adv-hc-ticker">
+                    {h.ticker}
+                    {h.placeholder && (
+                      <span
+                        className="adv-placeholder-tag label"
+                        title="No strong swarm view this cycle; shown as HOLD placeholder"
+                      >
+                        PLACEHOLDER
+                      </span>
+                    )}
+                  </div>
                   <div className="adv-hc-value">
                     {/* STUB per D-08 + KR-41.6-01 — last/shares not on backend */}
                     <div className="adv-hc-val mono">{h.last ?? '—'}</div>
@@ -863,7 +853,17 @@ export function AdvHoldingRow({
   // Sentiment STUBBED (KR-41.6-01) — render midline bar.
   return (
     <div className="adv-qh-row">
-      <div className="adv-qh-ticker">{h.ticker}</div>
+      <div className="adv-qh-ticker">
+        {h.ticker}
+        {h.placeholder && (
+          <span
+            className="adv-placeholder-tag label"
+            title="No strong swarm view this cycle; shown as HOLD placeholder"
+          >
+            PLACEHOLDER
+          </span>
+        )}
+      </div>
       <div className="adv-qh-shares mono">{h.shares ?? '—'} sh</div>
       <div className="adv-qh-val mono">${(h.value / 1000).toFixed(0)}K</div>
       <div className="adv-qh-weight mono">

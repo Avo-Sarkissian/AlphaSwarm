@@ -7,7 +7,6 @@ import {
   AGENT_ID_RE,
   countAgentCitations,
   countAgentCitationsAgainst,
-  extractField,
 } from '../lib/advisoryParse';
 
 // AGENT_ID_RE carries the /g flag (stateful lastIndex), so use String.match()
@@ -55,14 +54,5 @@ describe('countAgentCitationsAgainst', () => {
     expect(
       countAgentCitationsAgainst('quants_01, macro_02 and degens_99', liveIds),
     ).toBe(2); // degens_99 matches the regex but is not live
-  });
-});
-
-describe('extractField — ":" and "-" separators', () => {
-  it.each([
-    ['**Risk**: integration delays', 'integration delays'],
-    ['Risk - integration delays', 'integration delays'],
-  ])('extractField reads %j', (line, expected) => {
-    expect(extractField(`ZZZT\n${line}\n`, 'risk')).toBe(expected);
   });
 });

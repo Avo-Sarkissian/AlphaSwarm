@@ -1,9 +1,7 @@
 // src/lib/advisoryParse.ts
-// Pure parsers + regex for the AdvisoryV2 derive-or-stub strategy (D-08, D-09).
-//
-// The portfolio_outlook field on the backend AdvisoryReport is free markdown —
-// there is no enforced section structure. These helpers are best-effort
-// heuristic parsers; misses fall back to derived/stubbed values per KR-41.6-01.
+// Pure parsers + regex for the AdvisoryV2 view: the outlook headline (D-09) and
+// the agent-citation count. Per-item risk/upside/stats come from the backend
+// (see lib/advisoryView.ts), never from the outlook prose.
 
 // -- portfolio_outlook top-level parser (D-09) --
 export interface ParsedOutlook {
@@ -16,33 +14,6 @@ export function parseOutlook(md: string): ParsedOutlook {
   const headingMatch = md.match(/^\s*#{1,2}\s+(.+?)\s*$/m);
   const headline = headingMatch ? headingMatch[1].trim() : null;
   return { headline, summary: md };
-}
-
-// -- per-ticker section extraction (D-08 best-effort risk/upside/rec parser) --
-// Looks for "## TICKER" or "### TICKER" then captures until the next H2/H3 or end-of-doc.
-export function extractTickerSection(md: string, ticker: string): string | null {
-  if (!md || !ticker) return null;
-  // Escape ticker for regex (most tickers are A-Z, but be defensive)
-  const escaped = ticker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(
-    `(?:^|\\n)\\s*#{2,3}\\s+\\$?${escaped}\\b[^\\n]*\\n([\\s\\S]+?)(?=\\n\\s*#{2,3}\\s+|$)`,
-    'i',
-  );
-  const m = md.match(re);
-  return m ? m[1].trim() : null;
-}
-
-export type FieldLabel = 'risk' | 'upside' | 'rec';
-
-export function extractField(section: string, label: FieldLabel): string | null {
-  if (!section) return null;
-  const labels: Record<FieldLabel, RegExp> = {
-    risk: /(?:^|\n)\s*\*?\*?(?:Risk|RISK)\*?\*?\s*[:-]\s*([^\n]+)/i,
-    upside: /(?:^|\n)\s*\*?\*?(?:Upside|UPSIDE|Opportunity)\*?\*?\s*[:-]\s*([^\n]+)/i,
-    rec: /(?:^|\n)\s*\*?\*?(?:Recommendation|REC|Action)\*?\*?\s*[:-]\s*([^\n]+)/i,
-  };
-  const m = section.match(labels[label]);
-  return m ? m[1].trim() : null;
 }
 
 // -- citation count regex (D-08 `agents` field; KR-41.6-10 documents this is a heuristic) --

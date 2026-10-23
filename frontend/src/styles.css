@@ -859,6 +859,11 @@ body { background: var(--bg); }
 }
 .adv-qh-row:last-child { border-bottom: 0; }
 .adv-qh-ticker { color: var(--text); font-weight: 600; font-size: 13px; }
+/* HOLD placeholder padding (no swarm view this cycle): a small tag under the ticker */
+.adv-placeholder-tag {
+  display: block; margin-top: 2px; color: var(--text-3);
+  font-size: 8.5px; font-weight: 500; letter-spacing: 0.08em;
+}
 .adv-qh-weight, .adv-qh-shares, .adv-qh-val {
   color: var(--text-2); font-size: 11px; font-family: var(--font-mono);
 }
