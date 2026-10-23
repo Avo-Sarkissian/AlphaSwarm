@@ -30,3 +30,8 @@ MODIFIERS_MAX_TOKENS: Final = 1024  # one short focus line per bracket
 # Anthropic requires max_tokens on every request; adapter defaults per role.
 ANTHROPIC_ORCHESTRATOR_DEFAULT_MAX_TOKENS: Final = 8192
 ANTHROPIC_WORKER_DEFAULT_MAX_TOKENS: Final = 512
+
+# Decision reply shape (decode schema and instructions only; AgentDecision stays
+# uncapped so a backend that ignores the schema keywords still parses).
+DECISION_RATIONALE_MAX_CHARS: Final = 280
+DECISION_CITED_AGENTS_MAX_ITEMS: Final = 5

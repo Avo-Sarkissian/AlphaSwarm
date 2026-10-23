@@ -91,6 +91,7 @@ Contents
 - **Rationale:** On MLX the worker prefills at about 2,361 t/s but decodes at about 56 t/s, so output length drives call time. The caps lived only in the worker Modelfile, so a base tag chosen in Settings, the orchestrator and every cloud worker ran uncapped (Anthropic defaulted to 2048).
 - **Where:** `inference/caps.py`, `inference/ollama_provider.py`, `inference/factory.py`, `worker.py`, `seed.py`, `interview.py`, `report.py`, `advisory/engine.py`, `modelfiles/`.
 - **Guard:** `tests/invariants/test_output_caps.py` fails for a call without a cap.
+- **Rationale and citations:** the decode schema caps rationale at 280 characters and cited_agents at 5 items, and the instructions ask for one or two sentences of at most 40 words. AgentDecision is not capped, so a backend that ignores maxLength/maxItems still parses. Long rationales also pushed peers out of the 4,000-character peer budget. Kept or reverted by gate G-24 (docs/experiments.md, arm A1).
 
 ### <a id="adr-think-off"></a>Orchestrator reasoning ("think") is off everywhere
 - **Decision:** Every local inference call passes `think=False`. It is hardcoded in `OllamaProvider.chat` (`inference/ollama_provider.py:162`), so it covers worker and orchestrator alike: seed, modifiers, rounds, narratives, advisory, report, and interview. No call site sets it individually.

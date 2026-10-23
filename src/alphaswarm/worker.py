@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.inference.caps import WORKER_DECISION_MAX_TOKENS
+from alphaswarm.inference.caps import (
+    DECISION_CITED_AGENTS_MAX_ITEMS,
+    DECISION_RATIONALE_MAX_CHARS,
+    WORKER_DECISION_MAX_TOKENS,
+)
 from alphaswarm.parsing import parse_agent_decision
 from alphaswarm.types import AgentDecision, WorkerPersonaConfig
 
@@ -40,8 +44,13 @@ DECISION_JSON_SCHEMA: dict = {  # type: ignore[type-arg]
         "signal": {"type": "string", "enum": ["buy", "sell", "hold"]},
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
         "sentiment": {"type": "number", "minimum": -1.0, "maximum": 1.0},
-        "rationale": {"type": "string"},
-        "cited_agents": {"type": "array", "items": {"type": "string"}},
+        # Shape caps for the decode only (docs/DECISIONS.md#adr-output-caps).
+        "rationale": {"type": "string", "maxLength": DECISION_RATIONALE_MAX_CHARS},
+        "cited_agents": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": DECISION_CITED_AGENTS_MAX_ITEMS,
+        },
     },
     "required": ["signal", "confidence", "sentiment", "rationale", "cited_agents"],
 }
