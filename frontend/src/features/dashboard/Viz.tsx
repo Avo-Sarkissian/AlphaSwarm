@@ -1,6 +1,6 @@
 // Agent graph: one SVG node per agent on a deterministic layout
 // (docs/DECISIONS.md#kr-41-1-01). Edges are [citing, cited] pairs.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { BRACKETS } from '../../data';
 import { signalColor } from '../../lib/signals';
@@ -39,7 +39,7 @@ interface VizAgent extends AgentView {
 
 const EMPTY_EDGES: ReadonlyArray<readonly [string, string]> = [];
 
-export function Viz({
+export const Viz = memo(function Viz({
   agents: rawAgents,
   edges: rawEdges = EMPTY_EDGES,
   layout,
@@ -191,4 +191,4 @@ export function Viz({
       </svg>
     </div>
   );
-}
+});

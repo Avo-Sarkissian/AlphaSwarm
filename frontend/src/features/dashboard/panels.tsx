@@ -1,5 +1,6 @@
 // Side panels — brackets list, rationale feed, KPI strip, bracket composition.
 
+import { memo } from 'react';
 import { sparkBars } from '../../lib/spark';
 import { consensusLeader, tallySignals } from '../../lib/tally';
 import type { FeedRow } from '../../lib/rationaleFeed';
@@ -45,7 +46,7 @@ export interface ConsensusRingProps {
   agents: readonly AgentView[];
 }
 
-export function BracketList({ summaries, onClick }: BracketListProps) {
+export const BracketList = memo(function BracketList({ summaries, onClick }: BracketListProps) {
   const isEmpty =
     !summaries ||
     summaries.length === 0 ||
@@ -74,9 +75,9 @@ export function BracketList({ summaries, onClick }: BracketListProps) {
       })}
     </div>
   );
-}
+});
 
-export function RationaleFeed({ rows, onAgentClick, onCiteClick }: RationaleFeedProps) {
+export const RationaleFeed = memo(function RationaleFeed({ rows, onAgentClick, onCiteClick }: RationaleFeedProps) {
   // Highlight entity-style words
   const render = (text: string) =>
     text.split(/(\$[A-Z]+|\d+(?:\.\d+)?%|\b[A-Z]{2,5}\b|\$\d+[BMK]?)/g).map((frag, i) =>
@@ -118,9 +119,9 @@ export function RationaleFeed({ rows, onAgentClick, onCiteClick }: RationaleFeed
       ))}
     </div>
   );
-}
+});
 
-export function KpiStrip({ agents, tps, tpsHistory = [], mem, slots, slotsMax, elapsed, round, numRounds }: KpiStripProps) {
+export const KpiStrip = memo(function KpiStrip({ agents, tps, tpsHistory = [], mem, slots, slotsMax, elapsed, round, numRounds }: KpiStripProps) {
   // Pending (null) and failed (parse_error) agents are never HOLD; the share is
   // over decided agents only (docs/DECISIONS.md#adr-streaming-state).
   const tally = tallySignals(agents);
@@ -171,9 +172,9 @@ export function KpiStrip({ agents, tps, tpsHistory = [], mem, slots, slotsMax, e
       </div>
     </div>
   );
-}
+});
 
-export function ConsensusRing({ agents }: ConsensusRingProps) {
+export const ConsensusRing = memo(function ConsensusRing({ agents }: ConsensusRingProps) {
   const tally = tallySignals(agents);
   const lead = consensusLeader(tally);
   // Arcs span the whole roster, so agents still thinking leave a visible gap.
@@ -201,4 +202,4 @@ export function ConsensusRing({ agents }: ConsensusRingProps) {
       <text x="60" y="88" className="mid" fontSize="7" fill="var(--text-3)">{tally.decided}/{agents.length} decided</text>
     </svg>
   );
-}
+});

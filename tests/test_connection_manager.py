@@ -106,3 +106,32 @@ async def test_client_that_errors_mid_send_is_dropped_and_others_continue() -> N
     manager.broadcast("two")
     await eventually(lambda: healthy.sent == ["one", "two"], what="healthy client to keep going")
     await manager.disconnect(_ws(healthy))
+
+
+def test_queue_is_latest_wins() -> None:
+    assert CLIENT_QUEUE_MAXSIZE == 1
+
+
+async def test_stuck_client_gets_only_the_newest_frame_when_it_frees_up() -> None:
+    manager = ConnectionManager()
+    gate = asyncio.Event()
+    slow = _FakeWebSocket(gate=gate)
+    await manager.connect(_ws(slow))
+    manager.broadcast("held")
+    await slow.send_started.wait()  # the writer is stuck sending "held"
+    for i in range(20):
+        manager.broadcast(f"m{i}")
+    gate.set()
+    await eventually(lambda: slow.sent == ["held", "m19"], what="only the newest frame after the held one")
+    await manager.disconnect(_ws(slow))
+
+
+async def test_generation_counts_connections() -> None:
+    manager = ConnectionManager()
+    assert manager.generation == 0
+    first, second = _FakeWebSocket(), _FakeWebSocket()
+    await manager.connect(_ws(first))
+    await manager.connect(_ws(second))
+    await manager.disconnect(_ws(first))
+    assert (manager.generation, manager.client_count) == (2, 1)
+    await manager.disconnect(_ws(second))

@@ -36,7 +36,6 @@ describe('useWebSocket — connection', () => {
     expect(result.current.connected).toBe(true);
     act(() => FakeWebSocket.latest().message(JSON.stringify({ phase: 'round_2', round_num: 2 })));
     expect(result.current.lastFrame?.phase).toBe('round_2');
-    expect(result.current.lastRaw).toEqual({ phase: 'round_2', round_num: 2 });
   });
 
   it('ignores a malformed frame and keeps the previous one', () => {

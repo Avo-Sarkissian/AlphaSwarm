@@ -22,6 +22,11 @@ in `.env` are dead config: the app never reads them (`settings.py:OllamaSettings
 | `OLLAMA_KEEP_ALIVE` | `5m` | Keeps the worker warm between rounds |
 | `OLLAMA_USE_MLX` | `1` | Required for the nvfp4 models. Without it Ollama **silently** uses llama.cpp |
 
+App-side timeouts (`.env`, see `.env.example`): `ALPHASWARM_OLLAMA__CONNECT_TIMEOUT_S=5`,
+`ALPHASWARM_OLLAMA__WORKER_READ_TIMEOUT_S=120`, `ALPHASWARM_OLLAMA__ORCHESTRATOR_READ_TIMEOUT_S=600`
+(`docs/DECISIONS.md#adr-inference-timeouts`). The old `ALPHASWARM_OLLAMA__REQUEST_TIMEOUT_SECONDS`
+still works, mapped to the orchestrator value with a warning; rename it.
+
 **Ollama.app (normal case):**
 ```bash
 ./scripts/configure_ollama_app_env.sh
@@ -60,6 +65,8 @@ ollama show alphaswarm-worker --modelfile | head -5      # confirm FROM + params
 - **Re-run `ollama create` after any Modelfile edit.** For example,
   `num_predict 400`, which caps runaway 14-20 minute generations. Code changes
   do not reach the model until you do.
+- Both Modelfiles set `num_predict` as a fallback only; call sites pass their
+  own caps (`src/alphaswarm/inference/caps.py`).
 - `num_ctx` belongs only in Modelfiles (worker 4096, orchestrator 8192).
   `OllamaClient` strips it from requests, because a per-request `num_ctx` makes
   Ollama silently reload the model.
@@ -78,6 +85,9 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
   with `OLLAMA_USE_MLX=1` and at least 32 GB. GGUF tags always use llama.cpp.
 - The **first call after a load pays kernel compilation** (about 10× slower
   prefill). When benchmarking, time the second call.
+- Every model load logs `model_warmed` with `prefill_tps`; a `model_warmup_slow`
+  warning on a warm-up means the prefill rate looks like the llama.cpp
+  fallback: run the check above.
 - The MLX runner follows the prompt more than a hard grammar for `format=schema`,
   so keep the explicit key list in prompts and keep the 3-tier parser.
 - Reference numbers (2026-06-11, Ollama 0.30.7, this machine):
@@ -214,6 +224,7 @@ that names a held company exercises the advisory. Then check:
 - [ ] Governor warning: when `governor_state` is `paused` or `crisis`, a dismissible banner appears over the dashboard (`app_v2.tsx:255-263, 477-503`). There is no way to force it from the UI; the DEV tweaks panel and the old full-screen `MemoryPausedState` were deleted (2026-10).
 - [ ] If a shock is injected: the report's shock-impact section shows non-zero percentages and arrows (F-03).
 - [ ] `uv run python scripts/compare_cycles.py --limit 1` shows the new cycle's metrics. `r*_parse_errors` should be low.
+- [ ] After the run: `uv run python scripts/telemetry_report.py rows --cycle <cycle id>` shows prefill, decode and load per round; `docs/experiments.md` has the protocol for comparisons.
 
 **Fast checks (no services needed):**
 ```bash
@@ -238,8 +249,10 @@ uv run ruff check src tests && uv run ruff format --check src tests
 
 | Symptom | Likely cause | Check / fix |
 |---|---|---|
+| Slow or failing calls, or a reply cut short | An output cap, or one slow phase (prefill, decode, load) | `grep '"inference_call"'` in the backend log: one line per provider call (tokens, prefill/decode/load ms, `finish_reason`, latency). `finish_reason` `"length"` or a `decision_truncated` warning means a reply hit its output cap |
+| UI silent while the backend runs | The broadcaster is not sending | `grep '"broadcast_stats"'` in the backend log: `serializations` should follow the client count (0 with no client, about 60 a minute per idle client, more while state changes) |
 | Simulation suddenly much slower; agents seem to run one at a time | Ollama env lost after a reboot, or MLX not engaged | §1 `ps eww …`, then re-run `configure_ollama_app_env.sh` and relaunch Ollama. Check the MLX grep in §2. Confirm `ollama ps` shows the nvfp4 alias |
-| Individual calls take minutes, or one agent hangs | Runaway generation, or a model swap thrash | `num_predict 400` must be in the registered worker (`ollama show …`). The client timeout (600 s) turns a hang into PARSE_ERROR. Check that `ollama ps` holds no more than 2 models |
+| Individual calls take minutes, or one agent hangs | Runaway generation, or a model swap thrash | `num_predict 400` must be in the registered worker (`ollama show …`). The worker read timeout (120 s; the orchestrator's is 600 s) turns a hang into PARSE_ERROR. Check that `ollama ps` holds no more than 2 models |
 | UI frozen, elapsed timer still ticking | WebSocket not connected | DevTools → WS: expect `101` on `/ws/state`. Vite proxy needs `changeOrigin: true` (present in `frontend/vite.config.ts`). Close code **1008** means the page origin is not in `ALPHASWARM_ALLOWED_ORIGINS`; an HTTP **400** on the handshake means the Host is not in `ALPHASWARM_TRUSTED_HOSTS` |
 | `403 origin_not_allowed` on POST/PUT from the UI | Origin guard on state-changing routes | Add the serving origin to `ALPHASWARM_ALLOWED_ORIGINS` (JSON list) |
 | `400 Invalid host header` | The UI was opened under a name other than `localhost`/`127.0.0.1` (a LAN IP, `0.0.0.0`, a `.local` name) | Use `http://localhost:8000`, or add the name to `ALPHASWARM_TRUSTED_HOSTS` and its origin to `ALPHASWARM_ALLOWED_ORIGINS`, then restart |

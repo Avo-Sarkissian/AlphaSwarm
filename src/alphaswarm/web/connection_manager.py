@@ -13,8 +13,10 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(component="web.connection_manager")
 
-# Frames buffered per client before the oldest is dropped (docs/DECISIONS.md#adr-ws-broadcaster).
-CLIENT_QUEUE_MAXSIZE: Final = 100
+# Latest-wins: a client's queue holds only the newest frame. A full queue still
+# drops its oldest frame (CLAUDE.md constraint 4) but never builds a stale
+# backlog (docs/DECISIONS.md#adr-ws-broadcaster).
+CLIENT_QUEUE_MAXSIZE: Final = 1
 
 
 class ConnectionManager:
@@ -23,7 +25,8 @@ class ConnectionManager:
     Each client gets an asyncio.Queue[str](maxsize=CLIENT_QUEUE_MAXSIZE) and a dedicated
     asyncio.Task that drains the queue and sends to the socket.
     broadcast() puts into all queues without awaiting sends (non-blocking).
-    Drop-oldest policy on overflow.
+    Latest-wins: a full one-frame queue drops its oldest frame. ``generation``
+    counts connections so the broadcaster can greet a new client on the next tick.
 
     Created inside FastAPI lifespan. Phase 30 wires the broadcast ticker.
     """
@@ -31,6 +34,7 @@ class ConnectionManager:
     def __init__(self) -> None:
         self._clients: dict[WebSocket, asyncio.Queue[str]] = {}
         self._tasks: dict[WebSocket, asyncio.Task[None]] = {}
+        self._generation = 0
 
     async def connect(self, ws: WebSocket) -> None:
         """Accept WebSocket and register client with a bounded queue + writer task."""
@@ -38,6 +42,7 @@ class ConnectionManager:
         queue: asyncio.Queue[str] = asyncio.Queue(maxsize=CLIENT_QUEUE_MAXSIZE)
         self._clients[ws] = queue
         self._tasks[ws] = asyncio.create_task(self._writer(ws, queue))
+        self._generation += 1
         log.info("client_connected", client_count=len(self._clients))
 
     async def disconnect(self, ws: WebSocket) -> None:
@@ -95,3 +100,8 @@ class ConnectionManager:
     def client_count(self) -> int:
         """Number of currently connected clients."""
         return len(self._clients)
+
+    @property
+    def generation(self) -> int:
+        """Number of connections accepted so far; grows by one per connect()."""
+        return self._generation

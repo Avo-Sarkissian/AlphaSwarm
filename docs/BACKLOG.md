@@ -113,7 +113,7 @@ improve the product:
 | 41.5 | Advisory hero, KPI strip, per-holding table | done (absorbed by 41.6 AdvisoryV2) | `fe/features/{wire,advisory,report,dashboard}/ (split from v2.tsx)` (`AdvisoryV2`) |
 | 41.6 | Quant Terminal port | code done. **Formal UAT never signed off** (6 HUMAN-UAT items pending; 31 parity rows unsigned) | see section 7 |
 | 999.1 | Auto-trigger advisory on completion | done; the in-process trigger was replaced by PostRunPipeline (2026-10) | `services/post_run.py:ServicePostRunJobs` |
-| 999.3 | Live memory telemetry | done | `web/broadcaster.py` (`_host_memory_percent`); `web/wire.py` (`_governor`) |
+| 999.3 | Live memory telemetry | done | `web/broadcaster.py` (`_host_memory_percent`; sent with every frame, at least once a second while a client is connected); `web/wire.py` (`_governor`) |
 | 41.3 (branch only) | Codex remediation | superseded, never merged | item 2.11 |
 
 ## 7. UAT that was never signed off (needs one live run)

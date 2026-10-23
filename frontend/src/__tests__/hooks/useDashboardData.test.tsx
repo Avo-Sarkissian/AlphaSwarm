@@ -1,8 +1,11 @@
 // @vitest-environment happy-dom
 import type { ReactNode } from 'react';
-import { cleanup, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useTopInfluencers } from '../../features/dashboard/useDashboardData';
+import { adaptSnapshot } from '../../adapter/frame';
+import { FrameProviders } from '../../context/FrameProviders';
+import { useBracketRows, useFeedRows, useTopInfluencers } from '../../features/dashboard/useDashboardData';
+import liveFrame from '../fixtures/ws_snapshot.json';
 import { makeAgent } from '../helpers/agents';
 import { renderWithFrame } from '../helpers/renderWithFrame';
 
@@ -57,5 +60,35 @@ describe('useTopInfluencers', () => {
   it('is empty before any citation edges exist', () => {
     renderWithFrame(<Probe />, { frame: { agents: AGENTS } });
     expect(items()).toEqual([]);
+  });
+});
+
+describe('panel rows across frames', () => {
+  it('keep their identity when only telemetry changed', () => {
+    const seen: Array<{ brackets: unknown; feed: unknown }> = [];
+    function RowsProbe() {
+      seen.push({ brackets: useBracketRows(), feed: useFeedRows() });
+      return null;
+    }
+    const first = adaptSnapshot(liveFrame);
+    const changed = structuredClone(liveFrame) as unknown as { governor_metrics: { memory_percent: number } };
+    changed.governor_metrics.memory_percent += 1;
+    const second = adaptSnapshot(changed, first);
+    // Connection props: the same ones renderWithFrame passes to FrameProviders.
+    const { rerender } = render(
+      <FrameProviders frame={first} connected status="open">
+        <RowsProbe />
+      </FrameProviders>,
+    );
+    rerender(
+      <FrameProviders frame={second} connected status="open">
+        <RowsProbe />
+      </FrameProviders>,
+    );
+    const a = seen[0];
+    const b = seen[seen.length - 1];
+    expect(seen.length).toBeGreaterThan(1);
+    expect(b?.brackets).toBe(a?.brackets);
+    expect(b?.feed).toBe(a?.feed);
   });
 });
