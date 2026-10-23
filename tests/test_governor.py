@@ -651,3 +651,51 @@ class TestGovernorMonitorSeam:
 
     def test_memory_monitor_satisfies_the_reader_protocol(self) -> None:
         assert isinstance(MemoryMonitor(GovernorSettings()), MemoryReader)
+
+
+class TestPauseEscalation:
+    """PAUSED escalates to CRISIS after the D-07 timeout (docs/DECISIONS.md#p3-d-07)."""
+
+    async def _paused(self) -> ResourceGovernor:
+        gov = ResourceGovernor(GovernorSettings(baseline_parallel=4, crisis_timeout_seconds=30.0))
+        await gov._apply_state_transition(_reading(used_percent=92.0))
+        assert gov.state is GovernorState.PAUSED
+        return gov
+
+    async def test_escalates_after_timeout_without_success(self) -> None:
+        gov = await self._paused()
+        past = time.monotonic() - 60
+        gov._paused_since = past
+        gov._last_successful_inference = past
+        await gov._apply_state_transition(_reading(used_percent=92.0))
+        assert gov.state is GovernorState.CRISIS
+        assert gov.current_limit == 1
+        assert gov._crisis_start == past
+
+    async def test_does_not_escalate_while_inference_succeeds(self) -> None:
+        gov = await self._paused()
+        gov._paused_since = time.monotonic() - 60
+        gov._last_successful_inference = time.monotonic()
+        await gov._apply_state_transition(_reading(used_percent=92.0))
+        assert gov.state is GovernorState.PAUSED
+
+    async def test_escalated_crisis_aborts_on_the_next_check(self) -> None:
+        gov = await self._paused()
+        past = time.monotonic() - 60
+        gov._paused_since = past
+        gov._last_successful_inference = past
+        await gov._apply_state_transition(_reading(used_percent=92.0))
+        with pytest.raises(GovernorCrisisError):
+            await gov._apply_state_transition(_reading(used_percent=92.0))
+
+    async def test_crisis_holds_while_memory_stays_in_the_pause_zone(self) -> None:
+        gov = ResourceGovernor(GovernorSettings(baseline_parallel=4))
+        await gov._apply_state_transition(_reading(pressure_level=PressureLevel.YELLOW))
+        await gov._apply_state_transition(_reading(used_percent=93.0))  # kernel GREEN, 93% used
+        assert gov.state is GovernorState.CRISIS
+
+    async def test_leaving_pause_clears_the_pause_clock(self) -> None:
+        gov = await self._paused()
+        await gov._apply_state_transition(_reading(used_percent=50.0))
+        assert gov.state is GovernorState.RUNNING
+        assert gov._paused_since is None

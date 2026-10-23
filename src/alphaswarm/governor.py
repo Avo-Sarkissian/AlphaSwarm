@@ -110,6 +110,7 @@ class ResourceGovernor:
         # State machine.
         self._last_successful_inference = time.monotonic()
         self._crisis_start: float | None = None
+        self._paused_since: float | None = None
         self._consecutive_green_checks = 0
         self._adjustment_lock = asyncio.Lock()
         self._monitor_task: asyncio.Task[None] | None = None
@@ -352,6 +353,7 @@ class ResourceGovernor:
         """Clean RUNNING baseline for the next monitoring session."""
         self._state = GovernorState.RUNNING
         self._crisis_start = None
+        self._paused_since = None
         self._consecutive_green_checks = 0
         self._limit = self._settings.baseline_parallel
         self._in_use = 0
@@ -450,11 +452,16 @@ class ResourceGovernor:
                 )
             )
 
-    def _enter_crisis(self, reading: MemoryReading) -> None:
-        """CRISIS: drop to 1 slot (docs/DECISIONS.md#p3-d-13) and start the crisis clock."""
+    def _enter_crisis(self, reading: MemoryReading, *, since: float | None = None) -> None:
+        """CRISIS: drop to 1 slot (docs/DECISIONS.md#p3-d-13) and start the crisis clock.
+
+        ``since`` backdates the clock (an escalated pause counts from when the
+        queue stopped), so the D-07 abort follows on the next check.
+        """
         self._state = GovernorState.CRISIS
         self._set_limit(1)
-        self._crisis_start = time.monotonic()
+        self._crisis_start = since if since is not None else time.monotonic()
+        self._paused_since = None
         self._consecutive_green_checks = 0
         self._sync_gate()
 
@@ -464,6 +471,7 @@ class ResourceGovernor:
             self._enter_crisis(reading)
         elif reading.is_pause_zone:
             self._state = GovernorState.PAUSED
+            self._paused_since = time.monotonic()
             self._consecutive_green_checks = 0
             self._sync_gate()
         elif reading.is_throttle_zone:
@@ -500,6 +508,7 @@ class ResourceGovernor:
             self._enter_crisis(reading)
         elif reading.is_pause_zone:
             self._state = GovernorState.PAUSED
+            self._paused_since = time.monotonic()
             self._sync_gate()
         elif not reading.is_throttle_zone:
             self._state = GovernorState.RUNNING
@@ -507,28 +516,37 @@ class ResourceGovernor:
             self._sync_gate()
 
     async def _handle_paused(self, reading: MemoryReading) -> None:
-        """Handle state transitions from PAUSED."""
+        """PAUSED: leave when the pause zone clears; escalate when stuck (docs/DECISIONS.md#p3-d-07)."""
         if reading.is_crisis:
             self._enter_crisis(reading)
-        elif not reading.is_pause_zone:
-            if reading.is_throttle_zone:
-                self._state = GovernorState.THROTTLED
-            else:
-                self._state = GovernorState.RUNNING
+            return
+        if not reading.is_pause_zone:
+            self._state = GovernorState.THROTTLED if reading.is_throttle_zone else GovernorState.RUNNING
+            self._paused_since = None
             self._sync_gate()
+            return
+        now = time.monotonic()
+        timeout = self._settings.crisis_timeout_seconds
+        if (
+            self._paused_since is not None
+            and now - self._paused_since > timeout
+            and now - self._last_successful_inference > timeout
+        ):
+            log.error(
+                "governor_pause_escalated",
+                paused_seconds=now - self._paused_since,
+                reason="paused past crisis_timeout_seconds with no successful inference",
+            )
+            self._enter_crisis(reading, since=self._paused_since)
 
     async def _handle_crisis(self, reading: MemoryReading) -> None:
-        """Handle state transitions from CRISIS.
-
-        Check timeout (D-07), then check for recovery to GREEN (D-03).
-        """
+        """CRISIS: D-07 abort on timeout; leave only when pressure AND the pause zone clear."""
         now = time.monotonic()
-
-        # D-07: Crisis timeout check
+        timeout = self._settings.crisis_timeout_seconds
         if (
             self._crisis_start is not None
-            and now - self._crisis_start > self._settings.crisis_timeout_seconds
-            and now - self._last_successful_inference > self._settings.crisis_timeout_seconds
+            and now - self._crisis_start > timeout
+            and now - self._last_successful_inference > timeout
         ):
             duration = now - self._crisis_start
             log.error(
@@ -540,24 +558,22 @@ class ResourceGovernor:
                 f"Governor crisis timeout after {duration:.1f}s with no successful inference",
                 duration_seconds=duration,
             )
-
-        # D-03: Recovery when pressure returns to GREEN
-        if not reading.is_crisis:
-            self._state = GovernorState.RECOVERING
-            self._crisis_start = None
-            # Reset to baseline (D-03)
-            current = self._limit
-            if current < self._settings.baseline_parallel:
-                grow_amount = self._settings.baseline_parallel - current
-                self._set_limit(self._limit + grow_amount)
-                log.info(
-                    "slot adjustment",
-                    action="grow",
-                    amount=grow_amount,
-                    new_limit=self._limit,
-                    reason="crisis recovery reset to baseline",
-                )
-            self._sync_gate()
+        if reading.is_crisis or reading.is_pause_zone:
+            return
+        self._state = GovernorState.RECOVERING
+        self._crisis_start = None
+        # Reset to baseline (docs/DECISIONS.md#p3-d-03).
+        grow_amount = self._settings.baseline_parallel - self._limit
+        if grow_amount > 0:
+            self._set_limit(self._settings.baseline_parallel)
+            log.info(
+                "slot adjustment",
+                action="grow",
+                amount=grow_amount,
+                new_limit=self._limit,
+                reason="crisis recovery reset to baseline",
+            )
+        self._sync_gate()
 
     async def _handle_recovering(self, reading: MemoryReading) -> None:
         """Handle state transitions from RECOVERING.

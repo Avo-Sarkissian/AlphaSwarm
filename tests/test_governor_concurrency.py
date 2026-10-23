@@ -160,10 +160,6 @@ async def test_stop_monitoring_reraises_a_fatal_monitor_error(
         await gov.stop_monitoring()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T1.4: PAUSED never escalates to CRISIS, so a stuck reading wedges a round (fix: plan 18)",
-)
 async def test_paused_escalates_to_crisis_after_the_timeout(make_governor: MakeGovernor) -> None:
     gov, monitor = make_governor([PAUSE], baseline_parallel=1, crisis_timeout_seconds=-1.0)
     await gov.start_monitoring()
