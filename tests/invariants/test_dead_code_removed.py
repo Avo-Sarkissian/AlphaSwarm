@@ -97,3 +97,10 @@ def test_retired_ui_wording_is_gone_from_src() -> None:
         if retired.search(line) and "TUI was retired" not in line
     ]
     assert hits == [], "the UI is React on the web; reword these:\n" + "\n".join(hits)
+
+
+def test_governor_protocol_alias_is_gone() -> None:
+    """The alias was the only governor -> inference import (no import cycles)."""
+    import alphaswarm.governor as governor
+
+    assert not hasattr(governor, "ResourceGovernorProtocol")

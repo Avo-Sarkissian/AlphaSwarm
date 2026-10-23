@@ -665,11 +665,11 @@ class TestGovernorMonitoring:
 
 
 # ---------------------------------------------------------------------------
-# ResourceGovernorProtocol compliance
+# ResourceGovernor controller surface
 # ---------------------------------------------------------------------------
 
 
-class TestResourceGovernorProtocol:
+class TestResourceGovernorSurface:
     """Test that ResourceGovernor satisfies extended protocol."""
 
     def test_has_release_with_success_kwarg(self) -> None:
