@@ -33,7 +33,7 @@ from alphaswarm.settings import AppSettings
 MAX_SLOT_SHARE = 0.35
 MIN_READER_SHARE = 0.15
 BRACKETS: tuple[str, ...] = tuple(b.bracket_type.value for b in DEFAULT_BRACKETS)
-# The run roster is always DEFAULT_BRACKETS (config.load_bracket_configs).
+# The run roster is always DEFAULT_BRACKETS (personas.load_bracket_configs).
 BRACKET_SIZES: dict[str, int] = {b.bracket_type.value: b.count for b in DEFAULT_BRACKETS}
 
 

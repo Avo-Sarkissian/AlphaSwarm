@@ -10,7 +10,7 @@ Behavior contract (Phase 40 D-03, D-08, D-09, Pitfall 5):
   empty "Market context:\\n" system message to prompts.
 - Decimal fields render via Decimal.__str__ (financial precision guard).
 - Headlines are third-party text: each one is passed through
-  config.sanitize_headline() before rendering (F3), so a published title can
+  security.sanitize.sanitize_headline() before rendering (F3), so a published title can
   never forge block structure. Headlines that sanitize to "" are dropped, and
   the "Recent headlines:" label is only emitted when at least one survives.
 

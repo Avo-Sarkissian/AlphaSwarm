@@ -34,7 +34,7 @@ as defense-in-depth.
 
 F3 (MEDIUM — indirect prompt injection): feed <title> text is authored by
 whoever gets a headline published, and it ends up verbatim in the prompt of
-all 100 agents. Every title is normalized through config.sanitize_headline()
+all 100 agents. Every title is normalized through security.sanitize.sanitize_headline()
 at ingestion (control/format characters, fence and block-delimiter forging,
 per-headline length); titles that sanitize to nothing are dropped. The
 prompt-side half of the mitigation lives in context_formatter.py (rendering)

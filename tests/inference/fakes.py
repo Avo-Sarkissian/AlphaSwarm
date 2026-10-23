@@ -118,7 +118,7 @@ class FakeInferenceProvider:
 # ScriptedProvider: deterministic worker/orchestrator for engine scenarios
 # ---------------------------------------------------------------------------
 
-# Persona header written by config.generate_personas: "[Sell-Side 3 | Sell-Side bracket]".
+# Persona header written by personas.generate_personas: "[Sell-Side 3 | Sell-Side bracket]".
 # Any change to persona or peer-context prompts MUST keep these regexes matching.
 AGENT_HEADER_RE: Final = re.compile(r"\[(?P<name>[^\]|]+?) \| (?P<display>[^\]]+?) bracket\]")
 # Peer line id: "[sell_side_03|sell_side]" or "[sell_side_03]".

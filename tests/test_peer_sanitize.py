@@ -44,7 +44,7 @@ def test_bidi_and_zero_width_characters_become_spaces() -> None:
 
 
 def test_every_control_and_format_character_becomes_a_space() -> None:
-    """The rule config.sanitize_headline applies to headlines: every Unicode Cc, Cf,
+    """The rule security.sanitize.sanitize_headline applies to headlines: every Unicode Cc, Cf,
     Zl and Zp character, not a hand-picked list (the Arabic letter mark and the tag
     block were missing from one)."""
     specials = [

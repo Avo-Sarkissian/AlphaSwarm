@@ -64,7 +64,7 @@ UNTRUSTED_DATA_CLOSE = "</untrusted_market_data>"
 
 # Belt-and-braces: strip any fence tag that appears inside the block itself so
 # the data can never close its own fence. Headlines are already sanitized at
-# ingestion and again at render (config.sanitize_headline strips '<' and '>'),
+# ingestion and again at render (security.sanitize.sanitize_headline strips '<' and '>'),
 # so this only matters if a caller hands infer() an unsanitized block.
 _FENCE_TAG_RE = re.compile(r"</?untrusted_market_data>", re.IGNORECASE)
 
@@ -97,7 +97,7 @@ PEER_FENCE_OPEN = "<peer_observations>"
 PEER_FENCE_CLOSE = "</peer_observations>"
 
 # Belt-and-braces: rationales are already stripped of "<" and ">" by
-# utils.sanitize_peer_rationale; this also covers a caller that passes a raw block.
+# security.sanitize.sanitize_peer_rationale; this also covers a caller that passes a raw block.
 _PEER_FENCE_TAG_RE = re.compile(r"</?\s*peer_observations\s*>", re.IGNORECASE)
 
 PEER_CONTEXT_GUARD = (
