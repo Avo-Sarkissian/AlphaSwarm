@@ -21,9 +21,7 @@ from tests.support.web_app import make_route_app, route_test_settings
 
 _STORED = InferenceConfig(
     orchestrator=RoleConfig(provider=ProviderType.OLLAMA, model="alphaswarm-orchestrator"),
-    worker=RoleConfig(
-        provider=ProviderType.ANTHROPIC, model="claude-test", api_key="sk-stored-key-1234"
-    ),
+    worker=RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-test", api_key="sk-stored-key-1234"),
     spend_cap_usd=Decimal("3"),
     allow_cloud_advisory=True,
 )
@@ -164,9 +162,7 @@ def test_validation_errors_never_echo_keys(tmp_path: Path) -> None:
     ("method", "path"),
     [("GET", "/api/settings"), ("GET", "/api/settings/estimate"), ("PUT", "/api/settings")],
 )
-def test_stored_file_unreadable_is_422_naming_a_fix_outside_settings(
-    tmp_path: Path, method: str, path: str
-) -> None:
+def test_stored_file_unreadable_is_422_naming_a_fix_outside_settings(tmp_path: Path, method: str, path: str) -> None:
     """Settings can neither load nor save over an invalid file, so the fix is the file."""
     app = _app(tmp_path)
     (tmp_path / "inference.json").write_text("{not json", encoding="utf-8")

@@ -397,9 +397,7 @@ async def test_response_schema_wins_over_json_mode_when_strict_enabled() -> None
 
     assert captured, "no request captured"
     rf = captured[0].get("response_format", {})
-    assert rf.get("type") == "json_schema", (
-        f"expected json_schema (strict wins), got {rf.get('type')!r}"
-    )
+    assert rf.get("type") == "json_schema", f"expected json_schema (strict wins), got {rf.get('type')!r}"
 
 
 # ---------------------------------------------------------------------------

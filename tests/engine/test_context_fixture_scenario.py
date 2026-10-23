@@ -55,37 +55,27 @@ class _RecordingNews(FakeNewsProvider):
         super().__init__()
         self.calls: list[str] = []
 
-    async def get_headlines(
-        self, entities: list[str], *, max_age_hours: int = 72
-    ) -> dict[str, NewsSlice]:
+    async def get_headlines(self, entities: list[str], *, max_age_hours: int = 72) -> dict[str, NewsSlice]:
         self.calls.append("get_headlines")
         return await super().get_headlines(entities, max_age_hours=max_age_hours)
 
 
-async def test_round1_prompts_carry_the_fixture_block(
-    run_scenario: Any, scripted_worker: Any
-) -> None:
+async def test_round1_prompts_carry_the_fixture_block(run_scenario: Any, scripted_worker: Any) -> None:
     await run_scenario(num_rounds=2, context_fixture=PACKET)
     round1 = _round1(scripted_worker)
     assert len(round1) == 100
     assert all("== ZZZT ==" in _text(c) and "Price: $123.45" in _text(c) for c in round1)
 
 
-async def test_the_fixture_wins_over_supplied_providers(
-    run_scenario: Any, scripted_worker: Any
-) -> None:
+async def test_the_fixture_wins_over_supplied_providers(run_scenario: Any, scripted_worker: Any) -> None:
     market, news = _RecordingMarket(), _RecordingNews()
-    await run_scenario(
-        num_rounds=2, context_fixture=PACKET, market_provider=market, news_provider=news
-    )
+    await run_scenario(num_rounds=2, context_fixture=PACKET, market_provider=market, news_provider=news)
     assert market.calls == [] and news.calls == []
     round1 = _round1(scripted_worker)
     assert len(round1) == 100
     assert all("Price: $123.45" in _text(c) for c in round1)
 
 
-async def test_no_fixture_and_no_providers_send_no_block(
-    run_scenario: Any, scripted_worker: Any
-) -> None:
+async def test_no_fixture_and_no_providers_send_no_block(run_scenario: Any, scripted_worker: Any) -> None:
     await run_scenario(num_rounds=2)
     assert not any("Price: $123.45" in _text(c) for c in _round1(scripted_worker))

@@ -16,9 +16,7 @@ CYCLE = "00000000-0000-4000-8000-0000000000d4"
 
 @pytest.fixture(autouse=True)
 def _host_memory(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "alphaswarm.web.broadcaster.psutil.virtual_memory", lambda: SimpleNamespace(percent=50.0)
-    )
+    monkeypatch.setattr("alphaswarm.web.broadcaster.psutil.virtual_memory", lambda: SimpleNamespace(percent=50.0))
 
 
 async def test_live_json_validates_as_a_state_frame() -> None:

@@ -225,19 +225,13 @@ class OpenAICompatProvider:
             if resp.status_code == 400:
                 # Check if the 400 is about strict JSON schema being unsupported.
                 # Only meaningful when a schema was requested.
-                if (
-                    response_schema is not None
-                    and _body_mentions_strict_unsupported(resp.text)
-                    and not self._no_strict
-                ):
+                if response_schema is not None and _body_mentions_strict_unsupported(resp.text) and not self._no_strict:
                     # First time: downgrade to json_object and retry once.
                     self._no_strict = True
                     body["response_format"] = to_openai_json_object()
                     # Single immediate retry (not counted against max_retries).
                     try:
-                        retry_resp = await self._client.post(
-                            url, json=body, headers=self._headers
-                        )
+                        retry_resp = await self._client.post(url, json=body, headers=self._headers)
                     except (httpx.TransportError, httpx.TimeoutException) as exc:
                         raise InferenceError(
                             f"Transport error on strict-downgrade retry: {exc}",
@@ -249,8 +243,7 @@ class OpenAICompatProvider:
                     if retry_resp.status_code == 200:
                         return self._parse_response(retry_resp)
                     raise InferenceError(
-                        f"Strict-downgrade retry also failed (HTTP {retry_resp.status_code}): "
-                        f"{retry_resp.text}",
+                        f"Strict-downgrade retry also failed (HTTP {retry_resp.status_code}): {retry_resp.text}",
                         provider="openai_compatible",
                         model=self.model,
                     )
@@ -277,8 +270,7 @@ class OpenAICompatProvider:
                     await asyncio.sleep(2**attempt)
                     continue
                 raise InferenceError(
-                    f"Server error (HTTP {resp.status_code}) after {self._max_retries} retries: "
-                    f"{resp.text}",
+                    f"Server error (HTTP {resp.status_code}) after {self._max_retries} retries: {resp.text}",
                     provider="openai_compatible",
                     model=self.model,
                 )
@@ -301,9 +293,7 @@ class OpenAICompatProvider:
     def _parse_response(self, resp: httpx.Response) -> InferenceResult:
         """Parse a 200 response into an ``InferenceResult``."""
         data = resp.json()
-        content: str = (
-            (data["choices"][0]["message"]["content"] or "") if data.get("choices") else ""
-        )
+        content: str = (data["choices"][0]["message"]["content"] or "") if data.get("choices") else ""
         usage = data.get("usage", {})
         return InferenceResult(
             content=content,

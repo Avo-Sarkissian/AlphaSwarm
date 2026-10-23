@@ -31,9 +31,7 @@ def _context() -> object:
     return SimpleNamespace(agent_name="Quants 01")
 
 
-async def _context_unchanged(
-    graph: object, provider: object, context: object, *, cycle_id: str
-) -> object:
+async def _context_unchanged(graph: object, provider: object, context: object, *, cycle_id: str) -> object:
     return context
 
 
@@ -62,9 +60,7 @@ def _app(tmp_path: Path, graph: FakeCycleGraph | None) -> FastAPI:
 
 
 def test_default_cycle_is_the_latest_complete_one(tmp_path: Path, engine_cls: MagicMock) -> None:
-    graph = FakeCycleGraph(
-        {CYCLE_A: "complete"}, latest=CYCLE_A, contexts={(CYCLE_A, AGENT): _context()}
-    )
+    graph = FakeCycleGraph({CYCLE_A: "complete"}, latest=CYCLE_A, contexts={(CYCLE_A, AGENT): _context()})
     app = _app(tmp_path, graph)
     with TestClient(app) as client:
         r = client.post(f"/api/interview/{AGENT}", json={"message": "Why?"})
@@ -126,9 +122,7 @@ def test_malformed_cycle_id_is_422(tmp_path: Path, engine_cls: MagicMock) -> Non
     assert r.json()["detail"]["error"] == "validation_error"
 
 
-def test_simulation_running_is_409_without_graph_reads(
-    tmp_path: Path, engine_cls: MagicMock
-) -> None:
+def test_simulation_running_is_409_without_graph_reads(tmp_path: Path, engine_cls: MagicMock) -> None:
     graph = FakeCycleGraph({CYCLE_A: "complete"}, latest=CYCLE_A)
     app = _app(tmp_path, graph)
     with TestClient(app) as client:

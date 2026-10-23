@@ -46,9 +46,7 @@ def test_report_after_replay_start_and_stop_is_202(
 
     monkeypatch.setattr(report_module, "_run_report_generation", _blocked)
     graph = FakeCycleGraph({CYCLE_A: "complete"}, signals=_SIGNALS)
-    app = make_route_app(
-        replay_router, report_router, settings=route_test_settings(tmp_path), graph=graph
-    )
+    app = make_route_app(replay_router, report_router, settings=route_test_settings(tmp_path), graph=graph)
     with TestClient(app) as client:
         assert client.post(f"/api/replay/start/{CYCLE_A}").status_code == 200
         assert client.post("/api/replay/stop").status_code == 200

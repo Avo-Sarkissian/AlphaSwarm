@@ -62,13 +62,15 @@ def _print_banner() -> None:
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
 
-    print(BANNER.format(
-        version=__version__,
-        agents=len(personas),
-        brackets=len(brackets),
-        orchestrator=settings.ollama.orchestrator_model,
-        worker=settings.ollama.worker_model,
-    ))
+    print(
+        BANNER.format(
+            version=__version__,
+            agents=len(personas),
+            brackets=len(brackets),
+            orchestrator=settings.ollama.orchestrator_model,
+            worker=settings.ollama.worker_model,
+        )
+    )
 
 
 def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> None:
@@ -78,9 +80,9 @@ def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> 
     tier_labels = {1: "direct JSON", 2: "extracted/cleaned", 3: "FALLBACK (parse failed)"}
     tier_label = tier_labels.get(parsed_result.parse_tier, "unknown")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  Seed Injection Complete")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  Cycle ID:          {cycle_id}")
     print(f"  Overall Sentiment: {seed_event.overall_sentiment:+.2f}")
     print(f"  Parse Quality:     Tier {parsed_result.parse_tier} ({tier_label})")
@@ -88,14 +90,11 @@ def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> 
 
     if seed_event.entities:
         print(f"\n  {'Name':<25} {'Type':<10} {'Relevance':>10} {'Sentiment':>10}")
-        print(f"  {'-'*25} {'-'*10} {'-'*10} {'-'*10}")
+        print(f"  {'-' * 25} {'-' * 10} {'-' * 10} {'-' * 10}")
         for entity in seed_event.entities:
-            print(
-                f"  {entity.name:<25} {entity.type.value:<10} "
-                f"{entity.relevance:>10.2f} {entity.sentiment:>+10.2f}"
-            )
+            print(f"  {entity.name:<25} {entity.type.value:<10} {entity.relevance:>10.2f} {entity.sentiment:>+10.2f}")
 
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +108,7 @@ def _sanitize_rationale(text: str, max_len: int = 80) -> str:
     Delegates to alphaswarm.utils.sanitize_rationale (shared utility).
     """
     from alphaswarm.utils import sanitize_rationale
+
     return sanitize_rationale(text, max_len)
 
 
@@ -124,12 +124,9 @@ def _print_bracket_table_from_summaries(
     if not summaries:
         return
     print(f"\n  {'Bracket':<15} {'BUY':>5} {'SELL':>5} {'HOLD':>5} {'Avg Conf':>10}")
-    print(f"  {'-'*15} {'-'*5} {'-'*5} {'-'*5} {'-'*10}")
+    print(f"  {'-' * 15} {'-' * 5} {'-' * 5} {'-' * 5} {'-' * 10}")
     for s in summaries:
-        print(
-            f"  {s.display_name:<15} {s.buy_count:>5} {s.sell_count:>5} "
-            f"{s.hold_count:>5} {s.avg_confidence:>10.2f}"
-        )
+        print(f"  {s.display_name:<15} {s.buy_count:>5} {s.sell_count:>5} {s.hold_count:>5} {s.avg_confidence:>10.2f}")
 
 
 def _print_round_report(
@@ -159,9 +156,9 @@ def _print_round_report(
     errors = sum(1 for d in all_decisions if d.signal == SignalType.PARSE_ERROR)
     success = total - errors
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  Round {round_num} Complete")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  Cycle ID: {cycle_id}")
     if errors > 0:
         print(f"  Agents:   {success}/{total} ({errors} PARSE_ERROR)")
@@ -171,7 +168,7 @@ def _print_round_report(
     # All-PARSE_ERROR edge case (Codex review / UI-SPEC empty state)
     if success == 0:
         print(f"  Warning: All {total} agents returned PARSE_ERROR. No valid decisions to report.")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
         return
 
     # Bracket summary table: use promoted BracketSummary if available (D-08)
@@ -180,25 +177,17 @@ def _print_round_report(
     else:
         from alphaswarm.simulation import compute_bracket_summaries
 
-        _print_bracket_table_from_summaries(
-            compute_bracket_summaries(agent_decisions, personas, brackets)
-        )
+        _print_bracket_table_from_summaries(compute_bracket_summaries(agent_decisions, personas, brackets))
 
     # Notable Decisions (top 5 by confidence, excluding PARSE_ERROR)
-    valid = [
-        (aid, d) for aid, d in agent_decisions
-        if d.signal != SignalType.PARSE_ERROR
-    ]
+    valid = [(aid, d) for aid, d in agent_decisions if d.signal != SignalType.PARSE_ERROR]
     top5 = sorted(valid, key=lambda x: x[1].confidence, reverse=True)[:5]
     print("\n  Notable Decisions (Top 5 by Confidence)")
-    print(f"  {'-'*55}")
+    print(f"  {'-' * 55}")
     for agent_id, decision in top5:
         snippet = _sanitize_rationale(decision.rationale, max_len=80)
-        print(
-            f"  {agent_id:<20} {decision.signal.value.upper():<5} "
-            f"{decision.confidence:.2f}  {snippet}"
-        )
-    print(f"{'='*60}\n")
+        print(f"  {agent_id:<20} {decision.signal.value.upper():<5} {decision.confidence:.2f}  {snippet}")
+    print(f"{'=' * 60}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +212,7 @@ def _print_shift_analysis(
     transitions = dict(shift.signal_transitions)
 
     print(f"  Signal Transitions (Round {prev_round} -> Round {curr_round})")
-    print(f"  {'-'*40}")
+    print(f"  {'-' * 40}")
 
     if shift.total_flips == 0:
         print("  No agents changed signal between rounds.")
@@ -244,7 +233,7 @@ def _print_shift_analysis(
     bracket_deltas = dict(shift.bracket_confidence_delta)
     if bracket_deltas:
         print("\n  Confidence Drift by Bracket")
-        print(f"  {'-'*40}")
+        print(f"  {'-' * 40}")
         for bracket, delta in bracket_deltas.items():
             sign = "+" if delta >= 0 else ""
             print(f"  {bracket:<15} {sign}{delta:.2f}")
@@ -290,18 +279,18 @@ def _print_simulation_summary(
         final_decisions = result.round2_decisions
         final_summaries = result.round2_summaries
 
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print("  Simulation Complete")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  Cycle ID:       {result.cycle_id}")
     print(f"  Total Rounds:   {final_round}")
     print(f"  Signal Flips:   {flips_line}")
     print(f"  Convergence:    {convergence}")
     print(f"\n  Final Consensus Distribution (Round {final_round})")
-    print(f"  {'-'*40}")
+    print(f"  {'-' * 40}")
     summaries = final_summaries or compute_bracket_summaries(final_decisions, personas, brackets)
     _print_bracket_table_from_summaries(summaries)
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +312,7 @@ def _make_round_complete_handler(
     - Round N bracket table + notable decisions (for all rounds)
     - Shift analysis (for Rounds 2 and 3 only, when event.shift is not None)
     """
+
     async def handler(event: RoundCompleteEvent) -> None:
         _print_round_report(
             event.round_num,
@@ -470,18 +460,21 @@ def _handle_run(
     # inject/report subcommands.
     cfg = load_inference_config(settings)
     built = build_providers(
-        cfg, ollama_client=app.ollama_client, ollama_model_manager=app.model_manager,
+        cfg,
+        ollama_client=app.ollama_client,
+        ollama_model_manager=app.model_manager,
     )
     controller = build_controller(cfg, settings.governor, state_store=app.state_store)
-    print(
-        f"Inference mode: {inference_mode(cfg)} "
-        f"(orchestrator={cfg.orchestrator.model}, worker={cfg.worker.model})"
-    )
+    print(f"Inference mode: {inference_mode(cfg)} (orchestrator={cfg.orchestrator.model}, worker={cfg.worker.model})")
 
     # NOW start the event loop with the async pipeline
     asyncio.run(
         _run_pipeline(
-            rumor, settings, app, personas, brackets,
+            rumor,
+            settings,
+            app,
+            personas,
+            brackets,
             orchestrator_provider=built.orchestrator,
             worker_provider=built.worker,
             controller=controller,
@@ -644,15 +637,12 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
         tools: dict[str, object] = {
             "bracket_summary": lambda **kw: gm.read_consensus_summary(kw.get("cycle_id", cycle_id)),
             "round_timeline": lambda **kw: gm.read_round_timeline(kw.get("cycle_id", cycle_id)),
-            "bracket_narratives": lambda **kw: gm.read_bracket_narratives(
-                kw.get("cycle_id", cycle_id)),
+            "bracket_narratives": lambda **kw: gm.read_bracket_narratives(kw.get("cycle_id", cycle_id)),
             "key_dissenters": lambda **kw: gm.read_key_dissenters(kw.get("cycle_id", cycle_id)),
-            "influence_leaders": lambda **kw: gm.read_influence_leaders(
-                kw.get("cycle_id", cycle_id)),
+            "influence_leaders": lambda **kw: gm.read_influence_leaders(kw.get("cycle_id", cycle_id)),
             "signal_flip_analysis": lambda **kw: gm.read_signal_flips(kw.get("cycle_id", cycle_id)),
             "entity_impact": lambda **kw: gm.read_entity_impact(kw.get("cycle_id", cycle_id)),
-            "social_post_reach": lambda **kw: gm.read_social_post_reach(
-                kw.get("cycle_id", cycle_id)),
+            "social_post_reach": lambda **kw: gm.read_social_post_reach(kw.get("cycle_id", cycle_id)),
         }
 
         # Phase 27: Pre-seed shock_impact observation when a ShockEvent exists
@@ -741,37 +731,47 @@ def main() -> None:
     inject_parser = subparsers.add_parser("inject", help="Inject a seed rumor")
     inject_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
 
-    run_parser = subparsers.add_parser(
-        "run", help="Run a full simulation (ALPHASWARM_NUM_ROUNDS=2|3 rounds)"
-    )
+    run_parser = subparsers.add_parser("run", help="Run a full simulation (ALPHASWARM_NUM_ROUNDS=2|3 rounds)")
     run_parser.add_argument("rumor", type=str, help="Natural-language seed rumor text")
     context = run_parser.add_mutually_exclusive_group()
     context.add_argument(
-        "--context-fixture", type=_context_fixture_arg, default=None, metavar="PATH",
+        "--context-fixture",
+        type=_context_fixture_arg,
+        default=None,
+        metavar="PATH",
         help="point-in-time ContextPacket JSON used as the market block (no live fetches)",
     )
     context.add_argument(
-        "--no-market-context", action="store_true",
+        "--no-market-context",
+        action="store_true",
         help="send no market block at all (no live fetches)",
     )
 
     report_parser = subparsers.add_parser("report", help="Generate post-simulation analysis report")
     report_parser.add_argument(
-        "--cycle", type=str, default=None,
+        "--cycle",
+        type=str,
+        default=None,
         help="Cycle ID to report on (defaults to most recent)",
     )
     report_parser.add_argument(
-        "--output", type=str, default=None,
+        "--output",
+        type=str,
+        default=None,
         help="Override output file path",
     )
 
     web_parser = subparsers.add_parser("web", help="Start web UI server")
     web_parser.add_argument(
-        "--host", type=str, default="127.0.0.1",
+        "--host",
+        type=str,
+        default="127.0.0.1",
         help="Bind address (default: 127.0.0.1)",
     )
     web_parser.add_argument(
-        "--port", type=int, default=8000,
+        "--port",
+        type=int,
+        default=8000,
         help="Port number (default: 8000)",
     )
 

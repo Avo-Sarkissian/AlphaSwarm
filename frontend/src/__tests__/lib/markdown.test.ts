@@ -7,8 +7,34 @@
 // DOMPurify stops walking at the first element it removes (browsers walk on).
 // Each case therefore holds at most one element to remove, nested ones included;
 // the last test fails once happy-dom walks on, and the cases can then be merged.
-import { describe, expect, it } from 'vitest';
+//
+// DOMPurify reads nodeName through the Node.prototype getter. Browsers define
+// nodeName there once for every node type; happy-dom overrides it on
+// Element.prototype and leaves the Node.prototype getter returning '' for
+// elements, so DOMPurify would see every element as an unknown tag. The hoisted
+// shim below restores the browser behaviour before DOMPurify captures the getter
+// on import; the nodeName test at the end fails once happy-dom no longer needs it.
+import { describe, expect, it, vi } from 'vitest';
 import { renderMarkdown } from '../../lib/markdown';
+
+const nodeNameShimmed = vi.hoisted(() => {
+  const base = Object.getOwnPropertyDescriptor(Node.prototype, 'nodeName');
+  const baseGet = base?.get;
+  if (!base || !baseGet || baseGet.call(document.createElement('p')) !== '') return false;
+  Object.defineProperty(Node.prototype, 'nodeName', {
+    ...base,
+    get(this: Node): string {
+      let proto = Object.getPrototypeOf(this);
+      while (proto && proto !== Node.prototype) {
+        const own = Object.getOwnPropertyDescriptor(proto, 'nodeName')?.get;
+        if (own) return own.call(this) as string;
+        proto = Object.getPrototypeOf(proto);
+      }
+      return baseGet.call(this) as string;
+    },
+  });
+  return true;
+});
 
 // Everything marked emits for ordinary markdown, and nothing else.
 const ALLOWED_TAGS = [
@@ -184,5 +210,9 @@ describe('renderMarkdown — test environment', () => {
   it.fails('happy-dom: sanitizing continues past the first removed element', () => {
     const host = mount(renderMarkdown('<img src="x"><button>Unlock</button>'));
     expect(host.querySelector('button')).toBeNull();
+  });
+
+  it('happy-dom: Node.prototype.nodeName still needs the shim at the top of this file', () => {
+    expect(nodeNameShimmed).toBe(true);
   });
 });

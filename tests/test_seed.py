@@ -18,7 +18,6 @@ from pydantic import ValidationError
 
 from alphaswarm.types import EntityType, ParsedSeedResult, SeedEntity, SeedEvent
 
-
 # --- EntityType tests ---
 
 

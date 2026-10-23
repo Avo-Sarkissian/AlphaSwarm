@@ -21,14 +21,10 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-import pytest
-
 
 def test_lint_imports_passes_on_clean_tree() -> None:
     """Baseline: the real tree must pass with the Phase 37 contract in place."""
-    result = subprocess.run(
-        ["uv", "run", "lint-imports"], capture_output=True, text=True, check=False
-    )
+    result = subprocess.run(["uv", "run", "lint-imports"], capture_output=True, text=True, check=False)
     assert result.returncode == 0, (
         f"lint-imports failed on clean tree.\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )

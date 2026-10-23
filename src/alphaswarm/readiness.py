@@ -26,12 +26,9 @@ log = structlog.get_logger(component="readiness")
 # schema, so starting it needs no server restart (docs/DECISIONS.md#p4-d-05). A
 # password change does: the driver keeps the credential it was built with.
 NEO4J_FIX: Final = (
-    "Start Neo4j (docker compose up -d neo4j, or docker start <name> for a container "
-    "you created yourself)"
+    "Start Neo4j (docker compose up -d neo4j, or docker start <name> for a container you created yourself)"
 )
-NEO4J_AUTH_FIX: Final = (
-    "Set ALPHASWARM_NEO4J__PASSWORD in .env to the database's password, then restart the server"
-)
+NEO4J_AUTH_FIX: Final = "Set ALPHASWARM_NEO4J__PASSWORD in .env to the database's password, then restart the server"
 OLLAMA_FIX: Final = "Start Ollama with OLLAMA_USE_MLX=1 (docs/RUNBOOK.md section 1)"
 _MODELFILES: Final[dict[str, str]] = {
     "alphaswarm-orchestrator": "modelfiles/Modelfile.orchestrator",
@@ -54,9 +51,7 @@ class ComponentStatus:
 async def check_neo4j(gm: GraphStateManager | None, *, timeout_s: float = 1.0) -> ComponentStatus:
     """Probe Neo4j with verify_connectivity(), bounded by *timeout_s*."""
     if gm is None:
-        return ComponentStatus(
-            "neo4j", ok=False, required=True, detail="not configured", fix=NEO4J_FIX
-        )
+        return ComponentStatus("neo4j", ok=False, required=True, detail="not configured", fix=NEO4J_FIX)
     try:
         async with asyncio.timeout(timeout_s):
             await gm.verify_connectivity()
@@ -79,9 +74,7 @@ async def check_neo4j(gm: GraphStateManager | None, *, timeout_s: float = 1.0) -
                 detail=f"credentials rejected ({exc_type})",
                 fix=NEO4J_AUTH_FIX,
             )
-        return ComponentStatus(
-            "neo4j", ok=False, required=True, detail=f"unreachable ({exc_type})", fix=NEO4J_FIX
-        )
+        return ComponentStatus("neo4j", ok=False, required=True, detail=f"unreachable ({exc_type})", fix=NEO4J_FIX)
     return ComponentStatus("neo4j", ok=True, required=True)
 
 
@@ -125,9 +118,7 @@ async def check_ollama(
     )
     if client is None:
         return (
-            ComponentStatus(
-                "ollama", ok=False, required=required, detail="not configured", fix=OLLAMA_FIX
-            ),
+            ComponentStatus("ollama", ok=False, required=required, detail="not configured", fix=OLLAMA_FIX),
             not_checked,
         )
     try:

@@ -6,6 +6,7 @@ and cost basis never reach the prompt (docs/DECISIONS.md#p41-d-05).
 Pitfall 2 mitigation: all Decimal values arrive as strings; this module never
 invokes json.dumps over raw Decimal.
 """
+
 from __future__ import annotations
 
 import json

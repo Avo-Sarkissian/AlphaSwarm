@@ -91,7 +91,10 @@ class FakeCycleGraph:
         return []
 
     async def read_completed_cycles(
-        self, limit: int = 20, *, before: datetime | None = None,
+        self,
+        limit: int = 20,
+        *,
+        before: datetime | None = None,
     ) -> list[dict[str, object]]:
         """The *cycles* page older than *before*; falls back to *latest* when no cycles are set."""
         self.cycle_calls.append((limit, before))

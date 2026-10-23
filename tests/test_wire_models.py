@@ -84,9 +84,7 @@ def test_idle_frame_synthesizes_governor_metrics_with_live_memory() -> None:
 
 def test_live_memory_overrides_the_governor_reading_only() -> None:
     gm = GovernorMetrics(12, 5, "yellow", 11.1, "throttled", 999.0)
-    frame = wire.build_frame(
-        StateSnapshot(governor_metrics=gm), jobs=IDLE_JOBS, memory_percent=88.8
-    )
+    frame = wire.build_frame(StateSnapshot(governor_metrics=gm), jobs=IDLE_JOBS, memory_percent=88.8)
     assert frame.governor_metrics.model_dump() == {
         "current_slots": 12,
         "active_count": 5,
@@ -131,9 +129,7 @@ def test_agent_order_is_preserved() -> None:
 
 def test_jobs_come_from_the_argument_not_the_snapshot() -> None:
     running = JobsSnapshot(advisory=JobStatus(), report=JobStatus("running", "c1"))
-    frame = wire.build_frame(
-        StateSnapshot(phase=SimulationPhase.REPLAY), jobs=running, memory_percent=1.0
-    )
+    frame = wire.build_frame(StateSnapshot(phase=SimulationPhase.REPLAY), jobs=running, memory_percent=1.0)
     assert frame.jobs.report == wire.WireJobStatus(state="running", cycle_id="c1", error_code=None)
 
 
@@ -146,9 +142,7 @@ def test_last_error_and_shocks_are_mapped() -> None:
         shock_window_open=True,
     )
     frame = wire.build_frame(snap, jobs=IDLE_JOBS, memory_percent=1.0)
-    assert frame.last_error == wire.WireRunError(
-        code="round_failed", message="Round 2 failed", round_num=2, ts=3.5
-    )
+    assert frame.last_error == wire.WireRunError(code="round_failed", message="Round 2 failed", round_num=2, ts=3.5)
     assert frame.pending_shock == "next shock"
     assert frame.applied_shocks == [wire.WireAppliedShock(text="first shock", round_num=2)]
     assert frame.shock_window_open is True

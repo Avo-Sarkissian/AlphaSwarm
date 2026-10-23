@@ -47,12 +47,7 @@ def _make_feed_entries(entries: list[dict[str, Any]]) -> str:
             if e.get("pub_dt") is not None
             else ""
         )
-        items.append(
-            f"  <item>\n"
-            f"    <title>{e['title']}</title>\n"
-            f"{pub}\n"
-            f"  </item>"
-        )
+        items.append(f"  <item>\n    <title>{e['title']}</title>\n{pub}\n  </item>")
     items_xml = "\n".join(items)
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -133,10 +128,7 @@ class _ForbidConstructionClient:
     the empty-entity-list path never constructs an httpx client (Pitfall 9)."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        raise AssertionError(
-            "httpx.AsyncClient was constructed despite empty entity list — "
-            "Pitfall 9 guard regressed"
-        )
+        raise AssertionError("httpx.AsyncClient was constructed despite empty entity list — Pitfall 9 guard regressed")
 
 
 # --------- URL routing (D-02) + T-38-01 URL injection mitigation ---------
@@ -146,16 +138,12 @@ async def test_url_routing_ticker_vs_topic(monkeypatch: pytest.MonkeyPatch) -> N
     """Ticker ^[A-Z]{1,5}$ -> Yahoo RSS; everything else -> Google News RSS."""
     feed_xml = _make_feed_entries([])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     await provider.get_headlines(["AAPL", "EV battery"])
     urls = [c["url"] for c in _MockAsyncClient.calls]
     assert "https://finance.yahoo.com/rss/headline?s=AAPL" in urls
-    assert any(
-        u.startswith("https://news.google.com/rss/search?q=EV+battery") for u in urls
-    )
+    assert any(u.startswith("https://news.google.com/rss/search?q=EV+battery") for u in urls)
 
 
 async def test_url_injection_in_entity_is_quote_plus_encoded(
@@ -165,9 +153,7 @@ async def test_url_injection_in_entity_is_quote_plus_encoded(
     before URL interpolation. quote_plus converts '&' -> '%26' and '=' -> '%3D'."""
     feed_xml = _make_feed_entries([])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     await provider.get_headlines(["EV&cmd=drop"])
     url = _MockAsyncClient.calls[0]["url"]
@@ -181,9 +167,7 @@ async def test_ticker_regex_rejects_6_char_uppercase(
     """Regex ^[A-Z]{1,5}$ is strict — 6+ char symbols route through Google News."""
     feed_xml = _make_feed_entries([])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     await provider.get_headlines(["ABCDEF"])
     url = _MockAsyncClient.calls[0]["url"]
@@ -195,9 +179,7 @@ async def test_non_ticker_lowercase_entity_routes_to_google_news(
 ) -> None:
     feed_xml = _make_feed_entries([])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     await provider.get_headlines(["apple inc"])
     url = _MockAsyncClient.calls[0]["url"]
@@ -213,9 +195,7 @@ async def test_user_agent_header_is_sent_on_every_request(
     """Pitfall 4 — Yahoo 429s without a browser-like User-Agent."""
     feed_xml = _make_feed_entries([])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     await provider.get_headlines(["AAPL", "MSFT", "US-Iran war"])
     assert len(_MockAsyncClient.calls) == 3
@@ -234,22 +214,16 @@ async def test_httpx_asyncclient_constructed_with_explicit_timeout(
     a hanging upstream would stall indefinitely without raising, defeating D-19."""
     feed_xml = _make_feed_entries([])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     await provider.get_headlines(["AAPL"])
-    assert len(_MockAsyncClient.init_kwargs_log) == 1, (
-        "expected exactly one AsyncClient construction"
-    )
+    assert len(_MockAsyncClient.init_kwargs_log) == 1, "expected exactly one AsyncClient construction"
     kwargs = _MockAsyncClient.init_kwargs_log[0]
     assert "timeout" in kwargs, (
         "httpx.AsyncClient constructed WITHOUT an explicit timeout kwarg — "
         "regressed 38-REVIEWS consensus #2; a slow upstream could hang the fetch"
     )
-    assert kwargs["timeout"] == 10.0, (
-        f"expected timeout=10.0 (_REQUEST_TIMEOUT_S), got {kwargs['timeout']!r}"
-    )
+    assert kwargs["timeout"] == 10.0, f"expected timeout=10.0 (_REQUEST_TIMEOUT_S), got {kwargs['timeout']!r}"
     assert kwargs.get("follow_redirects") is True
 
 
@@ -267,9 +241,7 @@ async def test_get_headlines_returns_news_slices(monkeypatch: pytest.MonkeyPatch
         ]
     )
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     result = await provider.get_headlines(["Apple"])
     assert isinstance(result["Apple"], NewsSlice)
@@ -296,9 +268,7 @@ async def test_headlines_are_sanitized_at_ingestion(
     )
     feed_xml = _make_feed_entries([{"title": hostile, "pub_dt": now - timedelta(hours=1)}])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     result = await provider.get_headlines(["Apple"])
 
@@ -321,9 +291,7 @@ async def test_entity_filtering(monkeypatch: pytest.MonkeyPatch) -> None:
         ]
     )
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     result_lower = await provider.get_headlines(["apple"])
     assert result_lower["apple"].headlines == ("Apple beats earnings",)
@@ -346,9 +314,7 @@ async def test_max_age_hours_filter(monkeypatch: pytest.MonkeyPatch) -> None:
         ]
     )
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     r72 = await provider.get_headlines(["Apple"], max_age_hours=72)
     assert set(r72["Apple"].headlines) == {"Apple recent", "Apple midrange"}
@@ -368,13 +334,9 @@ async def test_max_age_hours_uses_calendar_timegm_not_local_time(
     filter — which only works if the UTC struct is correctly interpreted.
     """
     now = datetime.now(UTC)
-    feed_xml = _make_feed_entries(
-        [{"title": "Apple six hours old", "pub_dt": now - timedelta(hours=6)}]
-    )
+    feed_xml = _make_feed_entries([{"title": "Apple six hours old", "pub_dt": now - timedelta(hours=6)}])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     # Entry is 6h old; with max_age_hours=12 it MUST pass the filter on any host.
     # Local-time conversion on a non-UTC host could make the computed age ±24h,
@@ -388,13 +350,9 @@ async def test_max_age_hours_uses_calendar_timegm_not_local_time(
 
 async def test_undated_entry_passes_age_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     """Entries with no pubDate are kept regardless of max_age_hours."""
-    feed_xml = _make_feed_entries(
-        [{"title": "Apple undated", "pub_dt": None}]
-    )
+    feed_xml = _make_feed_entries([{"title": "Apple undated", "pub_dt": None}])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     result = await provider.get_headlines(["Apple"], max_age_hours=1)
     assert result["Apple"].headlines == ("Apple undated",)
@@ -412,9 +370,7 @@ async def test_get_headlines_fetch_failed_on_exception(
         return httpx.ConnectError("dns fail")
 
     _MockAsyncClient.configure(responder=responder)
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     result = await provider.get_headlines(["AAPL"])
     assert result["AAPL"].staleness == "fetch_failed"
@@ -427,9 +383,7 @@ async def test_http_429_raises_for_status_and_returns_fetch_failed(
 ) -> None:
     """Pitfall 4 regression guard — 429 from r.raise_for_status() becomes fetch_failed."""
     _MockAsyncClient.configure(responder=lambda url: _MockResponse("", status_code=429))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     result = await provider.get_headlines(["AAPL"])
     assert result["AAPL"].staleness == "fetch_failed"
@@ -445,9 +399,7 @@ async def test_httpx_timeout_exception_returns_fetch_failed(
         return httpx.ReadTimeout("upstream slow")
 
     _MockAsyncClient.configure(responder=responder)
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     result = await provider.get_headlines(["AAPL"])
     assert result["AAPL"].staleness == "fetch_failed"
@@ -460,9 +412,7 @@ async def test_zero_entries_with_http_200_is_fresh_not_fetch_failed(
     not fetch_failed. This is what Yahoo RSS may return during off-hours."""
     empty_feed_xml = _make_feed_entries([])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(empty_feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     result = await provider.get_headlines(["AAPL"])
     assert result["AAPL"].staleness == "fresh"
@@ -477,9 +427,7 @@ async def test_empty_entity_list_returns_empty_dict(
 ) -> None:
     """Empty entity list must short-circuit BEFORE constructing httpx.AsyncClient.
     The mock client raises in __init__ — if the guard regresses, the test fails."""
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _ForbidConstructionClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _ForbidConstructionClient)
     provider = RSSNewsProvider()
     assert await provider.get_headlines([]) == {}
 
@@ -489,9 +437,7 @@ async def test_duplicate_entities_collapse_to_single_key(
 ) -> None:
     feed_xml = _make_feed_entries([])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     result = await provider.get_headlines(["AAPL", "AAPL", "AAPL"])
     assert set(result.keys()) == {"AAPL"}
@@ -516,9 +462,7 @@ async def test_structural_conformance_against_news_provider_protocol(
 ) -> None:
     feed_xml = _make_feed_entries([])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
     keys = await _news_consumer(provider)
     assert keys == ["AAPL"]
@@ -589,9 +533,7 @@ def test_rss_provider_uses_calendar_timegm_not_time_mktime() -> None:
     """
     src = pathlib.Path(__file__).parent.parent / "src/alphaswarm/ingestion/rss_provider.py"
     content = src.read_text()
-    assert "import calendar" in content, (
-        "rss_provider.py must import calendar for timegm (REVIEWS #1)"
-    )
+    assert "import calendar" in content, "rss_provider.py must import calendar for timegm (REVIEWS #1)"
     assert "calendar.timegm(published_parsed)" in content, (
         "rss_provider.py must use calendar.timegm for UTC struct_time -> epoch (REVIEWS #1)"
     )

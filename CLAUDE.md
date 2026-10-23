@@ -22,7 +22,7 @@
 - **Web Frontend:** React + TypeScript, Vite build; React-rendered SVG with a deterministic layout and d3-scale for the 100-agent "mirofish" graph (`docs/DECISIONS.md#kr-41-1-01` explains why d3-force was dropped); fonts self-hosted via `@fontsource`; ESLint and knip gate the code.
 - **Validation / Config:** `pydantic`, `pydantic-settings`.
 - **Logging:** `structlog`, with a fail-closed PII redaction processor.
-- **Testing:** pytest with `pytest-socket` (network off by default; `tests/integration/` opts in by path, the `neo4j` marker opts in), `pytest-timeout` (60 s per test) and `hypothesis`; golden files under `tests/golden/`; vitest in `frontend/src/__tests__/` (node for pure tests; happy-dom + React Testing Library for hooks and components) and ESLint (`npm run lint`); golden WebSocket frames written by `tests/test_wire_contract.py` into `frontend/src/__tests__/fixtures/`.
+- **Testing:** pytest with `pytest-socket` (network off by default; the `neo4j`, `live_network` and `ollama` markers opt in), `pytest-timeout` (60 s per test) and `hypothesis`; golden files under `tests/golden/`; vitest in `frontend/src/__tests__/` (node for pure tests; happy-dom + React Testing Library for hooks and components) and ESLint (`npm run lint`); golden WebSocket frames written by `tests/test_wire_contract.py` into `frontend/src/__tests__/fixtures/`.
 
 ## Swarm Composition (v2, 2026-06-10)
 
@@ -55,7 +55,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 
 ## Conventions
 
-- **Python:** `from __future__ import annotations`; heavy or cyclic imports under `if TYPE_CHECKING:`. Ruff line length 100.
+- **Python:** `from __future__ import annotations`; heavy or cyclic imports under `if TYPE_CHECKING:`. Ruff line length 120; `ruff format` is enforced.
 - **Data models:** frozen pydantic models at LLM/ingestion boundaries (AgentDecision, SeedEvent, ingestion slices); frozen dataclasses for internal value objects; TypedDict for chat messages. Settings via pydantic-settings, prefix `ALPHASWARM_`, `__` for nesting.
 - **Async:** fan-out with `asyncio.TaskGroup` (no bare `create_task` in the engine). Long-running jobs use `create_task` with a strong-reference set and a done-callback. Blocking I/O goes through `asyncio.to_thread` or aiofiles. Loop-bound objects are created inside the FastAPI lifespan. Seams are Protocols.
 - **Logging:** `log = structlog.get_logger(component="<area>")`. Event names are snake_case past tense (`decisions_written`) with scalar key/value context. Never log holdings objects; log counts or hashes.
@@ -63,7 +63,7 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 - **Neo4j:** a public `async def read_*/write_*` method plus a `@staticmethod async def _<verb>_tx(tx, ...)`. Batch writes use `UNWIND $rows`, schema statements use `IF NOT EXISTS`, and signals are stored lowercase.
 - **LLM calls:** prompts are lists of `InferenceMessage` dicts. The worker decodes against a JSON schema; orchestrator calls use `json_mode=True` plus tiered parse fallbacks. Untrusted text (RSS headlines, peer rationales) is sanitized and fenced, and never placed in the system role.
 - **Comments:** cite `docs/DECISIONS.md#<anchor>` for design rationale. Legacy bare IDs (`D-xx`, `KR-…`, `F-xx`) are indexed there by file and line. Replace them with anchors when you next touch the comment.
-- **Tests:** `asyncio_mode=auto`; sockets are disabled globally (`@pytest.mark.enable_socket` opts in). An autouse `hermetic_env` fixture clears `ALPHASWARM_*`, ignores `.env`, and points the inference config and holdings CSV at temp paths; env-clearing helpers must use `clear_alphaswarm_env`. Neo4j tests live in `tests/neo4j/` with `pytestmark = pytest.mark.neo4j` and read one deterministic, fictional 100-agent cycle (`seeded_cycle`). Shared helpers live in `tests/support/` (`golden.py`, `seed_builder.py`, `aio.py`, `controllers.py`); fakes, including the deterministic `ScriptedProvider`, are in `tests/inference/fakes.py`; `tests/engine/` runs the real `run_simulation` on scripted fakes with zero real sleeps; architectural invariants are in `tests/invariants/`. Known bugs are pinned with `xfail(strict=True, reason="<item id>: …")` (`docs/DECISIONS.md#adr-engine-scenario-harness`).
+- **Tests:** `asyncio_mode=auto`; sockets are disabled globally and markers opt in: `neo4j` (throwaway neo4j-test database on 127.0.0.1:7688; modules live in `tests/neo4j/` with `pytestmark = pytest.mark.neo4j` and read one deterministic, fictional 100-agent cycle, `seeded_cycle`), `live_network` and `ollama` (skipped unless `--run-live`), `slow`. Never enable network by a test's path. An autouse `hermetic_env` fixture clears `ALPHASWARM_*`, ignores `.env`, and points the inference config and holdings CSV at temp paths; env-clearing helpers must use `clear_alphaswarm_env`. Shared helpers live in `tests/support/` (`golden.py`, `seed_builder.py`, `markers.py`, `aio.py`, `controllers.py`); fakes, including the deterministic `ScriptedProvider`, are in `tests/inference/fakes.py`; `tests/engine/` runs the real `run_simulation` on scripted fakes with zero real sleeps; architectural invariants are in `tests/invariants/`. Known bugs are pinned with `xfail(strict=True, reason="<item id>: …")` (`docs/DECISIONS.md#adr-engine-scenario-harness`).
 - **Commits:** Conventional Commits with a scope (`fix(security): …`, `feat(inference): …`), an imperative summary, and an explanatory body.
 
 ## Gotchas
@@ -86,14 +86,15 @@ Full map: `docs/ARCHITECTURE.md`. In short:
 
 - Plain git: branch off `master`, make small Conventional Commits, open PRs. Don't recreate a `.planning/` directory or any planning-framework scaffolding.
 - Write a short markdown plan in `docs/` only when a change is big enough to need one.
-- Before calling work done (CI's `lint`, `backend`, `backend-neo4j` and `frontend` jobs run the gated checks):
-  - `uv run pytest -q -m "not neo4j"` is green (run from the repo root; same selection as CI `backend`);
+- Install the git hooks once per clone: `uv run pre-commit install` (ruff check --fix, ruff format, import-linter).
+- Before calling work done (CI's `lint`, `backend-unit`, `backend-neo4j` and `frontend` jobs run the same checks):
+  - `uv run pytest -q -m "not neo4j and not live_network and not ollama"` is green (run from the repo root; same selection as CI `backend-unit`, which also enforces 85% branch coverage);
   - after touching `graph.py`, report templates or read models: `scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j`, then `scripts/neo4j_test.sh down`;
-  - `uv run mypy src` reports no errors (gated in CI; modules under `[[tool.mypy.overrides]]` stay exempt until cleaned up, the list only shrinks, never add one);
+  - `uv run ruff check src tests` and `uv run ruff format --check src tests` are clean;
+  - `uv run mypy src` reports no errors (modules under `[[tool.mypy.overrides]]` stay exempt until cleaned up, the list only shrinks, never add one);
   - `uv run lint-imports` reports the contract kept;
-  - `uv run vulture src vulture_whitelist.py --min-confidence 80` is clean (gated in CI; whitelist only names an interface requires, never dead code);
-  - `uv run ruff check <changed files>` is clean on the lines you changed (ruff is not yet gated in CI);
-  - for frontend changes, run `npx tsc -b --noEmit && npx vitest run && npm run lint && npm run build` in `frontend/`.
+  - `uv run vulture src vulture_whitelist.py --min-confidence 80` is clean (whitelist only names an interface requires, never dead code);
+  - for frontend changes, run `npx tsc -b --noEmit && npx vitest run && npm run lint && npm run build` in `frontend/` (Node 22, `frontend/.nvmrc`; CI also runs `npm audit --omit=dev --audit-level=high`).
 - Golden files in `tests/golden/` change only in a commit whose purpose explains the diff: `UPDATE_GOLDEN=1 uv run pytest -q -m neo4j --require-neo4j tests/neo4j/` (scenario goldens in `tests/golden/scenarios/`: `UPDATE_GOLDEN=1 uv run pytest -q tests/engine/`, no services), then review `git diff tests/golden` line by line.
 
 ## Developer Profile

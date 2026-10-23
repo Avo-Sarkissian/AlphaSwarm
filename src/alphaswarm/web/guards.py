@@ -134,6 +134,5 @@ def job_config_error(exc: Exception, *, job: JobKind, cycle_id: str) -> Inferenc
         error_type=type(exc).__name__,
     )
     return InferenceConfigError(
-        "The saved inference configuration is invalid. "
-        "Open Settings and save a valid configuration."
+        "The saved inference configuration is invalid. Open Settings and save a valid configuration."
     )

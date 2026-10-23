@@ -12,7 +12,6 @@ from alphaswarm.config import GovernorSettings
 from alphaswarm.errors import GovernorCrisisError
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReading, PressureLevel
 
-
 # ---------------------------------------------------------------------------
 # GovernorSettings new fields
 # ---------------------------------------------------------------------------
@@ -253,9 +252,7 @@ class TestMemoryMonitor:
         assert result == 72.5
         assert isinstance(result, float)
 
-    async def test_read_macos_pressure_green_on_sysctl_1(
-        self, settings: GovernorSettings
-    ) -> None:
+    async def test_read_macos_pressure_green_on_sysctl_1(self, settings: GovernorSettings) -> None:
         monitor = MemoryMonitor(settings)
         mock_proc = AsyncMock()
         mock_proc.communicate.return_value = (b"1\n", b"")
@@ -264,9 +261,7 @@ class TestMemoryMonitor:
             result = await monitor.read_macos_pressure()
         assert result == PressureLevel.GREEN
 
-    async def test_read_macos_pressure_yellow_on_sysctl_2(
-        self, settings: GovernorSettings
-    ) -> None:
+    async def test_read_macos_pressure_yellow_on_sysctl_2(self, settings: GovernorSettings) -> None:
         monitor = MemoryMonitor(settings)
         mock_proc = AsyncMock()
         mock_proc.communicate.return_value = (b"2\n", b"")
@@ -275,9 +270,7 @@ class TestMemoryMonitor:
             result = await monitor.read_macos_pressure()
         assert result == PressureLevel.YELLOW
 
-    async def test_read_macos_pressure_red_on_sysctl_4(
-        self, settings: GovernorSettings
-    ) -> None:
+    async def test_read_macos_pressure_red_on_sysctl_4(self, settings: GovernorSettings) -> None:
         monitor = MemoryMonitor(settings)
         mock_proc = AsyncMock()
         mock_proc.communicate.return_value = (b"4\n", b"")
@@ -286,9 +279,7 @@ class TestMemoryMonitor:
             result = await monitor.read_macos_pressure()
         assert result == PressureLevel.RED
 
-    async def test_read_macos_pressure_green_on_subprocess_failure_cold(
-        self, settings: GovernorSettings
-    ) -> None:
+    async def test_read_macos_pressure_green_on_subprocess_failure_cold(self, settings: GovernorSettings) -> None:
         """F-17 fail-stale: a failed read before any success returns GREEN
         (the cold-start default)."""
         monitor = MemoryMonitor(settings)
@@ -299,9 +290,7 @@ class TestMemoryMonitor:
             result = await monitor.read_macos_pressure()
         assert result == PressureLevel.GREEN
 
-    async def test_read_macos_pressure_failure_preserves_last_crisis(
-        self, settings: GovernorSettings
-    ) -> None:
+    async def test_read_macos_pressure_failure_preserves_last_crisis(self, settings: GovernorSettings) -> None:
         """F-17 fail-stale: a failed read after a RED reading must NOT clear the
         crisis — it returns the last successfully-read level, not GREEN."""
         monitor = MemoryMonitor(settings)
@@ -318,9 +307,7 @@ class TestMemoryMonitor:
             result = await monitor.read_macos_pressure()
         assert result == PressureLevel.RED
 
-    async def test_read_macos_pressure_reaps_child_on_cancel(
-        self, settings: GovernorSettings
-    ) -> None:
+    async def test_read_macos_pressure_reaps_child_on_cancel(self, settings: GovernorSettings) -> None:
         """U2: a cancellation mid-communicate() must still reap the sysctl child.
         CancelledError is a BaseException and bypasses `except Exception`, so the
         finally must kill the still-running process rather than orphan it."""
@@ -329,14 +316,14 @@ class TestMemoryMonitor:
         mock_proc.returncode = None  # still running when cancelled
         mock_proc.communicate.side_effect = asyncio.CancelledError()
         mock_proc.kill = MagicMock()
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            with pytest.raises(asyncio.CancelledError):
-                await monitor.read_macos_pressure()
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await monitor.read_macos_pressure()
         mock_proc.kill.assert_called_once()
 
-    async def test_read_macos_pressure_green_on_unknown_value(
-        self, settings: GovernorSettings
-    ) -> None:
+    async def test_read_macos_pressure_green_on_unknown_value(self, settings: GovernorSettings) -> None:
         """Unknown sysctl value (e.g. 99) returns GREEN (fail-open)."""
         monitor = MemoryMonitor(settings)
         mock_proc = AsyncMock()
@@ -346,9 +333,7 @@ class TestMemoryMonitor:
             result = await monitor.read_macos_pressure()
         assert result == PressureLevel.GREEN
 
-    async def test_read_combined_returns_memory_reading(
-        self, settings: GovernorSettings
-    ) -> None:
+    async def test_read_combined_returns_memory_reading(self, settings: GovernorSettings) -> None:
         monitor = MemoryMonitor(settings)
         mock_vmem = MagicMock()
         mock_vmem.percent = 65.0

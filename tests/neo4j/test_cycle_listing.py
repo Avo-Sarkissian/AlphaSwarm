@@ -86,9 +86,7 @@ async def _complete_cycle_at(
 async def test_rows_carry_the_stored_history_metrics(
     graph_manager_test: GraphStateManager,
 ) -> None:
-    cycle_id = await _complete_cycle_at(
-        graph_manager_test, "2099-02-01T00:00:00Z", metrics=HISTORY_METRICS
-    )
+    cycle_id = await _complete_cycle_at(graph_manager_test, "2099-02-01T00:00:00Z", metrics=HISTORY_METRICS)
 
     rows = await graph_manager_test.read_completed_cycles(5)
 
@@ -134,14 +132,10 @@ async def test_cursor_round_trips_the_servers_own_timestamp(
     page1 = await gm.read_completed_cycles(1)
     assert [r["cycle_id"] for r in page1] == [newest]
 
-    page2 = await gm.read_completed_cycles(
-        1, before=_AS_FASTAPI_PARSES.validate_python(page1[0]["created_at"])
-    )
+    page2 = await gm.read_completed_cycles(1, before=_AS_FASTAPI_PARSES.validate_python(page1[0]["created_at"]))
     assert [r["cycle_id"] for r in page2] == [middle]
 
-    page3 = await gm.read_completed_cycles(
-        1, before=_AS_FASTAPI_PARSES.validate_python(page2[0]["created_at"])
-    )
+    page3 = await gm.read_completed_cycles(1, before=_AS_FASTAPI_PARSES.validate_python(page2[0]["created_at"]))
     assert [r["cycle_id"] for r in page3] == [oldest]
 
 
@@ -163,9 +157,5 @@ async def test_seeded_cycle_lists_consensus_flips_and_duration(
     rows = await graph_manager_test.read_completed_cycles(100)
 
     row = next(r for r in rows if r["cycle_id"] == seeded_cycle.cycle_id)
-    missing = [
-        k
-        for k in ("final_buy", "final_sell", "final_hold", "total_flips", "total_seconds")
-        if row[k] is None
-    ]
+    missing = [k for k in ("final_buy", "final_sell", "final_hold", "total_flips", "total_seconds") if row[k] is None]
     assert missing == []

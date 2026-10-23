@@ -144,10 +144,7 @@ def test_parse_headline_rejects_bad_tables(ds: ModuleType, text: str, message: s
 def test_replace_block_rewrites_only_the_block(ds: ModuleType) -> None:
     text = "before\n<!-- x:start -->\nold\n<!-- x:end -->\nafter\n"
     assert ds.block_body(text, "x") == "old"
-    assert (
-        ds.replace_block(text, "x", "new")
-        == "before\n<!-- x:start -->\nnew\n<!-- x:end -->\nafter\n"
-    )
+    assert ds.replace_block(text, "x", "new") == "before\n<!-- x:start -->\nnew\n<!-- x:end -->\nafter\n"
 
 
 @pytest.mark.parametrize(
@@ -166,9 +163,7 @@ def test_replace_block_requires_one_ordered_marker_pair(ds: ModuleType, text: st
 
 def test_render_rows_rebases_links_onto_the_repository_root(ds: ModuleType) -> None:
     rows = ds.parse_headline(headline_md())
-    table = ds.render_rows(
-        rows, ("eval_accuracy", "peer_exposure", "mlx_prefill_worker", "demo_url")
-    )
+    table = ds.render_rows(rows, ("eval_accuracy", "peer_exposure", "mlx_prefill_worker", "demo_url"))
     assert table.splitlines()[:2] == ["| Result | Value | Source |", "|---|---|---|"]
     assert "](docs/experiments.md#evaluation)" in table
     assert "](docs/DECISIONS.md#adr-diverse-peer-context)" in table
@@ -193,9 +188,7 @@ def test_bracket_roles_cover_every_bracket_type(ds: ModuleType) -> None:
 
 CAPTURES: dict[str, object] = {
     "cycle_id": "00000000-0000-4000-8000-000000000001",
-    "seed_rumor": (
-        "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
-    ),
+    "seed_rumor": ("ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."),
     "num_rounds": 3,
     "final_buy": 41,
     "final_sell": 33,
@@ -218,24 +211,15 @@ README_BLOCKS = ("demo", "runtime", "results", "screenshots", "brackets", "quali
 def _make_root(tmp_path: Path, headline: str) -> Path:
     (tmp_path / "docs" / "media").mkdir(parents=True)
     (tmp_path / "docs" / "experiments.md").write_text(headline, encoding="utf-8")
-    (tmp_path / "docs" / "media" / "captures.json").write_text(
-        json.dumps(CAPTURES), encoding="utf-8"
-    )
-    readme = "# README\n" + "".join(
-        f"\n<!-- {b}:start -->\n<!-- {b}:end -->\n" for b in README_BLOCKS
-    )
+    (tmp_path / "docs" / "media" / "captures.json").write_text(json.dumps(CAPTURES), encoding="utf-8")
+    readme = "# README\n" + "".join(f"\n<!-- {b}:start -->\n<!-- {b}:end -->\n" for b in README_BLOCKS)
     (tmp_path / "README.md").write_text(readme, encoding="utf-8")
     (tmp_path / "CHANGELOG.md").write_text(
-        "# Changelog\n\n## v6.0 (0.6.0) — Unreleased\n\n"
-        "<!-- results:start -->\n<!-- results:end -->\n",
+        "# Changelog\n\n## v6.0 (0.6.0) — Unreleased\n\n<!-- results:start -->\n<!-- results:end -->\n",
         encoding="utf-8",
     )
-    (tmp_path / "docs" / "HISTORY.md").write_text(
-        "<!-- resume:start -->\n<!-- resume:end -->\n", encoding="utf-8"
-    )
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "x"\nversion = "0.6.0"\n', encoding="utf-8"
-    )
+    (tmp_path / "docs" / "HISTORY.md").write_text("<!-- resume:start -->\n<!-- resume:end -->\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\nversion = "0.6.0"\n', encoding="utf-8")
     return tmp_path
 
 
@@ -247,10 +231,7 @@ def _rows(ds: ModuleType, **overrides: str) -> dict[str, object]:
 def test_resume_quotes_values_with_the_verdict_wording(ds: ModuleType) -> None:
     better = ds.render_resume(_rows(ds), DEFAULT_BRACKETS, facts=_facts(ds))
     assert better.count("\n") == 5 and better.startswith("1. Built **AlphaSwarm**")
-    assert (
-        "it beat the best single-model baseline: hit rate 0.61 (95% CI 0.52-0.70) vs 0.50."
-        in better
-    )
+    assert "it beat the best single-model baseline: hit rate 0.61 (95% CI 0.52-0.70) vs 0.50." in better
     assert "(peer-attributable flip rate +6.0 pp (95% CI 2.1 to 9.8))" in better
     assert "cut mean round time from 412 s to 268 s (-35%)" in better
     assert "worker 833 to 2,361 tok/s (2.8x), orchestrator 111 to 3,395 tok/s (30.6x)" in better
@@ -258,14 +239,10 @@ def test_resume_quotes_values_with_the_verdict_wording(ds: ModuleType) -> None:
     assert "a static read-only demo on GitHub Pages" in better
     total = sum(b.count for b in DEFAULT_BRACKETS)
     assert f"runs {total} market personas in {len(DEFAULT_BRACKETS)} archetypes" in better
-    flat = ds.render_resume(
-        _rows(ds, eval_verdict="no-difference", peer_effect_verdict="null"), DEFAULT_BRACKETS
-    )
+    flat = ds.render_resume(_rows(ds, eval_verdict="no-difference", peer_effect_verdict="null"), DEFAULT_BRACKETS)
     assert "showed no significant edge over single-model baselines" in flat
     assert "found no significant peer-attributable flip rate" in flat
-    worse = ds.render_resume(
-        _rows(ds, eval_verdict="worse", peer_effect_verdict="negative"), DEFAULT_BRACKETS
-    )
+    worse = ds.render_resume(_rows(ds, eval_verdict="worse", peer_effect_verdict="negative"), DEFAULT_BRACKETS)
     assert "trailed the best single-model baseline" in worse
     assert "found that peers reduce flips" in worse
 
@@ -372,9 +349,7 @@ def test_resume_and_demo_leave_out_features_the_repository_lacks(ds: ModuleType)
     assert "demo" not in ds.render_resume(unpublished, DEFAULT_BRACKETS, facts=absent)
     assert ds.render_demo(unpublished, facts=absent) == ""
     buildable = _facts(ds, present=False, demo_build=True)
-    assert "and a static read-only demo build." in ds.render_resume(
-        unpublished, DEFAULT_BRACKETS, facts=buildable
-    )
+    assert "and a static read-only demo build." in ds.render_resume(unpublished, DEFAULT_BRACKETS, facts=buildable)
     assert "VITE_DEMO=1" in ds.render_demo(unpublished, facts=buildable)
 
 
@@ -418,8 +393,7 @@ ACCURACY = "(hit rate 0.61 (95% CI 0.52-0.70) vs 0.50)"
         (
             "no-difference",
             ("preregistered", "run_manifest"),
-            f"{ACCURACY}, a result the pre-registered harness reproduces from stored run "
-            "manifests.",
+            f"{ACCURACY}, a result the pre-registered harness reproduces from stored run manifests.",
         ),
         (
             "no-difference",
@@ -550,10 +524,7 @@ def test_release_notes_extract_the_entry_with_absolute_links(ds: ModuleType) -> 
         "Intro with a [link](https://github.com/Avo-Sarkissian/AlphaSwarm/blob/v6.0/"
         "docs/experiments.md#headline-numbers-v60)"
     )
-    assert (
-        "[anchor](https://github.com/Avo-Sarkissian/AlphaSwarm/blob/v6.0/CHANGELOG.md#v50--2026-04-18)"
-        in notes
-    )
+    assert "[anchor](https://github.com/Avo-Sarkissian/AlphaSwarm/blob/v6.0/CHANGELOG.md#v50--2026-04-18)" in notes
     assert "<!--" not in notes and "Old entry" not in notes
     with pytest.raises(ds.DocsSyncError, match="no entry for v7.0"):
         ds.release_notes(CHANGELOG_FIXTURE, "v7.0")
@@ -562,20 +533,13 @@ def test_release_notes_extract_the_entry_with_absolute_links(ds: ModuleType) -> 
 def test_changelog_top_entry_parses_tag_version_and_date(ds: ModuleType) -> None:
     entry = ds.changelog_top_entry(CHANGELOG_FIXTURE)
     assert (entry.tag, entry.version, entry.date) == ("v6.0", "0.6.0", "2026-11-02")
-    assert (
-        ds.changelog_top_entry(CHANGELOG_FIXTURE.replace("2026-11-02", "Unreleased", 1)).date
-        is None
-    )
+    assert ds.changelog_top_entry(CHANGELOG_FIXTURE.replace("2026-11-02", "Unreleased", 1)).date is None
     with pytest.raises(ds.DocsSyncError, match="malformed"):
         ds.changelog_top_entry("## v6.0 - soon\n")
 
 
-def test_release_problems_flag_unmeasured_values_and_an_undated_changelog(
-    ds: ModuleType, tmp_path: Path
-) -> None:
-    root = _make_root(
-        tmp_path, headline_md({"speedup": "not measured", "demo_url": "not published"})
-    )
+def test_release_problems_flag_unmeasured_values_and_an_undated_changelog(ds: ModuleType, tmp_path: Path) -> None:
+    root = _make_root(tmp_path, headline_md({"speedup": "not measured", "demo_url": "not published"}))
     assert ds.release_problems(root) == [
         "headline value not measured: speedup",
         "the top CHANGELOG entry is still 'Unreleased'",
@@ -586,14 +550,11 @@ def test_sync_reports_then_writes_stale_blocks(ds: ModuleType, tmp_path: Path) -
     root = _make_root(tmp_path, headline_md())
     stale = ds.sync(root, DEFAULT_BRACKETS, write=False)
     assert sorted(stale) == sorted(
-        [f"README.md:{block}" for block in README_BLOCKS]
-        + ["CHANGELOG.md:results", "docs/HISTORY.md:resume"]
+        [f"README.md:{block}" for block in README_BLOCKS] + ["CHANGELOG.md:results", "docs/HISTORY.md:resume"]
     )
     assert ds.sync(root, DEFAULT_BRACKETS, write=True) == stale
     assert ds.sync(root, DEFAULT_BRACKETS, write=False) == []
-    assert "| Swarm accuracy vs the best baseline |" in (root / "CHANGELOG.md").read_text(
-        encoding="utf-8"
-    )
+    assert "| Swarm accuracy vs the best baseline |" in (root / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
 def test_sync_skips_a_missing_changelog(ds: ModuleType, tmp_path: Path) -> None:
@@ -605,9 +566,7 @@ def test_sync_skips_a_missing_changelog(ds: ModuleType, tmp_path: Path) -> None:
         ds.release_problems(root)
 
 
-def test_main_check_exit_codes(
-    ds: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_check_exit_codes(ds: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     root = _make_root(tmp_path, headline_md())
     assert ds.main(["--root", str(root), "check"]) == 1
     assert "run: uv run python scripts/docs_sync.py write" in capsys.readouterr().err

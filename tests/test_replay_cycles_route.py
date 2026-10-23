@@ -47,9 +47,7 @@ ROW_B: dict[str, object] = {
 
 
 def _client(tmp_path: Path, graph: FakeCycleGraph | None) -> TestClient:
-    return TestClient(
-        make_route_app(replay_router, settings=route_test_settings(tmp_path), graph=graph)
-    )
+    return TestClient(make_route_app(replay_router, settings=route_test_settings(tmp_path), graph=graph))
 
 
 def test_default_page_returns_metrics_and_no_cursor(tmp_path: Path) -> None:
@@ -72,9 +70,7 @@ def test_full_page_returns_the_last_created_at_as_cursor(tmp_path: Path) -> None
 def test_cursor_from_the_previous_page_is_parsed_and_forwarded(tmp_path: Path) -> None:
     graph = FakeCycleGraph(cycles=[ROW_A, ROW_B])
     with _client(tmp_path, graph) as client:
-        body = client.get(
-            "/api/replay/cycles", params={"limit": 1, "before": ROW_A["created_at"]}
-        ).json()
+        body = client.get("/api/replay/cycles", params={"limit": 1, "before": ROW_A["created_at"]}).json()
     assert [c["cycle_id"] for c in body["cycles"]] == [CYCLE_B]
     limit, before = graph.cycle_calls[-1]
     assert limit == 1

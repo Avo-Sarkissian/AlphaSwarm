@@ -97,9 +97,7 @@ def probe(lifespan_settings: AppSettings, monkeypatch: pytest.MonkeyPatch) -> Li
     monkeypatch.setattr(web_app, "create_app_state", fake_create_app_state)
     monkeypatch.setattr(web_app, "AppSettings", forbidden_settings)
     app = web_app.create_app(lifespan_settings)
-    result = LifespanProbe(
-        app=app, settings=lifespan_settings, graph=graph, received_settings=received
-    )
+    result = LifespanProbe(app=app, settings=lifespan_settings, graph=graph, received_settings=received)
 
     original_shutdown = SimulationManager.shutdown
 
@@ -136,9 +134,7 @@ async def test_lifespan_verifies_neo4j_then_applies_the_schema(probe: LifespanPr
     [ServiceUnavailable("connection refused"), Neo4jAuthError("unauthorized")],
     ids=["neo4j-down", "wrong-password"],
 )
-async def test_lifespan_keeps_serving_when_neo4j_is_unavailable(
-    probe: LifespanProbe, error: Exception
-) -> None:
+async def test_lifespan_keeps_serving_when_neo4j_is_unavailable(probe: LifespanProbe, error: Exception) -> None:
     probe.graph.verify_connectivity.side_effect = error
     async with probe.app.router.lifespan_context(probe.app):
         assert probe.app.state.neo4j_ready is False
@@ -341,9 +337,7 @@ def _path_settings(model: BaseModel, prefix: str = "") -> dict[str, Path]:
     return found
 
 
-def test_every_path_setting_points_under_tmp_path(
-    lifespan_settings: AppSettings, tmp_path: Path
-) -> None:
+def test_every_path_setting_points_under_tmp_path(lifespan_settings: AppSettings, tmp_path: Path) -> None:
     """The lifespan reads the holdings CSV and the inference config, and the post-run
     jobs write to reports_dir and advisory_dir: none of them may reach the repo's
     Schwab/, .secrets/, reports/ or advisory/."""
@@ -351,8 +345,6 @@ def test_every_path_setting_points_under_tmp_path(
     expected = {"holdings_csv_path", "inference_config_path", "reports_dir", "advisory_dir"}
     assert expected <= set(paths)
     outside = {
-        name: path
-        for name, path in paths.items()
-        if not lifespan_settings.resolve_path(path).is_relative_to(tmp_path)
+        name: path for name, path in paths.items() if not lifespan_settings.resolve_path(path).is_relative_to(tmp_path)
     }
     assert outside == {}

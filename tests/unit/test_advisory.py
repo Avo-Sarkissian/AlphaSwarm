@@ -3,6 +3,7 @@
 pytest-socket --disable-socket is active project-wide; these tests use pure
 Fakes with zero network access. Do NOT add @pytest.mark.enable_socket here.
 """
+
 from __future__ import annotations
 
 import io
@@ -88,8 +89,7 @@ def _valid_advisory_payload(items: list[dict[str, Any]], *, total: int = 5) -> s
 
 def _portfolio(ticker_to_cost: dict[str, str]) -> PortfolioSnapshot:
     holdings = tuple(
-        Holding(ticker=t, qty=Decimal("10"), cost_basis=Decimal(cost))
-        for t, cost in ticker_to_cost.items()
+        Holding(ticker=t, qty=Decimal("10"), cost_basis=Decimal(cost)) for t, cost in ticker_to_cost.items()
     )
     return PortfolioSnapshot(
         holdings=holdings,
@@ -194,7 +194,8 @@ async def test_synthesize_returns_ranked_list() -> None:
     )
     fake_graph = FakeGraphManager()
     fake_provider = FakeInferenceProvider(
-        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        role=ProviderRole.ORCHESTRATOR,
+        model="test-orch",
         scripted=[_make_result(canned)],
     )
 
@@ -246,7 +247,8 @@ async def test_ticker_join_filters_unmatched() -> None:
     )
     fake_graph = FakeGraphManager()
     fake_provider = FakeInferenceProvider(
-        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        role=ProviderRole.ORCHESTRATOR,
+        model="test-orch",
         scripted=[_make_result(canned)],
     )
 
@@ -285,7 +287,8 @@ async def test_prefetch_order() -> None:
     canned = _valid_advisory_payload(items=[], total=1)
     fake_graph = FakeGraphManager()
     fake_provider = FakeInferenceProvider(
-        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        role=ProviderRole.ORCHESTRATOR,
+        model="test-orch",
         scripted=[_make_result(canned)],
     )
 
@@ -296,9 +299,7 @@ async def test_prefetch_order() -> None:
         provider=fake_provider,
     )
 
-    read_calls = [
-        c for c in fake_graph.call_log if c.startswith("read_") and c != "read_cycle_seed"
-    ]
+    read_calls = [c for c in fake_graph.call_log if c.startswith("read_") and c != "read_cycle_seed"]
     assert set(read_calls) == {
         "read_consensus_summary",
         "read_round_timeline",
@@ -319,7 +320,8 @@ async def test_synthesize_retry_on_validation_error() -> None:
 
     fake_graph = FakeGraphManager()
     fake_provider = FakeInferenceProvider(
-        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        role=ProviderRole.ORCHESTRATOR,
+        model="test-orch",
         scripted=[_make_result(malformed), _make_result(valid)],
     )
 
@@ -335,9 +337,7 @@ async def test_synthesize_retry_on_validation_error() -> None:
 
     # The retry message carries the validation error text for the model to correct
     retry_messages = fake_provider.calls[1]["messages"]
-    assert any(
-        "failed validation" in m["content"] for m in retry_messages if m["role"] == "user"
-    )
+    assert any("failed validation" in m["content"] for m in retry_messages if m["role"] == "user")
 
 
 async def test_infer_with_retry_passes_json_mode() -> None:
@@ -354,7 +354,8 @@ async def test_infer_with_retry_passes_json_mode() -> None:
 
     fake_graph = FakeGraphManager()
     fake_provider = FakeInferenceProvider(
-        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        role=ProviderRole.ORCHESTRATOR,
+        model="test-orch",
         scripted=[_make_result(malformed), _make_result(valid)],
     )
 
@@ -376,7 +377,8 @@ async def test_synthesize_retry_then_fail() -> None:
 
     fake_graph = FakeGraphManager()
     fake_provider = FakeInferenceProvider(
-        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        role=ProviderRole.ORCHESTRATOR,
+        model="test-orch",
         scripted=[_make_result(bad1), _make_result(bad2)],
     )
 
@@ -395,9 +397,7 @@ async def test_synthesize_retry_then_fail() -> None:
 
 def _portfolio_with_lots(lots: list[tuple[str, str]]) -> PortfolioSnapshot:
     """Portfolio built from (ticker, cost_basis) lots — duplicate tickers allowed."""
-    holdings = tuple(
-        Holding(ticker=t, qty=Decimal("10"), cost_basis=Decimal(cost)) for t, cost in lots
-    )
+    holdings = tuple(Holding(ticker=t, qty=Decimal("10"), cost_basis=Decimal(cost)) for t, cost in lots)
     return PortfolioSnapshot(
         holdings=holdings,
         as_of=datetime.now(UTC),
@@ -416,7 +416,8 @@ async def test_duplicate_lots_pad_once_with_aggregated_exposure() -> None:
         portfolio=portfolio,
         graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
         provider=FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR, model="test-orch",
+            role=ProviderRole.ORCHESTRATOR,
+            model="test-orch",
             scripted=[_make_result(canned)],
         ),
     )
@@ -456,7 +457,8 @@ async def test_hallucinated_tickers_filtered_and_exposure_overwritten() -> None:
         portfolio=portfolio,
         graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
         provider=FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR, model="test-orch",
+            role=ProviderRole.ORCHESTRATOR,
+            model="test-orch",
             scripted=[_make_result(canned)],
         ),
     )
@@ -494,7 +496,8 @@ async def test_padded_items_sort_after_conviction_items() -> None:
         portfolio=portfolio,
         graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
         provider=FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR, model="test-orch",
+            role=ProviderRole.ORCHESTRATOR,
+            model="test-orch",
             scripted=[_make_result(canned)],
         ),
     )
@@ -532,7 +535,8 @@ async def test_llm_duplicate_ticker_items_deduped_keep_highest_confidence() -> N
         portfolio=portfolio,
         graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
         provider=FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR, model="test-orch",
+            role=ProviderRole.ORCHESTRATOR,
+            model="test-orch",
             scripted=[_make_result(canned)],
         ),
     )
@@ -552,7 +556,8 @@ async def test_cycle_id_overwritten_with_caller_value() -> None:
         portfolio=portfolio,
         graph_manager=FakeGraphManager(),  # type: ignore[arg-type]
         provider=FakeInferenceProvider(
-            role=ProviderRole.ORCHESTRATOR, model="test-orch",
+            role=ProviderRole.ORCHESTRATOR,
+            model="test-orch",
             scripted=[_make_result(canned)],
         ),
     )
@@ -574,9 +579,7 @@ async def test_synthesize_never_logs_portfolio_fields(
     sentinel_ticker = "SNTL_CANARY_TICKER"
     sentinel_cost = Decimal("999999.99")
     portfolio = PortfolioSnapshot(
-        holdings=(
-            Holding(ticker=sentinel_ticker, qty=Decimal("7"), cost_basis=sentinel_cost),
-        ),
+        holdings=(Holding(ticker=sentinel_ticker, qty=Decimal("7"), cost_basis=sentinel_cost),),
         as_of=datetime.now(UTC),
         account_number_hash="SNTL_ACCT",
     )
@@ -591,7 +594,8 @@ async def test_synthesize_never_logs_portfolio_fields(
     canned = _valid_advisory_payload(items=[], total=1)
     fake_graph = FakeGraphManager()
     fake_provider = FakeInferenceProvider(
-        role=ProviderRole.ORCHESTRATOR, model="test-orch",
+        role=ProviderRole.ORCHESTRATOR,
+        model="test-orch",
         scripted=[_make_result(canned)],
     )
 

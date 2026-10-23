@@ -68,9 +68,7 @@ class _GarbledOutput(ScriptedProvider):
 class _StallingWorker(ScriptedProvider):
     """Blocks every decision call of ``stall_round`` until the run is cancelled."""
 
-    def __init__(
-        self, *, stall_round: int, current_round: Callable[[], int], **kwargs: Any
-    ) -> None:
+    def __init__(self, *, stall_round: int, current_round: Callable[[], int], **kwargs: Any) -> None:
         super().__init__(round_source=current_round, **kwargs)
         self._stall_round = stall_round
         self._current_round = current_round
@@ -214,9 +212,7 @@ async def test_cancellation_during_narratives_skips_metrics_and_completion(
     scenario_store: RecordingStateStore,
     scenario_controller: ImmediateController,
 ) -> None:
-    worker = _StallingNarrator(
-        personas=all_personas, round_source=lambda: scenario_store.snapshot().round_num
-    )
+    worker = _StallingNarrator(personas=all_personas, round_source=lambda: scenario_store.snapshot().round_num)
     run = asyncio.create_task(run_scenario(worker=worker))
     await _run_until(run, worker.stalled, "the narrative phase started")
     run.cancel()

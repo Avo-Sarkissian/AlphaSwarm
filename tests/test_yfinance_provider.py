@@ -149,9 +149,7 @@ def test_all_methods_are_async_def() -> None:
     provider = YFinanceMarketDataProvider()
     for method_name in ("get_prices", "get_fundamentals", "get_volume"):
         method = getattr(provider, method_name)
-        assert inspect.iscoroutinefunction(method), (
-            f"YFinanceMarketDataProvider.{method_name} must be `async def`"
-        )
+        assert inspect.iscoroutinefunction(method), f"YFinanceMarketDataProvider.{method_name} must be `async def`"
 
 
 async def _market_consumer(p: MarketDataProvider) -> list[str]:
@@ -192,9 +190,7 @@ async def test_get_prices_returns_market_slices(monkeypatch: pytest.MonkeyPatch)
 async def test_decimal_precision_not_float(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pitfall 5 — Decimal(str(0.1)) == Decimal('0.1'), NOT the 60-digit binary
     expansion Decimal(0.1) produces."""
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.yfinance_provider.yf.Ticker", _BinaryFloatTicker
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.yfinance_provider.yf.Ticker", _BinaryFloatTicker)
     provider = YFinanceMarketDataProvider()
     result = await provider.get_prices(["X"])
     assert result["X"].price == Decimal("0.1")
@@ -241,9 +237,7 @@ async def test_nan_trailing_pe_is_guarded_to_none(
     """Gemini review MEDIUM — yfinance returns float('nan') for trailingPE on
     pre-earnings companies. _decimal_or_none must return None, NOT Decimal('NaN').
     Other populated fundamentals must still round-trip to Decimal normally."""
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.yfinance_provider.yf.Ticker", _NanTrailingPeTicker
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.yfinance_provider.yf.Ticker", _NanTrailingPeTicker)
     provider = YFinanceMarketDataProvider()
     result = await provider.get_prices(["PRELAUNCH"])
     assert result["PRELAUNCH"].staleness == "fresh"
@@ -258,9 +252,7 @@ async def test_inf_fundamentals_are_guarded_to_none(
 ) -> None:
     """Gemini review — Inf / -Inf floats from yfinance must also map to None
     (not Decimal('Infinity') / Decimal('-Infinity'))."""
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.yfinance_provider.yf.Ticker", _InfFundamentalsTicker
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.yfinance_provider.yf.Ticker", _InfFundamentalsTicker)
     provider = YFinanceMarketDataProvider()
     result = await provider.get_prices(["EXOTIC"])
     assert result["EXOTIC"].staleness == "fresh"
@@ -278,9 +270,7 @@ async def test_get_prices_fetch_failed_on_exception(
 ) -> None:
     """Pitfall 1 — KeyError('currentTradingPeriod') on fast_info.last_price
     must NOT escape the provider. Must return fetch_failed slice."""
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.yfinance_provider.yf.Ticker", _KeyErrorTicker
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.yfinance_provider.yf.Ticker", _KeyErrorTicker)
     provider = YFinanceMarketDataProvider()
     result = await provider.get_prices(["ZZZZNOTREAL"])
     assert result["ZZZZNOTREAL"].staleness == "fetch_failed"
@@ -293,9 +283,7 @@ async def test_get_prices_generic_exception_returns_fetch_failed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """D-19 — any exception (not just Pitfall 1) converts to fetch_failed slice."""
-    monkeypatch.setattr(
-        "alphaswarm.ingestion.yfinance_provider.yf.Ticker", _ExplodingTicker
-    )
+    monkeypatch.setattr("alphaswarm.ingestion.yfinance_provider.yf.Ticker", _ExplodingTicker)
     provider = YFinanceMarketDataProvider()
     result = await provider.get_prices(["ANY"])
     assert result["ANY"].staleness == "fetch_failed"

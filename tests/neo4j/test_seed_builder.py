@@ -32,9 +32,7 @@ async def _rows(driver: AsyncDriver, query: str, **params: object) -> list[dict[
         return [dict(record) async for record in result]
 
 
-async def test_decisions_and_citations_round_trip(
-    seeded_cycle: SeededCycle, neo4j_test_driver: AsyncDriver
-) -> None:
+async def test_decisions_and_citations_round_trip(seeded_cycle: SeededCycle, neo4j_test_driver: AsyncDriver) -> None:
     rows = await _rows(
         neo4j_test_driver,
         "MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cid}) "
@@ -65,8 +63,7 @@ async def test_episodes_shock_metrics_and_mentions_round_trip(
     cid = seeded_cycle.cycle_id
     episodes = await _rows(
         neo4j_test_driver,
-        "MATCH (:Decision {cycle_id: $cid})-[:HAS_EPISODE]->(re:RationaleEpisode) "
-        "RETURN count(re) AS n",
+        "MATCH (:Decision {cycle_id: $cid})-[:HAS_EPISODE]->(re:RationaleEpisode) RETURN count(re) AS n",
         cid=cid,
     )
     assert episodes == [{"n": 100 * seeded_cycle.num_rounds}]
@@ -86,8 +83,7 @@ async def test_episodes_shock_metrics_and_mentions_round_trip(
     assert cycle == [{"num_rounds": 3, "agent_count": 100, "stamped": True}]
     mentions = await _rows(
         neo4j_test_driver,
-        "MATCH (:Cycle {cycle_id: $cid})-[:MENTIONS]->(e:Entity) RETURN e.name AS name "
-        "ORDER BY name",
+        "MATCH (:Cycle {cycle_id: $cid})-[:MENTIONS]->(e:Entity) RETURN e.name AS name ORDER BY name",
         cid=cid,
     )
     assert [r["name"] for r in mentions] == sorted(e.name for e in SEED_ENTITIES)
@@ -114,14 +110,11 @@ async def test_cleanup_2_seeded_cycle_survived_the_previous_teardown(
     )
     assert gone == [{"n": 0}]
     cid = seeded_cycle.cycle_id
-    decisions = await _rows(
-        neo4j_test_driver, "MATCH (d:Decision {cycle_id: $cid}) RETURN count(d) AS n", cid=cid
-    )
+    decisions = await _rows(neo4j_test_driver, "MATCH (d:Decision {cycle_id: $cid}) RETURN count(d) AS n", cid=cid)
     assert decisions == [{"n": 100 * seeded_cycle.num_rounds}]
     edges = await _rows(
         neo4j_test_driver,
-        "MATCH ()-[e:INFLUENCED_BY {cycle_id: $cid}]->() "
-        "RETURN e.round AS round, count(e) AS n ORDER BY round",
+        "MATCH ()-[e:INFLUENCED_BY {cycle_id: $cid}]->() RETURN e.round AS round, count(e) AS n ORDER BY round",
         cid=cid,
     )
     round_2 = sum(total // 2 for _, total in HUB_CITATIONS)

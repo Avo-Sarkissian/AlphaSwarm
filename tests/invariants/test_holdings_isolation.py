@@ -108,16 +108,17 @@ async def test_sentinels_do_not_appear_in_logs(
     capture_jinja_renders: list[str],
 ) -> None:
     await _advisory_harness_body(
-        sentinel_portfolio, capture_ws_frames, capture_neo4j_writes, capture_jinja_renders,
+        sentinel_portfolio,
+        capture_ws_frames,
+        capture_neo4j_writes,
+        capture_jinja_renders,
     )
     log_output = capture_logs.getvalue()
     for sentinel in all_sentinel_representations():
         # SENTINEL_TICKER IS expected to appear in capture_jinja_renders because
         # synthesize() legitimately places the ticker in the prompt; but the
         # LOG surface must remain sentinel-free (Pitfall 1).
-        assert sentinel not in log_output, (
-            f"sentinel representation {sentinel!r} leaked into log output:\n{log_output}"
-        )
+        assert sentinel not in log_output, f"sentinel representation {sentinel!r} leaked into log output:\n{log_output}"
 
 
 async def test_sentinels_do_not_appear_in_ws_frames(
@@ -128,7 +129,10 @@ async def test_sentinels_do_not_appear_in_ws_frames(
     capture_jinja_renders: list[str],
 ) -> None:
     await _advisory_harness_body(
-        sentinel_portfolio, capture_ws_frames, capture_neo4j_writes, capture_jinja_renders,
+        sentinel_portfolio,
+        capture_ws_frames,
+        capture_neo4j_writes,
+        capture_jinja_renders,
     )
     joined = "\n".join(capture_ws_frames)
     for sentinel in all_sentinel_representations():
@@ -143,13 +147,14 @@ async def test_sentinels_do_not_appear_in_neo4j_writes(
     capture_jinja_renders: list[str],
 ) -> None:
     await _advisory_harness_body(
-        sentinel_portfolio, capture_ws_frames, capture_neo4j_writes, capture_jinja_renders,
+        sentinel_portfolio,
+        capture_ws_frames,
+        capture_neo4j_writes,
+        capture_jinja_renders,
     )
     joined = "\n".join(capture_neo4j_writes)
     for sentinel in all_sentinel_representations():
-        assert sentinel not in joined, (
-            f"sentinel representation {sentinel!r} leaked into Neo4j writes"
-        )
+        assert sentinel not in joined, f"sentinel representation {sentinel!r} leaked into Neo4j writes"
 
 
 async def test_sentinels_do_not_appear_in_rendered_prompts(
@@ -165,16 +170,17 @@ async def test_sentinels_do_not_appear_in_rendered_prompts(
     ticker is the one sanctioned holdings value in any prompt.
     """
     await _advisory_harness_body(
-        sentinel_portfolio, capture_ws_frames, capture_neo4j_writes, capture_jinja_renders,
+        sentinel_portfolio,
+        capture_ws_frames,
+        capture_neo4j_writes,
+        capture_jinja_renders,
     )
     joined = "\n".join(capture_jinja_renders)
     assert SENTINEL_TICKER in joined  # positive control: the prompt was captured
     for sentinel in all_sentinel_representations():
         if sentinel == SENTINEL_TICKER:
             continue
-        assert sentinel not in joined, (
-            f"sentinel representation {sentinel!r} leaked into rendered prompts"
-        )
+        assert sentinel not in joined, f"sentinel representation {sentinel!r} leaked into rendered prompts"
 
 
 # --------- Positive controls (Pitfall 6 — prove capture works) ---------
@@ -239,5 +245,3 @@ def test_all_sentinel_representations_covers_expected_forms() -> None:
     assert any(r.startswith("SNTL") is False and len(r) == 8 for r in reps), (
         "Expected an 8-hex sha256_first8(SENTINEL_ACCT) entry in representations"
     )
-
-

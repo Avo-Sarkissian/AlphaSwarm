@@ -92,9 +92,7 @@ def test_not_a_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert git_revision(tmp_path) == (None, None)
 
 
-def test_missing_git_binary_returns_unknown(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_missing_git_binary_returns_unknown(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """No git installed is not an error."""
 
     def no_git(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -117,9 +115,7 @@ def test_git_timeout_returns_unknown(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 
 
 @needs_git
-def test_status_failure_keeps_sha_and_unknown_dirty(
-    monkeypatch: pytest.MonkeyPatch, committed_repo: Path
-) -> None:
+def test_status_failure_keeps_sha_and_unknown_dirty(monkeypatch: pytest.MonkeyPatch, committed_repo: Path) -> None:
     real_run = subprocess.run
 
     def flaky_status(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -135,9 +131,7 @@ def test_status_failure_keeps_sha_and_unknown_dirty(
     assert dirty is None
 
 
-def test_git_runs_with_timeout_and_without_optional_locks(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_git_runs_with_timeout_and_without_optional_locks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """`git status` must not take index.lock while the owner commits mid-run."""
     seen: list[dict[str, Any]] = []
 
@@ -153,9 +147,7 @@ def test_git_runs_with_timeout_and_without_optional_locks(
     assert seen[0]["timeout"] == manifest.GIT_TIMEOUT_SECONDS
 
 
-def test_undecodable_git_output_never_raises(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_undecodable_git_output_never_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A non-UTF-8 path from `git status` (core.quotePath=false on Linux) still reads as dirty."""
     sha = "0123456789abcdef0123456789abcdef01234567"
     raw = {"rev-parse": f"{sha}\n".encode(), "status": b" M caf\xe9.txt\n"}

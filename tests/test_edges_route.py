@@ -16,11 +16,11 @@ These tests assert:
 We mock the graph_manager.read_influence_edges call so the route test runs
 hermetically (--disable-socket / --allow-unix-socket pytest config).
 """
+
 from __future__ import annotations
 
 from typing import Any
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -47,7 +47,9 @@ def _make_test_app_with_fake_graph(fake_edges: list[dict[str, Any]]) -> FastAPI:
             self.calls: list[tuple[str, int]] = []
 
         async def read_influence_edges(
-            self, cycle_id: str, round_num: int,
+            self,
+            cycle_id: str,
+            round_num: int,
         ) -> list[dict[str, Any]]:
             self.calls.append((cycle_id, round_num))
             return list(self._edges)
@@ -64,7 +66,10 @@ def _make_test_app_with_fake_graph(fake_edges: list[dict[str, Any]]) -> FastAPI:
         brackets = load_bracket_configs()
         personas = generate_personas(brackets)
         app_state = create_app_state(
-            settings, personas, with_ollama=False, with_neo4j=False,
+            settings,
+            personas,
+            with_ollama=False,
+            with_neo4j=False,
         )
         # Override with our fake — production path goes through app.state.app_state.graph_manager
         app_state.graph_manager = _FakeGraphManager(fake_edges)
@@ -81,7 +86,7 @@ def test_edges_route_returns_envelope_with_edges() -> None:
     fake_edges = [
         {"source_id": "quants_01", "target_id": "insiders_04", "weight": 0.42},
         {"source_id": "quants_02", "target_id": "degens_07", "weight": 0.33},
-        {"source_id": "macro_05",  "target_id": "quants_01", "weight": 0.21},
+        {"source_id": "macro_05", "target_id": "quants_01", "weight": 0.21},
     ]
     app = _make_test_app_with_fake_graph(fake_edges)
     with TestClient(app) as client:

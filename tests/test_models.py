@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -67,9 +67,7 @@ def model_manager(mock_ollama_client: MagicMock) -> Any:
     )
 
 
-async def test_unload_model(
-    model_manager: Any, mock_ollama_client: MagicMock
-) -> None:
+async def test_unload_model(model_manager: Any, mock_ollama_client: MagicMock) -> None:
     """unload_model() calls client.chat() with model=tag, messages=[], keep_alive=0."""
     await model_manager.unload_model("qwen3.5:32b")
     mock_ollama_client.chat.assert_called_once_with(
@@ -79,29 +77,21 @@ async def test_unload_model(
     )
 
 
-async def test_verify_unloaded(
-    model_manager: Any, mock_raw_client: AsyncMock
-) -> None:
+async def test_verify_unloaded(model_manager: Any, mock_raw_client: AsyncMock) -> None:
     """Mocked ps() returns empty models list, is_model_loaded returns False."""
     mock_raw_client.ps = AsyncMock(return_value=_make_ps_response([]))
     result = await model_manager.is_model_loaded("qwen3.5:32b")
     assert result is False
 
 
-async def test_verify_loaded(
-    model_manager: Any, mock_raw_client: AsyncMock
-) -> None:
+async def test_verify_loaded(model_manager: Any, mock_raw_client: AsyncMock) -> None:
     """Mocked ps() returns model in list, is_model_loaded returns True."""
-    mock_raw_client.ps = AsyncMock(
-        return_value=_make_ps_response(["qwen3.5:32b"])
-    )
+    mock_raw_client.ps = AsyncMock(return_value=_make_ps_response(["qwen3.5:32b"]))
     result = await model_manager.is_model_loaded("qwen3.5:32b")
     assert result is True
 
 
-async def test_sequential_load(
-    model_manager: Any, mock_ollama_client: MagicMock, mock_raw_client: AsyncMock
-) -> None:
+async def test_sequential_load(model_manager: Any, mock_ollama_client: MagicMock, mock_raw_client: AsyncMock) -> None:
     """Load orchestrator -> verify -> unload -> verify -> load worker -> verify."""
     # ps() is only called by is_model_loaded() inside load_model(),
     # NOT by unload_model(). So we need exactly 2 side effects.
@@ -135,11 +125,13 @@ async def test_ensure_clean_state_scoped(
 ) -> None:
     """ensure_clean_state only unloads configured aliases, not unrelated models."""
     mock_raw_client.ps = AsyncMock(
-        return_value=_make_ps_response([
-            "alphaswarm-orchestrator",
-            "alphaswarm-worker",
-            "codellama:7b",
-        ])
+        return_value=_make_ps_response(
+            [
+                "alphaswarm-orchestrator",
+                "alphaswarm-worker",
+                "codellama:7b",
+            ]
+        )
     )
     await model_manager.ensure_clean_state()
 
@@ -151,9 +143,7 @@ async def test_ensure_clean_state_scoped(
     assert "codellama:7b" not in unloaded_models
 
 
-async def test_load_unload_serialized(
-    mock_ollama_client: MagicMock, mock_raw_client: AsyncMock
-) -> None:
+async def test_load_unload_serialized(mock_ollama_client: MagicMock, mock_raw_client: AsyncMock) -> None:
     """Concurrent load/unload calls are serialized by internal Lock."""
     from alphaswarm.ollama_models import OllamaModelManager
 
@@ -167,9 +157,7 @@ async def test_load_unload_serialized(
         return MagicMock()
 
     mock_ollama_client.chat = AsyncMock(side_effect=track_chat)
-    mock_raw_client.ps = AsyncMock(
-        return_value=_make_ps_response(["model-a", "model-b"])
-    )
+    mock_raw_client.ps = AsyncMock(return_value=_make_ps_response(["model-a", "model-b"]))
 
     manager = OllamaModelManager(
         client=mock_ollama_client,
@@ -204,9 +192,7 @@ def _nameless_entry() -> MagicMock:
     return entry
 
 
-async def test_is_model_loaded_ignores_entries_without_a_name(
-    model_manager: Any, mock_raw_client: AsyncMock
-) -> None:
+async def test_is_model_loaded_ignores_entries_without_a_name(model_manager: Any, mock_raw_client: AsyncMock) -> None:
     response = _make_ps_response(["alphaswarm-worker"])
     response.models.append(_nameless_entry())
     mock_raw_client.ps = AsyncMock(return_value=response)
@@ -220,6 +206,4 @@ async def test_ensure_clean_state_ignores_entries_without_a_name(
     response.models.insert(0, _nameless_entry())
     mock_raw_client.ps = AsyncMock(return_value=response)
     await model_manager.ensure_clean_state()
-    assert [c.kwargs["model"] for c in mock_ollama_client.chat.call_args_list] == [
-        "alphaswarm-worker"
-    ]
+    assert [c.kwargs["model"] for c in mock_ollama_client.chat.call_args_list] == ["alphaswarm-worker"]

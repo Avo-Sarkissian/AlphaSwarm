@@ -41,9 +41,7 @@ from alphaswarm.security.hashing import sha256_first8
 
 log = structlog.get_logger(component="holdings.loader")
 
-REQUIRED_COLUMNS: frozenset[str] = frozenset(
-    {"account", "symbol", "shares", "cost_basis_per_share"}
-)
+REQUIRED_COLUMNS: frozenset[str] = frozenset({"account", "symbol", "shares", "cost_basis_per_share"})
 
 
 class HoldingsLoadError(Exception):
@@ -102,9 +100,7 @@ class HoldingsLoader:
                 reader.fieldnames = [name.strip().lower() for name in reader.fieldnames]
                 missing = REQUIRED_COLUMNS - set(reader.fieldnames)
                 if missing:
-                    raise HoldingsLoadError(
-                        f"CSV missing columns: {sorted(missing)}"
-                    )
+                    raise HoldingsLoadError(f"CSV missing columns: {sorted(missing)}")
                 rows = list(reader)
         except FileNotFoundError as exc:
             raise HoldingsLoadError(f"CSV not found: {path}") from exc
@@ -139,9 +135,7 @@ class HoldingsLoader:
                 cost_per_share = Decimal(row["cost_basis_per_share"])
             except (InvalidOperation, TypeError) as exc:
                 # Row NUMBER only: never embed the raw row in the message (it gets logged).
-                raise HoldingsLoadError(
-                    f"Invalid numeric value in CSV row {row_num}: {exc}"
-                ) from exc
+                raise HoldingsLoadError(f"Invalid numeric value in CSV row {row_num}: {exc}") from exc
             # Finiteness first: comparing a NaN Decimal with 0 raises InvalidOperation.
             if not qty.is_finite() or not cost_per_share.is_finite():
                 raise HoldingsLoadError(f"Non-finite numeric value in CSV row {row_num}")

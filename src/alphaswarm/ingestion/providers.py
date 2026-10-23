@@ -39,14 +39,11 @@ class MarketDataProvider(Protocol):
     per ticker (D-19).
     """
 
-    async def get_prices(self, tickers: list[str]) -> dict[str, MarketSlice]:
-        ...
+    async def get_prices(self, tickers: list[str]) -> dict[str, MarketSlice]: ...
 
-    async def get_fundamentals(self, tickers: list[str]) -> dict[str, MarketSlice]:
-        ...
+    async def get_fundamentals(self, tickers: list[str]) -> dict[str, MarketSlice]: ...
 
-    async def get_volume(self, tickers: list[str]) -> dict[str, MarketSlice]:
-        ...
+    async def get_volume(self, tickers: list[str]) -> dict[str, MarketSlice]: ...
 
 
 class NewsProvider(Protocol):
@@ -57,10 +54,7 @@ class NewsProvider(Protocol):
     same asyncio-only reason as MarketDataProvider.
     """
 
-    async def get_headlines(
-        self, entities: list[str], *, max_age_hours: int = 72
-    ) -> dict[str, NewsSlice]:
-        ...
+    async def get_headlines(self, entities: list[str], *, max_age_hours: int = 72) -> dict[str, NewsSlice]: ...
 
 
 def _fetch_failed_market_slice(ticker: str, source: str) -> MarketSlice:
@@ -134,13 +128,8 @@ class FakeNewsProvider:
         self._fixtures = dict(fixtures) if fixtures else {}
         self._source = "fake_news"
 
-    async def get_headlines(
-        self, entities: list[str], *, max_age_hours: int = 72
-    ) -> dict[str, NewsSlice]:
+    async def get_headlines(self, entities: list[str], *, max_age_hours: int = 72) -> dict[str, NewsSlice]:
         # max_age_hours is part of the contract but ignored by the fake;
         # real providers will filter; the fake passes fixtures through.
         _ = max_age_hours
-        return {
-            e: self._fixtures.get(e, _fetch_failed_news_slice(e, self._source))
-            for e in entities
-        }
+        return {e: self._fixtures.get(e, _fetch_failed_news_slice(e, self._source)) for e in entities}

@@ -133,7 +133,7 @@ class TestTokenBucket:
         assert bucket._tokens == pytest.approx(160.0)
         # _refill caps it back to capacity on the next call
         clock.advance(1.0)  # trigger a refill
-        bucket.reserve(0)   # calls _refill internally
+        bucket.reserve(0)  # calls _refill internally
         assert bucket._tokens <= bucket._capacity
 
     def test_none_rate_refund_is_noop(self) -> None:
@@ -288,9 +288,7 @@ class TestRateLimitControllerTPMReconciliation:
             tokens_pre_acquire = ctrl._tpm_bucket._tokens
             await ctrl.acquire()
             # acquire() reserves avg_tokens_per_call (1500) upfront
-            assert ctrl._tpm_bucket._tokens == pytest.approx(
-                tokens_pre_acquire - 1500, abs=1.0
-            )
+            assert ctrl._tpm_bucket._tokens == pytest.approx(tokens_pre_acquire - 1500, abs=1.0)
             ctrl.release(success=False, result_tokens=None)
             # Full reservation refunded → bucket returns to its pre-acquire level
             assert ctrl._tpm_bucket._tokens == pytest.approx(tokens_pre_acquire, abs=1.0)
@@ -313,9 +311,7 @@ class TestRateLimitControllerTPMReconciliation:
             await ctrl.acquire()
             ctrl.release(success=True, result_tokens=None)
             # Reservation retained (no refund) → bucket stays at the reserved level.
-            assert ctrl._tpm_bucket._tokens == pytest.approx(
-                tokens_pre_acquire - 1500, abs=1.0
-            )
+            assert ctrl._tpm_bucket._tokens == pytest.approx(tokens_pre_acquire - 1500, abs=1.0)
 
 
 class TestRateLimitControllerShrink:

@@ -150,17 +150,13 @@ def _mock_ollama_list(models: list[str]) -> Any:
 
 class TestGetSettings:
     def test_returns_200(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(
-            _make_settings_test_app()
-        ) as client:
+        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(_make_settings_test_app()) as client:
             r = client.get("/api/settings")
         assert r.status_code == 200
 
     def test_keys_are_masked_no_raw_key(self) -> None:
         """GET must NEVER expose a raw API key in the response."""
-        with _mock_load_cfg(_ANTHROPIC_CFG), _mock_ollama_list([]), TestClient(
-            _make_settings_test_app()
-        ) as client:
+        with _mock_load_cfg(_ANTHROPIC_CFG), _mock_ollama_list([]), TestClient(_make_settings_test_app()) as client:
             r = client.get("/api/settings")
         data = r.json()
         assert r.status_code == 200
@@ -180,17 +176,13 @@ class TestGetSettings:
         assert worker_key["set"] is True
 
     def test_mode_field_present(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(
-            _make_settings_test_app()
-        ) as client:
+        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(_make_settings_test_app()) as client:
             r = client.get("/api/settings")
         data = r.json()
         assert data["mode"] == "local"
 
     def test_mode_cloud(self) -> None:
-        with _mock_load_cfg(_ANTHROPIC_CFG), _mock_ollama_list([]), TestClient(
-            _make_settings_test_app()
-        ) as client:
+        with _mock_load_cfg(_ANTHROPIC_CFG), _mock_ollama_list([]), TestClient(_make_settings_test_app()) as client:
             r = client.get("/api/settings")
         data = r.json()
         assert data["mode"] == "cloud"
@@ -210,18 +202,20 @@ class TestGetSettings:
 
     def test_available_local_models_empty_on_failure(self) -> None:
         """If Ollama is down, available_local_models silently returns []."""
-        with _mock_load_cfg(_LOCAL_CFG), patch(
-            "alphaswarm.web.routes.settings._local_model_names",
-            new=AsyncMock(return_value=[]),
-        ), TestClient(_make_settings_test_app()) as client:
+        with (
+            _mock_load_cfg(_LOCAL_CFG),
+            patch(
+                "alphaswarm.web.routes.settings._local_model_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            TestClient(_make_settings_test_app()) as client,
+        ):
             # With ollama_client=None (default with_ollama=False), branch skips entirely
             r = client.get("/api/settings")
         assert r.json()["available_local_models"] == []
 
     def test_known_api_models_is_list_of_strings(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(
-            _make_settings_test_app()
-        ) as client:
+        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(_make_settings_test_app()) as client:
             r = client.get("/api/settings")
         models = r.json()["known_api_models"]
         assert isinstance(models, list)
@@ -229,9 +223,7 @@ class TestGetSettings:
         assert len(models) > 0
 
     def test_known_api_models_contains_claude_ids(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(
-            _make_settings_test_app()
-        ) as client:
+        with _mock_load_cfg(_LOCAL_CFG), _mock_ollama_list([]), TestClient(_make_settings_test_app()) as client:
             r = client.get("/api/settings")
         models = r.json()["known_api_models"]
         assert any("claude" in m for m in models)
@@ -244,9 +236,7 @@ class TestGetSettings:
 
 class TestPutSettings:
     def test_409_when_sim_running(self) -> None:
-        with _mock_load_cfg(_LOCAL_CFG), _mock_save_cfg(), TestClient(
-            _make_settings_test_app()
-        ) as client:
+        with _mock_load_cfg(_LOCAL_CFG), _mock_save_cfg(), TestClient(_make_settings_test_app()) as client:
             # Force simulation to appear running via internal flag
             client.app.state.sim_manager._is_running = True
             r = client.put(
@@ -260,9 +250,7 @@ class TestPutSettings:
 
     def test_422_on_invalid_body(self) -> None:
         """Invalid provider value should yield 422 validation_error."""
-        with _mock_load_cfg(_LOCAL_CFG), _mock_save_cfg(), TestClient(
-            _make_settings_test_app()
-        ) as client:
+        with _mock_load_cfg(_LOCAL_CFG), _mock_save_cfg(), TestClient(_make_settings_test_app()) as client:
             r = client.put(
                 "/api/settings",
                 json={
@@ -277,9 +265,7 @@ class TestPutSettings:
         """PUT should call save_inference_config and return masked config."""
         saved_calls: list[InferenceConfig] = []
 
-        def _fake_save(
-            cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
-        ) -> None:
+        def _fake_save(cfg: InferenceConfig, path: Path | None = None, *, settings: object = None) -> None:
             saved_calls.append(cfg)
 
         with (
@@ -324,9 +310,7 @@ class TestPutSettings:
 
         saved_calls: list[InferenceConfig] = []
 
-        def _fake_save(
-            cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
-        ) -> None:
+        def _fake_save(cfg: InferenceConfig, path: Path | None = None, *, settings: object = None) -> None:
             saved_calls.append(cfg)
 
         with (
@@ -367,10 +351,13 @@ class TestPutSettings:
 
     def test_422_when_load_raises_value_error(self) -> None:
         """PUT → 422 when load_inference_config raises ValueError (corrupt stored config)."""
-        with patch(
-            "alphaswarm.web.guards.load_inference_config",
-            side_effect=ValueError("corrupt: missing required field"),
-        ), TestClient(_make_settings_test_app()) as client:
+        with (
+            patch(
+                "alphaswarm.web.guards.load_inference_config",
+                side_effect=ValueError("corrupt: missing required field"),
+            ),
+            TestClient(_make_settings_test_app()) as client,
+        ):
             r = client.put(
                 "/api/settings",
                 json={
@@ -383,10 +370,14 @@ class TestPutSettings:
 
     def test_500_when_save_raises_oserror(self) -> None:
         """PUT → 500 when save_inference_config raises OSError (write failure)."""
-        with _mock_load_cfg(_LOCAL_CFG), patch(
-            "alphaswarm.web.routes.settings.save_inference_config",
-            side_effect=OSError("disk full"),
-        ), TestClient(_make_settings_test_app()) as client:
+        with (
+            _mock_load_cfg(_LOCAL_CFG),
+            patch(
+                "alphaswarm.web.routes.settings.save_inference_config",
+                side_effect=OSError("disk full"),
+            ),
+            TestClient(_make_settings_test_app()) as client,
+        ):
             r = client.put(
                 "/api/settings",
                 json={
@@ -414,9 +405,7 @@ class TestPutSettings:
 
         saved_calls: list[InferenceConfig] = []
 
-        def _fake_save(
-            cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
-        ) -> None:
+        def _fake_save(cfg: InferenceConfig, path: Path | None = None, *, settings: object = None) -> None:
             saved_calls.append(cfg)
 
         with (
@@ -461,9 +450,7 @@ class TestPutSettings:
 
         saved_calls: list[InferenceConfig] = []
 
-        def _fake_save(
-            cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
-        ) -> None:
+        def _fake_save(cfg: InferenceConfig, path: Path | None = None, *, settings: object = None) -> None:
             saved_calls.append(cfg)
 
         with (
@@ -517,10 +504,14 @@ class TestConnectionTest:
             is_local=False,
         )
 
-        with _mock_load_cfg(_ANTHROPIC_CFG), patch(
-            "alphaswarm.web.routes.settings._build_single_provider",
-            return_value=fake_provider,
-        ), TestClient(_make_settings_test_app()) as client:
+        with (
+            _mock_load_cfg(_ANTHROPIC_CFG),
+            patch(
+                "alphaswarm.web.routes.settings._build_single_provider",
+                return_value=fake_provider,
+            ),
+            TestClient(_make_settings_test_app()) as client,
+        ):
             r = client.post("/api/settings/test", json={"role": "orchestrator"})
 
         assert r.status_code == 200
@@ -530,6 +521,7 @@ class TestConnectionTest:
 
     def test_ok_false_on_auth_error(self) -> None:
         """AuthError from the provider → {ok: false, error: message}; never 500."""
+
         async def _fake_chat(*args: Any, **kwargs: Any) -> InferenceResult:
             raise AuthError(
                 "Invalid API key",
@@ -541,10 +533,14 @@ class TestConnectionTest:
         fake_provider.chat = _fake_chat
         fake_provider.aclose = AsyncMock()
 
-        with _mock_load_cfg(_ANTHROPIC_CFG), patch(
-            "alphaswarm.web.routes.settings._build_single_provider",
-            return_value=fake_provider,
-        ), TestClient(_make_settings_test_app()) as client:
+        with (
+            _mock_load_cfg(_ANTHROPIC_CFG),
+            patch(
+                "alphaswarm.web.routes.settings._build_single_provider",
+                return_value=fake_provider,
+            ),
+            TestClient(_make_settings_test_app()) as client,
+        ):
             r = client.post("/api/settings/test", json={"role": "orchestrator"})
 
         assert r.status_code == 200  # never 500
@@ -564,10 +560,14 @@ class TestConnectionTest:
         fake_provider.chat = _fake_chat
         fake_provider.aclose = AsyncMock()
 
-        with _mock_load_cfg(_ANTHROPIC_CFG), patch(
-            "alphaswarm.web.routes.settings._build_single_provider",
-            return_value=fake_provider,
-        ), TestClient(_make_settings_test_app()) as client:
+        with (
+            _mock_load_cfg(_ANTHROPIC_CFG),
+            patch(
+                "alphaswarm.web.routes.settings._build_single_provider",
+                return_value=fake_provider,
+            ),
+            TestClient(_make_settings_test_app()) as client,
+        ):
             r = client.post("/api/settings/test", json={"role": "worker"})
 
         assert r.status_code == 200
@@ -575,6 +575,7 @@ class TestConnectionTest:
 
     def test_ok_false_on_generic_exception(self) -> None:
         """Any unexpected exception → {ok: false}; never 500."""
+
         async def _fake_chat(*args: Any, **kwargs: Any) -> InferenceResult:
             raise RuntimeError("unexpected boom")
 
@@ -582,10 +583,14 @@ class TestConnectionTest:
         fake_provider.chat = _fake_chat
         fake_provider.aclose = AsyncMock()
 
-        with _mock_load_cfg(_ANTHROPIC_CFG), patch(
-            "alphaswarm.web.routes.settings._build_single_provider",
-            return_value=fake_provider,
-        ), TestClient(_make_settings_test_app()) as client:
+        with (
+            _mock_load_cfg(_ANTHROPIC_CFG),
+            patch(
+                "alphaswarm.web.routes.settings._build_single_provider",
+                return_value=fake_provider,
+            ),
+            TestClient(_make_settings_test_app()) as client,
+        ):
             r = client.post("/api/settings/test", json={"role": "orchestrator"})
 
         assert r.status_code == 200
@@ -645,9 +650,7 @@ def test_put_saves_through_app_settings_not_a_hard_coded_path() -> None:
     inference_config_path is honoured (T10.3 step 2)."""
     captured: dict[str, object] = {}
 
-    def _fake_save(
-        cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
-    ) -> None:
+    def _fake_save(cfg: InferenceConfig, path: Path | None = None, *, settings: object = None) -> None:
         captured["path"] = path
         captured["settings"] = settings
 
@@ -675,9 +678,7 @@ def test_put_keeps_the_stored_cloud_advisory_opt_in() -> None:
     not silently reset an opt-in the operator set in the config file."""
     saved: list[InferenceConfig] = []
 
-    def _fake_save(
-        cfg: InferenceConfig, path: Path | None = None, *, settings: object = None
-    ) -> None:
+    def _fake_save(cfg: InferenceConfig, path: Path | None = None, *, settings: object = None) -> None:
         saved.append(cfg)
 
     stored = _ANTHROPIC_CFG.model_copy(update={"allow_cloud_advisory": True})

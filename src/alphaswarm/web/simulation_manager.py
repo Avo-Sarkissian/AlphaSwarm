@@ -24,9 +24,7 @@ log = structlog.get_logger(component="web.simulation_manager")
 # Phases whose failures carry the store's round number in the RunError.
 # FINALIZING is not a round: it runs after the last one, so a failure there
 # names no round (docs/DECISIONS.md#p7-d-07).
-_ROUND_PHASES = frozenset(
-    {SimulationPhase.ROUND_1, SimulationPhase.ROUND_2, SimulationPhase.ROUND_3}
-)
+_ROUND_PHASES = frozenset({SimulationPhase.ROUND_1, SimulationPhase.ROUND_2, SimulationPhase.ROUND_3})
 
 
 class SimulationAlreadyRunningError(Exception):
@@ -137,9 +135,7 @@ class SimulationManager:
             raise ReplayActiveError("Cannot start simulation while replay is active")
         if self._lock.locked():
             raise SimulationAlreadyRunningError("Simulation already running")
-        if self._post_run_active() or (
-            self._orchestrator_busy is not None and self._orchestrator_busy()
-        ):
+        if self._post_run_active() or (self._orchestrator_busy is not None and self._orchestrator_busy()):
             raise PostRunJobsInProgressError(
                 "The advisory/report jobs are using the orchestrator; retry when they finish"
             )
@@ -199,8 +195,7 @@ class SimulationManager:
                 # it (docs/DECISIONS.md#adr-local-first-inference).
                 log.error("inference_config_invalid", error_type=type(exc).__name__)
                 raise InferenceConfigError(
-                    "The saved inference configuration is invalid. "
-                    "Open Settings and save a valid configuration."
+                    "The saved inference configuration is invalid. Open Settings and save a valid configuration."
                 ) from None
             controller = build_controller(
                 cfg,
@@ -345,9 +340,7 @@ class SimulationManager:
             raise NoSimulationRunningError("No simulation is running")
         store = self._app_state.state_store
         if not store.shock_window_open():
-            raise ShockWindowClosedError(
-                "The shock window is closed: the last round has already started"
-            )
+            raise ShockWindowClosedError("The shock window is closed: the last round has already started")
         if self._pending_shock is not None:
             raise ShockAlreadyQueuedError("A shock is already queued")
         self._pending_shock = shock_text

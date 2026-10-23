@@ -2,6 +2,7 @@
 
 Pattern source: src/alphaswarm/ingestion/types.py (BaseModel(frozen=True, extra='forbid') + tuple[...]).
 """
+
 from __future__ import annotations
 
 from datetime import datetime

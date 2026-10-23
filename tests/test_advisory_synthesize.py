@@ -9,12 +9,12 @@ Validates:
     • build_advisory_prompt now carries the "NEVER OMIT" instruction.
     • _enrich_holdings includes the relevance_score field on each item.
 """
+
 from __future__ import annotations
 
 from alphaswarm.advisory import engine
 from alphaswarm.advisory.prompt import build_advisory_prompt
 from alphaswarm.advisory.sector_map import SECTOR_MAP, UNKNOWN_SECTOR, lookup
-
 
 # ---------------------------------------------------------------------------
 # Sector map coverage
@@ -24,10 +24,38 @@ from alphaswarm.advisory.sector_map import SECTOR_MAP, UNKNOWN_SECTOR, lookup
 def test_sector_map_covers_user_tickers() -> None:
     """All 32 unique Schwab + Roth tickers must have a SECTOR_MAP entry."""
     required = [
-        "AAPL", "AMZN", "ARM", "ASML", "AVGO", "BYDDY", "COHR", "CHAT",
-        "CQQQ", "CRDO", "DBX", "HIMS", "HON", "ISRG", "LPL", "MRVL",
-        "NIO", "NKE", "NVDA", "PLTR", "PYPL", "QQQ", "SCHW", "SOFI",
-        "SPY", "SWYXX", "TLN", "TSLA", "TSM", "VRT", "VST", "WTAI",
+        "AAPL",
+        "AMZN",
+        "ARM",
+        "ASML",
+        "AVGO",
+        "BYDDY",
+        "COHR",
+        "CHAT",
+        "CQQQ",
+        "CRDO",
+        "DBX",
+        "HIMS",
+        "HON",
+        "ISRG",
+        "LPL",
+        "MRVL",
+        "NIO",
+        "NKE",
+        "NVDA",
+        "PLTR",
+        "PYPL",
+        "QQQ",
+        "SCHW",
+        "SOFI",
+        "SPY",
+        "SWYXX",
+        "TLN",
+        "TSLA",
+        "TSM",
+        "VRT",
+        "VST",
+        "WTAI",
     ]
     assert len(required) == 32
     for ticker in required:
@@ -82,7 +110,7 @@ def test_enrich_holdings_sorts_by_relevance() -> None:
     """Higher entity_impact * macro_beta should sort first."""
     holdings = [
         {"ticker": "SWYXX"},  # macro_beta 0.0 → low relevance
-        {"ticker": "NVDA"},   # macro_beta 1.0 + impact 0.9 → high relevance
+        {"ticker": "NVDA"},  # macro_beta 1.0 + impact 0.9 → high relevance
     ]
     entity_impacts = {"NVDA": 0.9, "SWYXX": 0.1}
     enriched = engine._enrich_holdings(holdings, entity_impacts, seed_text="")
@@ -93,11 +121,13 @@ def test_enrich_holdings_sorts_by_relevance() -> None:
 def test_enrich_holdings_seed_match_bonus() -> None:
     """Seed-text match on ticker or sector substring adds +0.5 to relevance."""
     holdings = [
-        {"ticker": "NKE"},   # sector consumer_apparel — no match
+        {"ticker": "NKE"},  # sector consumer_apparel — no match
         {"ticker": "NVDA"},  # ticker NVDA appears in seed → bonus
     ]
     enriched = engine._enrich_holdings(
-        holdings, entity_impacts={}, seed_text="NVDA earnings beat",
+        holdings,
+        entity_impacts={},
+        seed_text="NVDA earnings beat",
     )
     # NVDA gets the seed_match bonus; NKE gets 0.0 overall (macro_beta absent in impacts).
     assert enriched[0]["ticker"] == "NVDA"
@@ -108,7 +138,9 @@ def test_seed_match_no_false_positive_on_ticker_substring() -> None:
     word-boundary regex, not a raw substring test."""
     holdings = [{"ticker": "ARM"}]
     enriched = engine._enrich_holdings(
-        holdings, entity_impacts={}, seed_text="big pharma layoffs announced",
+        holdings,
+        entity_impacts={},
+        seed_text="big pharma layoffs announced",
     )
     # No entity impact and no legitimate seed match → relevance is 0.0.
     assert float(enriched[0]["relevance_score"]) == 0.0
@@ -119,7 +151,9 @@ def test_seed_match_multiword_sector_phrase() -> None:
     underscores are replaced with spaces before comparison."""
     holdings = [{"ticker": "AAPL"}]  # sector consumer_tech
     enriched = engine._enrich_holdings(
-        holdings, entity_impacts={}, seed_text="consumer tech demand slumps",
+        holdings,
+        entity_impacts={},
+        seed_text="consumer tech demand slumps",
     )
     # 0 impact + 0.5 × seed_match(1.0) = 0.5
     assert float(enriched[0]["relevance_score"]) == 0.5

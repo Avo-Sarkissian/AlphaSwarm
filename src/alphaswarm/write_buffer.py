@@ -13,6 +13,7 @@ node to already exist in Neo4j.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -39,11 +40,11 @@ class EpisodeRecord:
     Consumed in batches by WriteBuffer.flush() at round boundaries.
     """
 
-    decision_id: str          # links to parent Decision node via HAS_EPISODE edge
+    decision_id: str  # links to parent Decision node via HAS_EPISODE edge
     agent_id: str
     rationale: str
     peer_context_received: str  # full formatted context string; "" for Round 1 (Pitfall 3)
-    flip_type: str              # FlipType.value string (stored as string for Neo4j compat)
+    flip_type: str  # FlipType.value string (stored as string for Neo4j compat)
     round_num: int
     cycle_id: str
 
@@ -109,10 +110,8 @@ class WriteBuffer:
         try:
             self._queue.put_nowait(record)
         except asyncio.QueueFull:
-            try:
+            with contextlib.suppress(asyncio.QueueEmpty):
                 self._queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
             self._queue.put_nowait(record)
             self._log.warning(
                 "write_buffer.drop_oldest",

@@ -131,6 +131,7 @@ class OllamaModelManager:
             True if model appears in ps() response.
         """
         ps_response = await self._client.raw_client.ps()
+
         # Normalize comparison: Ollama ps() returns "model:latest" but callers
         # pass bare "model". Strip ":latest" suffix for matching.
         def _bare(name: str) -> str:

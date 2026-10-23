@@ -109,8 +109,7 @@ class FakeInferenceProvider:
         assert self._scripted_list is not None  # guaranteed by __init__
         if not self._scripted_list:
             raise AssertionError(
-                f"FakeInferenceProvider({self.model!r}) scripted results exhausted "
-                f"on call #{len(self.calls)}"
+                f"FakeInferenceProvider({self.model!r}) scripted results exhausted on call #{len(self.calls)}"
             )
         return self._scripted_list.pop(0)
 
@@ -123,16 +122,12 @@ class FakeInferenceProvider:
 # Any change to persona or peer-context prompts MUST keep these regexes matching.
 AGENT_HEADER_RE: Final = re.compile(r"\[(?P<name>[^\]|]+?) \| (?P<display>[^\]]+?) bracket\]")
 # Peer line id: "[sell_side_03|sell_side]" or "[sell_side_03]".
-PEER_LINE_RE: Final = re.compile(
-    r"\[(?P<agent_id>[a-z]+(?:_[a-z]+)*_\d{2})(?:\|(?P<bracket>[a-z_]+))?\]"
-)
+PEER_LINE_RE: Final = re.compile(r"\[(?P<agent_id>[a-z]+(?:_[a-z]+)*_\d{2})(?:\|(?P<bracket>[a-z_]+))?\]")
 # Narrative identity: the "Agent: Sell-Side 3 (sell_side)" line of the narrative user prompt.
 # The narrator's system prompt must NOT match AGENT_HEADER_RE, or the call counts as a chat.
 _NARRATIVE_AGENT_RE: Final = re.compile(r"^Agent: (?P<name>.+?) \([a-z_]+\)$", re.MULTILINE)
 # LLM-facing decision fields only; never engine fields such as error_kind/parse_tier.
-_LLM_DECISION_FIELDS: Final = frozenset(
-    {"signal", "confidence", "sentiment", "rationale", "cited_agents"}
-)
+_LLM_DECISION_FIELDS: Final = frozenset({"signal", "confidence", "sentiment", "rationale", "cited_agents"})
 _SCRIPTED_SIGNALS: Final = (SignalType.BUY, SignalType.SELL, SignalType.HOLD)
 
 CallKind = Literal["decision", "narrative", "orchestrator", "chat"]
@@ -220,9 +215,7 @@ class ScriptedProvider(FakeInferenceProvider):
         except KeyError:
             raise AssertionError(f"ScriptedProvider: unknown persona name {name!r}") from None
 
-    def _classify(
-        self, messages: list[InferenceMessage], schema: dict[str, Any] | None
-    ) -> tuple[CallKind, str | None]:
+    def _classify(self, messages: list[InferenceMessage], schema: dict[str, Any] | None) -> tuple[CallKind, str | None]:
         if self.role is ProviderRole.ORCHESTRATOR:
             return "orchestrator", None
         systems = [m["content"] for m in messages if m["role"] == "system"]
@@ -251,14 +244,10 @@ class ScriptedProvider(FakeInferenceProvider):
         round_num: int | None = None
         if kind == "decision" and agent_id is not None:
             self._decision_counts[agent_id] = self._decision_counts.get(agent_id, 0) + 1
-            round_num = (
-                self._round_source() if self._round_source else self._decision_counts[agent_id]
-            )
+            round_num = self._round_source() if self._round_source else self._decision_counts[agent_id]
         shown = tuple(
             dict.fromkeys(
-                match.group("agent_id")
-                for message in messages
-                for match in PEER_LINE_RE.finditer(message["content"])
+                match.group("agent_id") for message in messages for match in PEER_LINE_RE.finditer(message["content"])
             )
         )
         call = ScriptedCall(
@@ -285,9 +274,7 @@ class ScriptedProvider(FakeInferenceProvider):
             payload = outcome.model_dump(mode="json", include=set(_LLM_DECISION_FIELDS))
             return InferenceResult(content=json.dumps(payload), model=self.model)
         if kind == "chat":
-            return InferenceResult(
-                content=f"Scripted interview reply from {agent_id}.", model=self.model
-            )
+            return InferenceResult(content=f"Scripted interview reply from {agent_id}.", model=self.model)
         return InferenceResult(content=f"Scripted narrative for {agent_id}.", model=self.model)
 
     def _next_orchestrator_reply(self, call: ScriptedCall) -> str:
@@ -295,7 +282,6 @@ class ScriptedProvider(FakeInferenceProvider):
             return self._orchestrator_fn(call)
         if not self._orchestrator_queue:
             raise AssertionError(
-                f"ScriptedProvider({self.model!r}): orchestrator script exhausted "
-                f"on call #{len(self.calls)}"
+                f"ScriptedProvider({self.model!r}): orchestrator script exhausted on call #{len(self.calls)}"
             )
         return self._orchestrator_queue.pop(0)

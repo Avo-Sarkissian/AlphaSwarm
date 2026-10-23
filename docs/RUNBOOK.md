@@ -200,9 +200,9 @@ that names a held company exercises the advisory. Then check:
 
 **Fast checks (no services needed):**
 ```bash
-uv run pytest -q -m "not neo4j"
-                          # same selection as CI backend; Neo4j tests need neo4j-test (Neo4j
-                          # section above). tests/integration hits the network (BACKLOG 1.8). iCloud
+uv run pytest -q -m "not neo4j and not live_network and not ollama"
+                          # offline, same selection as CI backend-unit; Neo4j tests need neo4j-test
+                          # (Neo4j section above), live tests need --run-live (§7). iCloud
                           # conflict copies ("app 2.py") are gitignored and skipped by
                           # the --ignore-glob in pyproject addopts (BACKLOG §8, B2)
 uv run pytest -q tests/engine -rxX
@@ -212,6 +212,8 @@ uv run pytest -q tests/engine -rxX
                           # npm run lint is ESLint: 0 errors required (frontend/TESTING.md)
 uv run lint-imports       # holdings isolation contract: must report "kept"
 uv run mypy src           # strict; must report "Success: no issues found"
+uv run ruff check src tests && uv run ruff format --check src tests
+                          # 120 columns; the pre-commit hooks fix most findings
 ```
 
 ## 6. Troubleshooting
@@ -241,20 +243,22 @@ uv run mypy src           # strict; must report "Success: no issues found"
 ## 7. Tests and quality gates
 
 **Suites**
-- Offline (CI `backend`): `uv run pytest -q -m "not neo4j"`. `tests/integration/` still opens sockets by path, so it calls Yahoo and Google News (BACKLOG 1.8).
+- Offline (CI `backend-unit`): `uv run pytest -q -m "not neo4j and not live_network and not ollama"`. CI adds `--cov=alphaswarm --cov-branch --cov-fail-under=85`.
 - Neo4j (CI `backend-neo4j`), against the throwaway tmpfs database on 127.0.0.1:7688, never the dev database on 7687 (§3): `scripts/neo4j_test.sh up`, then `uv run pytest -q -m neo4j --require-neo4j`, then `scripts/neo4j_test.sh down`. Never stop it with a bare `docker compose --profile test down`: that also removes the dev container.
+- Live (CI nightly, `.github/workflows/nightly.yml`): `uv run pytest -q --run-live -m live_network`. Cloud smoke tests also need their API keys and skip without them.
 - Every test has a 60 s timeout (`pytest-timeout`, `timeout = 60` in `pyproject.toml`); every CI job has a 15-minute one.
 
-**Markers.** `neo4j` opens sockets and, for async tests, shares the session event loop with the session-scoped driver (collection hook in `tests/conftest.py`). Every module under `tests/neo4j/` sets `pytestmark = pytest.mark.neo4j`. `enable_socket` remains the one-off escape hatch.
+**Markers.** `neo4j`, `live_network`, `ollama`, `slow`. Sockets are opened by these markers only (`tests/support/markers.py`): `neo4j`, `live_network` and `ollama` get sockets, async `neo4j` tests share the session event loop with the session-scoped driver, and `live_network`/`ollama` tests are skipped unless `--run-live` is given. `slow` is informational. Every module under `tests/neo4j/` sets `pytestmark = pytest.mark.neo4j`. Never enable sockets by a test's path; `enable_socket` still works as a one-off escape hatch, but prefer the markers.
 
 **Seeded cycle and goldens.** `tests/support/seed_builder.py` writes one deterministic, fictional 100-agent cycle per session (`seeded_cycle`). Read-model and template goldens live in `tests/golden/reads/` and `tests/golden/report/` (`tests/support/golden.py` normalizes ids and timestamps). Regenerate only in a commit whose purpose explains the change: `UPDATE_GOLDEN=1 uv run pytest -q -m neo4j --require-neo4j tests/neo4j/`, then review `git diff tests/golden` line by line and say in the commit body why each file changed. The engine scenario goldens in `tests/golden/scenarios/` need no services: `UPDATE_GOLDEN=1 uv run pytest -q tests/engine/`. `UPDATE_GOLDEN` is refused when `CI=true`.
 
-**Known bugs.** Pinned with `xfail(strict=True, reason="<item id>: …")`. The fix makes the test XPASS, which fails the run until the marker is removed in the same commit (together with any golden the fix now allows). CI runs pytest with `-rxX`, so every XFAIL/XPASS is listed in the job log.
+**Known bugs.** Pinned with `xfail(strict=True, reason="<item id>: …")`. The fix makes the test XPASS, which fails the run until the marker is removed in the same commit (together with any golden the fix now allows). CI runs pytest with `-rxX` and lists every XFAIL/XPASS in the job summary.
 
-**Static gates (CI `lint`).** `uv run mypy src && uv run lint-imports && uv run vulture src vulture_whitelist.py --min-confidence 80`.
+**Static gates (CI `lint`).** `uv run ruff check src tests && uv run ruff format --check src tests && uv run mypy src && uv run lint-imports && uv run vulture src vulture_whitelist.py --min-confidence 80`.
+- Ruff runs at 120 columns (`pyproject.toml [tool.ruff]`); `ruff format` is enforced.
 - mypy is strict; modules under `[[tool.mypy.overrides]]` are exempt until cleaned up, and the list only shrinks (`tests/invariants/test_mypy_overrides.py`).
 - vulture fails on dead code at 80% confidence or more. `vulture_whitelist.py` lists only names an interface requires (such as `cls` on validators), each with its reason; delete dead code instead of whitelisting it.
-- Ruff is not gated yet (BACKLOG 2.10): run `uv run ruff check <changed files>` and keep the lines you changed clean.
-- Hooks (optional): `uv tool install pre-commit` once, then `pre-commit install` per clone; it runs the import-linter hook in `.pre-commit-config.yaml`.
+- Hooks: `uv run pre-commit install` once per clone; it runs ruff check --fix, ruff format and import-linter (`.pre-commit-config.yaml`).
+- `git config blame.ignoreRevsFile .git-blame-ignore-revs` makes local `git blame` skip the mass reformat.
 
-**Frontend.** CI (Node 20) runs `npm ci`, `npx tsc -b --noEmit`, `npm run lint` (ESLint), `npx vitest run` and `npm run build`. Test layout, rules and the lint baseline: `frontend/TESTING.md`.
+**Frontend.** Node 22 (`frontend/.nvmrc`). CI runs `npm ci`, `npm audit --omit=dev --audit-level=high`, `npm run lint` (ESLint), `npx vitest run` and `npm run build` (which type-checks). Test layout, rules and the lint baseline: `frontend/TESTING.md`.

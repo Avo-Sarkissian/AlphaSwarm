@@ -24,11 +24,7 @@ def test_headline_table_is_complete() -> None:
 
 def test_no_section_is_left_unrun_or_unfilled() -> None:
     lines = _experiments().splitlines()
-    unrun = [
-        n
-        for n, line in enumerate(lines, 1)
-        if re.fullmatch(r"\s*Not (run|measured) yet\.?\s*", line)
-    ]
+    unrun = [n for n, line in enumerate(lines, 1) if re.fullmatch(r"\s*Not (run|measured) yet\.?\s*", line)]
     slots = [n for n, line in enumerate(lines, 1) if re.search(r"<[A-Z][A-Z0-9_]+>", line)]
     assert (unrun, slots) == ([], [])
 

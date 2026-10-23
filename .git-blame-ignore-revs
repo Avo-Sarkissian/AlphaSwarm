@@ -1,0 +1,4 @@
+# Mechanical reformat: ruff check --fix + ruff format at line length 120 (no hand edits).
+31a91efbeaac6d94c4fe43c43facdea24cf224d6
+# Mechanical reformat of the files merged from master (plan 24): ruff check --fix + ruff format (no hand edits).
+fdbdac566111e573a1d31d23eaa4df4d677bb98c

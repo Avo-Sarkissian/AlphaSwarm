@@ -31,9 +31,7 @@ from alphaswarm.types import SignalType, SimulationPhase
 SCHEMA_VERSION: Final = 1
 
 WireSignal = Literal["buy", "sell", "hold", "parse_error"]
-WirePhase = Literal[
-    "idle", "seeding", "round_1", "round_2", "round_3", "finalizing", "complete", "replay"
-]
+WirePhase = Literal["idle", "seeding", "round_1", "round_2", "round_3", "finalizing", "complete", "replay"]
 FrameMode = Literal["live", "replay", "idle"]
 
 _SIGNALS: Final[Mapping[SignalType, WireSignal]] = {
@@ -224,9 +222,7 @@ def _shock(shock: AppliedShock) -> WireAppliedShock:
     return WireAppliedShock(text=shock.text, round_num=shock.round_num)
 
 
-def build_frame(
-    snapshot: StateSnapshot, *, jobs: JobsSnapshot, memory_percent: float
-) -> StateFrame:
+def build_frame(snapshot: StateSnapshot, *, jobs: JobsSnapshot, memory_percent: float) -> StateFrame:
     """Map one snapshot onto the wire. Pure: no clock, no I/O.
 
     ``jobs`` comes from the live StateStore even while a replay is shown, so a
@@ -248,9 +244,7 @@ def build_frame(
         rationale_entries=[_rationale(e) for e in snapshot.rationale_entries],
         bracket_summaries=[_bracket(b) for b in snapshot.bracket_summaries],
         data_source_audit=[
-            WireDataSourceAuditEntry(
-                ts=e.ts, source=e.source, query=e.query, result=e.result, used=e.used
-            )
+            WireDataSourceAuditEntry(ts=e.ts, source=e.source, query=e.query, result=e.result, used=e.used)
             for e in snapshot.data_source_audit
         ],
         edges_version=snapshot.edges_version,

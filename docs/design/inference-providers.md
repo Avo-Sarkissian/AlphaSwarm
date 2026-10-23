@@ -236,9 +236,10 @@ holdings). A new runtime-mutable `InferenceConfig` is persisted separately:
   never appear in logs, WebSocket frames, or Neo4j.
 - Settings route tests: `PUT` persists; `GET` masks keys; `.secrets/`
   gitignored.
-- All unit tests stay under the `pytest-socket` block; real provider calls live
-  behind the `enable_socket` integration marker (like the existing yfinance/RSS
-  integration tests).
+- All unit tests stay under the `pytest-socket` block. Real provider calls live in
+  `tests/integration/test_cloud_inference.py`, marked `live_network` like the
+  yfinance/RSS live tests: they skip unless `--run-live` is passed, and each one
+  also skips when its API-key variable is unset.
 
 ## 9. Dependencies
 

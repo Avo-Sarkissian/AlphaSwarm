@@ -6,6 +6,7 @@ from __future__ import annotations
 def test_replay_module_exists() -> None:
     """replay.py module exists and exports router."""
     from alphaswarm.web.routes.replay import router
+
     assert router is not None
     # 4 routes: /replay/cycles, /replay/start/{cycle_id}, /replay/advance, /replay/stop.
     # The original RED test expected 3; the `/replay/stop` route was added
@@ -24,7 +25,11 @@ def test_replay_response_models_exist() -> None:
 
     # CycleItem fields
     ci = CycleItem(
-        cycle_id="x", created_at="2026-01-01", seed_rumor="test", round_count=3, status="complete",
+        cycle_id="x",
+        created_at="2026-01-01",
+        seed_rumor="test",
+        round_count=3,
+        status="complete",
     )
     assert ci.cycle_id == "x"
     assert ci.round_count == 3

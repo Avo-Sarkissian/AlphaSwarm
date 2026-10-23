@@ -1,8 +1,8 @@
-"""HOLD-03 integration tests for GET /api/holdings.
+"""HOLD-03 route tests for GET /api/holdings.
 
-Lives under tests/integration/ so that tests/integration/conftest.py auto-applies
-the enable_socket marker — FastAPI TestClient needs in-process sockets even
-though no outbound network traffic occurs.
+Offline: FastAPI's TestClient runs the app in-process and needs no network, so
+these tests run with sockets disabled like every unmarked test
+(docs/DECISIONS.md#adr-test-network-gate).
 
 Tests are hermetic: they build a minimal FastAPI app with a custom lifespan that
 seeds app.state.portfolio_cache with a fixed snapshot. HoldingsLoader is NEVER invoked and
@@ -188,9 +188,7 @@ def test_get_holdings_cost_basis_is_string_not_float() -> None:
 def test_get_holdings_cost_basis_null_when_none() -> None:
     """Holding.cost_basis=None → JSON null (not the string 'None')."""
     snapshot = _sample_snapshot(
-        holdings=(
-            Holding(ticker="QZZX", qty=Decimal("5000"), cost_basis=None),
-        ),
+        holdings=(Holding(ticker="QZZX", qty=Decimal("5000"), cost_basis=None),),
     )
     app = _make_holdings_test_app(snapshot)
     with TestClient(app) as client:
@@ -250,9 +248,7 @@ def test_get_holdings_503_body_is_detail_wrapped() -> None:
         assert r.status_code == 503
         body = r.json()
         # Top-level shape: {"detail": {...}} — not {"error": ..., "message": ...}
-        assert set(body.keys()) == {"detail"}, (
-            f"Expected only 'detail' at top level, got: {list(body.keys())}"
-        )
+        assert set(body.keys()) == {"detail"}, f"Expected only 'detail' at top level, got: {list(body.keys())}"
         assert "error" not in body, "error lives inside detail, not at top level"
         assert "message" not in body, "message lives inside detail, not at top level"
         assert isinstance(body["detail"], dict)
@@ -285,6 +281,7 @@ def test_get_holdings_503_body_does_not_leak_path() -> None:
 def test_route_source_uses_str_not_float_for_serialization() -> None:
     """Pitfall 1 — route source MUST NOT call float() on Holding fields."""
     from pathlib import Path as _Path
+
     src = _Path(__file__).parent.parent.parent / "src/alphaswarm/web/routes/holdings.py"
     content = src.read_text(encoding="utf-8")
     assert "str(h.qty)" in content, "Route must use str(h.qty) for Decimal serialization"
@@ -296,6 +293,7 @@ def test_route_source_does_not_log_holding_field_values() -> None:
     """Pitfall 7 / ISOL-07 — route handler must not log ticker/qty/cost_basis."""
     import re
     from pathlib import Path as _Path
+
     src = _Path(__file__).parent.parent.parent / "src/alphaswarm/web/routes/holdings.py"
     content = src.read_text(encoding="utf-8")
     for forbidden in (
@@ -327,6 +325,7 @@ def test_web_app_does_not_import_alphaswarm_holdings_directly() -> None:
     indirection via alphaswarm.web.routes.holdings is the only legal path."""
     import re
     from pathlib import Path as _Path
+
     src = _Path(__file__).parent.parent.parent / "src/alphaswarm/web/app.py"
     content = src.read_text(encoding="utf-8")
     # Forbidden: "from alphaswarm.holdings " or "from alphaswarm.holdings."

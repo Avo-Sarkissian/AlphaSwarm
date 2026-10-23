@@ -20,7 +20,6 @@ from pydantic import ValidationError
 from alphaswarm.types import (
     AgentDecision,
     BracketType,
-    EntityType,
     ParsedModifiersResult,
     ParsedSeedResult,
     SeedEntity,

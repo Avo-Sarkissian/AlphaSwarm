@@ -77,9 +77,7 @@ def test_missing_golden_fails_with_instructions(tmp_path: Path) -> None:
         assert_golden_file(tmp_path / "missing.md", "text")
 
 
-def test_update_mode_writes_text_with_trailing_newline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_update_mode_writes_text_with_trailing_newline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("UPDATE_GOLDEN", "1")
     path = tmp_path / "sub" / "g.md"
     assert_golden_file(path, f"cycle {CYCLE}")

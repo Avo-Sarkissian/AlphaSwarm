@@ -22,7 +22,7 @@ RESERVED_TICKERS: frozenset[str] = frozenset({"ZZZT", "QQQX", "XQZW", "ZQXY", "Q
 
 FICTIONAL_FIXTURE_FILES: tuple[str, ...] = (
     "tests/test_holdings_loader.py",
-    "tests/integration/test_holdings_route.py",
+    "tests/unit/test_holdings_route.py",
     "tests/test_holdings_validation.py",
     "tests/test_example_holdings.py",
     "examples/holdings.example.csv",

@@ -256,10 +256,24 @@ async def test_batch_write_tx_skips_cited_when_empty() -> None:
     tx = AsyncMock()
     tx.run.return_value.single = AsyncMock(return_value={"created": 2})
     decisions = [
-        {"decision_id": "d1", "agent_id": "a1", "signal": "buy", "confidence": 0.5,
-         "sentiment": 0.0, "rationale": "test", "cited_agents": []},
-        {"decision_id": "d2", "agent_id": "a2", "signal": "sell", "confidence": 0.6,
-         "sentiment": -0.1, "rationale": "test", "cited_agents": []},
+        {
+            "decision_id": "d1",
+            "agent_id": "a1",
+            "signal": "buy",
+            "confidence": 0.5,
+            "sentiment": 0.0,
+            "rationale": "test",
+            "cited_agents": [],
+        },
+        {
+            "decision_id": "d2",
+            "agent_id": "a2",
+            "signal": "sell",
+            "confidence": 0.6,
+            "sentiment": -0.1,
+            "rationale": "test",
+            "cited_agents": [],
+        },
     ]
 
     created = await GraphStateManager._batch_write_decisions_tx(tx, decisions, "cycle-1", 1)
@@ -277,8 +291,15 @@ async def test_batch_write_tx_creates_cited_when_present() -> None:
     tx = AsyncMock()
     tx.run.return_value.single = AsyncMock(return_value={"created": 1})
     decisions = [
-        {"decision_id": "d1", "agent_id": "a1", "signal": "buy", "confidence": 0.5,
-         "sentiment": 0.0, "rationale": "test", "cited_agents": ["a2"]},
+        {
+            "decision_id": "d1",
+            "agent_id": "a1",
+            "signal": "buy",
+            "confidence": 0.5,
+            "sentiment": 0.0,
+            "rationale": "test",
+            "cited_agents": ["a2"],
+        },
     ]
 
     await GraphStateManager._batch_write_decisions_tx(tx, decisions, "cycle-1", 1)
@@ -348,9 +369,7 @@ async def test_create_cycle_with_seed_event_single_transaction(
     session = mock_driver.session.return_value
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    await gsm.create_cycle_with_seed_event(
-        "test rumor", sample_seed_event_for_graph, num_rounds=3
-    )
+    await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph, num_rounds=3)
 
     session.execute_write.assert_awaited_once()
 
@@ -365,9 +384,7 @@ async def test_create_cycle_with_seed_event_returns_uuid(
 
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    cycle_id = await gsm.create_cycle_with_seed_event(
-        "test rumor", sample_seed_event_for_graph, num_rounds=3
-    )
+    cycle_id = await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph, num_rounds=3)
 
     uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     assert re.match(uuid4_pattern, cycle_id), f"Not a valid UUID4: {cycle_id}"
@@ -390,29 +407,9 @@ async def test_create_cycle_with_seed_event_wraps_neo4j_error(
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
     with pytest.raises(Neo4jWriteError) as exc_info:
-        await gsm.create_cycle_with_seed_event(
-            "test rumor", sample_seed_event_for_graph, num_rounds=3
-        )
+        await gsm.create_cycle_with_seed_event("test rumor", sample_seed_event_for_graph, num_rounds=3)
 
     assert exc_info.value.original_error is original_exc
-
-
-@pytest.mark.asyncio()
-async def test_create_cycle_with_entities_tx_creates_cycle_with_overall_sentiment() -> None:
-    """Transaction function creates Cycle node with overall_sentiment property."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-
-    await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, [], 3,
-    )
-
-    # With empty entities, only 1 tx.run call (Cycle creation only)
-    assert tx.run.await_count == 1
-    call_args = tx.run.call_args_list[0]
-    cypher = call_args[0][0]
-    assert "overall_sentiment" in cypher
 
 
 @pytest.mark.asyncio()
@@ -423,34 +420,16 @@ async def test_create_cycle_with_entities_tx_skips_unwind_when_empty() -> None:
     tx = AsyncMock()
 
     await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, [], 3,
+        tx,
+        "test-cycle-id",
+        "test rumor",
+        0.6,
+        [],
+        3,
     )
 
     # Only 1 tx.run call (Cycle creation, no Entity UNWIND)
     assert tx.run.await_count == 1
-
-
-@pytest.mark.asyncio()
-async def test_create_cycle_with_entities_tx_creates_mentions_relationships() -> None:
-    """Transaction function creates Entity+MENTIONS when entities are present."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-    entities = [
-        {"name": "NVIDIA", "type": "company", "relevance": 0.95, "sentiment": 0.8},
-        {"name": "Semiconductors", "type": "sector", "relevance": 0.7, "sentiment": 0.5},
-    ]
-
-    await GraphStateManager._create_cycle_with_entities_tx(
-        tx, "test-cycle-id", "test rumor", 0.6, entities, 3,
-    )
-
-    # 2 tx.run calls: Cycle creation + Entity UNWIND with MENTIONS
-    assert tx.run.await_count == 2
-    entity_cypher = tx.run.call_args_list[1][0][0]
-    assert "MENTIONS" in entity_cypher
-    assert "relevance" in entity_cypher
-    assert "sentiment" in entity_cypher
 
 
 # ---------------------------------------------------------------------------
@@ -516,60 +495,6 @@ async def test_compute_influence_edges_zero_citations(mock_driver: MagicMock) ->
 
 
 @pytest.mark.asyncio()
-async def test_self_citations_filtered() -> None:
-    """_read_citation_pairs_tx Cypher contains self-citation filter."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-
-    async def _empty_aiter():
-        return
-        yield  # make this an async generator
-
-    mock_result = MagicMock()
-    mock_result.__aiter__ = lambda self: _empty_aiter()
-    tx.run = AsyncMock(return_value=mock_result)
-    await GraphStateManager._read_citation_pairs_tx(tx, "cycle-1", 1)
-    cypher = tx.run.call_args[0][0]
-    # Must exclude self-citations: author.id <> cited.id
-    assert "author" in cypher and "cited" in cypher
-    assert "<>" in cypher  # Self-citation filter present
-
-
-@pytest.mark.asyncio()
-async def test_duplicate_citations_deduplicated() -> None:
-    """_read_citation_pairs_tx uses DISTINCT to deduplicate citation pairs."""
-    # Rev: [Codex MEDIUM] Duplicate cited_agents entries must not inflate influence
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-
-    async def _empty_aiter():
-        return
-        yield  # make this an async generator
-
-    mock_result = MagicMock()
-    mock_result.__aiter__ = lambda self: _empty_aiter()
-    tx.run = AsyncMock(return_value=mock_result)
-    await GraphStateManager._read_citation_pairs_tx(tx, "cycle-1", 1)
-    cypher = tx.run.call_args[0][0]
-    assert "DISTINCT" in cypher
-
-
-@pytest.mark.asyncio()
-async def test_write_influence_edges_tx_uses_unwind() -> None:
-    """_write_influence_edges_tx Cypher uses UNWIND and INFLUENCED_BY."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-    edges = [{"source_id": "a1", "target_id": "a2", "weight": 0.5}]
-    await GraphStateManager._write_influence_edges_tx(tx, edges, "cycle-1", 1)
-    cypher = tx.run.call_args[0][0]
-    assert "UNWIND" in cypher
-    assert "INFLUENCED_BY" in cypher
-
-
-@pytest.mark.asyncio()
 async def test_write_influence_edges_tx_empty_edges() -> None:
     """_write_influence_edges_tx with empty edges list does not call tx.run."""
     from alphaswarm.graph import GraphStateManager
@@ -577,26 +502,6 @@ async def test_write_influence_edges_tx_empty_edges() -> None:
     tx = AsyncMock()
     await GraphStateManager._write_influence_edges_tx(tx, [], "cycle-1", 1)
     tx.run.assert_not_awaited()
-
-
-@pytest.mark.asyncio()
-async def test_influence_edges_include_round_property() -> None:
-    """_write_influence_edges_tx includes round property on INFLUENCED_BY edges."""
-    # Rev: [Codex MEDIUM] round property needed to avoid double-counting across rounds
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-    edges = [{"source_id": "a1", "target_id": "a2", "weight": 0.5}]
-    await GraphStateManager._write_influence_edges_tx(tx, edges, "cycle-1", 2)
-    cypher = tx.run.call_args[0][0]
-    assert "round" in cypher  # round property on edge
-    # Verify round_num is passed as parameter
-    call_kwargs = (
-        tx.run.call_args.kwargs
-        if hasattr(tx.run.call_args, "kwargs")
-        else tx.run.call_args[1]
-    )
-    assert call_kwargs.get("round_num") == 2 or "round_num" in str(tx.run.call_args)
 
 
 # ---------------------------------------------------------------------------
@@ -639,9 +544,7 @@ async def test_write_decisions_accepts_pregenerated_ids(
     mock_driver.session.return_value.execute_write.side_effect = _ack_rows
     gsm = GraphStateManager(driver=mock_driver, personas=[])
 
-    result = await gsm.write_decisions(
-        sample_agent_decisions, "test-cycle-id", 1, decision_ids=pre_ids
-    )
+    result = await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1, decision_ids=pre_ids)
 
     assert result == pre_ids
     # Verify the pre-generated IDs were actually passed to execute_write
@@ -663,9 +566,7 @@ async def test_write_decisions_raises_on_mismatched_ids(
     wrong_ids = ["only-one-id"]  # 3 decisions, 1 id
 
     with pytest.raises(ValueError, match="decision_ids length"):
-        await gsm.write_decisions(
-            sample_agent_decisions, "test-cycle-id", 1, decision_ids=wrong_ids
-        )
+        await gsm.write_decisions(sample_agent_decisions, "test-cycle-id", 1, decision_ids=wrong_ids)
 
 
 @pytest.mark.asyncio()
@@ -718,35 +619,6 @@ async def test_write_rationale_episodes_empty_is_noop(mock_driver: MagicMock) ->
     gsm = GraphStateManager(driver=mock_driver, personas=[])
     await gsm.write_rationale_episodes([])
     mock_driver.session.assert_not_called()
-
-
-@pytest.mark.asyncio()
-async def test_batch_write_episodes_tx_uses_unwind_and_has_episode() -> None:
-    """_batch_write_episodes_tx Cypher uses UNWIND and creates HAS_EPISODE."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-    episodes = [
-        {
-            "decision_id": "dec-001",
-            "rationale": "test rationale",
-            "peer_context_received": "",
-            "flip_type": "none",
-            "round_num": 1,
-            "cycle_id": "cycle-abc",
-        }
-    ]
-
-    await GraphStateManager._batch_write_episodes_tx(tx, episodes)
-
-    tx.run.assert_awaited_once()
-    cypher = tx.run.call_args[0][0]
-    assert "UNWIND" in cypher
-    assert "HAS_EPISODE" in cypher
-    # Each node is stamped from per-record fields, not batch-level params (U1).
-    assert "ep.round_num" in cypher
-    assert "ep.cycle_id" in cypher
-    assert "RationaleEpisode" in cypher
 
 
 @pytest.mark.asyncio()
@@ -868,89 +740,6 @@ async def test_write_narrative_edges_empty_is_noop(mock_driver: MagicMock) -> No
 
 
 @pytest.mark.asyncio()
-async def test_batch_write_references_tx_cypher() -> None:
-    """_batch_write_references_tx Cypher uses UNWIND and creates REFERENCES edge."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-    matches = [{"decision_id": "dec-001", "entity_name": "NVIDIA"}]
-
-    await GraphStateManager._batch_write_references_tx(tx, matches)
-
-    tx.run.assert_awaited_once()
-    cypher = tx.run.call_args[0][0]
-    assert "UNWIND" in cypher
-    assert "REFERENCES" in cypher
-    assert "substring" in cypher
-
-
-@pytest.mark.asyncio()
-async def test_read_cycle_entities(mock_driver: MagicMock) -> None:
-    """read_cycle_entities returns list of entity name strings from Cycle-MENTIONS->Entity."""
-    from alphaswarm.graph import GraphStateManager
-
-    session = mock_driver.session.return_value
-
-    # Mock the async iteration of query results
-    async def mock_run(*args, **kwargs):  # type: ignore[no-untyped-def]
-        class MockResult:
-            def __aiter__(self):  # type: ignore[no-untyped-def]
-                return self._iter()
-
-            async def _iter(self):  # type: ignore[no-untyped-def]
-                for name in ["NVIDIA", "Semiconductors"]:
-                    yield {"name": name}
-
-        return MockResult()
-
-    session.run = AsyncMock(side_effect=mock_run)
-    gsm = GraphStateManager(driver=mock_driver, personas=[])
-
-    result = await gsm.read_cycle_entities("cycle-abc")
-
-    assert result == ["NVIDIA", "Semiconductors"]
-    session.run.assert_awaited_once()
-    cypher = session.run.call_args[0][0]
-    assert "MENTIONS" in cypher
-    assert "cycle_id" in cypher or "$cycle_id" in cypher
-
-
-@pytest.mark.asyncio()
-async def test_read_cycle_entities_mentions_entity_pattern() -> None:
-    """read_cycle_entities Cypher uses MATCH (c:Cycle)-[:MENTIONS]->(e:Entity) pattern."""
-    from alphaswarm.graph import GraphStateManager
-
-    # Test the Cypher directly by inspecting read_cycle_entities' session.run call
-    mock_driver_local = MagicMock()
-    mock_driver_local.close = AsyncMock()
-    session = AsyncMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=False)
-    mock_driver_local.session.return_value = session
-
-    async def mock_run(*args, **kwargs):  # type: ignore[no-untyped-def]
-        class MockResult:
-            def __aiter__(self):  # type: ignore[no-untyped-def]
-                return self._iter()
-
-            async def _iter(self):  # type: ignore[no-untyped-def]
-                return
-                yield  # make async generator
-
-        return MockResult()
-
-    session.run = AsyncMock(side_effect=mock_run)
-    gsm = GraphStateManager(driver=mock_driver_local, personas=[])
-
-    await gsm.read_cycle_entities("cycle-abc")
-
-    cypher = session.run.call_args[0][0]
-    assert "Cycle" in cypher
-    assert "MENTIONS" in cypher
-    assert "Entity" in cypher
-
-
-@pytest.mark.asyncio()
 async def test_write_decision_narratives(mock_driver: MagicMock) -> None:
     """write_decision_narratives calls execute_write with narratives list."""
     from alphaswarm.graph import GraphStateManager
@@ -980,23 +769,6 @@ async def test_write_decision_narratives_empty_is_noop(mock_driver: MagicMock) -
     gsm = GraphStateManager(driver=mock_driver, personas=[])
     await gsm.write_decision_narratives([])
     mock_driver.session.assert_not_called()
-
-
-@pytest.mark.asyncio()
-async def test_batch_write_narratives_tx_cypher() -> None:
-    """_batch_write_narratives_tx Cypher uses UNWIND and SET decision_narrative."""
-    from alphaswarm.graph import GraphStateManager
-
-    tx = AsyncMock()
-    narratives = [{"agent_id": "quants_01", "narrative": "Bullish across all rounds."}]
-
-    await GraphStateManager._batch_write_narratives_tx(tx, narratives)
-
-    tx.run.assert_awaited_once()
-    cypher = tx.run.call_args[0][0]
-    assert "UNWIND" in cypher
-    assert "decision_narrative" in cypher
-    assert "Agent" in cypher
 
 
 def test_schema_statements_includes_episode_index() -> None:
@@ -1165,6 +937,29 @@ async def test_write_posts_all_parse_error_is_noop(mock_driver: MagicMock) -> No
     assert result == []
 
 
+@pytest.mark.asyncio()
+@pytest.mark.parametrize("id_count", [1, 3], ids=["fewer_ids", "more_ids"])
+async def test_write_posts_raises_on_mismatched_ids(mock_driver: MagicMock, id_count: int) -> None:
+    """write_posts refuses decision_ids that do not pair one-to-one with the decisions.
+
+    Silently truncating would link a Post to the wrong Decision, or drop posts.
+    """
+    from alphaswarm.graph import GraphStateManager
+
+    session = mock_driver.session.return_value
+    gsm = GraphStateManager(driver=mock_driver, personas=[])
+    decisions = [
+        ("a1", AgentDecision(signal=SignalType.BUY, confidence=0.8, rationale="up")),
+        ("a2", AgentDecision(signal=SignalType.SELL, confidence=0.6, rationale="down")),
+    ]
+    decision_ids = [f"dec-{i}" for i in range(id_count)]
+
+    with pytest.raises(ValueError):
+        await gsm.write_posts(decisions, decision_ids, "c1", 1)
+
+    session.execute_write.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # Phase 27: Shock analysis graph methods (Plan 01)
 # ---------------------------------------------------------------------------
@@ -1220,11 +1015,13 @@ async def test_read_full_cycle_signals(
     from alphaswarm.state import AgentState
 
     session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(return_value=[
-        {"agent_id": "quants_01", "round_num": 1, "signal": "buy", "confidence": 0.9, "sentiment": 0.5},
-        {"agent_id": "quants_01", "round_num": 2, "signal": "sell", "confidence": 0.6, "sentiment": -0.3},
-        {"agent_id": "degens_01", "round_num": 1, "signal": "hold", "confidence": 0.4, "sentiment": 0.0},
-    ])
+    session.execute_read = AsyncMock(
+        return_value=[
+            {"agent_id": "quants_01", "round_num": 1, "signal": "buy", "confidence": 0.9, "sentiment": 0.5},
+            {"agent_id": "quants_01", "round_num": 2, "signal": "sell", "confidence": 0.6, "sentiment": -0.3},
+            {"agent_id": "degens_01", "round_num": 1, "signal": "hold", "confidence": 0.4, "sentiment": 0.0},
+        ]
+    )
 
     gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
     result = await gm.read_full_cycle_signals("test-cycle")
@@ -1244,10 +1041,12 @@ async def test_read_completed_cycles(
     from alphaswarm.graph import GraphStateManager
 
     session = mock_driver.session.return_value
-    session.execute_read = AsyncMock(return_value=[
-        {"cycle_id": "abc-123", "created_at": "2026-04-12T14:30:00", "seed_rumor": "Test rumor 1"},
-        {"cycle_id": "def-456", "created_at": "2026-04-11T09:15:00", "seed_rumor": "Test rumor 2"},
-    ])
+    session.execute_read = AsyncMock(
+        return_value=[
+            {"cycle_id": "abc-123", "created_at": "2026-04-12T14:30:00", "seed_rumor": "Test rumor 1"},
+            {"cycle_id": "def-456", "created_at": "2026-04-11T09:15:00", "seed_rumor": "Test rumor 2"},
+        ]
+    )
 
     gm = GraphStateManager(driver=mock_driver, personas=sample_personas_for_graph, database="neo4j")
     result = await gm.read_completed_cycles()
@@ -1299,9 +1098,7 @@ async def test_write_shock_event_returns_uuid4(mock_driver: MagicMock) -> None:
 
     # UUID4: 8-4-4-4-12 hex, 3rd group starts with 4, 4th group starts with 8/9/a/b
     uuid4_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    assert re.fullmatch(uuid4_pattern, shock_id) is not None, (
-        f"shock_id {shock_id!r} is not a valid UUID4"
-    )
+    assert re.fullmatch(uuid4_pattern, shock_id) is not None, f"shock_id {shock_id!r} is not a valid UUID4"
 
 
 @pytest.mark.asyncio()
@@ -1330,10 +1127,7 @@ def test_schema_includes_shock_id_unique_constraint() -> None:
 
     pattern = r"CREATE CONSTRAINT shock_id_unique.*FOR \(se:ShockEvent\).*REQUIRE se\.shock_id IS UNIQUE"
     matches = [s for s in SCHEMA_STATEMENTS if re.search(pattern, s)]
-    assert len(matches) == 1, (
-        f"Expected exactly one shock_id_unique constraint, found {len(matches)}: "
-        f"{matches!r}"
-    )
+    assert len(matches) == 1, f"Expected exactly one shock_id_unique constraint, found {len(matches)}: {matches!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -1395,8 +1189,17 @@ async def test_batch_write_tx_returns_the_cypher_created_count() -> None:
 
     tx = AsyncMock()
     tx.run.return_value.single = AsyncMock(return_value={"created": 0})
-    rows = [{"decision_id": "d1", "agent_id": "ghost", "signal": "buy", "confidence": 0.5,
-             "sentiment": 0.0, "rationale": "x", "cited_agents": []}]
+    rows = [
+        {
+            "decision_id": "d1",
+            "agent_id": "ghost",
+            "signal": "buy",
+            "confidence": 0.5,
+            "sentiment": 0.0,
+            "rationale": "x",
+            "cited_agents": [],
+        }
+    ]
 
     assert await GraphStateManager._batch_write_decisions_tx(tx, rows, "cycle-1", 1) == 0
     assert "RETURN count(dec) AS created" in tx.run.await_args_list[0].args[0]

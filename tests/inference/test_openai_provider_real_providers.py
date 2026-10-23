@@ -138,9 +138,7 @@ class TestOpenRouter:
         req = captured_requests[0]
 
         # --- URL ---
-        assert str(req.url) == "https://openrouter.ai/api/v1/chat/completions", (
-            f"unexpected URL: {req.url}"
-        )
+        assert str(req.url) == "https://openrouter.ai/api/v1/chat/completions", f"unexpected URL: {req.url}"
 
         # --- Authorization ---
         assert req.headers.get("authorization") == "Bearer sk-or-test", (
@@ -148,19 +146,13 @@ class TestOpenRouter:
         )
 
         # --- Extra headers ---
-        assert req.headers.get("http-referer") == "https://x", (
-            "HTTP-Referer header missing or wrong"
-        )
-        assert req.headers.get("x-title") == "AlphaSwarm", (
-            "X-Title header missing or wrong"
-        )
+        assert req.headers.get("http-referer") == "https://x", "HTTP-Referer header missing or wrong"
+        assert req.headers.get("x-title") == "AlphaSwarm", "X-Title header missing or wrong"
 
         # --- Body: response_format ---
         body: dict[str, Any] = json.loads(req.content)
         rf = body.get("response_format", {})
-        assert rf.get("type") == "json_schema", (
-            f"expected json_schema in response_format, got: {rf}"
-        )
+        assert rf.get("type") == "json_schema", f"expected json_schema in response_format, got: {rf}"
 
         # --- Parsed decision ---
         decision = parse_agent_decision(result.content)
@@ -216,12 +208,8 @@ class TestGeminiTrailingSlashAndDowngrade:
 
         expected_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         for url in seen_urls:
-            assert url == expected_url, (
-                f"URL contains double-slash or is wrong: {url!r}"
-            )
-            assert "//" not in url.split("://", 1)[1], (
-                f"double-slash in path: {url!r}"
-            )
+            assert url == expected_url, f"URL contains double-slash or is wrong: {url!r}"
+            assert "//" not in url.split("://", 1)[1], f"double-slash in path: {url!r}"
 
     @pytest.mark.asyncio
     async def test_gemini_downgrade_second_request_uses_json_object(self) -> None:
@@ -251,9 +239,7 @@ class TestGeminiTrailingSlashAndDowngrade:
         assert captured_bodies[0].get("response_format", {}).get("type") == "json_schema"
         # Second body (downgrade retry): json_object
         got_rf = captured_bodies[1].get("response_format", {})
-        assert got_rf.get("type") == "json_object", (
-            f"expected json_object on downgrade retry, got: {got_rf}"
-        )
+        assert got_rf.get("type") == "json_object", f"expected json_object on downgrade retry, got: {got_rf}"
 
     @pytest.mark.asyncio
     async def test_gemini_downgrade_sets_no_strict_flag(self) -> None:
@@ -278,9 +264,7 @@ class TestGeminiTrailingSlashAndDowngrade:
 
         await provider.chat(_MESSAGES, response_schema=DECISION_JSON_SCHEMA)
 
-        assert provider._no_strict is True, (
-            "_no_strict must be True after a successful strict-downgrade"
-        )
+        assert provider._no_strict is True, "_no_strict must be True after a successful strict-downgrade"
 
     @pytest.mark.asyncio
     async def test_gemini_downgrade_result_parses_to_valid_decision(self) -> None:
@@ -308,8 +292,7 @@ class TestGeminiTrailingSlashAndDowngrade:
 
         decision = parse_agent_decision(result.content)
         assert decision.signal.value != "PARSE_ERROR", (
-            f"decision should be valid after downgrade, got PARSE_ERROR; "
-            f"content={result.content!r}"
+            f"decision should be valid after downgrade, got PARSE_ERROR; content={result.content!r}"
         )
         assert decision.signal.value == "buy"
 
@@ -350,9 +333,7 @@ class TestNvidiaNim:
         req = captured[0]
 
         # --- URL ---
-        assert str(req.url) == "https://integrate.api.nvidia.com/v1/chat/completions", (
-            f"unexpected URL: {req.url}"
-        )
+        assert str(req.url) == "https://integrate.api.nvidia.com/v1/chat/completions", f"unexpected URL: {req.url}"
 
         # --- Body: json_schema ---
         body: dict[str, Any] = json.loads(req.content)
@@ -409,9 +390,7 @@ class TestFactoryWiring:
 
         # Inner must be OpenAICompatProvider
         inner = built.worker._inner  # type: ignore[union-attr]
-        assert isinstance(inner, OpenAICompatProvider), (
-            f"expected OpenAICompatProvider inside, got {type(inner)}"
-        )
+        assert isinstance(inner, OpenAICompatProvider), f"expected OpenAICompatProvider inside, got {type(inner)}"
 
         # base_url and model must match config (rstrip applied)
         assert inner._base_url == "https://openrouter.ai/api/v1"
@@ -433,9 +412,7 @@ class TestFactoryWiring:
         )
 
         ctrl = build_controller(cfg, MagicMock(name="GovernorSettings"))
-        assert isinstance(ctrl, RateLimitController), (
-            f"expected RateLimitController, got {type(ctrl)}"
-        )
+        assert isinstance(ctrl, RateLimitController), f"expected RateLimitController, got {type(ctrl)}"
 
 
 # ---------------------------------------------------------------------------
@@ -468,13 +445,9 @@ class TestPresetsInSettingsEndpoint:
             settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
             brackets = load_bracket_configs()
             personas = generate_personas(brackets)
-            app_state = create_app_state(
-                settings, personas, with_ollama=False, with_neo4j=False
-            )
+            app_state = create_app_state(settings, personas, with_ollama=False, with_neo4j=False)
             replay_manager = ReplayManager(app_state)
-            sim_manager = SimulationManager(
-                app_state, brackets, replay_manager=replay_manager
-            )
+            sim_manager = SimulationManager(app_state, brackets, replay_manager=replay_manager)
             app.state.app_state = app_state
             app.state.sim_manager = sim_manager
             app.state.replay_manager = replay_manager
@@ -508,9 +481,7 @@ class TestPresetsInSettingsEndpoint:
 
         assert "provider_presets" in data, "provider_presets key missing from response"
         presets = data["provider_presets"]
-        assert isinstance(presets, list) and len(presets) > 0, (
-            "provider_presets must be a non-empty list"
-        )
+        assert isinstance(presets, list) and len(presets) > 0, "provider_presets must be a non-empty list"
 
         required_keys = {"label", "provider", "models"}
         for preset in presets:
@@ -518,8 +489,7 @@ class TestPresetsInSettingsEndpoint:
             assert not missing, f"preset {preset!r} missing keys: {missing}"
             # provider must be a valid ProviderType value
             assert preset["provider"] in valid_providers, (
-                f"preset provider {preset['provider']!r} is not a valid ProviderType; "
-                f"valid={valid_providers}"
+                f"preset provider {preset['provider']!r} is not a valid ProviderType; valid={valid_providers}"
             )
             assert isinstance(preset["models"], list)
 
@@ -558,6 +528,4 @@ class TestPresetsInSettingsEndpoint:
 
         valid = {pt.value for pt in ProviderType}
         for preset in PROVIDER_PRESETS:
-            assert preset.provider in valid, (
-                f"Preset {preset.label!r} has invalid provider {preset.provider!r}"
-            )
+            assert preset.provider in valid, f"Preset {preset.label!r} has invalid provider {preset.provider!r}"

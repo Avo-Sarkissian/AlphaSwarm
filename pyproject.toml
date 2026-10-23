@@ -39,6 +39,7 @@ dev = [
     "types-psutil>=7.2.2.20260906",
     "types-aiofiles>=25.1.0.20260518",
     "vulture==2.16",
+    "pre-commit>=4.7.0",
 ]
 
 [project.urls]
@@ -57,18 +58,28 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 target-version = "py311"
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM"]
+# UP042 (str + Enum -> StrEnum) changes str() of every enum member; that conversion is a
+# deliberate behaviour change made on its own, not a lint autofix.
+ignore = ["UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+# Verbatim LLM-output fixtures: wrapping them would change the strings under test.
+"tests/test_parsing.py" = ["E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--disable-socket --allow-unix-socket --ignore-glob='* [2-9].py'"
 markers = [
-    "enable_socket: opt-in marker for tests that need real network (D-12 escape hatch)",
+    "enable_socket: opt-in socket access (docs/DECISIONS.md#adr-test-network-gate); prefer the markers below",
     "neo4j: needs the throwaway neo4j-test database on 127.0.0.1:7688 (scripts/neo4j_test.sh up)",
+    "live_network: reaches the public internet (Yahoo, Google News, cloud APIs); skipped unless --run-live",
+    "ollama: needs a running local Ollama server; skipped unless --run-live",
+    "slow: takes longer than about one second; informational",
 ]
 timeout = 60
 

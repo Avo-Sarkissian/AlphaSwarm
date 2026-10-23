@@ -279,9 +279,7 @@ def test_save_repairs_existing_permissive_file(tmp_path: Path) -> None:
 
 
 @posix_only
-def test_save_temp_file_owner_only_at_creation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_save_temp_file_owner_only_at_creation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The temp file carries 0600 from creation — never a world-readable window.
 
     The spy runs while the temp file exists but before the serialized config
@@ -389,9 +387,7 @@ def test_masked_config_no_raw_key_in_output() -> None:
     secret = "sk-super-secret-key-abcd1234"
     settings = _clean_settings()
     cfg = default_inference_config(settings)
-    orch = cfg.orchestrator.model_copy(
-        update={"api_key": secret, "provider": ProviderType.OPENAI_COMPATIBLE}
-    )
+    orch = cfg.orchestrator.model_copy(update={"api_key": secret, "provider": ProviderType.OPENAI_COMPATIBLE})
     cfg = cfg.model_copy(update={"orchestrator": orch})
 
     result = masked_config(cfg)
@@ -474,9 +470,7 @@ def test_masked_config_spend_cap_included() -> None:
 
 def _cloud_cfg() -> InferenceConfig:
     """A cloud-only config with a fictional key."""
-    role = RoleConfig(
-        provider=ProviderType.ANTHROPIC, model="claude-fictional", api_key="sk-fictional-0000"
-    )
+    role = RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-fictional", api_key="sk-fictional-0000")
     return InferenceConfig(orchestrator=role, worker=role)
 
 
@@ -488,18 +482,14 @@ def test_inference_config_path_defaults_to_the_secrets_file(
     assert settings.inference_config_path == Path(".secrets/inference.json")
 
 
-def test_inference_config_path_reads_the_env_var(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_inference_config_path_reads_the_env_var(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     target = tmp_path / "custom.json"
     monkeypatch.setenv("ALPHASWARM_INFERENCE_CONFIG_PATH", str(target))
     settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
     assert settings.inference_config_path == target
 
 
-def test_load_reads_the_settings_path_when_no_path_is_given(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_load_reads_the_settings_path_when_no_path_is_given(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)  # a CWD-relative default can never reach the real file
     target = tmp_path / "inference.json"
     save_inference_config(_cloud_cfg(), target)
@@ -507,9 +497,7 @@ def test_load_reads_the_settings_path_when_no_path_is_given(
     assert load_inference_config(settings).orchestrator.provider == ProviderType.ANTHROPIC
 
 
-def test_save_writes_the_settings_path_when_no_path_is_given(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_save_writes_the_settings_path_when_no_path_is_given(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     target = tmp_path / "nested" / "inference.json"
     settings = AppSettings(_env_file=None, inference_config_path=target)  # type: ignore[call-arg]
@@ -518,9 +506,7 @@ def test_save_writes_the_settings_path_when_no_path_is_given(
     assert load_inference_config(settings).worker.provider == ProviderType.ANTHROPIC
 
 
-def test_an_explicit_path_wins_over_settings(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_an_explicit_path_wins_over_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     from_settings = tmp_path / "from_settings.json"
     explicit = tmp_path / "explicit.json"

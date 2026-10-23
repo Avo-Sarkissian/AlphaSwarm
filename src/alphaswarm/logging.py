@@ -82,16 +82,12 @@ _LITERAL_NORMALIZED: frozenset[str] = frozenset(
         "workerkey",
     }
 )
-_HASHED_NORMALIZED: frozenset[str] = frozenset(
-    {"accountnumber", "accountid", "acctid", "acctnumber"}
-)
+_HASHED_NORMALIZED: frozenset[str] = frozenset({"accountnumber", "accountid", "acctid", "acctnumber"})
 # REVIEW MEDIUM: pre-hashed correlation tokens must NOT be re-hashed.
 _PASSTHROUGH_NORMALIZED: frozenset[str] = frozenset({"accountnumberhash"})
 # REVIEW MEDIUM: currency/SSN backstop only applies within known free-text keys,
 # NOT blanket on all string values (would clobber MarketSlice price strings).
-_FREE_TEXT_NORMALIZED: frozenset[str] = frozenset(
-    {"note", "summary", "message", "text", "description", "reason"}
-)
+_FREE_TEXT_NORMALIZED: frozenset[str] = frozenset({"note", "summary", "message", "text", "description", "reason"})
 
 _CURRENCY_RE = re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?")
 _SSN_RE = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
@@ -122,9 +118,7 @@ def _scrub_free_text(s: str) -> str:
     return s
 
 
-def _redact_value(
-    value: Any, *, depth: int, seen: set[int]
-) -> Any:
+def _redact_value(value: Any, *, depth: int, seen: set[int]) -> Any:
     """Recursively redact a value. Traverses dicts, lists, tuples, sets.
 
     REVIEW HIGH:
@@ -157,9 +151,7 @@ def _redact_value(
     return value
 
 
-def _redact_mapping(
-    mapping: dict[Any, Any], *, depth: int, seen: set[int]
-) -> dict[Any, Any]:
+def _redact_mapping(mapping: dict[Any, Any], *, depth: int, seen: set[int]) -> dict[Any, Any]:
     """Apply key-rule-based redaction to a single mapping level, recursing into children."""
     out: dict[Any, Any] = {}
     for key, value in mapping.items():
@@ -201,9 +193,7 @@ def _emit_redaction_failed_marker() -> None:
         pass
 
 
-def pii_redaction_processor(
-    logger: Any, method_name: str, event_dict: MutableMapping[str, Any]
-) -> Mapping[str, Any]:
+def pii_redaction_processor(logger: Any, method_name: str, event_dict: MutableMapping[str, Any]) -> Mapping[str, Any]:
     """structlog processor implementing D-05/D-06/D-07 with review-mandated updates.
 
     - D-05: key-first detection (case-insensitive, separator-agnostic),
@@ -244,22 +234,16 @@ def configure_logging(log_level: str = "INFO", json_output: bool = True) -> None
         # Turn exc_info into a structured "exception" list before redaction, so
         # the redactor also walks the traceback. Without this, JSONRenderer only
         # emits "exc_info": true and the stack is lost.
-        processors.append(
-            structlog.processors.ExceptionRenderer(ExceptionDictTransformer(show_locals=False))
-        )
+        processors.append(structlog.processors.ExceptionRenderer(ExceptionDictTransformer(show_locals=False)))
         processors.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer
         processors.append(structlog.processors.JSONRenderer())
     else:
         processors.append(pii_redaction_processor)  # Phase 37 (ISOL-04): BEFORE renderer
-        processors.append(
-            structlog.dev.ConsoleRenderer(exception_formatter=structlog.dev.plain_traceback)
-        )
+        processors.append(structlog.dev.ConsoleRenderer(exception_formatter=structlog.dev.plain_traceback))
 
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, log_level.upper(), logging.INFO)
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, log_level.upper(), logging.INFO)),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,

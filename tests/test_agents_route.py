@@ -39,9 +39,7 @@ URL = "/api/agents/quants_01/decisions"
 
 
 def _client(tmp_path: Path, graph: FakeCycleGraph | None) -> TestClient:
-    return TestClient(
-        make_route_app(agents_router, settings=route_test_settings(tmp_path), graph=graph)
-    )
+    return TestClient(make_route_app(agents_router, settings=route_test_settings(tmp_path), graph=graph))
 
 
 def test_returns_the_agents_decisions_for_the_cycle(tmp_path: Path) -> None:

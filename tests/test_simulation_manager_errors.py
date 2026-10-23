@@ -257,9 +257,7 @@ async def test_failure_is_logged_with_exc_info_even_if_the_store_rejects_it(
 
     with _patched_run(_fail):
         await sm.start(SEED)  # clears last_error through the real store
-        monkeypatch.setattr(
-            store, "set_last_error", AsyncMock(side_effect=RuntimeError("store down"))
-        )
+        monkeypatch.setattr(store, "set_last_error", AsyncMock(side_effect=RuntimeError("store down")))
         with pytest.raises(RoundFailedError):
             await _finish(sm)
 
@@ -301,9 +299,7 @@ async def test_failure_after_the_run_handler_is_logged_with_exc_info(
 
 async def test_last_error_reaches_the_websocket_frame() -> None:
     store = StateStore()
-    await store.set_last_error(
-        run_error_from_exception(RoundFailedError(3, 90, 100, 50.0), round_num=3)
-    )
+    await store.set_last_error(run_error_from_exception(RoundFailedError(3, 90, 100, 50.0), round_num=3))
     frame = json.loads(snapshot_to_json(store))
     assert frame["last_error"]["code"] == "round_failed"
     assert frame["last_error"]["round_num"] == 3

@@ -9,10 +9,12 @@ Tests verify:
 
 from __future__ import annotations
 
+import json as json_mod
+
 import pytest
+from pydantic import ValidationError
 
-from alphaswarm.types import AgentDecision, SignalType
-
+from alphaswarm.types import AgentDecision, BracketType, SignalType
 
 # --- AgentDecision model tests (no parsing module needed) ---
 
@@ -41,9 +43,9 @@ def test_agent_decision_defaults() -> None:
 
 def test_agent_decision_validation_bounds() -> None:
     """AgentDecision rejects out-of-bounds confidence and sentiment."""
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         AgentDecision(signal=SignalType.BUY, confidence=1.5)
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         AgentDecision(signal=SignalType.BUY, confidence=0.5, sentiment=2.0)
 
 
@@ -97,10 +99,7 @@ def test_tier2_brace_in_rationale_with_trailing_brace() -> None:
     '}' must still parse (string-aware brace scan), not silently become PARSE_ERROR."""
     from alphaswarm.parsing import parse_agent_decision
 
-    raw = (
-        'My take: {"signal": "buy", "confidence": 0.7, '
-        '"rationale": "the set} looks bullish"} -- end of analysis }'
-    )
+    raw = 'My take: {"signal": "buy", "confidence": 0.7, "rationale": "the set} looks bullish"} -- end of analysis }'
     result = parse_agent_decision(raw)
     assert result.signal == SignalType.BUY
     assert result.confidence == 0.7
@@ -321,10 +320,6 @@ def test_seed_parse_adversarial_out_of_range_overall_sentiment() -> None:
 
 # --- Phase 13: parse_modifier_response tests ---
 
-import json as json_mod
-
-from alphaswarm.types import BracketType
-
 
 def _make_full_modifier_json() -> str:
     """Helper: build valid JSON with all 10 BracketType keys."""
@@ -411,9 +406,7 @@ def test_parse_logs_tier_used() -> None:
     # Capture structlog output
     captured: list[dict[str, object]] = []
 
-    def capture_log(
-        logger: object, method_name: str, event_dict: dict[str, object]
-    ) -> dict[str, object]:
+    def capture_log(logger: object, method_name: str, event_dict: dict[str, object]) -> dict[str, object]:
         captured.append(event_dict)
         raise structlog.DropEvent
 

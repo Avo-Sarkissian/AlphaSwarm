@@ -40,10 +40,7 @@ def _metrics(fake_graph: MagicMock) -> dict[str, object]:
 
 
 def _user_messages(worker: ScriptedProvider, round_num: int) -> set[str]:
-    return {
-        OWN_PRIOR_PREFIX.sub("", c.messages[-1]["content"], count=1)
-        for c in round_calls(worker, round_num)
-    }
+    return {OWN_PRIOR_PREFIX.sub("", c.messages[-1]["content"], count=1) for c in round_calls(worker, round_num)}
 
 
 def _summary(

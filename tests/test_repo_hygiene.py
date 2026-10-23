@@ -27,9 +27,7 @@ PLANNING_DIR = "." + "planning"  # built so this file never contains the literal
 _ANCHOR_CITE = re.compile(r"DECISIONS\.md#([a-z0-9][a-z0-9-]*)")
 _LEGACY_ID = re.compile(r"\b(?:KR-\d+(?:\.\d+)*-\d+|D-\d{2}|F-\d{2})\b")
 
-pytestmark = pytest.mark.skipif(
-    not (ROOT / ".git").exists(), reason="needs a git checkout (git ls-files)"
-)
+pytestmark = pytest.mark.skipif(not (ROOT / ".git").exists(), reason="needs a git checkout (git ls-files)")
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -186,8 +184,14 @@ def test_porter_leftovers_are_archived() -> None:
 
 
 def test_current_docs_do_not_point_at_moved_files() -> None:
-    current = ("README.md", "CLAUDE.md", "docs/ARCHITECTURE.md", "docs/DECISIONS.md",
-               "docs/RUNBOOK.md", "docs/HISTORY.md")
+    current = (
+        "README.md",
+        "CLAUDE.md",
+        "docs/ARCHITECTURE.md",
+        "docs/DECISIONS.md",
+        "docs/RUNBOOK.md",
+        "docs/HISTORY.md",
+    )
     assert [rel for rel in current if "docs/superpowers/" in _read(rel)] == []
     assert [rel for rel in current[:-1] if "PROJECT_SPEC.md" in _read(rel)] == []
 
@@ -209,10 +213,7 @@ def test_neo4j_backup_dumps_are_ignored() -> None:
 
 
 def test_textual_is_not_a_dependency() -> None:
-    names = {
-        re.split(r"[<>=!~;\[ ]", dep, maxsplit=1)[0].lower()
-        for dep in _pyproject()["project"]["dependencies"]
-    }
+    names = {re.split(r"[<>=!~;\[ ]", dep, maxsplit=1)[0].lower() for dep in _pyproject()["project"]["dependencies"]}
     assert "textual" not in names
 
 

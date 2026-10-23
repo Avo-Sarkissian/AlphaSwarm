@@ -23,9 +23,7 @@ def test_get_report_uses_async_filesystem() -> None:
 
     src = inspect.getsource(report_module.get_report)
     # Must use async filesystem helpers.
-    assert "aiofiles.os" in src, (
-        "GET handler must use aiofiles.os for non-blocking I/O"
-    )
+    assert "aiofiles.os" in src, "GET handler must use aiofiles.os for non-blocking I/O"
     # Must NOT use blocking stdlib filesystem calls on the Path object directly.
     assert ".exists()" not in src, "Do not use Path.exists() in async handler"
     assert ".stat()" not in src, "Do not use Path.stat() in async handler"
@@ -38,7 +36,8 @@ def test_get_report_uses_async_filesystem() -> None:
 
 @pytest.mark.asyncio
 async def test_report_generation_pipeline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_run_report_generation runs the exact sequence:
     provider.prepare -> engine.run -> assembler.assemble ->
@@ -101,11 +100,13 @@ async def test_report_generation_pipeline(
     async def _fake_write_report(_path: Path, _content: str) -> None:
         call_order.append("write_report")
 
-    with patch.object(report_module, "build_providers", return_value=fake_built), \
-            patch.object(report_module, "load_inference_config", return_value=MagicMock()), \
-            patch.object(report_module, "ReportEngine") as mock_engine, \
-            patch.object(report_module, "ReportAssembler") as mock_assembler, \
-            patch.object(report_module, "write_report", side_effect=_fake_write_report):
+    with (
+        patch.object(report_module, "build_providers", return_value=fake_built),
+        patch.object(report_module, "load_inference_config", return_value=MagicMock()),
+        patch.object(report_module, "ReportEngine") as mock_engine,
+        patch.object(report_module, "ReportAssembler") as mock_assembler,
+        patch.object(report_module, "write_report", side_effect=_fake_write_report),
+    ):
         engine_instance = MagicMock()
         engine_instance.run = _fake_run
         mock_engine.return_value = engine_instance
@@ -126,7 +127,8 @@ async def test_report_generation_pipeline(
 
 @pytest.mark.asyncio
 async def test_report_generation_unloads_on_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Orchestrator teardown runs in finally even when engine.run raises.
 
@@ -175,9 +177,11 @@ async def test_report_generation_unloads_on_error(
     async def _raise(_cid: str) -> list:
         raise RuntimeError("boom")
 
-    with patch.object(report_module, "build_providers", return_value=fake_built), \
-            patch.object(report_module, "load_inference_config", return_value=MagicMock()), \
-            patch.object(report_module, "ReportEngine") as mock_engine:
+    with (
+        patch.object(report_module, "build_providers", return_value=fake_built),
+        patch.object(report_module, "load_inference_config", return_value=MagicMock()),
+        patch.object(report_module, "ReportEngine") as mock_engine,
+    ):
         engine_instance = MagicMock()
         engine_instance.run = _raise
         mock_engine.return_value = engine_instance

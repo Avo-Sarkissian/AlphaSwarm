@@ -193,9 +193,7 @@ def seeded_bracket_subset(
     return frozenset(chosen)
 
 
-def select_control_ids(
-    personas: Sequence[AgentPersona], *, fraction: float, run_seed: str
-) -> frozenset[str]:
+def select_control_ids(personas: Sequence[AgentPersona], *, fraction: float, run_seed: str) -> frozenset[str]:
     """Readers held out from peer context for the whole run (``d.control``)."""
     return seeded_bracket_subset(personas, fraction=fraction, run_seed=run_seed, salt=CONTROL_SALT)
 
@@ -212,15 +210,8 @@ def own_prior_line(decision: AgentDecision | None, source_round: int) -> str | N
     """
     if decision is None or decision.signal == SignalType.PARSE_ERROR:
         return None
-    head = (
-        f"Your Round {source_round} position: "
-        f"{decision.signal.value.upper()} (conf {decision.confidence:.2f})"
-    )
-    rationale = (
-        sanitize_rationale(decision.rationale, max_len=300)
-        .translate(_OWN_PRIOR_TRANSLATION)
-        .strip()
-    )
+    head = f"Your Round {source_round} position: {decision.signal.value.upper()} (conf {decision.confidence:.2f})"
+    rationale = sanitize_rationale(decision.rationale, max_len=300).translate(_OWN_PRIOR_TRANSLATION).strip()
     return f"{head}: {rationale}" if rationale else head
 
 
@@ -240,18 +231,9 @@ def apply_holdout_and_priors(
     measure everything except peer influence (docs/DECISIONS.md#adr-diverse-peer-context).
     """
     prev_by_id = dict(prev_decisions)
-    blanked = [
-        None if p.id in control_ids else context
-        for p, context in zip(personas, contexts, strict=True)
-    ]
-    shown = [
-        () if p.id in control_ids else exposure
-        for p, exposure in zip(personas, exposures, strict=True)
-    ]
-    priors = [
-        own_prior_line(prev_by_id.get(p.id), source_round) if sim.own_prior_memory else None
-        for p in personas
-    ]
+    blanked = [None if p.id in control_ids else context for p, context in zip(personas, contexts, strict=True)]
+    shown = [() if p.id in control_ids else exposure for p, exposure in zip(personas, exposures, strict=True)]
+    priors = [own_prior_line(prev_by_id.get(p.id), source_round) if sim.own_prior_memory else None for p in personas]
     return blanked, shown, priors
 
 
@@ -318,9 +300,7 @@ def select_diverse_peers(
         raise ValueError(f"bracket_cap must be >= 1, got {bracket_cap}")
     parse_error_ids: set[str] = set()
     if prev_decisions is not None:
-        parse_error_ids = {
-            aid for aid, dec in prev_decisions.items() if dec.signal == SignalType.PARSE_ERROR
-        }
+        parse_error_ids = {aid for aid, dec in prev_decisions.items() if dec.signal == SignalType.PARSE_ERROR}
     candidates = [p for p in personas if p.id != agent_id and p.id not in parse_error_ids]
     if limit <= 0 or not candidates:
         return []
@@ -331,10 +311,7 @@ def select_diverse_peers(
     members: dict[str, list[str]] = {}
     for p in candidates:
         members.setdefault(p.bracket.value, []).append(p.id)
-    bracket_key = {
-        bracket: _sampling_key(rng, sum(weight[pid] for pid in ids))
-        for bracket, ids in members.items()
-    }
+    bracket_key = {bracket: _sampling_key(rng, sum(weight[pid] for pid in ids)) for bracket, ids in members.items()}
 
     # Phase 1: sample the guaranteed brackets, one peer from each.
     selected: list[str] = []
@@ -439,10 +416,7 @@ def _format_peer_context(
             break
         if not post.content:
             continue
-        prefix = (
-            f'{i}. [{post.agent_id}|{post.bracket}] {post.signal.upper()}'
-            f' (conf: {post.confidence:.2f}) "'
-        )
+        prefix = f'{i}. [{post.agent_id}|{post.bracket}] {post.signal.upper()} (conf: {post.confidence:.2f}) "'
         suffix = '"'
         available = remaining - len(prefix) - len(suffix) - 1  # -1 for newline
         if available <= 0:
@@ -507,13 +481,9 @@ def _build_diverse_peer_contexts(
     exposures: list[tuple[str, ...]] = []
     for persona in personas:
         reader_prev = prev_dict.get(persona.id)
-        cited_by_reader: set[str] = (
-            set(reader_prev.cited_agents) if reader_prev is not None else set()
-        )
+        cited_by_reader: set[str] = set(reader_prev.cited_agents) if reader_prev is not None else set()
         weights = {
-            pid: base_weights[pid]
-            + global_w.get(pid, 0.0)
-            + (sim.personal_boost if pid in cited_by_reader else 0.0)
+            pid: base_weights[pid] + global_w.get(pid, 0.0) + (sim.personal_boost if pid in cited_by_reader else 0.0)
             for pid in base_weights
         }
         peer_ids = select_diverse_peers(
@@ -696,9 +666,7 @@ def _compute_shifts(
 
     total_flips = sum(signal_transitions_dict.values())
     bracket_confidence_delta = {
-        b: sum(deltas) / len(deltas)
-        for b, deltas in bracket_conf_deltas.items()
-        if len(deltas) > 0
+        b: sum(deltas) / len(deltas) for b, deltas in bracket_conf_deltas.items() if len(deltas) > 0
     }
 
     return ShiftMetrics(
@@ -817,9 +785,7 @@ async def run_round1(
         assert worker_provider is not None  # narrowing for mypy
         _r1_worker_provider = worker_provider
     else:
-        _r1_worker_provider = OllamaProvider(
-            ProviderRole.WORKER, worker_alias, ollama_client, model_manager
-        )
+        _r1_worker_provider = OllamaProvider(ProviderRole.WORKER, worker_alias, ollama_client, model_manager)
 
     # 3. Start governor monitoring (review concern #1 -- must happen before dispatch)
     await governor.start_monitoring()
@@ -846,14 +812,12 @@ async def run_round1(
 
             # 6. Positional alignment assertion (review concern #3)
             assert len(decisions) == len(worker_configs), (
-                f"dispatch_wave returned {len(decisions)} results "
-                f"for {len(worker_configs)} personas"
+                f"dispatch_wave returned {len(decisions)} results for {len(worker_configs)} personas"
             )
 
             # 7. Pair agent IDs with decisions
             agent_decisions: list[tuple[str, AgentDecision]] = [
-                (wc["agent_id"], dec)
-                for wc, dec in zip(worker_configs, decisions, strict=False)
+                (wc["agent_id"], dec) for wc, dec in zip(worker_configs, decisions, strict=False)
             ]
 
             # Per-agent StateStore writes now happen INSIDE
@@ -866,10 +830,14 @@ async def run_round1(
             # 8. Abort before persisting when too many agents failed, then
             #    persist (Phase 11: capture returned decision_ids)
             _raise_if_round_failed(
-                1, agent_decisions, settings.governor.round_abort_failure_percent,
+                1,
+                agent_decisions,
+                settings.governor.round_abort_failure_percent,
             )
             round1_decision_ids = await graph_manager.write_decisions(
-                agent_decisions, cycle_id, round_num=1,
+                agent_decisions,
+                cycle_id,
+                round_num=1,
             )
         finally:
             # 9a. Always unload worker model (inner finally)
@@ -882,9 +850,7 @@ async def run_round1(
         await governor.stop_monitoring()
 
     # 10. Log completion and return
-    error_count = sum(
-        1 for _, d in agent_decisions if d.signal == SignalType.PARSE_ERROR
-    )
+    error_count = sum(1 for _, d in agent_decisions if d.signal == SignalType.PARSE_ERROR)
     logger.info(
         "round1_complete",
         cycle_id=cycle_id,
@@ -1008,7 +974,10 @@ async def run_simulation(
         await state_store.begin_run([p.id for p in personas])
 
     cycle_id, parsed_result, modifier_result = await inject_seed(
-        rumor, settings, orch, graph_manager,
+        rumor,
+        settings,
+        orch,
+        graph_manager,
         modifier_generator=generate_modifiers,
     )
     if state_store is not None:
@@ -1066,15 +1035,9 @@ async def run_simulation(
             cycle_id=cycle_id,
             entity_count=len(entity_names),
             ticker_count=len(tickers),
-            market_success=sum(
-                1 for s in packet.market if s.staleness != "fetch_failed"
-            ),
-            news_success=sum(
-                1 for s in packet.news if s.staleness != "fetch_failed"
-            ),
-            total_headlines=sum(
-                len(s.headlines) for s in packet.news if s.staleness != "fetch_failed"
-            ),
+            market_success=sum(1 for s in packet.market if s.staleness != "fetch_failed"),
+            news_success=sum(1 for s in packet.news if s.staleness != "fetch_failed"),
+            total_headlines=sum(len(s.headlines) for s in packet.news if s.staleness != "fetch_failed"),
         )
         market_context_str = format_market_context(packet)
 
@@ -1085,8 +1048,13 @@ async def run_simulation(
     # Round 1 dispatch (skip inject_seed since we already did it)
     r1_start = time.monotonic()
     round1_result = await run_round1(
-        rumor, settings, ollama_client, model_manager,
-        graph_manager, governor, personas,
+        rumor,
+        settings,
+        ollama_client,
+        model_manager,
+        graph_manager,
+        governor,
+        personas,
         state_store=state_store,
         pre_injected=(cycle_id, parsed_result),
         market_context=market_context_str,
@@ -1104,9 +1072,7 @@ async def run_simulation(
 
     # Phase 11: Push Round 1 episodes to WriteBuffer
     # (retroactive -- run_round1 already wrote decisions)
-    for did, (agent_id, decision) in zip(
-        round1_result.decision_ids, round1_result.agent_decisions, strict=False
-    ):
+    for did, (agent_id, decision) in zip(round1_result.decision_ids, round1_result.agent_decisions, strict=False):
         record = EpisodeRecord(
             decision_id=did,
             agent_id=agent_id,
@@ -1137,7 +1103,9 @@ async def run_simulation(
 
     # Compute Round 1 bracket summaries (D-08)
     round1_summaries = compute_bracket_summaries(
-        round1_result.agent_decisions, personas, brackets,
+        round1_result.agent_decisions,
+        personas,
+        brackets,
     )
 
     # Push bracket summaries to StateStore for the live UI (docs/DECISIONS.md#p10-d-08).
@@ -1149,13 +1117,15 @@ async def run_simulation(
     # Fire callback for Round 1 (progressive output)
     round1_decisions_tuple = tuple(round1_result.agent_decisions)
     if on_round_complete is not None:
-        await on_round_complete(RoundCompleteEvent(
-            round_num=1,
-            cycle_id=cycle_id,
-            agent_decisions=round1_decisions_tuple,
-            shift=None,
-            bracket_summaries=round1_summaries,
-        ))
+        await on_round_complete(
+            RoundCompleteEvent(
+                round_num=1,
+                cycle_id=cycle_id,
+                agent_decisions=round1_decisions_tuple,
+                shift=None,
+                bracket_summaries=round1_summaries,
+            )
+        )
 
     # Reload worker for Rounds 2-3 (D-05)
     await model_manager.ensure_clean_state()
@@ -1180,20 +1150,22 @@ async def run_simulation(
             if shock_text_r2:
                 active_shocks.append(shock_text_r2)
                 await graph_manager.write_shock_event(
-                    cycle_id, shock_text_r2, injected_before_round=2,
+                    cycle_id,
+                    shock_text_r2,
+                    injected_before_round=2,
                 )
                 if state_store is not None:
                     state_store.record_applied_shock(shock_text_r2, 2)
                 logger.info(
-                    "shock_injected", cycle_id=cycle_id, round_num=2,
+                    "shock_injected",
+                    cycle_id=cycle_id,
+                    round_num=2,
                     shock_length=len(shock_text_r2),
                 )
         effective_rumor_r2 = _with_shocks(rumor, active_shocks)
 
         # Seeded no-peer holdout for the whole run (docs/DECISIONS.md#adr-diverse-peer-context).
-        control_ids = select_control_ids(
-            personas, fraction=settings.simulation.control_fraction, run_seed=cycle_id
-        )
+        control_ids = select_control_ids(personas, fraction=settings.simulation.control_fraction, run_seed=cycle_id)
 
         # Build bracket-diverse peer contexts from Round 1 decisions in memory
         # (docs/DECISIONS.md#sweep-3-3: replaces the global-authority read_ranked_posts
@@ -1201,7 +1173,9 @@ async def run_simulation(
         # removed with it: ~10k edges/round recording "everyone read
         # everything" carried no analytical value.
         round2_peer_contexts, round2_exposures = _build_diverse_peer_contexts(
-            personas, round1_result.agent_decisions, source_round=1,
+            personas,
+            round1_result.agent_decisions,
+            source_round=1,
             sim=settings.simulation,
             run_seed=cycle_id,
         )
@@ -1215,7 +1189,9 @@ async def run_simulation(
             control_ids=control_ids,
         )
         exposure_metrics: dict[str, int] = compute_exposure_metrics(
-            round2_exposures, personas, round_num=2,
+            round2_exposures,
+            personas,
+            round_num=2,
         )
         _ = round1_post_ids  # Posts still written for report/interview reads
 
@@ -1246,8 +1222,7 @@ async def run_simulation(
                 own_priors=round2_own_priors,
             )
             round2_decisions: list[tuple[str, AgentDecision]] = [
-                (wc["agent_id"], dec)
-                for wc, dec in zip(worker_configs, round2_wave_decisions, strict=False)
+                (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round2_wave_decisions, strict=False)
             ]
             # Per-agent StateStore writes are now streamed from inside
             # batch_dispatcher._safe_agent_inference. See debug session
@@ -1259,7 +1234,9 @@ async def run_simulation(
             ]
 
             _raise_if_round_failed(
-                2, round2_decisions, settings.governor.round_abort_failure_percent,
+                2,
+                round2_decisions,
+                settings.governor.round_abort_failure_percent,
             )
             round2_ids = await graph_manager.write_decisions(
                 round2_decisions, cycle_id, round_num=2, control_ids=control_ids
@@ -1267,7 +1244,10 @@ async def run_simulation(
 
             # Phase 12: Write Round 2 Post nodes (D-12 step 2)
             round2_post_ids = await graph_manager.write_posts(
-                round2_decisions, round2_ids, cycle_id, round_num=2,
+                round2_decisions,
+                round2_ids,
+                cycle_id,
+                round_num=2,
             )
 
             # Phase 11: Push Round 2 episodes to WriteBuffer
@@ -1278,8 +1258,7 @@ async def run_simulation(
                 persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
                 peer_ctx = (
                     round2_peer_contexts_normalized[persona_idx]
-                    if persona_idx is not None
-                    and persona_idx < len(round2_peer_contexts_normalized)
+                    if persona_idx is not None and persona_idx < len(round2_peer_contexts_normalized)
                     else ""
                 )
                 record = EpisodeRecord(
@@ -1299,13 +1278,13 @@ async def run_simulation(
             # total_agents is the ACTIVE (non-PARSE_ERROR) decision count per the
             # compute_influence_edges contract — counting failed agents in the
             # denominator deflates every peer's influence weight (F-20).
-            round2_active = sum(
-                1 for _, d in round2_decisions if d.signal != SignalType.PARSE_ERROR
-            )
+            round2_active = sum(1 for _, d in round2_decisions if d.signal != SignalType.PARSE_ERROR)
             round2_weights: dict[str, float] = {}
             if round2_active > 0:
                 round2_weights = await graph_manager.compute_influence_edges(
-                    cycle_id, up_to_round=2, total_agents=round2_active,
+                    cycle_id,
+                    up_to_round=2,
+                    total_agents=round2_active,
                 )
             else:
                 logger.warning("influence_edges_skipped", cycle_id=cycle_id, round_num=2)
@@ -1321,7 +1300,9 @@ async def run_simulation(
 
             # Compute Round 2 shifts in-memory (D-13)
             round2_shifts = _compute_shifts(
-                round1_result.agent_decisions, round2_decisions, personas,
+                round1_result.agent_decisions,
+                round2_decisions,
+                personas,
             )
             r2_control_flips, r2_treated_flips = split_flips(
                 round1_result.agent_decisions, round2_decisions, control_ids
@@ -1335,17 +1316,17 @@ async def run_simulation(
             )
 
             # Fire callback for Round 2 (progressive output)
-            round2_decisions_tuple = tuple(
-                (aid, dec) for aid, dec in round2_decisions
-            )
+            round2_decisions_tuple = tuple((aid, dec) for aid, dec in round2_decisions)
             if on_round_complete is not None:
-                await on_round_complete(RoundCompleteEvent(
-                    round_num=2,
-                    cycle_id=cycle_id,
-                    agent_decisions=round2_decisions_tuple,
-                    shift=round2_shifts,
-                    bracket_summaries=round2_summaries,
-                ))
+                await on_round_complete(
+                    RoundCompleteEvent(
+                        round_num=2,
+                        cycle_id=cycle_id,
+                        agent_decisions=round2_decisions_tuple,
+                        shift=round2_shifts,
+                        bracket_summaries=round2_summaries,
+                    )
+                )
 
             r2_seconds = time.monotonic() - r2_start
 
@@ -1354,8 +1335,10 @@ async def run_simulation(
             round3_decisions: list[tuple[str, AgentDecision]] = []
             round3_decisions_tuple: tuple[tuple[str, AgentDecision], ...] = ()
             round3_shifts = ShiftMetrics(
-                signal_transitions=(), total_flips=0,
-                bracket_confidence_delta=(), agents_shifted=0,
+                signal_transitions=(),
+                total_flips=0,
+                bracket_confidence_delta=(),
+                agents_shifted=0,
             )
             round3_summaries: tuple[BracketSummary, ...] = ()
             r3_seconds = 0.0
@@ -1375,12 +1358,16 @@ async def run_simulation(
                     if shock_text_r3:
                         active_shocks.append(shock_text_r3)
                         await graph_manager.write_shock_event(
-                            cycle_id, shock_text_r3, injected_before_round=3,
+                            cycle_id,
+                            shock_text_r3,
+                            injected_before_round=3,
                         )
                         if state_store is not None:
                             state_store.record_applied_shock(shock_text_r3, 3)
                         logger.info(
-                            "shock_injected", cycle_id=cycle_id, round_num=3,
+                            "shock_injected",
+                            cycle_id=cycle_id,
+                            round_num=3,
                             shock_length=len(shock_text_r3),
                         )
                 effective_rumor_r3 = _with_shocks(rumor, active_shocks)
@@ -1390,7 +1377,9 @@ async def run_simulation(
                 # (round2_weights) + settings.simulation.personal_boost for authors
                 # this reader cited in R2. READ_POST writes dropped (no analytical value).
                 round3_peer_contexts, round3_exposures = _build_diverse_peer_contexts(
-                    personas, round2_decisions, source_round=2,
+                    personas,
+                    round2_decisions,
+                    source_round=2,
                     sim=settings.simulation,
                     run_seed=cycle_id,
                     global_citation_weights=round2_weights,
@@ -1408,9 +1397,7 @@ async def run_simulation(
                     sim=settings.simulation,
                     control_ids=control_ids,
                 )
-                exposure_metrics.update(
-                    compute_exposure_metrics(round3_exposures, personas, round_num=3)
-                )
+                exposure_metrics.update(compute_exposure_metrics(round3_exposures, personas, round_num=3))
                 _ = round2_post_ids  # Posts still written for report/interview reads
 
                 logger.info(
@@ -1435,8 +1422,7 @@ async def run_simulation(
                     own_priors=round3_own_priors,
                 )
                 round3_decisions: list[tuple[str, AgentDecision]] = [
-                    (wc["agent_id"], dec)
-                    for wc, dec in zip(worker_configs, round3_wave_decisions, strict=False)
+                    (wc["agent_id"], dec) for wc, dec in zip(worker_configs, round3_wave_decisions, strict=False)
                 ]
                 # Per-agent StateStore writes are now streamed from inside
                 # batch_dispatcher._safe_agent_inference. See debug session
@@ -1447,7 +1433,9 @@ async def run_simulation(
                 ]
 
                 _raise_if_round_failed(
-                    3, round3_decisions, settings.governor.round_abort_failure_percent,
+                    3,
+                    round3_decisions,
+                    settings.governor.round_abort_failure_percent,
                 )
                 round3_ids = await graph_manager.write_decisions(
                     round3_decisions, cycle_id, round_num=3, control_ids=control_ids
@@ -1455,7 +1443,10 @@ async def run_simulation(
 
                 # Phase 12: Write Round 3 Post nodes
                 await graph_manager.write_posts(
-                    round3_decisions, round3_ids, cycle_id, round_num=3,
+                    round3_decisions,
+                    round3_ids,
+                    cycle_id,
+                    round_num=3,
                 )
 
                 # Phase 11: Push Round 3 episodes to WriteBuffer
@@ -1463,13 +1454,10 @@ async def run_simulation(
                 for did, (agent_id, decision) in zip(round3_ids, round3_decisions, strict=False):
                     prev_signal = round2_map.get(agent_id)
                     prev_sig = prev_signal.signal if prev_signal else None
-                    persona_idx = next(
-                        (i for i, p in enumerate(personas) if p.id == agent_id), None
-                    )
+                    persona_idx = next((i for i, p in enumerate(personas) if p.id == agent_id), None)
                     peer_ctx = (
                         round3_peer_contexts_normalized[persona_idx]
-                        if persona_idx is not None
-                        and persona_idx < len(round3_peer_contexts_normalized)
+                        if persona_idx is not None and persona_idx < len(round3_peer_contexts_normalized)
                         else ""
                     )
                     record = EpisodeRecord(
@@ -1493,13 +1481,13 @@ async def run_simulation(
                 # being written. up_to_round=3 is cumulative per D-04, but the
                 # write tx fixes round=3 on every new edge so the /api/edges
                 # round-filtered read picks them up.
-                round3_active = sum(
-                    1 for _, d in round3_decisions if d.signal != SignalType.PARSE_ERROR
-                )
+                round3_active = sum(1 for _, d in round3_decisions if d.signal != SignalType.PARSE_ERROR)
                 round3_weights: dict[str, float] = {}
                 if round3_active > 0:
                     round3_weights = await graph_manager.compute_influence_edges(
-                        cycle_id, up_to_round=3, total_agents=round3_active,
+                        cycle_id,
+                        up_to_round=3,
+                        total_agents=round3_active,
                     )
                 else:
                     logger.warning("influence_edges_skipped", cycle_id=cycle_id, round_num=3)
@@ -1518,11 +1506,11 @@ async def run_simulation(
 
                 # Compute Round 3 shifts in-memory (D-13)
                 round3_shifts = _compute_shifts(
-                    round2_decisions, round3_decisions, personas,
+                    round2_decisions,
+                    round3_decisions,
+                    personas,
                 )
-                r3_control_flips, r3_treated_flips = split_flips(
-                    round2_decisions, round3_decisions, control_ids
-                )
+                r3_control_flips, r3_treated_flips = split_flips(round2_decisions, round3_decisions, control_ids)
                 exposure_metrics.update(
                     {
                         "r3_control_agents": len(control_ids),
@@ -1532,17 +1520,17 @@ async def run_simulation(
                 )
 
                 # Fire callback for Round 3 (progressive output)
-                round3_decisions_tuple = tuple(
-                    (aid, dec) for aid, dec in round3_decisions
-                )
+                round3_decisions_tuple = tuple((aid, dec) for aid, dec in round3_decisions)
                 if on_round_complete is not None:
-                    await on_round_complete(RoundCompleteEvent(
-                        round_num=3,
-                        cycle_id=cycle_id,
-                        agent_decisions=round3_decisions_tuple,
-                        shift=round3_shifts,
-                        bracket_summaries=round3_summaries,
-                    ))
+                    await on_round_complete(
+                        RoundCompleteEvent(
+                            round_num=3,
+                            cycle_id=cycle_id,
+                            agent_decisions=round3_decisions_tuple,
+                            shift=round3_shifts,
+                            bracket_summaries=round3_summaries,
+                        )
+                    )
 
                 r3_seconds = time.monotonic() - r3_start
 
@@ -1587,9 +1575,7 @@ async def run_simulation(
     ) -> int:
         return sum(1 for _, d in decisions if d.signal == SignalType.PARSE_ERROR)
 
-    final_round_decisions = (
-        round3_decisions if settings.num_rounds >= 3 else round2_decisions
-    )
+    final_round_decisions = round3_decisions if settings.num_rounds >= 3 else round2_decisions
     final_counts = {"buy": 0, "sell": 0, "hold": 0}
     for _, dec in final_round_decisions:
         if dec.signal != SignalType.PARSE_ERROR:
@@ -1615,9 +1601,7 @@ async def run_simulation(
     }
     cycle_metrics.update(exposure_metrics)
     cycle_metrics.update(
-        _peer_and_provenance_metrics(
-            settings.simulation, orch, worker, git_sha=git_sha, git_dirty=git_dirty
-        )
+        _peer_and_provenance_metrics(settings.simulation, orch, worker, git_sha=git_sha, git_dirty=git_dirty)
     )
     # Inference failures separately from all PARSE_ERRORs, for every round
     # actually run (docs/DECISIONS.md#adr-cycle-metrics).
@@ -1628,9 +1612,7 @@ async def run_simulation(
     if settings.num_rounds >= 3:
         rounds_run[3] = round3_decisions
     for n, decisions_n in rounds_run.items():
-        cycle_metrics[f"r{n}_inference_errors"] = sum(
-            1 for _, d in decisions_n if d.error_kind == "inference"
-        )
+        cycle_metrics[f"r{n}_inference_errors"] = sum(1 for _, d in decisions_n if d.error_kind == "inference")
     cycle_metrics["final_round"] = max(rounds_run)
     try:
         await graph_manager.write_cycle_metrics(cycle_id, cycle_metrics)
@@ -1669,9 +1651,7 @@ async def run_simulation(
 
 async def _generate_decision_narratives(
     personas: list[AgentPersona],
-    all_decisions: dict[
-        int, list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]
-    ],
+    all_decisions: dict[int, list[tuple[str, AgentDecision]] | tuple[tuple[str, AgentDecision], ...]],
     graph_manager: GraphStateManager,
     governor: ConcurrencyController,
     provider: InferenceProvider,
@@ -1743,16 +1723,14 @@ async def _generate_decision_narratives(
 
         prompt = (
             f"Summarize this agent's {len(rounds)}-round decision arc in 2-3 sentences. "
-            "Note any signal changes and key influences. Be concise.\n\n"
-            + "\n".join(lines)
+            "Note any signal changes and key influences. Be concise.\n\n" + "\n".join(lines)
         )
 
         messages: list[InferenceMessage] = [
             {
                 "role": "system",
                 "content": (
-                    "You are a concise financial analyst narrator."
-                    " Summarize agent decision arcs in 2-3 sentences."
+                    "You are a concise financial analyst narrator. Summarize agent decision arcs in 2-3 sentences."
                 ),
             },
             {"role": "user", "content": prompt},
