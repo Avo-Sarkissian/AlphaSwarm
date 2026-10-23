@@ -13,13 +13,13 @@ from alphaswarm.types import (
 # Test fixtures
 # ---------------------------------------------------------------------------
 
-MOCK_RUMOR = "NVIDIA announces breakthrough"
+MOCK_RUMOR = "ZZZT Holdings announces a breakthrough"
 
 
 MOCK_SEED_EVENT = SeedEvent(
     raw_rumor=MOCK_RUMOR,
     entities=[
-        SeedEntity(name="NVIDIA", type=EntityType.COMPANY, relevance=0.95, sentiment=0.8),
+        SeedEntity(name="ZZZT Holdings", type=EntityType.COMPANY, relevance=0.95, sentiment=0.8),
     ],
     overall_sentiment=0.6,
 )
