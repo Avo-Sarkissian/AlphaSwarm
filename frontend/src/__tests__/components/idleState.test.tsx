@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IdleState } from '../../components/states';
+import { IdleState } from '../../features/dashboard/StateOverlays';
 import { HEALTH_ALIAS_MISSING } from '../fixtures/health';
 import wsSnapshot from '../fixtures/ws_snapshot.json';
 import { requestedUrls, stubFetch } from '../helpers/fetchStub';

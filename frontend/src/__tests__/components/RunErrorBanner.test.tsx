@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { adaptSnapshot } from '../../adapter/frame';
-import { RunErrorBanner } from '../../components/RunErrorBanner';
+import { RunErrorBanner } from '../../features/dashboard/RunErrorBanner';
 import { ConnectionProvider } from '../../context/ConnectionContext';
 import type { StateFrame } from '../../types';
 import snapshot from '../fixtures/ws_snapshot.json';

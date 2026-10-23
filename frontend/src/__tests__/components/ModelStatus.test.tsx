@@ -3,7 +3,7 @@
 // "Local" before an answer arrives or after the request fails.
 import { cleanup, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ModelStatus } from '../../components/v2';
+import { ModelStatus } from '../../features/dashboard/ModelStatus';
 import { stubFetchRoutes } from '../helpers/fetchRoutes';
 import { renderAt } from '../helpers/lifecycleFrames';
 import { renderWithFrame } from '../helpers/renderWithFrame';

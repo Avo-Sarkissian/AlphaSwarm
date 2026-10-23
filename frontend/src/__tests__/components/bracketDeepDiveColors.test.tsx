@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BracketDeepDive } from '../../components/bracket_deep';
+import { BracketDeepDive } from '../../features/dashboard/BracketDeepDive';
 import type { AgentView } from '../../types';
 import wsSnapshot from '../fixtures/ws_snapshot.json';
 import { stubFetch } from '../helpers/fetchStub';

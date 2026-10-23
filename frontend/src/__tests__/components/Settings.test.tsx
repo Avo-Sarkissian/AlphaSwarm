@@ -4,8 +4,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RoleView, SettingsView } from '../../api/settings';
-import { Settings } from '../../components/settings';
-import { InferenceSettings } from '../../components/settings_inference';
+import { Settings } from '../../features/settings/Settings';
+import { InferenceSettings } from '../../features/settings/InferenceSettings';
 import { stubFetchRoutes } from '../helpers/fetchRoutes';
 import { renderWithFrame } from '../helpers/renderWithFrame';
 

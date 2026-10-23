@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, screen } from '@testing-library/react';
-import { ReportModal } from '../../components/ReportModal';
+import { ReportModal } from '../../features/report/ReportModal';
 import { renderWithFrame } from '../helpers/renderWithFrame';
 
 const CYCLE = '00000000-0000-4000-8000-0000000000a1';

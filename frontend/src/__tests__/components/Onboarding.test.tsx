@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Onboarding } from '../../components/onboarding';
+import { Onboarding } from '../../features/onboarding/Onboarding';
 import { stubFetchRoutes } from '../helpers/fetchRoutes';
 
 const SEED = 'ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.';

@@ -16,7 +16,7 @@ const a11yAsWarnings = Object.fromEntries(
 export default tseslint.config(
   { ignores: ['dist/**', 'design-reference/**', 'reports/**', '**/* [0-9].*'] },
   {
-    files: ['src/**/*.{ts,tsx,js,jsx}'],
+    files: ['src/**/*.{ts,tsx}'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
       ecmaVersion: 2022,
@@ -38,14 +38,9 @@ export default tseslint.config(
       ],
     },
   },
-  {
-    // The untyped app shell keeps its `any`s until it is typed.
-    files: ['src/components/app_v2.tsx'],
-    rules: { '@typescript-eslint/no-explicit-any': 'warn' },
-  },
   // Placebo controls are deleted, not disabled: every <button> needs a handler.
   {
-    files: ['src/**/*.{jsx,tsx}'],
+    files: ['src/**/*.tsx'],
     rules: {
       'no-restricted-syntax': [
         'error',

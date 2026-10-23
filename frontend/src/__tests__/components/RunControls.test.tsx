@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { RunControls, type RunControlsProps } from '../../components/RunControls';
+import { RunControls, type RunControlsProps } from '../../app/RunControls';
 import type { JobStatusView, JobsView } from '../../types';
 import { renderAt } from '../helpers/lifecycleFrames';
 
