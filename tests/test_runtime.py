@@ -1,4 +1,4 @@
-"""Runtime assembly: no-I/O build, one composition root, ordered teardown (C-SVC-02)."""
+"""Runtime assembly: no-I/O build, one composition root, ordered teardown."""
 
 from __future__ import annotations
 
