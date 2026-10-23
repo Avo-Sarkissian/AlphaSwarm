@@ -211,6 +211,7 @@ async def test_handle_inject_marks_the_seed_only_cycle_failed(
     built.orchestrator.aclose = AsyncMock()
     inject = AsyncMock(return_value=("c-seed-only", fallback_parsed_result, None))
     monkeypatch.setattr("alphaswarm.app.create_app_state", MagicMock(return_value=app))
+    monkeypatch.setattr("alphaswarm.cli.configure_logging", lambda **_: None)  # keep the session's structlog
     monkeypatch.setattr("alphaswarm.inference.config.load_inference_config", MagicMock())
     monkeypatch.setattr("alphaswarm.inference.factory.build_providers", MagicMock(return_value=built))
     monkeypatch.setattr("alphaswarm.seed.inject_seed", inject)

@@ -13,6 +13,7 @@ Extend this file in place; do not add a second one.
 from __future__ import annotations
 
 import importlib.util
+import logging
 import os
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -35,6 +36,7 @@ import alphaswarm.web.app as web_app
 from alphaswarm.app import AppState, create_app_state
 from alphaswarm.errors import Neo4jUnavailableError, Neo4jWriteError
 from alphaswarm.graph import GraphStateManager
+from alphaswarm.logging import BRIDGE_HANDLER_NAME, reset_stdlib_bridge
 from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
 from alphaswarm.settings import AppSettings
 from alphaswarm.types import AgentPersona
@@ -182,6 +184,16 @@ async def test_lifespan_uses_given_settings_and_applies_schema(probe: LifespanPr
         probe.graph.verify_connectivity.assert_awaited_once()
         probe.graph.ensure_schema.assert_awaited_once()
         assert probe.app.state.neo4j_ready is True
+
+
+async def test_lifespan_installs_the_redacting_log_bridge(probe: LifespanProbe) -> None:
+    """create_app_state no longer configures logging, so the lifespan must (docs/DECISIONS.md#adr-security-2026-08)."""
+    reset_stdlib_bridge()
+    try:
+        async with probe.app.router.lifespan_context(probe.app):
+            assert BRIDGE_HANDLER_NAME in [h.get_name() for h in logging.getLogger().handlers]
+    finally:
+        reset_stdlib_bridge()
 
 
 async def test_health_is_served_and_the_broadcaster_runs(probe: LifespanProbe) -> None:

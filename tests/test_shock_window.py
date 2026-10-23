@@ -22,17 +22,6 @@ from tests.support.web_app import make_route_app, route_test_settings
 _SHOCK = "Fed cuts 50bp at emergency session"
 
 
-@pytest.fixture(autouse=True)
-def _keep_logging_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stop create_app_state() from reconfiguring structlog for the session.
-
-    Logger proxies cached earlier in the run hold the processor list that was
-    configured then; a new configuration would leave later capture_logs tests
-    blind to their events.
-    """
-    monkeypatch.setattr("alphaswarm.app.configure_logging", lambda **_: None)
-
-
 async def _running_manager(phase: SimulationPhase, num_rounds: int = 3) -> tuple[SimulationManager, StateStore]:
     store = StateStore()
     store.set_num_rounds(num_rounds)

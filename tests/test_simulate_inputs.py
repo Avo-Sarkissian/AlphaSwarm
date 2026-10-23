@@ -15,17 +15,6 @@ from tests.support.web_app import make_route_app, route_test_settings
 _SEED = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
 
 
-@pytest.fixture(autouse=True)
-def _keep_logging_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stop create_app_state() from reconfiguring structlog for the session.
-
-    Logger proxies cached earlier in the run hold the processor list that was
-    configured then; a new configuration would leave later capture_logs tests
-    blind to their events.
-    """
-    monkeypatch.setattr("alphaswarm.app.configure_logging", lambda **_: None)
-
-
 @pytest.mark.parametrize("seed", ["", "    ", "nine char", "x" * 2001])
 def test_bad_seeds_are_422_and_never_reach_the_manager(tmp_path: Path, seed: str) -> None:
     app = make_route_app(simulation_router, settings=route_test_settings(tmp_path))

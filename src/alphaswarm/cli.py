@@ -23,6 +23,7 @@ import structlog
 from alphaswarm import __version__
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.ingestion.fixture import load_context_fixture
+from alphaswarm.logging import configure_logging
 from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.settings import AppSettings
 from alphaswarm.types import SignalType
@@ -435,6 +436,8 @@ def _handle_run(
     from alphaswarm.inference.factory import build_controller, build_providers, inference_mode
 
     settings = AppSettings()
+    # create_app_state does not configure logging (docs/DECISIONS.md#adr-security-2026-08).
+    configure_logging(log_level=settings.log_level, json_output=not settings.debug)
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
@@ -497,6 +500,8 @@ async def _handle_inject(rumor: str) -> None:
     from alphaswarm.seed import inject_seed
 
     settings = AppSettings()
+    # create_app_state does not configure logging (docs/DECISIONS.md#adr-security-2026-08).
+    configure_logging(log_level=settings.log_level, json_output=not settings.debug)
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
@@ -560,6 +565,8 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
     from alphaswarm.report import generate_report
 
     settings = AppSettings()
+    # create_app_state does not configure logging (docs/DECISIONS.md#adr-security-2026-08).
+    configure_logging(log_level=settings.log_level, json_output=not settings.debug)
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
     app = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
@@ -634,7 +641,6 @@ def _handle_web(host: str, port: int) -> None:
     """
     import uvicorn
 
-    from alphaswarm.logging import configure_logging
     from alphaswarm.settings import AppSettings
     from alphaswarm.web import create_app
 

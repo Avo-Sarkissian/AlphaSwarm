@@ -19,6 +19,7 @@ from starlette.staticfiles import StaticFiles
 from alphaswarm.app import create_app_state
 from alphaswarm.errors import GraphError
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
+from alphaswarm.logging import configure_logging
 from alphaswarm.manifest import current_git_revision
 from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
@@ -178,6 +179,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings: AppSettings = app.state.settings
     brackets = load_bracket_configs()
     personas = generate_personas(brackets)
+    # create_app_state does not configure logging; the redacting bridge is
+    # installed here (docs/DECISIONS.md#adr-security-2026-08).
+    configure_logging(log_level=settings.log_level, json_output=not settings.debug)
     app_state = create_app_state(settings, personas, with_ollama=True, with_neo4j=True)
     # Interview sessions keyed (cycle_id, agent_id) -> {"engine", "lock", "provider"}; created
     # before SimulationManager so on_start can clear them (docs/DECISIONS.md#p35-d-06).

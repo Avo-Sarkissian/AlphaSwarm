@@ -314,9 +314,6 @@ def test_invalid_twice_leaks_nothing_to_logs_or_http(
     import alphaswarm.web.routes.advisory as advisory_route
 
     _fresh_advisory_loggers(monkeypatch)
-    # make_route_app's lifespan builds AppState, which reconfigures logging; keep the
-    # canary's capture configuration for the whole test.
-    monkeypatch.setattr("alphaswarm.app.configure_logging", lambda **_kwargs: None)
     provider = CanarySequenceProvider(
         prompt_sink=capture_jinja_renders,
         contents=[canary_invalid_advisory_json(), canary_invalid_advisory_json()],
