@@ -31,7 +31,6 @@ body { background: var(--bg); }
 
 .app { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); color: var(--text); }
 
-.app[data-density="compact"]     { --gap: 8px; --pad-sm: 6px; --pad: 10px; --pad-lg: 14px; }
 .app[data-density="comfortable"] { --gap: 14px; --pad-sm: 10px; --pad: 16px; --pad-lg: 22px; }
 
 .mono { font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace; }
@@ -53,7 +52,6 @@ body { background: var(--bg); }
   background: var(--bg-2);
   flex-shrink: 0;
 }
-.app[data-density="compact"] .topbar { height: 44px; }
 
 .topbar-divider { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 
@@ -122,7 +120,6 @@ body { background: var(--bg); }
   overflow: hidden;
   min-height: 0;
 }
-.app[data-density="compact"] .main { grid-template-columns: 240px 1fr 300px; }
 
 .col { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 .col-left { border-right: 1px solid var(--border); background: var(--bg-2); }
@@ -139,7 +136,6 @@ body { background: var(--bg); }
   flex-shrink: 0;
   background: var(--bg-2);
 }
-.app[data-density="compact"] .panel-head { padding: 7px 10px; }
 .panel-title { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; color: var(--text); font-weight: 500; white-space: nowrap; }
 .panel-body { padding: 10px 14px; overflow: auto; flex: 1; min-height: 0; }
 .panel-body.no-pad { padding: 0; }
@@ -316,8 +312,6 @@ body { background: var(--bg); }
 .kpi-value.crit { color: var(--sell); }
 .kpi-bar { height: 3px; background: var(--bg); border-radius: 2px; overflow: hidden; margin-top: 5px; }
 .kpi-bar > span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
-.app[data-density="compact"] .kpi-value { font-size: 16px; }
-.app[data-density="compact"] .kpi { padding: 7px 10px; }
 
 .composition {
   display: flex; border-radius: 3px; overflow: hidden; height: 20px;
@@ -419,14 +413,6 @@ body { background: var(--bg); }
 .seg button:last-child { border-right: 0; }
 .seg button[data-active="true"] { background: var(--accent); color: var(--bg); font-weight: 600; }
 .seg button:hover:not([data-active="true"]) { color: var(--text); }
-
-.sig-mix { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.sig-mix label { display: flex; flex-direction: column; gap: 2px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.1em; }
-.sig-mix input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 5px 6px; border-radius: 3px; outline: 0; text-align: right; }
-.sig-mix input:focus { border-color: var(--accent); }
-.sig-mix .buy { color: var(--buy); }
-.sig-mix .sell { color: var(--sell); }
-.sig-mix .hold { color: var(--hold); }
 
 /* ---------- Interview chat ---------- */
 .chat-log { display: flex; flex-direction: column; gap: 14px; }
@@ -644,8 +630,6 @@ body { background: var(--bg); }
   -webkit-mask-image: linear-gradient(180deg, black 50%, transparent 100%);
 }
 .seeding-line { white-space: nowrap; }
-
-.seg-wrap { flex-wrap: wrap; }
 
 /* NEW W2-only classes (used by ported components but absent from both
    AlphaSwarm-2/styles.css AND the archive). Defined here so the inventory
@@ -2338,23 +2322,6 @@ body { background: var(--bg); }
 .st-group-title { color: var(--text); font-size: 13px; font-weight: 600; }
 .st-group-desc { color: var(--text-2); font-size: 12px; line-height: 1.55; margin-bottom: 12px; }
 .st-group-body { display: flex; flex-direction: column; gap: 10px; }
-
-.st-seg {
-  display: inline-flex; gap: 4px;
-  background: var(--bg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 2px;
-}
-.st-seg button {
-  background: transparent; border: 0;
-  color: var(--text-2); padding: 4px 12px; border-radius: 3px;
-  font-family: inherit; font-size: 11.5px; cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.st-seg button:hover { color: var(--text); }
-.st-seg button[data-active="true"] {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent);
-}
 
 .st-check {
   display: inline-flex; align-items: center; gap: 8px;
