@@ -2061,7 +2061,7 @@ body { background: var(--bg); }
 }
 .ch-row {
   display: grid;
-  grid-template-columns: 320px 170px 1fr 110px 60px 70px 40px;
+  grid-template-columns: 320px 170px 1fr 110px 60px 70px 72px;
   gap: 14px; align-items: center;
   padding: 8px 14px;
   border-bottom: 1px solid var(--border);
@@ -2101,6 +2101,10 @@ body { background: var(--bg); }
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
+.ch-actions { display: flex; gap: 4px; justify-content: flex-end; }
+/* Two icon buttons fit the 72px action column. */
+.ch-actions .ch-open-btn { padding: 3px 8px; }
+.ch-open-btn:disabled { opacity: 0.4; cursor: default; }
 
 /* ============================================================
    Settings (st-*) — full-screen settings takeover

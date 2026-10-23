@@ -1,7 +1,7 @@
 // RunConfirmModal — pre-run cost confirmation for CLOUD/MIXED inference runs.
 //
 // Rendered as a normal-flow overlay (modal-backdrop + modal pattern, matching
-// CyclePickerModal and ComingSoonModal in this codebase).
+// ComingSoonModal in this codebase).
 //
 // Props:
 //   estimate   — RunEstimate from GET /api/settings/estimate, or null when the

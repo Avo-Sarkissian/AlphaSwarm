@@ -5,9 +5,10 @@
 import { useMemo, useState } from 'react';
 import { Icon } from './icons';
 import { InlineError } from './InlineError';
-import type { CycleItem } from '../api/replay';
+import { replayStart, type CycleItem } from '../api/replay';
 import { useCyclePages } from '../hooks/useCyclePages';
 import { consensusOf, isSameLocalDay, parseIsoInstant, summarizeCycles } from '../lib/cycles';
+import { formatApiError } from '../lib/apiError';
 import { formatDuration } from '../lib/format';
 
 function formatCycleDate(iso: string): string {
@@ -29,6 +30,21 @@ export function CycleHistory({
   // "Today" is anchored when the filter is chosen (an event, not render), so the
   // render stays pure (react-hooks/purity) and the list does not shift at midnight.
   const [todayAnchor, setTodayAnchor] = useState<Date | null>(null);
+  const [replaying, setReplaying] = useState<string | null>(null);
+  const [replayError, setReplayError] = useState<string | null>(null);
+
+  async function onReplay(cycleId: string): Promise<void> {
+    setReplaying(cycleId);
+    setReplayError(null);
+    try {
+      await replayStart(cycleId);
+      onClose();
+    } catch (err) {
+      setReplayError(formatApiError(err));
+    } finally {
+      setReplaying(null);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -83,6 +99,7 @@ export function CycleHistory({
         <ChStat label="AVG DURATION" value={formatDuration(summary.avgSeconds)} />
       </div>
 
+      <InlineError error={replayError} onDismiss={() => setReplayError(null)} />
       <div className="ch-table-wrap">
         <div className="ch-row ch-row-head">
           <div className="label">CYCLE ID</div>
@@ -109,7 +126,13 @@ export function CycleHistory({
           </div>
         )}
         {filtered.map((c) => (
-          <CycleRow key={c.cycle_id} cycle={c} onOpenReport={onOpenReport} />
+          <CycleRow
+            key={c.cycle_id}
+            cycle={c}
+            onOpenReport={onOpenReport}
+            onReplay={() => void onReplay(c.cycle_id)}
+            replayDisabled={replaying !== null}
+          />
         ))}
         {hasMore && (
           <div className="ch-row ch-row-wide">
@@ -123,7 +146,17 @@ export function CycleHistory({
   );
 }
 
-function CycleRow({ cycle: c, onOpenReport }: { cycle: CycleItem; onOpenReport: (c: CycleItem) => void }) {
+function CycleRow({
+  cycle: c,
+  onOpenReport,
+  onReplay,
+  replayDisabled,
+}: {
+  cycle: CycleItem;
+  onOpenReport: (c: CycleItem) => void;
+  onReplay: () => void;
+  replayDisabled: boolean;
+}) {
   const consensus = consensusOf(c);
   return (
     <div className="ch-row">
@@ -151,9 +184,20 @@ function CycleRow({ cycle: c, onOpenReport }: { cycle: CycleItem; onOpenReport: 
       <div className="ch-dur mono" title={c.total_seconds === null ? 'Not recorded for this cycle' : undefined}>
         {formatDuration(c.total_seconds)}
       </div>
-      <button className="ch-open-btn" onClick={() => onOpenReport(c)} title="Open report" aria-label={`Open report for ${c.cycle_id}`}>
-        <Icon name="doc" />
-      </button>
+      <div className="ch-actions">
+        <button
+          className="ch-open-btn"
+          onClick={onReplay}
+          disabled={replayDisabled}
+          title="Replay this cycle"
+          aria-label={`Replay ${c.cycle_id}`}
+        >
+          <Icon name="replay" />
+        </button>
+        <button className="ch-open-btn" onClick={() => onOpenReport(c)} title="Open report" aria-label={`Open report for ${c.cycle_id}`}>
+          <Icon name="doc" />
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-// Modals: ShockDrawer + ReplayBar + CyclePickerModal — real-wired.
+// Modals: ShockDrawer + ReplayBar — real-wired.
 //
 // Lifted from frontend-react-archive/src/components/modals.jsx (Phase 41.1 + 41.2
 // per Plan 41.6-03 task 3). Pure JSX (no TS syntax) per codex HIGH-1 — file
@@ -13,7 +13,6 @@ import { simShock } from '../api/simulation';
 import { replayAdvance, replayStop } from '../api/replay';
 import { useConnection } from '../context/ConnectionContext';
 import { useFrameMeta } from '../context/FrameMetaContext';
-import { useCyclePages } from '../hooks/useCyclePages';
 import { useRounds } from '../hooks/useRounds';
 import { formatApiError } from '../lib/apiError';
 import { SHOCK_MAX_CHARS, SHOCK_MIN_CHARS, shockLengthError, shockTargetRound } from '../lib/shock';
@@ -175,87 +174,6 @@ export function ReplayBar() {
         Exit replay
       </button>
       <InlineError error={err} onDismiss={() => setErr(null)} />
-    </div>
-  );
-}
-
-// ─── CyclePickerModal ────────────────────────────────────────────────────
-
-export function CyclePickerModal({ onPick, onClose }) {
-  const { cycles, error, hasMore, loadingMore, loadMore } = useCyclePages();
-  const [pickError, setPickError] = useState(null);
-  const err = pickError ?? error;
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(720px, 94%)' }}>
-        <div className="modal-head">
-          <Icon name="replay" />
-          <span className="label" style={{ color: 'var(--text-2)', letterSpacing: '0.12em' }}>
-            SELECT CYCLE TO REPLAY
-          </span>
-          <div className="sp" />
-          <button className="btn ghost" onClick={onClose} aria-label="Close cycle picker">
-            <Icon name="close" />
-          </button>
-        </div>
-        <div className="modal-body no-pad">
-          {cycles === null && !err && (
-            <div style={{ padding: '30px 20px' }} className="label">
-              Loading cycles…
-            </div>
-          )}
-          {err && (
-            <div style={{ padding: '30px 20px', color: 'var(--sell)' }} className="label" role="alert">
-              {err}
-            </div>
-          )}
-          {cycles && cycles.length === 0 && !err && (
-            <div style={{ padding: '30px 20px' }} className="label">
-              No completed cycles yet.
-            </div>
-          )}
-          {cycles &&
-            cycles.map((c) => (
-              <div
-                key={c.cycle_id}
-                style={{
-                  padding: '14px 20px',
-                  borderBottom: '1px solid var(--border)',
-                  cursor: 'pointer',
-                  display: 'grid',
-                  gridTemplateColumns: '1fr auto auto',
-                  gap: 18,
-                  alignItems: 'center',
-                }}
-                onClick={async () => {
-                  try {
-                    setPickError(null);
-                    await onPick(c);
-                  } catch (e) {
-                    setPickError(formatApiError(e));
-                  }
-                }}
-                onMouseOver={(e) => (e.currentTarget.style.background = 'var(--bg-3)')}
-                onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
-              >
-                <div>
-                  <div style={{ fontSize: 14, color: 'var(--text)', marginBottom: 4 }}>"{c.seed_rumor}"</div>
-                  <div className="label">{c.cycle_id}</div>
-                </div>
-                <div className="label">{c.created_at}</div>
-                <div className="label">{c.round_count}R</div>
-              </div>
-            ))}
-          {hasMore && (
-            <div style={{ padding: '12px 20px' }}>
-              <button className="btn ghost" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? 'Loading…' : 'Load older cycles'}
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

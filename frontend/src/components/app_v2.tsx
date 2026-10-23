@@ -17,7 +17,7 @@
 //     Governor paused/crisis renders as a dismissible banner over the dashboard
 //     (the backend governor resumes on its own — no takeover, no simStart).
 //
-// Modal mounts (Interview, Report, Shock, Replay, CyclePicker, AdvisoryV2,
+// Modal mounts (Interview, Report, Shock, Replay, AdvisoryV2,
 // SignalWire ticker, DataSources takeover, BracketDeepDive) are stubbed for
 // W2; W3 Plan 03 + W4 Plan 04 wire them.
 //
@@ -40,7 +40,6 @@ import { simStop } from '../api/simulation';
 import { useAwaitRunFrame } from '../hooks/useAwaitRunFrame';
 import { useRunGate } from '../hooks/useRunGate';
 import { useSampleHistory } from '../hooks/useSampleHistory';
-import { replayStart } from '../api/replay';
 import { bracketSpec } from '../data';
 import { rankInfluencers } from '../lib/influence';
 import { buildFeed, indexAgents } from '../lib/rationaleFeed';
@@ -51,7 +50,7 @@ import { useRound, useRounds } from '../hooks/useRounds';
 // Plan 41.6-03 task 3 (W3): real ported components replace W2 stub overlays.
 // modals.jsx, history.tsx, settings.tsx, v2.tsx, ReportModal.tsx live alongside.
 import { SignalWire, ModelStatus, DataSourcesTakeover, AdvisoryV2 } from './v2';
-import { ShockDrawer, ReplayBar, CyclePickerModal } from './modals';
+import { ShockDrawer, ReplayBar } from './modals';
 import { ReportModal } from './ReportModal';
 import { CycleHistory } from './history';
 import { Settings } from './settings';
@@ -217,7 +216,6 @@ function Legend() {
 
 interface UiState {
   shockOpen: boolean;
-  cyclePickerOpen: boolean;
   interviewAgentId: string | null;
   reportOpen: boolean;
   reportCycleId: string | null; // cycle picked in CycleHistory (null = current)
@@ -271,7 +269,6 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
   const [hintsDismissed, setHintsDismissed] = useState(false);
   const [ui, setUi] = useState<UiState>({
     shockOpen: false,
-    cyclePickerOpen: false,
     interviewAgentId: null,
     reportOpen: false,
     reportCycleId: null,
@@ -415,7 +412,7 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
         >
           <Icon name="bolt" />
         </button>
-        <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, cyclePickerOpen: true}))} title="Watch / replay">
+        <button className="btn ghost-btn" onClick={() => setUi(u => ({ ...u, historyOpen: true }))} title="Watch / replay">
           <Icon name="replay" />
         </button>
         <button className="btn ghost-btn" onClick={() => setUi(u => ({...u, reportOpen: true}))} title="Simulation report">
@@ -683,18 +680,6 @@ export function App({ initialSeed = '' }: { initialSeed?: string }) {
         <ComingSoonModal
           feature={ui.comingSoon}
           onClose={() => setUi((u) => ({ ...u, comingSoon: null }))}
-        />
-      )}
-      {ui.cyclePickerOpen && (
-        <CyclePickerModal
-          onClose={() => setUi((u) => ({ ...u, cyclePickerOpen: false }))}
-          onPick={async (cycle: any) => {
-            // Start the backend replay; the bar appears as soon as frames switch
-            // to mode 'replay'. Errors (e.g. 409 replay already active) propagate
-            // back to the picker, which shows them in its error label.
-            await replayStart(cycle.cycle_id);
-            setUi((u) => ({ ...u, cyclePickerOpen: false }));
-          }}
         />
       )}
 
