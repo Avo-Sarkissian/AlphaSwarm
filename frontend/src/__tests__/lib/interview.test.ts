@@ -51,6 +51,11 @@ describe('openingLine', () => {
   it('admits it has not decided yet', () => {
     expect(openingLine({ ...base, phase: 'round_1', roundNum: 1, signal: null })).toContain('have not decided yet');
   });
+  it('names a failed round FAILED, like the signal chip', () => {
+    const line = openingLine({ ...base, phase: 'complete', roundNum: 3, signal: 'parse_error' });
+    expect(line).toContain('close: FAILED, confidence');
+    expect(line).not.toContain('PARSE_ERROR');
+  });
 });
 
 describe('resolveInterviewCycle', () => {

@@ -1,5 +1,6 @@
 import type { AgentDecisionRow } from '../api/agents';
 import type { AgentSignal } from '../types';
+import { signalLabel } from './signals';
 
 export type TrajectorySource = 'stored' | 'live' | 'missing';
 
@@ -57,7 +58,7 @@ export interface OpeningLineInput {
 export function openingLine(i: OpeningLineInput): string {
   const tail = 'Ask me about my reasoning.';
   if (i.signal === null) return `${i.display}. Round ${i.roundNum ?? 1} is in progress and I have not decided yet. ${tail}`;
-  const position = `${i.signal.toUpperCase()}, confidence ${Math.round(i.confidence * 100)}%`;
+  const position = `${signalLabel(i.signal)}, confidence ${Math.round(i.confidence * 100)}%`;
   if (i.phase === 'complete') return `${i.display}. Final round (R${i.numRounds}) close: ${position}. ${tail}`;
   if (i.phase === 'replay') return `${i.display}. Replaying round ${i.roundNum ?? 1} of ${i.numRounds}: ${position}. ${tail}`;
   if (i.roundNum !== null && i.roundNum >= 1) return `${i.display}. Round ${i.roundNum} of ${i.numRounds} so far: ${position}. ${tail}`;
