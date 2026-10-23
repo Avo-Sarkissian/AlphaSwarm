@@ -117,6 +117,39 @@ def test_commit_shas_cited_in_docs_are_in_history() -> None:
     assert stale == []
 
 
+# --------- Code named in the docs exists (docs follow code) ---------
+
+_PY_PATH = r"(?<![\w/.-])((?:tests/)?[a-z_][a-z0-9_/]*\.py)"
+# `module.py:symbol[,symbol]` (a dotted symbol checks each part) and module.py (`symbol`).
+# Numeric line references are not checked.
+_CODE_REF_COLON = re.compile(_PY_PATH + r":([A-Za-z_][\w.]*(?:,[A-Za-z_][\w.]*)*)")
+_CODE_REF_PAREN = re.compile(_PY_PATH + r" \(`([A-Za-z_][\w.]*)`")
+
+
+def test_decision_code_references_resolve() -> None:
+    """Every symbol DECISIONS.md cites by module still appears in that module.
+
+    Paths resolve against the repository root, then ``src/alphaswarm``. A row
+    whose code was renamed or deleted fails here until it is repointed.
+    """
+    src = ROOT / "src" / "alphaswarm"
+    stale: list[str] = []
+    for lineno, line in enumerate(DECISIONS.read_text(encoding="utf-8").splitlines(), 1):
+        for pattern in (_CODE_REF_COLON, _CODE_REF_PAREN):
+            for path, symbols in pattern.findall(line):
+                target = next((base / path for base in (ROOT, src) if (base / path).is_file()), None)
+                if target is None:
+                    stale.append(f"line {lineno}: {path} (no such file)")
+                    continue
+                body = target.read_text(encoding="utf-8")
+                stale.extend(
+                    f"line {lineno}: {path}:{symbol}"
+                    for symbol in symbols.split(",")
+                    if not all(re.search(rf"\b{re.escape(part)}\b", body) for part in symbol.split("."))
+                )
+    assert stale == []
+
+
 # --------- iCloud duplicates (T12.8) ---------
 
 DUPLICATE_GLOB = "* [2-9].py"
