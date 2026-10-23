@@ -11,11 +11,7 @@ PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 # Modules that still carry strict-mode errors and have an ignore_errors override in
 # pyproject.toml. An entry leaves this set in the change that removes its override, as
 # its module is cleaned up; nothing is ever added.
-ALLOWED_OVERRIDES = frozenset(
-    {
-        "alphaswarm.cli",
-    }
-)
+ALLOWED_OVERRIDES: frozenset[str] = frozenset()
 
 
 def _config() -> dict[str, Any]:

@@ -386,7 +386,7 @@ Contents
   - `report.collect_report_data` runs every report read concurrently with the cycle id bound server-side; the model never chooses a query or a cycle.
   - One orchestrator call through `chat_structured` writes the executive summary, key moments, dissent and follow-ups (`ReportNarrativeLLMOutput`); list items naming agents absent from the data are dropped. A reply that never validates yields a tables-only report.
   - `render_report` renders the Jinja section templates under `StrictUndefined`; `build_sections` returns the convergence and influence rows the UI charts. Files: `reports/{cycle_id}_report.json` (sections) then `reports/{cycle_id}_report.md`, both atomic.
-  - `services.report.ReportService` wraps `report.generate_report` in the orchestrator lock and the provider lifecycle; the web report job runs through it (`JobRunner`), and `GET /api/report/{id}` returns the sections next to the markdown (`sections: null` for a report without a readable sidecar). The CLI calls `generate_report` directly until it moves onto the service.
+  - `services.report.ReportService` wraps `report.generate_report` in the orchestrator lock and the provider lifecycle; the web report job runs through it (`JobRunner`), and `GET /api/report/{id}` returns the sections next to the markdown (`sections: null` for a report without a readable sidecar). The CLI `report` command runs the same service inside `open_runtime`.
 - **Rationale:** the ReAct loop spent up to ten orchestrator calls choosing among eight fixed queries and its text never reached the report (T5.1). **Superseded** the prompt-based ReAct loop (2026-10): one call now, measured with `ScriptedProvider` in `tests/test_report_pipeline.py`.
 - **Update (2026-10):** Report reads return typed rows (the row TypedDicts in `graph.py`, such as `ConsensusSummaryRow` and `ShockImpactRow`), and templates render under Jinja `StrictUndefined`. A template that reads a key its query does not return now fails the report instead of rendering a blank column. Free text goes through the `md_cell` filter (pipes escaped, whitespace collapsed) and numbers through `num` (fixed digits, "—" for a missing value).
   - Reads describe the final round ([adr-num-rounds](#adr-num-rounds)), and the timeline covers every round that ran. PARSE_ERROR has its own row in the consensus summary and its own column in the timeline, so the shares add up to 100%.
@@ -544,8 +544,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p7-d-11"></a>`D-11` | Track signal flips between rounds with a transition breakdown. | active | rounds.py:compute_shifts |
 | <a id="p7-d-12"></a>`D-12` | Track per-bracket average confidence delta between rounds. | active | rounds.py:compute_shifts |
 | <a id="p7-d-13"></a>`D-13` | Shift metrics computed in memory from round results; no Neo4j query. | active | rounds.py:compute_shifts,run_round |
-| <a id="p7-d-14"></a>`D-14` | CLI prints each round's report as it completes via an on_round_complete callback. | active | cli.py:_run_pipeline,_make_round_complete_handler; tests/test_cli.py:test_run_pipeline_calls_run_simulation_with_callback,test_round_complete_handler_prints_report_and_shift |
-| <a id="p7-d-17"></a>`D-17` | The `run` CLI subcommand runs the full multi-round simulation. | active | cli.py:_handle_run,_run_pipeline; tests/test_cli.py:test_run_pipeline_calls_run_simulation_with_callback |
+| <a id="p7-d-14"></a>`D-14` | CLI prints each round's report as it completes via an on_round_complete callback. | active | cli.py:_run_pipeline,_make_round_complete_handler; tests/test_cli_runtime.py:test_run_command_runs_through_the_runtime; tests/test_cli.py:test_round_complete_handler_prints_report_and_shift |
+| <a id="p7-d-17"></a>`D-17` | The `run` CLI subcommand runs the full multi-round simulation. | active | cli.py:_handle_run,_run_pipeline; tests/test_cli_runtime.py:test_run_command_runs_through_the_runtime |
 
 ### Phase 8: Dynamic influence topology
 
@@ -641,7 +641,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p15-d-07"></a>`D-07` | Fixed report section order. | active | report.py:SECTION_TEMPLATES |
 | <a id="p15-d-10"></a>`D-10` | Reports written to ./reports/{cycle_id}_report.md, next to a `{cycle_id}_report.json` sections sidecar (2026-10). | active | report.py:generate_report; cli.py:_handle_report; services/report.py:ReportService.generate |
 | <a id="p15-d-11"></a>`D-11` | Async file write via aiofiles. Revised: `write_report_files` writes the sections sidecar, then the markdown, atomically off the event loop (`generate_report` runs it through `asyncio.to_thread`; temp file + fsync + os.replace, BACKLOG 1.11), and report.py no longer uses aiofiles. | revised | report.py:write_report_files,generate_report |
-| <a id="p15-d-12"></a>`D-12` | Report code does not manage the model lifecycle; the caller (the CLI `report` command, the web report job) prepares, tears down and closes the provider around `generate_report`. | active | report.py:generate_report; cli.py:_handle_report; services/report.py:ReportService.generate |
+| <a id="p15-d-12"></a>`D-12` | Report code does not manage the model lifecycle; the caller (`ReportService`, which the CLI `report` command and the web report job both use) prepares, tears down and closes the provider around `generate_report`. | active | report.py:generate_report; services/report.py:ReportService.generate; cli.py:_handle_report |
 
 ### Phase 26: Shock injection core
 
