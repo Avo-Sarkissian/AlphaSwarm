@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 import pytest
 
@@ -13,6 +15,23 @@ from alphaswarm import cli
 from alphaswarm.errors import InferenceConfigError
 
 RUMOR = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
+
+
+def _run_on_a_private_loop(coro: Coroutine[Any, Any, Any]) -> Any:
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+@pytest.fixture(autouse=True)
+def _private_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """asyncio.run() would clear the thread's current event loop and orphan the one
+    pytest-asyncio installed; it then leaks and fails a later test under
+    filterwarnings = error. The real asyncio.run path is pinned by the SIGINT
+    subprocess test."""
+    monkeypatch.setattr(asyncio, "run", _run_on_a_private_loop)
 
 
 def raising(exc: BaseException) -> Callable[..., None]:
