@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import dataclasses
 import inspect
 import sys
 import traceback
@@ -29,7 +28,7 @@ from alphaswarm.personas import load_bracket_configs
 from alphaswarm.readiness import NEO4J_FIX
 from alphaswarm.services.runtime import close_operation, open_runtime, open_simulation
 from alphaswarm.settings import AppSettings
-from alphaswarm.simulation import run_simulation
+from alphaswarm.simulation import apply_context_options, run_simulation
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
@@ -406,15 +405,18 @@ async def _run_pipeline(
             f"(orchestrator={cfg.orchestrator.model}, worker={cfg.worker.model})"
         )
         print(f"Starting {settings.num_rounds}-round simulation...")
+        if context_fixture is not None:
+            print(f"Market context: fixture as of {context_fixture.as_of.isoformat()} (no live fetches)")
+        elif not market_context:
+            print("Market context: disabled (no live fetches)")
         handler = _make_round_complete_handler(personas, brackets)
         async with open_simulation(
             runtime.inference,
             runtime.app_state,
             state=runtime.app_state.state_store,
         ) as deps:
-            if context_fixture is not None or not market_context:
-                deps = dataclasses.replace(deps, market=None, news=None, context_fixture=context_fixture)
-            result = await run_simulation(rumor, deps, personas, brackets, on_round_complete=handler)
+            run_deps = apply_context_options(deps, fixture=context_fixture, market_context=market_context)
+            result = await run_simulation(rumor, run_deps, personas, brackets, on_round_complete=handler)
         _print_simulation_summary(result, personas, brackets, num_rounds=settings.num_rounds)
 
 
