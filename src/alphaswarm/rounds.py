@@ -19,8 +19,8 @@ import structlog
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.episodes import EpisodeRecord, compute_flip_type, match_entities, new_decision_ids
 from alphaswarm.errors import RoundAlignmentError, RoundFailedError
-from alphaswarm.manifest import derive_call_seed
-from alphaswarm.metrics import filter_round_citations, round_experiment_metrics
+from alphaswarm.manifest import RETEST_ROUND, derive_call_seed
+from alphaswarm.metrics import filter_round_citations, retest_metrics, round_experiment_metrics
 from alphaswarm.peers import (
     RoundPromptContext,
     build_round_context,
@@ -395,6 +395,45 @@ def prepare_round_inputs(
     )
 
 
+async def retest_round1(
+    ctx: RoundContext, inputs: RoundInputs, first: Sequence[tuple[str, AgentDecision]]
+) -> dict[str, float | int]:
+    """Draw Round 1 again with fresh call seeds and compare it with the first draw.
+
+    Same prompts, different sampling seeds (``RETEST_ROUND``); nothing is
+    persisted, streamed to the UI or added to the telemetry. The share of agents
+    whose signal changes is the noise floor every flip rate is read against
+    (docs/DECISIONS.md#adr-run-manifest).
+    """
+    deps = ctx.deps
+    seeds = (
+        [derive_call_seed(ctx.sim_seed, p.id, RETEST_ROUND) for p in ctx.personas] if ctx.sim_seed is not None else None
+    )
+    logger.info("round1_retest_started", cycle_id=ctx.cycle_id, agent_count=len(ctx.personas))
+    raw = await dispatch_wave(
+        personas=list(inputs.worker_configs),
+        governor=deps.controller,
+        provider=deps.worker,
+        user_message=inputs.user_message,
+        settings=deps.settings.governor,
+        peer_contexts=list(inputs.prompt.peer_blocks),
+        market_context=inputs.market_context,
+        state_store=None,
+        round_num=1,
+        own_priors=list(inputs.prompt.own_prior_lines),
+        call_seeds=seeds,
+    )
+    second = [(config["agent_id"], decision) for config, decision in zip(inputs.worker_configs, raw, strict=True)]
+    metrics = retest_metrics(first, second)
+    logger.info(
+        "round1_retest_completed",
+        cycle_id=ctx.cycle_id,
+        pairs=metrics["r1_retest_pairs"],
+        flips=metrics["r1_retest_flips"],
+    )
+    return metrics
+
+
 def _round_metrics(
     round_num: int,
     decisions: Sequence[tuple[str, AgentDecision]],
@@ -588,6 +627,8 @@ async def run_round(
         personas=ctx.personas,
         shock_treated_ids=inputs.shock_treated_ids,
     )
+    if round_num == 1 and deps.settings.simulation.retest_round1:
+        experiment_metrics.update(await retest_round1(ctx, inputs, decisions))
     return RoundOutcome(
         round_num=round_num,
         decisions=decisions,
