@@ -28,6 +28,7 @@ from alphaswarm.peers import (
     select_shock_treated_ids,
 )
 from alphaswarm.personas import persona_to_worker_config
+from alphaswarm.prompts.decision import FocalInstrument, render_decision_task
 from alphaswarm.state import BracketSummary
 from alphaswarm.telemetry import RoundTelemetry
 from alphaswarm.types import SignalType, WorkerPersonaConfig
@@ -332,6 +333,7 @@ class RoundContext:
     run_seed: str
     on_round_complete: OnRoundComplete = None
     sim_seed: int | None = None  # effective run seed; None sends no per-call seeds
+    focal: FocalInstrument | None = None  # docs/DECISIONS.md#adr-decision-prompt
 
 
 @dataclasses.dataclass(frozen=True)
@@ -374,7 +376,7 @@ def prepare_round_inputs(
         if ctx.sim_seed is not None
         else None
     )
-    user_message = _with_shocks(ctx.rumor, shocks)
+    user_message = render_decision_task(_with_shocks(ctx.rumor, shocks), ctx.focal)
     user_messages: tuple[str, ...] | None = None
     shock_treated: frozenset[str] | None = None
     if sim.shock_treatment_split and shocks:
@@ -382,7 +384,7 @@ def prepare_round_inputs(
         # rumor, so the shock's effect is treated minus untreated pivots
         # (docs/DECISIONS.md#adr-run-manifest).
         shock_treated = select_shock_treated_ids(ctx.personas, run_seed=ctx.run_seed)
-        plain = _with_shocks(ctx.rumor, ())
+        plain = render_decision_task(_with_shocks(ctx.rumor, ()), ctx.focal)
         user_messages = tuple(user_message if p.id in shock_treated else plain for p in ctx.personas)
     return RoundInputs(
         prompt=prompt,

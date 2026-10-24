@@ -25,8 +25,7 @@ def _imported_modules(path: Path) -> set[str]:
 @pytest.mark.parametrize("rel", SWARM_SIDE)
 def test_swarm_side_module_never_imports_the_advisory(rel: str) -> None:
     path = SRC / rel
-    if not path.exists():
-        pytest.skip(f"{rel} is created by a later task")
+    assert path.exists(), f"{rel} is listed as swarm-side but does not exist"
     offenders = {
         m for m in _imported_modules(path) if m == "alphaswarm.advisory" or m.startswith("alphaswarm.advisory.")
     }

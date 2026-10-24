@@ -39,21 +39,23 @@ logger = structlog.get_logger(component="worker")
 # decode to this schema (vs bare format="json") nearly eliminates tier-2/3
 # parse fallbacks and malformed-signal outputs from the 8B worker.
 # parse_agent_decision stays as the validation/fallback layer.
+# Rationale first: under constrained decoding the model reasons before it commits to a
+# signal (docs/DECISIONS.md#adr-decision-prompt).
 DECISION_JSON_SCHEMA: dict = {  # type: ignore[type-arg]
     "type": "object",
     "properties": {
+        # Shape caps for the decode only (docs/DECISIONS.md#adr-output-caps).
+        "rationale": {"type": "string", "maxLength": DECISION_RATIONALE_MAX_CHARS},
         "signal": {"type": "string", "enum": ["buy", "sell", "hold"]},
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
         "sentiment": {"type": "number", "minimum": -1.0, "maximum": 1.0},
-        # Shape caps for the decode only (docs/DECISIONS.md#adr-output-caps).
-        "rationale": {"type": "string", "maxLength": DECISION_RATIONALE_MAX_CHARS},
         "cited_agents": {
             "type": "array",
             "items": {"type": "string"},
             "maxItems": DECISION_CITED_AGENTS_MAX_ITEMS,
         },
     },
-    "required": ["signal", "confidence", "sentiment", "rationale", "cited_agents"],
+    "required": ["rationale", "signal", "confidence", "sentiment", "cited_agents"],
 }
 
 # ---------------------------------------------------------------------------

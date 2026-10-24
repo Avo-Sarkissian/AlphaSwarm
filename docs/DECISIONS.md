@@ -280,6 +280,10 @@ Contents
 - **Rationale:** The MLX runner relies on prompt adherence rather than hard grammar enforcement, so the prompt must spell out the keys. Never trust format=schema alone.
 - **Orchestrator replies** (seed, modifiers, report narrative, advisory) go through inference.structured.chat_structured: the output model's portable JSON schema as response_schema, tier-2 candidate extraction, one retry carrying field errors but never input values, then StructuredOutputError. Boundary validators normalise "BUY" and percentage confidences. Worker decisions keep DECISION_JSON_SCHEMA and parse_agent_decision, now recording parse_tier (r{n}_parse_tier1..3). Clamping cannot fix NaN, so every number on an LLM-facing model keeps its range: a NaN then fails inside chat_structured, where it is retried, instead of later in a domain model (`SeedLLMOutput.overall_sentiment`, 2026-10).
 
+### <a id="adr-decision-prompt"></a>The worker reasons before it votes, about a named instrument (Phase 7)
+- **Decision:** `DECISION_JSON_SCHEMA` and `JSON_OUTPUT_INSTRUCTIONS` put `rationale` first, so under constrained decoding the reasoning tokens precede the signal. When the seed has a resolved company ticker, every decision message ends with `Instrument in focus: <TICKER> (<name>). …` taken from the highest-relevance resolved company ([adr-ticker-resolution](#adr-ticker-resolution)); the line sits in the user message after the rumor and shocks, never in the system role, and tells each agent to read buy/sell/hold the way its own role defines them, so the Narrators' "which way the STORY pushes the crowd" framing stands. The full probabilistic decision schema is a separate decision, taken after the Phase 7 evaluation.
+- **Rationale:** With the signal first and `think=False`, the vote was emitted before any reasoning, and a bare rumor left BUY ambiguous between the acquirer, its peers or nothing tradeable.
+
 ### <a id="adr-inference-telemetry"></a>Inference telemetry: one normalized result, one log line, per-round aggregates
 - **Decision:** Every provider returns `InferenceResult` with `input_tokens` ("prompt_tokens"), `output_tokens` ("completion_tokens"), `cached_prompt_tokens`, `prefill_ms`, `decode_ms`, `load_ms` and `finish_reason` (`stop | length | content_filter | tool_use | error | other`). Unknown values stay `None`; they are never written as 0.
 - **Normalization:**
@@ -430,6 +434,7 @@ Contents
 - **Decision:**
   - One formatted block per run: price, fundamentals, and 5 headlines per entity.
   - Sent in rounds 1..`market_context_rounds` (default 3, i.e. every round; revised 2026-10 under the owner's delegation), announced by the fixed MARKET_CONTEXT_GUARD system message and fenced as untrusted data in the user message (since F3, Aug 2026), ahead of the fenced peer block. RSS headlines are sanitized.
+  - Phase 7: entities are ordered by relevance and a block that would overflow the budget is skipped, not the rest; only swarm-resolved tickers ([adr-ticker-resolution](#adr-ticker-resolution)) are priced and get the Yahoo feed; prices join their company by ticker and show the quote time and a stale marker. Code: alphaswarm/market_context.py, context_formatter.py.
 - **Rationale:** Treat third-party text as untrusted. Dropping the block after Round 1 ([Phase 40](#phase-40-simulation-context-wiring)) confounded every Round 2 flip with information loss ([adr-run-manifest](#adr-run-manifest)); the original reason for the Round 1 limit was never recorded. Keeping it costs the block's prompt tokens on every call of Rounds 2..N; that cost is not measured yet (the A0 baseline in docs/experiments.md records `r{n}_mean_prompt_tokens`). `market_context_rounds=1` restores the Round 1-only behaviour for ablations.
 
 ### <a id="adr-ticker-resolution"></a>Seed-entity tickers are resolved on the swarm side (Phase 7)
@@ -834,13 +839,13 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p38-d-01"></a>`D-01` | News via RSS only (no API key, no rate limits). | active | ingestion/rss_provider.py:3,56 |
-| <a id="p38-d-02"></a>`D-02` | Ticker-shaped entities -> Yahoo Finance RSS; everything else -> Google News RSS (quoted). | active | ingestion/rss_provider.py:4,57; tests/test_rss_provider.py:134 |
-| <a id="p38-d-03"></a>`D-03` | Headline filter: case-insensitive substring match on the entity. | active | ingestion/rss_provider.py:5; tests/test_rss_provider.py:230,285 |
+| <a id="p38-d-02"></a>`D-02` | Ticker-shaped entities -> Yahoo Finance RSS; everything else -> Google News RSS (quoted). **Revised (Phase 7):** only swarm-resolved tickers ([adr-ticker-resolution](#adr-ticker-resolution)) use the Yahoo per-ticker feed; every other entity, including acronyms such as FED, goes to Google News. | revised | ingestion/rss_provider.py (`_route_url`); tests/test_rss_provider.py |
+| <a id="p38-d-03"></a>`D-03` | Headline filter: case-insensitive substring match on the entity. **Revised (Phase 7):** Google results use a case-insensitive word-boundary match; Yahoo per-ticker feeds are not filtered. | revised | ingestion/rss_provider.py (`_entity_pattern`); tests/test_rss_provider.py |
 | <a id="p38-d-04"></a>`D-04` | feedparser + httpx. | active | ingestion/rss_provider.py:6 |
 | <a id="p38-d-05"></a>`D-05` | yfinance per ticker via asyncio.to_thread + gather for error isolation. | active | ingestion/yfinance_provider.py:3; tests/integration/test_yfinance_provider_live.py:89 |
-| <a id="p38-d-06"></a>`D-06` | fast_info for price/volume; info for fundamentals. | active | ingestion/yfinance_provider.py:4; tests/integration/test_yfinance_provider_live.py:105 |
+| <a id="p38-d-06"></a>`D-06` | fast_info for price/volume; info for fundamentals. **Revised (Phase 7):** two guarded stages under one batch deadline (`asyncio.timeout`, 20 s): a failed or late `info` keeps the `fast_info` price; whatever finished is returned. | revised | ingestion/yfinance_provider.py (`_fetch_stages`); tests/test_yfinance_provider.py |
 | <a id="p38-d-07"></a>`D-07` | No semaphore: providers run once per simulation, not per agent. | active | ingestion/yfinance_provider.py:5 |
-| <a id="p38-d-09"></a>`D-09` | staleness='fresh' on success, 'fetch_failed' on any exception; no time-window logic. | active | ingestion/rss_provider.py:7; ingestion/yfinance_provider.py:6 |
+| <a id="p38-d-09"></a>`D-09` | staleness='fresh' on success, 'fetch_failed' on any exception; no time-window logic. **Revised (Phase 7):** market slices carry `as_of` (the quote's market time) and are 'stale' when older than 24 h; 'fetch_failed' only when stage 1 fails. News slices are unchanged. | revised | ingestion/yfinance_provider.py (`classify_quote`); ingestion/rss_provider.py |
 | <a id="p38-d-10"></a>`D-10` | No caching; every call fetches fresh. | active | ingestion/rss_provider.py:8,170; ingestion/yfinance_provider.py:7 |
 
 ### Phase 39: Holdings loader
@@ -860,9 +865,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p40-d-01"></a>`D-01` | ContextPacket assembled inside run_simulation after seed extraction when both providers are present. | active | simulation.py:assemble_market_context,_round_1_market_context |
-| <a id="p40-d-02"></a>`D-02` | No providers -> log context_assembly_skipped and continue rumor-only. | active | simulation.py:assemble_market_context |
-| <a id="p40-d-03"></a>`D-03` | Partial fetch failures kept in the packet; formatter silently skips fetch_failed slices. | active | context_formatter.py:6; simulation.py:assemble_market_context; tests/test_context_formatter.py:6 |
+| <a id="p40-d-01"></a>`D-01` | ContextPacket assembled inside run_simulation after seed extraction when both providers are present. | active | market_context.py:build_context_packet; simulation.py:_round_1_market_context |
+| <a id="p40-d-02"></a>`D-02` | No providers -> log context_assembly_skipped and continue rumor-only. | active | market_context.py:build_context_packet |
+| <a id="p40-d-03"></a>`D-03` | Partial fetch failures kept in the packet; formatter silently skips fetch_failed slices. | active | context_formatter.py:6; market_context.py:build_context_packet; tests/test_context_formatter.py:6 |
 | <a id="p40-d-04"></a>`D-04` | Market context is its own system message after the persona and before peer context/user message. Since F3 (Aug 2026) and SPEC T7.6 (2026-10) only fixed guard texts are system messages; the market and peer blocks are fenced in the user message, market first. | partial | rounds.py:run_round; worker.py:155; tests/test_worker.py:219,248 |
 | <a id="p40-d-06"></a>`D-06` | Market context goes to Round 1 only. Superseded 2026-10: rounds 1..market_context_rounds, default every round ([adr-market-context](#adr-market-context)). | superseded | rounds.py (prepare_round_inputs); settings.py (SimulationSettings.market_context_rounds); tests/engine/test_round_inputs.py (test_market_block_reaches_the_configured_rounds) |
 | <a id="p40-d-07"></a>`D-07` | One formatted block shared by all 100 agents (no per-bracket filtering). | active | batch_dispatcher.py:176; tests/test_batch_dispatcher.py:691,699,734 |
@@ -1046,7 +1051,7 @@ code. Their status is in BACKLOG.md.
 | <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:get_report; tests/test_report_routes.py:test_routes_use_async_filesystem_probes |
 | <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:100; web/routes/advisory.py:5,268; services/jobs.py:JobRunner; web/routes/report.py:get_report; tests/test_report_routes.py |
 | <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Fixed 2026-10: both writes go through `fsutil.atomic_write_text` (temp file, fsync, `os.replace`, owner-only) | fsutil.py; report.py:write_report_files; web/routes/advisory.py:8 |
-| <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,89; simulation.py:_TICKER_RE; tests/test_rss_provider.py:142,164,549 |
+| <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:_TICKER_RE; types.py:TICKER_PATTERN; tests/test_rss_provider.py:142,164,549 |
 | <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/unit/test_holdings_route.py:14,215,259 |
 | <a id="t-41-6-13"></a>T-41.6-13 | XSS through interview responses. Rendered as plain text, not markdown | fe/features/interview/InterviewPanel.tsx |
 | <a id="t-260512-jqn-03"></a>T-260512-jqn-03 | Data-source audit buffer leaking raw bodies or env vars. Only bounded summary fields are recorded | data_audit.py:14,83; tests/test_data_audit.py:68 |

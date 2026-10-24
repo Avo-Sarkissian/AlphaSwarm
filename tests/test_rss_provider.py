@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import inspect
 import pathlib
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -25,6 +26,7 @@ import pytest
 
 from alphaswarm.ingestion import NewsProvider, NewsSlice, RSSNewsProvider
 from alphaswarm.security.sanitize import HEADLINE_MAX_LEN
+from alphaswarm.types import TICKER_PATTERN
 
 # --------- Canned RSS XML fixture builders ---------
 
@@ -64,6 +66,7 @@ def _make_feed_entries(entries: list[dict[str, Any]]) -> str:
 class _MockResponse:
     def __init__(self, text: str, status_code: int = 200) -> None:
         self.text = text
+        self.content = text.encode("utf-8")
         self.status_code = status_code
         self.headers: dict[str, str] = {"content-type": "application/rss+xml; charset=utf-8"}
 
@@ -134,13 +137,13 @@ class _ForbidConstructionClient:
 # --------- URL routing (D-02) + T-38-01 URL injection mitigation ---------
 
 
-async def test_url_routing_ticker_vs_topic(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ticker ^[A-Z]{1,5}$ -> Yahoo RSS; everything else -> Google News RSS."""
+async def test_url_routing_resolved_ticker_vs_topic(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolved tickers -> Yahoo per-ticker RSS; everything else -> Google News RSS."""
     feed_xml = _make_feed_entries([])
     _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
     monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
     provider = RSSNewsProvider()
-    await provider.get_headlines(["ZZZT", "EV battery"])
+    await provider.get_headlines(["ZZZT Holdings", "EV battery"], tickers={"ZZZT Holdings": "ZZZT"})
     urls = [c["url"] for c in _MockAsyncClient.calls]
     assert "https://finance.yahoo.com/rss/headline?s=ZZZT" in urls
     assert any(u.startswith("https://news.google.com/rss/search?q=EV+battery") for u in urls)
@@ -282,7 +285,7 @@ async def test_headlines_are_sanitized_at_ingestion(
 
 
 async def test_entity_filtering(monkeypatch: pytest.MonkeyPatch) -> None:
-    """D-03 — case-insensitive substring match."""
+    """Google results: case-insensitive word-boundary match (docs/DECISIONS.md#p38-d-03)."""
     now = datetime.now(UTC)
     feed_xml = _make_feed_entries(
         [
@@ -493,20 +496,21 @@ def test_ticker_regex_is_strict_uppercase_1_to_5() -> None:
     """T-38-01 mitigation invariant — the ticker whitelist must match exactly ^[A-Z]{1,5}$."""
     src = pathlib.Path(__file__).parent.parent / "src/alphaswarm/ingestion/rss_provider.py"
     content = src.read_text()
-    assert 'r"^[A-Z]{1,5}$"' in content
+    assert TICKER_PATTERN == r"^[A-Z]{1,5}$"
+    assert "re.compile(TICKER_PATTERN)" in content
 
 
 def test_rss_provider_never_parses_url_directly() -> None:
-    """Pitfall 2 — feedparser.parse MUST receive response text, never a URL."""
+    """Pitfall 2 — feedparser.parse MUST receive the response bytes, never a URL."""
     src = pathlib.Path(__file__).parent.parent / "src/alphaswarm/ingestion/rss_provider.py"
     content = src.read_text()
-    assert "feedparser.parse(r.text)" in content
-    assert "feedparser.parse(url)" not in content
+    assert "asyncio.to_thread(feedparser.parse, r.content)" in content
+    assert "feedparser.parse(url)" not in content and "feedparser.parse(r.text)" not in content
 
 
 def test_rss_provider_raises_for_status_before_parse() -> None:
     """38-REVIEWS Codex HIGH — r.raise_for_status() MUST be called BEFORE
-    feedparser.parse(r.text). Otherwise a Yahoo 429 or Google error HTML
+    feedparser parses the response. Otherwise a Yahoo 429 or Google error HTML
     page would be silently parsed as an empty-but-fresh feed (defeating
     Pitfall 4 coverage). This meta-invariant locks the ordering so a
     future refactor cannot silently reorder them."""
@@ -517,9 +521,9 @@ def test_rss_provider_raises_for_status_before_parse() -> None:
         "so non-2xx responses become fetch_failed (Codex HIGH)"
     )
     i_status = content.index("r.raise_for_status()")
-    i_parse = content.index("feedparser.parse(r.text)")
+    i_parse = content.index("asyncio.to_thread(feedparser.parse, r.content)")
     assert i_status < i_parse, (
-        "r.raise_for_status() MUST precede feedparser.parse(r.text) so a 429 "
+        "r.raise_for_status() MUST precede feedparser.parse so a 429 "
         "cannot be silently parsed as an empty-but-fresh feed (Codex HIGH)"
     )
 
@@ -565,3 +569,73 @@ def test_rss_provider_asyncclient_has_explicit_timeout_kwarg() -> None:
         "httpx.AsyncClient(...) missing timeout=_REQUEST_TIMEOUT_S kwarg — "
         "a slow upstream would hang without raising, defeating D-19 (REVIEWS #2)"
     )
+
+
+async def test_unresolved_acronym_goes_to_google_not_yahoo(monkeypatch: pytest.MonkeyPatch) -> None:
+    _MockAsyncClient.configure(responder=lambda url: _MockResponse(_make_feed_entries([])))
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
+    await RSSNewsProvider().get_headlines(["FED", "OPEC"])
+    urls = [c["url"] for c in _MockAsyncClient.calls]
+    assert all(u.startswith("https://news.google.com/rss/search?q=") for u in urls)
+    assert not any("finance.yahoo.com" in u for u in urls)
+
+
+async def test_invalid_resolved_ticker_falls_back_to_google(monkeypatch: pytest.MonkeyPatch) -> None:
+    _MockAsyncClient.configure(responder=lambda url: _MockResponse(_make_feed_entries([])))
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
+    await RSSNewsProvider().get_headlines(["X Corp"], tickers={"X Corp": "x.y&s=1"})
+    assert _MockAsyncClient.calls[0]["url"].startswith("https://news.google.com/rss/search?q=X+Corp")
+
+
+async def test_ticker_feed_keeps_titles_without_the_symbol(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = datetime.now(UTC)
+    feed_xml = _make_feed_entries(
+        [
+            {"title": "Deal talk lifts shares", "pub_dt": now - timedelta(hours=1)},
+            {"title": "Analysts revisit targets", "pub_dt": now - timedelta(hours=2)},
+        ]
+    )
+    _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
+    result = await RSSNewsProvider().get_headlines(["ZZZT Holdings"], tickers={"ZZZT Holdings": "ZZZT"})
+    assert result["ZZZT Holdings"].headlines == ("Deal talk lifts shares", "Analysts revisit targets")
+
+
+async def test_google_filter_uses_word_boundaries(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = datetime.now(UTC)
+    feed_xml = _make_feed_entries(
+        [
+            {"title": "Zetabyte storage startup raises a round", "pub_dt": now - timedelta(hours=1)},
+            {"title": "Zeta unveils new robots", "pub_dt": now - timedelta(hours=1)},
+            {"title": "Shares of ZETA fall", "pub_dt": now - timedelta(hours=1)},
+            {"title": "Quanta-Zeta merger rumor", "pub_dt": now - timedelta(hours=1)},
+        ]
+    )
+    _MockAsyncClient.configure(responder=lambda url: _MockResponse(feed_xml))
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
+    result = await RSSNewsProvider().get_headlines(["Zeta"])
+    assert result["Zeta"].headlines == (
+        "Zeta unveils new robots",
+        "Shares of ZETA fall",
+        "Quanta-Zeta merger rumor",
+    )
+
+
+async def test_feed_is_parsed_off_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    import feedparser  # type: ignore[import-untyped]
+
+    from alphaswarm.ingestion import rss_provider
+
+    threads: list[bool] = []
+    real_parse = feedparser.parse
+
+    def spy(data: bytes) -> object:
+        threads.append(threading.current_thread() is threading.main_thread())
+        assert isinstance(data, bytes)
+        return real_parse(data)
+
+    monkeypatch.setattr(rss_provider.feedparser, "parse", spy)
+    _MockAsyncClient.configure(responder=lambda url: _MockResponse(_make_feed_entries([])))
+    monkeypatch.setattr("alphaswarm.ingestion.rss_provider.httpx.AsyncClient", _MockAsyncClient)
+    await RSSNewsProvider().get_headlines(["ZZZT Holdings"])
+    assert threads == [False]

@@ -47,7 +47,8 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `worker.py`: `AgentWorker`, the decision JSON schema, and the fence for untrusted market data.
   - `parsing.py`: `parse_agent_decision`, the worker decisions' 3-tier parser; it stamps each decision's `parse_tier`.
   - `episodes.py`: `EpisodeRecord`, `compute_flip_type`, `EntityRef`/`EntityMatch`, `match_entities`, `new_decision_ids`.
-  - `context_formatter.py`.
+  - `market_context.py`: relevance-ordered entities, resolved tickers to yfinance/Yahoo, one ContextPacket and block ([adr-market-context](DECISIONS.md#adr-market-context)).
+  - `context_formatter.py`: `format_market_context`, the ticker-aware block with the quote time and stale marker.
 - **Concurrency**
   - `governor.py`: ResourceGovernor, one slot limiter (`_limit`, `_in_use`, `_paused`, `_fatal`) under a 5-state machine with PAUSED→CRISIS escalation, ramped crisis recovery and rolling-window failure accounting; per-session time in THROTTLED/PAUSED/CRISIS, peak memory, and a transition probe logged on every state change.
   - `memory_monitor.py`: the macOS kernel memory signal through ctypes `sysctlbyname` (used % = 100 − `kern.memorystatus_level`, plus the pressure level); psutil only off macOS.
@@ -120,7 +121,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - `create_cycle_with_seed_event`, which writes Cycle (status `running`), Entity, and MENTIONS in one transaction.
 
    Then `generate_personas` builds 100 prompts. Each one is a bracket template plus a round-robin modifier, a per-cycle focus line, and the JSON instructions.
-3. **Market context (rounds 1..`market_context_rounds`, default every round; [adr-market-context](DECISIONS.md#adr-market-context)).** Ticker-shaped entities go to `asyncio.gather(yfinance.get_prices, rss.get_headlines)`. The results become a ContextPacket, which `format_market_context` turns into one block, fenced as untrusted data inside the user message. A point-in-time run (`run --context-fixture`) skips the fetch: its fixture packet goes straight to `format_market_context`, and supplied providers are never called.
+3. **Market context (rounds 1..`market_context_rounds`, default every round; [adr-market-context](DECISIONS.md#adr-market-context)).** Entities are ordered by relevance; swarm-resolved tickers go to `yfinance.get_prices` (two stages, 20 s deadline, `as_of`) and every entity to `rss.get_headlines` (Yahoo only for resolved tickers), then `format_market_context` builds one block from the ContextPacket, fenced as untrusted data inside the user message. A point-in-time run (`run --context-fixture`) skips the fetch: its fixture packet goes straight to `format_market_context`, and supplied providers are never called.
 4. **Round 1.** `run_simulation` loads the worker once here; it stays loaded until the last round ends. `dispatch_wave` runs 100 tasks. Each one waits out its jitter, calls `controller.acquire`, then `AgentWorker.infer` (schema-constrained decode, per-bracket temperature), then `parse_agent_decision`, which records the decision's `parse_tier` (the round metrics count them as `r{n}_parse_tier1..3`). Results stream into the StateStore as they finish. Then:
    - the round-abort check (`RoundFailedError` when more than `round_abort_failure_percent` of agents failed);
    - `persist_round`: Decisions (with `error_kind` and `parse_tier`), CITED, RationaleEpisodes and REFERENCES in one transaction;

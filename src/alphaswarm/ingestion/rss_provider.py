@@ -3,13 +3,16 @@
 Invariants:
 - Never raises: any failure for an entity becomes a ``fetch_failed`` NewsSlice
   (docs/DECISIONS.md#adr-provider-never-raise).
-- Routing: entities matching ``^[A-Z]{1,5}$`` go to Yahoo Finance RSS; everything
-  else, exchange-suffixed tickers included, goes to Google News with the entity
-  URL-encoded (docs/DECISIONS.md#p38-d-02).
+- Routing: an entity with a swarm-resolved ticker matching ``TICKER_PATTERN`` uses
+  the Yahoo Finance per-ticker feed; every other entity, acronyms such as FED
+  included, goes to Google News with the entity URL-encoded
+  (docs/DECISIONS.md#p38-d-02).
 - Bytes are fetched with ``httpx.AsyncClient`` (explicit timeout; a User-Agent,
-  without which Yahoo answers 429) and parsed with ``feedparser``, which never
-  fetches URLs itself. No cache.
-- Entries are kept when the raw title contains the entity, case-insensitively.
+  without which Yahoo answers 429) and parsed with ``feedparser`` in a worker
+  thread; feedparser never fetches URLs itself. No cache.
+- Google entries are kept when the raw title contains the entity as a whole word,
+  case-insensitively; Yahoo per-ticker entries are not filtered
+  (docs/DECISIONS.md#p38-d-03).
 - ``published_parsed`` is UTC and is converted with ``calendar.timegm``.
 - Every title passes ``sanitize_headline`` before it can reach an agent prompt;
   titles that sanitise to nothing are dropped (docs/DECISIONS.md#adr-security-2026-08).
@@ -21,6 +24,7 @@ import asyncio
 import calendar
 import contextlib
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote_plus
@@ -31,21 +35,30 @@ import httpx
 from alphaswarm.ingestion.providers import _fetch_failed_news_slice
 from alphaswarm.ingestion.types import NewsSlice
 from alphaswarm.security.sanitize import sanitize_headline
+from alphaswarm.types import TICKER_PATTERN
 
 _SOURCE = "rss"
 _USER_AGENT = "Mozilla/5.0 AlphaSwarm/6.0"
-_TICKER_RE = re.compile(r"^[A-Z]{1,5}$")
+# T-38-01: only a symbol matching TICKER_PATTERN may reach the Yahoo URL.
+_TICKER_RE = re.compile(TICKER_PATTERN)
 _REQUEST_TIMEOUT_S = 10.0
 
 
-def _route_url(entity: str) -> str:
-    """Ticker -> Yahoo Finance RSS; everything else -> Google News RSS.
+def _route_url(entity: str, ticker: str | None) -> str:
+    """Resolved ticker -> Yahoo per-ticker RSS; everything else -> Google News RSS.
 
-    T-38-01: Ticker regex is a whitelist; Google News path quotes the entity.
+    Only swarm-resolved symbols reach Yahoo (docs/DECISIONS.md#adr-ticker-resolution),
+    so acronyms such as FED never do. T-38-01: the ticker is whitelisted by
+    TICKER_PATTERN and the Google path quotes the entity.
     """
-    if _TICKER_RE.match(entity):
-        return f"https://finance.yahoo.com/rss/headline?s={entity}"
+    if ticker is not None and _TICKER_RE.match(ticker):
+        return f"https://finance.yahoo.com/rss/headline?s={ticker}"
     return f"https://news.google.com/rss/search?q={quote_plus(entity)}&hl=en-US&gl=US&ceid=US:en"
+
+
+def _entity_pattern(entity: str) -> re.Pattern[str]:
+    """Case-insensitive whole-word match of the entity name (docs/DECISIONS.md#p38-d-03)."""
+    return re.compile(rf"(?<!\w){re.escape(entity.strip())}(?!\w)", re.IGNORECASE)
 
 
 def _entry_age_hours(entry: dict[str, Any]) -> float | None:
@@ -67,7 +80,7 @@ def _entry_age_hours(entry: dict[str, Any]) -> float | None:
     return (datetime.now(UTC) - published_dt).total_seconds() / 3600.0
 
 
-async def _fetch_one(client: httpx.AsyncClient, entity: str, max_age_hours: int) -> NewsSlice:
+async def _fetch_one(client: httpx.AsyncClient, entity: str, max_age_hours: int, ticker: str | None) -> NewsSlice:
     """Never-raise: any exception -> _fetch_failed_news_slice(entity, 'rss').
 
     Covered failure modes (any of which trips the outer except):
@@ -79,19 +92,24 @@ async def _fetch_one(client: httpx.AsyncClient, entity: str, max_age_hours: int)
       - ANY unexpected exception — D-19 contract
     """
     try:
-        url = _route_url(entity)
+        url = _route_url(entity, ticker)
         r = await client.get(
             url,
             headers={"User-Agent": _USER_AGENT},
             timeout=_REQUEST_TIMEOUT_S,
         )
         r.raise_for_status()
-        feed = feedparser.parse(r.text)
-        needle = entity.lower()
+        # feedparser is CPU-bound and synchronous: parse in a worker thread so the
+        # event loop keeps serving the 5 Hz broadcaster (docs/DECISIONS.md#p38-d-04).
+        feed = await asyncio.to_thread(feedparser.parse, r.content)
+        # A per-ticker Yahoo feed is already about the symbol and its titles rarely
+        # repeat it, so it is not filtered; Google search results are
+        # (docs/DECISIONS.md#p38-d-03).
+        pattern = None if url.startswith("https://finance.yahoo.com/") else _entity_pattern(entity)
         headlines: list[str] = []
         for entry in feed.entries:
             title = entry.get("title", "")
-            if not title or needle not in title.lower():
+            if not title or (pattern is not None and not pattern.search(title)):
                 continue
             age = _entry_age_hours(entry)
             if age is not None and age > max_age_hours:
@@ -153,7 +171,13 @@ class RSSNewsProvider:
                 used=used,
             )
 
-    async def get_headlines(self, entities: list[str], *, max_age_hours: int = 72) -> dict[str, NewsSlice]:
+    async def get_headlines(
+        self,
+        entities: list[str],
+        *,
+        max_age_hours: int = 72,
+        tickers: Mapping[str, str] | None = None,
+    ) -> dict[str, NewsSlice]:
         if not entities:  # Pitfall 9 — empty input guard
             return {}
         async with httpx.AsyncClient(
@@ -161,7 +185,7 @@ class RSSNewsProvider:
             timeout=_REQUEST_TIMEOUT_S,  # 38-REVIEWS consensus #2: explicit timeout
         ) as client:
             slices = await asyncio.gather(
-                *(_fetch_one(client, e, max_age_hours) for e in entities),
+                *(_fetch_one(client, e, max_age_hours, (tickers or {}).get(e)) for e in entities),
                 return_exceptions=False,  # _fetch_one is contractually never-raise
             )
         for s in slices:

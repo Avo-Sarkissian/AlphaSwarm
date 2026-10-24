@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import re
 import time
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
 import structlog
@@ -22,7 +20,6 @@ import structlog
 from alphaswarm.context_formatter import format_market_context
 from alphaswarm.errors import run_error_from_exception
 from alphaswarm.ingestion.tickers import load_ticker_resolver
-from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.manifest import (
     build_run_manifest,
     current_git_revision,
@@ -30,9 +27,10 @@ from alphaswarm.manifest import (
     provenance_from_providers,
     sha256_text,
 )
+from alphaswarm.market_context import assemble_market_context
 from alphaswarm.metrics import RoundInput, methodology_metrics
 from alphaswarm.personas import compute_prompt_template_hash, generate_personas
-from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
+from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS, focal_instrument
 from alphaswarm.prompts.modifiers import MODIFIER_GENERATION_PROMPT
 from alphaswarm.rounds import (
     OnRoundComplete,
@@ -50,7 +48,6 @@ if TYPE_CHECKING:
     from alphaswarm.errors import RunErrorCode
     from alphaswarm.graph import CycleStatus, GraphStateManager
     from alphaswarm.inference.provider import InferenceProvider
-    from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
     from alphaswarm.settings import SimulationSettings
     from alphaswarm.state import BracketSummary, StateSink
     from alphaswarm.types import (
@@ -61,15 +58,9 @@ if TYPE_CHECKING:
         ParsedSeedResult,
     )
 
-__all__ = ["SimulationDeps", "SimulationResult", "assemble_market_context", "run_simulation"]
+__all__ = ["SimulationDeps", "SimulationResult", "run_simulation"]
 
 logger = structlog.get_logger(component="simulation")
-
-_TICKER_RE = re.compile(r"^[A-Z]{1,5}$")
-"""Same pattern as alphaswarm.ingestion.rss_provider._TICKER_RE (Phase 38 T-38-01).
-Defense-in-depth: re-applied here so non-ticker entities (company names like
-'NVIDIA', 'Federal Reserve') never reach MarketDataProvider.get_prices. All
-entities pass to NewsProvider.get_headlines (provider handles routing)."""
 
 
 _PEER_SELECTION_VERSION: Final = 2
@@ -244,43 +235,6 @@ class SimulationResult:
     @property
     def round3_summaries(self) -> tuple[BracketSummary, ...]:
         return self._summaries(3)
-
-
-async def assemble_market_context(
-    cycle_id: str,
-    parsed_result: ParsedSeedResult,
-    market: MarketDataProvider | None,
-    news: NewsProvider | None,
-) -> str | None:
-    """Build the fenced Round 1 market-context block (docs/DECISIONS.md#adr-market-context).
-
-    Ticker-shaped entity names go to the market provider and every entity goes to the
-    news provider; providers never raise (docs/DECISIONS.md#adr-provider-never-raise).
-    Returns None when a provider is missing or nothing renderable came back.
-    """
-    if market is None or news is None:
-        logger.warning("context_assembly_skipped", reason="no_providers_configured", cycle_id=cycle_id)
-        return None
-    entity_names = [e.name for e in parsed_result.seed_event.entities]
-    tickers = [name for name in entity_names if _TICKER_RE.match(name)]
-    market_slices, news_slices = await asyncio.gather(market.get_prices(tickers), news.get_headlines(entity_names))
-    packet = ContextPacket(
-        cycle_id=cycle_id,
-        as_of=datetime.now(UTC),
-        entities=tuple(entity_names),
-        market=tuple(market_slices.values()),
-        news=tuple(news_slices.values()),
-    )
-    logger.info(
-        "context_packet_assembled",
-        cycle_id=cycle_id,
-        entity_count=len(entity_names),
-        ticker_count=len(tickers),
-        market_success=sum(1 for s in packet.market if s.staleness != "fetch_failed"),
-        news_success=sum(1 for s in packet.news if s.staleness != "fetch_failed"),
-        total_headlines=sum(len(s.headlines) for s in packet.news if s.staleness != "fetch_failed"),
-    )
-    return format_market_context(packet)
 
 
 async def _round_1_market_context(deps: SimulationDeps, cycle_id: str, parsed_result: ParsedSeedResult) -> str | None:
@@ -513,7 +467,6 @@ async def _run_simulation(
     sim_seed = await _record_run_manifest(
         deps, cycle_id, brackets, modifier_result, market_context, git=(git_sha, git_dirty)
     )
-
     ctx = RoundContext(
         deps=deps,
         cycle_id=cycle_id,
@@ -525,6 +478,7 @@ async def _run_simulation(
         run_seed=str(sim_seed),  # docs/DECISIONS.md#adr-run-manifest
         on_round_complete=on_round_complete,
         sim_seed=sim_seed,
+        focal=focal_instrument(parsed_result.seed_event.entities),
     )
     outcomes: list[RoundOutcome] = []
     shocks: list[str] = []

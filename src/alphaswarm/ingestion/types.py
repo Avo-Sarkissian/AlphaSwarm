@@ -61,6 +61,9 @@ class MarketSlice(BaseModel):
     volume: int | None = None
     fundamentals: Fundamentals | None = None
     fetched_at: datetime
+    # Market time of the quote (yfinance regularMarketTime); None when unknown.
+    # The formatter prints it so agents can tell a live quote from Friday's close.
+    as_of: datetime | None = None
     source: str
     staleness: StalenessState = "fresh"
 
@@ -97,3 +100,6 @@ class ContextPacket(BaseModel):
     entities: tuple[str, ...]
     market: tuple[MarketSlice, ...] = Field(default_factory=tuple)
     news: tuple[NewsSlice, ...] = Field(default_factory=tuple)
+    # Entity name -> swarm-resolved ticker (docs/DECISIONS.md#adr-ticker-resolution),
+    # as pairs: a dict would stay mutable inside the frozen model.
+    entity_tickers: tuple[tuple[str, str], ...] = Field(default_factory=tuple)
