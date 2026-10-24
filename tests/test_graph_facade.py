@@ -26,7 +26,7 @@ from tests.support.manifests import make_manifest
 SRC = Path(__file__).resolve().parents[1] / "src" / "alphaswarm"
 CYCLE_ID = "00000000-0000-4000-8000-000000000015"
 RUMOR = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
-SESSION_OWNERS = frozenset({"_read", "_write", "ensure_schema"})
+SESSION_OWNERS = frozenset({"_read", "_write", "_auto_commit", "ensure_schema"})
 
 
 def _graph_sources() -> list[Path]:
@@ -108,6 +108,7 @@ OUTAGE_CALLS: dict[str, Call] = {
         num_rounds=3,
     ),
     "cycle_exists": lambda gm: gm.cycle_exists(CYCLE_ID),
+    "delete_cycle": lambda gm: gm.delete_cycle(CYCLE_ID),
     "ensure_schema": lambda gm: gm.ensure_schema(),
     "read_agent_decisions": lambda gm: gm.read_agent_decisions(CYCLE_ID, "quants_01"),
     "read_agent_interview_rows": lambda gm: gm.read_agent_interview_rows("quants_01", CYCLE_ID),
@@ -237,6 +238,7 @@ DELEGATES: dict[str, str] = {
     # graph/schema_writes.py
     "compute_influence_edges": "schema_writes",
     "create_cycle_with_seed_event": "schema_writes",
+    "delete_cycle": "schema_writes",
     "persist_round": "schema_writes",
     "remove_legacy_properties": "schema_writes",
     "seed_agents": "schema_writes",

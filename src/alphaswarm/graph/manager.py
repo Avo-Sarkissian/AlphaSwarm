@@ -1,11 +1,8 @@
-"""GraphStateManager: the single entry point to the Neo4j graph
-(docs/DECISIONS.md#adr-neo4j-schema).
+"""GraphStateManager: the single entry point to the Neo4j graph (docs/DECISIONS.md#adr-neo4j-schema).
 
-The facade owns the driver, the session/transaction helpers and the error
-mapping (docs/DECISIONS.md#p4-d-07). Every other public method delegates in one
-line to an operation in schema_writes, analytics or replay_interview, which
-receive `self._read` / `self._write` as a TxRunner and return graph/rows.py rows.
-Writes are batched, one transaction per call (docs/DECISIONS.md#p4-d-08).
+The facade owns the driver, the session helpers and the error mapping (docs/DECISIONS.md#p4-d-07); every
+other public method delegates in one line to schema_writes, analytics or replay_interview, which receive
+`self._read` / `self._write` as a TxRunner. Writes are batched, one transaction per call (docs/DECISIONS.md#p4-d-08).
 """
 
 from __future__ import annotations
@@ -105,8 +102,8 @@ class GraphStateManager:
     async def _read(self, fn: Callable[..., Awaitable[T]], *args: Any, op: str) -> T:
         """Run *fn* in a managed read transaction on a fresh session.
 
-        The only place (with _write and ensure_schema's DDL) that opens a
-        session; driver errors leave as GraphError (docs/DECISIONS.md#p4-d-07).
+        Sessions open only here, in _write, _auto_commit and ensure_schema's DDL;
+        driver errors leave as GraphError (docs/DECISIONS.md#p4-d-07).
         """
         try:
             async with self._driver.session(database=self._database) as session:
@@ -122,12 +119,16 @@ class GraphStateManager:
         except (DriverError, Neo4jError) as exc:
             raise _map_graph_error(exc, op=op, write=True) from exc
 
-    async def verify_connectivity(self) -> None:
-        """Fail fast when the database is unreachable (docs/DECISIONS.md#p4-d-05).
+    async def _auto_commit(self, query: str, /, *, op: str, **params: Any) -> None:
+        """Run *query* as one implicit transaction (``CALL { … } IN TRANSACTIONS`` needs it)."""
+        try:
+            async with self._driver.session(database=self._database) as session:
+                await (await session.run(query, params)).consume()
+        except (DriverError, Neo4jError) as exc:
+            raise _map_graph_error(exc, op=op, write=True) from exc
 
-        Raises only GraphError subclasses (Neo4jUnavailableError for driver and
-        auth errors); the web lifespan turns them into a not-ready flag.
-        """
+    async def verify_connectivity(self) -> None:
+        """Fail fast when unreachable; raises only GraphError subclasses (docs/DECISIONS.md#p4-d-05)."""
         try:
             await self._driver.verify_connectivity()
         except (DriverError, Neo4jError) as exc:
@@ -138,12 +139,9 @@ class GraphStateManager:
         log.info("driver_closed")
 
     async def ensure_schema(self) -> None:
-        """Apply idempotent schema constraints and indexes, then seed agents.
-
-        DDL runs as auto-commit statements on one session, the only one opened outside _read/_write
-        (docs/DECISIONS.md#p4-d-05). It then back-fills ``Cycle.status`` and seeds all agent nodes. It removes
-        no data: the retired Agent-level ``decision_narrative`` stays until ``remove_legacy_properties()`` runs,
-        and duplicate decision ids keep the plain index in place of the uniqueness constraint; they are never deleted.
+        """Apply idempotent constraints and indexes (auto-commit DDL on one session, docs/DECISIONS.md#p4-d-05),
+        back-fill ``Cycle.status`` and seed the agents. It removes no data: the retired ``decision_narrative``
+        stays until ``remove_legacy_properties()``, and duplicate decision ids keep the plain index.
         """
         statements = await schema_writes.resolve_schema_statements(self._read)
         try:
@@ -230,6 +228,9 @@ class GraphStateManager:
 
     async def write_decision_narrative(self, cycle_id: str, agent_id: str, narrative: str) -> None:
         await schema_writes.write_decision_narrative(self._write, cycle_id, agent_id, narrative)
+
+    async def delete_cycle(self, cycle_id: str, *, batch_size: int = 1000) -> int:
+        return await schema_writes.delete_cycle(self._read, self._auto_commit, cycle_id, batch_size=batch_size)
 
     # --- analytics: report, shock and influence-edge reads (graph/analytics.py) ---
 

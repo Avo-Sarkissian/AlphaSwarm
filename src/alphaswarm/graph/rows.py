@@ -19,6 +19,7 @@ from alphaswarm.types import BracketType
 __all__ = [
     "AgentDecisionRow",
     "AgentInterviewRows",
+    "AutoCommitRunner",
     "BracketNarrativeRow",
     "BracketPivotRow",
     "BracketRoundRow",
@@ -62,6 +63,15 @@ class TxRunner(Protocol):
     """
 
     def __call__(self, fn: Callable[..., Awaitable[T]], /, *args: Any, op: str) -> Awaitable[T]: ...
+
+
+class AutoCommitRunner(Protocol):
+    """GraphStateManager._auto_commit: run one statement as an implicit transaction.
+
+    ``CALL { … } IN TRANSACTIONS`` only works outside managed transactions.
+    """
+
+    def __call__(self, query: str, /, *, op: str, **params: Any) -> Awaitable[None]: ...
 
 
 @dataclass(frozen=True)
