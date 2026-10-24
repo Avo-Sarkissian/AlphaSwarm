@@ -702,3 +702,64 @@ def advise_g20(swarm_scores: Mapping[str, float], hit_rate: float | None, *, dea
     if hold_share >= G20_MIN_HOLD_SHARE and hit_rate > 0.5:
         return GateAdvice("G-20", "A", reason, value=hold_share)
     return GateAdvice("G-20", "B", reason, value=hold_share)
+
+
+G16_MAX_ABS_SHIFT: Final = 0.10
+G16_MIN_LEAN_AGREEMENT: Final = 0.8
+G16_MIN_BRIER_DIFF: Final = -0.05
+G15_MAX_BRIER_INCREASE: Final = 0.05
+
+
+def advise_g16(abs_shift: Interval | None, lean_agreement: float | None, brier_diff: Interval | None) -> GateAdvice:
+    """B (default to 2 rounds) when Round 3 rarely moves the answer and is not materially better.
+
+    *abs_shift* is mean |S3 - S2| inside rounds3 cycles, *brier_diff* is Brier(S3) - Brier(S2).
+    """
+    if abs_shift is None or abs_shift.hi is None or lean_agreement is None:
+        return GateAdvice("G-16", "A", "too few within-cycle pairs: keep 3 rounds")
+    if abs_shift.hi > G16_MAX_ABS_SHIFT:
+        return GateAdvice(
+            "G-16",
+            "A",
+            f"Round 3 moves the net score by up to {abs_shift.hi:.3f} (bound {G16_MAX_ABS_SHIFT})",
+        )
+    if lean_agreement < G16_MIN_LEAN_AGREEMENT:
+        return GateAdvice("G-16", "A", f"the lean changes in {1 - lean_agreement:.0%} of pairs")
+    if brier_diff is not None and brier_diff.lo is not None and brier_diff.lo < G16_MIN_BRIER_DIFF:
+        return GateAdvice("G-16", "A", f"Round 3 may improve the 1-day Brier score by up to {-brier_diff.lo:.3f}")
+    return GateAdvice(
+        "G-16",
+        "B",
+        f"Round 3 moves the net score by at most {abs_shift.hi:.3f} and keeps the lean in "
+        f"{lean_agreement:.0%} of pairs",
+        value=2.0,
+    )
+
+
+def advise_g15(candidates: Mapping[float, tuple[Interval | None, Interval | None]]) -> GateAdvice:
+    """B (new boost default) for the value whose Round 3 exposure gain has a CI above 0.
+
+    *candidates* maps a boost value to (delta distinct peers shown in Round 3, delta 1-day
+    Brier), both against the 0.3 default; an accuracy cost above 0.05 disqualifies.
+    """
+    best: tuple[float, float] | None = None
+    for value, (peers, brier_diff) in sorted(candidates.items()):
+        if peers is None or peers.lo is None or peers.lo <= 0:
+            continue
+        if brier_diff is not None and brier_diff.hi is not None and brier_diff.hi > G15_MAX_BRIER_INCREASE:
+            continue
+        if best is None or peers.mean > best[1]:
+            best = (value, peers.mean)
+    if best is None:
+        return GateAdvice(
+            "G-15",
+            "A",
+            "no boost value widens Round 3 exposure with a CI above 0 at no accuracy cost: keep 0.3",
+        )
+    return GateAdvice(
+        "G-15",
+        "B",
+        f"boost {best[0]} shows {best[1]:+.1f} more distinct peers in Round 3 (CI above 0) "
+        f"without a Brier increase above {G15_MAX_BRIER_INCREASE}",
+        value=best[0],
+    )

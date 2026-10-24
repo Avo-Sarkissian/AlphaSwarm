@@ -11,6 +11,7 @@ tag and knobs. Run from the repo root in the owner's shell with the web server s
     uv run python eval/run_eval.py registration --worker-release 2026-04-01 --backend "A: local"
     uv run python eval/run_eval.py run --arm swarm [--events evt-001,evt-002] [--dry-run]
     uv run python eval/run_eval.py score [--no-parquet]
+    uv run python eval/run_eval.py ablations
 """
 
 from __future__ import annotations
@@ -47,18 +48,23 @@ from alphaswarm.evaluation import (
     EvalEvent,
     EvalPaths,
     Horizon,
+    Interval,
     OutcomeLabel,
     ProbeRecord,
     ReliabilityBin,
     Variant,
     ablation_subset,
+    advise_g15,
+    advise_g16,
     advise_g20,
     boot_rng,
+    brier,
     brier_by_event,
     cluster_bootstrap,
     fmt,
     fmt_interval,
     fmt_rate,
+    lean3,
     markdown_table,
     mean_bracket_temperature,
     mean_by_event,
@@ -1064,6 +1070,226 @@ def write_outputs(report: str, inputs: EvalInputs, results: Path, *, parquet: bo
     return written
 
 
+# --- ablations ------------------------------------------------------------------
+
+ABLATION_METRICS: Final = (
+    "net_score",
+    "entropy",
+    "flip_rate",
+    "citation_gini",
+    "distinct_peers",
+    "brier_1d",
+    "seconds",
+)
+ABLATION_HEADER: Final = [
+    "arm",
+    "vs",
+    "pairs",
+    "delta net score",
+    "mean abs delta net",
+    "lean agrees",
+    "delta entropy",
+    "delta flips/agent/round",
+    "delta citation Gini",
+    "delta distinct peers",
+    "delta Brier 1d",
+    "delta seconds",
+]
+
+
+def pair_metrics(run: CycleRun, score: float | None, labels: Mapping[str, OutcomeLabel]) -> dict[str, float]:
+    """Per-cycle outcome metrics of docs/methodology.md §9; absent keys are skipped."""
+    props = run.props
+    final = final_round(props)
+    out: dict[str, float] = {}
+    if score is not None:
+        out["net_score"] = score
+        label = labels.get(run.event_id)
+        if label is not None and label.label_1d != "flat":
+            out["brier_1d"] = brier(p_up(score), label.label_1d == "up")
+    for name, key in (
+        ("entropy", f"r{final}_entropy"),
+        ("citation_gini", f"r{final}_citation_gini"),
+        ("distinct_peers", f"r{final}_distinct_peers_shown"),
+        ("seconds", "total_seconds"),
+    ):
+        value = props.get(key)
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            out[name] = float(value)
+    flips = [props.get(f"r{n}_flips") for n in range(2, final + 1)]
+    counts = [float(f) for f in flips if isinstance(f, int | float) and not isinstance(f, bool)]
+    agents = props.get("agent_count")
+    if final >= 2 and len(counts) == len(flips) and isinstance(agents, int | float) and agents > 0:
+        out["flip_rate"] = sum(counts) / float(agents) / (final - 1)
+    return out
+
+
+@dataclass(frozen=True)
+class ArmComparison:
+    arm: str
+    reference: str
+    pairs: int
+    deltas: Mapping[str, Interval | None]
+    abs_shift: Interval | None
+    lean_agreement: float | None
+
+
+def compare_arm(
+    arm_metrics: Mapping[tuple[str, int], Mapping[str, float]],
+    ref_metrics: Mapping[tuple[str, int], Mapping[str, float]],
+    *,
+    arm: str,
+    reference: str,
+    deadband: float,
+) -> ArmComparison:
+    """Paired (event, seed) differences arm - reference, bootstrapped over events."""
+    common = sorted(set(arm_metrics) & set(ref_metrics))
+    deltas: dict[str, Interval | None] = {}
+    for metric in ABLATION_METRICS:
+        clusters: dict[str, list[float]] = defaultdict(list)
+        for key in common:
+            a, r = arm_metrics[key].get(metric), ref_metrics[key].get(metric)
+            if a is not None and r is not None:
+                clusters[key[0]].append(a - r)
+        deltas[metric] = cluster_bootstrap(clusters, rng=boot_rng(f"ablation:{arm}:{metric}"))
+    shifts: dict[str, list[float]] = defaultdict(list)
+    agreement: list[bool] = []
+    for key in common:
+        a, r = arm_metrics[key].get("net_score"), ref_metrics[key].get("net_score")
+        if a is None or r is None:
+            continue
+        shifts[key[0]].append(abs(a - r))
+        agreement.append(lean3(a, deadband) == lean3(r, deadband))
+    return ArmComparison(
+        arm,
+        reference,
+        len(common),
+        deltas,
+        cluster_bootstrap(shifts, rng=boot_rng(f"ablation:{arm}:shift")),
+        sum(agreement) / len(agreement) if agreement else None,
+    )
+
+
+def within_round3(
+    scores: Mapping[tuple[str, int], tuple[float, float]],
+    labels: Mapping[str, OutcomeLabel],
+    *,
+    deadband: float,
+) -> ArmComparison:
+    """Round 3 against Round 2 inside the same rounds3 cycles (the default-rounds evidence)."""
+    second: dict[tuple[str, int], dict[str, float]] = {}
+    third: dict[tuple[str, int], dict[str, float]] = {}
+    for key, (s2, s3) in scores.items():
+        second[key] = {"net_score": s2}
+        third[key] = {"net_score": s3}
+        label = labels.get(key[0])
+        if label is not None and label.label_1d != "flat":
+            up = label.label_1d == "up"
+            second[key]["brier_1d"] = brier(p_up(s2), up)
+            third[key]["brier_1d"] = brier(p_up(s3), up)
+    return compare_arm(
+        third, second, arm="R3 vs R2 (rounds3 cycles)", reference="same cycle, Round 2", deadband=deadband
+    )
+
+
+def _ablation_row(c: ArmComparison) -> list[str]:
+    d = c.deltas
+    return [
+        c.arm,
+        c.reference,
+        str(c.pairs),
+        fmt_interval(d.get("net_score")),
+        fmt_interval(c.abs_shift, ".3f"),
+        fmt(c.lean_agreement, ".0%"),
+        fmt_interval(d.get("entropy")),
+        fmt_interval(d.get("flip_rate")),
+        fmt_interval(d.get("citation_gini")),
+        fmt_interval(d.get("distinct_peers"), "+.1f"),
+        fmt_interval(d.get("brier_1d")),
+        fmt_interval(d.get("seconds"), "+.0f"),
+    ]
+
+
+def build_ablation_report(
+    comparisons: Sequence[ArmComparison],
+    within: ArmComparison | None,
+    *,
+    missing: Sequence[str],
+    report: MatchReport,
+) -> str:
+    rows = [_ablation_row(c) for c in comparisons]
+    if within is not None:
+        rows.append(_ablation_row(within))
+    g16 = advise_g16(
+        within.abs_shift if within else None,
+        within.lean_agreement if within else None,
+        within.deltas.get("brier_1d") if within else None,
+    )
+    by_arm = {c.arm: c for c in comparisons}
+    candidates: dict[float, tuple[Interval | None, Interval | None]] = {}
+    for name, value in (("boost_0", 0.0), ("boost_005", 0.05)):
+        comparison = by_arm.get(name)
+        if comparison is not None:
+            candidates[value] = (comparison.deltas.get("distinct_peers"), comparison.deltas.get("brier_1d"))
+    g15 = advise_g15(candidates)
+    lines = ["## P7.8 ablations", "", *report.lines(), "", markdown_table(ABLATION_HEADER, rows)]
+    if missing:
+        lines.append(f"Arms without runs: {', '.join(missing)}.")
+    lines += [f"G-16 advice: {g16.branch} ({g16.reason}).", f"G-15 advice: {g15.branch} ({g15.reason}).", ""]
+    return "\n".join(lines)
+
+
+def collect_ablations(
+    read: Read,
+    events: Sequence[EvalEvent],
+    labels: Mapping[str, OutcomeLabel],
+    personas: Sequence[AgentPersona],
+    *,
+    deadband: float,
+    base: Mapping[str, Any] | None = None,
+) -> str:
+    subset = set(ablation_subset([e.event_id for e in events]))
+    arms = {name: arm for name, arm in ARMS.items() if arm.study == "p78" or name == "swarm"}
+    cycles = read(CYCLES_QUERY, {"tags": [arm.tag for arm in arms.values()]})
+    runs, report = match_cycles(cycles, events, arms, base=base)
+    metrics: dict[str, dict[tuple[str, int], dict[str, float]]] = defaultdict(dict)
+    within: dict[tuple[str, int], tuple[float, float]] = {}
+    for (arm_name, event_id, seed), run in sorted(runs.items()):
+        if event_id not in subset:
+            continue
+        final = final_round(run.props)
+        rounds = sorted({final, 2} if arm_name == "rounds3" else {final})
+        by_round = decisions_by_round(read(DECISIONS_QUERY, {"cycle_id": run.cycle_id, "rounds": rounds}))
+        final_pairs = by_round.get(final, [])
+        score = (
+            net_score(final_pairs, personas, weighting="headcount")
+            if valid_votes(final_pairs) >= MIN_VALID_VOTES
+            else None
+        )
+        metrics[arm_name][(event_id, seed)] = pair_metrics(run, score, labels)
+        second = by_round.get(2, [])
+        if arm_name == "rounds3" and score is not None and valid_votes(second) >= MIN_VALID_VOTES:
+            within[(event_id, seed)] = (net_score(second, personas, weighting="headcount"), score)
+    comparisons: list[ArmComparison] = []
+    for name, arm in arms.items():
+        if arm.reference is None or not metrics.get(name):
+            continue
+        comparisons.append(
+            compare_arm(
+                metrics[name], metrics.get(arm.reference, {}), arm=name, reference=arm.reference, deadband=deadband
+            )
+        )
+    missing = [
+        name
+        for name, arm in arms.items()
+        if arm.study == "p78"
+        and not metrics.get(name)
+        and (name != "private_headlines" or private_headlines_available())
+    ]
+    within_comparison = within_round3(within, labels, deadband=deadband) if within else None
+    return build_ablation_report(comparisons, within_comparison, missing=missing, report=report)
+
+
 # --- command line ------------------------------------------------------------------
 
 
@@ -1232,6 +1458,30 @@ def _cmd_score(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ablations(args: argparse.Namespace) -> int:
+    events = read_jsonl(PATHS.events, EvalEvent)
+    labels = {label.event_id: label for label in read_jsonl_if_exists(PATHS.labels, OutcomeLabel)}
+    personas = generate_personas(load_bracket_configs())
+    read, close = open_reader()
+    try:
+        text = collect_ablations(
+            read,
+            events,
+            labels,
+            personas,
+            deadband=NET_SCORE_DEADBAND,
+            base=registered_simulation(PATHS),
+        )
+    finally:
+        close()
+    PATHS.results.mkdir(parents=True, exist_ok=True)
+    target = PATHS.results / "ablation_table.md"
+    target.write_text(text, encoding="utf-8")
+    print(text)
+    print(f"wrote {target}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="run_eval", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1278,6 +1528,8 @@ def build_parser() -> argparse.ArgumentParser:
     score = sub.add_parser("score", help="the accuracy table from stored cycles, labels and baselines")
     score.add_argument("--no-parquet", dest="parquet", action="store_false", help="skip eval/results/forecasts.parquet")
     score.set_defaults(func=_cmd_score)
+    ablations = sub.add_parser("ablations", help="the ablation table from stored cycles")
+    ablations.set_defaults(func=_cmd_ablations)
     return parser
 
 
