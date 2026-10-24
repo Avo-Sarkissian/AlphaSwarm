@@ -144,133 +144,131 @@ export function ReportModal({
   const sections = report?.sections ?? null;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-big report-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head rpt-head">
-          <div className="rpt-head-left">
-            <Icon name="doc" size={14} />
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 11,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                color: 'var(--text-2)',
-              }}
-            >
-              REPORT · {cycleId ?? 'no cycle'}
-            </span>
-          </div>
-          <div className="rpt-head-right">
-            <button className="btn ghost" onClick={onClose}>
-              <Icon name="close" /> Close
-            </button>
-          </div>
+    <>
+      <div className="modal-head rpt-head">
+        <div className="rpt-head-left">
+          <Icon name="doc" size={14} />
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              color: 'var(--text-2)',
+            }}
+          >
+            REPORT · {cycleId ?? 'no cycle'}
+          </span>
         </div>
-
-        <div className="modal-body no-pad report rpt-scroll">
-          {findingCycle && (
-            <div className="report-hero" style={{ padding: 24 }}>
-              <div className="label">Finding the latest completed cycle…</div>
-            </div>
-          )}
-          {!cycleId && !findingCycle && (
-            <div className="report-hero" style={{ padding: 24 }}>
-              <div className="label">No completed cycle to report on.</div>
-            </div>
-          )}
-          {/* Initial probe in flight (one shot) before we know if a report exists. */}
-          {cycleId && !generationKicked && probeState.loading && !report && !hadError && (
-            <div className="report-hero" style={{ padding: 24 }}>
-              <div className="label">Checking for existing report…</div>
-            </div>
-          )}
-          {/* No report yet — explicit empty state with Generate button. */}
-          {cycleId && isMissing && !report && !generationKicked && (
-            <div className="report-hero" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'flex-start' }}>
-              <div style={{ color: 'var(--text)', fontSize: 14, fontWeight: 600 }}>
-                No report exists for this cycle yet.
-              </div>
-              <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6, maxWidth: 640 }}>
-                Reports generate automatically after every completed run (after the
-                advisory when holdings are loaded).
-                If auto-generation has not started yet — or you want a fresh pass —
-                use the manual button below as a fallback / regenerate path.
-                Generation is one orchestrator call after the model loads. Leave this
-                modal open and the report appears here when ready.
-              </div>
-              <button
-                className="btn"
-                onClick={handleGenerate}
-                disabled={triggerPending}
-                style={{ marginTop: 4 }}
-              >
-                <Icon name="bolt" size={12} /> Generate report
-              </button>
-            </div>
-          )}
-          {/* Generation in flight (user clicked the button). */}
-          {cycleId && generationKicked && polled.loading && !report && !hadError && (
-            <div className="report-hero" style={{ padding: 24 }}>
-              <div className="label" style={{ marginBottom: 8 }}>
-                Generating report…
-              </div>
-              <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
-                Collecting the simulation data and writing the narrative (one
-                orchestrator call). The modal refreshes automatically when ready.
-              </div>
-            </div>
-          )}
-          {hadError && !report && (
-            <div className="report-hero" style={{ padding: 24, color: 'var(--sell)' }}>
-              Report failed:{' '}
-              {probeError ? errorMessage(probeError) : fetchError ? errorMessage(fetchError) : triggerError ?? 'unknown error'}
-            </div>
-          )}
-
-          {report && (
-            <>
-              {/* Hero — minimal, derived from backend metadata only: the
-                  live cycle id + generated_at, no design filler text. */}
-              <div className="rpt-hero" style={{ padding: 24 }}>
-                <div className="rpt-kicker label">
-                  CYCLE {report.cycle_id}
-                  {report.generated_at && ` · ${report.generated_at}`}
-                </div>
-              </div>
-
-              {/* Canonical markdown body: always renders first */}
-              {canonicalHtml && (
-                <div
-                  className="report-markdown report-canonical"
-                  style={{ padding: 24 }}
-                  dangerouslySetInnerHTML={{ __html: canonicalHtml }}
-                />
-              )}
-
-              {sections && sections.convergence.length > 0 && (
-                <section className="rpt-section" data-testid="report-convergence-chart">
-                  <div className="rpt-section-head">
-                    <h2>Convergence</h2>
-                    <div className="label">ROUND-BY-ROUND SIGNAL DISTRIBUTION</div>
-                  </div>
-                  <ConvergenceFlow rows={sections.convergence} />
-                </section>
-              )}
-
-              {sections && sections.influence.length > 0 && (
-                <section className="rpt-section" data-testid="report-influence-chart">
-                  <div className="rpt-section-head">
-                    <h2>Influence topology</h2>
-                    <div className="label">MOST-CITED AGENTS · FINAL ROUND</div>
-                  </div>
-                  <InfluenceChart rows={sections.influence} />
-                </section>
-              )}
-            </>
-          )}
+        <div className="rpt-head-right">
+          <button className="btn ghost" onClick={onClose}>
+            <Icon name="close" /> Close
+          </button>
         </div>
       </div>
-    </div>
+
+      <div className="modal-body no-pad report rpt-scroll">
+        {findingCycle && (
+          <div className="report-hero" style={{ padding: 24 }}>
+            <div className="label">Finding the latest completed cycle…</div>
+          </div>
+        )}
+        {!cycleId && !findingCycle && (
+          <div className="report-hero" style={{ padding: 24 }}>
+            <div className="label">No completed cycle to report on.</div>
+          </div>
+        )}
+        {/* Initial probe in flight (one shot) before we know if a report exists. */}
+        {cycleId && !generationKicked && probeState.loading && !report && !hadError && (
+          <div className="report-hero" style={{ padding: 24 }}>
+            <div className="label">Checking for existing report…</div>
+          </div>
+        )}
+        {/* No report yet — explicit empty state with Generate button. */}
+        {cycleId && isMissing && !report && !generationKicked && (
+          <div className="report-hero" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'flex-start' }}>
+            <div style={{ color: 'var(--text)', fontSize: 14, fontWeight: 600 }}>
+              No report exists for this cycle yet.
+            </div>
+            <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6, maxWidth: 640 }}>
+              Reports generate automatically after every completed run (after the
+              advisory when holdings are loaded).
+              If auto-generation has not started yet — or you want a fresh pass —
+              use the manual button below as a fallback / regenerate path.
+              Generation is one orchestrator call after the model loads. Leave this
+              modal open and the report appears here when ready.
+            </div>
+            <button
+              className="btn"
+              onClick={handleGenerate}
+              disabled={triggerPending}
+              style={{ marginTop: 4 }}
+            >
+              <Icon name="bolt" size={12} /> Generate report
+            </button>
+          </div>
+        )}
+        {/* Generation in flight (user clicked the button). */}
+        {cycleId && generationKicked && polled.loading && !report && !hadError && (
+          <div className="report-hero" style={{ padding: 24 }}>
+            <div className="label" style={{ marginBottom: 8 }}>
+              Generating report…
+            </div>
+            <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
+              Collecting the simulation data and writing the narrative (one
+              orchestrator call). The modal refreshes automatically when ready.
+            </div>
+          </div>
+        )}
+        {hadError && !report && (
+          <div className="report-hero" style={{ padding: 24, color: 'var(--sell)' }}>
+            Report failed:{' '}
+            {probeError ? errorMessage(probeError) : fetchError ? errorMessage(fetchError) : triggerError ?? 'unknown error'}
+          </div>
+        )}
+
+        {report && (
+          <>
+            {/* Hero — minimal, derived from backend metadata only: the
+                live cycle id + generated_at, no design filler text. */}
+            <div className="rpt-hero" style={{ padding: 24 }}>
+              <div className="rpt-kicker label">
+                CYCLE {report.cycle_id}
+                {report.generated_at && ` · ${report.generated_at}`}
+              </div>
+            </div>
+
+            {/* Canonical markdown body: always renders first */}
+            {canonicalHtml && (
+              <div
+                className="report-markdown report-canonical"
+                style={{ padding: 24 }}
+                dangerouslySetInnerHTML={{ __html: canonicalHtml }}
+              />
+            )}
+
+            {sections && sections.convergence.length > 0 && (
+              <section className="rpt-section" data-testid="report-convergence-chart">
+                <div className="rpt-section-head">
+                  <h2>Convergence</h2>
+                  <div className="label">ROUND-BY-ROUND SIGNAL DISTRIBUTION</div>
+                </div>
+                <ConvergenceFlow rows={sections.convergence} />
+              </section>
+            )}
+
+            {sections && sections.influence.length > 0 && (
+              <section className="rpt-section" data-testid="report-influence-chart">
+                <div className="rpt-section-head">
+                  <h2>Influence topology</h2>
+                  <div className="label">MOST-CITED AGENTS · FINAL ROUND</div>
+                </div>
+                <InfluenceChart rows={sections.influence} />
+              </section>
+            )}
+          </>
+        )}
+      </div>
+    </>
   );
 }

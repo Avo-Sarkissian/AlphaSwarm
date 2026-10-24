@@ -1,7 +1,7 @@
 // RunConfirmModal — pre-run cost confirmation for CLOUD/MIXED inference runs.
 //
-// Rendered as a normal-flow overlay (modal-backdrop + modal pattern, matching
-// ComingSoonModal in this codebase).
+// Rendered through Modal (a named dialog: Escape and backdrop presses cancel
+// unless the run is already starting).
 //
 // Props:
 //   estimate   — RunEstimate from GET /api/settings/estimate, or null when the
@@ -14,6 +14,7 @@
 // "estimate unavailable — run anyway?" so the user can still cancel a cloud run
 // they did not intend to start. See useRunGate for full rationale.
 import { Icon } from './Icon';
+import { Modal } from './Modal';
 import { RunEstimate } from '../api/settings';
 
 export interface RunConfirmModalProps {
@@ -37,117 +38,118 @@ export function RunConfirmModal({
       : 'Cloud';
 
   return (
-    <div className="modal-backdrop" onClick={busy ? undefined : onCancel}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(480px, 94%)' }}
-      >
-        <div className="modal-head">
-          <Icon name="bolt" />
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 11,
-              letterSpacing: '0.12em',
-              textTransform: 'uppercase',
-              color: 'var(--text-2)',
-            }}
-          >
-            Confirm cloud run
-          </span>
-          <div className="sp" />
-          <button className="btn ghost" onClick={onCancel} disabled={busy}>
-            <Icon name="close" />
-          </button>
-        </div>
+    <Modal
+      open
+      title="Confirm cloud run"
+      panelClassName="modal modal-narrow"
+      onClose={() => {
+        if (!busy) onCancel();
+      }}
+    >
+      <div className="modal-head">
+        <Icon name="bolt" />
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            color: 'var(--text-2)',
+          }}
+        >
+          Confirm cloud run
+        </span>
+        <div className="sp" />
+        <button className="btn ghost" onClick={onCancel} disabled={busy}>
+          <Icon name="close" />
+        </button>
+      </div>
 
-        <div className="modal-body">
-          {estimate === null ? (
-            <p
-              style={{
-                color: 'var(--sell)',
-                fontSize: 13,
-                marginBottom: 16,
-                lineHeight: 1.5,
-              }}
-            >
-              Cost estimate unavailable — the estimate service could not be
-              reached. This run will use cloud inference. Run anyway?
-            </p>
-          ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'max-content 1fr',
-                gap: '8px 16px',
-                fontSize: 13,
-                marginBottom: 16,
-              }}
-            >
-              <span className="label">MODE</span>
-              <span
-                style={{
-                  color: 'var(--accent)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 11,
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                  alignSelf: 'center',
-                }}
-              >
-                {modeLabel}
-              </span>
-
-              <span className="label">CALLS</span>
-              <span style={{ color: 'var(--text)', alignSelf: 'center' }}>
-                ~{estimate.calls}
-              </span>
-
-              <span className="label">EST. COST</span>
-              <span
-                style={{
-                  color: 'var(--text)',
-                  fontFamily: 'var(--font-mono)',
-                  alignSelf: 'center',
-                }}
-              >
-                ${estimate.low_usd} – ${estimate.high_usd}
-              </span>
-            </div>
-          )}
-
+      <div className="modal-body">
+        {estimate === null ? (
           <p
             style={{
-              color: 'var(--text-3)',
-              fontSize: 11,
-              marginBottom: 0,
+              color: 'var(--sell)',
+              fontSize: 13,
+              marginBottom: 16,
               lineHeight: 1.5,
             }}
           >
-            This run will make cloud API calls that may incur charges on your
-            provider account. Confirm only if you intend to proceed.
+            Cost estimate unavailable — the estimate service could not be
+            reached. This run will use cloud inference. Run anyway?
           </p>
-        </div>
-
-        <div
-          className="hflex"
-          style={{ padding: '10px 16px', borderTop: '1px solid var(--border)' }}
-        >
-          <div className="sp" />
-          <button className="btn" onClick={onCancel} disabled={busy}>
-            Cancel
-          </button>
-          <button
-            className="btn primary"
-            onClick={onConfirm}
-            disabled={busy}
+        ) : (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'max-content 1fr',
+              gap: '8px 16px',
+              fontSize: 13,
+              marginBottom: 16,
+            }}
           >
-            <Icon name="play" />
-            {busy ? 'Starting…' : 'Confirm & run'}
-          </button>
-        </div>
+            <span className="label">MODE</span>
+            <span
+              style={{
+                color: 'var(--accent)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                alignSelf: 'center',
+              }}
+            >
+              {modeLabel}
+            </span>
+
+            <span className="label">CALLS</span>
+            <span style={{ color: 'var(--text)', alignSelf: 'center' }}>
+              ~{estimate.calls}
+            </span>
+
+            <span className="label">EST. COST</span>
+            <span
+              style={{
+                color: 'var(--text)',
+                fontFamily: 'var(--font-mono)',
+                alignSelf: 'center',
+              }}
+            >
+              ${estimate.low_usd} – ${estimate.high_usd}
+            </span>
+          </div>
+        )}
+
+        <p
+          style={{
+            color: 'var(--text-3)',
+            fontSize: 11,
+            marginBottom: 0,
+            lineHeight: 1.5,
+          }}
+        >
+          This run will make cloud API calls that may incur charges on your
+          provider account. Confirm only if you intend to proceed.
+        </p>
       </div>
-    </div>
+
+      <div
+        className="hflex"
+        style={{ padding: '10px 16px', borderTop: '1px solid var(--border)' }}
+      >
+        <div className="sp" />
+        <button className="btn" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+        <button
+          className="btn primary"
+          onClick={onConfirm}
+          disabled={busy}
+        >
+          <Icon name="play" />
+          {busy ? 'Starting…' : 'Confirm & run'}
+        </button>
+      </div>
+    </Modal>
   );
 }
