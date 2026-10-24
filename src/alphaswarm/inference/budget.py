@@ -342,6 +342,11 @@ class BudgetTrackingProvider:
     def model(self) -> str:
         return self._inner.model
 
+    @property
+    def inner(self) -> InferenceProvider:
+        """The wrapped provider (the factory attaches the retry gate to it)."""
+        return self._inner
+
     def is_local(self) -> bool:
         return self._inner.is_local()
 

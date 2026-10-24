@@ -15,6 +15,7 @@ Public surface:
     build_providers — construct providers from cfg, wrapping cloud ones in budget guard
     build_role_provider — construct one role's provider only (e.g. the interview worker)
     build_controller — select ResourceGovernor (local) or RateLimitController (cloud)
+    attach_retry_gate — share the cloud controller's retry gate with same-vendor providers
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.rate_limit import RateLimitController
+from alphaswarm.inference.retry import RetryGate
 from alphaswarm.inference.types import ProviderRole
 
 if TYPE_CHECKING:
@@ -419,5 +421,24 @@ def build_controller(
         max_in_flight=limits.max_in_flight,
         requests_per_min=limits.requests_per_min,
         tokens_per_min=limits.tokens_per_min,
-        state_store=state_store,
     )
+
+
+def attach_retry_gate(built: BuiltProviders, cfg: InferenceConfig, gate: RetryGate) -> int:
+    """Share the cloud controller's retry gate with the providers that use its limits.
+
+    The worker always does; the orchestrator only when it uses the same provider
+    type (the same ``ProviderLimits`` entry, the same vendor quota). Local
+    providers are skipped. Returns how many providers now hold the gate
+    (docs/DECISIONS.md#adr-cloud-retry).
+    """
+    targets: list[InferenceProvider] = [built.worker]
+    if cfg.orchestrator.provider == cfg.worker.provider:
+        targets.append(built.orchestrator)
+    attached = 0
+    for provider in targets:
+        inner = provider.inner if isinstance(provider, BudgetTrackingProvider) else provider
+        if isinstance(inner, (OpenAICompatProvider, AnthropicProvider)):
+            inner.retry_gate = gate
+            attached += 1
+    return attached

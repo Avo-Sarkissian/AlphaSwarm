@@ -37,6 +37,7 @@ from alphaswarm.governor import ResourceGovernor
 # style tests reach the runtime too.
 from alphaswarm.inference import config as inference_config
 from alphaswarm.inference import factory
+from alphaswarm.inference.retry import RetryGate
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.logging import configure_logging
 from alphaswarm.personas import generate_personas, load_bracket_configs
@@ -342,6 +343,10 @@ async def open_simulation(
     built = await inference.open_operation("simulation")
     try:
         controller = await inference.build_controller(app_state.state_store)
+        if isinstance(controller, RetryGate):
+            # Cloud worker: retries share the controller's cooldown and RPM bucket
+            # (docs/DECISIONS.md#adr-cloud-retry).
+            factory.attach_retry_gate(built, await inference.config(), controller)
         yield SimulationDeps(
             settings=app_state.settings,
             graph=graph,

@@ -23,6 +23,7 @@ from alphaswarm.inference.factory import (
     BuiltProviders,
     advisory_allowed,
     advisory_block_reason,
+    attach_retry_gate,
     build_controller,
     build_providers,
     effective_ollama_host,
@@ -643,3 +644,32 @@ def test_anthropic_receives_max_retries_from_limits() -> None:
     inner = built.worker._inner  # type: ignore[union-attr]
     assert isinstance(inner, AnthropicProvider)
     assert inner._max_retries == 8
+
+
+class TestAttachRetryGate:
+    """Retries share the cloud controller's cooldown and RPM bucket (docs/DECISIONS.md#adr-cloud-retry)."""
+
+    @staticmethod
+    def _gate() -> RateLimitController:
+        return RateLimitController(max_in_flight=1, requests_per_min=40, tokens_per_min=None)
+
+    @staticmethod
+    def _built(cfg: InferenceConfig) -> BuiltProviders:
+        return build_providers(cfg, ollama_client=_fake_ollama_client(), ollama_model_manager=_fake_model_manager())
+
+    def test_worker_and_same_vendor_orchestrator_share_the_gate(self) -> None:
+        cfg = InferenceConfig(orchestrator=_openai_role("gpt-4o"), worker=_openai_role())
+        built, gate = self._built(cfg), self._gate()
+        assert attach_retry_gate(built, cfg, gate) == 2
+        assert built.worker.inner.retry_gate is gate  # type: ignore[attr-defined]
+        assert built.orchestrator.inner.retry_gate is gate  # type: ignore[attr-defined]
+
+    def test_orchestrator_on_another_vendor_keeps_its_own_pacing(self) -> None:
+        cfg = InferenceConfig(orchestrator=_anthropic_role(), worker=_openai_role())
+        built = self._built(cfg)
+        assert attach_retry_gate(built, cfg, self._gate()) == 1
+        assert built.orchestrator.inner.retry_gate is None  # type: ignore[attr-defined]
+
+    def test_local_roles_are_skipped(self) -> None:
+        cfg = InferenceConfig(orchestrator=_ollama_role(), worker=_openai_role())
+        assert attach_retry_gate(self._built(cfg), cfg, self._gate()) == 1
