@@ -2,7 +2,8 @@
 
 Contracts:
 - No per-request num_ctx (causes silent model reloads)
-- Exponential backoff on transient errors (ResponseError, ConnectionError, httpx.ConnectError)
+- Exponential backoff on transient errors (ResponseError, ConnectionError, httpx.ConnectError);
+  permanent 4xx (400/401/403/404/422) and timeouts are never retried
 - OllamaInferenceError raised after max_tries exhausted
 - RequestError wrapped in OllamaInferenceError at public boundary (not retried)
 - All inference goes through this wrapper, never raw AsyncClient
@@ -20,7 +21,7 @@ import httpx
 import structlog
 from ollama import AsyncClient, ChatResponse, RequestError, ResponseError
 
-from alphaswarm.errors import OllamaInferenceError
+from alphaswarm.errors import OllamaInferenceError, is_permanent_http_status
 
 logger = structlog.get_logger(component="ollama_client")
 
@@ -57,6 +58,14 @@ def _strip_num_ctx(options: dict[str, Any] | None) -> dict[str, Any] | None:
         return None
     filtered = {k: v for k, v in options.items() if k != "num_ctx"}
     return filtered if filtered else None
+
+
+def _is_permanent_error(exc: Exception) -> bool:
+    """Backoff giveup: a 4xx such as 404 (model not found) or 400 fails the same way again.
+
+    408/409/429, 5xx and unknown statuses retry (docs/DECISIONS.md#adr-cloud-retry).
+    """
+    return isinstance(exc, ResponseError) and is_permanent_http_status(exc.status_code)
 
 
 class OllamaClient:
@@ -196,8 +205,9 @@ class OllamaClient:
                 original_error=exc,
             ) from exc
         except (ResponseError, ConnectionError, httpx.ConnectError) as exc:
+            how = "(not retried)" if _is_permanent_error(exc) else "after retries"
             raise OllamaInferenceError(
-                message=f"Ollama chat failed after retries: {exc}",
+                message=f"Ollama chat failed {how}: {exc}",
                 model=model,
                 original_error=exc,
             ) from exc
@@ -222,6 +232,7 @@ class OllamaClient:
         backoff.expo,
         (ResponseError, ConnectionError, httpx.ConnectError),
         max_tries=3,
+        giveup=_is_permanent_error,
     )
     async def _chat_with_backoff(self, pool: AsyncClient, **kwargs: Any) -> ChatResponse:
         """Internal chat call with exponential backoff on transient errors."""
