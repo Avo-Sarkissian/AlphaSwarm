@@ -100,22 +100,29 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
   `neo4j:5.26-community`, bound to 127.0.0.1 only. The password comes from
   `ALPHASWARM_NEO4J__PASSWORD`, which `docker compose` reads from `.env`.
 - **Back up before risky work, and weekly:** `./scripts/backup_neo4j.sh`.
-  - It stops the container briefly, so don't run it mid-simulation.
+  - It refuses to run while a simulation is running (the web server's `/api/health` says `is_simulation_running`, or a CLI `run`/`inject`/`report` holds the instance lock) and exits 75; otherwise it stops the container with a 60 s grace period and always restarts it. `ALPHASWARM_BACKUP_DIR` writes the dump elsewhere.
   - It writes `data/backups/neo4j-<stamp>.dump` and keeps the 8 newest.
     `data/backups/` is **not** gitignored today (BACKLOG 1.12), so never
     `git add -A` after a backup until that is fixed.
-  - It refuses to guess if both `alphaswarm-neo4j` and a legacy `neo4j`
-    container exist. Set `ALPHASWARM_NEO4J_CONTAINER=<name>` in that case.
-- **Restore** (the command the script prints needs one extra step, BACKLOG 1.6).
-  `neo4j-admin database load` only reads a file named `neo4j.dump`:
+  - It finds the container by name: `alphaswarm-neo4j` (Compose) or `neo4j`
+    (a hand-made `docker run --name neo4j` container). It refuses to guess if
+    both exist; set `ALPHASWARM_NEO4J_CONTAINER=<name>` in that case (or always,
+    to be explicit: `ALPHASWARM_NEO4J_CONTAINER=neo4j ./scripts/backup_neo4j.sh`).
+- **Restore.** The script prints a working sequence after every backup, with
+  the real dump path, container and image filled in; it is the same as
+  (`<container>` is `alphaswarm-neo4j` or `neo4j`):
   ```bash
-  mkdir -p /tmp/as-restore && cp data/backups/neo4j-<stamp>.dump /tmp/as-restore/neo4j.dump
-  IMG=$(docker container inspect --format '{{.Image}}' alphaswarm-neo4j)
-  docker stop alphaswarm-neo4j
-  docker run --rm --volumes-from alphaswarm-neo4j -v /tmp/as-restore:/backups "$IMG" \
+  RESTORE_DIR="$(mktemp -d)"
+  cp data/backups/neo4j-<stamp>.dump "$RESTORE_DIR/neo4j.dump"   # neo4j-admin only loads neo4j.dump
+  IMG=$(docker container inspect --format '{{.Image}}' <container>)
+  docker stop -t 60 <container>
+  docker run --rm --volumes-from <container> -v "$RESTORE_DIR":/backups "$IMG" \
     neo4j-admin database load neo4j --from-path=/backups --overwrite-destination=true
-  docker start alphaswarm-neo4j
+  docker start <container>
   ```
+  Never restore while a simulation runs. `tests/test_backup_script.py` replays
+  the printed sequence against a fake `docker`; verify it once on a scratch
+  container before relying on it.
 - **Memory caps (2026-10).** The Compose `neo4j` service runs with a 1 GB heap,
   512 MB page cache, 512 MB transaction memory, `mem_limit: 2500m`,
   `stop_grace_period: 60s` and `-XX:+ExitOnOutOfMemoryError`. Check with
