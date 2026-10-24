@@ -176,6 +176,8 @@ async def test_round_outcome_is_frozen_and_aligned(
         "r1_parse_errors",
         "r1_inference_errors",
         "r1_citations_dropped",
+        "r1_citations_invalid",
+        "r1_control_agents",
         "r1_parse_tier1",
         "r1_parse_tier2",
         "r1_parse_tier3",
@@ -276,7 +278,7 @@ async def test_round_2_holds_out_the_seeded_control_readers(
     second = await run_round(ctx, 2, first, ())
 
     control_ids = set(fake_graph.persist_round.await_args.kwargs["control_ids"])
-    assert fake_graph.persist_round.await_args_list[0].kwargs["control_ids"] == ()
+    assert set(fake_graph.persist_round.await_args_list[0].kwargs["control_ids"]) == control_ids
     assert len(control_ids) == second.metrics["r2_control_agents"] == 20
     shown = {c.agent_id: c.shown_peer_ids for c in round_calls(round_worker, 2)}
     assert all(shown[agent_id] == () for agent_id in control_ids)

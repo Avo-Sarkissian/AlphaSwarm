@@ -20,7 +20,7 @@ from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.episodes import EpisodeRecord, compute_flip_type, match_entities, new_decision_ids
 from alphaswarm.errors import RoundAlignmentError, RoundFailedError
 from alphaswarm.manifest import derive_call_seed
-from alphaswarm.metrics import split_flips
+from alphaswarm.metrics import filter_round_citations, round_experiment_metrics
 from alphaswarm.peers import RoundPromptContext, build_round_context, compute_exposure_metrics
 from alphaswarm.personas import persona_to_worker_config
 from alphaswarm.state import BracketSummary
@@ -219,15 +219,20 @@ async def _persist_round_records(
     peer_contexts: Sequence[str | None] | None,
     prev_decisions: Sequence[tuple[str, AgentDecision]] | None,
     entities: Sequence[EntityRef],
+    exposures: Mapping[str, Sequence[str]] | None = None,
     control_ids: Collection[str] = (),
+    citations_invalid: Mapping[str, int] | None = None,
+    shock_treated_ids: Collection[str] | None = None,
 ) -> PersistRoundResult:
     """Persist one round atomically through GraphStateManager.persist_round.
 
     Builds the round's EpisodeRecords (peer context aligned with
     ``personas``, flip type from ``prev_decisions``) and entity matches, then
     writes Decisions, CITED, episodes and REFERENCES in one transaction
-    (docs/DECISIONS.md#p4-d-08). ``control_ids`` marks the seeded no-peer
-    holdout on its Decisions (docs/DECISIONS.md#adr-diverse-peer-context).
+    (docs/DECISIONS.md#p4-d-08). ``exposures``, ``control_ids``,
+    ``citations_invalid`` and ``shock_treated_ids`` become the Decisions'
+    peer_ids, control, citations_invalid and shock_treated properties
+    (docs/DECISIONS.md#adr-run-manifest).
     """
     decision_ids = new_decision_ids(len(decisions))
     peer_by_agent: dict[str, str] = {}
@@ -254,6 +259,9 @@ async def _persist_round_records(
         episodes=episodes,
         entity_matches=match_entities(episodes, entities),
         control_ids=control_ids,
+        exposures=exposures,
+        citations_invalid=citations_invalid,
+        shock_treated_ids=shock_treated_ids,
     )
 
 
@@ -459,6 +467,18 @@ async def run_round(
     if len(raw) != len(worker_configs):
         raise RoundAlignmentError(round_num, expected=len(worker_configs), actual=len(raw))
     decisions = tuple((config["agent_id"], decision) for config, decision in zip(worker_configs, raw, strict=True))
+    exposure_by_agent = {p.id: shown for p, shown in zip(ctx.personas, inputs.prompt.exposures, strict=True)}
+    # Only citations of peers the reader was shown survive; the rest are counted
+    # (docs/DECISIONS.md#adr-diverse-peer-context).
+    decisions, citations_invalid = filter_round_citations(decisions, exposure_by_agent)
+    if any(citations_invalid.values()):
+        logger.info(
+            "citations_filtered",
+            cycle_id=ctx.cycle_id,
+            round_num=round_num,
+            invalid=sum(citations_invalid.values()),
+            agents=sum(1 for count in citations_invalid.values() if count),
+        )
     _raise_if_round_failed(round_num, decisions, deps.settings.governor.round_abort_failure_percent)
     persisted = await _persist_round_records(
         deps.graph,
@@ -469,7 +489,9 @@ async def run_round(
         peer_contexts=inputs.prompt.peer_blocks,
         prev_decisions=prev.decisions if prev is not None else None,
         entities=ctx.entities,
-        control_ids=control_ids if prev is not None else (),
+        exposures=exposure_by_agent,
+        control_ids=control_ids,
+        citations_invalid=citations_invalid,
     )
 
     weights: dict[str, float] = {}
@@ -489,15 +511,6 @@ async def run_round(
     if deps.state is not None:
         await deps.state.set_bracket_summaries(summaries)
     shift = compute_shifts(prev.decisions, decisions, personas) if prev is not None else None
-    if prev is not None:
-        flips_control, flips_treated = split_flips(prev.decisions, decisions, control_ids)
-        metrics.update(
-            {
-                f"r{round_num}_control_agents": len(control_ids),
-                f"r{round_num}_flips_control": flips_control,
-                f"r{round_num}_flips_treated": flips_treated,
-            }
-        )
     if ctx.on_round_complete is not None:
         await ctx.on_round_complete(
             RoundCompleteEvent(
@@ -538,6 +551,15 @@ async def run_round(
         round_num=round_num,
         parse_errors=metrics[f"r{round_num}_parse_errors"],
     )
+    experiment_metrics = round_experiment_metrics(
+        round_num,
+        decisions=decisions,
+        prev_decisions=prev.decisions if prev is not None else None,
+        exposures=exposure_by_agent,
+        control_ids=control_ids,
+        citations_invalid=citations_invalid,
+        personas=ctx.personas,
+    )
     return RoundOutcome(
         round_num=round_num,
         decisions=decisions,
@@ -548,5 +570,5 @@ async def run_round(
         influence_weights=weights,
         applied_shocks=tuple(shocks),
         seconds=seconds,
-        metrics=metrics,
+        metrics={**metrics, **experiment_metrics},
     )

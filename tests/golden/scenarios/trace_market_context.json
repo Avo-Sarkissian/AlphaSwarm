@@ -23,10 +23,13 @@
       100,
       0,
       [
+        "citations_invalid",
         "control_ids",
         "decision_ids",
         "entity_matches",
-        "episodes"
+        "episodes",
+        "exposures",
+        "shock_treated_ids"
       ]
     ],
     [
@@ -36,10 +39,13 @@
       100,
       0,
       [
+        "citations_invalid",
         "control_ids",
         "decision_ids",
         "entity_matches",
-        "episodes"
+        "episodes",
+        "exposures",
+        "shock_treated_ids"
       ]
     ],
     [
@@ -57,10 +63,13 @@
       100,
       0,
       [
+        "citations_invalid",
         "control_ids",
         "decision_ids",
         "entity_matches",
-        "episodes"
+        "episodes",
+        "exposures",
+        "shock_treated_ids"
       ]
     ],
     [
@@ -96,7 +105,9 @@
         "peer_seed_source",
         "peer_selection_version",
         "r1_citations_dropped",
+        "r1_citations_invalid",
         "r1_cold_loads",
+        "r1_control_agents",
         "r1_ctx_warnings",
         "r1_inference_errors",
         "r1_latency_p50_ms",
@@ -112,7 +123,19 @@
         "r1_seconds",
         "r1_total_load_ms",
         "r1_truncations",
+        "r2_citation_validity_rate",
         "r2_citations_dropped",
+        "r2_citations_invalid",
+        "r2_cite_rate_algos",
+        "r2_cite_rate_allocators",
+        "r2_cite_rate_degens",
+        "r2_cite_rate_event_driven",
+        "r2_cite_rate_institutions",
+        "r2_cite_rate_macro",
+        "r2_cite_rate_narrators",
+        "r2_cite_rate_quants",
+        "r2_cite_rate_sell_side",
+        "r2_cite_rate_shorts",
         "r2_cold_loads",
         "r2_control_agents",
         "r2_ctx_warnings",
@@ -154,7 +177,19 @@
         "r2_seconds",
         "r2_total_load_ms",
         "r2_truncations",
+        "r3_citation_validity_rate",
         "r3_citations_dropped",
+        "r3_citations_invalid",
+        "r3_cite_rate_algos",
+        "r3_cite_rate_allocators",
+        "r3_cite_rate_degens",
+        "r3_cite_rate_event_driven",
+        "r3_cite_rate_institutions",
+        "r3_cite_rate_macro",
+        "r3_cite_rate_narrators",
+        "r3_cite_rate_quants",
+        "r3_cite_rate_sell_side",
+        "r3_cite_rate_shorts",
         "r3_cold_loads",
         "r3_control_agents",
         "r3_ctx_warnings",

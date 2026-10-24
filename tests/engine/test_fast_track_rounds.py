@@ -88,7 +88,7 @@ async def test_control_readers_see_no_peers_in_rounds_two_and_three(
 
     assert Counter(bracket_of[a] for a in control) == TWENTY_PERCENT
     assert frozenset(writes[3].kwargs["control_ids"]) == control
-    assert not writes[1].kwargs["control_ids"]  # Round 1 has no holdout
+    assert frozenset(writes[1].kwargs["control_ids"]) == control  # d.control is written in every round
     for round_num in (2, 3):
         for call in round_calls(scripted_worker, round_num):
             if call.agent_id in control:
