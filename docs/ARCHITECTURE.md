@@ -14,7 +14,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 | Ollama (MLX) | `localhost:11434`, `modelfiles/` | Aliases `alphaswarm-orchestrator` (qwen3.6:27b-nvfp4) and `alphaswarm-worker` (qwen3.6:35b-a3b-nvfp4); `OllamaModelManager` loads and unloads them one at a time |
 | Optional cloud LLMs | `.secrets/inference.json` (Settings UI) | OpenAI-compatible or Anthropic, chosen per role, wrapped in `BudgetTrackingProvider` and throttled by `RateLimitController` |
 | Neo4j 5.26 | `docker-compose.yml`, bolt on `127.0.0.1:7687` | Durable graph of cycles, decisions, episodes, and influence |
-| External data | yfinance, Google/Yahoo RSS | Round 1 market context (prices and headlines) |
+| External data | yfinance, Google/Yahoo RSS | Market context (prices and headlines) for rounds 1..`market_context_rounds` |
 | Files | `reports/`, `advisory/`, `Schwab/holdings.csv` | Report markdown, advisory JSON, holdings input (gitignored). Paths resolve against the repo root. |
 | React SPA | `frontend/` (Vite, TypeScript, React-rendered SVG, d3-scale) | Live dashboard, deterministic SVG agent graph, replay, interview, report and advisory modals, settings |
 
@@ -37,10 +37,11 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `errors.py`: exception types.
 - **Engine**
   - `seed.py`: `inject_seed`. The orchestrator parses the seed (`SeedLLMOutput`) and generates the persona modifiers (`ModifiersLLMOutput`), both through `chat_structured`, and is then released; only after that does one atomic write create the Cycle (status `running`) and its Entities, so a seeding failure, teardown included, leaves no Cycle. `generate_modifiers` lives here too.
-  - `simulation.py`: `run_simulation`, a loop over `settings.num_rounds`: seeding, the Round 1 market context, phase transitions, one worker load and one governor session for every round, the cycle metrics and status ([adr-round-runner](DECISIONS.md#adr-round-runner)).
-  - `rounds.py`: `run_round` (shock-gate side effects, peers, dispatch, round-abort check, `persist_round`, influence edges, bracket summaries, callback), `SimulationDeps`, `RoundContext`, `RoundOutcome`, shift metrics.
-  - `peers.py`: seeded stratified peer selection, peer-context rendering and exposures, the seeded control holdout and the own-prior lines.
-  - `metrics.py`: pure measurement functions; `split_flips` splits a round's flips between the control holdout and the treated readers.
+  - `simulation.py`: `run_simulation`, a loop over `settings.num_rounds`: seeding, the market context, the run seed and run manifest, phase transitions, one worker load and one governor session for every round, the cycle metrics and status ([adr-round-runner](DECISIONS.md#adr-round-runner)).
+  - `rounds.py`: `run_round` (shock-gate side effects, peers, dispatch, round-abort check, citation filtering, `persist_round`, influence edges, bracket summaries, experiment metrics, callback), `prepare_round_inputs` (one `RoundInputs` per round), `retest_round1`, `SimulationDeps`, `RoundContext`, `RoundOutcome`, shift metrics.
+  - `peers.py`: seeded stratified (or random, or no) peer selection, peer-context rendering and exposures, the seeded control holdout and shock arm, the own-prior lines, and `build_round_context`.
+  - `metrics.py`: pure measurement functions: citation filtering and validity, citation rate given exposure, control/treated flips (`split_flips`), the retest noise floor and bootstrap intervals.
+  - `manifest.py`: git state, blake2b run and call seeds, `ModelRef`/`RunProvenance`, `RunManifest` ([adr-run-manifest](DECISIONS.md#adr-run-manifest)).
   - `batch_dispatcher.py`: `dispatch_wave`, a TaskGroup of 100 jittered inferences.
   - `worker.py`: `AgentWorker`, the decision JSON schema, and the fence for untrusted market data.
   - `parsing.py`: `parse_agent_decision`, the worker decisions' 3-tier parser; it stamps each decision's `parse_tier`.
@@ -117,14 +118,14 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
    - `create_cycle_with_seed_event`, which writes Cycle (status `running`), Entity, and MENTIONS in one transaction.
 
    Then `generate_personas` builds 100 prompts. Each one is a bracket template plus a round-robin modifier, a per-cycle focus line, and the JSON instructions.
-3. **Market context (Round 1 only).** Ticker-shaped entities go to `asyncio.gather(yfinance.get_prices, rss.get_headlines)`. The results become a ContextPacket, which `format_market_context` turns into one block, fenced as untrusted data inside the user message. A point-in-time run (`run --context-fixture`) skips the fetch: its fixture packet goes straight to `format_market_context`, and supplied providers are never called.
+3. **Market context (rounds 1..`market_context_rounds`, default every round; [adr-market-context](DECISIONS.md#adr-market-context)).** Ticker-shaped entities go to `asyncio.gather(yfinance.get_prices, rss.get_headlines)`. The results become a ContextPacket, which `format_market_context` turns into one block, fenced as untrusted data inside the user message. A point-in-time run (`run --context-fixture`) skips the fetch: its fixture packet goes straight to `format_market_context`, and supplied providers are never called.
 4. **Round 1.** `run_simulation` loads the worker once here; it stays loaded until the last round ends. `dispatch_wave` runs 100 tasks. Each one waits out its jitter, calls `controller.acquire`, then `AgentWorker.infer` (schema-constrained decode, per-bracket temperature), then `parse_agent_decision`, which records the decision's `parse_tier` (the round metrics count them as `r{n}_parse_tier1..3`). Results stream into the StateStore as they finish. Then:
    - the round-abort check (`RoundFailedError` when more than `round_abort_failure_percent` of agents failed);
    - `persist_round`: Decisions (with `error_kind` and `parse_tier`), CITED, RationaleEpisodes and REFERENCES in one transaction;
    - bracket summaries.
 5. **Rounds 2..N.** Every round, the first included, is one `run_round` call. After each later round has started, `run_simulation` consumes a shock queued while the shock window was open; `run_round` persists it, appends every applied shock to all later rounds' user message (oldest first) and records it on the StateStore. Peer contexts are built in memory from the previous round's decisions, per reader, by `build_peer_contexts` (`peers.py`):
    - each candidate's weight is base reach plus global citation share, plus `SimulationSettings.personal_boost` (0.3) if the reader cited that agent last round;
-   - `select_diverse_peers` samples peers by weight with a per-reader `peer_rng(cycle_id, reader, round)`: at least 4 brackets, at most 3 peers per bracket, shuffled display order;
+   - `select_diverse_peers` samples peers by weight with a per-reader `peer_rng(str(sim_seed), reader, round)`: at least 4 brackets, at most 3 peers per bracket, shuffled display order;
    - the builder returns each reader's rendered peer ids, which `run_round` counts into `r{n}_exposure_*` metrics; `run_simulation` stamps them on the Cycle next to the run provenance (models, provider mode, git SHA).
 
    Each reader's user message then carries its own previous decision (`own_prior_memory`, default on) after the fenced peer block (if any) and before the rumor, and the seeded control holdout (`control_fraction`, default 0.0, so nobody) loses its peer context before the exposure metrics are counted; holdout decisions are stored with `d.control = true`, and the cycle metrics split the round's flips into control and treated.
@@ -152,10 +153,12 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 ```text
 (:Agent {id, name, bracket, risk_profile, temperature, influence_weight_base})
 (:Cycle {cycle_id, seed_rumor, overall_sentiment, created_at, status, error_code, num_rounds,
-         modifiers_json, prompt_template_hash, <metrics>, metrics_recorded_at})
+         modifiers_json, prompt_template_hash, run_manifest_json, sim_seed, experiment_tag,
+         <metrics>, metrics_recorded_at})
     -[:MENTIONS {relevance, sentiment}]->(:Entity {name, type})
 (:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment,
-                              rationale, control, error_kind, parse_tier, narrative})
+                              rationale, control, error_kind, parse_tier, peer_ids,
+                              citations_invalid, shock_treated, narrative})
 (:Decision)-[:CITED]->(:Agent)
 (:Decision)-[:HAS_EPISODE]->(:RationaleEpisode {peer_context_received, flip_type, round, cycle_id})
 (:Decision)-[:REFERENCES {match_type: "token"}]->(:Entity)      # cycle's own (name, type)
@@ -171,3 +174,11 @@ and indexes) live in `graph/schema_writes.py` `SCHEMA_STATEMENTS` and are applie
 (it deletes no data: the old Agent narrative property stays until the owner runs
 `remove_legacy_properties()` after a backup, `docs/RUNBOOK.md` §3), and skips the `decision_id_unique` constraint while
 duplicate decision ids exist (`docs/DECISIONS.md#adr-neo4j-schema`).
+
+## Run provenance and experiment controls
+
+Rationale and limits: [adr-run-manifest](DECISIONS.md#adr-run-manifest).
+
+- **Run manifest:** after seeding and the market fetch, `run_simulation` fixes `sim_seed` (the setting, else derived from the cycle id), writes the `RunManifest` (`write_run_manifest`) and only then starts Round 1. Exact provider types and Ollama digests come from `services.runtime.InferenceRuntime.run_provenance`, which `open_simulation` passes as `SimulationDeps.provenance`.
+- **Per round:** `prepare_round_inputs` builds per-reader peer blocks, own-prior lines and exposures (`peers.build_round_context`), the worker configs (`uniform_temperature`), the market block for rounds 1..`market_context_rounds`, per-call seeds (`derive_call_seed`) and, in a shock-split round, per-reader messages. After dispatch, `run_round` keeps only citations of shown peers and persists `peer_ids`, `control`, `citations_invalid` and `shock_treated` with the decisions. With `retest_round1`, Round 1 is drawn a second time, unpersisted, for the noise floor. A Decision or Cycle property that was not recorded is absent rather than null.
+- **Operator scripts:** `scripts/compare_cycles.py --group-by experiment_tag,worker_model` (means with bootstrap intervals) and `scripts/peer_effect.py` (`effect`, `shock`, `noise`, `influence`, `exposure-diff`) read stored cycles read-only; their tables go into `docs/experiments.md`.
