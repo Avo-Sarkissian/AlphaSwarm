@@ -143,3 +143,11 @@ No runs recorded: the retest comes from the `sim_seed` 1901 control cycles.
 Protocol (optional owner run): two cycles with `ALPHASWARM_SIMULATION__SHOCK_TREATMENT_SPLIT=true`, tag `p7-3-shock`, and one shock injected during Round 1 through the web API (`scripts/peer_effect.py shock --tag p7-3-shock --markdown`). The split is implemented but not measured.
 
 No runs recorded: this optional pilot runs on the reference machine.
+
+## P7.5 — market-context probe (benchmark seeds)
+
+Protocol: `uv run python scripts/context_probe.py --show-block` on the reference machine (Ollama per RUNBOOK §1, network, the SEC map cached per RUNBOOK §2 "SEC ticker map"). The probe parses each of the four `scripts/benchmark_seeds.json` rumors with the orchestrator against a graph stub (nothing persisted), resolves tickers on the swarm side and builds the market block with the real yfinance and RSS providers. Record the printed table here with the git sha, the date and whether `ticker_map_loaded source=sec` appeared.
+
+Verify: the market block is non-empty for at least 3 of the 4 seeds. Expected: the three seeds that name public companies resolve tickers and show price lines; a private company stays unresolved; the central-bank seed has no company ticker but gets a news-only block.
+
+No runs recorded: the probe needs the orchestrator and the network and runs on the reference machine.
