@@ -40,6 +40,7 @@ from alphaswarm.inference import factory
 from alphaswarm.inference.rate_limit import RateLimitController
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.logging import configure_logging
+from alphaswarm.manifest import ModelRef, RunProvenance
 from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.readiness import NEO4J_AUTH_FIX, NEO4J_FIX
 from alphaswarm.services.jobs import JobRunner
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
     from alphaswarm.inference.budget import BudgetMeter
     from alphaswarm.inference.concurrency import ConcurrencyController
-    from alphaswarm.inference.config import InferenceConfig
+    from alphaswarm.inference.config import InferenceConfig, RoleConfig
     from alphaswarm.inference.factory import BuiltProviders
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.inference.types import ProviderRole
@@ -164,6 +165,29 @@ class InferenceRuntime:
             raise InferenceConfigIncompleteError(INFERENCE_CONFIG_INCOMPLETE_MESSAGE) from None
         log.info("inference_role_opened", operation=name, role=role.value)
         return provider
+
+    async def run_provenance(self, built: BuiltProviders) -> RunProvenance:
+        """Exact provider type, model id and (Ollama) weights digest of both roles.
+
+        Recorded in the run manifest (docs/DECISIONS.md#adr-run-manifest). Digest
+        lookups are best effort: without a reachable Ollama they are None.
+        """
+        from alphaswarm.ollama_models import model_digest
+
+        cfg = await self.config()
+
+        async def ref(role: RoleConfig, provider: InferenceProvider) -> ModelRef:
+            digest: str | None = None
+            local = role.provider is inference_config.ProviderType.OLLAMA
+            if local and self._ollama_client is not None:
+                digest = await model_digest(self._ollama_client, provider.model)
+            return ModelRef(provider=role.provider.value, model=provider.model, digest=digest)
+
+        return RunProvenance(
+            orchestrator=await ref(cfg.orchestrator, built.orchestrator),
+            worker=await ref(cfg.worker, built.worker),
+            inference_mode=factory.inference_mode(cfg),
+        )
 
     async def build_controller(self, state_store: StateStore) -> ConcurrencyController:
         """ResourceGovernor for a local worker, RateLimitController for a cloud worker.
@@ -351,6 +375,7 @@ async def open_simulation(
             factory.attach_retry_gate(built, await inference.config(), controller)
         # A wrong model id or base URL fails here, before seeding.
         await factory.preflight_cloud_roles(built)
+        provenance = await inference.run_provenance(built)
         yield SimulationDeps(
             settings=app_state.settings,
             graph=graph,
@@ -360,6 +385,7 @@ async def open_simulation(
             state=state,
             market=app_state.market_provider,
             news=app_state.news_provider,
+            provenance=provenance,
         )
     finally:
         await close_operation(built, teardown=False)

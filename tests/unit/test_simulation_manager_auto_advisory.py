@@ -96,6 +96,7 @@ async def test_cycle_id_stored(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     monkeypatch.setattr("alphaswarm.inference.factory.build_providers", lambda *a, **kw: fake_built)
     monkeypatch.setattr("alphaswarm.inference.factory.build_controller", lambda *a, **kw: MagicMock())
     monkeypatch.setattr("alphaswarm.inference.factory.inference_mode", lambda *a, **kw: "local")
+    monkeypatch.setattr("alphaswarm.services.runtime.InferenceRuntime.run_provenance", AsyncMock(return_value=None))
 
     manager = _build_manager()
     # The InferenceRuntime resolves the stored config's path from real settings.
