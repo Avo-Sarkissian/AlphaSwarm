@@ -94,17 +94,21 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   overlay state), `Topbar.tsx`, `ModalHost.tsx` (the one overlay slot: an `ActiveModal`
   union, so opening an overlay replaces the current one), `ComingSoonModal.tsx`,
   `RunControls.tsx`, `ConnectionBanner.tsx`.
-- `features/dashboard/`: `Dashboard.tsx`, `Viz.tsx` + `vizLayout.ts` (deterministic
-  layouts, no physics), `panels.tsx`, `StateOverlays.tsx`, `ModelStatus.tsx`,
+- `features/dashboard/`: `Dashboard.tsx`, `panels.tsx`, `StateOverlays.tsx`, `ModelStatus.tsx`,
   `ShockDrawer.tsx`, `ReplayBar.tsx`, `BracketDeepDive.tsx`, `RunErrorBanner.tsx`,
   `useDashboardData.ts`.
 - `features/wire/` (Signal Wire, Data Sources), `features/advisory/`, `features/report/`
   (`ReportModal`, `ReportCharts`), `features/cycles/` (`CycleBrowser`, the one cycle list:
   reports and replays), `features/interview/`, `features/settings/`, `features/onboarding/`.
+- `viz/`: the hero graph, shared by features: `layout.ts` (deterministic scene from the
+  roster), `edges.ts` (curves, bracket matrix, ego network), `encodings.ts`,
+  `legendItems.ts`, `caption.ts`, `Legend.tsx`, `AgentTooltip.tsx`, `InfluenceGraph.tsx`.
+  No physics; see `docs/DECISIONS.md#adr-hero-graph`.
 - Shared: `components/` (`Icon`, `InlineError`, `RunConfirmModal`), `hooks/`, `lib/`
   (pure helpers), `context/`, `api/`, `adapter/`, `types.ts`, `data.ts`.
 - Rules, enforced by `src/__tests__/invariants/structure.test.ts`: TypeScript only, no
   explicit `any`, `noUncheckedIndexedAccess`, features never import each other or `app/`,
+  `viz/` never imports `app/` or `features/`,
   modules stay under 600 lines, and the inline-style count never grows.
 
 ## Data flow: seed → rounds → graph → web → UI

@@ -521,12 +521,22 @@ Contents
   - The lifecycle (idle, seeding, live, complete, replay) comes from the frame, so the shell, Run/Stop and the replay bar look the same after a reload; idle and seeding are overlays inside the canvas.
   - While the post-run advisory/report jobs hold the orchestrator (frame `jobs`), Run is disabled and reads "Report generating…" / "Advisory generating…": a new run would evict the orchestrator mid-report. The backend refuses the start with 409 `post_run_jobs_in_progress` anyway (decided Oct 2026 under the owner's delegation).
   - React-rendered SVG with a deterministic layout instead of d3-force ([KR-41.1-01](#kr-41-1-01)); `d3-scale` is the only D3 module. `d3-selection` and `d3-transition` were never imported and were removed (2026-10).
+  - The agent graph lives in `frontend/src/viz/` ([adr-hero-graph](#adr-hero-graph)).
   - One overlay slot: the shell holds a single `ActiveModal` discriminated union rendered by `ModalHost` (`frontend/src/app/ModalHost.tsx`), so takeovers never stack; the interview is addressed by agent id and opens only while that agent is in the live roster.
   - Feature folders (`frontend/src/features/<name>/`) composed by `frontend/src/app/`; features never import each other. TypeScript only with `noUncheckedIndexedAccess`; enforced by `frontend/src/__tests__/invariants/structure.test.ts`.
   - No design mocks or placebo controls ship: the mock data, the dev Tweaks panel and handler-less buttons were deleted (2026-10). Every on-screen value comes from the frame, REST or config; an ESLint rule rejects a `<button>` without a handler and knip gates dead code in CI ([KR-41.6-14](#kr-41-6-14)).
   - Fonts (IBM Plex Sans, JetBrains Mono) are self-hosted through `@fontsource`, which fits local-first.
   - Tests and lint (`frontend/TESTING.md`): vitest runs pure tests in node and hook/component tests on happy-dom with React Testing Library; backend-written golden frames pin the wire contract ([adr-ws-broadcaster](#adr-ws-broadcaster)); ESLint (typescript-eslint, react-hooks; jsx-a11y at `warn` until the accessibility pass) runs in CI. ESLint stays on 9.x while eslint-plugin-jsx-a11y supports nothing newer.
 - **History:** Textual TUI, then Vue 3 + D3 force graph, then a React port of the Claude Design UI, then the AlphaSwarm-2 Quant Terminal. See HISTORY.md.
+
+### <a id="adr-hero-graph"></a>Hero influence graph: overview first, details on demand
+- **Decision (2026-10):**
+  - Positions are a pure function of the static roster (registry order, ids sorted), the canvas size, the layout and the reserved corners (`frontend/src/viz/layout.ts`): Clusters (phyllotaxis-packed bracket clusters on a ring), Radial (one labelled ring per bracket) and Grid. Frame order never moves a node, so live and replay draw identical positions. Still no physics ([KR-41.1-01](#kr-41-1-01)). Unknown agent ids get an "Unknown" cluster.
+  - Default view (owner's small-decisions delegation, 2026-10-23): bracket-to-bracket ribbons (`aggregateByBracket`; width ∝ √count; colour of the cited bracket), `DEFAULT_ALL_EDGES = false`. Hovering or clicking an agent draws its ego network: peers it cited and peers citing it in two colours, everyone else dimmed. "All edges" draws every citation coloured by the citer's signal. Arrows run from the cited agent to the citing agent. Clicking pins an agent; its card offers the interview.
+  - Node size = √ of the distinct peers citing the agent in the round on screen (uniform while nobody is cited); failed agents carry a cross. The legend lists only the encodings on screen; an empty graph explains itself ("Round 1: agents decide independently…").
+  - Every edge colour keeps ≥ 3:1 contrast against the canvas at the drawn opacity (`frontend/src/__tests__/lib/contrast.test.ts`).
+  - The graph is pointer-only; keyboard users reach every agent through Top Influencers, the rationale feed and the bracket deep dive. Focusable SVG nodes were considered and not adopted.
+- **Rationale:** citations concentrate on few agents; 200-500 agent edges at readable contrast form a hairball, so the overview aggregates and details appear on demand.
 
 ### <a id="adr-test-network-gate"></a>Tests are offline by default
 - **Decision:** `pytest-socket --disable-socket --allow-unix-socket` applies globally (`pyproject.toml` addopts). Tests opt in by marker, never by directory (`tests/support/markers.py`, applied from `tests/conftest.py`): `neo4j` (the throwaway neo4j-test database on 127.0.0.1:7688, see [adr-tests-scoped-cleanup](#adr-tests-scoped-cleanup)), `live_network` (public internet) and `ollama` (local Ollama) get sockets, and async `neo4j` tests share the session event loop with the session-scoped driver. `live_network` and `ollama` tests are skipped unless `--run-live` is given. `neo4j` tests skip when neo4j-test is unreachable unless `--require-neo4j` is given.
@@ -908,7 +918,7 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p41-6-d-03"></a>`D-03` | Convert the CDN-globals JSX design export to native ES modules. | active | fe/app/AppShell.tsx; fe/components/Icon.tsx; fe/features/dashboard/panels.tsx; fe/features/settings/Settings.tsx; fe/features/dashboard/StateOverlays.tsx; fe/features/{wire,advisory,report,dashboard}/ (split from v2.tsx); fe/features/dashboard/Viz.tsx |
+| <a id="p41-6-d-03"></a>`D-03` | Convert the CDN-globals JSX design export to native ES modules. | active | fe/app/AppShell.tsx; fe/components/Icon.tsx; fe/features/dashboard/panels.tsx; fe/features/settings/Settings.tsx; fe/features/dashboard/StateOverlays.tsx; fe/features/{wire,advisory,report,dashboard}/ (split from v2.tsx); fe/viz/InfluenceGraph.tsx |
 | <a id="p41-6-d-07"></a>`D-07` | App shell = split context providers (Connection, Telemetry, Agents, Rationales, Edges, FrameMeta); bracket bars derive from agents, BracketContext removed (Oct 2026). | revised | fe/app/App.tsx; fe/app/AppShell.tsx |
 | <a id="p41-6-d-08"></a>`D-08` | AdvisoryV2: derive what the backend supports, stub the rest (stubs tracked as KRs). | active | fe/features/dashboard/{ShockDrawer,ReplayBar}.tsx; fe/features/{wire,advisory,report,dashboard}/ (split from v2.tsx); fe/lib/advisoryParse.ts:2,24,51 |
 | <a id="p41-6-d-09"></a>`D-09` | Render portfolio_outlook markdown via renderMarkdown(). | active | fe/features/{wire,advisory,report,dashboard}/ (split from v2.tsx); fe/lib/advisoryParse.ts:2,11; fe/lib/markdown.ts:3 |
@@ -940,7 +950,7 @@ Status checked against current code.
 
 | ID | Accepted gap | Status (2026-10) | Referenced from |
 |---|---|---|---|
-| <a id="kr-41-1-01"></a>KR-41.1-01 | Agent graph uses the design's deterministic SVG layout, with no d3-force physics | active (deliberate design) | CLAUDE.md:22; fe/features/dashboard/Viz.tsx |
+| <a id="kr-41-1-01"></a>KR-41.1-01 | Agent graph uses the design's deterministic SVG layout, with no d3-force physics | active (deliberate design) | CLAUDE.md:22; fe/viz/InfluenceGraph.tsx |
 | <a id="kr-41-1-02"></a>KR-41.1-02 | Signal Wire and Data Sources render static mocks (no backend) | **closed** (2026-10): both read the live `data_source_audit` slice; `src/mocks/` and the DEV fallback were deleted | fe/features/{wire,advisory,report,dashboard}/ (split from v2.tsx); fe/lib/dataSources.ts |
 | <a id="kr-41-1-03"></a>KR-41.1-03 | Per-agent `flipped`, `roundLastSpoke`, `thinking` stubbed | partial: `thinking` is derived from `signal===null`; `flipped` and `roundLastSpoke` are still 0/null (frame.ts:151-152) | fe/adapter/frame.ts:151,152; fe/types.ts:26,27 |
 | <a id="kr-41-1-04"></a>KR-41.1-04 | Memory shown as percent, not MB; GB literals in MemoryPaused are design copy | active for the percent display; MemoryPausedState and its GB literals were deleted (2026-10) | fe/adapter/frame.ts; fe/types.ts |
