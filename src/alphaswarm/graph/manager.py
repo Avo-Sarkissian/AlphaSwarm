@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         ConsensusSummaryRow,
         CycleStatus,
         EntityImpactRow,
+        FinalDecisionRow,
         InfluenceEdgeRow,
         InfluenceLeaderRow,
         KeyDissenterRow,
@@ -56,18 +57,16 @@ log = structlog.get_logger(component="graph")
 
 T = TypeVar("T")
 
-# neo4j 5.x raises a pool-acquisition timeout as a code-less ClientError
-# (6.0 plans to make it a DriverError).
+# neo4j 5.x raises a pool-acquisition timeout as a code-less ClientError (6.0: a DriverError).
 _POOL_ACQUISITION_TIMEOUT_MARKER: Final = "failed to obtain a connection from the pool"
 
 
 def _map_graph_error(exc: Exception, *, op: str, write: bool) -> GraphError:
     """Map a neo4j driver/server error onto the GraphError family.
 
-    ServiceUnavailable and SessionExpired subclass DriverError, not
-    Neo4jError; a wrong password is neo4j's AuthError (a ClientError); a
-    pool-acquisition timeout is a code-less ClientError. All three mean the
-    database is unreachable (docs/DECISIONS.md#p4-d-07).
+    ServiceUnavailable and SessionExpired subclass DriverError, not Neo4jError; a wrong
+    password is neo4j's AuthError (a ClientError); a pool-acquisition timeout is a
+    code-less ClientError. All three mean the database is unreachable (docs/DECISIONS.md#p4-d-07).
     """
     unavailable = isinstance(exc, (DriverError, Neo4jAuthError)) or (
         isinstance(exc, Neo4jError) and exc.code is None and _POOL_ACQUISITION_TIMEOUT_MARKER in str(exc)
@@ -255,6 +254,9 @@ class GraphStateManager:
 
     async def read_entity_impact(self, cycle_id: str) -> list[EntityImpactRow]:
         return await analytics.read_entity_impact(self._read, cycle_id)
+
+    async def read_final_round_decisions(self, cycle_id: str) -> list[FinalDecisionRow]:
+        return await analytics.read_final_round_decisions(self._read, cycle_id)
 
     async def read_shock_impact(self, cycle_id: str) -> ShockImpactRow:
         return await analytics.read_shock_impact(self._read, cycle_id)

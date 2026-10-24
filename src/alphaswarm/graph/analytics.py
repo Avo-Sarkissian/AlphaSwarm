@@ -7,7 +7,7 @@ graph/rows.py. Shock and influence maths live in alphaswarm.influence.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 
@@ -15,6 +15,8 @@ from alphaswarm.graph.rows import (
     BracketNarrativeRow,
     ConsensusSummaryRow,
     EntityImpactRow,
+    EvidenceEntityRow,
+    FinalDecisionRow,
     InfluenceEdgeRow,
     InfluenceLeaderRow,
     KeyDissenterRow,
@@ -535,3 +537,60 @@ async def _read_shock_event_tx(
         injected_before_round=int(record["injected_before_round"]),
         created_at=record["created_at"],
     )
+
+
+_FINAL_ROUND_DECISIONS_QUERY: Final = """
+MATCH (c:Cycle {cycle_id: $cycle_id})
+WITH c, coalesce(c.num_rounds, 3) AS final_round
+MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+WHERE d.round = final_round
+OPTIONAL MATCH (d)-[:REFERENCES]->(e:Entity)<-[m:MENTIONS]-(c)
+WITH a, d, collect(DISTINCT {name: e.name, type: e.type, ticker: m.ticker}) AS raw
+RETURN a.id AS agent_id,
+       a.bracket AS bracket,
+       coalesce(a.influence_weight_base, 0.0) AS reach,
+       toLower(d.signal) AS signal,
+       coalesce(d.confidence, 0.0) AS confidence,
+       coalesce(d.sentiment, 0.0) AS sentiment,
+       [x IN raw WHERE x.name IS NOT NULL] AS entities
+ORDER BY agent_id
+"""
+
+
+async def _read_final_round_decisions_tx(tx: AsyncManagedTransaction, cycle_id: str) -> list[dict[str, Any]]:
+    result = await tx.run(_FINAL_ROUND_DECISIONS_QUERY, cycle_id=cycle_id)
+    return [dict(record) async for record in result]
+
+
+async def read_final_round_decisions(read: TxRunner, cycle_id: str) -> list[FinalDecisionRow]:
+    """Final-round decisions with the cycle entities each one references.
+
+    The advisory derives its per-holding swarm signal from these rows
+    (docs/DECISIONS.md#adr-grounded-advisory); the final round follows the report
+    reads (docs/DECISIONS.md#adr-num-rounds).
+    """
+    records = await read(_read_final_round_decisions_tx, cycle_id, op="read_final_round_decisions")
+    rows = [
+        FinalDecisionRow(
+            agent_id=str(r["agent_id"]),
+            bracket=str(r["bracket"]),
+            reach=float(r["reach"]),
+            signal=str(r["signal"]),
+            confidence=float(r["confidence"]),
+            sentiment=float(r["sentiment"]),
+            entities=sorted(
+                (
+                    EvidenceEntityRow(
+                        name=str(e["name"]),
+                        type=str(e["type"]),
+                        ticker=str(e["ticker"]) if e["ticker"] is not None else None,
+                    )
+                    for e in r["entities"]
+                ),
+                key=lambda e: (e["name"], e["type"]),
+            ),
+        )
+        for r in records
+    ]
+    log.debug("final_round_decisions_read", cycle_id=cycle_id, count=len(rows))
+    return rows

@@ -17,6 +17,7 @@
   "read_cycle_status": "(self, cycle_id: 'str') -> 'CycleStatus | None'",
   "read_decision_narrative": "(self, cycle_id: 'str', agent_id: 'str') -> 'str | None'",
   "read_entity_impact": "(self, cycle_id: 'str') -> 'list[EntityImpactRow]'",
+  "read_final_round_decisions": "(self, cycle_id: 'str') -> 'list[FinalDecisionRow]'",
   "read_full_cycle_signals": "(self, cycle_id: 'str') -> 'dict[tuple[str, int], AgentState]'",
   "read_influence_edges": "(self, cycle_id: 'str', round_num: 'int') -> 'list[InfluenceEdgeRow]'",
   "read_influence_leaders": "(self, cycle_id: 'str', limit: 'int' = 10) -> 'list[InfluenceLeaderRow]'",

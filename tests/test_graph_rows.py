@@ -80,6 +80,8 @@ EXPECTED_KEYS: dict[str, set[str]] = {
         "rationale",
         "cited_agents",
     },
+    "EvidenceEntityRow": {"name", "type", "ticker"},
+    "FinalDecisionRow": {"agent_id", "bracket", "reach", "signal", "confidence", "sentiment", "entities"},
 }
 
 
@@ -97,6 +99,8 @@ ROWS_MODULE_NAMES = (
     "CompletedCycleRow",
     "ConsensusSummaryRow",
     "EntityImpactRow",
+    "EvidenceEntityRow",
+    "FinalDecisionRow",
     "InfluenceEdgeRow",
     "InfluenceLeaderRow",
     "KeyDissenterRow",
