@@ -33,7 +33,23 @@ async function safeBody(res: Response): Promise<unknown> {
   }
 }
 
+/** API calls the read-only demo cannot serve fail with this code (docs/DECISIONS.md#adr-cycle-export). */
+export const DEMO_UNAVAILABLE_CODE = 'demo_unavailable';
+export const DEMO_UNAVAILABLE_MESSAGE = 'Not available in the read-only demo.';
+
+type RequestOverride = (path: string, init: RequestOptions) => Promise<unknown>;
+let requestOverride: RequestOverride | null = null;
+
+/** The demo data source answers API calls in the browser; null restores fetch. */
+export function installRequestOverride(override: RequestOverride | null): void {
+  requestOverride = override;
+}
+
 export async function request<T>(path: string, init: RequestOptions = {}): Promise<T> {
+  if (requestOverride !== null) return (await requestOverride(path, init)) as T;
+  if (import.meta.env.VITE_DEMO === '1') {
+    throw new ApiError(0, null, path, DEMO_UNAVAILABLE_MESSAGE, DEMO_UNAVAILABLE_CODE);
+  }
   const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: callerSignal, ...rest } = init;
   const controller = new AbortController();
   let timedOut = false;

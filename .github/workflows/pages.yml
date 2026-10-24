@@ -1,0 +1,61 @@
+# Static, read-only demo of AlphaSwarm on GitHub Pages: one recorded cycle
+# replayed in the browser, no backend (docs/DECISIONS.md#adr-cycle-export).
+# Manual only: nothing is published until the owner runs this workflow from
+# the Actions tab after reviewing the committed demo cycle and enabling Pages
+# (Settings -> Pages -> Source: GitHub Actions).
+name: Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx vitest run
+      - name: Build the demo
+        env:
+          VITE_DEMO: "1"
+          VITE_BASE: /AlphaSwarm/
+        run: npm run build
+      - name: Check the demo bundle
+        run: |
+          grep -q 'src="/AlphaSwarm/assets/' dist/index.html
+          test -f dist/demo/index.json
+          id=$(node -e "console.log(require('./dist/demo/index.json').cycle_id)")
+          test -f "dist/demo/${id}.json"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

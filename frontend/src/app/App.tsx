@@ -9,9 +9,11 @@ import type { ConnectionStatus } from '../hooks/useWebSocket';
 import { ConnectionProvider } from '../context/ConnectionContext';
 import { EdgesProvider } from '../context/EdgesContext';
 import { FrameProviders } from '../context/FrameProviders';
+import { getDataSource } from '../data-source';
 import { AppShell } from './AppShell';
 import { ConnectionBanner } from './ConnectionBanner';
 import { Onboarding } from '../features/onboarding/Onboarding';
+import { awaitingMessage } from '../lib/awaitingMessage';
 import { safeStorage } from '../lib/safeStorage';
 
 const ONBOARDING_FLAG = 'as_onboarding_v1_complete';
@@ -25,6 +27,7 @@ export function App() {
   // AND the persisted storage flag. Pure read; no storage writes during
   // the render path (no useEffect, no setItem in initializer).
   const [onboardingDone, setOnboardingDone] = useState<boolean>(() => {
+    if (getDataSource().readOnly) return true;
     const devSkip = import.meta.env.DEV && import.meta.env.VITE_SKIP_ONBOARDING === 'true';
     return devSkip || safeStorage.get(ONBOARDING_FLAG) === 'true';
   });
@@ -70,12 +73,7 @@ export function App() {
 }
 
 function AwaitingFrame({ status }: { status: ConnectionStatus }) {
-  const msg =
-    status === 'open'
-      ? 'Connected. Waiting for the first frame…'
-      : status === 'connecting'
-        ? 'Connecting to the backend…'
-        : 'Backend not reachable on :8000. Retrying…';
+  const msg = awaitingMessage(status, getDataSource().kind);
   return (
     <div className="app awaiting-frame" role="status">
       {msg}
