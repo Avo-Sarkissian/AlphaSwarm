@@ -1,6 +1,7 @@
 // Side panels — brackets list, rationale feed, KPI strip, bracket composition.
 
 import { memo } from 'react';
+import { formatScore, leanOf, netScoreVotes, votesFromAgents } from '../../lib/consensus';
 import { sparkBars } from '../../lib/spark';
 import { consensusLeader, tallySignals } from '../../lib/tally';
 import type { FeedRow } from '../../lib/rationaleFeed';
@@ -176,14 +177,19 @@ export const KpiStrip = memo(function KpiStrip({ agents, tps, tpsHistory = [], m
 
 export const ConsensusRing = memo(function ConsensusRing({ agents }: ConsensusRingProps) {
   const tally = tallySignals(agents);
-  const lead = consensusLeader(tally);
+  // Lean from the confidence-weighted net score, not the plurality
+  // (docs/DECISIONS.md#adr-consensus-estimators); the arcs keep the decided split.
+  const votes = votesFromAgents(agents);
+  const net = netScoreVotes(votes, 'headcount');
+  const reach = netScoreVotes(votes, 'reach');
+  const lean = votes.length > 0 ? leanOf(net) : null;
   // Arcs span the whole roster, so agents still thinking leave a visible gap.
   const total = Math.max(1, agents.length);
   const R = 48, C = 2 * Math.PI * R;
   const buyLen = (tally.buy/total)*C;
   const sellLen = (tally.sell/total)*C;
   const holdLen = (tally.hold/total)*C;
-  const leadColor = lead.signal ? `var(--${lead.signal})` : 'var(--text-3)';
+  const leanColor = lean ? `var(--${lean})` : 'var(--text-3)';
   return (
     <svg className="consensus-ring" viewBox="0 0 120 120">
       <circle cx="60" cy="60" r={R} fill="none" stroke="var(--border)" strokeWidth="8" />
@@ -194,11 +200,12 @@ export const ConsensusRing = memo(function ConsensusRing({ agents }: ConsensusRi
       </g>
       {/* The text block sits a little high: lower down, the ring's inner chord is
           too narrow for "100/100 decided" (it would run into the arcs). */}
-      <text x="60" y="47" className="mid" fontSize="10" fill="var(--text-3)" letterSpacing="0.14em">CONSENSUS</text>
-      <text x="60" y="64" className="mid" fontSize={lead.signal ? 18 : 13} fontWeight="700" fill={leadColor}>
-        {lead.signal ? lead.signal.toUpperCase() : 'PENDING'}
+      <text x="60" y="40" className="mid" fontSize="10" fill="var(--text-3)" letterSpacing="0.14em">CONSENSUS</text>
+      <text x="60" y="57" className="mid" fontSize={lean ? 18 : 13} fontWeight="700" fill={leanColor}>
+        {lean ? lean.toUpperCase() : 'PENDING'}
       </text>
-      <text x="60" y="77" className="mid" fontSize="10" fill="var(--text-2)">{lead.signal ? `${lead.pct}%` : '—'}</text>
+      <text x="60" y="70" className="mid" fontSize="10" fill="var(--text-2)">{lean ? `net ${formatScore(net)}` : '—'}</text>
+      <text x="60" y="79" className="mid" fontSize="8" fill="var(--text-3)">{lean ? `reach ${formatScore(reach)}` : ''}</text>
       <text x="60" y="88" className="mid" fontSize="7" fill="var(--text-3)">{tally.decided}/{agents.length} decided</text>
     </svg>
   );

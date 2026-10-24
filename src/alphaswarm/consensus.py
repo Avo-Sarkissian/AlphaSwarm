@@ -6,7 +6,7 @@ weightings:
 
 - headcount: w = 1 for every decided agent;
 - reach: w = influence_weight_base, the agent's narrative reach, not capital
-  (docs/DECISIONS.md#adr-swarm-composition-v2);
+  (docs/DECISIONS.md#adr-influence-weight-reach);
 - bracket_equal: w = 1 / (decided agents in the agent's bracket), so every bracket
   that decided anything carries the same total weight.
 """
