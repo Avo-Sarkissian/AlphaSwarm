@@ -145,14 +145,20 @@ async def read_completed_cycles(
     limit: int = 20,
     *,
     before: datetime | None = None,
+    statuses: Collection[CycleStatus] = _COMPLETE_ONLY,
 ) -> list[CompletedCycleRow]:
-    """Return complete cycles (Cycle.status), newest first, one page at a time.
+    """Return cycles whose effective status is in *statuses* (default: complete),
+    newest first, one page at a time.
 
     *before* is the created_at of the previous page's last row; rows
     strictly older than it are returned. A naive *before* is read as UTC.
+    Each row's status is the cycle's effective status.
     """
+    wanted = sorted(set(statuses))
+    if not wanted or not set(wanted) <= _CYCLE_STATUSES:
+        raise ValueError(f"statuses must be a non-empty subset of {sorted(_CYCLE_STATUSES)}, got {list(statuses)}")
     rows: list[CompletedCycleRow] = await read(
-        _read_completed_cycles_tx, limit, _as_utc(before), op="read_completed_cycles"
+        _read_completed_cycles_tx, limit, _as_utc(before), wanted, op="read_completed_cycles"
     )
     log.debug("completed_cycles_read", count=len(rows), paged=before is not None)
     return rows
@@ -162,8 +168,9 @@ async def _read_completed_cycles_tx(
     tx: AsyncManagedTransaction,
     limit: int,
     before: datetime | None,
+    statuses: list[str],
 ) -> list[CompletedCycleRow]:
-    """Complete cycles older than *before* (when set), newest first.
+    """Cycles with an effective status in *statuses*, older than *before* (when set), newest first.
 
     Completeness is the shared effective-status rule, so this list and the
     job routes never disagree about a cycle. History columns come from the
@@ -173,10 +180,11 @@ async def _read_completed_cycles_tx(
     result = await tx.run(
         f"""
         MATCH (c:Cycle)
-        WHERE {_EFFECTIVE_STATUS} = 'complete'
+        WHERE {_EFFECTIVE_STATUS} IN $statuses
           AND ($before IS NULL OR c.created_at < $before)
         RETURN
             c.cycle_id AS cycle_id,
+            {_EFFECTIVE_STATUS} AS status,
             c.created_at AS created_at,
             c.seed_rumor AS seed_rumor,
             coalesce(c.num_rounds, 3) AS round_count,
@@ -191,6 +199,7 @@ async def _read_completed_cycles_tx(
         """,
         limit=limit,
         before=before,
+        statuses=statuses,
     )
     return [
         CompletedCycleRow(
@@ -198,7 +207,7 @@ async def _read_completed_cycles_tx(
             created_at=_iso(r["created_at"]),
             seed_rumor=str(r["seed_rumor"] or ""),
             round_count=int(r["round_count"]),
-            status="complete",
+            status=str(r["status"]),
             final_buy=_opt_int(r["final_buy"]),
             final_sell=_opt_int(r["final_sell"]),
             final_hold=_opt_int(r["final_hold"]),

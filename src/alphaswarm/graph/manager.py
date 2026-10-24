@@ -276,9 +276,9 @@ class GraphStateManager:
         return await replay_interview.read_full_cycle_signals(self._read, cycle_id)
 
     async def read_completed_cycles(
-        self, limit: int = 20, *, before: datetime | None = None
+        self, limit: int = 20, *, before: datetime | None = None, statuses: Collection[CycleStatus] = _COMPLETE_ONLY
     ) -> list[CompletedCycleRow]:
-        return await replay_interview.read_completed_cycles(self._read, limit, before=before)
+        return await replay_interview.read_completed_cycles(self._read, limit, before=before, statuses=statuses)
 
     async def read_bracket_narratives_for_round(self, cycle_id: str, round_num: int) -> list[BracketRoundRow]:
         return await replay_interview.read_bracket_narratives_for_round(self._read, cycle_id, round_num)

@@ -11,7 +11,7 @@
   "read_agent_interview_rows": "(self, agent_id: 'str', cycle_id: 'str') -> 'AgentInterviewRows'",
   "read_bracket_narratives": "(self, cycle_id: 'str') -> 'list[BracketNarrativeRow]'",
   "read_bracket_narratives_for_round": "(self, cycle_id: 'str', round_num: 'int') -> 'list[BracketRoundRow]'",
-  "read_completed_cycles": "(self, limit: 'int' = 20, *, before: 'datetime | None' = None) -> 'list[CompletedCycleRow]'",
+  "read_completed_cycles": "(self, limit: 'int' = 20, *, before: 'datetime | None' = None, statuses: 'Collection[CycleStatus]' = ('complete',)) -> 'list[CompletedCycleRow]'",
   "read_consensus_summary": "(self, cycle_id: 'str') -> 'ConsensusSummaryRow'",
   "read_cycle_entities": "(self, cycle_id: 'str') -> 'list[EntityRef]'",
   "read_cycle_export_rows": "(self, cycle_id: 'str') -> 'CycleExportRows'",
