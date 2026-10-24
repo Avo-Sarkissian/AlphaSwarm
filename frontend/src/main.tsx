@@ -8,9 +8,13 @@ import '@fontsource/ibm-plex-sans/700.css';
 import './styles.css';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
+import { getDataSource } from './data-source';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('#root missing from index.html');
+
+// Choose the data source (and install the demo's request override) before any component fetches.
+getDataSource();
 
 createRoot(rootEl).render(
   <React.StrictMode>
