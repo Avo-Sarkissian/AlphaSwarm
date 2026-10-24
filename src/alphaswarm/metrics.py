@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import random
 import statistics
+from collections import Counter
 from collections.abc import Collection, Mapping, Sequence
+from typing import Final
 
+from alphaswarm.consensus import dispersion
 from alphaswarm.types import AgentDecision, AgentPersona, SignalType
 
 Pairs = Sequence[tuple[str, AgentDecision]]
@@ -241,3 +244,144 @@ def bootstrap_diff_ci(
         for _ in range(n_boot)
     ]
     return _percentile_interval(diffs, alpha)
+
+
+# ---------------------------------------------------------------------------
+# Round estimators (docs/DECISIONS.md#adr-consensus-estimators)
+# ---------------------------------------------------------------------------
+
+DECIDED_SIGNALS: Final[tuple[SignalType, ...]] = (SignalType.BUY, SignalType.SELL, SignalType.HOLD)
+
+
+def signal_entropy(decisions: Sequence[tuple[str, AgentDecision]]) -> float:
+    """Normalized Shannon entropy (ln 3) of the decided buy/sell/hold shares."""
+    return dispersion(decisions).entropy
+
+
+def polarization(decisions: Sequence[tuple[str, AgentDecision]]) -> float:
+    """4 * p_buy * p_sell over decided agents: 1 = evenly split camps, 0 = one camp or all HOLD."""
+    decided = [d.signal for _, d in decisions if d.signal is not SignalType.PARSE_ERROR]
+    if not decided:
+        return 0.0
+    n = len(decided)
+    return 4.0 * (decided.count(SignalType.BUY) / n) * (decided.count(SignalType.SELL) / n)
+
+
+def bracket_signal_table(
+    decisions: Sequence[tuple[str, AgentDecision]],
+    personas: Sequence[AgentPersona],
+) -> dict[str, dict[str, int]]:
+    """Bracket value -> signal value -> count; every bracket (config order) and signal, zero-filled."""
+    table: dict[str, dict[str, int]] = {}
+    for persona in personas:
+        table.setdefault(persona.bracket.value, {s.value: 0 for s in SignalType})
+    bracket_of = {p.id: p.bracket.value for p in personas}
+    for agent_id, decision in decisions:
+        bracket = bracket_of.get(agent_id)
+        if bracket is not None:
+            table[bracket][decision.signal.value] += 1
+    return table
+
+
+def transition_matrix(
+    prev: Sequence[tuple[str, AgentDecision]],
+    curr: Sequence[tuple[str, AgentDecision]],
+) -> dict[tuple[str, str], int]:
+    """(from, to) -> agents, over agents decided in both rounds; all 9 cells present."""
+    matrix = {(a.value, b.value): 0 for a in DECIDED_SIGNALS for b in DECIDED_SIGNALS}
+    prev_map = dict(prev)
+    for agent_id, decision in curr:
+        before = prev_map.get(agent_id)
+        if before is None or SignalType.PARSE_ERROR in (before.signal, decision.signal):
+            continue
+        matrix[(before.signal.value, decision.signal.value)] += 1
+    return matrix
+
+
+def _peer_majority(
+    shown: Sequence[str],
+    prev_map: Mapping[str, AgentDecision],
+) -> SignalType | None:
+    counts = Counter(
+        prev_map[peer].signal
+        for peer in shown
+        if peer in prev_map and prev_map[peer].signal is not SignalType.PARSE_ERROR
+    )
+    ranked = counts.most_common()
+    if not ranked or (len(ranked) > 1 and ranked[0][1] == ranked[1][1]):
+        return None
+    return ranked[0][0]
+
+
+def conformity_rate(
+    prev: Sequence[tuple[str, AgentDecision]],
+    curr: Sequence[tuple[str, AgentDecision]],
+    exposures: Mapping[str, Sequence[str]],
+) -> float | None:
+    """Share of movers whose new signal equals the strict majority of the peers they saw.
+
+    A mover changed its decided signal between the two rounds. The peers' signals
+    are their previous-round decisions (what the reader's peer block showed).
+    Agents shown nobody (round 1, control holdout) or whose peers tie are skipped;
+    None when no mover qualifies.
+    """
+    prev_map = dict(prev)
+    toward = away = 0
+    for agent_id, decision in curr:
+        before = prev_map.get(agent_id)
+        if before is None or SignalType.PARSE_ERROR in (before.signal, decision.signal):
+            continue
+        if before.signal is decision.signal:
+            continue
+        majority = _peer_majority(exposures.get(agent_id, ()), prev_map)
+        if majority is None:
+            continue
+        if decision.signal is majority:
+            toward += 1
+        else:
+            away += 1
+    total = toward + away
+    return toward / total if total else None
+
+
+def mean_abs_confidence_delta(
+    prev: Sequence[tuple[str, AgentDecision]],
+    curr: Sequence[tuple[str, AgentDecision]],
+) -> float | None:
+    """Mean |c_n - c_(n-1)| over agents decided in both rounds; None when there are none."""
+    prev_map = dict(prev)
+    deltas = [
+        abs(float(decision.confidence) - float(prev_map[agent_id].confidence))
+        for agent_id, decision in curr
+        if agent_id in prev_map
+        and decision.signal is not SignalType.PARSE_ERROR
+        and prev_map[agent_id].signal is not SignalType.PARSE_ERROR
+    ]
+    return sum(deltas) / len(deltas) if deltas else None
+
+
+def citation_gini(
+    decisions: Sequence[tuple[str, AgentDecision]],
+    personas: Sequence[AgentPersona],
+) -> float | None:
+    """Gini coefficient of citations received over the whole roster (0 = equal, 1 = one hub).
+
+    Each citing agent counts a cited agent once; self-citations and unknown ids
+    are ignored. None when nobody was cited.
+    """
+    roster = [p.id for p in personas]
+    known = set(roster)
+    received: Counter[str] = Counter()
+    for agent_id, decision in decisions:
+        if decision.signal is SignalType.PARSE_ERROR:
+            continue
+        for cited in set(decision.cited_agents):
+            if cited in known and cited != agent_id:
+                received[cited] += 1
+    values = sorted(received[agent_id] for agent_id in roster)
+    total = sum(values)
+    if total == 0:
+        return None
+    n = len(values)
+    weighted = sum((i + 1) * value for i, value in enumerate(values))
+    return (2 * weighted) / (n * total) - (n + 1) / n
