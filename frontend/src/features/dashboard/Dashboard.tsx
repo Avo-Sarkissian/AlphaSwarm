@@ -97,7 +97,7 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
               </div>
             ) : topInfluencers.map(r => (
               <div key={r.id} className="influencer-row">
-                <span className="infl-id" onClick={() => onInterview(r.id)}>{r.id}</span>
+                <button type="button" className="infl-id as-text" onClick={() => onInterview(r.id)}>{r.id}</button>
                 <span className="infl-bracket">{r.bracket}</span>
                 <div className="infl-bar"><span style={{width: `${r.barPct}%`}} /></div>
                 <span className="infl-num">{r.citedBy}</span>

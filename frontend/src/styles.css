@@ -2374,3 +2374,12 @@ body { background: var(--bg); }
 .modal-drawer { display: block; }
 .modal-narrow { width: min(480px, 94%); }
 [role='dialog']:focus { outline: none; }
+
+/* ===== Buttons that replaced clickable text (zero specificity: component rules win) ===== */
+:where(button.as-text) {
+  appearance: none; background: none; border: 0; margin: 0; padding: 0;
+  font: inherit; color: inherit; letter-spacing: inherit; text-align: inherit;
+  text-transform: inherit; cursor: pointer;
+}
+:where(button.as-row) { display: block; width: 100%; }
+button.bracket-row:hover { width: calc(100% + 28px); }

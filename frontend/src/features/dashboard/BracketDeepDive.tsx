@@ -196,9 +196,10 @@ export function BracketDeepDive({
           <div className="bd-roster">
             {sorted.map((a) => {
               return (
-                <div
+                <button
+                  type="button"
                   key={a.id}
-                  className="bd-agent-row"
+                  className="bd-agent-row as-text as-row"
                   onClick={() => onAgentInterview?.(a)}
                 >
                   <div className="bd-agent-id mono" style={{ color }}>{a.id}</div>
@@ -229,7 +230,7 @@ export function BracketDeepDive({
                   <div className="bd-agent-chat-icon">
                     <Icon name="chat" size={12} />
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>

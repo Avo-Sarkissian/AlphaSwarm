@@ -62,7 +62,7 @@ export const BracketList = memo(function BracketList({ summaries, onClick }: Bra
         const sp = s.sell_count / Math.max(1, s.total);
         const hp = s.hold_count / Math.max(1, s.total);
         return (
-          <div key={s.bracket} className="bracket-row" onClick={() => onClick && onClick(s)}>
+          <button type="button" key={s.bracket} className="bracket-row as-text as-row" onClick={() => onClick?.(s)}>
             <span className="bracket-chip" style={{ background: s.color ?? 'var(--accent)' }} />
             <span className="bracket-name">{s.display_name}</span>
             <span className="bracket-count num">{s.total}</span>
@@ -71,7 +71,7 @@ export const BracketList = memo(function BracketList({ summaries, onClick }: Bra
               <span className="b-sell" style={{ width: `${sp*100}%` }} />
               <span className="b-hold" style={{ width: `${hp*100}%` }} />
             </div>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -96,9 +96,9 @@ export const RationaleFeed = memo(function RationaleFeed({ rows, onAgentClick, o
       {rows.map((r) => (
         <div key={r.seq} className="rationale-item">
           <div className="rationale-head">
-            <span className="rationale-agent" onClick={() => onAgentClick && onAgentClick(r.agentId)} style={{ cursor: 'pointer' }}>
+            <button type="button" className="rationale-agent as-text" onClick={() => onAgentClick?.(r.agentId)}>
               {r.agentId}
-            </span>
+            </button>
             <span className="rationale-bracket">{r.bracketDisplay}</span>
             <span className={`rationale-signal sig-${r.signal}`}>{r.signal.toUpperCase()}</span>
             <span className="rationale-round">R{r.round}</span>
@@ -109,9 +109,9 @@ export const RationaleFeed = memo(function RationaleFeed({ rows, onAgentClick, o
               <>
                 {' '}
                 {r.cites.map((c, j) => (
-                  <span key={j} className="cite" onClick={() => onCiteClick && onCiteClick(c)}>
+                  <button type="button" key={j} className="cite as-text" onClick={() => onCiteClick?.(c)}>
                     ↳ {c}
-                  </span>
+                  </button>
                 ))}
               </>
             )}
