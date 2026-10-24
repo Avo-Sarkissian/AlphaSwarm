@@ -7,6 +7,7 @@ Called by CLI inject subcommand. Self-contained model lifecycle per D-07.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -16,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from alphaswarm.errors import StructuredOutputError
 from alphaswarm.inference.caps import MODIFIERS_MAX_TOKENS, SEED_MAX_TOKENS
 from alphaswarm.inference.structured import chat_structured
+from alphaswarm.ingestion.tickers import TickerResolver
 from alphaswarm.personas import BRACKET_MODIFIERS, compute_prompt_template_hash, load_bracket_configs
 from alphaswarm.prompts.modifiers import (
     MODIFIER_GENERATION_PROMPT,
@@ -24,6 +26,7 @@ from alphaswarm.prompts.modifiers import (
 )
 from alphaswarm.types import (
     BracketType,
+    EntityType,
     ParsedModifiersResult,
     ParsedSeedResult,
     SeedEntity,
@@ -166,6 +169,7 @@ async def inject_seed(
     *,
     modifier_generator: (Callable[[SeedEvent, InferenceProvider], Awaitable[ParsedModifiersResult]] | None) = None,
     prompt_template_hash: str | None = None,
+    ticker_resolver: TickerResolver | None = None,
 ) -> tuple[str, ParsedSeedResult, ParsedModifiersResult | None]:
     """End-to-end seed injection pipeline. Returns (cycle_id, parsed_result, modifier_result).
 
@@ -177,6 +181,10 @@ async def inject_seed(
     prompt_template_hash: sha256 of the static persona prompt set; defaults to
     the configured brackets. It is stored on the Cycle with the generated
     modifiers (docs/DECISIONS.md#adr-neo4j-schema).
+
+    ticker_resolver: validates entity tickers before anything is persisted or
+    generated from the entities (None -> regex and acronym checks only;
+    docs/DECISIONS.md#adr-ticker-resolution).
 
     Uses create_cycle_with_seed_event() for atomic Cycle+Entity persistence,
     after the orchestrator is released: nothing that can fail runs between
@@ -212,6 +220,20 @@ async def inject_seed(
                 seed_event=structured.value.to_seed_event(rumor),
                 parse_tier=structured.parse_tier,
             )
+
+        # Validate orchestrator-proposed tickers on the swarm side before the
+        # entities are persisted or reach any provider
+        # (docs/DECISIONS.md#adr-ticker-resolution).
+        resolver = ticker_resolver if ticker_resolver is not None else TickerResolver.empty()
+        parsed_result = dataclasses.replace(
+            parsed_result, seed_event=resolver.resolve_seed_event(parsed_result.seed_event)
+        )
+        logger.info(
+            "seed_tickers_resolved",
+            source=resolver.source,
+            companies=sum(1 for e in parsed_result.seed_event.entities if e.type is EntityType.COMPANY),
+            resolved=sum(1 for e in parsed_result.seed_event.entities if e.ticker is not None),
+        )
 
         # 4. Generate modifiers while the orchestrator is still loaded, BEFORE
         #    persisting: a failed call must leave no orphan Cycle

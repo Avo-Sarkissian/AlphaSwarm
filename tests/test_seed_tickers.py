@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from alphaswarm.inference.types import InferenceResult, ProviderRole
+from alphaswarm.ingestion.tickers import TickerResolver
 from alphaswarm.seed import ORCHESTRATOR_SYSTEM_PROMPT, inject_seed
 from alphaswarm.types import EntityType, SeedEntity
 from tests.inference.fakes import FakeInferenceProvider
@@ -75,3 +76,59 @@ async def test_seed_schema_and_reply_carry_the_ticker() -> None:
     _, parsed, _ = await inject_seed(rumor=RUMOR, settings=settings, orchestrator=provider, graph_manager=graph)
     assert "ticker" in _entity_properties(provider.calls[0]["response_schema"])
     assert [e.ticker for e in parsed.seed_event.entities] == ["ZZZT", None]
+
+
+SEC_FIXTURE = TickerResolver.from_sec_payload(
+    {
+        "0": {"cik_str": 1, "ticker": "ZZZT", "title": "ZZZT Holdings Inc."},
+        "1": {"cik_str": 2, "ticker": "QQQX", "title": "QQQX Robotics Corp"},
+    }
+)
+MIXED_REPLY = json.dumps(
+    {
+        "entities": [
+            {"name": "ZZZT Holdings", "type": "company", "relevance": 0.95, "sentiment": 0.6, "ticker": "ZZZT"},
+            {
+                "name": "Private Robotics Startup",
+                "type": "company",
+                "relevance": 0.7,
+                "sentiment": 0.5,
+                "ticker": "QQQX",
+            },
+            {"name": "Federal Reserve", "type": "company", "relevance": 0.4, "sentiment": 0.0, "ticker": "FED"},
+            {"name": "Industrial Automation", "type": "sector", "relevance": 0.6, "sentiment": 0.4, "ticker": "XQZW"},
+        ],
+        "overall_sentiment": 0.5,
+    }
+)
+
+
+async def _inject(resolver: TickerResolver | None) -> tuple[list[str | None], list[str | None]]:
+    provider = FakeInferenceProvider(
+        role=ProviderRole.ORCHESTRATOR,
+        model="fake-orch",
+        scripted=[InferenceResult(content=MIXED_REPLY, model="fake-orch")],
+    )
+    graph = AsyncMock()
+    graph.create_cycle_with_seed_event = AsyncMock(return_value="00000000-0000-4000-8000-0000000000a1")
+    settings = MagicMock()
+    settings.num_rounds = 3
+    _, parsed, _ = await inject_seed(
+        rumor=RUMOR,
+        settings=settings,
+        orchestrator=provider,
+        graph_manager=graph,
+        ticker_resolver=resolver,
+    )
+    persisted = graph.create_cycle_with_seed_event.await_args.args[1]
+    return [e.ticker for e in parsed.seed_event.entities], [e.ticker for e in persisted.entities]
+
+
+async def test_inject_seed_persists_only_sec_confirmed_tickers() -> None:
+    returned, persisted = await _inject(SEC_FIXTURE)
+    assert returned == persisted == ["ZZZT", None, None, None]
+
+
+async def test_inject_seed_without_a_map_drops_acronyms_and_non_companies() -> None:
+    returned, persisted = await _inject(None)
+    assert returned == persisted == ["ZZZT", "QQQX", None, None]

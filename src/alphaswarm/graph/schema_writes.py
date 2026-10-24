@@ -332,6 +332,7 @@ async def create_cycle_with_seed_event(
             "type": e.type.value,
             "relevance": e.relevance,
             "sentiment": e.sentiment,
+            "ticker": e.ticker,
         }
         for e in seed_event.entities
     ]
@@ -388,7 +389,9 @@ async def _create_cycle_with_entities_tx(
         modifiers_json=modifiers_json,
         prompt_template_hash=prompt_template_hash,
     )
-    # Create Entity nodes + MENTIONS relationships (only if entities exist)
+    # Create Entity nodes + MENTIONS relationships (only if entities exist). The resolved
+    # ticker lives on the cycle-scoped edge, not on the shared Entity node, because
+    # resolution can differ between cycles (docs/DECISIONS.md#adr-ticker-resolution).
     if entities:
         await tx.run(
             """
@@ -396,7 +399,7 @@ async def _create_cycle_with_entities_tx(
             MERGE (entity:Entity {name: e.name, type: e.type})
             WITH entity, e
             MATCH (c:Cycle {cycle_id: $cycle_id})
-            CREATE (c)-[:MENTIONS {relevance: e.relevance, sentiment: e.sentiment}]->(entity)
+            CREATE (c)-[:MENTIONS {relevance: e.relevance, sentiment: e.sentiment, ticker: e.ticker}]->(entity)
             """,
             entities=entities,
             cycle_id=cycle_id,

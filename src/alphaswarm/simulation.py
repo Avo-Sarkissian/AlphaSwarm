@@ -21,6 +21,7 @@ import structlog
 
 from alphaswarm.context_formatter import format_market_context
 from alphaswarm.errors import run_error_from_exception
+from alphaswarm.ingestion.tickers import load_ticker_resolver
 from alphaswarm.ingestion.types import ContextPacket
 from alphaswarm.manifest import (
     build_run_manifest,
@@ -497,10 +498,10 @@ async def _run_simulation(
         graph,
         modifier_generator=generate_modifiers,
         prompt_template_hash=compute_prompt_template_hash(brackets),
+        ticker_resolver=await load_ticker_resolver(settings.resolve_path(settings.ticker_map_path)),
     )
     tracker.cycle_id = cycle_id
-    # Task-local: every later log line of this run carries the cycle id
-    # (docs/DECISIONS.md#adr-security-2026-08).
+    # Task-local: later log lines carry the cycle id (docs/DECISIONS.md#adr-security-2026-08).
     structlog.contextvars.bind_contextvars(cycle_id=cycle_id)
     if state is not None:
         await state.set_cycle(cycle_id)
