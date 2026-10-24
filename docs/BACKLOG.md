@@ -76,7 +76,7 @@ needs fresh cycles, because history before June 2026 was wiped
 | # | Experiment | Status | Evidence |
 |---|---|---|---|
 | 4.1 | A/B test 2 vs 3 rounds on the four benchmark seeds (wall time, flips, final distribution) | unknown (needs Neo4j data) | `settings.py:AppSettings`; `scripts/compare_cycles.py` |
-| 4.2 | Validate v2 personas on Round 1: brackets should disagree, intra-bracket variance should exceed one signal, HOLD share should be under 70% | unknown | no recorded result |
+| 4.2 | Validate v2 personas on Round 1: brackets should disagree, intra-bracket variance should exceed one signal, HOLD share should be under 70% | unknown (2026-10: tooling ready, `scripts/persona_agreement.py` reports twin agreement, within-bracket entropy and bracket TV per experiment tag) | no recorded result; protocol in `docs/experiments.md` "P7.6" |
 | 4.3 | A/B test dropping modifier generation (one orchestrator call; suspected below the noise floor) | open | `seed.py:95-108` still generates modifiers |
 | 4.4 | Lazy, on-demand decision narratives instead of 100 eager worker calls after the last round | done (2026-10): lazy narratives, see D#p11-d-11 | `interview.py` (`ensure_decision_narrative`); formerly `simulation.py` (`generate_narratives=True`) |
 | 4.5 | Feed dissent (Round 1 vs final flips, key dissenters) into the advisory prompt | open | no `flip` or `dissent` references in `advisory/` |

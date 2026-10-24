@@ -8,14 +8,18 @@ import pytest
 
 from alphaswarm.metrics import (
     RoundInput,
+    bracket_divergence,
     bracket_signal_table,
     citation_gini,
     conformity_rate,
+    cross_group_agreement,
     mean_abs_confidence_delta,
     methodology_metrics,
+    pairwise_agreement,
     polarization,
     signal_entropy,
     transition_matrix,
+    within_bracket_entropy,
 )
 from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.types import AgentDecision, SignalType
@@ -184,3 +188,30 @@ def test_all_failed_round_writes_no_nan() -> None:
     assert "r2_net_score_ci_low" not in out and "r2_conformity_rate" not in out
     assert "r2_mean_abs_conf_delta" not in out and "r2_citation_gini" not in out
     assert all(math.isfinite(float(v)) for v in out.values())
+
+
+def test_pairwise_agreement_within_groups() -> None:
+    decisions = [("a", _d(B)), ("b", _d(B)), ("c", _d(S)), ("d", _d(E)), ("e", _d(H)), ("f", _d(H))]
+    # group 1: (a,b) agree, (a,c) no, (b,c) no; d is skipped; group 2: (e,f) agree
+    assert pairwise_agreement(decisions, [("a", "b", "c", "d"), ("e", "f")]) == pytest.approx(2 / 4)
+    assert pairwise_agreement(decisions, [("a",), ("d", "x")]) is None
+
+
+def test_cross_group_agreement_only_counts_same_bracket_pairs() -> None:
+    quants = [p for p in PERSONAS if p.bracket.value == "quants"][:3]
+    shorts = [p for p in PERSONAS if p.bracket.value == "shorts"][:1]
+    decisions = [(quants[0].id, _d(B)), (quants[1].id, _d(B)), (quants[2].id, _d(S)), (shorts[0].id, _d(B))]
+    groups = [(quants[0].id, quants[2].id), (quants[1].id,), (shorts[0].id,)]
+    # cross-group same-bracket pairs: (q0,q1) agree, (q1,q2) disagree; (q0,q2) share a group; shorts excluded
+    assert cross_group_agreement(decisions, groups, PERSONAS) == pytest.approx(0.5)
+    assert cross_group_agreement([(quants[0].id, _d(B))], groups, PERSONAS) is None
+
+
+def test_within_bracket_entropy_and_bracket_divergence() -> None:
+    quants = [p.id for p in PERSONAS if p.bracket.value == "quants"][:2]
+    shorts = [p.id for p in PERSONAS if p.bracket.value == "shorts"][:2]
+    split = [(quants[0], _d(B)), (quants[1], _d(S)), (shorts[0], _d(S)), (shorts[1], _d(S))]
+    assert within_bracket_entropy(split, PERSONAS) == pytest.approx((math.log(2) / math.log(3)) / 2)
+    assert bracket_divergence(split, PERSONAS) == pytest.approx(0.5)  # TV({B:.5,S:.5}, {S:1})
+    assert bracket_divergence([(quants[0], _d(B))], PERSONAS) is None
+    assert within_bracket_entropy([(quants[0], _d(E))], PERSONAS) is None
