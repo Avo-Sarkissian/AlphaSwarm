@@ -17,13 +17,18 @@ export type BracketKey =
 // 'parse_error' on the wire; 'parse_error' gets a distinct muted treatment.
 export type AgentSignal = 'buy' | 'sell' | 'hold' | 'parse_error';
 
+/** A signal an agent actually chose (not pending, not a parse failure). */
+export type DecidedSignal = 'buy' | 'sell' | 'hold';
+
 export interface AgentView {
   id: string;
   bracket: BracketKey | 'unknown';
   bracketDisplay: string; // human-readable bracket label (backend BracketSummary.display_name)
   signal: AgentSignal | null; // null = pending: no decision yet this round (never shown as HOLD)
   confidence: number;
-  flipped: 0 | 1; // KR-41.1-03: stubbed 0 until backend emits
+  flipped: 0 | 1; // computed in the browser from the previous round (docs/DECISIONS.md#kr-41-1-03)
+  /** Previous round's decided signal when flipped === 1 (computed in the browser). */
+  flippedFrom?: DecidedSignal;
   roundLastSpoke: number | null; // KR-41.1-03: stubbed null
   thinking: boolean; // true exactly when signal === null (dim/pulsing node)
 }
