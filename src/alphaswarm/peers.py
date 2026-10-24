@@ -354,9 +354,11 @@ def compute_exposure_metrics(
     return metrics
 
 
-# Seeded no-peer holdout and own-prior memory (docs/DECISIONS.md#adr-diverse-peer-context).
+# Seeded no-peer holdout, shock arm and own-prior memory
+# (docs/DECISIONS.md#adr-diverse-peer-context, docs/DECISIONS.md#adr-run-manifest).
 
 CONTROL_SALT: Final = "control"
+SHOCK_ARM_SALT: Final = "shock"
 _OWN_PRIOR_TRANSLATION: Final = str.maketrans({"<": None, ">": None, "[": "(", "]": ")", '"': "'"})
 
 
@@ -392,6 +394,11 @@ def seeded_bracket_subset(
 def select_control_ids(personas: Sequence[AgentPersona], *, fraction: float, run_seed: str) -> frozenset[str]:
     """Readers held out from peer context for the whole run (``d.control``)."""
     return seeded_bracket_subset(personas, fraction=fraction, run_seed=run_seed, salt=CONTROL_SALT)
+
+
+def select_shock_treated_ids(personas: Sequence[AgentPersona], *, run_seed: str) -> frozenset[str]:
+    """Half of each bracket that sees active shocks when the shock split is on."""
+    return seeded_bracket_subset(personas, fraction=0.5, run_seed=run_seed, salt=SHOCK_ARM_SALT)
 
 
 def own_prior_line(decision: AgentDecision | None, source_round: int) -> str | None:
