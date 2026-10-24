@@ -10,7 +10,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 import structlog
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -191,8 +191,8 @@ class GovernorSettings(BaseModel):
 class SimulationSettings(BaseModel):
     """Engine experiment knobs (docs/DECISIONS.md#adr-diverse-peer-context).
 
-    Holds the peer-selection parameters for now; experiment and persona knobs
-    join later. Every cycle records the effective values in its metrics, so
+    Holds the peer-selection parameters and the experiment knobs
+    (docs/DECISIONS.md#adr-run-manifest). Every cycle records the effective values in its metrics, so
     runs stay comparable when a knob changes. Env: ALPHASWARM_SIMULATION__<FIELD>.
     """
 
@@ -207,11 +207,31 @@ class SimulationSettings(BaseModel):
     personal_boost: float = Field(default=0.3, ge=0.0, le=1.0)
     # Character budget of one reader's rendered peer block.
     peer_budget_chars: int = Field(default=4000, ge=500, le=16000)
-    # --- Experiment knobs, fast-track subset (docs/DECISIONS.md#adr-diverse-peer-context)
+    # --- Experiment knobs (docs/DECISIONS.md#adr-run-manifest) ----------------
+    # "stratified": seeded stratified sampling; "random": a uniform sample of the
+    # eligible peers; "none": nobody sees peers (an ablation arm).
+    peer_strategy: Literal["stratified", "random", "none"] = "stratified"
     # Show each agent its own previous decision in Rounds 2..N.
     own_prior_memory: bool = True
-    # Seeded share of each bracket that never sees peers (d.control).
+    # Rounds 1..N that receive the market block (0 = none).
+    market_context_rounds: int = Field(default=3, ge=0, le=3)
+    # Authority cues on peer lines: False drops "|bracket" or "(conf: x.xx)".
+    show_bracket_labels: bool = True
+    show_confidence: bool = True
+    # One sampling temperature for every agent; None keeps per-bracket temperatures.
+    uniform_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    # Seeded share of each bracket that never sees peers (d.control). Product
+    # default off; experiment runs set 0.2 (docs/DECISIONS.md#adr-diverse-peer-context).
     control_fraction: float = Field(default=0.0, ge=0.0, le=0.5)
+    # Show shocks to a seeded half of each bracket only (causal shock effect).
+    shock_treatment_split: bool = False
+    # Seed for peer draws, the holdout and per-call model seeds. None derives one
+    # from the cycle id; the run manifest records the effective value.
+    sim_seed: int | None = Field(default=None, ge=1, le=2_147_483_647)
+    # Label that groups cycles in scripts/compare_cycles.py --group-by.
+    experiment_tag: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    # Dispatch Round 1 a second time with fresh seeds to measure the noise floor.
+    retest_round1: bool = False
 
 
 # ---------------------------------------------------------------------------

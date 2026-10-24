@@ -401,6 +401,7 @@ class BudgetTrackingProvider:
         json_mode: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        seed: int | None = None,
     ) -> InferenceResult:
         """Run a guarded inference call.
 
@@ -428,6 +429,7 @@ class BudgetTrackingProvider:
                 json_mode=json_mode,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                seed=seed,
             )
         except InferenceError as exc:
             if exc.input_tokens is not None or exc.output_tokens is not None:

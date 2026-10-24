@@ -81,6 +81,7 @@ class FakeInferenceProvider:
         json_mode: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        seed: int | None = None,
     ) -> InferenceResult:
         """Record the call and return the next scripted result.
 
@@ -94,6 +95,7 @@ class FakeInferenceProvider:
                 "json_mode": json_mode,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "seed": seed,
             }
         )
 
@@ -104,6 +106,7 @@ class FakeInferenceProvider:
                 json_mode=json_mode,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                seed=seed,
             )
 
         # List path
@@ -256,6 +259,7 @@ class ScriptedProvider(FakeInferenceProvider):
         json_mode: bool,
         temperature: float | None,
         max_tokens: int | None,
+        seed: int | None = None,
     ) -> InferenceResult:
         kind, agent_id = self._classify(messages, response_schema)
         round_num: int | None = None
@@ -278,6 +282,7 @@ class ScriptedProvider(FakeInferenceProvider):
                 "json_mode": json_mode,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "seed": seed,
             },
         )
         self.scripted_calls.append(call)

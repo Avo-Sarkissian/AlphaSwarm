@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Final
 
 import structlog
 
-from alphaswarm.security.sanitize import sanitize_peer_rationale, sanitize_rationale
+from alphaswarm.security.sanitize import sanitize_peer_rationale
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
@@ -164,6 +164,9 @@ def format_peer_context(
     source_round: int,
     budget: int = 4000,
     max_posts: int = 10,
+    *,
+    show_bracket: bool = True,
+    show_confidence: bool = True,
 ) -> tuple[str, tuple[str, ...]]:
     """Format top-K ranked peer posts into a budget-capped context string (D-04, D-05, D-06).
 
@@ -176,6 +179,11 @@ def format_peer_context(
     rendered lines in display order, which is the reader's exposure
     (docs/DECISIONS.md#adr-diverse-peer-context). Returns ``("", ())`` when
     no line was rendered.
+
+    ``show_bracket`` / ``show_confidence`` drop the ``|bracket`` label and the
+    ``(conf: x.xx)`` figure, which act as authority cues
+    (docs/DECISIONS.md#adr-diverse-peer-context); the ``[agent_id]`` token always
+    stays so agents can cite.
     """
     if not posts:
         logger.warning("no_peer_posts_found", source_round=source_round)
@@ -200,7 +208,9 @@ def format_peer_context(
         content = sanitize_peer_rationale(post.content)
         if not content:
             continue
-        prefix = f'{i}. [{post.agent_id}|{post.bracket}] {post.signal.upper()} (conf: {post.confidence:.2f}) "'
+        label = f"[{post.agent_id}|{post.bracket}]" if show_bracket else f"[{post.agent_id}]"
+        conf = f" (conf: {post.confidence:.2f})" if show_confidence else ""
+        prefix = f'{i}. {label} {post.signal.upper()}{conf} "'
         suffix = '"'
         available = remaining - len(prefix) - len(suffix) - 1  # -1 for newline
         if available <= 0:
@@ -297,6 +307,8 @@ def build_peer_contexts(
             source_round,
             budget=sim.peer_budget_chars,
             max_posts=sim.peer_limit,
+            show_bracket=sim.show_bracket_labels,
+            show_confidence=sim.show_confidence,
         )
         contexts.append(ctx if ctx else None)
         exposures.append(shown)
@@ -342,10 +354,11 @@ def compute_exposure_metrics(
     return metrics
 
 
-# Seeded no-peer holdout and own-prior memory (docs/DECISIONS.md#adr-diverse-peer-context).
+# Seeded no-peer holdout, shock arm and own-prior memory
+# (docs/DECISIONS.md#adr-diverse-peer-context, docs/DECISIONS.md#adr-run-manifest).
 
 CONTROL_SALT: Final = "control"
-_OWN_PRIOR_TRANSLATION: Final = str.maketrans({"<": None, ">": None, "[": "(", "]": ")", '"': "'"})
+SHOCK_ARM_SALT: Final = "shock"
 
 
 def subset_size(count: int, fraction: float) -> int:
@@ -382,21 +395,157 @@ def select_control_ids(personas: Sequence[AgentPersona], *, fraction: float, run
     return seeded_bracket_subset(personas, fraction=fraction, run_seed=run_seed, salt=CONTROL_SALT)
 
 
+def select_shock_treated_ids(personas: Sequence[AgentPersona], *, run_seed: str) -> frozenset[str]:
+    """Half of each bracket that sees active shocks when the shock split is on."""
+    return seeded_bracket_subset(personas, fraction=0.5, run_seed=run_seed, salt=SHOCK_ARM_SALT)
+
+
 def own_prior_line(decision: AgentDecision | None, source_round: int) -> str | None:
     """The reader's own previous decision as one sanitized line, or None.
 
     None for a missing or PARSE_ERROR decision, so a failure never appears as a
-    position. The rationale is model output: control characters go, whitespace
-    collapses into one line and the text is cut at 300 characters ("..." marks a
-    cut). Then "<"/">" are dropped and "[" "]" become "(" ")", so no fence tag or
-    [agent_id] token can be forged, and double quotes become single quotes, so a
-    quoted field stays unambiguous (docs/DECISIONS.md#adr-diverse-peer-context).
+    position. The rationale is the agent's own model output, sanitized like a
+    peer rationale (``sanitize_peer_rationale``: one line, no fence tag or
+    [agent_id] token can be forged, cut near 300 characters with "…";
+    docs/DECISIONS.md#adr-run-manifest).
     """
     if decision is None or decision.signal == SignalType.PARSE_ERROR:
         return None
     head = f"Your Round {source_round} position: {decision.signal.value.upper()} (conf {decision.confidence:.2f})"
-    rationale = sanitize_rationale(decision.rationale, max_len=300).translate(_OWN_PRIOR_TRANSLATION).strip()
+    rationale = sanitize_peer_rationale(decision.rationale)
     return f"{head}: {rationale}" if rationale else head
+
+
+def select_random_peers(
+    agent_id: str,
+    personas: Sequence[AgentPersona],
+    prev_decisions: Mapping[str, AgentDecision],
+    *,
+    rng: random.Random,
+    limit: int,
+) -> list[str]:
+    """A uniform sample of eligible peers (no weights, no bracket cap), in draw order.
+
+    Eligible: not the reader, decided last round, not a PARSE_ERROR. This is the
+    "random" ablation arm (docs/DECISIONS.md#adr-diverse-peer-context).
+    """
+    eligible = [
+        p.id
+        for p in personas
+        if p.id != agent_id and p.id in prev_decisions and prev_decisions[p.id].signal != SignalType.PARSE_ERROR
+    ]
+    return rng.sample(eligible, min(limit, len(eligible)))
+
+
+def build_random_peer_contexts(
+    personas: Sequence[AgentPersona],
+    prev_decisions: Sequence[tuple[str, AgentDecision]],
+    source_round: int,
+    *,
+    sim: SimulationSettings,
+    run_seed: str,
+) -> PeerContextsResult:
+    """Peer contexts for the "random" strategy, rendered like the stratified ones."""
+    persona_lookup = {p.id: p for p in personas}
+    prev_dict = dict(prev_decisions)
+    contexts: list[str | None] = []
+    exposures: list[tuple[str, ...]] = []
+    for persona in personas:
+        peer_ids = select_random_peers(
+            persona.id,
+            personas,
+            prev_dict,
+            rng=peer_rng(run_seed, persona.id, source_round + 1),
+            limit=sim.peer_limit,
+        )
+        posts = [
+            RankedPost(
+                post_id="",
+                agent_id=pid,
+                bracket=persona_lookup[pid].bracket.value,
+                signal=prev_dict[pid].signal.value,
+                confidence=prev_dict[pid].confidence,
+                content=prev_dict[pid].rationale,
+                influence_weight=persona_lookup[pid].influence_weight_base,
+                round_num=source_round,
+            )
+            for pid in peer_ids
+        ]
+        text, shown = format_peer_context(
+            posts,
+            source_round,
+            budget=sim.peer_budget_chars,
+            max_posts=sim.peer_limit,
+            show_bracket=sim.show_bracket_labels,
+            show_confidence=sim.show_confidence,
+        )
+        contexts.append(text or None)
+        exposures.append(shown)
+    return PeerContextsResult(contexts=tuple(contexts), exposures=tuple(exposures))
+
+
+@dataclasses.dataclass(frozen=True)
+class RoundPromptContext:
+    """Per-reader prompt inputs for one round, aligned with the personas.
+
+    ``peer_blocks`` holds the rendered peer context (the worker wraps it in the
+    ``<peer_observations>`` fence); ``exposures`` holds the ids actually rendered
+    (``()`` for Round 1 and for control readers); ``control_ids`` is the seeded
+    holdout, identical in every round (docs/DECISIONS.md#adr-diverse-peer-context).
+    """
+
+    peer_blocks: tuple[str | None, ...]
+    own_prior_lines: tuple[str | None, ...]
+    exposures: tuple[tuple[str, ...], ...]
+    control_ids: frozenset[str]
+
+
+def build_round_context(
+    personas: Sequence[AgentPersona],
+    prev_decisions: Sequence[tuple[str, AgentDecision]],
+    round_num: int,
+    *,
+    sim: SimulationSettings,
+    run_seed: str,
+    global_citation_weights: Mapping[str, float] | None = None,
+) -> RoundPromptContext:
+    """Peer blocks, own-prior lines, exposures and the control set for ``round_num``."""
+    n = len(personas)
+    control_ids = select_control_ids(personas, fraction=sim.control_fraction, run_seed=run_seed)
+    if round_num <= 1 or not prev_decisions:
+        return RoundPromptContext(
+            peer_blocks=(None,) * n,
+            own_prior_lines=(None,) * n,
+            exposures=((),) * n,
+            control_ids=control_ids,
+        )
+    source_round = round_num - 1
+    if sim.peer_strategy == "none":
+        peers = PeerContextsResult(contexts=(None,) * n, exposures=((),) * n)
+    elif sim.peer_strategy == "random":
+        peers = build_random_peer_contexts(personas, prev_decisions, source_round, sim=sim, run_seed=run_seed)
+    else:
+        peers = build_peer_contexts(
+            personas,
+            prev_decisions,
+            source_round,
+            sim=sim,
+            run_seed=run_seed,
+            global_citation_weights=global_citation_weights,
+        )
+    prev_by_id = dict(prev_decisions)
+    return RoundPromptContext(
+        peer_blocks=tuple(
+            None if p.id in control_ids else block for p, block in zip(personas, peers.contexts, strict=True)
+        ),
+        own_prior_lines=tuple(
+            own_prior_line(prev_by_id.get(p.id), source_round) if sim.own_prior_memory else None for p in personas
+        ),
+        exposures=tuple(
+            () if p.id in control_ids else shown for p, shown in zip(personas, peers.exposures, strict=True)
+        ),
+        control_ids=control_ids,
+    )
 
 
 def apply_holdout_and_priors(

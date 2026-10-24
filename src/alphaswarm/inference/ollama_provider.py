@@ -139,6 +139,7 @@ class OllamaProvider:
         json_mode: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        seed: int | None = None,
     ) -> InferenceResult:
         """Run chat completion via the local Ollama backend and log the call.
 
@@ -154,6 +155,7 @@ class OllamaProvider:
                 json_mode=json_mode,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                seed=seed,
             ),
         )
 
@@ -165,6 +167,7 @@ class OllamaProvider:
         json_mode: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        seed: int | None = None,
     ) -> InferenceResult:
         """Run chat completion via the local Ollama backend.
 
@@ -174,6 +177,7 @@ class OllamaProvider:
         - neither             → ``format=None``
         - ``temperature``     → ``options={"temperature": <value>}`` or None
         - ``max_tokens``      → ``options["num_predict"]`` (the Modelfile value is only the fallback)
+        - ``seed``            → ``options["seed"]`` (merged with any other options)
         - ``think=False``     always (disables thinking for structured outputs)
         - ``keep_alive``      from constructor default (``"5m"``)
 
@@ -184,6 +188,8 @@ class OllamaProvider:
             json_mode: Emit raw JSON without a schema constraint.
             temperature: Sampling temperature override; None uses Modelfile default.
             max_tokens: Output cap for this call, sent as num_predict.
+            seed: Sampling seed, sent as options["seed"]
+                (docs/DECISIONS.md#adr-run-manifest).
 
         Returns:
             ``InferenceResult`` with content, model, token counts, prefill/decode/load
@@ -198,14 +204,16 @@ class OllamaProvider:
         else:
             fmt = None
 
-        # Sampling options only, so the model never reloads: temperature and the
-        # per-call output cap (num_predict). num_ctx is never sent
+        # Sampling options only, so the model never reloads: temperature, the
+        # per-call output cap (num_predict) and the sampling seed. num_ctx is never sent
         # (docs/DECISIONS.md#adr-model-aliases).
         options: dict[str, Any] = {}
         if temperature is not None:
             options["temperature"] = temperature
         if max_tokens is not None:
             options["num_predict"] = max_tokens
+        if seed is not None:
+            options["seed"] = seed
 
         resp = await self._client.chat(
             model=self.model,

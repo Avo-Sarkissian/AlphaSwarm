@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+import inspect
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -419,3 +421,41 @@ async def test_contract_unknown_model_raises_provider_config_error(
     """Every cloud provider turns a rejected model id into the hard stop."""
     with pytest.raises(ProviderConfigError):
         await make().chat(_MESSAGES, response_schema=DECISION_JSON_SCHEMA)
+
+
+# ---------------------------------------------------------------------------
+# seed keyword (docs/DECISIONS.md#adr-run-manifest)
+# ---------------------------------------------------------------------------
+
+_PROVIDER_CLASSES = [
+    "alphaswarm.inference.provider.InferenceProvider",
+    "alphaswarm.inference.ollama_provider.OllamaProvider",
+    "alphaswarm.inference.openai_provider.OpenAICompatProvider",
+    "alphaswarm.inference.anthropic_provider.AnthropicProvider",
+    "alphaswarm.inference.budget.BudgetTrackingProvider",
+    "tests.inference.fakes.FakeInferenceProvider",
+]
+
+
+@pytest.mark.parametrize("dotted", _PROVIDER_CLASSES)
+def test_every_provider_chat_accepts_a_keyword_seed(dotted: str) -> None:
+    module_name, _, attr = dotted.rpartition(".")
+    cls = getattr(importlib.import_module(module_name), attr)
+    param = inspect.signature(cls.chat).parameters["seed"]
+
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert param.default is None
+
+
+async def test_fake_provider_records_and_forwards_seed() -> None:
+    seen: dict[str, object] = {}
+
+    def make_result(**kwargs: object) -> InferenceResult:
+        seen.update(kwargs)
+        return InferenceResult(content="ok", model="fake")
+
+    fake = FakeInferenceProvider(ProviderRole.WORKER, "fake", scripted=make_result)
+    await fake.chat([{"role": "user", "content": "hi"}], seed=11)
+
+    assert fake.calls[0]["seed"] == 11
+    assert seen["seed"] == 11

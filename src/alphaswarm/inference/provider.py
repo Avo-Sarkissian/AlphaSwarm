@@ -67,6 +67,7 @@ class InferenceProvider(Protocol):
         json_mode: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        seed: int | None = None,
     ) -> InferenceResult:
         """Run a chat-completion round and return normalized output.
 
@@ -80,6 +81,10 @@ class InferenceProvider(Protocol):
                 without a schema constraint.  Ignored if response_schema is set.
             temperature: Sampling temperature override (provider default if None).
             max_tokens: Maximum tokens to generate (provider default if None).
+            seed: Sampling seed for reproducible decoding (provider default if
+                None). Ollama maps it to ``options["seed"]`` and OpenAI-compatible
+                servers to the ``seed`` field; Anthropic has no seed and ignores it
+                (docs/DECISIONS.md#adr-run-manifest).
 
         Returns:
             InferenceResult with content, model, and optional token counts.

@@ -1381,6 +1381,69 @@ async def test_ft_dispatch_wave_rejects_misaligned_own_priors(governor: Resource
         )
 
 
+# ---------------------------------------------------------------------------
+# Per-agent own priors, call seeds and user messages (docs/DECISIONS.md#adr-run-manifest)
+# ---------------------------------------------------------------------------
+
+
+def _recording_provider(seen: dict[str, tuple[str, int | None]]) -> FakeInferenceProvider:
+    def respond(*, messages: list[dict[str, str]], seed: int | None = None, **_: object) -> InferenceResult:
+        persona = next(m["content"] for m in messages if m["role"] == "system")
+        seen[persona.removeprefix("persona ")] = (messages[-1]["content"], seed)
+        return InferenceResult(content=_VALID_BUY_JSON, model="fake-model")
+
+    return FakeInferenceProvider(role=ProviderRole.WORKER, model="fake-model", scripted=respond)
+
+
+async def test_dispatch_wave_routes_per_agent_inputs(governor: ResourceGovernor) -> None:
+    seen: dict[str, tuple[str, int | None]] = {}
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        await dispatch_wave(
+            personas=_ft_personas(["quants_01", "quants_02", "quants_03"]),
+            governor=governor,
+            provider=_recording_provider(seen),
+            user_message="shared rumor",
+            settings=GovernorSettings(baseline_parallel=16),
+            own_priors=["prior A", None, "prior C"],
+            call_seeds=[11, 22, None],
+            user_messages=["msg A", "msg B", "msg C"],
+        )
+
+    assert seen == {
+        "quants_01": ("prior A\n\nmsg A", 11),
+        "quants_02": ("msg B", 22),
+        "quants_03": ("prior C\n\nmsg C", None),
+    }
+
+
+async def test_dispatch_wave_defaults_keep_the_scalar_message(governor: ResourceGovernor) -> None:
+    seen: dict[str, tuple[str, int | None]] = {}
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        await dispatch_wave(
+            personas=_ft_personas(["quants_01", "quants_02"]),
+            governor=governor,
+            provider=_recording_provider(seen),
+            user_message="shared rumor",
+            settings=GovernorSettings(baseline_parallel=16),
+        )
+
+    assert seen == {"quants_01": ("shared rumor", None), "quants_02": ("shared rumor", None)}
+
+
+@pytest.mark.parametrize("name", ["own_priors", "call_seeds", "user_messages"])
+async def test_dispatch_wave_rejects_misaligned_per_agent_inputs(governor: ResourceGovernor, name: str) -> None:
+    values: dict[str, list[object]] = {"own_priors": [None], "call_seeds": [1], "user_messages": ["m"]}
+    with pytest.raises(ValueError, match=f"{name} length 1 != personas length 2"):
+        await dispatch_wave(
+            personas=_ft_personas(["quants_01", "quants_02"]),
+            governor=governor,
+            provider=_recording_provider({}),
+            user_message="shared rumor",
+            settings=GovernorSettings(baseline_parallel=16),
+            **{name: values[name]},  # type: ignore[arg-type]
+        )
+
+
 _TELEMETRY_DECISION = (
     '{"signal": "hold", "confidence": 0.5, "sentiment": 0.0, "rationale": "ZZZT terms unclear", "cited_agents": []}'
 )

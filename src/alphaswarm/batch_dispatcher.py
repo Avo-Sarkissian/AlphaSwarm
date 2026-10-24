@@ -70,6 +70,7 @@ async def _safe_agent_inference(
     round_num: int = 0,
     own_prior: str | None = None,
     telemetry: RoundTelemetry | None = None,
+    seed: int | None = None,
 ) -> AgentDecision:
     """Run a single agent inference with jitter and exception safety.
 
@@ -124,6 +125,7 @@ async def _safe_agent_inference(
                 peer_context=peer_context,
                 market_context=market_context,
                 own_prior=own_prior,
+                seed=seed,
             )
     except _NEVER_CATCH:
         raise  # NEVER catch these -- preserves TaskGroup cleanup and Ctrl+C
@@ -191,6 +193,8 @@ async def dispatch_wave(
     round_num: int = 0,
     own_priors: Sequence[str | None] | None = None,
     telemetry: RoundTelemetry | None = None,
+    call_seeds: Sequence[int | None] | None = None,
+    user_messages: Sequence[str] | None = None,
 ) -> list[AgentDecision]:
     """Dispatch a wave of agent inferences using asyncio.TaskGroup.
 
@@ -218,6 +222,10 @@ async def dispatch_wave(
         state_store: Optional StateSink for TPS metric collection (docs/DECISIONS.md#p10-d-05).
             Threaded through to AgentWorker.infer() via agent_worker context manager.
         own_priors: Optional per-agent own-prior lines (same length as personas).
+        call_seeds: Optional per-agent sampling seeds (same length as personas;
+            docs/DECISIONS.md#adr-run-manifest).
+        user_messages: Optional per-agent user messages that replace
+            ``user_message`` (shock treatment split; same length as personas).
         telemetry: Per-round telemetry every completed call is recorded in
             (docs/DECISIONS.md#adr-inference-telemetry).
 
@@ -226,7 +234,8 @@ async def dispatch_wave(
         signal=PARSE_ERROR.
 
     Raises:
-        ValueError: If peer_contexts or own_priors length does not match personas length.
+        ValueError: If peer_contexts, own_priors, call_seeds or user_messages length
+            does not match personas length.
         GovernorCrisisError: If any agent hits a governor crisis.
         BudgetExceededError: If the spend cap is exceeded; halts the wave so
             completed rounds remain persisted and no further spend occurs.
@@ -237,8 +246,13 @@ async def dispatch_wave(
     """
     if peer_contexts is not None and len(peer_contexts) != len(personas):
         raise ValueError(f"peer_contexts length {len(peer_contexts)} != personas length {len(personas)}")
-    if own_priors is not None and len(own_priors) != len(personas):
-        raise ValueError(f"own_priors length {len(own_priors)} != personas length {len(personas)}")
+    for name, values in (
+        ("own_priors", own_priors),
+        ("call_seeds", call_seeds),
+        ("user_messages", user_messages),
+    ):
+        if values is not None and len(values) != len(personas):
+            raise ValueError(f"{name} length {len(values)} != personas length {len(personas)}")
 
     tasks: list[asyncio.Task[AgentDecision]] = []
 
@@ -258,7 +272,7 @@ async def dispatch_wave(
                         p,
                         governor,
                         provider,
-                        user_message,
+                        user_messages[i] if user_messages is not None else user_message,
                         peer_contexts[i] if peer_contexts is not None else peer_context,
                         market_context,
                         jitter_min,
@@ -267,6 +281,7 @@ async def dispatch_wave(
                         round_num=round_num,
                         own_prior=own_priors[i] if own_priors is not None else None,
                         telemetry=telemetry,
+                        seed=call_seeds[i] if call_seeds is not None else None,
                     )
                 )
                 for i, p in enumerate(personas)

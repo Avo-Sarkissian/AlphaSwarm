@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from alphaswarm.episodes import EntityMatch, EpisodeRecord
     from alphaswarm.errors import RunErrorCode
     from alphaswarm.graph.rows import CycleStatus
+    from alphaswarm.manifest import RunManifest
     from alphaswarm.types import AgentDecision, AgentPersona, BracketType, SeedEvent
 
 log = structlog.get_logger(component="graph")
@@ -50,6 +51,9 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX influenced_by_cycle_round IF NOT EXISTS FOR ()-[r:INFLUENCED_BY]-() ON (r.cycle_id, r.round)",
     "CREATE INDEX cycle_created IF NOT EXISTS FOR (c:Cycle) ON (c.created_at)",
     "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)",
+    # Backs the experiment-tag lookups of the cycle-comparison scripts
+    # (docs/DECISIONS.md#adr-run-manifest).
+    "CREATE INDEX cycle_experiment_tag IF NOT EXISTS FOR (c:Cycle) ON (c.experiment_tag)",
 ]
 
 # A uniqueness constraint cannot be created over existing duplicates, and no
@@ -112,7 +116,10 @@ CREATE (dec:Decision {
     rationale: d.rationale,
     control: d.control,
     error_kind: d.error_kind,
-    parse_tier: d.parse_tier
+    parse_tier: d.parse_tier,
+    peer_ids: d.peer_ids,
+    citations_invalid: d.citations_invalid,
+    shock_treated: d.shock_treated
 })
 CREATE (a)-[:MADE]->(dec)
 RETURN count(dec) AS created
@@ -494,6 +501,9 @@ async def persist_round(
     episodes: Sequence[EpisodeRecord],
     entity_matches: Sequence[EntityMatch],
     control_ids: Collection[str] = (),
+    exposures: Mapping[str, Sequence[str]] | None = None,
+    citations_invalid: Mapping[str, int] | None = None,
+    shock_treated_ids: Collection[str] | None = None,
 ) -> PersistRoundResult:
     """Write one round in a single transaction (docs/DECISIONS.md#p4-d-08).
 
@@ -504,11 +514,18 @@ async def persist_round(
     stores ``control``: true for the agents in ``control_ids`` (the seeded
     no-peer holdout), false otherwise
     (docs/DECISIONS.md#adr-diverse-peer-context).
+
+    ``exposures``, ``citations_invalid`` and ``shock_treated_ids`` become
+    ``d.peer_ids`` (shown order; ``[]`` for an agent without an entry),
+    ``d.citations_invalid`` (0 by default) and ``d.shock_treated``. ``None``
+    leaves the property absent, because Neo4j stores no nulls: absent means
+    "not recorded" (docs/DECISIONS.md#adr-run-manifest).
     """
     if len(decision_ids) != len(decisions):
         raise ValueError(f"decision_ids length {len(decision_ids)} != decisions length {len(decisions)}")
     pairs = list(zip(decision_ids, decisions, strict=True))
     control_set = frozenset(control_ids)
+    shock_set = frozenset(shock_treated_ids) if shock_treated_ids is not None else None
     decision_rows = [
         {
             "decision_id": did,
@@ -520,6 +537,10 @@ async def persist_round(
             "control": agent_id in control_set,
             "error_kind": d.error_kind,
             "parse_tier": d.parse_tier,
+            # None -> property absent (Neo4j stores no nulls): "not recorded".
+            "peer_ids": list(exposures.get(agent_id, ())) if exposures is not None else None,
+            "citations_invalid": (citations_invalid.get(agent_id, 0) if citations_invalid is not None else None),
+            "shock_treated": (agent_id in shock_set) if shock_set is not None else None,
         }
         for did, (agent_id, d) in pairs
     ]
@@ -865,3 +886,51 @@ async def _write_decision_narrative_tx(
     )
     record = await result.single()
     return int(record["updated"]) if record is not None else 0
+
+
+async def write_run_manifest(write: TxRunner, cycle_id: str, manifest: RunManifest) -> None:
+    """Stamp the run manifest, run seed and experiment tag on the Cycle
+    (docs/DECISIONS.md#adr-run-manifest). Fails loud when the Cycle is missing."""
+    payload = manifest.model_dump_json(by_alias=True)
+    matched = await write(
+        _write_run_manifest_tx,
+        cycle_id,
+        payload,
+        manifest.sim_seed,
+        manifest.experiment_tag,
+        op="write_run_manifest",
+    )
+    if not matched:
+        raise Neo4jWriteError(f"write_run_manifest matched no Cycle {cycle_id}", op="write_run_manifest")
+    log.info(
+        "run_manifest_written",
+        cycle_id=cycle_id,
+        sim_seed=manifest.sim_seed,
+        experiment_tag=manifest.experiment_tag or "",
+        manifest_bytes=len(payload),
+    )
+
+
+async def _write_run_manifest_tx(
+    tx: AsyncManagedTransaction,
+    cycle_id: str,
+    payload: str,
+    sim_seed: int,
+    experiment_tag: str | None,
+) -> int:
+    """SET the three Cycle properties; a null tag removes the property."""
+    result = await tx.run(
+        """
+        MATCH (c:Cycle {cycle_id: $cycle_id})
+        SET c.run_manifest_json = $payload,
+            c.sim_seed = $sim_seed,
+            c.experiment_tag = $experiment_tag
+        RETURN count(c) AS matched
+        """,
+        cycle_id=cycle_id,
+        payload=payload,
+        sim_seed=sim_seed,
+        experiment_tag=experiment_tag,
+    )
+    record = await result.single()
+    return int(record["matched"]) if record else 0

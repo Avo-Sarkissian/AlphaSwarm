@@ -676,3 +676,72 @@ async def test_transient_preflight_failure_does_not_block(monkeypatch: pytest.Mo
         "cloud_preflight_inconclusive"
     ]
     assert len(seen) == 1 + 1 + 2  # listing, completion, two preflight retries
+
+
+# ---------------------------------------------------------------------------
+# seed in the request body (docs/DECISIONS.md#adr-run-manifest)
+# ---------------------------------------------------------------------------
+
+
+async def test_seed_is_sent_in_the_body() -> None:
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return _200('{"signal": "buy"}')
+
+    await _make_provider(handler).chat(_MSG, seed=77)
+
+    assert bodies[0]["seed"] == 77
+
+
+async def test_no_seed_key_without_a_seed() -> None:
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return _200('{"signal": "buy"}')
+
+    await _make_provider(handler).chat(_MSG)
+
+    assert "seed" not in bodies[0]
+
+
+async def test_seed_rejected_once_then_dropped() -> None:
+    """One retry without seed, then never send it again."""
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "seed" in body:
+            return _error(400, {"error": {"message": "Unrecognized request argument supplied: seed"}})
+        return _200('{"signal": "hold"}')
+
+    provider = _make_provider(handler)
+    first = await provider.chat(_MSG, seed=1)
+    second = await provider.chat(_MSG, seed=2)
+
+    assert first.content == second.content == '{"signal": "hold"}'
+    assert ["seed" in b for b in bodies] == [True, False, False]
+
+
+async def test_other_400_is_not_retried_without_seed() -> None:
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return _error(400, {"error": {"message": "maximum context length exceeded"}})
+
+    with pytest.raises(InferenceError):
+        await _make_provider(handler).chat(_MSG, seed=1)
+
+    assert len(calls) == 1
+
+
+async def test_auth_error_mentioning_seed_still_fails_loud() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _error(401, {"error": {"message": "invalid key (seed request)"}})
+
+    with pytest.raises(AuthError):
+        await _make_provider(handler).chat(_MSG, seed=1)
