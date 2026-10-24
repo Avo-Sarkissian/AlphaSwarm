@@ -4,7 +4,7 @@ Covers:
 - GET /api/settings: returns masked config (no raw key), mode, model lists.
 - PUT /api/settings: persists; empty api_key leaves stored key unchanged; 409 mid-run; 400 bad body.
 - POST /api/settings/test: {ok:true} on success; {ok:false, error:...} on AuthError; never 500.
-- GET /api/settings/estimate: calls = agents*rounds + 3 (a run makes no narrative calls); local cfg → $0.
+- GET /api/settings/estimate: calls = agents*rounds + 4 orchestrator calls; local cfg → $0; unpriced_models listed.
 """
 
 from __future__ import annotations
@@ -619,26 +619,34 @@ class TestConnectionTest:
 
 
 class TestGetEstimate:
-    def test_estimate_counts_no_narrative_calls(self) -> None:
-        """calls = agents*rounds + 3, and the cost has no narrative share.
-
-        Narratives are generated on an agent's first interview, not by the run.
-        """
-        from alphaswarm.inference.budget import estimate_run
-        from alphaswarm.web.routes.settings import _AVG_IN_TOKENS, _AVG_OUT_TOKENS
+    def test_calls_count_is_agents_times_rounds_plus_orchestrator_calls(self) -> None:
+        """No narrative calls (they are interview-time); four orchestrator calls per run."""
+        from alphaswarm.inference.budget import DEFAULT_CALL_PROFILE, estimate_run
 
         with _mock_load_cfg(_ANTHROPIC_CFG), TestClient(_make_settings_test_app()) as client:
             agents = len(client.app.state.app_state.personas)
             rounds = client.app.state.app_state.settings.num_rounds
             r = client.get("/api/settings/estimate")
-
         assert r.status_code == 200
         data = r.json()
-        assert data["calls"] == agents * rounds + 3
-        run_only = estimate_run(
-            _ANTHROPIC_CFG, agents=agents, rounds=rounds, avg_in=_AVG_IN_TOKENS, avg_out=_AVG_OUT_TOKENS
-        )
+        assert data["calls"] == agents * rounds + DEFAULT_CALL_PROFILE.orchestrator_calls
+        run_only = estimate_run(_ANTHROPIC_CFG, agents=agents, rounds=rounds)
         assert (Decimal(data["low_usd"]), Decimal(data["high_usd"])) == (run_only.low_usd, run_only.high_usd)
+
+    def test_unpriced_models_are_listed(self) -> None:
+        cfg = InferenceConfig(
+            orchestrator=RoleConfig(provider=ProviderType.OLLAMA, model="local-orch"),
+            worker=RoleConfig(
+                provider=ProviderType.OPENAI_COMPATIBLE,
+                model="typo-model",
+                base_url="https://api.example.com/v1",
+                api_key="sk-test-worker-key",
+            ),
+        )
+        with _mock_load_cfg(cfg), TestClient(_make_settings_test_app()) as client:
+            data = client.get("/api/settings/estimate").json()
+        assert data["unpriced_models"] == ["typo-model"]
+        assert data["mode"] == "mixed"
 
     def test_local_config_zero_cost(self) -> None:
         """Local (OLLAMA) config → cost is $0."""

@@ -7,12 +7,13 @@ import pytest
 
 from alphaswarm.errors import BudgetExceededError
 from alphaswarm.inference.budget import (
+    DEFAULT_CALL_PROFILE,
     DEFAULT_PRICING,
     PRICING_MAX_AGE_DAYS,
     PRICING_VERIFIED_AT,
     BudgetMeter,
     BudgetTrackingProvider,
-    RunEstimate,
+    CallProfile,
     estimate_run,
     normalize_model_id,
     resolve_price,
@@ -215,118 +216,80 @@ class TestCheck:
 
 
 class TestEstimateRun:
-    def test_call_count(self) -> None:
-        cfg = _cloud_cfg()
-        result = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200)
-        assert result.calls == 10 * 3 + 3  # 33
+    """estimate_run prices through the meter (docs/DECISIONS.md#adr-cloud-retry)."""
 
-    def test_call_count_large(self) -> None:
-        cfg = _cloud_cfg()
-        result = estimate_run(cfg, agents=100, rounds=3, avg_in=500, avg_out=200)
-        assert result.calls == 100 * 3 + 3  # 303
+    PROFILE = CallProfile(
+        worker_in=1_000_000,
+        worker_out=0,
+        orchestrator_calls=2,
+        orchestrator_in=0,
+        orchestrator_out=1_000_000,
+    )
 
-    def test_cost_math_cloud(self) -> None:
-        """Check the band arithmetic for a simple case."""
-        cfg = _cloud_cfg()
-        # worker model: $1/MTok in, $2/MTok out
-        # orch model:   $1/MTok in, $2/MTok out
-        agents, rounds, avg_in, avg_out = 10, 1, 1_000_000, 1_000_000
-        # worker calls: 10*1 = 10, each: $1 + $2 = $3 → $30
-        # orch calls: 3, each: $3 → $9
-        # total point: $39
-        result = estimate_run(cfg, agents=agents, rounds=rounds, avg_in=avg_in, avg_out=avg_out)
-        expected_low = (Decimal("39.00") * Decimal("0.7")).quantize(Decimal("0.01"))
-        expected_high = (Decimal("39.00") * Decimal("1.3")).quantize(Decimal("0.01"))
-        assert result.low_usd == expected_low
-        assert result.high_usd == expected_high
+    def test_call_count_is_agents_times_rounds_plus_orchestrator_calls(self) -> None:
+        result = estimate_run(_cloud_cfg(), agents=100, rounds=3)
+        assert result.calls == 100 * 3 + DEFAULT_CALL_PROFILE.orchestrator_calls
 
-    def test_local_config_zero_cost(self) -> None:
-        cfg = _local_cfg()
-        result = estimate_run(cfg, agents=100, rounds=3, avg_in=500, avg_out=200)
-        assert result.low_usd == Decimal("0.00")
-        assert result.high_usd == Decimal("0.00")
+    def test_default_profile_counts_seed_modifiers_report_and_advisory(self) -> None:
+        # Narratives are generated at interview time; interviews are not part of a run.
+        assert DEFAULT_CALL_PROFILE.orchestrator_calls == 4
 
-    def test_run_estimate_is_dataclass(self) -> None:
-        cfg = _cloud_cfg()
-        result = estimate_run(cfg, agents=5, rounds=2, avg_in=100, avg_out=100)
-        assert isinstance(result, RunEstimate)
-        assert hasattr(result, "calls")
-        assert hasattr(result, "low_usd")
-        assert hasattr(result, "high_usd")
+    def test_cost_math_uses_each_roles_tokens(self) -> None:
+        # worker: 10 calls x 1M in x $1 = $10; orchestrator: 2 calls x 1M out x $2 = $4; point $14
+        result = estimate_run(_cloud_cfg(), agents=10, rounds=1, profile=self.PROFILE)
+        assert (result.low_usd, result.high_usd) == (Decimal("9.80"), Decimal("18.20"))
 
-    def test_low_less_than_high_for_nonzero(self) -> None:
-        cfg = _cloud_cfg()
-        result = estimate_run(cfg, agents=10, rounds=3, avg_in=500_000, avg_out=200_000)
-        if result.low_usd > Decimal("0"):
-            assert result.low_usd < result.high_usd
+    def test_local_config_costs_nothing(self) -> None:
+        result = estimate_run(_local_cfg(), agents=100, rounds=3)
+        assert (result.low_usd, result.high_usd, result.unpriced_models) == (Decimal("0.00"), Decimal("0.00"), ())
 
-    def test_narrative_calls_total_count(self) -> None:
-        """(a) total calls == agents*rounds + narrative_calls + 3."""
-        cfg = _cloud_cfg()
-        result = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200, narrative_calls=10)
-        assert result.calls == 10 * 3 + 10 + 3  # 43
-
-    def test_narrative_calls_priced_at_worker_rate(self) -> None:
-        """(b) narrative_calls are priced at the WORKER model rate, not orchestrator rate."""
-        # Use distinguishable prices so we can tell which model was charged.
-        # Worker: $10/MTok in — deliberately expensive.
-        # Orchestrator: $1/MTok in — deliberately cheap.
-        worker_model = "worker-model"
-        orch_model = "orch-model"
+    def test_unknown_model_with_a_cap_is_priced_like_the_meter(self) -> None:
         cfg = InferenceConfig(
-            orchestrator=RoleConfig(provider=ProviderType.ANTHROPIC, model=orch_model),
-            worker=RoleConfig(provider=ProviderType.OPENAI_COMPATIBLE, model=worker_model),
-            pricing_overrides={
-                worker_model: ModelPrice(
-                    input_per_mtok=Decimal("10.00"),
-                    output_per_mtok=Decimal("0.00"),
-                ),
-                orch_model: ModelPrice(
-                    input_per_mtok=Decimal("1.00"),
-                    output_per_mtok=Decimal("0.00"),
-                ),
-            },
+            orchestrator=RoleConfig(provider=ProviderType.OLLAMA, model="local-orch"),
+            worker=RoleConfig(provider=ProviderType.OPENAI_COMPATIBLE, model="typo-model"),
+            spend_cap_usd=Decimal("5.00"),
         )
-        # 0 regular worker rounds, 1 narrative call, 0 orch calls (override via pricing=custom)
-        # We want to isolate the narrative cost; set agents=0 rounds=0 and check narrative_calls=1
-        # But orch_calls is always 3 — use large avg_in=0 to zero orch cost via avg_out:
-        # To isolate: set avg_in=1_000_000, avg_out=0; orch cost = 3 * $1 = $3
-        # narrative cost (1 call, worker) = 1 * $10 = $10; total point = $13
-        result = estimate_run(
-            cfg,
-            agents=0,
-            rounds=0,
-            avg_in=1_000_000,
-            avg_out=0,
-            narrative_calls=1,
-        )
-        # total point = orch(3 * $1) + narrative_worker(1 * $10) = $13
-        expected_low = (Decimal("13.00") * Decimal("0.7")).quantize(Decimal("0.01"))
-        expected_high = (Decimal("13.00") * Decimal("1.3")).quantize(Decimal("0.01"))
-        assert result.low_usd == expected_low, "narrative_calls must be priced at worker rate ($10), not orch rate ($1)"
-        assert result.high_usd == expected_high
+        result = estimate_run(cfg, agents=1, rounds=1, profile=self.PROFILE)
+        point = BudgetMeter(Decimal("5.00"), dict(DEFAULT_PRICING)).record("typo-model", 1_000_000, 0)
+        assert result.high_usd == (point * Decimal("1.3")).quantize(Decimal("0.01"))
+        assert result.high_usd > Decimal("0.00")
+        assert result.unpriced_models == ("typo-model",)
 
-    def test_narrative_calls_default_zero_regression(self) -> None:
-        """(c) narrative_calls=0 (default) reproduces the prior cost — regression guard."""
-        cfg = _cloud_cfg()
-        # Explicit zero and omitted should produce identical results
-        result_explicit = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200, narrative_calls=0)
-        result_default = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200)
-        assert result_explicit.calls == result_default.calls
-        assert result_explicit.low_usd == result_default.low_usd
-        assert result_explicit.high_usd == result_default.high_usd
+    def test_unknown_model_without_a_cap_is_free_but_listed(self) -> None:
+        role = RoleConfig(provider=ProviderType.OPENAI_COMPATIBLE, model="typo-model")
+        result = estimate_run(InferenceConfig(orchestrator=role, worker=role), agents=10, rounds=3)
+        assert result.high_usd == Decimal("0.00")
+        assert result.unpriced_models == ("typo-model",)
+
+    def test_dated_ids_are_priced(self) -> None:
+        role = RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-haiku-4-5-20251001")
+        result = estimate_run(InferenceConfig(orchestrator=role, worker=role), agents=100, rounds=3)
+        assert result.high_usd > Decimal("0.00")
+        assert result.unpriced_models == ()
 
     def test_custom_pricing_passed_in(self) -> None:
-        cfg = _cloud_cfg()
-        custom = {
-            "test-model": ModelPrice(
-                input_per_mtok=Decimal("0.00"),
-                output_per_mtok=Decimal("0.00"),
-            )
-        }
-        result = estimate_run(cfg, agents=10, rounds=3, avg_in=1_000_000, avg_out=1_000_000, pricing=custom)
-        assert result.low_usd == Decimal("0.00")
+        free = {"test-model": ModelPrice(input_per_mtok=Decimal("0"), output_per_mtok=Decimal("0"))}
+        result = estimate_run(_cloud_cfg(), agents=10, rounds=3, pricing=free)
         assert result.high_usd == Decimal("0.00")
+
+    def test_run_estimate_is_frozen(self) -> None:
+        import dataclasses
+
+        result = estimate_run(_cloud_cfg(), agents=5, rounds=2)
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            result.calls = 0  # type: ignore[misc]
+
+    def test_the_estimate_does_not_log_per_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import structlog
+        from structlog.testing import capture_logs
+
+        import alphaswarm.inference.budget as budget_module
+
+        monkeypatch.setattr(budget_module, "log", structlog.get_logger(component="inference.budget"))
+        role = RoleConfig(provider=ProviderType.OPENAI_COMPATIBLE, model="typo-model")
+        with capture_logs() as logs:
+            estimate_run(InferenceConfig(orchestrator=role, worker=role), agents=1, rounds=1)
+        assert not [e for e in logs if e["event"] == "budget_model_unpriced"]
 
 
 # ---------------------------------------------------------------------------

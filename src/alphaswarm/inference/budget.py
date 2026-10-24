@@ -131,23 +131,45 @@ _FALLBACK_UNKNOWN_PRICE = ModelPrice(
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
+class CallProfile:
+    """Calls per run and mean tokens per call, used by estimate_run.
+
+    Worker: one decision per agent per round. Orchestrator: seed parse,
+    persona modifiers, report and advisory, one call each (interviews are on
+    demand and not part of a run). Token means come from docs/experiments.md
+    "Estimator call profile".
+    """
+
+    worker_in: int = 1500
+    worker_out: int = 250
+    orchestrator_calls: int = 4
+    orchestrator_in: int = 4000
+    orchestrator_out: int = 1200
+
+
+DEFAULT_CALL_PROFILE: Final = CallProfile()
+
+
+@dataclass(frozen=True)
 class RunEstimate:
-    """Estimated cost for a full simulation run.
+    """Estimated cost of one simulation run.
 
     Attributes
     ----------
     calls:
-        Total LLM calls (agents * rounds + 3 orchestrator calls).
-    low_usd:
-        Lower bound of cost estimate (~0.7× point estimate), quantized to cents.
-    high_usd:
-        Upper bound of cost estimate (~1.3× point estimate), quantized to cents.
+        LLM calls in the run (agents * rounds worker calls + orchestrator calls).
+    low_usd, high_usd:
+        The point estimate * 0.7 and * 1.3, quantized to cents.
+    unpriced_models:
+        Cloud models with no price: costed like the meter does (a conservative
+        ceiling under a spend cap, $0 without one).
     """
 
     calls: int
     low_usd: Decimal
     high_usd: Decimal
+    unpriced_models: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -269,65 +291,36 @@ def estimate_run(
     *,
     agents: int,
     rounds: int,
-    avg_in: int,
-    avg_out: int,
-    narrative_calls: int = 0,
-    pricing: dict[str, ModelPrice] | None = None,
+    profile: CallProfile = DEFAULT_CALL_PROFILE,
+    pricing: Mapping[str, ModelPrice] | None = None,
 ) -> RunEstimate:
-    """Estimate cost of a full AlphaSwarm simulation run.
+    """Estimate one run with the meter's own pricing logic (docs/DECISIONS.md#adr-cloud-retry).
 
-    Call breakdown
-    --------------
-    - ``agents * rounds`` worker inference calls.
-    - ``narrative_calls`` additional worker calls, priced at the worker rate. A
-      run makes none (default 0): decision narratives are generated on an
-      agent's first interview (docs/DECISIONS.md#p11-d-11).
-    - 3 orchestrator calls (seed synthesis, advisory, report).
-
-    Pricing resolution
-    ------------------
-    Uses *pricing* if provided, else DEFAULT_PRICING merged with
-    ``cfg.pricing_overrides`` (overrides win).  Local (OLLAMA) models always
-    cost Decimal(0).
-
-    Returns
-    -------
-    RunEstimate with calls count and a ±30% USD band, quantized to cents.
+    Pricing: DEFAULT_PRICING, then ``cfg.pricing_overrides``, then ``pricing``.
+    Local (Ollama) roles cost nothing. A run makes no narrative calls: an
+    agent's narrative is generated on its first interview
+    (docs/DECISIONS.md#p11-d-11). Returns a ±30 % band.
     """
-    # Merge pricing table: DEFAULT → cfg.pricing_overrides → caller-supplied
-    resolved: dict[str, ModelPrice] = dict(DEFAULT_PRICING)
-    resolved.update(cfg.pricing_overrides)
-    if pricing is not None:
-        resolved.update(pricing)
-
+    resolved: dict[str, ModelPrice] = {**DEFAULT_PRICING, **cfg.pricing_overrides, **(pricing or {})}
+    meter = BudgetMeter(cfg.spend_cap_usd, resolved, warn_unpriced=False)
     worker_calls = agents * rounds
-    orch_calls = 3
-    total_calls = worker_calls + narrative_calls + orch_calls
-
-    worker_provider = cfg.worker.provider
-    orch_provider = cfg.orchestrator.provider
-
-    def _call_cost(model: str, provider: ProviderType, n: int) -> Decimal:
-        if provider == ProviderType.OLLAMA:
-            return Decimal(0)
-        match = resolve_price(resolved, model)
-        if match is None:
-            log.warning("estimate_model_unpriced", model=model)
-            return Decimal(0)
-        mp = match[1]
-        per_call = Decimal(avg_in) / _MTOK * mp.input_per_mtok + Decimal(avg_out) / _MTOK * mp.output_per_mtok
-        return per_call * n
-
-    point = (
-        _call_cost(cfg.worker.model, worker_provider, worker_calls)
-        + _call_cost(cfg.worker.model, worker_provider, narrative_calls)
-        + _call_cost(cfg.orchestrator.model, orch_provider, orch_calls)
+    point = Decimal(0)
+    unpriced: list[str] = []
+    for role, calls, tokens_in, tokens_out in (
+        (cfg.worker, worker_calls, profile.worker_in, profile.worker_out),
+        (cfg.orchestrator, profile.orchestrator_calls, profile.orchestrator_in, profile.orchestrator_out),
+    ):
+        if role.provider == ProviderType.OLLAMA or calls == 0:
+            continue
+        if resolve_price(resolved, role.model) is None and role.model not in unpriced:
+            unpriced.append(role.model)
+        point += meter._cost_of(role.model, tokens_in, tokens_out) * calls
+    return RunEstimate(
+        calls=worker_calls + profile.orchestrator_calls,
+        low_usd=(point * Decimal("0.7")).quantize(_CENTS),
+        high_usd=(point * Decimal("1.3")).quantize(_CENTS),
+        unpriced_models=tuple(unpriced),
     )
-
-    low = (point * Decimal("0.7")).quantize(_CENTS)
-    high = (point * Decimal("1.3")).quantize(_CENTS)
-
-    return RunEstimate(calls=total_calls, low_usd=low, high_usd=high)
 
 
 # ---------------------------------------------------------------------------
