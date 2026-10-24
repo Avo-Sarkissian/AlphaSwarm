@@ -234,3 +234,21 @@ def test_report_passes_the_output_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "_handle_report", lambda cycle_id, output: seen.append((cycle_id, output)))
     assert cli.run_cli(["report", CYCLE_A, "--output", "out/zzzt_report.md"]) == cli.EXIT_OK
     assert seen == [(CYCLE_A, "out/zzzt_report.md")]
+
+
+def test_provider_config_error_exits_2(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """A rejected model id is a configuration problem: exit 2, one line on stderr."""
+    from alphaswarm.errors import ProviderConfigError
+
+    def _rejected(rumor: str) -> None:
+        raise ProviderConfigError(
+            "HTTP 404 for model typo-model: The model `typo-model` does not exist",
+            provider="openai_compatible",
+            model="typo-model",
+            status_code=404,
+        )
+
+    monkeypatch.setattr(cli, "_handle_inject", _rejected)
+    code = cli.run_cli(["inject", "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics."])
+    assert code == cli.EXIT_USAGE
+    assert "Configuration error" in capsys.readouterr().err

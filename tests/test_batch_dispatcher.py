@@ -14,6 +14,7 @@ from alphaswarm.errors import (
     GovernorCrisisError,
     InferenceError,
     OllamaInferenceError,
+    ProviderConfigError,
 )
 from alphaswarm.governor import ResourceGovernor
 from alphaswarm.inference.types import InferenceResult, ProviderRole
@@ -1498,3 +1499,34 @@ async def test_controllers_hear_only_inference_failures(
         settings=GovernorSettings(jitter_min_seconds=0.0, jitter_max_seconds=0.0),
     )
     assert reports == [(len(sample_personas) - 1, 1)]
+
+
+async def test_provider_config_error_stops_the_wave_bare(
+    governor: ResourceGovernor,
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """A wrong model id is a hard stop, not one PARSE_ERROR per agent."""
+    from alphaswarm.batch_dispatcher import HARD_STOP_ERRORS
+
+    def _rejected(**_: object) -> InferenceResult:
+        raise ProviderConfigError(
+            "HTTP 404 for model typo-model: The model `typo-model` does not exist",
+            provider="openai_compatible",
+            model="typo-model",
+            status_code=404,
+        )
+
+    provider = FakeInferenceProvider(ProviderRole.WORKER, "typo-model", scripted=_rejected)
+    assert ProviderConfigError in HARD_STOP_ERRORS
+    with (
+        patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(ProviderConfigError) as exc_info,
+    ):
+        await dispatch_wave(
+            personas=sample_personas,
+            governor=governor,
+            provider=provider,
+            user_message="ZZZT Holdings is in late-stage talks to acquire QQQX Robotics.",
+            settings=GovernorSettings(baseline_parallel=16),
+        )
+    assert exc_info.value.status_code == 404

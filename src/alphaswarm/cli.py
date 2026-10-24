@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import ValidationError
 
-from alphaswarm.errors import InferenceConfigError
+from alphaswarm.errors import InferenceConfigError, ProviderConfigError
 from alphaswarm.fsutil import atomic_write_text
 from alphaswarm.ingestion.fixture import load_context_fixture
 from alphaswarm.logging import configure_logging
@@ -563,7 +563,11 @@ EXIT_USAGE: Final = 2
 EXIT_INTERRUPTED: Final = 130
 
 #: Exceptions that mean "fix the configuration"; they exit with EXIT_USAGE.
-CONFIG_ERRORS: Final[tuple[type[BaseException], ...]] = (ValidationError, InferenceConfigError)
+CONFIG_ERRORS: Final[tuple[type[BaseException], ...]] = (
+    ValidationError,
+    InferenceConfigError,
+    ProviderConfigError,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

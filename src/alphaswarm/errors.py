@@ -31,6 +31,8 @@ class InferenceError(Exception):
             "openai", "anthropic").
         model: The model identifier that was being called.
         original_error: The underlying exception, if available.
+        input_tokens / output_tokens: Tokens of a response that was billed but
+            could not be used (None otherwise).
     """
 
     def __init__(
@@ -40,11 +42,17 @@ class InferenceError(Exception):
         provider: str,
         model: str,
         original_error: Exception | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
     ) -> None:
         super().__init__(message)
         self.provider = provider
         self.model = model
         self.original_error = original_error
+        # Tokens of a response that arrived (and was billed) but could not be
+        # used; BudgetTrackingProvider records them (docs/DECISIONS.md#adr-cloud-retry).
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
 
 
 class OllamaInferenceError(InferenceError):
@@ -80,6 +88,31 @@ class AuthError(InferenceError):
     Signals that the API key or credentials are invalid/missing.  Should not
     be retried without correcting the credential.
     """
+
+
+class ProviderConfigError(InferenceError):
+    """The provider rejected the request's configuration.
+
+    A 400, 404 or 422 that is not about the schema, the prompt's size or a
+    content filter: a wrong model id, a bad base URL, an unsupported parameter.
+    Every later call would fail the same way, so it is a hard stop like
+    AuthError (docs/DECISIONS.md#adr-cloud-retry).
+
+    Attributes:
+        status_code: The HTTP status the provider returned, when known.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str,
+        model: str,
+        status_code: int | None = None,
+        original_error: Exception | None = None,
+    ) -> None:
+        super().__init__(message, provider=provider, model=model, original_error=original_error)
+        self.status_code = status_code
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +321,7 @@ RunErrorCode = Literal[
     "auth_failed",
     "governor_crisis",
     "round_failed",
-    "provider_config",  # mapped once ProviderConfigError exists
+    "provider_config",
     "graph_unavailable",
     "graph_error",
     "inference_config_invalid",
@@ -342,6 +375,13 @@ def _describe(exc: BaseException) -> tuple[RunErrorCode, str]:
             "auth_failed",
             f"The {exc.provider} provider rejected the credentials for model "
             f"{exc.model}. Update the API key in Settings.",
+        )
+    if isinstance(exc, ProviderConfigError):
+        status = f" (HTTP {exc.status_code})" if exc.status_code is not None else ""
+        return (
+            "provider_config",
+            f"The {exc.provider} provider rejected model {exc.model}{status}. "
+            "Check the model id and base URL in Settings.",
         )
     if isinstance(exc, GovernorCrisisError):
         if exc.duration_seconds > 0:

@@ -20,9 +20,11 @@ from alphaswarm.errors import (
     InferenceConfigError,
     InferenceConfigFileError,
     InferenceConfigIncompleteError,
+    InferenceError,
     Neo4jQueryError,
     Neo4jUnavailableError,
     Neo4jWriteError,
+    ProviderConfigError,
     RoundFailedError,
     RunError,
     run_error_from_exception,
@@ -182,3 +184,39 @@ def test_run_error_is_frozen_and_timestamped() -> None:
     assert isinstance(err, RunError)
     with pytest.raises(dataclasses.FrozenInstanceError):
         err.code = "auth_failed"  # type: ignore[misc]
+
+
+def test_provider_config_error_maps_to_provider_config() -> None:
+    exc = ProviderConfigError(
+        "HTTP 404 for model typo-model: The model `typo-model` does not exist",
+        provider="openai_compatible",
+        model="typo-model",
+        status_code=404,
+    )
+    err = run_error_from_exception(exc, round_num=None)
+    assert err.code == "provider_config"
+    assert err.message == (
+        "The openai_compatible provider rejected model typo-model (HTTP 404). "
+        "Check the model id and base URL in Settings."
+    )
+    assert err.round_num is None
+
+
+def test_provider_config_error_is_an_inference_error_but_not_auth() -> None:
+    assert issubclass(ProviderConfigError, InferenceError)
+    assert not issubclass(ProviderConfigError, AuthError)
+    # The inference family keeps its base; it is not re-parented.
+    assert not issubclass(ProviderConfigError, AlphaSwarmError)
+
+
+def test_inference_error_carries_billed_tokens() -> None:
+    billed = InferenceError(
+        "malformed body",
+        provider="anthropic",
+        model="claude-haiku-4-5",
+        input_tokens=1200,
+        output_tokens=40,
+    )
+    assert (billed.input_tokens, billed.output_tokens) == (1200, 40)
+    plain = InferenceError("timed out", provider="anthropic", model="claude-haiku-4-5")
+    assert (plain.input_tokens, plain.output_tokens) == (None, None)
