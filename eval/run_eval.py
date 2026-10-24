@@ -10,24 +10,29 @@ tag and knobs. Run from the repo root in the owner's shell with the web server s
     uv run python eval/run_eval.py budget [--n-events 18]
     uv run python eval/run_eval.py registration --worker-release 2026-04-01 --backend "A: local"
     uv run python eval/run_eval.py run --arm swarm [--events evt-001,evt-002] [--dry-run]
+    uv run python eval/run_eval.py score [--no-parquet]
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
+from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from html import escape
 from pathlib import Path
 from statistics import fmean
 from typing import Any, Final, Literal
 
+from alphaswarm.consensus import NET_SCORE_DEADBAND, net_score
 from alphaswarm.evaluation import (
     ABLATION_SUBSET_SIZE,
     DEFAULT_SC_K,
@@ -36,22 +41,42 @@ from alphaswarm.evaluation import (
     MAX_EVENTS,
     MIN_EVENTS,
     MIN_POST_CUTOFF_SHARE,
+    SEED_BASE,
     SINGLE_K,
+    BaselineRecord,
     EvalEvent,
     EvalPaths,
+    Horizon,
     OutcomeLabel,
+    ProbeRecord,
+    ReliabilityBin,
     Variant,
     ablation_subset,
+    advise_g20,
+    boot_rng,
+    brier_by_event,
+    cluster_bootstrap,
+    fmt,
+    fmt_interval,
+    fmt_rate,
     markdown_table,
     mean_bracket_temperature,
+    mean_by_event,
+    min_valid_baseline,
     normalize_rumor,
+    p_up,
+    paired_difference,
     read_jsonl,
     read_jsonl_if_exists,
+    reliability_bins,
+    score_forecaster,
     sim_seed_for,
+    verdict,
 )
 from alphaswarm.ingestion.fixture import load_context_fixture
-from alphaswarm.personas import DEFAULT_BRACKETS
+from alphaswarm.personas import DEFAULT_BRACKETS, generate_personas, load_bracket_configs
 from alphaswarm.settings import AppSettings, SimulationSettings
+from alphaswarm.types import AgentDecision, AgentPersona, BracketType, SignalType
 
 EVAL_DIR: Final = Path(__file__).resolve().parent
 REPO_ROOT: Final = EVAL_DIR.parent
@@ -510,6 +535,535 @@ def budget_rows(n_events: int, budget: Budget, *, sc_k: int) -> list[list[str]]:
     return rows
 
 
+# --- score -------------------------------------------------------------------------
+
+CYCLES_QUERY: Final = """
+MATCH (c:Cycle)
+WHERE c.experiment_tag IN $tags
+RETURN properties(c) AS props
+ORDER BY c.created_at
+"""
+
+DECISIONS_QUERY: Final = """
+MATCH (a:Agent)-[:MADE]->(d:Decision)
+WHERE d.cycle_id = $cycle_id AND d.round IN $rounds
+RETURN a.id AS agent_id, d.round AS round, d.signal AS signal, d.confidence AS confidence
+"""
+
+MIN_VALID_VOTES: Final = 50
+MIN_NARRATOR_VOTES: Final = 4
+METRIC_TOLERANCE: Final = 1e-6
+SWARM_FORECASTERS: Final = (
+    "swarm",
+    "swarm_reach",
+    "swarm_ex_narrators",
+    "narrators_only",
+    "r1_only",
+    "orchestrator",
+)
+FORECASTERS: Final = (*SWARM_FORECASTERS, "single_k5", "self_consistency")
+COMPARED: Final = (
+    "orchestrator",
+    "r1_only",
+    "single_k5",
+    "self_consistency",
+    "swarm_reach",
+    "swarm_ex_narrators",
+    "narrators_only",
+)
+LEAKAGE_FORECASTERS: Final = ("swarm", "orchestrator", "r1_only", "single_k5")
+RELIABILITY_FORECASTERS: Final = ("swarm", "r1_only", "orchestrator", "single_k5", "self_consistency")
+
+Pairs = list[tuple[str, AgentDecision]]
+
+
+@dataclass(frozen=True)
+class CycleRun:
+    arm: Arm
+    event_id: str
+    seed: int
+    cycle_id: str
+    props: Mapping[str, Any]
+    manifest: Mapping[str, Any]
+
+
+@dataclass
+class MatchReport:
+    matched: int = 0
+    incomplete: int = 0
+    orphans: int = 0
+    duplicates: int = 0
+    excluded: Counter[str] = field(default_factory=Counter)
+    warnings: Counter[str] = field(default_factory=Counter)
+
+    def lines(self) -> list[str]:
+        out = [
+            f"- cycles used: {self.matched}",
+            f"- not complete: {self.incomplete}",
+            f"- unmatched (rumor, variant or seed): {self.orphans}",
+            f"- older duplicates replaced: {self.duplicates}",
+        ]
+        out += [f"- excluded ({reason}): {count}" for reason, count in sorted(self.excluded.items())]
+        out += [f"- warning ({reason}): {count}" for reason, count in sorted(self.warnings.items())]
+        return out
+
+
+def expected_simulation(arm: Arm, seed: int, base: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The SimulationSettings an arm's cycle must have run with.
+
+    *base* is the defaults frozen at registration (eval/registered_simulation.json); without
+    it today's defaults stand in. The run-wide pins and the arm's knobs go on top, so a
+    default changed after the runs (rounds, R3 boost) never turns stored cycles into drift.
+    """
+    expected = dict(base) if base is not None else frozen_simulation_defaults()
+    knobs: dict[str, object] = {
+        **RUN_PINS,
+        **arm.overrides,
+        "sim_seed": sim_seed_for(seed),
+        "experiment_tag": arm.tag,
+    }
+    validated = SimulationSettings.model_validate(knobs)
+    expected.update(validated.model_dump(mode="json", include=set(knobs)))
+    return expected
+
+
+def manifest_problem(
+    props: Mapping[str, Any], arm: Arm, seed: int, *, base: Mapping[str, Any] | None = None
+) -> tuple[str | None, dict[str, Any]]:
+    """Why a cycle's run manifest disagrees with its planned arm, or None."""
+    raw = props.get("run_manifest_json")
+    if not isinstance(raw, str) or not raw:
+        return "no manifest", {}
+    try:
+        manifest = json.loads(raw)
+    except json.JSONDecodeError:
+        return "unreadable manifest", {}
+    if not isinstance(manifest, dict):
+        return "unreadable manifest", {}
+    if manifest.get("num_rounds") != arm.num_rounds:
+        return "num_rounds drift", manifest
+    if manifest.get("sim_seed") != sim_seed_for(seed) or manifest.get("experiment_tag") != arm.tag:
+        return "seed or tag drift", manifest
+    actual = manifest.get("simulation")
+    if not isinstance(actual, dict):
+        return "settings drift", manifest
+    expected = expected_simulation(arm, seed, base)
+    if any(key in actual and actual[key] != value for key, value in expected.items()):
+        return "settings drift", manifest
+    return None, manifest
+
+
+def _text_index(events: Sequence[EvalEvent]) -> dict[str, tuple[str, Variant]]:
+    index: dict[str, tuple[str, Variant]] = {}
+    for event in events:
+        for variant in VARIANTS:
+            index[normalize_rumor(event.rumor_for(variant))] = (event.event_id, variant)
+    return index
+
+
+def _drop_context_drift(runs: dict[tuple[str, str, int], CycleRun], report: MatchReport) -> None:
+    """Keep, per event and variant, only cycles whose market block is the majority block."""
+    groups: dict[tuple[str, str], list[tuple[str, str, int]]] = defaultdict(list)
+    for key, run in runs.items():
+        groups[(run.event_id, run.arm.variant)].append(key)
+    for keys in groups.values():
+        blocks = Counter(str(runs[k].manifest.get("market_context")) for k in keys)
+        majority = blocks.most_common(1)[0][0]
+        for key in keys:
+            if str(runs[key].manifest.get("market_context")) != majority:
+                del runs[key]
+                report.excluded["context drift"] += 1
+
+
+def match_cycles(
+    rows: Sequence[Mapping[str, Any]],
+    events: Sequence[EvalEvent],
+    arms: Mapping[str, Arm],
+    *,
+    base: Mapping[str, Any] | None = None,
+) -> tuple[dict[tuple[str, str, int], CycleRun], MatchReport]:
+    """Map stored cycles (oldest first) to (arm, event, seed); the newest valid one wins."""
+    report = MatchReport()
+    by_tag = {arm.tag: arm for arm in arms.values()}
+    texts = _text_index(events)
+    runs: dict[tuple[str, str, int], CycleRun] = {}
+    for row in rows:
+        props: Mapping[str, Any] = row.get("props") or {}
+        arm = by_tag.get(str(props.get("experiment_tag")))
+        if arm is None:
+            continue
+        if props.get("status") != "complete":
+            report.incomplete += 1
+            continue
+        hit = texts.get(normalize_rumor(str(props.get("seed_rumor") or "")))
+        seed = int(props.get("sim_seed") or 0) - SEED_BASE
+        if hit is None or hit[1] != arm.variant or seed not in arm.seeds:
+            report.orphans += 1
+            continue
+        problem, manifest = manifest_problem(props, arm, seed, base=base)
+        if problem is not None:
+            report.excluded[problem] += 1
+            continue
+        key = (arm.name, hit[0], seed)
+        if key in runs:
+            report.duplicates += 1
+        runs[key] = CycleRun(arm, hit[0], seed, str(props.get("cycle_id")), props, manifest)
+    _drop_context_drift(runs, report)
+    report.matched = len(runs)
+    return runs, report
+
+
+def final_round(props: Mapping[str, Any]) -> int:
+    return int(props.get("final_round") or props.get("num_rounds") or EVAL_NUM_ROUNDS)
+
+
+def decisions_by_round(rows: Sequence[Mapping[str, Any]]) -> dict[int, Pairs]:
+    grouped: dict[int, Pairs] = defaultdict(list)
+    for row in rows:
+        decision = AgentDecision(
+            signal=SignalType(str(row["signal"]).lower()),
+            confidence=float(row["confidence"] or 0.0),
+        )
+        grouped[int(row["round"])].append((str(row["agent_id"]), decision))
+    return dict(grouped)
+
+
+def valid_votes(pairs: Sequence[tuple[str, AgentDecision]]) -> int:
+    return sum(1 for _, decision in pairs if decision.signal is not SignalType.PARSE_ERROR)
+
+
+def cycle_forecasts(run: CycleRun, by_round: Mapping[int, Pairs], personas: Sequence[AgentPersona]) -> dict[str, float]:
+    """The swarm-side forecasters of one cycle (docs/methodology.md §5)."""
+    narrators = {p.id for p in personas if p.bracket is BracketType.NARRATORS}
+    final = by_round.get(final_round(run.props), [])
+    first = by_round.get(1, [])
+    out: dict[str, float] = {}
+    if valid_votes(final) >= MIN_VALID_VOTES:
+        out["swarm"] = net_score(final, personas, weighting="headcount")
+        out["swarm_reach"] = net_score(final, personas, weighting="reach")
+        others = [pair for pair in final if pair[0] not in narrators]
+        out["swarm_ex_narrators"] = net_score(others, personas, weighting="headcount")
+        bracket = [pair for pair in final if pair[0] in narrators]
+        if valid_votes(bracket) >= MIN_NARRATOR_VOTES:
+            out["narrators_only"] = net_score(bracket, personas, weighting="headcount")
+    if valid_votes(first) >= MIN_VALID_VOTES:
+        out["r1_only"] = net_score(first, personas, weighting="headcount")
+    sentiment = run.props.get("overall_sentiment")
+    if isinstance(sentiment, int | float) and not isinstance(sentiment, bool):
+        out["orchestrator"] = float(sentiment)
+    return out
+
+
+@dataclass(frozen=True)
+class ForecastRow:
+    event_id: str
+    variant: Variant
+    forecaster: str
+    seed: int
+    score: float
+
+
+@dataclass(frozen=True)
+class EvalInputs:
+    events: Sequence[EvalEvent]
+    labels: Mapping[str, OutcomeLabel]
+    rows: Sequence[ForecastRow]
+    probes: Sequence[ProbeRecord]
+    report: MatchReport
+    labels_sha256: str | None
+
+
+def collect_eval_inputs(
+    read: Read,
+    events: Sequence[EvalEvent],
+    labels: Mapping[str, OutcomeLabel],
+    baselines: Sequence[BaselineRecord],
+    probes: Sequence[ProbeRecord],
+    personas: Sequence[AgentPersona],
+    *,
+    labels_sha256: str | None = None,
+    base: Mapping[str, Any] | None = None,
+) -> EvalInputs:
+    eval_arms = {name: arm for name, arm in ARMS.items() if arm.study == "p77"}
+    cycles = read(CYCLES_QUERY, {"tags": [arm.tag for arm in eval_arms.values()]})
+    runs, report = match_cycles(cycles, events, eval_arms, base=base)
+    rows: list[ForecastRow] = []
+    for run in runs.values():
+        final = final_round(run.props)
+        decision_rows = read(DECISIONS_QUERY, {"cycle_id": run.cycle_id, "rounds": sorted({1, final})})
+        forecasts = cycle_forecasts(run, decisions_by_round(decision_rows), personas)
+        stored = run.props.get(f"r{final}_net_score_headcount")
+        if isinstance(stored, float) and "swarm" in forecasts and abs(stored - forecasts["swarm"]) > METRIC_TOLERANCE:
+            report.warnings["net score differs from the stored metric"] += 1
+        if "swarm" not in forecasts:
+            report.warnings["final round below 50 valid votes"] += 1
+        rows.extend(
+            ForecastRow(run.event_id, run.arm.variant, name, run.seed, value) for name, value in forecasts.items()
+        )
+    for record in baselines:
+        if record.n_valid >= min_valid_baseline(record):
+            rows.append(ForecastRow(record.event_id, record.variant, record.kind, record.seed, record.score))
+        else:
+            report.excluded[f"{record.kind}: too few valid samples"] += 1
+    return EvalInputs(events, labels, rows, probes, report, labels_sha256)
+
+
+def forecaster_scores(
+    rows: Sequence[ForecastRow],
+    forecaster: str,
+    *,
+    variant: Variant = "named",
+    seed: int | None = None,
+) -> dict[str, float]:
+    """Per-event score of one forecaster: the mean over its seeds (or one seed)."""
+    return mean_by_event(
+        (r.event_id, r.score)
+        for r in rows
+        if r.forecaster == forecaster and r.variant == variant and (seed is None or r.seed == seed)
+    )
+
+
+def main_table(
+    rows: Sequence[ForecastRow],
+    labels: Mapping[str, OutcomeLabel],
+    horizon: Horizon,
+    *,
+    deadband: float,
+) -> str:
+    body: list[list[str]] = []
+    for name in FORECASTERS:
+        result = score_forecaster(name, forecaster_scores(rows, name), labels, horizon, deadband=deadband)
+        body.append(
+            [
+                name,
+                str(result.n_events),
+                str(result.n_directional),
+                fmt_rate(result.hit_rate, result.hit_ci),
+                fmt(result.brier),
+                fmt(result.log_loss),
+                fmt(result.spearman, "+.2f"),
+                fmt(result.accuracy3, ".2f"),
+            ]
+        )
+    header = [
+        "forecaster",
+        "events",
+        "directional",
+        "hit rate [95% CI]",
+        "Brier",
+        "log loss",
+        "Spearman rho",
+        "3-class acc.",
+    ]
+    return markdown_table(header, body)
+
+
+def comparison_table(rows: Sequence[ForecastRow], labels: Mapping[str, OutcomeLabel], horizon: Horizon) -> str:
+    swarm = brier_by_event(forecaster_scores(rows, "swarm"), labels, horizon)
+    body: list[list[str]] = []
+    for other in COMPARED:
+        theirs = brier_by_event(forecaster_scores(rows, other), labels, horizon)
+        interval = paired_difference(swarm, theirs, rng=boot_rng(f"compare:{horizon}:{other}"))
+        body.append(
+            [f"swarm - {other}", fmt_interval(interval), str(interval.n_clusters if interval else 0), verdict(interval)]
+        )
+    return markdown_table(["Brier difference", "mean [95% CI]", "events", "reading"], body)
+
+
+def leakage_section(inputs: EvalInputs, *, deadband: float) -> str:
+    """Post-cutoff split, named vs anonymized, memorization probe (docs/methodology.md §8)."""
+    labels, rows = inputs.labels, inputs.rows
+    post = {e.event_id for e in inputs.events if e.post_cutoff}
+    everything = {e.event_id for e in inputs.events}
+    splits = (("post-cutoff", post), ("pre-cutoff", everything - post))
+    split_rows: list[list[str]] = []
+    for name in LEAKAGE_FORECASTERS:
+        scores = forecaster_scores(rows, name)
+        for split, ids in splits:
+            chosen = {e: s for e, s in scores.items() if e in ids}
+            result = score_forecaster(name, chosen, labels, "1d", deadband=deadband)
+            split_rows.append(
+                [name, split, str(result.n_directional), fmt_rate(result.hit_rate, result.hit_ci), fmt(result.brier)]
+            )
+    named = forecaster_scores(rows, "swarm", seed=1)
+    anon = forecaster_scores(rows, "swarm", variant="anon", seed=1)
+    common = sorted(set(named) & set(anon))
+    shift = cluster_bootstrap({e: [abs(named[e] - anon[e])] for e in common}, rng=boot_rng("anon:shift"))
+    anon_brier = paired_difference(
+        brier_by_event({e: anon[e] for e in common}, labels, "1d"),
+        brier_by_event({e: named[e] for e in common}, labels, "1d"),
+        rng=boot_rng("anon:brier"),
+    )
+    anon_rows = [
+        ["mean |S named - S anonymized|", fmt_interval(shift, ".3f"), str(len(common))],
+        ["Brier anonymized - named", fmt_interval(anon_brier), str(anon_brier.n_clusters if anon_brier else 0)],
+    ]
+    by_event = {p.event_id: p for p in inputs.probes}
+    probe_rows: list[list[str]] = []
+    for split, ids in splits:
+        probed = [by_event[e] for e in sorted(ids) if e in by_event]
+        recalled = [p for p in probed if p.recalled]
+        correct = [p for p in recalled if p.event_id in labels and p.direction == labels[p.event_id].label_5d]
+        probe_rows.append(
+            [
+                split,
+                str(len(probed)),
+                fmt(len(recalled) / len(probed) if probed else None, ".2f"),
+                fmt(len(correct) / len(recalled) if recalled else None, ".2f"),
+            ]
+        )
+    suspects = sorted(
+        p.event_id
+        for p in inputs.probes
+        if p.recalled and p.event_id in labels and p.direction == labels[p.event_id].label_5d
+    )
+    clean_scores = {e: s for e, s in forecaster_scores(rows, "swarm").items() if e not in suspects}
+    clean = score_forecaster("swarm", clean_scores, labels, "1d", deadband=deadband)
+    return "\n".join(
+        [
+            "### Post-cutoff split (1-day)",
+            "",
+            markdown_table(["forecaster", "split", "directional", "hit rate [95% CI]", "Brier"], split_rows),
+            "### Named vs anonymized (swarm, seed 1)",
+            "",
+            markdown_table(["comparison", "mean [95% CI]", "events"], anon_rows),
+            "### Memorization probe",
+            "",
+            markdown_table(["split", "probed", "recall rate", "recall accuracy (5-day label)"], probe_rows),
+            f"Suspect events (recalled with the correct direction): {', '.join(suspects) or 'none'}. "
+            f"Swarm without them: hit rate {fmt_rate(clean.hit_rate, clean.hit_ci)}, "
+            f"Brier {fmt(clean.brier)} ({clean.n_directional} directional events).",
+            "",
+        ]
+    )
+
+
+def build_eval_report(inputs: EvalInputs, *, deadband: float) -> str:
+    missing = sorted(e.event_id for e in inputs.events if e.event_id not in inputs.labels)
+    swarm_scores = forecaster_scores(inputs.rows, "swarm")
+    swarm = score_forecaster("swarm", swarm_scores, inputs.labels, "1d", deadband=deadband)
+    advice = advise_g20(swarm_scores, swarm.hit_rate, deadband=deadband)
+    return "\n".join(
+        [
+            "## P7.7 evaluation",
+            "",
+            f"Labels sha256: {inputs.labels_sha256 or 'n/a'}. "
+            f"Events without a label (excluded): {', '.join(missing) or 'none'}.",
+            "",
+            *inputs.report.lines(),
+            "",
+            "### 1-day horizon (primary)",
+            "",
+            main_table(inputs.rows, inputs.labels, "1d", deadband=deadband),
+            "### 5-day horizon",
+            "",
+            main_table(inputs.rows, inputs.labels, "5d", deadband=deadband),
+            "### Swarm vs each forecaster (1-day Brier, paired over events)",
+            "",
+            comparison_table(inputs.rows, inputs.labels, "1d"),
+            "### Swarm vs each forecaster (5-day Brier, paired over events)",
+            "",
+            comparison_table(inputs.rows, inputs.labels, "5d"),
+            leakage_section(inputs, deadband=deadband),
+            f"G-20 advice: {advice.branch} ({advice.reason}).",
+            "",
+        ]
+    )
+
+
+def forecast_records(inputs: EvalInputs) -> list[dict[str, object]]:
+    events = {e.event_id: e for e in inputs.events}
+    records: list[dict[str, object]] = []
+    for row in inputs.rows:
+        label = inputs.labels.get(row.event_id)
+        event = events.get(row.event_id)
+        records.append(
+            {
+                "event_id": row.event_id,
+                "variant": row.variant,
+                "forecaster": row.forecaster,
+                "seed": row.seed,
+                "score": row.score,
+                "p_up": p_up(row.score),
+                "label_1d": label.label_1d if label else None,
+                "label_5d": label.label_5d if label else None,
+                "abn_ret_1d": label.abn_ret_1d if label else None,
+                "abn_ret_5d": label.abn_ret_5d if label else None,
+                "post_cutoff": event.post_cutoff if event else None,
+            }
+        )
+    return records
+
+
+def write_parquet(records: Sequence[Mapping[str, object]], path: Path) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    pq.write_table(pa.Table.from_pylist([dict(record) for record in records]), path)
+
+
+def reliability_svg(title: str, bins: Sequence[ReliabilityBin]) -> str:
+    """A small standalone reliability diagram: forecast P(up) against observed frequency."""
+    size, pad = 260, 34
+    span = size - 2 * pad
+
+    def x(value: float) -> float:
+        return pad + value * span
+
+    def y(value: float) -> float:
+        return size - pad - value * span
+
+    points = [(b.mean_p, b.freq, b.n) for b in bins if b.mean_p is not None and b.freq is not None]
+    path = " ".join(f"{'M' if i == 0 else 'L'}{x(p):.1f},{y(f):.1f}" for i, (p, f, _) in enumerate(points))
+    dots = "".join(f'<circle cx="{x(p):.1f}" cy="{y(f):.1f}" r="{2 + n**0.5:.1f}"/>' for p, f, n in points)
+    label = escape(title)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
+        f'viewBox="0 0 {size} {size}" font-family="sans-serif" font-size="10">'
+        f"<title>{label}</title>"
+        f'<rect width="{size}" height="{size}" fill="white"/>'
+        f'<line x1="{x(0)}" y1="{y(0)}" x2="{x(1)}" y2="{y(1)}" stroke="#999" '
+        'stroke-dasharray="4 3"/>'
+        f'<line x1="{x(0)}" y1="{y(0)}" x2="{x(1)}" y2="{y(0)}" stroke="#333"/>'
+        f'<line x1="{x(0)}" y1="{y(0)}" x2="{x(0)}" y2="{y(1)}" stroke="#333"/>'
+        f'<path d="{path}" fill="none" stroke="#1f6feb" stroke-width="1.5"/>'
+        f'<g fill="#1f6feb">{dots}</g>'
+        f'<text x="{pad}" y="18">{label}</text>'
+        f'<text x="{size / 2}" y="{size - 8}" text-anchor="middle">forecast P(up)</text>'
+        f'<text x="12" y="{size / 2}" transform="rotate(-90 12 {size / 2})" '
+        'text-anchor="middle">observed frequency</text>'
+        "</svg>\n"
+    )
+
+
+def write_outputs(report: str, inputs: EvalInputs, results: Path, *, parquet: bool) -> list[Path]:
+    results.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    table = results / "eval_table.md"
+    table.write_text(report, encoding="utf-8")
+    written.append(table)
+    records = forecast_records(inputs)
+    jsonl = results / "forecasts.jsonl"
+    jsonl.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in records), encoding="utf-8")
+    written.append(jsonl)
+    if parquet:
+        target = results / "forecasts.parquet"
+        write_parquet(records, target)
+        written.append(target)
+    for name in RELIABILITY_FORECASTERS:
+        scores = forecaster_scores(inputs.rows, name)
+        pairs = [
+            (p_up(s), inputs.labels[e].label_1d == "up")
+            for e, s in scores.items()
+            if e in inputs.labels and inputs.labels[e].label_1d != "flat"
+        ]
+        svg = results / f"reliability_1d_{name}.svg"
+        title = f"{name}: 1-day reliability (n={len(pairs)})"
+        svg.write_text(reliability_svg(title, reliability_bins(pairs)), encoding="utf-8")
+        written.append(svg)
+    return written
+
+
 # --- command line ------------------------------------------------------------------
 
 
@@ -646,6 +1200,38 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 1 if summary.failed else 0
 
 
+def _cmd_score(args: argparse.Namespace) -> int:
+    if args.parquet and importlib.util.find_spec("pyarrow") is None:
+        print("pyarrow is missing: run `uv sync --group eval` (or pass --no-parquet).", file=sys.stderr)
+        return 2
+    events = read_jsonl(PATHS.events, EvalEvent)
+    labels = {label.event_id: label for label in read_jsonl_if_exists(PATHS.labels, OutcomeLabel)}
+    labels_sha = _sha256(PATHS.labels.read_bytes()) if PATHS.labels.exists() else None
+    baselines = read_jsonl_if_exists(PATHS.baselines, BaselineRecord)
+    probes = read_jsonl_if_exists(PATHS.probes, ProbeRecord)
+    personas = generate_personas(load_bracket_configs())
+    read, close = open_reader()
+    try:
+        inputs = collect_eval_inputs(
+            read,
+            events,
+            labels,
+            baselines,
+            probes,
+            personas,
+            labels_sha256=labels_sha,
+            base=registered_simulation(PATHS),
+        )
+    finally:
+        close()
+    report = build_eval_report(inputs, deadband=NET_SCORE_DEADBAND)
+    written = write_outputs(report, inputs, PATHS.results, parquet=args.parquet)
+    print(report)
+    for path in written:
+        print(f"wrote {path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="run_eval", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -689,6 +1275,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="run the named events again even if a complete cycle exists (needs --events)",
     )
     run.set_defaults(func=_cmd_run)
+    score = sub.add_parser("score", help="the accuracy table from stored cycles, labels and baselines")
+    score.add_argument("--no-parquet", dest="parquet", action="store_false", help="skip eval/results/forecasts.parquet")
+    score.set_defaults(func=_cmd_score)
     return parser
 
 

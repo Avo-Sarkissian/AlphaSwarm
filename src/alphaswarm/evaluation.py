@@ -670,3 +670,35 @@ def markdown_table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
     lines = ["| " + " | ".join(header) + " |", "|" + "|".join("---" for _ in header) + "|"]
     lines.extend("| " + " | ".join(row) + " |" for row in rows)
     return "\n".join(lines) + "\n"
+
+
+# --- Gate rules (docs/methodology.md §9) ---------------------------------------
+
+MIN_VALID_SINGLE: Final = 3
+G20_MIN_HOLD_SHARE: Final = 0.5
+
+
+@dataclass(frozen=True)
+class GateAdvice:
+    """A pre-registered recommendation; the owner still decides the gate."""
+
+    gate: str
+    branch: Literal["A", "B"]
+    reason: str
+    value: float | None = None
+
+
+def min_valid_baseline(record: BaselineRecord) -> int:
+    """Valid samples a baseline unit needs to count: 3 of 5, or half of k."""
+    return MIN_VALID_SINGLE if record.kind == "single_k5" else max(1, record.k // 2)
+
+
+def advise_g20(swarm_scores: Mapping[str, float], hit_rate: float | None, *, deadband: float) -> GateAdvice:
+    """A (schedule DECISION_SCHEMA_V2) when half the events lean hold while direction is right."""
+    if not swarm_scores or hit_rate is None:
+        return GateAdvice("G-20", "B", "insufficient data: keep the ternary schema")
+    hold_share = sum(1 for s in swarm_scores.values() if abs(s) <= deadband) / len(swarm_scores)
+    reason = f"{hold_share:.0%} of events lean hold; directional hit rate {hit_rate:.2f}"
+    if hold_share >= G20_MIN_HOLD_SHARE and hit_rate > 0.5:
+        return GateAdvice("G-20", "A", reason, value=hold_share)
+    return GateAdvice("G-20", "B", reason, value=hold_share)

@@ -86,7 +86,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 - **Evaluation**
   - `evaluation.py`: eval records, outcome labels and forecast scoring (pure; `docs/DECISIONS.md#adr-eval-harness`).
   - `ingestion/fixture.py`: point-in-time `ContextPacket` fixtures for `alphaswarm run --context-fixture`.
-  - Repo-root `eval/`: the `build_fixtures`, `label_outcomes` and preliminary `pilot` scripts. They read `eval/events.jsonl` and `eval/headlines/`, and write the committed `eval/fixtures/` and the gitignored `eval/results/` (labels, pilot state).
+  - Repo-root `eval/`: `build_fixtures` and `label_outcomes` (yfinance), `run_eval` (`check`, `budget`, `registration`, seeded `run` through `alphaswarm run`, `score`) and `baselines` (worker-only `single`, `sc` and `probe` through `open_runtime`). They read `eval/events.jsonl` and `eval/headlines/`, read Neo4j only in read transactions, and write the committed `eval/fixtures/` and the gitignored `eval/results/` (labels, baselines, probes, tables).
 
 ## Frontend layout (`frontend/src/`)
 
