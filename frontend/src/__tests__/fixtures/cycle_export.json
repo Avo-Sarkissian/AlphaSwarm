@@ -1,0 +1,4903 @@
+{
+  "cycle": {
+    "created_at": "<TS>",
+    "cycle_id": "<UUID:1>",
+    "manifest": null,
+    "metrics": {
+      "agent_count": 100,
+      "final_buy": 31,
+      "final_hold": 32,
+      "final_sell": 31,
+      "metrics_version": 1,
+      "num_rounds": 3,
+      "r1_parse_errors": 3,
+      "r1_seconds": 10.0,
+      "r2_flips": 10,
+      "r2_parse_errors": 4,
+      "r2_seconds": 20.0,
+      "r3_flips": 8,
+      "r3_parse_errors": 6,
+      "r3_seconds": 30.0,
+      "total_seconds": 60.0
+    },
+    "num_rounds": 3,
+    "overall_sentiment": 0.45,
+    "seed_rumor": "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.",
+    "status": "complete"
+  },
+  "report_markdown": null,
+  "roster": [
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_01",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 1",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_02",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 2",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_03",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 3",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_04",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 4",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_05",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 5",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_06",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 6",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_07",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 7",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_08",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 8",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_09",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 9",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_10",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 10",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_11",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 11",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_12",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 12",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_13",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 13",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_14",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 14",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_15",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 15",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_16",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 16",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_17",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 17",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "institutions",
+      "display_name": "Institutions",
+      "id": "institutions_18",
+      "influence_weight_base": 0.65,
+      "name": "Institutions 18",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "id": "sell_side_01",
+      "influence_weight_base": 0.75,
+      "name": "Sell-Side 1",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "id": "sell_side_02",
+      "influence_weight_base": 0.75,
+      "name": "Sell-Side 2",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "id": "sell_side_03",
+      "influence_weight_base": 0.75,
+      "name": "Sell-Side 3",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "id": "sell_side_04",
+      "influence_weight_base": 0.75,
+      "name": "Sell-Side 4",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "id": "sell_side_05",
+      "influence_weight_base": 0.75,
+      "name": "Sell-Side 5",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "id": "sell_side_06",
+      "influence_weight_base": 0.75,
+      "name": "Sell-Side 6",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "id": "sell_side_07",
+      "influence_weight_base": 0.75,
+      "name": "Sell-Side 7",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "id": "sell_side_08",
+      "influence_weight_base": 0.75,
+      "name": "Sell-Side 8",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "id": "sell_side_09",
+      "influence_weight_base": 0.75,
+      "name": "Sell-Side 9",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "sell_side",
+      "display_name": "Sell-Side",
+      "id": "sell_side_10",
+      "influence_weight_base": 0.75,
+      "name": "Sell-Side 10",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "id": "event_driven_01",
+      "influence_weight_base": 0.6,
+      "name": "Event-Driven 1",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "id": "event_driven_02",
+      "influence_weight_base": 0.6,
+      "name": "Event-Driven 2",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "id": "event_driven_03",
+      "influence_weight_base": 0.6,
+      "name": "Event-Driven 3",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "id": "event_driven_04",
+      "influence_weight_base": 0.6,
+      "name": "Event-Driven 4",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "id": "event_driven_05",
+      "influence_weight_base": 0.6,
+      "name": "Event-Driven 5",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "id": "event_driven_06",
+      "influence_weight_base": 0.6,
+      "name": "Event-Driven 6",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "id": "event_driven_07",
+      "influence_weight_base": 0.6,
+      "name": "Event-Driven 7",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "id": "event_driven_08",
+      "influence_weight_base": 0.6,
+      "name": "Event-Driven 8",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "id": "event_driven_09",
+      "influence_weight_base": 0.6,
+      "name": "Event-Driven 9",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "event_driven",
+      "display_name": "Event-Driven",
+      "id": "event_driven_10",
+      "influence_weight_base": 0.6,
+      "name": "Event-Driven 10",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_01",
+      "influence_weight_base": 0.55,
+      "name": "Quants 1",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_02",
+      "influence_weight_base": 0.55,
+      "name": "Quants 2",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_03",
+      "influence_weight_base": 0.55,
+      "name": "Quants 3",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_04",
+      "influence_weight_base": 0.55,
+      "name": "Quants 4",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_05",
+      "influence_weight_base": 0.55,
+      "name": "Quants 5",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_06",
+      "influence_weight_base": 0.55,
+      "name": "Quants 6",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_07",
+      "influence_weight_base": 0.55,
+      "name": "Quants 7",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_08",
+      "influence_weight_base": 0.55,
+      "name": "Quants 8",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_09",
+      "influence_weight_base": 0.55,
+      "name": "Quants 9",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_10",
+      "influence_weight_base": 0.55,
+      "name": "Quants 10",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_11",
+      "influence_weight_base": 0.55,
+      "name": "Quants 11",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "quants",
+      "display_name": "Quants",
+      "id": "quants_12",
+      "influence_weight_base": 0.55,
+      "name": "Quants 12",
+      "temperature": 0.3
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_01",
+      "influence_weight_base": 0.5,
+      "name": "Degens 1",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_02",
+      "influence_weight_base": 0.5,
+      "name": "Degens 2",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_03",
+      "influence_weight_base": 0.5,
+      "name": "Degens 3",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_04",
+      "influence_weight_base": 0.5,
+      "name": "Degens 4",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_05",
+      "influence_weight_base": 0.5,
+      "name": "Degens 5",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_06",
+      "influence_weight_base": 0.5,
+      "name": "Degens 6",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_07",
+      "influence_weight_base": 0.5,
+      "name": "Degens 7",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_08",
+      "influence_weight_base": 0.5,
+      "name": "Degens 8",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_09",
+      "influence_weight_base": 0.5,
+      "name": "Degens 9",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_10",
+      "influence_weight_base": 0.5,
+      "name": "Degens 10",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_11",
+      "influence_weight_base": 0.5,
+      "name": "Degens 11",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_12",
+      "influence_weight_base": 0.5,
+      "name": "Degens 12",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_13",
+      "influence_weight_base": 0.5,
+      "name": "Degens 13",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_14",
+      "influence_weight_base": 0.5,
+      "name": "Degens 14",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "degens",
+      "display_name": "Degens",
+      "id": "degens_15",
+      "influence_weight_base": 0.5,
+      "name": "Degens 15",
+      "temperature": 1.1
+    },
+    {
+      "bracket": "narrators",
+      "display_name": "Narrators",
+      "id": "narrators_01",
+      "influence_weight_base": 0.7,
+      "name": "Narrators 1",
+      "temperature": 0.9
+    },
+    {
+      "bracket": "narrators",
+      "display_name": "Narrators",
+      "id": "narrators_02",
+      "influence_weight_base": 0.7,
+      "name": "Narrators 2",
+      "temperature": 0.9
+    },
+    {
+      "bracket": "narrators",
+      "display_name": "Narrators",
+      "id": "narrators_03",
+      "influence_weight_base": 0.7,
+      "name": "Narrators 3",
+      "temperature": 0.9
+    },
+    {
+      "bracket": "narrators",
+      "display_name": "Narrators",
+      "id": "narrators_04",
+      "influence_weight_base": 0.7,
+      "name": "Narrators 4",
+      "temperature": 0.9
+    },
+    {
+      "bracket": "narrators",
+      "display_name": "Narrators",
+      "id": "narrators_05",
+      "influence_weight_base": 0.7,
+      "name": "Narrators 5",
+      "temperature": 0.9
+    },
+    {
+      "bracket": "narrators",
+      "display_name": "Narrators",
+      "id": "narrators_06",
+      "influence_weight_base": 0.7,
+      "name": "Narrators 6",
+      "temperature": 0.9
+    },
+    {
+      "bracket": "narrators",
+      "display_name": "Narrators",
+      "id": "narrators_07",
+      "influence_weight_base": 0.7,
+      "name": "Narrators 7",
+      "temperature": 0.9
+    },
+    {
+      "bracket": "narrators",
+      "display_name": "Narrators",
+      "id": "narrators_08",
+      "influence_weight_base": 0.7,
+      "name": "Narrators 8",
+      "temperature": 0.9
+    },
+    {
+      "bracket": "algos",
+      "display_name": "Algos",
+      "id": "algos_01",
+      "influence_weight_base": 0.45,
+      "name": "Algos 1",
+      "temperature": 0.15
+    },
+    {
+      "bracket": "algos",
+      "display_name": "Algos",
+      "id": "algos_02",
+      "influence_weight_base": 0.45,
+      "name": "Algos 2",
+      "temperature": 0.15
+    },
+    {
+      "bracket": "algos",
+      "display_name": "Algos",
+      "id": "algos_03",
+      "influence_weight_base": 0.45,
+      "name": "Algos 3",
+      "temperature": 0.15
+    },
+    {
+      "bracket": "algos",
+      "display_name": "Algos",
+      "id": "algos_04",
+      "influence_weight_base": 0.45,
+      "name": "Algos 4",
+      "temperature": 0.15
+    },
+    {
+      "bracket": "algos",
+      "display_name": "Algos",
+      "id": "algos_05",
+      "influence_weight_base": 0.45,
+      "name": "Algos 5",
+      "temperature": 0.15
+    },
+    {
+      "bracket": "algos",
+      "display_name": "Algos",
+      "id": "algos_06",
+      "influence_weight_base": 0.45,
+      "name": "Algos 6",
+      "temperature": 0.15
+    },
+    {
+      "bracket": "algos",
+      "display_name": "Algos",
+      "id": "algos_07",
+      "influence_weight_base": 0.45,
+      "name": "Algos 7",
+      "temperature": 0.15
+    },
+    {
+      "bracket": "algos",
+      "display_name": "Algos",
+      "id": "algos_08",
+      "influence_weight_base": 0.45,
+      "name": "Algos 8",
+      "temperature": 0.15
+    },
+    {
+      "bracket": "macro",
+      "display_name": "Macro",
+      "id": "macro_01",
+      "influence_weight_base": 0.55,
+      "name": "Macro 1",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "macro",
+      "display_name": "Macro",
+      "id": "macro_02",
+      "influence_weight_base": 0.55,
+      "name": "Macro 2",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "macro",
+      "display_name": "Macro",
+      "id": "macro_03",
+      "influence_weight_base": 0.55,
+      "name": "Macro 3",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "macro",
+      "display_name": "Macro",
+      "id": "macro_04",
+      "influence_weight_base": 0.55,
+      "name": "Macro 4",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "macro",
+      "display_name": "Macro",
+      "id": "macro_05",
+      "influence_weight_base": 0.55,
+      "name": "Macro 5",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "macro",
+      "display_name": "Macro",
+      "id": "macro_06",
+      "influence_weight_base": 0.55,
+      "name": "Macro 6",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "macro",
+      "display_name": "Macro",
+      "id": "macro_07",
+      "influence_weight_base": 0.55,
+      "name": "Macro 7",
+      "temperature": 0.5
+    },
+    {
+      "bracket": "shorts",
+      "display_name": "Shorts",
+      "id": "shorts_01",
+      "influence_weight_base": 0.6,
+      "name": "Shorts 1",
+      "temperature": 0.8
+    },
+    {
+      "bracket": "shorts",
+      "display_name": "Shorts",
+      "id": "shorts_02",
+      "influence_weight_base": 0.6,
+      "name": "Shorts 2",
+      "temperature": 0.8
+    },
+    {
+      "bracket": "shorts",
+      "display_name": "Shorts",
+      "id": "shorts_03",
+      "influence_weight_base": 0.6,
+      "name": "Shorts 3",
+      "temperature": 0.8
+    },
+    {
+      "bracket": "shorts",
+      "display_name": "Shorts",
+      "id": "shorts_04",
+      "influence_weight_base": 0.6,
+      "name": "Shorts 4",
+      "temperature": 0.8
+    },
+    {
+      "bracket": "shorts",
+      "display_name": "Shorts",
+      "id": "shorts_05",
+      "influence_weight_base": 0.6,
+      "name": "Shorts 5",
+      "temperature": 0.8
+    },
+    {
+      "bracket": "shorts",
+      "display_name": "Shorts",
+      "id": "shorts_06",
+      "influence_weight_base": 0.6,
+      "name": "Shorts 6",
+      "temperature": 0.8
+    },
+    {
+      "bracket": "shorts",
+      "display_name": "Shorts",
+      "id": "shorts_07",
+      "influence_weight_base": 0.6,
+      "name": "Shorts 7",
+      "temperature": 0.8
+    },
+    {
+      "bracket": "allocators",
+      "display_name": "Allocators",
+      "id": "allocators_01",
+      "influence_weight_base": 0.6,
+      "name": "Allocators 1",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "allocators",
+      "display_name": "Allocators",
+      "id": "allocators_02",
+      "influence_weight_base": 0.6,
+      "name": "Allocators 2",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "allocators",
+      "display_name": "Allocators",
+      "id": "allocators_03",
+      "influence_weight_base": 0.6,
+      "name": "Allocators 3",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "allocators",
+      "display_name": "Allocators",
+      "id": "allocators_04",
+      "influence_weight_base": 0.6,
+      "name": "Allocators 4",
+      "temperature": 0.4
+    },
+    {
+      "bracket": "allocators",
+      "display_name": "Allocators",
+      "id": "allocators_05",
+      "influence_weight_base": 0.6,
+      "name": "Allocators 5",
+      "temperature": 0.4
+    }
+  ],
+  "rounds": [
+    {
+      "citations": [],
+      "decisions": [
+        {
+          "agent_id": "institutions_01",
+          "cited_agent_ids": [],
+          "confidence": 0.872,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 1 round 1: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.75,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_02",
+          "cited_agent_ids": [],
+          "confidence": 0.885,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 2 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_03",
+          "cited_agent_ids": [],
+          "confidence": 0.469,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 3 round 1: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.34,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_04",
+          "cited_agent_ids": [],
+          "confidence": 0.3715,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 4 round 1: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.33,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_05",
+          "cited_agent_ids": [],
+          "confidence": 0.443,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 5 round 1: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_06",
+          "cited_agent_ids": [],
+          "confidence": 0.8005,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 6 round 1: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.73,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_07",
+          "cited_agent_ids": [],
+          "confidence": 0.4885,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 7 round 1: SELL; industrial automation peers should rerate.",
+          "sentiment": -0.23,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_08",
+          "cited_agent_ids": [],
+          "confidence": 0.404,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 8 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.1,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_09",
+          "cited_agent_ids": [],
+          "confidence": 0.7745,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 9 round 1: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.39,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_10",
+          "cited_agent_ids": [],
+          "confidence": 0.7095,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 10 round 1: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.84,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_11",
+          "cited_agent_ids": [],
+          "confidence": 0.365,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 11 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_12",
+          "cited_agent_ids": [],
+          "confidence": 0.4625,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 12 round 1: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.18,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_13",
+          "cited_agent_ids": [],
+          "confidence": 0.313,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 13 round 1: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.21,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_14",
+          "cited_agent_ids": [],
+          "confidence": 0.5795,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 14 round 1: HOLD; industrial automation peers should rerate.",
+          "sentiment": -0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_15",
+          "cited_agent_ids": [],
+          "confidence": 0.5405,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 15 round 1: BUY; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.58,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_16",
+          "cited_agent_ids": [],
+          "confidence": 0.3325,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 16 round 1: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.26,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_17",
+          "cited_agent_ids": [],
+          "confidence": 0.3,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 17 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_18",
+          "cited_agent_ids": [],
+          "confidence": 0.5925,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 18 round 1: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.29,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_01",
+          "cited_agent_ids": [],
+          "confidence": 0.7355,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 1 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.01,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "sell_side_02",
+          "cited_agent_ids": [],
+          "confidence": 0.6835,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 2 round 1: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.67,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_03",
+          "cited_agent_ids": [],
+          "confidence": 0.495,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 3 round 1: SELL; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": -0.73,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "sell_side_04",
+          "cited_agent_ids": [],
+          "confidence": 0.482,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 4 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "sell_side_05",
+          "cited_agent_ids": [],
+          "confidence": 0.417,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 5 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.23,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_06",
+          "cited_agent_ids": [],
+          "confidence": 0.534,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 6 round 1: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.23,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "sell_side_07",
+          "cited_agent_ids": [],
+          "confidence": 0.638,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 7 round 1: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.06,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "sell_side_08",
+          "cited_agent_ids": [],
+          "confidence": 0.794,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 8 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.83,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_09",
+          "cited_agent_ids": [],
+          "confidence": 0.6705,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 9 round 1: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.16,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "sell_side_10",
+          "cited_agent_ids": [],
+          "confidence": 0.8525,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 10 round 1: HOLD; industrial automation peers should rerate.",
+          "sentiment": -0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_01",
+          "cited_agent_ids": [],
+          "confidence": 0.7225,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 1 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.24,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "event_driven_02",
+          "cited_agent_ids": [],
+          "confidence": 0.4495,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 2 round 1: SELL; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.3,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "event_driven_03",
+          "cited_agent_ids": [],
+          "confidence": 0.742,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 3 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.03,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_04",
+          "cited_agent_ids": [],
+          "confidence": 0.3585,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 4 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.54,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "event_driven_05",
+          "cited_agent_ids": [],
+          "confidence": 0.6315,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 5 round 1: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.73,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "event_driven_06",
+          "cited_agent_ids": [],
+          "confidence": 0.833,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 6 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_07",
+          "cited_agent_ids": [],
+          "confidence": 0.937,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 7 round 1: BUY; QQQX Robotics holders would get a premium; industrial automation peers should rerate.",
+          "sentiment": 0.7,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "event_driven_08",
+          "cited_agent_ids": [],
+          "confidence": 0.56,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 8 round 1: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.49,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "event_driven_09",
+          "cited_agent_ids": [],
+          "confidence": 0.9435,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 9 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_10",
+          "cited_agent_ids": [],
+          "confidence": 0.43,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 10 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.77,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_01",
+          "cited_agent_ids": [],
+          "confidence": 0.3195,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 1 round 1: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.48,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "quants_02",
+          "cited_agent_ids": [],
+          "confidence": 0.456,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 2 round 1: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.07,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_03",
+          "cited_agent_ids": [],
+          "confidence": 0.4105,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 3 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.75,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_04",
+          "cited_agent_ids": [],
+          "confidence": 0.8395,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 4 round 1: SELL; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": -0.4,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "quants_05",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "quants_06",
+          "cited_agent_ids": [],
+          "confidence": 0.3845,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 6 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.31,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_07",
+          "cited_agent_ids": [],
+          "confidence": 0.716,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 7 round 1: SELL; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.25,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "quants_08",
+          "cited_agent_ids": [],
+          "confidence": 0.4235,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 8 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_09",
+          "cited_agent_ids": [],
+          "confidence": 0.781,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 9 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.6,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_10",
+          "cited_agent_ids": [],
+          "confidence": 0.768,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 10 round 1: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.59,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "quants_11",
+          "cited_agent_ids": [],
+          "confidence": 0.5145,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 11 round 1: HOLD; industrial automation peers should rerate.",
+          "sentiment": 0.01,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_12",
+          "cited_agent_ids": [],
+          "confidence": 0.651,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 12 round 1: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.43,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_01",
+          "cited_agent_ids": [],
+          "confidence": 0.5015,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 1 round 1: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.03,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_02",
+          "cited_agent_ids": [],
+          "confidence": 0.69,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 2 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.73,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_03",
+          "cited_agent_ids": [],
+          "confidence": 0.8265,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 3 round 1: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.22,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_04",
+          "cited_agent_ids": [],
+          "confidence": 0.352,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 4 round 1: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_05",
+          "cited_agent_ids": [],
+          "confidence": 0.8785,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 5 round 1: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.57,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_06",
+          "cited_agent_ids": [],
+          "confidence": 0.326,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 6 round 1: SELL; industrial automation peers should rerate.",
+          "sentiment": -0.42,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_07",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "degens_08",
+          "cited_agent_ids": [],
+          "confidence": 0.508,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 8 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.57,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_09",
+          "cited_agent_ids": [],
+          "confidence": 0.9045,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 9 round 1: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.6,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_10",
+          "cited_agent_ids": [],
+          "confidence": 0.8135,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 10 round 1: HOLD; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_11",
+          "cited_agent_ids": [],
+          "confidence": 0.5665,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 11 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.61,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_12",
+          "cited_agent_ids": [],
+          "confidence": 0.7485,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 12 round 1: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.18,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_13",
+          "cited_agent_ids": [],
+          "confidence": 0.547,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 13 round 1: HOLD; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": 0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_14",
+          "cited_agent_ids": [],
+          "confidence": 0.378,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 14 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.61,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_15",
+          "cited_agent_ids": [],
+          "confidence": 0.573,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 15 round 1: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.35,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "narrators_01",
+          "cited_agent_ids": [],
+          "confidence": 0.4755,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 1 round 1: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.5,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "narrators_02",
+          "cited_agent_ids": [],
+          "confidence": 0.924,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 2 round 1: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.71,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "narrators_03",
+          "cited_agent_ids": [],
+          "confidence": 0.339,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 3 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "narrators_04",
+          "cited_agent_ids": [],
+          "confidence": 0.3975,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 4 round 1: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.65,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "narrators_05",
+          "cited_agent_ids": [],
+          "confidence": 0.8655,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 5 round 1: SELL; QQQX Robotics holders would get a premium; industrial automation peers should rerate.",
+          "sentiment": -0.27,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "narrators_06",
+          "cited_agent_ids": [],
+          "confidence": 0.911,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 6 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.04,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "narrators_07",
+          "cited_agent_ids": [],
+          "confidence": 0.664,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 7 round 1: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.48,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "narrators_08",
+          "cited_agent_ids": [],
+          "confidence": 0.5275,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 8 round 1: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.38,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "algos_01",
+          "cited_agent_ids": [],
+          "confidence": 0.612,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 1 round 1: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.6,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "algos_02",
+          "cited_agent_ids": [],
+          "confidence": 0.846,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 2 round 1: HOLD; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.01,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "algos_03",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "algos_04",
+          "cited_agent_ids": [],
+          "confidence": 0.5535,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 4 round 1: SELL; industrial automation peers should rerate.",
+          "sentiment": -0.6,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "algos_05",
+          "cited_agent_ids": [],
+          "confidence": 0.6185,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 5 round 1: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.06,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "algos_06",
+          "cited_agent_ids": [],
+          "confidence": 0.677,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 6 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.6,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "algos_07",
+          "cited_agent_ids": [],
+          "confidence": 0.729,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 7 round 1: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.43,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "algos_08",
+          "cited_agent_ids": [],
+          "confidence": 0.3455,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 8 round 1: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.1,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "macro_01",
+          "cited_agent_ids": [],
+          "confidence": 0.521,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 1 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "macro_02",
+          "cited_agent_ids": [],
+          "confidence": 0.9305,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 2 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.42,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "macro_03",
+          "cited_agent_ids": [],
+          "confidence": 0.6445,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 3 round 1: SELL; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": -0.16,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "macro_04",
+          "cited_agent_ids": [],
+          "confidence": 0.4365,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 4 round 1: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "macro_05",
+          "cited_agent_ids": [],
+          "confidence": 0.586,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 5 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.6,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "macro_06",
+          "cited_agent_ids": [],
+          "confidence": 0.6965,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 6 round 1: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.49,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "macro_07",
+          "cited_agent_ids": [],
+          "confidence": 0.8915,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 7 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "shorts_01",
+          "cited_agent_ids": [],
+          "confidence": 0.703,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 1 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.81,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "shorts_02",
+          "cited_agent_ids": [],
+          "confidence": 0.859,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 2 round 1: SELL; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.77,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "shorts_03",
+          "cited_agent_ids": [],
+          "confidence": 0.599,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 3 round 1: HOLD; industrial automation peers should rerate.",
+          "sentiment": -0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "shorts_04",
+          "cited_agent_ids": [],
+          "confidence": 0.82,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 4 round 1: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.68,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "shorts_05",
+          "cited_agent_ids": [],
+          "confidence": 0.625,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 5 round 1: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.68,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "shorts_06",
+          "cited_agent_ids": [],
+          "confidence": 0.391,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 6 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.06,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "shorts_07",
+          "cited_agent_ids": [],
+          "confidence": 0.7875,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 7 round 1: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.24,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "allocators_01",
+          "cited_agent_ids": [],
+          "confidence": 0.3065,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Allocators 1 round 1: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.46,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "allocators_02",
+          "cited_agent_ids": [],
+          "confidence": 0.898,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Allocators 2 round 1: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "allocators_03",
+          "cited_agent_ids": [],
+          "confidence": 0.6055,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Allocators 3 round 1: BUY; industrial automation peers should rerate.",
+          "sentiment": 0.68,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "allocators_04",
+          "cited_agent_ids": [],
+          "confidence": 0.7615,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Allocators 4 round 1: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.19,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "allocators_05",
+          "cited_agent_ids": [],
+          "confidence": 0.9175,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Allocators 5 round 1: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.0,
+          "signal": "hold"
+        }
+      ],
+      "round_num": 1
+    },
+    {
+      "citations": [
+        {
+          "cited_signal": "hold",
+          "source_id": "algos_01",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "algos_02",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "algos_03",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "algos_04",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "algos_04",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "algos_04",
+          "target_id": "shorts_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "algos_05",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "algos_05",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "algos_08",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "algos_08",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "degens_03",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "degens_04",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "degens_05",
+          "target_id": "allocators_03"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "degens_06",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "degens_06",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "degens_10",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "degens_12",
+          "target_id": "allocators_03"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "degens_13",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "degens_13",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "degens_13",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "degens_14",
+          "target_id": "algos_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "event_driven_01",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "event_driven_02",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "event_driven_06",
+          "target_id": "algos_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "event_driven_07",
+          "target_id": "algos_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "event_driven_08",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "event_driven_08",
+          "target_id": "shorts_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "event_driven_09",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "event_driven_10",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "event_driven_10",
+          "target_id": "shorts_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "institutions_02",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_03",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_03",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "institutions_04",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "institutions_07",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "institutions_10",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_10",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "institutions_10",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "institutions_11",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_14",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_14",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "institutions_14",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_15",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "institutions_15",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "institutions_16",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "macro_02",
+          "target_id": "algos_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "macro_02",
+          "target_id": "sell_side_02"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "macro_03",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "macro_07",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "narrators_01",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "narrators_02",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "narrators_02",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "narrators_04",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "narrators_04",
+          "target_id": "sell_side_02"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "narrators_05",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "narrators_06",
+          "target_id": "shorts_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "narrators_08",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "quants_01",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "quants_02",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "quants_02",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "quants_04",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "quants_05",
+          "target_id": "allocators_03"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "quants_05",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "quants_06",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "quants_07",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "quants_09",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "quants_10",
+          "target_id": "algos_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "quants_10",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "quants_10",
+          "target_id": "narrators_02"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "quants_11",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "sell_side_02",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "sell_side_02",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "sell_side_04",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "sell_side_05",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "sell_side_06",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "sell_side_06",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "sell_side_10",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "shorts_06",
+          "target_id": "sell_side_01"
+        }
+      ],
+      "decisions": [
+        {
+          "agent_id": "institutions_01",
+          "cited_agent_ids": [],
+          "confidence": 0.3065,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 1 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_02",
+          "cited_agent_ids": [
+            "quants_01"
+          ],
+          "confidence": 0.352,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 2 round 2: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_03",
+          "cited_agent_ids": [
+            "event_driven_01",
+            "narrators_01"
+          ],
+          "confidence": 0.8265,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 3 round 2: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.78,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_04",
+          "cited_agent_ids": [
+            "quants_01"
+          ],
+          "confidence": 0.8525,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 4 round 2: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.51,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_05",
+          "cited_agent_ids": [],
+          "confidence": 0.6705,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 5 round 2: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.04,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_06",
+          "cited_agent_ids": [],
+          "confidence": 0.339,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 6 round 2: BUY; industrial automation peers should rerate.",
+          "sentiment": 0.54,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_07",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.5925,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 7 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.47,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_08",
+          "cited_agent_ids": [],
+          "confidence": 0.4365,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 8 round 2: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_09",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "institutions_10",
+          "cited_agent_ids": [
+            "degens_01",
+            "narrators_01",
+            "sell_side_01"
+          ],
+          "confidence": 0.3195,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 10 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.85,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_11",
+          "cited_agent_ids": [
+            "macro_01"
+          ],
+          "confidence": 0.859,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 11 round 2: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_12",
+          "cited_agent_ids": [],
+          "confidence": 0.313,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 12 round 2: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.35,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_13",
+          "cited_agent_ids": [],
+          "confidence": 0.833,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 13 round 2: SELL; industrial automation peers should rerate.",
+          "sentiment": -0.56,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_14",
+          "cited_agent_ids": [
+            "event_driven_01",
+            "narrators_01",
+            "quants_01"
+          ],
+          "confidence": 0.7095,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 14 round 2: HOLD; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.06,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_15",
+          "cited_agent_ids": [
+            "narrators_01",
+            "sell_side_01"
+          ],
+          "confidence": 0.846,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 15 round 2: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.59,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_16",
+          "cited_agent_ids": [
+            "degens_01"
+          ],
+          "confidence": 0.768,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 16 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.76,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_17",
+          "cited_agent_ids": [],
+          "confidence": 0.6835,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 17 round 2: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.07,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_18",
+          "cited_agent_ids": [],
+          "confidence": 0.586,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 18 round 2: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.32,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_01",
+          "cited_agent_ids": [],
+          "confidence": 0.4885,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 1 round 2: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.48,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_02",
+          "cited_agent_ids": [
+            "degens_01",
+            "institutions_01"
+          ],
+          "confidence": 0.742,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 2 round 2: BUY; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": 0.53,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_03",
+          "cited_agent_ids": [],
+          "confidence": 0.703,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 3 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.54,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "sell_side_04",
+          "cited_agent_ids": [
+            "macro_01"
+          ],
+          "confidence": 0.7745,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 4 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "sell_side_05",
+          "cited_agent_ids": [
+            "quants_01"
+          ],
+          "confidence": 0.7485,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 5 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.38,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_06",
+          "cited_agent_ids": [
+            "narrators_01",
+            "quants_01"
+          ],
+          "confidence": 0.5015,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 6 round 2: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.63,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "sell_side_07",
+          "cited_agent_ids": [],
+          "confidence": 0.5275,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 7 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.07,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "sell_side_08",
+          "cited_agent_ids": [],
+          "confidence": 0.469,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 8 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.53,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_09",
+          "cited_agent_ids": [],
+          "confidence": 0.547,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 9 round 2: SELL; industrial automation peers should rerate.",
+          "sentiment": -0.46,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "sell_side_10",
+          "cited_agent_ids": [
+            "institutions_01"
+          ],
+          "confidence": 0.417,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 10 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_01",
+          "cited_agent_ids": [
+            "quants_01"
+          ],
+          "confidence": 0.443,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 1 round 2: SELL; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.83,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "event_driven_02",
+          "cited_agent_ids": [
+            "macro_01"
+          ],
+          "confidence": 0.8135,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 2 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.24,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "event_driven_03",
+          "cited_agent_ids": [],
+          "confidence": 0.729,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 3 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_04",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "event_driven_05",
+          "cited_agent_ids": [],
+          "confidence": 0.651,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 5 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.61,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "event_driven_06",
+          "cited_agent_ids": [
+            "algos_01"
+          ],
+          "confidence": 0.7225,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 6 round 2: HOLD; QQQX Robotics holders would get a premium; industrial automation peers should rerate.",
+          "sentiment": 0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_07",
+          "cited_agent_ids": [
+            "algos_01"
+          ],
+          "confidence": 0.664,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 7 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.4,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "event_driven_08",
+          "cited_agent_ids": [
+            "institutions_01",
+            "shorts_01"
+          ],
+          "confidence": 0.508,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 8 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.67,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "event_driven_09",
+          "cited_agent_ids": [
+            "narrators_01"
+          ],
+          "confidence": 0.4755,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 9 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_10",
+          "cited_agent_ids": [
+            "narrators_01",
+            "shorts_01"
+          ],
+          "confidence": 0.7875,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 10 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.41,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_01",
+          "cited_agent_ids": [
+            "event_driven_01"
+          ],
+          "confidence": 0.6445,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 1 round 2: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.03,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_02",
+          "cited_agent_ids": [
+            "degens_01",
+            "sell_side_01"
+          ],
+          "confidence": 0.4495,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 2 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.03,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_03",
+          "cited_agent_ids": [],
+          "confidence": 0.8785,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 3 round 2: BUY; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": 0.68,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_04",
+          "cited_agent_ids": [
+            "event_driven_01"
+          ],
+          "confidence": 0.937,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 4 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.23,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "quants_05",
+          "cited_agent_ids": [
+            "allocators_03",
+            "sell_side_01"
+          ],
+          "confidence": 0.391,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 5 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.04,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_06",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.8005,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 6 round 2: BUY; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.55,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_07",
+          "cited_agent_ids": [
+            "institutions_01"
+          ],
+          "confidence": 0.9435,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 7 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.66,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "quants_08",
+          "cited_agent_ids": [],
+          "confidence": 0.365,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 8 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_09",
+          "cited_agent_ids": [
+            "narrators_01"
+          ],
+          "confidence": 0.6315,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 9 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.81,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_10",
+          "cited_agent_ids": [
+            "algos_01",
+            "event_driven_01",
+            "narrators_02"
+          ],
+          "confidence": 0.456,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 10 round 2: SELL; industrial automation peers should rerate.",
+          "sentiment": -0.58,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "quants_11",
+          "cited_agent_ids": [
+            "macro_01"
+          ],
+          "confidence": 0.755,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 11 round 2: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.0,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_12",
+          "cited_agent_ids": [],
+          "confidence": 0.3975,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 12 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.68,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_01",
+          "cited_agent_ids": [],
+          "confidence": 0.5405,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 1 round 2: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.66,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_02",
+          "cited_agent_ids": [],
+          "confidence": 0.326,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 2 round 2: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.82,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_03",
+          "cited_agent_ids": [
+            "macro_01"
+          ],
+          "confidence": 0.6055,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 3 round 2: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.48,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_04",
+          "cited_agent_ids": [
+            "quants_01"
+          ],
+          "confidence": 0.4235,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 4 round 2: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.07,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_05",
+          "cited_agent_ids": [
+            "allocators_03"
+          ],
+          "confidence": 0.43,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 5 round 2: BUY; industrial automation peers should rerate.",
+          "sentiment": 0.44,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_06",
+          "cited_agent_ids": [
+            "event_driven_01",
+            "sell_side_01"
+          ],
+          "confidence": 0.5535,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 6 round 2: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.31,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_07",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "degens_08",
+          "cited_agent_ids": [],
+          "confidence": 0.781,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 8 round 2: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.25,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_09",
+          "cited_agent_ids": [],
+          "confidence": 0.3455,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 9 round 2: SELL; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.83,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_10",
+          "cited_agent_ids": [
+            "institutions_01"
+          ],
+          "confidence": 0.898,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 10 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_11",
+          "cited_agent_ids": [],
+          "confidence": 0.3715,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 11 round 2: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.38,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_12",
+          "cited_agent_ids": [
+            "allocators_03"
+          ],
+          "confidence": 0.716,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 12 round 2: SELL; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": -0.8,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_13",
+          "cited_agent_ids": [
+            "institutions_01",
+            "narrators_01",
+            "sell_side_01"
+          ],
+          "confidence": 0.599,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 13 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_14",
+          "cited_agent_ids": [
+            "algos_01"
+          ],
+          "confidence": 0.885,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 14 round 2: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.66,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_15",
+          "cited_agent_ids": [],
+          "confidence": 0.9305,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 15 round 2: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.56,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "narrators_01",
+          "cited_agent_ids": [
+            "institutions_01"
+          ],
+          "confidence": 0.7355,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 1 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.38,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "narrators_02",
+          "cited_agent_ids": [
+            "degens_01",
+            "institutions_01"
+          ],
+          "confidence": 0.872,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 2 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.65,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "narrators_03",
+          "cited_agent_ids": [],
+          "confidence": 0.911,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 3 round 2: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.1,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "narrators_04",
+          "cited_agent_ids": [
+            "institutions_01",
+            "sell_side_02"
+          ],
+          "confidence": 0.3845,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 4 round 2: BUY; QQQX Robotics holders would get a premium; industrial automation peers should rerate.",
+          "sentiment": 0.78,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "narrators_05",
+          "cited_agent_ids": [
+            "institutions_01"
+          ],
+          "confidence": 0.482,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 5 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.35,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "narrators_06",
+          "cited_agent_ids": [
+            "shorts_01"
+          ],
+          "confidence": 0.9045,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 6 round 2: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.03,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "narrators_07",
+          "cited_agent_ids": [],
+          "confidence": 0.3325,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 7 round 2: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.21,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "narrators_08",
+          "cited_agent_ids": [
+            "macro_01"
+          ],
+          "confidence": 0.638,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 8 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.18,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "algos_01",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.495,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 1 round 2: HOLD; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "algos_02",
+          "cited_agent_ids": [
+            "macro_01"
+          ],
+          "confidence": 0.7615,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 2 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "algos_03",
+          "cited_agent_ids": [
+            "event_driven_01"
+          ],
+          "confidence": 0.807,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 3 round 2: BUY; industrial automation peers should rerate.",
+          "sentiment": 0.79,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "algos_04",
+          "cited_agent_ids": [
+            "macro_01",
+            "sell_side_01",
+            "shorts_01"
+          ],
+          "confidence": 0.378,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 4 round 2: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.3,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "algos_05",
+          "cited_agent_ids": [
+            "macro_01",
+            "narrators_01"
+          ],
+          "confidence": 0.3585,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 5 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "algos_06",
+          "cited_agent_ids": [],
+          "confidence": 0.69,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 6 round 2: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.25,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "algos_07",
+          "cited_agent_ids": [],
+          "confidence": 0.6965,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 7 round 2: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.36,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "algos_08",
+          "cited_agent_ids": [
+            "degens_01",
+            "narrators_01"
+          ],
+          "confidence": 0.521,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 8 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.06,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "macro_01",
+          "cited_agent_ids": [],
+          "confidence": 0.573,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 1 round 2: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.29,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "macro_02",
+          "cited_agent_ids": [
+            "algos_01",
+            "sell_side_02"
+          ],
+          "confidence": 0.56,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 2 round 2: BUY; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": 0.66,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "macro_03",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.8395,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 3 round 2: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.17,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "macro_04",
+          "cited_agent_ids": [],
+          "confidence": 0.5145,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 4 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.01,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "macro_05",
+          "cited_agent_ids": [],
+          "confidence": 0.6575,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 5 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.3,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "macro_06",
+          "cited_agent_ids": [],
+          "confidence": 0.794,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 6 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.31,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "macro_07",
+          "cited_agent_ids": [
+            "quants_01"
+          ],
+          "confidence": 0.4625,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 7 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.06,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "shorts_01",
+          "cited_agent_ids": [],
+          "confidence": 0.5795,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 1 round 2: SELL; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.83,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "shorts_02",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "shorts_03",
+          "cited_agent_ids": [],
+          "confidence": 0.534,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 3 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "shorts_04",
+          "cited_agent_ids": [],
+          "confidence": 0.9175,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 4 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.78,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "shorts_05",
+          "cited_agent_ids": [],
+          "confidence": 0.8655,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 5 round 2: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.2,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "shorts_06",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.5665,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 6 round 2: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.04,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "shorts_07",
+          "cited_agent_ids": [],
+          "confidence": 0.625,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 7 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.71,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "allocators_01",
+          "cited_agent_ids": [],
+          "confidence": 0.924,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Allocators 1 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.01,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "allocators_02",
+          "cited_agent_ids": [],
+          "confidence": 0.82,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Allocators 2 round 2: HOLD; industrial automation peers should rerate.",
+          "sentiment": 0.0,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "allocators_03",
+          "cited_agent_ids": [],
+          "confidence": 0.4105,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Allocators 3 round 2: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.84,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "allocators_04",
+          "cited_agent_ids": [],
+          "confidence": 0.612,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Allocators 4 round 2: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.79,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "allocators_05",
+          "cited_agent_ids": [],
+          "confidence": 0.3,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Allocators 5 round 2: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.01,
+          "signal": "hold"
+        }
+      ],
+      "round_num": 2
+    },
+    {
+      "citations": [
+        {
+          "cited_signal": "buy",
+          "source_id": "algos_01",
+          "target_id": "allocators_03"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "algos_03",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "algos_03",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "algos_06",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "algos_06",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "algos_07",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "algos_07",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "algos_07",
+          "target_id": "shorts_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "algos_08",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "degens_01",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "degens_02",
+          "target_id": "algos_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "degens_02",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "degens_03",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "degens_03",
+          "target_id": "shorts_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "degens_04",
+          "target_id": "algos_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "degens_04",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "degens_04",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "degens_05",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "degens_09",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "degens_09",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "degens_09",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "degens_10",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "degens_14",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "event_driven_03",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "event_driven_05",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "event_driven_06",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "event_driven_09",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "event_driven_09",
+          "target_id": "narrators_02"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "event_driven_09",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "event_driven_09",
+          "target_id": "sell_side_02"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_01",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_03",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "institutions_05",
+          "target_id": "algos_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_07",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_11",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "institutions_11",
+          "target_id": "shorts_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "institutions_12",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_12",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "institutions_13",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "institutions_15",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "institutions_18",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "macro_02",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "macro_03",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "macro_04",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "macro_04",
+          "target_id": "sell_side_02"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "macro_05",
+          "target_id": "algos_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "macro_05",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "macro_06",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "macro_06",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "narrators_01",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "narrators_03",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "narrators_05",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "narrators_06",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "narrators_07",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "quants_03",
+          "target_id": "sell_side_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "quants_04",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "quants_08",
+          "target_id": "allocators_03"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "quants_09",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "quants_09",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "quants_10",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "quants_12",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "quants_12",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "sell_side_02",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "sell_side_02",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "sell_side_03",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "sell_side_03",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "sell_side_04",
+          "target_id": "event_driven_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "sell_side_05",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "sell_side_06",
+          "target_id": "institutions_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "sell_side_07",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "sell_side_07",
+          "target_id": "shorts_01"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "sell_side_09",
+          "target_id": "narrators_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "shorts_03",
+          "target_id": "quants_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "shorts_05",
+          "target_id": "degens_01"
+        },
+        {
+          "cited_signal": "hold",
+          "source_id": "shorts_06",
+          "target_id": "algos_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "shorts_06",
+          "target_id": "macro_01"
+        },
+        {
+          "cited_signal": "buy",
+          "source_id": "shorts_07",
+          "target_id": "allocators_03"
+        },
+        {
+          "cited_signal": "sell",
+          "source_id": "shorts_07",
+          "target_id": "event_driven_01"
+        }
+      ],
+      "decisions": [
+        {
+          "agent_id": "institutions_01",
+          "cited_agent_ids": [
+            "macro_01"
+          ],
+          "confidence": 0.7355,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 1 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_02",
+          "cited_agent_ids": [],
+          "confidence": 0.9305,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 2 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.62,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_03",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.872,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 3 round 3: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.44,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_04",
+          "cited_agent_ids": [],
+          "confidence": 0.56,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 4 round 3: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.68,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_05",
+          "cited_agent_ids": [
+            "algos_01"
+          ],
+          "confidence": 0.846,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 5 round 3: HOLD; industrial automation peers should rerate.",
+          "sentiment": -0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_06",
+          "cited_agent_ids": [],
+          "confidence": 0.508,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 6 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.17,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_07",
+          "cited_agent_ids": [
+            "degens_01"
+          ],
+          "confidence": 0.5015,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 7 round 3: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.68,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_08",
+          "cited_agent_ids": [],
+          "confidence": 0.3,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 8 round 3: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_09",
+          "cited_agent_ids": [],
+          "confidence": 0.755,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 9 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.49,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_10",
+          "cited_agent_ids": [],
+          "confidence": 0.69,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 10 round 3: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.4,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_11",
+          "cited_agent_ids": [
+            "sell_side_01",
+            "shorts_01"
+          ],
+          "confidence": 0.7875,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 11 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_12",
+          "cited_agent_ids": [
+            "narrators_01",
+            "sell_side_01"
+          ],
+          "confidence": 0.4495,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 12 round 3: BUY; industrial automation peers should rerate.",
+          "sentiment": 0.5,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_13",
+          "cited_agent_ids": [
+            "quants_01"
+          ],
+          "confidence": 0.43,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 13 round 3: SELL; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.23,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_14",
+          "cited_agent_ids": [],
+          "confidence": 0.6055,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 14 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_15",
+          "cited_agent_ids": [
+            "degens_01"
+          ],
+          "confidence": 0.3455,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 15 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.55,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "institutions_16",
+          "cited_agent_ids": [],
+          "confidence": 0.937,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 16 round 3: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.4,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "institutions_17",
+          "cited_agent_ids": [],
+          "confidence": 0.6445,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 17 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "institutions_18",
+          "cited_agent_ids": [
+            "narrators_01"
+          ],
+          "confidence": 0.9175,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Institutions 18 round 3: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.58,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_01",
+          "cited_agent_ids": [],
+          "confidence": 0.7225,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 1 round 3: BUY; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": 0.84,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_02",
+          "cited_agent_ids": [
+            "event_driven_01",
+            "quants_01"
+          ],
+          "confidence": 0.807,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 2 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.75,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "sell_side_03",
+          "cited_agent_ids": [
+            "macro_01",
+            "narrators_01"
+          ],
+          "confidence": 0.352,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 3 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.56,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "sell_side_04",
+          "cited_agent_ids": [
+            "event_driven_01"
+          ],
+          "confidence": 0.664,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 4 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.1,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "sell_side_05",
+          "cited_agent_ids": [
+            "institutions_01"
+          ],
+          "confidence": 0.651,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 5 round 3: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.79,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_06",
+          "cited_agent_ids": [
+            "institutions_01"
+          ],
+          "confidence": 0.404,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 6 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.62,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "sell_side_07",
+          "cited_agent_ids": [
+            "narrators_01",
+            "shorts_01"
+          ],
+          "confidence": 0.3585,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 7 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.01,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "sell_side_08",
+          "cited_agent_ids": [],
+          "confidence": 0.716,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 8 round 3: BUY; industrial automation peers should rerate.",
+          "sentiment": 0.67,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "sell_side_09",
+          "cited_agent_ids": [
+            "narrators_01"
+          ],
+          "confidence": 0.313,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 9 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.43,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "sell_side_10",
+          "cited_agent_ids": [],
+          "confidence": 0.6315,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Sell-Side 10 round 3: HOLD; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.04,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_01",
+          "cited_agent_ids": [],
+          "confidence": 0.8785,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 1 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.6,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "event_driven_02",
+          "cited_agent_ids": [],
+          "confidence": 0.443,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 2 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_03",
+          "cited_agent_ids": [
+            "narrators_01"
+          ],
+          "confidence": 0.3845,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 3 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.03,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_04",
+          "cited_agent_ids": [],
+          "confidence": 0.391,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 4 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.84,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "event_driven_05",
+          "cited_agent_ids": [
+            "narrators_01"
+          ],
+          "confidence": 0.677,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 5 round 3: SELL; QQQX Robotics holders would get a premium; industrial automation peers should rerate.",
+          "sentiment": -0.39,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "event_driven_06",
+          "cited_agent_ids": [
+            "quants_01"
+          ],
+          "confidence": 0.4105,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 6 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_07",
+          "cited_agent_ids": [],
+          "confidence": 0.5145,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 7 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.61,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "event_driven_08",
+          "cited_agent_ids": [],
+          "confidence": 0.911,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 8 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.18,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "event_driven_09",
+          "cited_agent_ids": [
+            "macro_01",
+            "narrators_02",
+            "quants_01",
+            "sell_side_02"
+          ],
+          "confidence": 0.5795,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 9 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.03,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "event_driven_10",
+          "cited_agent_ids": [],
+          "confidence": 0.5275,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Event-Driven 10 round 3: BUY; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.52,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_01",
+          "cited_agent_ids": [],
+          "confidence": 0.6575,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 1 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_02",
+          "cited_agent_ids": [],
+          "confidence": 0.5665,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 2 round 3: BUY; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": 0.81,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_03",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.417,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 3 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.33,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_04",
+          "cited_agent_ids": [
+            "narrators_01"
+          ],
+          "confidence": 0.6965,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 4 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.76,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "quants_05",
+          "cited_agent_ids": [],
+          "confidence": 0.4365,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 5 round 3: HOLD; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_06",
+          "cited_agent_ids": [],
+          "confidence": 0.885,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 6 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.37,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_07",
+          "cited_agent_ids": [],
+          "confidence": 0.859,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 7 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.38,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "quants_08",
+          "cited_agent_ids": [
+            "allocators_03"
+          ],
+          "confidence": 0.534,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 8 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_09",
+          "cited_agent_ids": [
+            "institutions_01",
+            "macro_01"
+          ],
+          "confidence": 0.8525,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 9 round 3: BUY; industrial automation peers should rerate.",
+          "sentiment": 0.32,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "quants_10",
+          "cited_agent_ids": [
+            "macro_01"
+          ],
+          "confidence": 0.8915,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 10 round 3: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.28,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "quants_11",
+          "cited_agent_ids": [],
+          "confidence": 0.7095,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 11 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.01,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "quants_12",
+          "cited_agent_ids": [
+            "event_driven_01",
+            "narrators_01"
+          ],
+          "confidence": 0.625,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Quants 12 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.2,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_01",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.378,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 1 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.32,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_02",
+          "cited_agent_ids": [
+            "algos_01",
+            "event_driven_01"
+          ],
+          "confidence": 0.6835,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 2 round 3: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.77,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_03",
+          "cited_agent_ids": [
+            "event_driven_01",
+            "shorts_01"
+          ],
+          "confidence": 0.456,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 3 round 3: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.22,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_04",
+          "cited_agent_ids": [
+            "algos_01",
+            "institutions_01",
+            "macro_01"
+          ],
+          "confidence": 0.7615,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 4 round 3: HOLD; industrial automation peers should rerate.",
+          "sentiment": 0.03,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_05",
+          "cited_agent_ids": [
+            "institutions_01"
+          ],
+          "confidence": 0.82,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 5 round 3: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.17,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_06",
+          "cited_agent_ids": [],
+          "confidence": 0.547,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 6 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.75,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_07",
+          "cited_agent_ids": [],
+          "confidence": 0.8005,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 7 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_08",
+          "cited_agent_ids": [],
+          "confidence": 0.495,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 8 round 3: BUY; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.38,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_09",
+          "cited_agent_ids": [
+            "institutions_01",
+            "quants_01",
+            "sell_side_01"
+          ],
+          "confidence": 0.8135,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 9 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.67,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_10",
+          "cited_agent_ids": [
+            "event_driven_01"
+          ],
+          "confidence": 0.3975,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 10 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.06,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_11",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "degens_12",
+          "cited_agent_ids": [],
+          "confidence": 0.9045,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 12 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.19,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "degens_13",
+          "cited_agent_ids": [],
+          "confidence": 0.6705,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 13 round 3: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.03,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "degens_14",
+          "cited_agent_ids": [
+            "institutions_01"
+          ],
+          "confidence": 0.729,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 14 round 3: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.16,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "degens_15",
+          "cited_agent_ids": [],
+          "confidence": 0.794,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Degens 15 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.46,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "narrators_01",
+          "cited_agent_ids": [
+            "degens_01"
+          ],
+          "confidence": 0.8395,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 1 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.23,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "narrators_02",
+          "cited_agent_ids": [],
+          "confidence": 0.742,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 2 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.04,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "narrators_03",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.7485,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 3 round 3: HOLD; QQQX Robotics holders would get a premium; industrial automation peers should rerate.",
+          "sentiment": 0.04,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "narrators_04",
+          "cited_agent_ids": [],
+          "confidence": 0.898,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 4 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.72,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "narrators_05",
+          "cited_agent_ids": [
+            "degens_01"
+          ],
+          "confidence": 0.4755,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 5 round 3: SELL; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.23,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "narrators_06",
+          "cited_agent_ids": [
+            "macro_01"
+          ],
+          "confidence": 0.924,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 6 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "narrators_07",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.8265,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 7 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.41,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "narrators_08",
+          "cited_agent_ids": [],
+          "confidence": 0.4625,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Narrators 8 round 3: SELL; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.28,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "algos_01",
+          "cited_agent_ids": [
+            "allocators_03"
+          ],
+          "confidence": 0.521,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 1 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": -0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "algos_02",
+          "cited_agent_ids": [],
+          "confidence": 0.6185,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 2 round 3: BUY; industrial automation peers should rerate.",
+          "sentiment": 0.59,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "algos_03",
+          "cited_agent_ids": [
+            "quants_01",
+            "sell_side_01"
+          ],
+          "confidence": 0.586,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 3 round 3: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.69,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "algos_04",
+          "cited_agent_ids": [],
+          "confidence": 0.5405,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 4 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.75,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "algos_05",
+          "cited_agent_ids": [],
+          "confidence": 0.9435,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 5 round 3: HOLD; QQQX Robotics holders would get a premium.",
+          "sentiment": 0.07,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "algos_06",
+          "cited_agent_ids": [
+            "macro_01",
+            "narrators_01"
+          ],
+          "confidence": 0.365,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 6 round 3: BUY; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.2,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "algos_07",
+          "cited_agent_ids": [
+            "quants_01",
+            "sell_side_01",
+            "shorts_01"
+          ],
+          "confidence": 0.573,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 7 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.72,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "algos_08",
+          "cited_agent_ids": [
+            "institutions_01"
+          ],
+          "confidence": 0.469,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Algos 8 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.03,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "macro_01",
+          "cited_agent_ids": [],
+          "confidence": 0.7745,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 1 round 3: BUY; ZZZT Holdings looks stretched at this price; industrial automation peers should rerate.",
+          "sentiment": 0.5,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "macro_02",
+          "cited_agent_ids": [
+            "sell_side_01"
+          ],
+          "confidence": 0.4235,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 2 round 3: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.37,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "macro_03",
+          "cited_agent_ids": [
+            "degens_01"
+          ],
+          "confidence": 0.3325,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 3 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.19,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "macro_04",
+          "cited_agent_ids": [
+            "institutions_01",
+            "sell_side_02"
+          ],
+          "confidence": 0.599,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 4 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.04,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "macro_05",
+          "cited_agent_ids": [
+            "algos_01",
+            "institutions_01"
+          ],
+          "confidence": 0.3065,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 5 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.69,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "macro_06",
+          "cited_agent_ids": [
+            "narrators_01",
+            "sell_side_01"
+          ],
+          "confidence": 0.612,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 6 round 3: SELL; the tape on this rumor is still thin.",
+          "sentiment": -0.66,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "macro_07",
+          "cited_agent_ids": [],
+          "confidence": 0.8655,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Macro 7 round 3: HOLD; ZZZT Holdings looks stretched at this price; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.05,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "shorts_01",
+          "cited_agent_ids": [],
+          "confidence": 0.638,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 1 round 3: SELL; industrial automation peers should rerate.",
+          "sentiment": -0.58,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "shorts_02",
+          "cited_agent_ids": [],
+          "confidence": 0.339,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 2 round 3: HOLD; the tape on this rumor is still thin.",
+          "sentiment": 0.02,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "shorts_03",
+          "cited_agent_ids": [
+            "quants_01"
+          ],
+          "confidence": 0.703,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 3 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": 0.09,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "shorts_04",
+          "cited_agent_ids": [],
+          "confidence": 0.3195,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 4 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.26,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "shorts_05",
+          "cited_agent_ids": [
+            "degens_01"
+          ],
+          "confidence": 0.833,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 5 round 3: SELL; QQQX Robotics holders would get a premium.",
+          "sentiment": -0.25,
+          "signal": "sell"
+        },
+        {
+          "agent_id": "shorts_06",
+          "cited_agent_ids": [
+            "algos_01",
+            "macro_01"
+          ],
+          "confidence": 0.482,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 6 round 3: HOLD; ZZZT Holdings looks stretched at this price.",
+          "sentiment": -0.08,
+          "signal": "hold"
+        },
+        {
+          "agent_id": "shorts_07",
+          "cited_agent_ids": [
+            "allocators_03",
+            "event_driven_01"
+          ],
+          "confidence": 0.5925,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Shorts 7 round 3: BUY; the tape on this rumor is still thin.",
+          "sentiment": 0.85,
+          "signal": "buy"
+        },
+        {
+          "agent_id": "allocators_01",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "allocators_02",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "allocators_03",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "allocators_04",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        },
+        {
+          "agent_id": "allocators_05",
+          "cited_agent_ids": [],
+          "confidence": 0.0,
+          "control": false,
+          "peer_ids": [],
+          "rationale": "Parse failed: seeded failure",
+          "sentiment": 0.0,
+          "signal": "parse_error"
+        }
+      ],
+      "round_num": 3
+    }
+  ],
+  "schema": "alphaswarm.cycle-export/1",
+  "shocks": [
+    {
+      "injected_before_round": 2,
+      "text": "ZZZT Holdings says the QQQX Robotics talks ended without a deal."
+    }
+  ]
+}
