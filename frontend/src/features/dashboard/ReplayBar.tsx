@@ -34,7 +34,7 @@ export function ReplayBar() {
 
   return (
     <div className="replay-bar">
-      <div className="label" style={{ color: 'var(--accent)' }}>
+      <div className="label u-accent">
         <Icon name="replay" size={11} /> REPLAY · {cycleId ?? ''}
       </div>
       <div className="replay-track">

@@ -68,7 +68,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
     <div className="st-takeover">
       <div className="st-head">
         <div className="st-head-left">
-          <span className="label" style={{ color: 'var(--text-3)' }}>
+          <span className="label u-muted">
             CONFIGURATION
           </span>
           <span className="st-title">Settings</span>

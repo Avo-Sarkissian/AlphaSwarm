@@ -54,7 +54,7 @@ const LINE_CAPS: Readonly<Record<string, number>> = {
 
 // Inline style objects in non-test .tsx files. Lower it when you convert
 // more; never raise it.
-const INLINE_STYLE_BUDGET = 151;
+const INLINE_STYLE_BUDGET = 102;
 
 // An icon-only button (its only child is an <Icon/> or an inline <svg>) needs an
 // aria-label: a title alone is not a reliable accessible name.

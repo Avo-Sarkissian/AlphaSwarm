@@ -169,18 +169,18 @@ export function ReportModal({
 
       <div className="modal-body no-pad report rpt-scroll">
         {findingCycle && (
-          <div className="report-hero" style={{ padding: 24 }}>
+          <div className="report-hero u-pad-24">
             <div className="label">Finding the latest completed cycle…</div>
           </div>
         )}
         {!cycleId && !findingCycle && (
-          <div className="report-hero" style={{ padding: 24 }}>
+          <div className="report-hero u-pad-24">
             <div className="label">No completed cycle to report on.</div>
           </div>
         )}
         {/* Initial probe in flight (one shot) before we know if a report exists. */}
         {cycleId && !generationKicked && probeState.loading && !report && !hadError && (
-          <div className="report-hero" style={{ padding: 24 }}>
+          <div className="report-hero u-pad-24">
             <div className="label">Checking for existing report…</div>
           </div>
         )}
@@ -210,8 +210,8 @@ export function ReportModal({
         )}
         {/* Generation in flight (user clicked the button). */}
         {cycleId && generationKicked && polled.loading && !report && !hadError && (
-          <div className="report-hero" style={{ padding: 24 }}>
-            <div className="label" style={{ marginBottom: 8 }}>
+          <div className="report-hero u-pad-24">
+            <div className="label u-mb-8">
               Generating report…
             </div>
             <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
@@ -231,7 +231,7 @@ export function ReportModal({
           <>
             {/* Hero — minimal, derived from backend metadata only: the
                 live cycle id + generated_at, no design filler text. */}
-            <div className="rpt-hero" style={{ padding: 24 }}>
+            <div className="rpt-hero u-pad-24">
               <div className="rpt-kicker label">
                 CYCLE {report.cycle_id}
                 {report.generated_at && ` · ${report.generated_at}`}
@@ -241,8 +241,7 @@ export function ReportModal({
             {/* Canonical markdown body: always renders first */}
             {canonicalHtml && (
               <div
-                className="report-markdown report-canonical"
-                style={{ padding: 24 }}
+                className="report-markdown report-canonical u-pad-24"
                 dangerouslySetInnerHTML={{ __html: canonicalHtml }}
               />
             )}

@@ -102,8 +102,8 @@ export function BracketDeepDive({
         <div className="bd-head-meta">
           <span className="label">{members.length} AGENTS</span>
           <span className="label">·</span>
-          <span className="label" style={{ color: 'var(--buy)' }}>{tally.buy} BUY</span>
-          <span className="label" style={{ color: 'var(--sell)' }}>{tally.sell} SELL</span>
+          <span className="label u-buy">{tally.buy} BUY</span>
+          <span className="label u-sell">{tally.sell} SELL</span>
           <span className="label" style={{ color: 'var(--hold)' }}>{tally.hold} HOLD</span>
           {tally.thinking > 0 && <span className="label">{tally.thinking} PENDING</span>}
           {tally.parseError > 0 && <span className="label">{tally.parseError} FAILED</span>}
@@ -117,7 +117,7 @@ export function BracketDeepDive({
         <div className="bd-left">
           {/* Signal distribution */}
           <div className="bd-stat-section">
-            <div className="label" style={{ marginBottom: 10 }}>SIGNAL DISTRIBUTION</div>
+            <div className="label u-mb-10">SIGNAL DISTRIBUTION</div>
             <div className="bd-signal-bars">
               {([
                 { sig: 'buy', n: tally.buy },
@@ -141,7 +141,7 @@ export function BracketDeepDive({
 
           {/* Confidence histogram */}
           <div className="bd-stat-section">
-            <div className="label" style={{ marginBottom: 10 }}>CONFIDENCE HISTOGRAM</div>
+            <div className="label u-mb-10">CONFIDENCE HISTOGRAM</div>
             <div className="bd-histogram">
               {buckets.map((b) => (
                 <div key={b.lo} className="bd-hist-col">
@@ -219,10 +219,10 @@ export function BracketDeepDive({
                   </div>
                   <div className="bd-agent-inf label">
                     {/* Citations of the round on screen; '—' until round 2's edges exist. */}
-                    <span style={{ color: 'var(--accent)' }}>
+                    <span className="u-accent">
                       ↗{hasEdges ? outDegree.get(a.id) ?? 0 : '—'}
                     </span>
-                    <span style={{ color: 'var(--text-3)' }}>
+                    <span className="u-muted">
                       ↙{hasEdges ? inDegree.get(a.id) ?? 0 : '—'}
                     </span>
                   </div>

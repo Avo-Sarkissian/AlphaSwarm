@@ -1807,3 +1807,14 @@ button.bracket-row:hover { width: calc(100% + 28px); }
   }
   .thinking { opacity: 0.45; }
 }
+
+/* ===== Utilities that replaced repeated inline styles.
+   !important keeps the precedence the inline style had over component rules. ===== */
+.u-muted { color: var(--text-3) !important; }
+.u-dim { color: var(--text-2) !important; }
+.u-sell { color: var(--sell) !important; }
+.u-buy { color: var(--buy) !important; }
+.u-accent { color: var(--accent) !important; }
+.u-mb-8 { margin-bottom: 8px !important; }
+.u-mb-10 { margin-bottom: 10px !important; }
+.u-pad-24 { padding: 24px !important; }

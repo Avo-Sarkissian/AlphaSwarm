@@ -159,7 +159,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
         )}
         {cycleId && polled.loading && !report && !hadError && (
           <div className="advisory-card">
-            <div className="label" style={{ marginBottom: 8 }}>
+            <div className="label u-mb-8">
               Generating advisory…{polled.attempt > 0 ? ` (poll #${polled.attempt})` : ''}
             </div>
             <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
@@ -172,7 +172,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
         )}
         {cycleId && isExhausted && !report && (
           <div className="advisory-card">
-            <div className="label" style={{ marginBottom: 8 }}>
+            <div className="label u-mb-8">
               Advisory not yet generated
             </div>
             <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
@@ -182,7 +182,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
         {cycleId && hadError && !isExhausted && !report && (
-          <div className="advisory-card" style={{ color: 'var(--sell)' }}>
+          <div className="advisory-card u-sell">
             Advisory unavailable: {polled.error?.message ?? 'unknown error'}
           </div>
         )}
@@ -252,10 +252,10 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
 
         {report && tab === 'holdings' && holdingAnalysis.length === 0 && (
           <div className="advisory-card">
-            <div className="label" style={{ marginBottom: 8 }}>
+            <div className="label u-mb-8">
               No per-holding signals returned by the orchestrator.
             </div>
-            <div className="adv-rec-body" style={{ color: 'var(--text-3)' }}>
+            <div className="adv-rec-body u-muted">
               The advisory synthesis emitted an empty <code>items[]</code> array.
               The prompt instructs the orchestrator
               to emit one entry per holding (HOLD@0.2-0.4 placeholder if no
@@ -303,7 +303,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
                   </div>
                   <div className="adv-sent-label">
                     <span>BEARISH</span>
-                    <span className="mono" style={{ color: 'var(--text-3)' }}>
+                    <span className="mono u-muted">
                       {h.swarmSentiment === null ? '—' : h.swarmSentiment.toFixed(2)}
                     </span>
                     <span>BULLISH</span>
@@ -327,7 +327,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
 
         {report && tab === 'risk' && (
           <div className="adv-risk-view">
-            <div className="adv-risk-matrix" style={{ padding: 24 }}>
+            <div className="adv-risk-matrix u-pad-24">
               <div className="label" style={{ marginBottom: 16 }}>
                 RISK / OPPORTUNITY MATRIX · SEED-SPECIFIC
               </div>
