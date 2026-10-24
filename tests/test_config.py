@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -371,3 +372,8 @@ def test_neo4j_timeouts_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
     assert settings.neo4j.query_timeout_s == 45.0
     assert settings.neo4j.connection_acquisition_timeout == 3.0
+
+
+def test_ticker_map_path_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ALPHASWARM_TICKER_MAP_PATH", raising=False)
+    assert AppSettings(_env_file=None).ticker_map_path == Path("data/sec_tickers.json")  # type: ignore[call-arg]
