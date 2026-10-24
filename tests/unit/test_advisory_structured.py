@@ -38,7 +38,7 @@ def _item(ticker: str, signal: str, confidence: float, source: str = "swarm") ->
         consensus_signal=signal,  # type: ignore[arg-type]
         confidence=confidence,
         rationale_summary="Fictional rationale.",
-        position_exposure=Decimal("1234.56"),
+        cost_basis_exposure=Decimal("1234.56"),
         source=source,  # type: ignore[arg-type]
     )
 
@@ -52,7 +52,7 @@ def test_llm_item_normalises_near_miss_output() -> None:
             "rationale": "Deal  is\naccretive.",
             "risk": "  ",
             "upside": "Re-rating.",
-            "position_exposure": "999",
+            "cost_basis_exposure": "999",
         }
     )
     assert (item.ticker, item.signal, item.confidence) == ("ZZZT", "BUY", 0.85)
@@ -133,7 +133,7 @@ def test_legacy_advisory_payload_still_validates() -> None:
                 "consensus_signal": "BUY",
                 "confidence": 0.8,
                 "rationale_summary": "Old.",
-                "position_exposure": "1234.56",
+                "cost_basis_exposure": "1234.56",
             }
         ],
         "total_holdings": 1,
@@ -152,7 +152,7 @@ def test_domain_models_still_forbid_unknown_keys() -> None:
                 "consensus_signal": "BUY",
                 "confidence": 0.5,
                 "rationale_summary": "x",
-                "position_exposure": "1",
+                "cost_basis_exposure": "1",
                 "surprise": True,
             }
         )
@@ -191,6 +191,9 @@ class _Graph:
         return []
 
     async def read_entity_impact(self, cycle_id: str) -> list[dict[str, Any]]:
+        return []
+
+    async def read_final_round_decisions(self, cycle_id: str) -> list[dict[str, Any]]:
         return []
 
     async def read_cycle_seed(self, cycle_id: str) -> str:
@@ -236,6 +239,7 @@ def test_prompt_asks_only_for_fields_the_engine_keeps() -> None:
         "total_holdings",
         "affected_holdings",
         "position_exposure",
+        "cost_basis_exposure",
         "consensus_signal",
     ):
         assert engine_field not in system
@@ -261,7 +265,7 @@ def test_assemble_pads_aggregates_ranks_and_counts() -> None:
         ("QQQX", "placeholder"),
     ]
     zzzt = report.items[0]
-    assert zzzt.position_exposure == Decimal("1234.56")
+    assert zzzt.cost_basis_exposure == Decimal("1234.56")
     assert (zzzt.risk, zzzt.upside) == ("Regulatory delay.", "Margin re-rating.")
     assert report.items[2].consensus_signal == "HOLD" and report.items[2].confidence == 0.30
     assert (report.total_holdings, report.affected_holdings) == (3, 2)

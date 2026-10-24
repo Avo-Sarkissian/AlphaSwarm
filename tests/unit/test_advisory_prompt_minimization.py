@@ -53,6 +53,9 @@ class _Graph:
     async def read_entity_impact(self, cycle_id: str) -> list[dict[str, Any]]:
         return []
 
+    async def read_final_round_decisions(self, cycle_id: str) -> list[dict[str, Any]]:
+        return []
+
     async def read_cycle_seed(self, cycle_id: str) -> str:
         return "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
 
@@ -111,7 +114,7 @@ async def test_no_quantity_or_cost_basis_reaches_the_prompt() -> None:
 async def test_schema_never_asks_for_exposure_or_cost_basis() -> None:
     system = (await _prompt_messages())[0]["content"]
     assert "position_exposure" not in system
-    assert "cost_basis" not in system
+    assert "cost_basis" not in system  # also covers cost_basis_exposure
 
 
 def test_worked_example_uses_a_placeholder_ticker() -> None:

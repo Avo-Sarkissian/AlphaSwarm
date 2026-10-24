@@ -69,6 +69,10 @@ class FakeGraphManager:
         self.call_log.append("read_entity_impact")
         return self._entity_impact
 
+    async def read_final_round_decisions(self, cycle_id: str) -> list[dict[str, Any]]:
+        self.call_log.append("read_final_round_decisions")
+        return []
+
     async def read_cycle_seed(self, cycle_id: str) -> str:
         self.call_log.append("read_cycle_seed")
         return self._seed or ""
@@ -109,7 +113,7 @@ def test_advisory_item_schema() -> None:
         consensus_signal="BUY",
         confidence=0.75,
         rationale_summary="ok",
-        position_exposure=Decimal("100"),
+        cost_basis_exposure=Decimal("100"),
     )
     assert item.ticker == "ZZZT"
 
@@ -120,7 +124,7 @@ def test_advisory_item_schema() -> None:
             consensus_signal="BUY",
             confidence=0.5,
             rationale_summary="r",
-            position_exposure=Decimal("1"),
+            cost_basis_exposure=Decimal("1"),
             unexpected_field="nope",  # type: ignore[call-arg]
         )
 
@@ -131,7 +135,7 @@ def test_advisory_item_schema() -> None:
             consensus_signal="BUY",
             confidence=1.5,
             rationale_summary="r",
-            position_exposure=Decimal("1"),
+            cost_basis_exposure=Decimal("1"),
         )
     with pytest.raises(ValidationError):
         AdvisoryItem(
@@ -139,7 +143,7 @@ def test_advisory_item_schema() -> None:
             consensus_signal="BUY",
             confidence=-0.1,
             rationale_summary="r",
-            position_exposure=Decimal("1"),
+            cost_basis_exposure=Decimal("1"),
         )
 
 
@@ -174,21 +178,21 @@ async def test_synthesize_returns_ranked_list() -> None:
                 "consensus_signal": "BUY",
                 "confidence": 0.9,
                 "rationale_summary": "a",
-                "position_exposure": "100",
+                "cost_basis_exposure": "100",
             },
             {
                 "ticker": "QQQX",
                 "consensus_signal": "BUY",
                 "confidence": 0.5,
                 "rationale_summary": "n",
-                "position_exposure": "400",
+                "cost_basis_exposure": "400",
             },
             {
                 "ticker": "XQZW",
                 "consensus_signal": "HOLD",
                 "confidence": 0.7,
                 "rationale_summary": "t",
-                "position_exposure": "200",
+                "cost_basis_exposure": "200",
             },
         ],
         total=3,
@@ -234,14 +238,14 @@ async def test_ticker_join_filters_unmatched() -> None:
                 "consensus_signal": "BUY",
                 "confidence": 0.8,
                 "rationale_summary": "n",
-                "position_exposure": "400",
+                "cost_basis_exposure": "400",
             },
             {
                 "ticker": "XQZW",
                 "consensus_signal": "SELL",
                 "confidence": 0.6,
                 "rationale_summary": "t",
-                "position_exposure": "200",
+                "cost_basis_exposure": "200",
             },
         ],
         total=5,
@@ -307,6 +311,7 @@ async def test_prefetch_order() -> None:
         "read_round_timeline",
         "read_bracket_narratives",
         "read_entity_impact",
+        "read_final_round_decisions",
     }
     # Provider called exactly once (no retry needed for valid payload)
     assert len(fake_provider.calls) == 1
@@ -399,7 +404,7 @@ async def test_duplicate_lots_pad_once_with_aggregated_exposure() -> None:
     assert report.total_holdings == 2  # unique tickers, not lots
     assert sorted(i.ticker for i in report.items) == ["QQQX", "ZZZT"]
     zzzt = next(i for i in report.items if i.ticker == "ZZZT")
-    assert zzzt.position_exposure == Decimal("150")  # 100 + 50 aggregated
+    assert zzzt.cost_basis_exposure == Decimal("150")  # 100 + 50 aggregated
 
 
 async def test_hallucinated_tickers_filtered_and_exposure_overwritten() -> None:
@@ -413,14 +418,14 @@ async def test_hallucinated_tickers_filtered_and_exposure_overwritten() -> None:
                 "consensus_signal": "BUY",
                 "confidence": 0.9,
                 "rationale_summary": "hallucinated",
-                "position_exposure": "123456",
+                "cost_basis_exposure": "123456",
             },
             {
                 "ticker": "QQQX",
                 "consensus_signal": "BUY",
                 "confidence": 0.8,
                 "rationale_summary": "real",
-                "position_exposure": "999",  # LLM-invented — must be overwritten
+                "cost_basis_exposure": "999",  # LLM-invented — must be overwritten
             },
         ],
         total=3,
@@ -441,7 +446,7 @@ async def test_hallucinated_tickers_filtered_and_exposure_overwritten() -> None:
     assert "GME" not in tickers
     assert tickers == {"ZZZT", "QQQX"}
     qqqx = next(i for i in report.items if i.ticker == "QQQX")
-    assert qqqx.position_exposure == Decimal("400")  # 250 + 150 actual lots
+    assert qqqx.cost_basis_exposure == Decimal("400")  # 250 + 150 actual lots
     assert report.affected_holdings == 1  # only the kept QQQX conviction item
 
 
@@ -459,7 +464,7 @@ async def test_padded_items_sort_after_conviction_items() -> None:
                 "consensus_signal": "BUY",
                 "confidence": 0.35,
                 "rationale_summary": "small but conviction",
-                "position_exposure": "10",
+                "cost_basis_exposure": "10",
             },
         ],
         total=2,
@@ -491,14 +496,14 @@ async def test_llm_duplicate_ticker_items_deduped_keep_highest_confidence() -> N
                 "consensus_signal": "HOLD",
                 "confidence": 0.5,
                 "rationale_summary": "weak",
-                "position_exposure": "400",
+                "cost_basis_exposure": "400",
             },
             {
                 "ticker": "ZZZT",
                 "consensus_signal": "BUY",
                 "confidence": 0.8,
                 "rationale_summary": "strong",
-                "position_exposure": "400",
+                "cost_basis_exposure": "400",
             },
         ],
         total=1,

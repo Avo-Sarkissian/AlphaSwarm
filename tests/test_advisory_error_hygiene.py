@@ -43,7 +43,7 @@ _INVALID = json.dumps(
                 "consensus_signal": "BUY",
                 "confidence": "12.3456",
                 "rationale_summary": "x",
-                "position_exposure": "1234.56 USD",
+                "cost_basis_exposure": "1234.56 USD",
             }
         ],
         "total_holdings": 1,
@@ -101,6 +101,9 @@ class _Graph:
     async def read_entity_impact(self, cycle_id: str) -> list[dict[str, Any]]:
         return []
 
+    async def read_final_round_decisions(self, cycle_id: str) -> list[dict[str, Any]]:
+        return []
+
     async def read_cycle_seed(self, cycle_id: str) -> str:
         return ""
 
@@ -132,7 +135,7 @@ def test_summary_has_locations_and_types_but_no_values() -> None:
     assert summary["error_count"] == 3
     locations = summary["error_locations"]
     assert isinstance(locations, list)
-    assert "items.0.position_exposure" in locations
+    assert "items.0.cost_basis_exposure" in locations
     assert "items.0.confidence" in locations
     assert summary["error_types"] == ["decimal_parsing", "extra_forbidden", "less_than_equal"]
 
@@ -221,7 +224,7 @@ async def test_service_failure_log_has_no_exception_text(
     assert "error" not in failed
     assert "exc_info" not in failed
     assert failed["exc_type"] == "ValidationError"
-    assert "items.0.position_exposure" in failed["error_locations"]
+    assert "items.0.cost_basis_exposure" in failed["error_locations"]
     _assert_no_values(failed)
 
 
