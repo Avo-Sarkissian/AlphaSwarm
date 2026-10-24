@@ -6,11 +6,11 @@ Run from `frontend/`:
 |---|---|
 | `npx tsc -b --noEmit` | Types, including the tests and the compile-time wire key lists |
 | `npx vitest run` | Unit, hook and component tests |
-| `npm run lint` | ESLint: typescript-eslint and react-hooks are errors; jsx-a11y rules are warnings until the accessibility pass |
+| `npm run lint` | ESLint: typescript-eslint, react-hooks and jsx-a11y's recommended rules are errors (two React Compiler rules stay warnings) |
 | `npm run build` | `tsc -b` plus the production bundle |
 
 The CI `frontend` job runs `npm ci`, `npm audit --omit=dev --audit-level=high`, `npm run lint`,
-`npx vitest run` and `npm run build` (which runs `tsc -b`) on Node 22 (`frontend/.nvmrc`).
+`npm run knip`, `npx vitest run` and `npm run build` (which runs `tsc -b`) on Node 22 (`frontend/.nvmrc`).
 
 ## Layout
 
@@ -67,7 +67,7 @@ should add none. The shell's `no-explicit-any` override is gone: the rule is an 
 
 ## Dead-code and placebo gates
 
-- `npm run knip` fails on unused files, exports and dependencies (`knip.json`). `d3-scale` is ignored until the graph redesign imports it.
+- `npm run knip` fails on unused files, exports and dependencies (`knip.json`).
 - ESLint rejects any `<button>` without `onClick` or `type="submit"`: delete a placebo control instead of disabling it.
 - `src/__tests__/helpers/fetchStub.ts`: `stubFetch(routes)` answers `fetch` from a route table matched on the full URL including the query (unmatched requests get a 404 envelope) and returns the mock, so `requestedUrls(mock)` can assert encoded query strings; `ensureResizeObserver()` for components that render the SVG graph.
 - `src/__tests__/helpers/fetchRoutes.ts`: `stubFetchRoutes(routes)` routes on method and path only (the query is ignored), and a handler can answer by call count; it stays for the tests already written against it.
@@ -88,3 +88,13 @@ inline styles; never raise it.
 
 Component tests for the shell stub heavy children by module path (`vi.mock('../../features/…')`);
 `ModalHost.test.tsx` and `AppShellModals.test.tsx` are the reference for overlay behaviour.
+
+## Graph, dialogs and stylesheet invariants
+
+- `src/__tests__/lib/layout.test.ts` pins the deterministic layout: permutation invariance, no overlap, bounds, reserved corners, labels, finite output for degenerate sizes. `edges.test.ts`, `encodings.test.ts`, `legendItems.test.ts`, `caption.test.ts` cover the other pure viz modules; `InfluenceGraph.test.tsx` and `InfluenceGraphEdgeCases.test.tsx` the component.
+- `src/__tests__/components/Modal.test.tsx` is the reference for dialog behaviour (Escape, focus, Tab, backdrop presses, nesting); `ModalHost.test.tsx` checks that every overlay is a named dialog.
+- `src/__tests__/lib/contrast.test.ts` reads the colour tokens from `styles.css`: edges ≥ 3:1 against the canvas at the drawn opacity, `--text-3` ≥ 4.5:1 on the backgrounds. Change a token and this test tells you whether it still passes.
+- `src/__tests__/lib/styles.test.ts`: every `var(--x)` is defined, no top-level selector is declared twice, reduced motion is honoured.
+- `src/__tests__/invariants/lintConfig.test.ts`: jsx-a11y recommended rules run at their recommended (error) levels; `npm run lint` fails on accessibility regressions.
+- `src/__tests__/invariants/structure.test.ts` also requires an `aria-label` on every icon-only button and keeps the inline-style budget; repeated single-declaration styles use the `u-*` utility classes in `styles.css`.
+- Dead-CSS audits are one-off: remove a selector only when one of its classes appears in no string literal of the non-test sources or `index.html` (runtime-built `sig-`, `adv-rec-` and `itv-msg-` classes and `data-`/`aria-` selectors stay), and re-grep every class before deleting it.
