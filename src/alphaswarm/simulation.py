@@ -59,7 +59,13 @@ if TYPE_CHECKING:
         ParsedSeedResult,
     )
 
-__all__ = ["SimulationDeps", "SimulationResult", "run_simulation"]
+__all__ = [
+    "SimulationDeps",
+    "SimulationResult",
+    "apply_context_options",
+    "fixture_market_context",
+    "run_simulation",
+]
 
 logger = structlog.get_logger(component="simulation")
 
@@ -238,27 +244,53 @@ class SimulationResult:
         return self._summaries(3)
 
 
+def apply_context_options(
+    deps: SimulationDeps,
+    *,
+    fixture: ContextPacket | None = None,
+    market_context: bool = True,
+) -> SimulationDeps:
+    """Deps for a point-in-time or context-free run (docs/DECISIONS.md#adr-eval-harness).
+
+    A fixture or ``market_context=False`` removes both live providers, so no
+    yfinance/RSS request can happen; a fixture then supplies the market block.
+    """
+    if fixture is not None and not market_context:
+        raise ValueError("a context fixture and market_context=False are mutually exclusive")
+    if fixture is not None:
+        return dataclasses.replace(deps, market=None, news=None, context_fixture=fixture)
+    if not market_context:
+        return dataclasses.replace(deps, market=None, news=None, context_fixture=None)
+    return deps
+
+
+def fixture_market_context(packet: ContextPacket, *, cycle_id: str | None = None) -> str | None:
+    """The market block for a fixture, rendered by the same formatter as the live path."""
+    block = format_market_context(packet)
+    logger.info(
+        "context_fixture_used",
+        cycle_id=cycle_id,
+        as_of=packet.as_of.isoformat(),
+        entity_count=len(packet.entities),
+        rendered=block is not None,
+    )
+    return block
+
+
 async def _round_1_market_context(
     deps: SimulationDeps, cycle_id: str, parsed_result: ParsedSeedResult
 ) -> tuple[ContextPacket | None, str | None]:
     """The Round 1 packet and its block: the recorded fixture when one is set, else the live fetch.
 
-    A point-in-time run replaces the live market and news fetch with
-    ``deps.context_fixture`` (docs/DECISIONS.md#adr-eval-harness).
+    Both the shared block and the private headline subsets are built from the
+    returned packet, so a point-in-time run draws everything from the fixture
+    (docs/DECISIONS.md#adr-eval-harness).
     """
     fixture = deps.context_fixture
-    if fixture is None:
-        packet = await build_context_packet(cycle_id, parsed_result, deps.market, deps.news)
-        return packet, format_market_context(packet) if packet is not None else None
-    block = format_market_context(fixture)
-    logger.info(
-        "context_fixture_used",
-        cycle_id=cycle_id,
-        as_of=fixture.as_of.isoformat(),
-        entity_count=len(fixture.entities),
-        rendered=block is not None,
-    )
-    return fixture, block
+    if fixture is not None:
+        return fixture, fixture_market_context(fixture, cycle_id=cycle_id)
+    packet = await build_context_packet(cycle_id, parsed_result, deps.market, deps.news)
+    return packet, format_market_context(packet) if packet is not None else None
 
 
 def _private_contexts(
