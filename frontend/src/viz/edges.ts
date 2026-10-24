@@ -102,3 +102,30 @@ export function aggregateByBracket(
   );
   return { keys, counts, total: edges.length, cells, within };
 }
+
+/** One agent's neighbourhood in the round on screen. */
+export interface EgoNetwork {
+  /** Arrows ending at the agent: it cited these peers (source_id === id). */
+  incoming: Edge[];
+  /** Arrows leaving the agent: these peers cited it (target_id === id). */
+  outgoing: Edge[];
+  /** Every other agent on either list. */
+  neighbors: Set<string>;
+}
+
+export function egoNetwork(id: string, edges: readonly Edge[]): EgoNetwork {
+  const incoming: Edge[] = [];
+  const outgoing: Edge[] = [];
+  const neighbors = new Set<string>();
+  for (const e of edges) {
+    if (e.source_id === e.target_id) continue;
+    if (e.source_id === id) {
+      incoming.push(e);
+      neighbors.add(e.target_id);
+    } else if (e.target_id === id) {
+      outgoing.push(e);
+      neighbors.add(e.source_id);
+    }
+  }
+  return { incoming, outgoing, neighbors };
+}

@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge } from '../../api/edges';
 import { bracketOf } from '../../data';
-import { aggregateByBracket, curvedPath, MATRIX_KEYS } from '../../viz/edges';
+import { aggregateByBracket, curvedPath, egoNetwork, MATRIX_KEYS } from '../../viz/edges';
 
 const e = (source_id: string, target_id: string, weight = 0.01): Edge => ({ source_id, target_id, weight });
 const A = { x: 100, y: 100 };
@@ -82,5 +82,30 @@ describe('aggregateByBracket', () => {
   it('has at most 110 ribbons for any input (11 x 10 off-diagonal cells)', () => {
     expect(MATRIX_KEYS).toHaveLength(11);
     expect(aggregateByBracket([], bracketOf).cells).toEqual([]);
+  });
+});
+
+describe('egoNetwork', () => {
+  const edges = [
+    e('quants_01', 'sell_side_03'), // quants_01 cited sell_side_03
+    e('degens_02', 'quants_01'), //    degens_02 cited quants_01
+    e('macro_01', 'quants_01'), //     macro_01 cited quants_01
+    e('quants_01', 'quants_01'), //    self-citation: ignored
+    e('algos_01', 'shorts_02'), //     unrelated
+  ];
+
+  it('splits who the agent cited (incoming arrows) from who cited it (outgoing)', () => {
+    const ego = egoNetwork('quants_01', edges);
+    expect(ego.incoming.map((x) => x.target_id)).toEqual(['sell_side_03']);
+    expect(ego.outgoing.map((x) => x.source_id)).toEqual(['degens_02', 'macro_01']);
+    expect([...ego.neighbors].sort()).toEqual(['degens_02', 'macro_01', 'sell_side_03']);
+  });
+
+  it('is empty for an agent with no citations and ignores self-citations', () => {
+    const ego = egoNetwork('narrators_01', edges);
+    expect(ego.incoming).toEqual([]);
+    expect(ego.outgoing).toEqual([]);
+    expect(ego.neighbors.size).toBe(0);
+    expect(egoNetwork('quants_01', [e('quants_01', 'quants_01')]).neighbors.size).toBe(0);
   });
 });
