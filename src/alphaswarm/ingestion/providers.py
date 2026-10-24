@@ -21,7 +21,7 @@ Fakes are pure in-memory dict lookups — no network imports, no sleeps (Pitfall
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -51,10 +51,18 @@ class NewsProvider(Protocol):
 
     max_age_hours is keyword-only to prevent accidental positional misuse
     across RSS / NewsAPI / future adapters. Method is `async def` for the
-    same asyncio-only reason as MarketDataProvider.
+    same asyncio-only reason as MarketDataProvider. tickers maps an entity name to
+    its swarm-resolved symbol (docs/DECISIONS.md#adr-ticker-resolution); only those
+    entities may use a ticker-scoped feed.
     """
 
-    async def get_headlines(self, entities: list[str], *, max_age_hours: int = 72) -> dict[str, NewsSlice]: ...
+    async def get_headlines(
+        self,
+        entities: list[str],
+        *,
+        max_age_hours: int = 72,
+        tickers: Mapping[str, str] | None = None,
+    ) -> dict[str, NewsSlice]: ...
 
 
 def _fetch_failed_market_slice(ticker: str, source: str) -> MarketSlice:
@@ -128,8 +136,14 @@ class FakeNewsProvider:
         self._fixtures = dict(fixtures) if fixtures else {}
         self._source = "fake_news"
 
-    async def get_headlines(self, entities: list[str], *, max_age_hours: int = 72) -> dict[str, NewsSlice]:
-        # max_age_hours is part of the contract but ignored by the fake;
-        # real providers will filter; the fake passes fixtures through.
-        _ = max_age_hours
+    async def get_headlines(
+        self,
+        entities: list[str],
+        *,
+        max_age_hours: int = 72,
+        tickers: Mapping[str, str] | None = None,
+    ) -> dict[str, NewsSlice]:
+        # max_age_hours and tickers are part of the contract but ignored by the
+        # fake; real providers filter and route; the fake passes fixtures through.
+        _ = max_age_hours, tickers
         return {e: self._fixtures.get(e, _fetch_failed_news_slice(e, self._source)) for e in entities}

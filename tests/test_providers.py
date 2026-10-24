@@ -280,3 +280,10 @@ def test_providers_module_has_no_sync_get_methods() -> None:
     # Match leading-whitespace "def get_X(" but NOT "async def get_X("
     sync_defs = re.findall(r"^\s+def get_(prices|fundamentals|volume|headlines)\(", content, re.MULTILINE)
     assert sync_defs == [], f"Found sync provider methods (must be async): {sync_defs}"
+
+
+async def test_fake_news_provider_accepts_resolved_tickers() -> None:
+    from alphaswarm.ingestion.providers import FakeNewsProvider
+
+    result = await FakeNewsProvider().get_headlines(["ZZZT Holdings"], tickers={"ZZZT Holdings": "ZZZT"})
+    assert result["ZZZT Holdings"].staleness == "fetch_failed"

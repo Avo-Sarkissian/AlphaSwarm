@@ -838,8 +838,8 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
 | <a id="p38-d-01"></a>`D-01` | News via RSS only (no API key, no rate limits). | active | ingestion/rss_provider.py:3,56 |
-| <a id="p38-d-02"></a>`D-02` | Ticker-shaped entities -> Yahoo Finance RSS; everything else -> Google News RSS (quoted). | active | ingestion/rss_provider.py:4,57; tests/test_rss_provider.py:134 |
-| <a id="p38-d-03"></a>`D-03` | Headline filter: case-insensitive substring match on the entity. | active | ingestion/rss_provider.py:5; tests/test_rss_provider.py:230,285 |
+| <a id="p38-d-02"></a>`D-02` | Ticker-shaped entities -> Yahoo Finance RSS; everything else -> Google News RSS (quoted). **Revised (Phase 7):** only swarm-resolved tickers ([adr-ticker-resolution](#adr-ticker-resolution)) use the Yahoo per-ticker feed; every other entity, including acronyms such as FED, goes to Google News. | revised | ingestion/rss_provider.py (`_route_url`); tests/test_rss_provider.py |
+| <a id="p38-d-03"></a>`D-03` | Headline filter: case-insensitive substring match on the entity. **Revised (Phase 7):** Google results use a case-insensitive word-boundary match; Yahoo per-ticker feeds are not filtered. | revised | ingestion/rss_provider.py (`_entity_pattern`); tests/test_rss_provider.py |
 | <a id="p38-d-04"></a>`D-04` | feedparser + httpx. | active | ingestion/rss_provider.py:6 |
 | <a id="p38-d-05"></a>`D-05` | yfinance per ticker via asyncio.to_thread + gather for error isolation. | active | ingestion/yfinance_provider.py:3; tests/integration/test_yfinance_provider_live.py:89 |
 | <a id="p38-d-06"></a>`D-06` | fast_info for price/volume; info for fundamentals. | active | ingestion/yfinance_provider.py:4; tests/integration/test_yfinance_provider_live.py:105 |
