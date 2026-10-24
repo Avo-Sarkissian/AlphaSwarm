@@ -65,6 +65,7 @@ Decision context lives in [DECISIONS.md](DECISIONS.md), and anchors are cited as
 | 3.2 | **Screenshots predate the current UI.** They are from 2026-04-22 (Phase 41.1 port); the Quant Terminal UI landed 2026-05-10 | open (2026-10: removed from the README until real captures exist) | `git log -- docs/screenshots` → 36fc125, 438ee1d |
 | 3.3 | AGENTS.md is a stale near-copy of CLAUDE.md (Vue 3, no swarm composition, GSD block) | done (2026-10-03): AGENTS.md is now a symlink to CLAUDE.md | — |
 | 3.4 | `PROJECT_SPEC.md` (2026-03 v0 spec: Textual, Miro, Llama 4, v1 brackets) is misleading as a current spec. Archive it; HISTORY.md keeps the origin story | done (2026-10: moved to `docs/history/original-spec.md`) | `PROJECT_SPEC.md:9-35` |
+| 3.5 | **Publish the static demo.** Curate a real complete cycle into `frontend/public/demo/` (owner review: no holdings or private data), record `docs/media/hero-cascade.gif` from it, add the README hero block, enable GitHub Pages (Source: GitHub Actions) and run the manual Pages workflow | open (2026-10: demo build, manual-only workflow and a fictional placeholder cycle exist) | `.github/workflows/pages.yml`; `frontend/public/demo/index.json` |
 
 ## 4. Experiments and research (not started unless noted)
 
