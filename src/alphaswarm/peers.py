@@ -164,6 +164,9 @@ def format_peer_context(
     source_round: int,
     budget: int = 4000,
     max_posts: int = 10,
+    *,
+    show_bracket: bool = True,
+    show_confidence: bool = True,
 ) -> tuple[str, tuple[str, ...]]:
     """Format top-K ranked peer posts into a budget-capped context string (D-04, D-05, D-06).
 
@@ -176,6 +179,11 @@ def format_peer_context(
     rendered lines in display order, which is the reader's exposure
     (docs/DECISIONS.md#adr-diverse-peer-context). Returns ``("", ())`` when
     no line was rendered.
+
+    ``show_bracket`` / ``show_confidence`` drop the ``|bracket`` label and the
+    ``(conf: x.xx)`` figure, which act as authority cues
+    (docs/DECISIONS.md#adr-diverse-peer-context); the ``[agent_id]`` token always
+    stays so agents can cite.
     """
     if not posts:
         logger.warning("no_peer_posts_found", source_round=source_round)
@@ -200,7 +208,9 @@ def format_peer_context(
         content = sanitize_peer_rationale(post.content)
         if not content:
             continue
-        prefix = f'{i}. [{post.agent_id}|{post.bracket}] {post.signal.upper()} (conf: {post.confidence:.2f}) "'
+        label = f"[{post.agent_id}|{post.bracket}]" if show_bracket else f"[{post.agent_id}]"
+        conf = f" (conf: {post.confidence:.2f})" if show_confidence else ""
+        prefix = f'{i}. {label} {post.signal.upper()}{conf} "'
         suffix = '"'
         available = remaining - len(prefix) - len(suffix) - 1  # -1 for newline
         if available <= 0:
@@ -297,6 +307,8 @@ def build_peer_contexts(
             source_round,
             budget=sim.peer_budget_chars,
             max_posts=sim.peer_limit,
+            show_bracket=sim.show_bracket_labels,
+            show_confidence=sim.show_confidence,
         )
         contexts.append(ctx if ctx else None)
         exposures.append(shown)
