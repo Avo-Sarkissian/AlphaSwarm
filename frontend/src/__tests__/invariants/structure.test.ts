@@ -55,6 +55,11 @@ const LINE_CAPS: Readonly<Record<string, number>> = {
 // Inline style objects in non-test .tsx files. Lower it when you convert
 // more; never raise it.
 const INLINE_STYLE_BUDGET = 151;
+
+// An icon-only button (its only child is an <Icon/> or an inline <svg>) needs an
+// aria-label: a title alone is not a reliable accessible name.
+const ICON_ONLY_BUTTON = /<button\b((?:[^<>]|=>)*)>\s*(?:<Icon\b[^>]*\/>|<svg\b[\s\S]*?<\/svg>)\s*<\/button>/g;
+
 describe('frontend structure', () => {
   it('has no JavaScript sources', () => {
     expect(FILES.filter((file) => /\.jsx?$/.test(file))).toEqual([]);
@@ -80,6 +85,15 @@ describe('frontend structure', () => {
     const count = FILES.filter((file) => file.endsWith('.tsx') && isSource(file))
       .reduce((sum, file) => sum + (read(file).match(/style=\{\{/g)?.length ?? 0), 0);
     expect(count).toBeLessThanOrEqual(INLINE_STYLE_BUDGET);
+  });
+
+  it('gives every icon-only button an aria-label', () => {
+    const offenders = FILES.filter((file) => file.endsWith('.tsx') && isSource(file)).flatMap((file) =>
+      [...read(file).matchAll(ICON_ONLY_BUTTON)]
+        .filter((m) => !/\baria-label(?:ledby)?=/.test(m[1] ?? ''))
+        .map((m) => `${file}: ${(m[0] ?? '').replace(/\s+/g, ' ').slice(0, 80)}`),
+    );
+    expect(offenders).toEqual([]);
   });
 
   it('compiles with the strict flags and without a JavaScript allowance', () => {

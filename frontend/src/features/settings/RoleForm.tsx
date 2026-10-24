@@ -1,5 +1,5 @@
 // One inference role's provider, model, base URL, key and connection test.
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { testConnection, type ProviderPreset, type ProviderType, type RoleView } from '../../api/settings';
 import {
   applyPreset,
@@ -37,6 +37,8 @@ export function RoleForm({
     'idle' | 'loading' | 'ok' | 'error'
   >('idle');
   const [testMsg, setTestMsg] = useState('');
+  const uid = useId();
+  const fieldId = (name: string): string => `${uid}-${name}`;
 
   const isCloud = isCloudProvider(form.provider);
   // After a preset is applied its models become the datalist suggestions;
@@ -76,8 +78,9 @@ export function RoleForm({
       {/* Preset picker — shortcut to populate provider + base_url + model */}
       {presets.length > 0 && (
         <div className="st-inf-row">
-          <label className="st-inf-label">Preset</label>
+          <label className="st-inf-label" htmlFor={fieldId('preset')}>Preset</label>
           <select
+            id={fieldId('preset')}
             className="st-inf-select st-inf-field"
             defaultValue=""
             onChange={(e) => {
@@ -104,8 +107,9 @@ export function RoleForm({
 
       {/* Provider select */}
       <div className="st-inf-row">
-        <label className="st-inf-label">Provider</label>
+        <label className="st-inf-label" htmlFor={fieldId('provider')}>Provider</label>
         <select
+          id={fieldId('provider')}
           className="st-inf-select st-inf-field"
           value={form.provider}
           onChange={(e) =>
@@ -122,8 +126,9 @@ export function RoleForm({
 
       {/* Model */}
       <div className="st-inf-row">
-        <label className="st-inf-label">Model</label>
+        <label className="st-inf-label" htmlFor={fieldId('model')}>Model</label>
         <input
+          id={fieldId('model')}
           type="text"
           list={listId}
           className="st-inf-input st-inf-field"
@@ -141,8 +146,9 @@ export function RoleForm({
       {/* Base URL — only for openai_compatible */}
       {form.provider === 'openai_compatible' && (
         <div className="st-inf-row">
-          <label className="st-inf-label">Base URL</label>
+          <label className="st-inf-label" htmlFor={fieldId('base-url')}>Base URL</label>
           <input
+            id={fieldId('base-url')}
             type="text"
             className="st-inf-input st-inf-field"
             value={form.base_url}
@@ -155,8 +161,9 @@ export function RoleForm({
       {/* API key — cloud providers only */}
       {isCloud && (
         <div className="st-inf-row">
-          <label className="st-inf-label">API key</label>
+          <label className="st-inf-label" htmlFor={fieldId('api-key')}>API key</label>
           <input
+            id={fieldId('api-key')}
             type="password"
             className="st-inf-input st-inf-field"
             value={form.api_key}

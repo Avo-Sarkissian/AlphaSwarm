@@ -114,7 +114,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
     <div className="adv-takeover">
       <div className="adv-head">
         <div className="adv-head-left">
-          <button className="btn ghost-btn" onClick={onClose}>
+          <button className="btn ghost-btn" onClick={onClose} aria-label="Close">
             <Icon name="close" />
           </button>
           <div>

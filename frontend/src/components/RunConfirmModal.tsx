@@ -60,7 +60,7 @@ export function RunConfirmModal({
           Confirm cloud run
         </span>
         <div className="sp" />
-        <button className="btn ghost" onClick={onCancel} disabled={busy}>
+        <button className="btn ghost" onClick={onCancel} disabled={busy} aria-label="Close">
           <Icon name="close" />
         </button>
       </div>

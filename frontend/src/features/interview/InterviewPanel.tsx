@@ -236,7 +236,7 @@ export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
       {/* header */}
       <div className="itv-head">
         <div className="itv-head-left">
-          <button className="btn ghost-btn" onClick={onClose}>
+          <button className="btn ghost-btn" onClick={onClose} aria-label="Close">
             <Icon name="close" />
           </button>
           <div className="itv-agent-id">
@@ -351,7 +351,7 @@ export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
                     }}
                     placeholder={`Ask ${agentId} anything…`}
                     disabled={busy}
-                    autoFocus
+                    data-autofocus
                   />
                 </div>
                 <button className="btn primary" onClick={() => void handleSend()} disabled={busy || !input.trim()}>

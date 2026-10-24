@@ -237,7 +237,6 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
         <div className="ob-seed-input">
           <span className="ob-seed-prefix label">SEED ⟶</span>
           <input
-            autoFocus
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
             placeholder="e.g. Fed announces emergency rate cut…"

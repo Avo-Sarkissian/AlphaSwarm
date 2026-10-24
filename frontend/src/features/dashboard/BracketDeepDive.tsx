@@ -93,7 +93,7 @@ export function BracketDeepDive({
   return (
     <div className="bd-takeover">
       <div className="bd-head">
-        <button className="btn ghost-btn" onClick={onClose}>
+        <button className="btn ghost-btn" onClick={onClose} aria-label="Close">
           <Icon name="close" />
         </button>
         <div className="bd-bracket-pill" style={{ background: color, color: '#000' }}>

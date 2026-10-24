@@ -38,7 +38,7 @@ function OverflowMenu({ onOpen }: { onOpen: (modal: ActiveModal) => void }) {
   };
   return (
     <div className="overflow-wrap">
-      <button className="btn ghost-btn" title="More tools" data-active={open} onClick={() => setOpen((o) => !o)}>
+      <button className="btn ghost-btn" title="More tools" aria-label="More tools" data-active={open} onClick={() => setOpen((o) => !o)}>
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
           <circle cx="3" cy="7.5" r="1.3" fill="currentColor"/>
           <circle cx="7.5" cy="7.5" r="1.3" fill="currentColor"/>
@@ -119,16 +119,17 @@ export function Topbar({
         onClick={onToggleShock}
         disabled={!shockWindowOpen}
         title={shockWindowOpen ? 'Inject shock event' : 'Shock window closed: a shock can only reach a later round'}
+        aria-label={shockWindowOpen ? 'Inject shock event' : 'Shock window closed: a shock can only reach a later round'}
       >
         <Icon name="bolt" />
       </button>
-      <button className="btn ghost-btn" onClick={() => onOpen({ kind: 'cycles' })} title="Watch / replay">
+      <button className="btn ghost-btn" onClick={() => onOpen({ kind: 'cycles' })} title="Watch / replay" aria-label="Watch / replay">
         <Icon name="replay" />
       </button>
-      <button className="btn ghost-btn" onClick={() => onOpen({ kind: 'report', cycleId: null })} title="Simulation report">
+      <button className="btn ghost-btn" onClick={() => onOpen({ kind: 'report', cycleId: null })} title="Simulation report" aria-label="Simulation report">
         <Icon name="doc" />
       </button>
-      <button className="btn ghost-btn" onClick={() => onOpen({ kind: 'settings' })} title="Settings">
+      <button className="btn ghost-btn" onClick={() => onOpen({ kind: 'settings' })} title="Settings" aria-label="Settings">
         <Icon name="settings" />
       </button>
 
