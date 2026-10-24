@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from alphaswarm.errors import BudgetExceededError
+from alphaswarm.errors import BudgetExceededError, InferenceError
 from alphaswarm.inference.budget import (
     DEFAULT_CALL_PROFILE,
     DEFAULT_PRICING,
@@ -426,6 +426,71 @@ class TestBudgetTrackingProviderChat:
         for _ in range(3):
             await wrapper.chat([{"role": "user", "content": "x"}])
         assert meter.spent() == Decimal("9.00")
+
+    @staticmethod
+    def _failing(
+        cap: Decimal | None, exc: InferenceError
+    ) -> tuple[BudgetTrackingProvider, BudgetMeter, FakeInferenceProvider]:
+        def _raise(**_: object) -> InferenceResult:
+            raise exc
+
+        meter = BudgetMeter(cap_usd=cap, pricing=_PRICING)
+        inner = FakeInferenceProvider(role=ProviderRole.WORKER, model="test-model", scripted=_raise, is_local=False)
+        return BudgetTrackingProvider(inner=inner, meter=meter), meter, inner
+
+    async def test_billed_failure_is_recorded(self) -> None:
+        """A response that was billed and then failed still costs money."""
+        billed = InferenceError(
+            "Malformed response body",
+            provider="openai_compatible",
+            model="test-model",
+            input_tokens=1_000_000,
+            output_tokens=0,
+        )
+        wrapper, meter, _ = self._failing(None, billed)
+        with pytest.raises(InferenceError):
+            await wrapper.chat([{"role": "user", "content": "hi"}])
+        assert meter.spent() == Decimal("1.00")
+
+    async def test_unbilled_failure_records_nothing(self) -> None:
+        timeout = InferenceError("Request timed out (not retried)", provider="openai_compatible", model="test-model")
+        wrapper, meter, _ = self._failing(None, timeout)
+        with pytest.raises(InferenceError):
+            await wrapper.chat([{"role": "user", "content": "hi"}])
+        assert meter.spent() == Decimal("0")
+
+    async def test_billed_failures_count_toward_the_cap(self) -> None:
+        billed = InferenceError(
+            "Malformed response body",
+            provider="openai_compatible",
+            model="test-model",
+            input_tokens=1_000_000,
+            output_tokens=0,
+        )
+        wrapper, _, inner = self._failing(Decimal("1.00"), billed)
+        with pytest.raises(InferenceError):
+            await wrapper.chat([{"role": "user", "content": "hi"}])
+        with pytest.raises(BudgetExceededError):
+            await wrapper.chat([{"role": "user", "content": "hi"}])
+        assert len(inner.calls) == 1
+
+    async def test_malformed_cloud_response_is_metered_end_to_end(self) -> None:
+        import httpx
+
+        from alphaswarm.inference.openai_provider import OpenAICompatProvider
+
+        body = {"choices": [{"finish_reason": "stop"}], "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0}}
+        inner = OpenAICompatProvider(
+            ProviderRole.WORKER,
+            "test-model",
+            base_url="https://api.example.com/v1",
+            api_key="test-key",
+            client=httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body))),
+        )
+        meter = BudgetMeter(cap_usd=None, pricing=_PRICING)
+        with pytest.raises(InferenceError):
+            await BudgetTrackingProvider(inner, meter).chat([{"role": "user", "content": "hi"}])
+        assert meter.spent() == Decimal("1.00")
 
 
 # ---------------------------------------------------------------------------

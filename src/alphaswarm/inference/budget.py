@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 
-from alphaswarm.errors import BudgetExceededError
+from alphaswarm.errors import BudgetExceededError, InferenceError
 from alphaswarm.inference.config import InferenceConfig, ModelPrice, ProviderType
 from alphaswarm.inference.types import InferenceMessage, InferenceResult, ProviderRole
 
@@ -414,17 +414,26 @@ class BudgetTrackingProvider:
             If the meter's cumulative spend is already >= the configured cap
             before the call is dispatched.  This is a hard pre-call guard;
             the inner provider is never called.
+
+        An InferenceError that carries billed token counts is recorded before
+        it propagates.
         """
         # Pre-call guard — raises BudgetExceededError if already at/over cap
         self._meter.check()
 
-        result = await self._inner.chat(
-            messages,
-            response_schema=response_schema,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-
+        try:
+            result = await self._inner.chat(
+                messages,
+                response_schema=response_schema,
+                json_mode=json_mode,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except InferenceError as exc:
+            if exc.input_tokens is not None or exc.output_tokens is not None:
+                # Billed, then unusable (a malformed body, a missing tool call): the
+                # vendor charged it, so the cap counts it (docs/DECISIONS.md#adr-cloud-retry).
+                self._meter.record(exc.model or self.model, exc.input_tokens, exc.output_tokens)
+            raise
         self._meter.record(result.model, result.input_tokens, result.output_tokens)
         return result
