@@ -182,3 +182,95 @@ def test_runtime_is_frozen(tmp_path: Path) -> None:
     assert replace(runtime, neo4j_ready=True).neo4j_ready is True
     with pytest.raises(AttributeError):
         runtime.neo4j_ready = True  # type: ignore[misc]
+
+
+async def test_open_simulation_shares_the_rate_limit_gate(tmp_path: Path) -> None:
+    """Cloud worker: both same-vendor providers retry through the controller."""
+    import httpx
+
+    from alphaswarm.inference.budget import BudgetTrackingProvider
+    from alphaswarm.inference.config import InferenceConfig, ProviderType, RoleConfig
+    from alphaswarm.inference.openai_provider import OpenAICompatProvider
+    from alphaswarm.inference.rate_limit import RateLimitController
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":  # the preflight's model listing
+            return httpx.Response(200, json={"data": [{"id": "gpt-4o-mini"}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "pong"}}], "usage": {}})
+
+    def cloud(role: ProviderRole) -> OpenAICompatProvider:
+        return OpenAICompatProvider(
+            role,
+            "gpt-4o-mini",
+            base_url="https://api.example.com/v1",
+            api_key="test-key",
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    runtime = build_runtime(route_test_settings(tmp_path), with_ollama=False, with_neo4j=False)
+    runtime.app_state.graph_manager = create_autospec(GraphStateManager, instance=True)
+    meter = BudgetMeter(None, {})
+    orchestrator, worker = cloud(ProviderRole.ORCHESTRATOR), cloud(ProviderRole.WORKER)
+    role = RoleConfig(
+        provider=ProviderType.OPENAI_COMPATIBLE,
+        model="gpt-4o-mini",
+        base_url="https://api.example.com/v1",
+        api_key="test-key",
+    )
+    controller = RateLimitController(max_in_flight=1, requests_per_min=40, tokens_per_min=None)
+    inference = MagicMock()
+    inference.open_operation = AsyncMock(
+        return_value=BuiltProviders(
+            orchestrator=BudgetTrackingProvider(orchestrator, meter),
+            worker=BudgetTrackingProvider(worker, meter),
+            budget_meter=meter,
+        ),
+    )
+    inference.build_controller = AsyncMock(return_value=controller)
+    inference.config = AsyncMock(return_value=InferenceConfig(orchestrator=role, worker=role))
+    async with open_simulation(inference, runtime.app_state, state=None) as deps:
+        assert deps.controller is controller
+        assert worker.retry_gate is controller
+        assert orchestrator.retry_gate is controller
+
+
+async def test_a_bad_model_id_fails_before_seeding(tmp_path: Path) -> None:
+    """The preflight stops the run before any Cycle is written."""
+    import httpx
+
+    from alphaswarm.errors import ProviderConfigError
+    from alphaswarm.inference.budget import BudgetTrackingProvider
+    from alphaswarm.inference.openai_provider import OpenAICompatProvider
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": "gpt-4o-mini"}]})
+        return httpx.Response(
+            404,
+            json={"error": {"message": "The model `typo-model` does not exist", "code": "model_not_found"}},
+        )
+
+    runtime = build_runtime(route_test_settings(tmp_path), with_ollama=False, with_neo4j=False)
+    graph = create_autospec(GraphStateManager, instance=True)
+    runtime.app_state.graph_manager = graph
+    meter = BudgetMeter(None, {})
+    worker = BudgetTrackingProvider(
+        OpenAICompatProvider(
+            ProviderRole.WORKER,
+            "typo-model",
+            base_url="https://api.example.com/v1",
+            api_key="test-key",
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        ),
+        meter,
+    )
+    orchestrator = FakeInferenceProvider(ProviderRole.ORCHESTRATOR, "alphaswarm-orchestrator", scripted=[])
+    inference = MagicMock()
+    inference.open_operation = AsyncMock(
+        return_value=BuiltProviders(orchestrator=orchestrator, worker=worker, budget_meter=meter),
+    )
+    inference.build_controller = AsyncMock(return_value=object())
+    with pytest.raises(ProviderConfigError):
+        async with open_simulation(inference, runtime.app_state, state=None):
+            pytest.fail("open_simulation must not yield after a failed preflight")
+    graph.create_cycle_with_seed_event.assert_not_awaited()

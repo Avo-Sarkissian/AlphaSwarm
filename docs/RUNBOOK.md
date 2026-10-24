@@ -100,22 +100,29 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
   `neo4j:5.26-community`, bound to 127.0.0.1 only. The password comes from
   `ALPHASWARM_NEO4J__PASSWORD`, which `docker compose` reads from `.env`.
 - **Back up before risky work, and weekly:** `./scripts/backup_neo4j.sh`.
-  - It stops the container briefly, so don't run it mid-simulation.
+  - It refuses to run while a simulation is running (the web server's `/api/health` says `is_simulation_running`, or a CLI `run`/`inject`/`report` holds the instance lock) and exits 75; otherwise it stops the container with a 60 s grace period and always restarts it. `ALPHASWARM_BACKUP_DIR` writes the dump elsewhere.
   - It writes `data/backups/neo4j-<stamp>.dump` and keeps the 8 newest.
     `data/backups/` is **not** gitignored today (BACKLOG 1.12), so never
     `git add -A` after a backup until that is fixed.
-  - It refuses to guess if both `alphaswarm-neo4j` and a legacy `neo4j`
-    container exist. Set `ALPHASWARM_NEO4J_CONTAINER=<name>` in that case.
-- **Restore** (the command the script prints needs one extra step, BACKLOG 1.6).
-  `neo4j-admin database load` only reads a file named `neo4j.dump`:
+  - It finds the container by name: `alphaswarm-neo4j` (Compose) or `neo4j`
+    (a hand-made `docker run --name neo4j` container). It refuses to guess if
+    both exist; set `ALPHASWARM_NEO4J_CONTAINER=<name>` in that case (or always,
+    to be explicit: `ALPHASWARM_NEO4J_CONTAINER=neo4j ./scripts/backup_neo4j.sh`).
+- **Restore.** The script prints a working sequence after every backup, with
+  the real dump path, container and image filled in; it is the same as
+  (`<container>` is `alphaswarm-neo4j` or `neo4j`):
   ```bash
-  mkdir -p /tmp/as-restore && cp data/backups/neo4j-<stamp>.dump /tmp/as-restore/neo4j.dump
-  IMG=$(docker container inspect --format '{{.Image}}' alphaswarm-neo4j)
-  docker stop alphaswarm-neo4j
-  docker run --rm --volumes-from alphaswarm-neo4j -v /tmp/as-restore:/backups "$IMG" \
+  RESTORE_DIR="$(mktemp -d)"
+  cp data/backups/neo4j-<stamp>.dump "$RESTORE_DIR/neo4j.dump"   # neo4j-admin only loads neo4j.dump
+  IMG=$(docker container inspect --format '{{.Image}}' <container>)
+  docker stop -t 60 <container>
+  docker run --rm --volumes-from <container> -v "$RESTORE_DIR":/backups "$IMG" \
     neo4j-admin database load neo4j --from-path=/backups --overwrite-destination=true
-  docker start alphaswarm-neo4j
+  docker start <container>
   ```
+  Never restore while a simulation runs. `tests/test_backup_script.py` replays
+  the printed sequence against a fake `docker`; verify it once on a scratch
+  container before relying on it.
 - **Memory caps (2026-10).** The Compose `neo4j` service runs with a 1 GB heap,
   512 MB page cache, 512 MB transaction memory, `mem_limit: 2500m`,
   `stop_grace_period: 60s` and `-XX:+ExitOnOutOfMemoryError`. Check with
@@ -155,6 +162,8 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
 
 ## 4. Running the stack for development
 
+- **One AlphaSwarm process at a time.** `alphaswarm web` (or `./start`) holds `~/.alphaswarm/instance.lock`; `alphaswarm run`, `inject` or `report` started meanwhile exit with code 75 and name the holder. Run jobs from the web UI while the server is up. `alphaswarm doctor` never takes the lock. A crashed process releases it automatically.
+
 ```bash
 # Terminal 1: backend. Runtime paths (.env, holdings CSV, .secrets/, advisory/, reports/) resolve against the repo root, so any working directory works.
 uv run alphaswarm web      # the single launcher (127.0.0.1:8000); ./start and uv run start call it
@@ -190,6 +199,10 @@ npm --prefix frontend run dev                           # http://localhost:5173
     returns 429 with no Retry-After at about 40 RPM.
   - Avoid reasoning models: they blow the token cap and break JSON mode.
 - `/api/health` reports `inference_mode` and running `spent_usd`.
+- Retries (`docs/DECISIONS.md#adr-cloud-retry`): 408/409/429/5xx retry with capped jittered backoff (at most 30 s per wait; `Retry-After` honoured up to 60 s), and a 429 pauses every agent once (one shared cooldown). 400/404/422 and timeouts are not retried: a wrong model id stops the run before seeding with "The … provider rejected model …" (CLI exit 2).
+- `limits.<provider>.avg_tokens_per_call` (default 1500) is the TPM reservation per call; lower it toward your real prompt size if `tokens_per_min` throttles too early.
+- Free models (the NVIDIA NIM free tier) are not in the pricing table. With a spend cap set they are priced at the conservative ceiling, so add `pricing_overrides` entries with `"0"` prices or leave the cap unset. `GET /api/settings/estimate` lists them in `unpriced_models`.
+- `DEFAULT_PRICING` is re-checked against the vendor pages at least every 180 days: `PRICING_VERIFIED_AT` in `inference/budget.py`, and `tests/inference/test_budget.py::TestPricingTable::test_pricing_table_was_verified_recently` fails when it is stale.
 
 ## 5. Full-run smoke / UAT checklist
 

@@ -14,7 +14,13 @@ import httpx
 import ollama
 import pytest
 
-from alphaswarm.errors import AuthError, BudgetExceededError, InferenceError, OllamaInferenceError
+from alphaswarm.errors import (
+    AuthError,
+    BudgetExceededError,
+    InferenceError,
+    OllamaInferenceError,
+    ProviderConfigError,
+)
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
@@ -385,3 +391,31 @@ async def test_fake_provider_passes_telemetry_fields_through() -> None:
     )
     fake = FakeInferenceProvider(ProviderRole.WORKER, "fake", scripted=[result])
     assert await fake.chat([{"role": "user", "content": "hi"}]) is result
+
+
+def _openai_unknown_model(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        404,
+        json={"error": {"message": "The model `contract-model` does not exist", "code": "model_not_found"}},
+    )
+
+
+_ANTHROPIC_NOT_FOUND = anthropic.NotFoundError(
+    message="model: claude-contract",
+    response=httpx.Response(404, request=httpx.Request("POST", _ANTHROPIC_URL)),
+    body=None,
+)
+
+CONFIG_CASES: list[tuple[str, Callable[[], InferenceProvider]]] = [
+    ("openai_compatible", lambda: _openai(_openai_unknown_model)),
+    ("anthropic", lambda: _anthropic(_ANTHROPIC_NOT_FOUND)),
+]
+
+
+@pytest.mark.parametrize(("name", "make"), CONFIG_CASES, ids=[name for name, _ in CONFIG_CASES])
+async def test_contract_unknown_model_raises_provider_config_error(
+    name: str, make: Callable[[], InferenceProvider]
+) -> None:
+    """Every cloud provider turns a rejected model id into the hard stop."""
+    with pytest.raises(ProviderConfigError):
+        await make().chat(_MESSAGES, response_schema=DECISION_JSON_SCHEMA)

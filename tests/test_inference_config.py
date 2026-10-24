@@ -538,3 +538,22 @@ def test_a_config_file_written_before_the_flag_existed_loads_with_the_flag_off(
         encoding="utf-8",
     )
     assert load_inference_config(AppSettings(_env_file=None), dest).allow_cloud_advisory is False  # type: ignore[call-arg]
+
+
+def test_avg_tokens_per_call_defaults_to_1500_and_must_be_positive() -> None:
+    from pydantic import ValidationError
+
+    assert ProviderLimits().avg_tokens_per_call == 1500
+    assert ProviderLimits(avg_tokens_per_call=900).avg_tokens_per_call == 900
+    with pytest.raises(ValidationError):
+        ProviderLimits(avg_tokens_per_call=0)
+
+
+def test_saved_configs_without_the_field_still_load() -> None:
+    raw = (
+        '{"orchestrator": {"provider": "ollama", "model": "alphaswarm-orchestrator"},'
+        ' "worker": {"provider": "ollama", "model": "alphaswarm-worker"},'
+        ' "limits": {"openai_compatible": {"requests_per_min": 40, "max_in_flight": 1, "max_retries": 8}}}'
+    )
+    cfg = InferenceConfig.model_validate_json(raw)
+    assert cfg.limits[ProviderType.OPENAI_COMPATIBLE].avg_tokens_per_call == 1500

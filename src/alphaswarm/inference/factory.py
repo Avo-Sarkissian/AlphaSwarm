@@ -15,6 +15,8 @@ Public surface:
     build_providers — construct providers from cfg, wrapping cloud ones in budget guard
     build_role_provider — construct one role's provider only (e.g. the interview worker)
     build_controller — select ResourceGovernor (local) or RateLimitController (cloud)
+    attach_retry_gate — share the cloud controller's retry gate with same-vendor providers
+    preflight_cloud_roles — run each cloud provider's preflight before seeding
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.provider import InferenceProvider
 from alphaswarm.inference.rate_limit import RateLimitController
+from alphaswarm.inference.retry import RetryGate
 from alphaswarm.inference.types import ProviderRole
 
 if TYPE_CHECKING:
@@ -237,9 +240,9 @@ def _build_single_provider(
 ) -> InferenceProvider:
     """Construct a single provider and optionally wrap it in a BudgetTrackingProvider.
 
-    ``max_retries`` is forwarded to the OpenAI-compatible adapter so callers can
-    raise the 429/5xx retry budget for rate-limited free tiers (defaults to 3,
-    preserving prior behavior; the Anthropic path is unaffected).
+    ``max_retries`` is forwarded to both cloud adapters so callers can raise the
+    429/5xx retry budget for rate-limited free tiers (defaults to 3; the Anthropic
+    path receives the same budget, docs/DECISIONS.md#adr-cloud-retry).
     """
     if provider_type == ProviderType.OLLAMA:
         if ollama_client is None:
@@ -271,7 +274,7 @@ def _build_single_provider(
         # _validate_cloud_role above raised for an empty key/base_url, so `or ""` never
         # changes the value; it only narrows `str | None` to `str` for mypy.
         inner: InferenceProvider = AnthropicProvider(
-            role, model, api_key=api_key or "", max_tokens_default=max_tokens_default
+            role, model, api_key=api_key or "", max_tokens_default=max_tokens_default, max_retries=max_retries
         )
     elif provider_type == ProviderType.OPENAI_COMPATIBLE:
         inner = OpenAICompatProvider(
@@ -419,5 +422,38 @@ def build_controller(
         max_in_flight=limits.max_in_flight,
         requests_per_min=limits.requests_per_min,
         tokens_per_min=limits.tokens_per_min,
-        state_store=state_store,
+        avg_tokens_per_call=limits.avg_tokens_per_call,
     )
+
+
+def attach_retry_gate(built: BuiltProviders, cfg: InferenceConfig, gate: RetryGate) -> int:
+    """Share the cloud controller's retry gate with the providers that use its limits.
+
+    The worker always does; the orchestrator only when it uses the same provider
+    type (the same ``ProviderLimits`` entry, the same vendor quota). Local
+    providers are skipped. Returns how many providers now hold the gate
+    (docs/DECISIONS.md#adr-cloud-retry).
+    """
+    targets: list[InferenceProvider] = [built.worker]
+    if cfg.orchestrator.provider == cfg.worker.provider:
+        targets.append(built.orchestrator)
+    attached = 0
+    for provider in targets:
+        inner = provider.inner if isinstance(provider, BudgetTrackingProvider) else provider
+        if isinstance(inner, (OpenAICompatProvider, AnthropicProvider)):
+            inner.retry_gate = gate
+            attached += 1
+    return attached
+
+
+async def preflight_cloud_roles(built: BuiltProviders) -> None:
+    """Run each cloud provider's preflight (its ``prepare()``) before seeding.
+
+    A wrong model id or base URL raises ProviderConfigError (a bad key AuthError)
+    here, before any Cycle exists. Local providers are skipped: their prepare()
+    loads a model, which run_simulation does at the right moment
+    (docs/DECISIONS.md#adr-cloud-retry).
+    """
+    for provider in (built.orchestrator, built.worker):
+        if not provider.is_local():
+            await provider.prepare()

@@ -238,3 +238,29 @@ async def test_aclose_closes_the_http_pool_and_is_idempotent() -> None:
     await client.aclose()
     assert http_client.is_closed is True
     await client.aclose()  # a second close is a no-op
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+async def test_permanent_http_errors_are_not_retried(
+    ollama_client: Any, mock_async_client: AsyncMock, status: int
+) -> None:
+    """A missing alias (404) or bad request fails once, not three times."""
+    mock_async_client.chat = AsyncMock(
+        side_effect=ollama.ResponseError("model 'alphaswarm-wrkr' not found", status_code=status)
+    )
+    with pytest.raises(OllamaInferenceError, match="not retried"):
+        await ollama_client.chat(model="alphaswarm-wrkr", messages=[{"role": "user", "content": "hi"}])
+    assert mock_async_client.chat.call_count == 1
+
+
+async def test_server_errors_still_retry(
+    ollama_client: Any,
+    mock_async_client: AsyncMock,
+    mock_chat_response: MagicMock,
+    instant_sleep: list[float],
+) -> None:
+    mock_async_client.chat = AsyncMock(
+        side_effect=[ollama.ResponseError("server busy", status_code=503), mock_chat_response]
+    )
+    await ollama_client.chat(model="test", messages=[{"role": "user", "content": "hi"}])
+    assert mock_async_client.chat.call_count == 2

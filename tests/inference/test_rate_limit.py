@@ -15,12 +15,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from alphaswarm.inference.concurrency import ConcurrencyController
+from alphaswarm.inference.openai_provider import OpenAICompatProvider
 from alphaswarm.inference.rate_limit import RateLimitController, TokenBucket
+from alphaswarm.inference.retry import RetryGate, RetryPolicy
+from alphaswarm.inference.types import ProviderRole
 from tests.support.aio import eventually
 
 # ---------------------------------------------------------------------------
@@ -381,30 +387,17 @@ class TestRateLimitControllerShrink:
 
 
 class TestRateLimitControllerMonitoring:
-    async def test_start_stop_monitoring_no_state_store(self) -> None:
-        """Monitoring starts and stops cleanly even without a state_store."""
-        ctrl = RateLimitController(
-            max_in_flight=1,
-            requests_per_min=None,
-            tokens_per_min=None,
-        )
+    async def test_start_and_stop_monitoring_are_no_ops(self) -> None:
+        """The keep-alive loop did nothing and is gone."""
+        ctrl = RateLimitController(max_in_flight=1, requests_per_min=None, tokens_per_min=None)
+        before = len(asyncio.all_tasks())
         await ctrl.start_monitoring()
-        assert ctrl._monitor_task is not None
+        assert len(asyncio.all_tasks()) == before
         await ctrl.stop_monitoring()
-        assert ctrl._monitor_task is None
 
-    async def test_start_monitoring_idempotent(self) -> None:
-        ctrl = RateLimitController(
-            max_in_flight=1,
-            requests_per_min=None,
-            tokens_per_min=None,
-        )
-        await ctrl.start_monitoring()
-        task1 = ctrl._monitor_task
-        await ctrl.start_monitoring()  # second call should not create a new task
-        task2 = ctrl._monitor_task
-        assert task1 is task2
-        await ctrl.stop_monitoring()
+    def test_module_has_no_import_time_instance(self) -> None:
+        source = Path(__file__).resolve().parents[2] / "src/alphaswarm/inference/rate_limit.py"
+        assert "assert isinstance(" not in source.read_text(encoding="utf-8")
 
 
 async def _cancel_quietly(task: asyncio.Task[None]) -> None:
@@ -537,3 +530,126 @@ class TestRateLimitCancellation:
                 raise RuntimeError("provider 500")
         assert ctrl._tpm_bucket._tokens == before  # release(success=False) refunded
         assert ctrl._in_flight == 0
+
+
+# ---------------------------------------------------------------------------
+# Retry gate: one shared cooldown, a fresh RPM token per retry
+# (docs/DECISIONS.md#adr-cloud-retry)
+# ---------------------------------------------------------------------------
+
+_OK_BODY = {"choices": [{"message": {"content": "ok"}}], "usage": {}}
+
+
+def _fake_sleep(clock: FakeClock, slept: list[float]) -> Any:
+    async def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+        clock.advance(seconds)
+        await asyncio.sleep(0)
+
+    return fake_sleep
+
+
+def _gate_controller(clock: FakeClock, slept: list[float], **overrides: Any) -> RateLimitController:
+    kwargs: dict[str, Any] = {"max_in_flight": 4, "requests_per_min": None, "tokens_per_min": None}
+    kwargs.update(overrides)
+    return RateLimitController(**kwargs, now=clock, sleep=_fake_sleep(clock, slept))
+
+
+def _cloud_worker(handler: Any, clock: FakeClock, slept: list[float], *, max_retries: int = 3) -> OpenAICompatProvider:
+    return OpenAICompatProvider(
+        ProviderRole.WORKER,
+        "meta/llama-3.1-8b-instruct",
+        base_url="https://integrate.api.example.com/v1",
+        api_key="test-key",
+        max_retries=max_retries,
+        retry_policy=RetryPolicy(sleep=_fake_sleep(clock, slept), rng=lambda: 1.0),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+
+class TestRetryGate:
+    def test_satisfies_the_retry_gate_protocol(self) -> None:
+        ctrl = RateLimitController(max_in_flight=1, requests_per_min=None, tokens_per_min=None)
+        assert isinstance(ctrl, RetryGate)
+
+    async def test_concurrent_rate_limits_merge_into_one_cooldown(self) -> None:
+        """Three agents hit 429 at once; everyone waits 5 s once, not 13 s."""
+        clock, slept = FakeClock(), []
+        ctrl = _gate_controller(clock, slept)
+        ctrl.note_rate_limited(5.0)
+        ctrl.note_rate_limited(3.0)
+        ctrl.note_rate_limited(5.0)
+        assert ctrl.cooldown_remaining == 5.0
+        await ctrl.before_retry()
+        assert slept == [5.0]
+        await ctrl.acquire()  # the cooldown is over: no further wait
+        assert slept == [5.0]
+
+    async def test_acquire_waits_out_the_cooldown(self) -> None:
+        clock, slept = FakeClock(), []
+        ctrl = _gate_controller(clock, slept)
+        ctrl.note_rate_limited(2.0)
+        await ctrl.acquire()
+        assert slept == [2.0]
+
+    async def test_a_later_429_extends_the_cooldown(self) -> None:
+        clock, slept = FakeClock(), []
+        ctrl = _gate_controller(clock, slept)
+        ctrl.note_rate_limited(2.0)
+        clock.advance(1.0)
+        ctrl.note_rate_limited(5.0)
+        assert ctrl.cooldown_remaining == 5.0
+
+    async def test_retries_take_a_fresh_rpm_token(self) -> None:
+        """A retry is a new request against the RPM limit."""
+        clock, slept = FakeClock(), []
+        ctrl = _gate_controller(clock, slept, max_in_flight=1, requests_per_min=60)
+        reserved: list[int] = []
+        original = ctrl._rpm_bucket.reserve
+
+        def counting_reserve(n: int) -> float:
+            reserved.append(n)
+            return original(n)
+
+        ctrl._rpm_bucket.reserve = counting_reserve  # type: ignore[method-assign]
+        calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            if calls <= 2:
+                return httpx.Response(429, json={})  # free-tier style: no Retry-After
+            return httpx.Response(200, json=_OK_BODY)
+
+        provider = _cloud_worker(handler, clock, slept)
+        provider.retry_gate = ctrl
+        async with ctrl:
+            assert (await provider.chat([{"role": "user", "content": "hi"}])).content == "ok"
+        assert calls == 3
+        assert reserved == [1, 1, 1]  # the acquire plus one token per retry
+        assert slept == [1.0, 2.0]  # each 429's backoff became the shared cooldown
+
+    async def test_a_429_storm_without_retry_after_finishes(self) -> None:
+        """The first five requests are rate-limited; the wave still completes."""
+        clock, slept = FakeClock(), []
+        ctrl = _gate_controller(clock, slept, max_in_flight=2, requests_per_min=40)
+        seen = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal seen
+            seen += 1
+            if seen <= 5:
+                return httpx.Response(429, json={})
+            return httpx.Response(200, json=_OK_BODY)
+
+        provider = _cloud_worker(handler, clock, slept, max_retries=8)
+        provider.retry_gate = ctrl
+
+        async def one_agent() -> str:
+            async with ctrl:
+                return (await provider.chat([{"role": "user", "content": "hi"}])).content
+
+        async with asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(one_agent()) for _ in range(5)]
+        assert [t.result() for t in tasks] == ["ok"] * 5
+        assert slept and max(slept) <= 30.0

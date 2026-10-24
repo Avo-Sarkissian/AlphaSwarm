@@ -1,31 +1,27 @@
-"""Adaptive rate-limit controller for cloud inference providers.
+"""Rate-limit controller for cloud inference providers.
 
-Implements the ConcurrencyController protocol for the cloud path.
-Provides:
-  - TokenBucket: continuous-refill token bucket with injected clock for deterministic testing.
-  - RateLimitController: in-flight slot limiting + RPM/TPM rate limiting + adaptive shrink.
+Implements the ConcurrencyController protocol for the cloud path:
+  - TokenBucket: continuous-refill token bucket with an injected clock.
+  - RateLimitController: in-flight cap + RPM/TPM pacing + adaptive shrink, and
+    the RetryGate the cloud providers retry through: a 429 seen by one agent
+    sets one shared cooldown, and every retry takes a fresh RPM token
+    (docs/DECISIONS.md#adr-cloud-retry).
 
-Budget enforcement is intentionally NOT here — it lives in BudgetTrackingProvider (budget.py)
-so that ALL cloud calls (workers, seed, advisory, report) are counted uniformly, regardless
-of whether they go through the concurrency controller.
+Budget enforcement is intentionally NOT here; it lives in BudgetTrackingProvider
+(budget.py), so every cloud call (workers, seed, advisory, report) is counted.
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.inference.concurrency import ConcurrencyController
-
 if TYPE_CHECKING:
     from types import TracebackType
-
-    from alphaswarm.state import StateStore
 
 log = structlog.get_logger(component="inference.rate_limit")
 
@@ -49,7 +45,8 @@ class TokenBucket:
 
     Notes
     -----
-    ``capacity`` equals ``rate_per_min`` (1-second burst headroom is implicit).
+    ``capacity`` equals ``rate_per_min``: after an idle minute a full minute's
+    quota can go out at once (the burst is one minute of requests, not one second).
     Tokens refill continuously: each call to ``reserve`` first refills based on
     elapsed time since the last interaction, then checks / decrements.
 
@@ -177,9 +174,6 @@ class RateLimitController:
         Sustained request rate cap.  ``None`` = unlimited.
     tokens_per_min:
         Sustained token rate cap.  ``None`` = unlimited.
-    state_store:
-        Optional object with a ``set(key, value)`` method for emitting
-        periodic metrics.  If ``None``, monitoring is a harmless no-op.
     avg_tokens_per_call:
         Estimated token cost reserved at ``acquire()`` time for TPM pacing.
         Reconciled to the actual cost at ``release()`` time if
@@ -187,6 +181,9 @@ class RateLimitController:
     now:
         Injected clock callable (seconds).  Default ``time.monotonic``.
         Inject a fake in tests.
+    sleep:
+        Injected sleep coroutine for pacing and cooldown waits. ``None`` uses
+        ``asyncio.sleep``, looked up at call time so tests can patch it.
     failure_shrink_threshold:
         Wave failure-rate fraction at or above which effective max_in_flight
         is reduced by 1.  Default 0.20 (20%).
@@ -215,9 +212,9 @@ class RateLimitController:
         max_in_flight: int,
         requests_per_min: int | None,
         tokens_per_min: int | None,
-        state_store: StateStore | None = None,
         avg_tokens_per_call: int = 1500,
         now: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[object]] | None = None,
         failure_shrink_threshold: float = 0.20,
         min_in_flight: int = 1,
     ) -> None:
@@ -226,8 +223,8 @@ class RateLimitController:
         self._min_in_flight = min_in_flight
         self._failure_shrink_threshold = failure_shrink_threshold
         self._avg_tokens_per_call = avg_tokens_per_call
-        self._state_store = state_store
         self._now = now
+        self._sleep = sleep
 
         self._requests_per_min = requests_per_min
         self._tokens_per_min = tokens_per_min
@@ -242,16 +239,16 @@ class RateLimitController:
         # Shrink tracking: how many semaphore tokens to drain without releasing
         self._shrink_pending: int = 0
 
-        # Monitoring
-        self._monitor_task: asyncio.Task[None] | None = None
         self._in_flight: int = 0  # active call count (informational)
+        # One cooldown shared by every caller after a 429 (docs/DECISIONS.md#adr-cloud-retry).
+        self._cooldown_until: float = float("-inf")
 
     # ------------------------------------------------------------------
     # ConcurrencyController protocol
     # ------------------------------------------------------------------
 
     async def acquire(self) -> None:
-        """Claim an in-flight slot, then pace via RPM + TPM buckets.
+        """Claim an in-flight slot, wait out any shared cooldown, then pace via RPM + TPM.
 
         If a shrink is pending, the caller first claims it (decrements
         ``_shrink_pending``) and takes one semaphore token, which stays held
@@ -277,6 +274,8 @@ class RateLimitController:
         self._in_flight += 1
         reserved_rpm = reserved_tpm = False
         try:
+            # A 429 seen by any caller pauses everyone (docs/DECISIONS.md#adr-cloud-retry).
+            await self._wait_for_cooldown()
             # Rate-limit: reserve estimated cost and wait if needed.
             rpm_wait = self._rpm_bucket.reserve(1)
             reserved_rpm = True
@@ -284,7 +283,7 @@ class RateLimitController:
             reserved_tpm = True
             wait = max(rpm_wait, tpm_wait)
             if wait > 0:
-                await asyncio.sleep(wait)
+                await self._pause(wait)
         except BaseException:
             # Cancelled (or interrupted) while pacing: the caller never gets the
             # slot, so return the permit and refund both reservations.
@@ -363,19 +362,10 @@ class RateLimitController:
             )
 
     async def start_monitoring(self) -> None:
-        """Launch background metrics emitter task (~2 s cadence)."""
-        if self._monitor_task is not None:
-            return  # idempotent
-        self._monitor_task = asyncio.create_task(self._monitoring_loop(), name="rate-limit-monitor")
+        """No-op: the cloud controller has nothing to poll (ConcurrencyController protocol)."""
 
     async def stop_monitoring(self) -> None:
-        """Cancel and await the background monitoring task cleanly."""
-        if self._monitor_task is None:
-            return
-        self._monitor_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._monitor_task
-        self._monitor_task = None
+        """No-op counterpart of ``start_monitoring``."""
 
     async def __aenter__(self) -> RateLimitController:
         """Acquire a concurrency slot (async context manager entry)."""
@@ -392,28 +382,39 @@ class RateLimitController:
         self.release(success=exc_type is None)
 
     # ------------------------------------------------------------------
-    # Internal
+    # RetryGate (docs/DECISIONS.md#adr-cloud-retry)
     # ------------------------------------------------------------------
 
-    async def _monitoring_loop(self) -> None:
-        """Keep-alive loop while the controller is running.
+    def note_rate_limited(self, seconds: float) -> None:
+        """A 429 anywhere pauses every caller; concurrent 429s merge (max, never sum)."""
+        until = self._now() + max(0.0, seconds)
+        if until > self._cooldown_until:
+            self._cooldown_until = until
+            log.info("rate_limit_cooldown_set", cooldown_s=round(seconds, 2))
 
-        Live RPM/TPM WebSocket telemetry is a future enhancement — mode and
-        running spend are already surfaced via GET /api/health.  StateStore has
-        no ``set()`` method, so we do not attempt to emit here; that call was
-        removed to stop the silent AttributeError that fired every ~2 s.
-        """
-        while True:
-            await asyncio.sleep(2.0)
+    async def before_retry(self) -> None:
+        """A retry is a new request: wait out any cooldown, then take a fresh RPM token."""
+        await self._wait_for_cooldown()
+        wait = self._rpm_bucket.reserve(1)
+        if wait > 0:
+            try:
+                await self._pause(wait)
+            except BaseException:
+                self._rpm_bucket.refund(1)
+                raise
 
+    @property
+    def cooldown_remaining(self) -> float:
+        """Seconds left in the shared cooldown (0 when none)."""
+        return max(0.0, self._cooldown_until - self._now())
 
-# Runtime-checkable protocol compliance assertion (fails fast at import if
-# the class drifts out of sync with the protocol).
-assert isinstance(
-    RateLimitController(
-        max_in_flight=1,
-        requests_per_min=None,
-        tokens_per_min=None,
-    ),
-    ConcurrencyController,
-), "RateLimitController must satisfy ConcurrencyController protocol"
+    async def _wait_for_cooldown(self) -> None:
+        """Sleep until the shared cooldown ends; re-check, since another 429 may extend it."""
+        while (remaining := self._cooldown_until - self._now()) > 0:
+            await self._pause(remaining)
+
+    async def _pause(self, seconds: float) -> None:
+        if self._sleep is not None:
+            await self._sleep(seconds)
+        else:
+            await asyncio.sleep(seconds)

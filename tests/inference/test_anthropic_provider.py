@@ -13,10 +13,13 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+import anthropic
+import httpx
 import pytest
 
-from alphaswarm.errors import AuthError, InferenceError
+from alphaswarm.errors import AuthError, InferenceError, ProviderConfigError
 from alphaswarm.inference.anthropic_provider import AnthropicProvider
+from alphaswarm.inference.retry import RetryPolicy
 from alphaswarm.inference.types import ProviderRole
 
 # ---------------------------------------------------------------------------
@@ -108,6 +111,14 @@ _SCHEMA: dict[str, Any] = {
     "properties": {"signal": {"type": "string"}},
 }
 
+
+async def _no_sleep(seconds: float) -> None:
+    return None
+
+
+# Retries in unit tests never sleep for real.
+NO_WAIT = RetryPolicy(sleep=_no_sleep)
+
 # ---------------------------------------------------------------------------
 # Protocol surface
 # ---------------------------------------------------------------------------
@@ -129,11 +140,6 @@ def test_model_attribute() -> None:
         model="claude-opus-4-5",
     )
     assert p.model == "claude-opus-4-5"
-
-
-async def test_prepare_noop() -> None:
-    p, _ = _make_provider(_FakeResponse(content=[_FakeTextBlock(text="hi")]))
-    await p.prepare()  # must not raise
 
 
 async def test_teardown_noop() -> None:
@@ -420,6 +426,7 @@ async def test_api_connection_error_retries_then_raises_inference_error(
         "claude-3-5-sonnet-20241022",
         api_key="test-key",
         max_retries=1,
+        retry_policy=RetryPolicy(rng=lambda: 1.0),
         client=_ConnectionErrClient(),  # type: ignore[arg-type]
     )
 
@@ -428,7 +435,7 @@ async def test_api_connection_error_retries_then_raises_inference_error(
 
     assert exc_info.value.provider == "anthropic"
     assert call_count == 2  # initial + 1 retry
-    assert instant_sleep == [1.0]  # 2**0 back-off before the retry
+    assert instant_sleep == [1.0]  # full-jitter ceiling for the first retry is 1 s
 
 
 async def test_breakpoint_sits_after_the_shared_persona_block() -> None:
@@ -463,3 +470,146 @@ async def test_empty_system_messages_are_dropped() -> None:
     )
 
     assert fake_client.messages.last_kwargs["system"] == "Only rule."
+
+
+# ---------------------------------------------------------------------------
+# Retry classification (docs/DECISIONS.md#adr-cloud-retry)
+# ---------------------------------------------------------------------------
+
+
+class _ScriptedMessages:
+    """messages.create answers with ``items`` in order (the last one repeats)."""
+
+    def __init__(self, items: list[Any]) -> None:
+        self._items = list(items)
+        self.calls: list[dict[str, Any]] = []
+
+    async def create(self, **kwargs: Any) -> Any:
+        self.calls.append(kwargs)
+        item = self._items[min(len(self.calls), len(self._items)) - 1]
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+
+class _ScriptedClient:
+    def __init__(self, items: list[Any]) -> None:
+        self.messages = _ScriptedMessages(items)
+
+    async def close(self) -> None:
+        return None
+
+
+def _scripted_provider(
+    items: list[Any], *, max_retries: int = 3, retry_policy: RetryPolicy = NO_WAIT
+) -> tuple[AnthropicProvider, _ScriptedMessages]:
+    client = _ScriptedClient(items)
+    provider = AnthropicProvider(
+        ProviderRole.WORKER,
+        "claude-haiku-4-5",
+        api_key="test-key",
+        max_retries=max_retries,
+        retry_policy=retry_policy,
+        client=client,  # type: ignore[arg-type]
+    )
+    return provider, client.messages
+
+
+def _status_error(
+    cls: type[anthropic.APIStatusError],
+    status: int,
+    message: str,
+    headers: dict[str, str] | None = None,
+) -> anthropic.APIStatusError:
+    return cls(message=message, response=_make_httpx_response(status, headers), body=None)
+
+
+_OK = _FakeResponse(content=[_FakeTextBlock(text="fine")])
+
+
+async def test_not_found_is_a_provider_config_error_and_not_retried() -> None:
+    provider, messages = _scripted_provider(
+        [_status_error(anthropic.NotFoundError, 404, "model: claude-typo")], max_retries=8
+    )
+    with pytest.raises(ProviderConfigError) as exc_info:
+        await provider.chat(_MSG)
+    assert len(messages.calls) == 1
+    assert exc_info.value.status_code == 404
+    assert "claude-typo" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(("cls_name", "status"), [("BadRequestError", 400), ("UnprocessableEntityError", 422)])
+async def test_bad_request_and_unprocessable_are_config_errors(cls_name: str, status: int) -> None:
+    error = _status_error(getattr(anthropic, cls_name), status, "tools.0.input_schema: unsupported keyword")
+    provider, messages = _scripted_provider([error], max_retries=8)
+    with pytest.raises(ProviderConfigError):
+        await provider.chat(_MSG)
+    assert len(messages.calls) == 1
+
+
+async def test_anthropic_prompt_too_long_is_a_per_call_error() -> None:
+    """An oversized prompt is one failed call, never a stopped run."""
+    error = _status_error(anthropic.BadRequestError, 400, "prompt is too long: 250000 tokens > 200000 maximum")
+    provider, messages = _scripted_provider([error], max_retries=8)
+    with pytest.raises(InferenceError) as exc_info:
+        await provider.chat(_MSG)
+    assert not isinstance(exc_info.value, ProviderConfigError)
+    assert len(messages.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("cls_name", "status"),
+    [("OverloadedError", 529), ("InternalServerError", 500), ("ConflictError", 409)],
+)
+async def test_transient_statuses_are_retried(cls_name: str, status: int) -> None:
+    error = _status_error(getattr(anthropic, cls_name), status, "try again")
+    provider, messages = _scripted_provider([error, _OK])
+    assert (await provider.chat(_MSG)).content == "fine"
+    assert len(messages.calls) == 2
+
+
+async def test_timeouts_are_not_retried() -> None:
+    timeout = anthropic.APITimeoutError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+    provider, messages = _scripted_provider([timeout], max_retries=8)
+    with pytest.raises(InferenceError, match="timed out"):
+        await provider.chat(_MSG)
+    assert len(messages.calls) == 1
+
+
+async def test_rate_limit_honours_retry_after_through_the_policy() -> None:
+    slept: list[float] = []
+
+    async def _sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    limited = _status_error(anthropic.RateLimitError, 429, "slow down", {"retry-after": "3"})
+    provider, _ = _scripted_provider([limited, _OK], retry_policy=RetryPolicy(sleep=_sleep, rng=lambda: 1.0))
+    await provider.chat(_MSG)
+    assert slept == [3.0]
+
+
+async def test_missing_tool_use_block_keeps_the_billed_tokens() -> None:
+    provider, _ = _scripted_provider([_FakeResponse(content=[_FakeTextBlock(text="I cannot")])])
+    with pytest.raises(InferenceError) as exc_info:
+        await provider.chat(_MSG, response_schema=_SCHEMA)
+    assert (exc_info.value.input_tokens, exc_info.value.output_tokens) == (10, 5)
+
+
+async def test_prepare_preflights_once_with_one_token() -> None:
+    provider, messages = _scripted_provider([_OK])
+    await provider.prepare()
+    await provider.prepare()
+    assert len(messages.calls) == 1
+    assert messages.calls[0]["max_tokens"] == 1
+
+
+async def test_preflight_unknown_model_is_a_config_error() -> None:
+    provider, _ = _scripted_provider([_status_error(anthropic.NotFoundError, 404, "model: claude-typo")])
+    with pytest.raises(ProviderConfigError):
+        await provider.prepare()
+
+
+async def test_transient_preflight_failure_does_not_block() -> None:
+    provider, messages = _scripted_provider([_status_error(anthropic.OverloadedError, 529, "overloaded")])
+    await provider.prepare()
+    assert len(messages.calls) == 3  # one attempt plus two preflight retries

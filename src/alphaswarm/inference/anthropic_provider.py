@@ -10,22 +10,33 @@ Key behaviours:
 - ``response_schema`` is mapped to a forced tool call via
   ``to_anthropic_tool`` + ``tool_choice={"type":"tool","name":"emit_decision"}``
   and the result is extracted via ``extract_anthropic_tool_json``.
-- Auth failures (401/403) surface as ``AuthError``; rate-limit and network
-  errors are retried with back-off and then surface as ``InferenceError``.
+- Failures follow docs/DECISIONS.md#adr-cloud-retry: 401/403 -> ``AuthError``;
+  400/404/422 about the model or request -> ``ProviderConfigError``;
+  408/409/429/5xx/529 and connection errors retry with capped full jitter;
+  timeouts are never retried.
 - An injected client (for tests) is never closed by ``aclose()``.
 """
 
 from __future__ import annotations
 
-import asyncio
+import json
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final
 
 import anthropic
 import structlog
 
-from alphaswarm.errors import AuthError, InferenceError
+from alphaswarm.errors import AuthError, InferenceError, ProviderConfigError
 from alphaswarm.inference.call_log import logged_call
+from alphaswarm.inference.retry import (
+    DEFAULT_RETRY_POLICY,
+    RetryGate,
+    RetryPolicy,
+    Verdict,
+    classify_status,
+    retry_after_seconds,
+    wait_before_retry,
+)
 from alphaswarm.inference.schema import extract_anthropic_tool_json, to_anthropic_tool
 from alphaswarm.inference.types import (
     FinishReason,
@@ -33,13 +44,14 @@ from alphaswarm.inference.types import (
     InferenceResult,
     ProviderRole,
     count_or_none,
-    parse_retry_after,
 )
 
 if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
 log = structlog.get_logger(component="inference.anthropic")
+_PROVIDER: Final = "anthropic"
+_PREFLIGHT_MAX_RETRIES: Final = 2
 
 # Messages API stop_reason → normalized finish reason (docs/DECISIONS.md#adr-inference-telemetry).
 _STOP_REASONS: Final[Mapping[str, FinishReason]] = {
@@ -56,6 +68,20 @@ def _finish_reason(value: object) -> FinishReason | None:
     if not isinstance(value, str):
         return None
     return _STOP_REASONS.get(value, "other")
+
+
+def _error_text(exc: anthropic.APIStatusError) -> str:
+    """The SDK's message plus the raw error body, for classification and messages."""
+    body = "" if exc.body is None else json.dumps(exc.body, default=str)
+    return f"{exc.message} {body}".strip()
+
+
+def _retry_after_header(exc: anthropic.APIStatusError) -> str | None:
+    try:
+        raw = exc.response.headers.get("retry-after")
+    except AttributeError:
+        return None
+    return raw if isinstance(raw, str) else None
 
 
 def _system_blocks(parts: list[str]) -> list[dict[str, Any]]:
@@ -77,16 +103,19 @@ class AnthropicProvider:
     """Anthropic Messages API adapter.
 
     Lifecycle:
-        ``prepare()`` and ``teardown()`` are no-ops.  Call ``await provider.aclose()``
-        (or use ``async with``) to close the underlying client when this instance
-        created it; an injected client is left open.
+        ``prepare()`` runs a 1-token preflight once per instance; ``teardown()``
+        is a no-op.  Call ``await provider.aclose()`` (or use ``async with``) to
+        close the underlying client when this instance created it; an injected
+        client is left open.
 
     Args:
         role: Whether this instance acts as ORCHESTRATOR or WORKER.
         model: The Claude model identifier (e.g. ``"claude-3-5-sonnet-20241022"``).
         api_key: Anthropic API key.
         max_tokens_default: Default max_tokens for requests when caller omits it.
-        max_retries: Maximum retry attempts for rate-limit and connection errors.
+        max_retries: How often a retryable failure (408/409/429/5xx/529,
+            connection errors) is retried. Timeouts and 4xx are never retried.
+        retry_policy: Backoff shape and an injectable sleep (tests).
         client: Optional pre-built ``AsyncAnthropic`` for tests.  When provided,
             ``aclose()`` will NOT close it — lifecycle ownership stays with caller.
 
@@ -103,11 +132,17 @@ class AnthropicProvider:
         max_tokens_default: int = 1024,
         max_retries: int = 3,
         client: AsyncAnthropic | None = None,
+        retry_policy: RetryPolicy = DEFAULT_RETRY_POLICY,
     ) -> None:
         self.role: ProviderRole = role
         self.model: str = model
         self._max_tokens_default: int = max_tokens_default
         self._max_retries: int = max_retries
+        self._retry_policy: RetryPolicy = retry_policy
+        # Shared cooldown and RPM pacing in cloud mode; set by factory.attach_retry_gate
+        # (docs/DECISIONS.md#adr-cloud-retry).
+        self.retry_gate: RetryGate | None = None
+        self._preflighted = False
 
         # Track whether we own the client so aclose knows whether to close it
         self._client_owned: bool = client is None
@@ -126,7 +161,33 @@ class AnthropicProvider:
         return False
 
     async def prepare(self) -> None:
-        """No-op — cloud providers need no model warm-up."""
+        """Preflight once per instance with a 1-token request.
+
+        A wrong model id raises ProviderConfigError (a bad key AuthError) before
+        seeding; a transient failure is logged and does not block the run
+        (docs/DECISIONS.md#adr-cloud-retry). It costs at most one output token.
+        """
+        if self._preflighted:
+            return
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ping"}],
+        }
+        try:
+            await self._call_with_retry(
+                kwargs, use_tool=False, max_retries=min(self._max_retries, _PREFLIGHT_MAX_RETRIES)
+            )
+        except (AuthError, ProviderConfigError):
+            raise
+        except InferenceError as exc:
+            log.warning(
+                "cloud_preflight_inconclusive",
+                provider=_PROVIDER,
+                model=self.model,
+                error=str(exc)[:200],
+            )
+        self._preflighted = True
 
     async def teardown(self) -> None:
         """No-op — cloud providers need no model teardown."""
@@ -161,12 +222,7 @@ class AnthropicProvider:
         - ``temperature`` omitted when None; ``max_tokens`` falls back to
           ``max_tokens_default`` when caller omits it.
 
-        Retry policy:
-        - ``AuthenticationError`` / ``PermissionDeniedError`` → ``AuthError`` (no retry).
-        - ``RateLimitError`` → honour ``retry-after`` header, retry up to max_retries,
-          then ``InferenceError``.
-        - ``APIConnectionError`` / ``APIStatusError`` → exponential back-off,
-          retry up to max_retries, then ``InferenceError``.
+        Retry policy: see ``_call_with_retry`` (docs/DECISIONS.md#adr-cloud-retry).
 
         Returns:
             ``InferenceResult`` with content, model, input_tokens, output_tokens.
@@ -213,116 +269,121 @@ class AnthropicProvider:
         kwargs: dict[str, Any],
         *,
         use_tool: bool,
+        max_retries: int | None = None,
     ) -> InferenceResult:
-        """Call messages.create with retry logic; translate SDK exceptions."""
-        last_exc: Exception | None = None
-
-        for attempt in range(self._max_retries + 1):
+        """messages.create with classified retries (docs/DECISIONS.md#adr-cloud-retry)."""
+        limit = self._max_retries if max_retries is None else max_retries
+        retries = 0
+        while True:
             try:
                 resp = await self._client.messages.create(**kwargs)
-            except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
-                raise AuthError(
-                    str(exc),
-                    provider="anthropic",
-                    model=self.model,
-                ) from exc
-            except anthropic.RateLimitError as exc:
-                last_exc = exc
-                retry_after = self._parse_retry_after(exc)
-                if attempt < self._max_retries:
-                    log.warning(
-                        "anthropic_rate_limited",
-                        model=self.model,
-                        retry_after_s=round(retry_after, 1),
-                        attempt=attempt + 1,
-                        max_retries=self._max_retries,
-                    )
-                    await asyncio.sleep(retry_after)
-                    continue
+            except anthropic.APITimeoutError as exc:
                 raise InferenceError(
-                    f"Rate limited after {self._max_retries} retries: {exc}",
-                    provider="anthropic",
+                    f"Request timed out (not retried): {exc}",
+                    provider=_PROVIDER,
                     model=self.model,
                     original_error=exc,
                 ) from exc
-            except (anthropic.APIConnectionError, anthropic.APIStatusError) as exc:
-                last_exc = exc
-                if attempt < self._max_retries:
-                    backoff = 2**attempt
-                    log.warning(
-                        "anthropic_api_error_retrying",
+            except anthropic.APIConnectionError as exc:
+                if retries >= limit:
+                    raise InferenceError(
+                        f"APIConnectionError after {retries} retries: {exc}",
+                        provider=_PROVIDER,
                         model=self.model,
-                        error_type=type(exc).__name__,
-                        backoff_s=backoff,
-                        attempt=attempt + 1,
-                        max_retries=self._max_retries,
+                        original_error=exc,
+                    ) from exc
+                await self._before_retry(retries, reason=type(exc).__name__)
+                retries += 1
+                continue
+            except anthropic.APIStatusError as exc:
+                text = _error_text(exc)
+                verdict = classify_status(exc.status_code, text)
+                if verdict is Verdict.AUTH:
+                    raise AuthError(str(exc), provider=_PROVIDER, model=self.model) from exc
+                if verdict is Verdict.CONFIG:
+                    raise ProviderConfigError(
+                        f"HTTP {exc.status_code} for model {self.model}: {text[:500]}",
+                        provider=_PROVIDER,
+                        model=self.model,
+                        status_code=exc.status_code,
+                        original_error=exc,
+                    ) from exc
+                if verdict in (Verdict.RETRY, Verdict.RATE_LIMITED) and retries < limit:
+                    await self._before_retry(
+                        retries,
+                        reason=f"http_{exc.status_code}",
+                        rate_limited=verdict is Verdict.RATE_LIMITED,
+                        retry_after_s=retry_after_seconds(_retry_after_header(exc)),
                     )
-                    await asyncio.sleep(backoff)
+                    retries += 1
                     continue
                 raise InferenceError(
-                    f"{type(exc).__name__} after {self._max_retries} retries: {exc}",
-                    provider="anthropic",
+                    f"{type(exc).__name__} (HTTP {exc.status_code}) after {retries} retries: {text[:500]}",
+                    provider=_PROVIDER,
                     model=self.model,
                     original_error=exc,
                 ) from exc
-            else:
-                # Success
-                return self._parse_response(resp, use_tool=use_tool)
+            return self._parse_response(resp, use_tool=use_tool)
 
-        # Should be unreachable; satisfy mypy
-        raise InferenceError(
-            "Exhausted retries without a conclusive error",
-            provider="anthropic",
+    async def _before_retry(
+        self,
+        attempt: int,
+        *,
+        reason: str,
+        rate_limited: bool = False,
+        retry_after_s: float | None = None,
+    ) -> None:
+        delay = await wait_before_retry(
+            self._retry_policy,
+            attempt,
+            gate=self.retry_gate,
+            rate_limited=rate_limited,
+            retry_after_s=retry_after_s,
+        )
+        log.info(
+            "inference_retry_waited",
+            provider=_PROVIDER,
             model=self.model,
-            original_error=last_exc,
+            attempt=attempt + 1,
+            delay_s=round(delay, 2),
+            reason=reason,
         )
 
     def _parse_response(self, resp: Any, *, use_tool: bool) -> InferenceResult:
-        """Extract content and token counts from an Anthropic response."""
-        if use_tool:
-            # A successful response can still lack the forced tool_use block
-            # (e.g. stop_reason='max_tokens' truncation or a text-only refusal).
-            # extract_anthropic_tool_json raises ValueError there; translate it
-            # into the provider's documented error contract so it is not a bare
-            # ValueError escaping the retry/translation layer (F-22).
-            try:
-                content = extract_anthropic_tool_json(resp.content, name="emit_decision")
-            except ValueError as exc:
-                raise InferenceError(
-                    f"Expected forced tool_use 'emit_decision' but none found "
-                    f"(stop_reason={getattr(resp, 'stop_reason', None)!r}): {exc}",
-                    provider="anthropic",
-                    model=self.model,
-                    original_error=exc,
-                ) from exc
-        else:
-            # Concatenate all text blocks
-            content = "".join(block.text for block in resp.content if getattr(block, "type", None) == "text")
+        """Content and token counts; an unusable but billed response keeps its tokens.
 
-        usage = resp.usage
+        A successful response can still lack the forced tool_use block
+        (stop_reason='max_tokens' truncation or a text-only refusal): that is an
+        InferenceError carrying the billed counts (docs/DECISIONS.md#adr-cloud-retry).
+        """
+        usage = getattr(resp, "usage", None)
         uncached = count_or_none(getattr(usage, "input_tokens", None))
         cache_read = count_or_none(getattr(usage, "cache_read_input_tokens", None))
         cache_write = count_or_none(getattr(usage, "cache_creation_input_tokens", None))
+        # The API's input_tokens is the uncached remainder; the normalized prompt
+        # size adds cache reads and writes (docs/DECISIONS.md#adr-inference-telemetry).
+        input_tokens = None if uncached is None else uncached + (cache_read or 0) + (cache_write or 0)
+        output_tokens = count_or_none(getattr(usage, "output_tokens", None))
+        try:
+            if use_tool:
+                content = extract_anthropic_tool_json(resp.content, name="emit_decision")
+            else:
+                content = "".join(block.text for block in resp.content if getattr(block, "type", None) == "text")
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise InferenceError(
+                f"Unusable response, expected forced tool_use 'emit_decision' or text "
+                f"(stop_reason={getattr(resp, 'stop_reason', None)!r}): {exc}",
+                provider=_PROVIDER,
+                model=self.model,
+                original_error=exc,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            ) from exc
         return InferenceResult(
             content=content,
             model=self.model,
-            # The API's input_tokens is the uncached remainder; the normalized prompt
-            # size adds cache reads and writes (docs/DECISIONS.md#adr-inference-telemetry).
-            input_tokens=None if uncached is None else uncached + (cache_read or 0) + (cache_write or 0),
-            output_tokens=count_or_none(getattr(usage, "output_tokens", None)),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             cached_prompt_tokens=cache_read,
             finish_reason=_finish_reason(getattr(resp, "stop_reason", None)),
         )
-
-    @staticmethod
-    def _parse_retry_after(exc: anthropic.RateLimitError) -> float:
-        """Extract Retry-After (delta-seconds or HTTP-date) from the exception.
-
-        Uses the shared parser so the Anthropic and OpenAI providers honor the
-        same forms and ceiling (F-23 parity); default 1.0 when absent/unparseable.
-        """
-        try:
-            raw = exc.response.headers.get("retry-after")
-        except AttributeError:
-            return 1.0
-        return parse_retry_after(raw, default=1.0)

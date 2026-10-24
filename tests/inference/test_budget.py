@@ -1,16 +1,22 @@
 """Tests for BudgetMeter, BudgetTrackingProvider, DEFAULT_PRICING, and estimate_run."""
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
 
-from alphaswarm.errors import BudgetExceededError
+from alphaswarm.errors import BudgetExceededError, InferenceError
 from alphaswarm.inference.budget import (
+    DEFAULT_CALL_PROFILE,
     DEFAULT_PRICING,
+    PRICING_MAX_AGE_DAYS,
+    PRICING_VERIFIED_AT,
     BudgetMeter,
     BudgetTrackingProvider,
-    RunEstimate,
+    CallProfile,
     estimate_run,
+    normalize_model_id,
+    resolve_price,
 )
 from alphaswarm.inference.config import InferenceConfig, ModelPrice, ProviderType, RoleConfig
 from alphaswarm.inference.provider import InferenceProvider
@@ -210,118 +216,80 @@ class TestCheck:
 
 
 class TestEstimateRun:
-    def test_call_count(self) -> None:
-        cfg = _cloud_cfg()
-        result = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200)
-        assert result.calls == 10 * 3 + 3  # 33
+    """estimate_run prices through the meter (docs/DECISIONS.md#adr-cloud-retry)."""
 
-    def test_call_count_large(self) -> None:
-        cfg = _cloud_cfg()
-        result = estimate_run(cfg, agents=100, rounds=3, avg_in=500, avg_out=200)
-        assert result.calls == 100 * 3 + 3  # 303
+    PROFILE = CallProfile(
+        worker_in=1_000_000,
+        worker_out=0,
+        orchestrator_calls=2,
+        orchestrator_in=0,
+        orchestrator_out=1_000_000,
+    )
 
-    def test_cost_math_cloud(self) -> None:
-        """Check the band arithmetic for a simple case."""
-        cfg = _cloud_cfg()
-        # worker model: $1/MTok in, $2/MTok out
-        # orch model:   $1/MTok in, $2/MTok out
-        agents, rounds, avg_in, avg_out = 10, 1, 1_000_000, 1_000_000
-        # worker calls: 10*1 = 10, each: $1 + $2 = $3 → $30
-        # orch calls: 3, each: $3 → $9
-        # total point: $39
-        result = estimate_run(cfg, agents=agents, rounds=rounds, avg_in=avg_in, avg_out=avg_out)
-        expected_low = (Decimal("39.00") * Decimal("0.7")).quantize(Decimal("0.01"))
-        expected_high = (Decimal("39.00") * Decimal("1.3")).quantize(Decimal("0.01"))
-        assert result.low_usd == expected_low
-        assert result.high_usd == expected_high
+    def test_call_count_is_agents_times_rounds_plus_orchestrator_calls(self) -> None:
+        result = estimate_run(_cloud_cfg(), agents=100, rounds=3)
+        assert result.calls == 100 * 3 + DEFAULT_CALL_PROFILE.orchestrator_calls
 
-    def test_local_config_zero_cost(self) -> None:
-        cfg = _local_cfg()
-        result = estimate_run(cfg, agents=100, rounds=3, avg_in=500, avg_out=200)
-        assert result.low_usd == Decimal("0.00")
-        assert result.high_usd == Decimal("0.00")
+    def test_default_profile_counts_seed_modifiers_report_and_advisory(self) -> None:
+        # Narratives are generated at interview time; interviews are not part of a run.
+        assert DEFAULT_CALL_PROFILE.orchestrator_calls == 4
 
-    def test_run_estimate_is_dataclass(self) -> None:
-        cfg = _cloud_cfg()
-        result = estimate_run(cfg, agents=5, rounds=2, avg_in=100, avg_out=100)
-        assert isinstance(result, RunEstimate)
-        assert hasattr(result, "calls")
-        assert hasattr(result, "low_usd")
-        assert hasattr(result, "high_usd")
+    def test_cost_math_uses_each_roles_tokens(self) -> None:
+        # worker: 10 calls x 1M in x $1 = $10; orchestrator: 2 calls x 1M out x $2 = $4; point $14
+        result = estimate_run(_cloud_cfg(), agents=10, rounds=1, profile=self.PROFILE)
+        assert (result.low_usd, result.high_usd) == (Decimal("9.80"), Decimal("18.20"))
 
-    def test_low_less_than_high_for_nonzero(self) -> None:
-        cfg = _cloud_cfg()
-        result = estimate_run(cfg, agents=10, rounds=3, avg_in=500_000, avg_out=200_000)
-        if result.low_usd > Decimal("0"):
-            assert result.low_usd < result.high_usd
+    def test_local_config_costs_nothing(self) -> None:
+        result = estimate_run(_local_cfg(), agents=100, rounds=3)
+        assert (result.low_usd, result.high_usd, result.unpriced_models) == (Decimal("0.00"), Decimal("0.00"), ())
 
-    def test_narrative_calls_total_count(self) -> None:
-        """(a) total calls == agents*rounds + narrative_calls + 3."""
-        cfg = _cloud_cfg()
-        result = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200, narrative_calls=10)
-        assert result.calls == 10 * 3 + 10 + 3  # 43
-
-    def test_narrative_calls_priced_at_worker_rate(self) -> None:
-        """(b) narrative_calls are priced at the WORKER model rate, not orchestrator rate."""
-        # Use distinguishable prices so we can tell which model was charged.
-        # Worker: $10/MTok in — deliberately expensive.
-        # Orchestrator: $1/MTok in — deliberately cheap.
-        worker_model = "worker-model"
-        orch_model = "orch-model"
+    def test_unknown_model_with_a_cap_is_priced_like_the_meter(self) -> None:
         cfg = InferenceConfig(
-            orchestrator=RoleConfig(provider=ProviderType.ANTHROPIC, model=orch_model),
-            worker=RoleConfig(provider=ProviderType.OPENAI_COMPATIBLE, model=worker_model),
-            pricing_overrides={
-                worker_model: ModelPrice(
-                    input_per_mtok=Decimal("10.00"),
-                    output_per_mtok=Decimal("0.00"),
-                ),
-                orch_model: ModelPrice(
-                    input_per_mtok=Decimal("1.00"),
-                    output_per_mtok=Decimal("0.00"),
-                ),
-            },
+            orchestrator=RoleConfig(provider=ProviderType.OLLAMA, model="local-orch"),
+            worker=RoleConfig(provider=ProviderType.OPENAI_COMPATIBLE, model="typo-model"),
+            spend_cap_usd=Decimal("5.00"),
         )
-        # 0 regular worker rounds, 1 narrative call, 0 orch calls (override via pricing=custom)
-        # We want to isolate the narrative cost; set agents=0 rounds=0 and check narrative_calls=1
-        # But orch_calls is always 3 — use large avg_in=0 to zero orch cost via avg_out:
-        # To isolate: set avg_in=1_000_000, avg_out=0; orch cost = 3 * $1 = $3
-        # narrative cost (1 call, worker) = 1 * $10 = $10; total point = $13
-        result = estimate_run(
-            cfg,
-            agents=0,
-            rounds=0,
-            avg_in=1_000_000,
-            avg_out=0,
-            narrative_calls=1,
-        )
-        # total point = orch(3 * $1) + narrative_worker(1 * $10) = $13
-        expected_low = (Decimal("13.00") * Decimal("0.7")).quantize(Decimal("0.01"))
-        expected_high = (Decimal("13.00") * Decimal("1.3")).quantize(Decimal("0.01"))
-        assert result.low_usd == expected_low, "narrative_calls must be priced at worker rate ($10), not orch rate ($1)"
-        assert result.high_usd == expected_high
+        result = estimate_run(cfg, agents=1, rounds=1, profile=self.PROFILE)
+        point = BudgetMeter(Decimal("5.00"), dict(DEFAULT_PRICING)).record("typo-model", 1_000_000, 0)
+        assert result.high_usd == (point * Decimal("1.3")).quantize(Decimal("0.01"))
+        assert result.high_usd > Decimal("0.00")
+        assert result.unpriced_models == ("typo-model",)
 
-    def test_narrative_calls_default_zero_regression(self) -> None:
-        """(c) narrative_calls=0 (default) reproduces the prior cost — regression guard."""
-        cfg = _cloud_cfg()
-        # Explicit zero and omitted should produce identical results
-        result_explicit = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200, narrative_calls=0)
-        result_default = estimate_run(cfg, agents=10, rounds=3, avg_in=500, avg_out=200)
-        assert result_explicit.calls == result_default.calls
-        assert result_explicit.low_usd == result_default.low_usd
-        assert result_explicit.high_usd == result_default.high_usd
+    def test_unknown_model_without_a_cap_is_free_but_listed(self) -> None:
+        role = RoleConfig(provider=ProviderType.OPENAI_COMPATIBLE, model="typo-model")
+        result = estimate_run(InferenceConfig(orchestrator=role, worker=role), agents=10, rounds=3)
+        assert result.high_usd == Decimal("0.00")
+        assert result.unpriced_models == ("typo-model",)
+
+    def test_dated_ids_are_priced(self) -> None:
+        role = RoleConfig(provider=ProviderType.ANTHROPIC, model="claude-haiku-4-5-20251001")
+        result = estimate_run(InferenceConfig(orchestrator=role, worker=role), agents=100, rounds=3)
+        assert result.high_usd > Decimal("0.00")
+        assert result.unpriced_models == ()
 
     def test_custom_pricing_passed_in(self) -> None:
-        cfg = _cloud_cfg()
-        custom = {
-            "test-model": ModelPrice(
-                input_per_mtok=Decimal("0.00"),
-                output_per_mtok=Decimal("0.00"),
-            )
-        }
-        result = estimate_run(cfg, agents=10, rounds=3, avg_in=1_000_000, avg_out=1_000_000, pricing=custom)
-        assert result.low_usd == Decimal("0.00")
+        free = {"test-model": ModelPrice(input_per_mtok=Decimal("0"), output_per_mtok=Decimal("0"))}
+        result = estimate_run(_cloud_cfg(), agents=10, rounds=3, pricing=free)
         assert result.high_usd == Decimal("0.00")
+
+    def test_run_estimate_is_frozen(self) -> None:
+        import dataclasses
+
+        result = estimate_run(_cloud_cfg(), agents=5, rounds=2)
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            result.calls = 0  # type: ignore[misc]
+
+    def test_the_estimate_does_not_log_per_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import structlog
+        from structlog.testing import capture_logs
+
+        import alphaswarm.inference.budget as budget_module
+
+        monkeypatch.setattr(budget_module, "log", structlog.get_logger(component="inference.budget"))
+        role = RoleConfig(provider=ProviderType.OPENAI_COMPATIBLE, model="typo-model")
+        with capture_logs() as logs:
+            estimate_run(InferenceConfig(orchestrator=role, worker=role), agents=1, rounds=1)
+        assert not [e for e in logs if e["event"] == "budget_model_unpriced"]
 
 
 # ---------------------------------------------------------------------------
@@ -458,3 +426,154 @@ class TestBudgetTrackingProviderChat:
         for _ in range(3):
             await wrapper.chat([{"role": "user", "content": "x"}])
         assert meter.spent() == Decimal("9.00")
+
+    @staticmethod
+    def _failing(
+        cap: Decimal | None, exc: InferenceError
+    ) -> tuple[BudgetTrackingProvider, BudgetMeter, FakeInferenceProvider]:
+        def _raise(**_: object) -> InferenceResult:
+            raise exc
+
+        meter = BudgetMeter(cap_usd=cap, pricing=_PRICING)
+        inner = FakeInferenceProvider(role=ProviderRole.WORKER, model="test-model", scripted=_raise, is_local=False)
+        return BudgetTrackingProvider(inner=inner, meter=meter), meter, inner
+
+    async def test_billed_failure_is_recorded(self) -> None:
+        """A response that was billed and then failed still costs money."""
+        billed = InferenceError(
+            "Malformed response body",
+            provider="openai_compatible",
+            model="test-model",
+            input_tokens=1_000_000,
+            output_tokens=0,
+        )
+        wrapper, meter, _ = self._failing(None, billed)
+        with pytest.raises(InferenceError):
+            await wrapper.chat([{"role": "user", "content": "hi"}])
+        assert meter.spent() == Decimal("1.00")
+
+    async def test_unbilled_failure_records_nothing(self) -> None:
+        timeout = InferenceError("Request timed out (not retried)", provider="openai_compatible", model="test-model")
+        wrapper, meter, _ = self._failing(None, timeout)
+        with pytest.raises(InferenceError):
+            await wrapper.chat([{"role": "user", "content": "hi"}])
+        assert meter.spent() == Decimal("0")
+
+    async def test_billed_failures_count_toward_the_cap(self) -> None:
+        billed = InferenceError(
+            "Malformed response body",
+            provider="openai_compatible",
+            model="test-model",
+            input_tokens=1_000_000,
+            output_tokens=0,
+        )
+        wrapper, _, inner = self._failing(Decimal("1.00"), billed)
+        with pytest.raises(InferenceError):
+            await wrapper.chat([{"role": "user", "content": "hi"}])
+        with pytest.raises(BudgetExceededError):
+            await wrapper.chat([{"role": "user", "content": "hi"}])
+        assert len(inner.calls) == 1
+
+    async def test_malformed_cloud_response_is_metered_end_to_end(self) -> None:
+        import httpx
+
+        from alphaswarm.inference.openai_provider import OpenAICompatProvider
+
+        body = {"choices": [{"finish_reason": "stop"}], "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0}}
+        inner = OpenAICompatProvider(
+            ProviderRole.WORKER,
+            "test-model",
+            base_url="https://api.example.com/v1",
+            api_key="test-key",
+            client=httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body))),
+        )
+        meter = BudgetMeter(cap_usd=None, pricing=_PRICING)
+        with pytest.raises(InferenceError):
+            await BudgetTrackingProvider(inner, meter).chat([{"role": "user", "content": "hi"}])
+        assert meter.spent() == Decimal("1.00")
+
+
+# ---------------------------------------------------------------------------
+# Model id normalization and the pricing table (docs/DECISIONS.md#adr-cloud-retry)
+# ---------------------------------------------------------------------------
+
+
+def _mp(input_per_mtok: str, output_per_mtok: str) -> ModelPrice:
+    return ModelPrice(input_per_mtok=Decimal(input_per_mtok), output_per_mtok=Decimal(output_per_mtok))
+
+
+class TestModelIdNormalization:
+    @pytest.mark.parametrize(
+        ("raw", "normalized"),
+        [
+            ("claude-haiku-4-5-20251001", "claude-haiku-4-5"),
+            ("claude-3-5-haiku-20241022", "claude-3-5-haiku"),
+            ("gpt-4o-mini-2024-07-18", "gpt-4o-mini"),
+            ("gpt-4o", "gpt-4o"),
+            ("meta/llama-3.1-8b-instruct", "meta/llama-3.1-8b-instruct"),
+        ],
+    )
+    def test_dated_suffixes_are_stripped(self, raw: str, normalized: str) -> None:
+        assert normalize_model_id(raw) == normalized
+
+    def test_dated_ids_resolve_to_the_base_price(self) -> None:
+        match = resolve_price(DEFAULT_PRICING, "claude-haiku-4-5-20251001")
+        assert match == ("claude-haiku-4-5", DEFAULT_PRICING["claude-haiku-4-5"])
+
+    def test_longest_prefix_wins_for_version_suffixes(self) -> None:
+        pricing = {"claude-opus-4": _mp("15", "75"), "claude-opus-4-5": _mp("5", "25")}
+        assert resolve_price(pricing, "claude-opus-4-5-20251101") == ("claude-opus-4-5", pricing["claude-opus-4-5"])
+        assert resolve_price(pricing, "claude-opus-4-7") == ("claude-opus-4", pricing["claude-opus-4"])
+
+    def test_a_different_product_is_not_a_version(self) -> None:
+        """o1-pro costs 10x o1: a bare prefix match would under-price it under a cap."""
+        assert resolve_price({"o1": _mp("15", "60")}, "o1-pro") is None
+        assert resolve_price({"gpt-4o": _mp("2.50", "10")}, "gpt-4o-audio-preview") is None
+
+    def test_tags_after_a_colon_are_versions(self) -> None:
+        pricing = {"meta-llama/llama-3.3-70b-instruct": _mp("0.13", "0.40")}
+        assert resolve_price(pricing, "meta-llama/llama-3.3-70b-instruct:free") is not None
+
+    def test_an_exact_override_with_a_dated_id_wins(self) -> None:
+        pricing = {"claude-haiku-4-5": _mp("1", "5"), "claude-haiku-4-5-20251001": _mp("2", "10")}
+        match = resolve_price(pricing, "claude-haiku-4-5-20251001")
+        assert match is not None and match[0] == "claude-haiku-4-5-20251001"
+
+    def test_the_meter_prices_a_dated_id_like_its_base_model(self) -> None:
+        meter = BudgetMeter(cap_usd=None, pricing=dict(DEFAULT_PRICING))
+        cost = meter.record("claude-haiku-4-5-20251001", 1_000_000, 0)
+        assert cost == DEFAULT_PRICING["claude-haiku-4-5"].input_per_mtok
+
+    def test_an_inferred_price_is_logged_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import structlog
+        from structlog.testing import capture_logs
+
+        import alphaswarm.inference.budget as budget_module
+
+        monkeypatch.setattr(budget_module, "log", structlog.get_logger(component="inference.budget"))
+        meter = BudgetMeter(cap_usd=None, pricing={"claude-opus-4": _mp("15", "75")})
+        with capture_logs() as logs:
+            meter.record("claude-opus-4-7", 10, 10)
+            meter.record("claude-opus-4-7", 10, 10)
+        inferred = [e for e in logs if e["event"] == "budget_model_price_inferred"]
+        assert [(e["model"], e["priced_as"]) for e in inferred] == [("claude-opus-4-7", "claude-opus-4")]
+
+
+class TestPricingTable:
+    def test_pricing_table_was_verified_recently(self) -> None:
+        """Re-check the vendor pages (docs/RUNBOOK.md, cloud mode) and bump the date."""
+        age = (date.today() - PRICING_VERIFIED_AT).days
+        assert 0 <= age <= PRICING_MAX_AGE_DAYS, (
+            f"DEFAULT_PRICING was last verified {age} days ago; re-check the vendor pricing "
+            "pages and update PRICING_VERIFIED_AT in src/alphaswarm/inference/budget.py"
+        )
+
+    def test_keys_are_normalized(self) -> None:
+        assert all(normalize_model_id(key) == key for key in DEFAULT_PRICING)
+
+    def test_haiku_4_5_is_no_longer_priced_like_haiku_3_5(self) -> None:
+        assert DEFAULT_PRICING["claude-haiku-4-5"].input_per_mtok > DEFAULT_PRICING["claude-3-5-haiku"].input_per_mtok
+
+    def test_unknown_model_ceiling_is_unchanged_by_the_refresh(self) -> None:
+        meter = BudgetMeter(cap_usd=Decimal("100"), pricing=dict(DEFAULT_PRICING))
+        assert meter.record("unknown-model-xyz", 1_000_000, 1_000_000) == Decimal("90.00")

@@ -23,6 +23,7 @@ from alphaswarm.inference.factory import (
     BuiltProviders,
     advisory_allowed,
     advisory_block_reason,
+    attach_retry_gate,
     build_controller,
     build_providers,
     effective_ollama_host,
@@ -30,6 +31,7 @@ from alphaswarm.inference.factory import (
     is_cloud_ollama_model,
     is_local_ollama,
     is_loopback_url,
+    preflight_cloud_roles,
 )
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
@@ -330,6 +332,21 @@ class TestBuildControllerLocal:
 
 
 class TestBuildControllerCloud:
+    def test_tpm_reservation_comes_from_the_limits(self) -> None:
+        cfg = InferenceConfig(
+            orchestrator=_ollama_role(),
+            worker=_anthropic_role(),
+            limits={ProviderType.ANTHROPIC: ProviderLimits(tokens_per_min=100_000, avg_tokens_per_call=900)},
+        )
+        ctrl = build_controller(cfg, _governor_settings())
+        assert isinstance(ctrl, RateLimitController)
+        assert ctrl._avg_tokens_per_call == 900
+
+    def test_tpm_reservation_defaults_to_1500(self) -> None:
+        cfg = InferenceConfig(orchestrator=_ollama_role(), worker=_anthropic_role())
+        ctrl = build_controller(cfg, _governor_settings())
+        assert ctrl._avg_tokens_per_call == 1500  # type: ignore[attr-defined]
+
     def test_anthropic_worker_returns_rate_limit_controller(self) -> None:
         cfg = InferenceConfig(
             orchestrator=_ollama_role(),
@@ -630,3 +647,61 @@ class TestTypedFactory:
         assert controller["governor_settings"].annotation == "GovernorSettings"
         assert controller["state_store"].annotation == "StateStore | None"
         assert "Lazy import avoids circular dependency" not in inspect.getsource(factory)
+
+
+def test_anthropic_receives_max_retries_from_limits() -> None:
+    """The Anthropic path used to ignore ProviderLimits.max_retries."""
+    cfg = InferenceConfig(
+        orchestrator=_ollama_role(),
+        worker=_anthropic_role(),
+        limits={ProviderType.ANTHROPIC: ProviderLimits(max_retries=8)},
+    )
+    built = build_providers(cfg, ollama_client=_fake_ollama_client(), ollama_model_manager=_fake_model_manager())
+    inner = built.worker._inner  # type: ignore[union-attr]
+    assert isinstance(inner, AnthropicProvider)
+    assert inner._max_retries == 8
+
+
+class TestAttachRetryGate:
+    """Retries share the cloud controller's cooldown and RPM bucket (docs/DECISIONS.md#adr-cloud-retry)."""
+
+    @staticmethod
+    def _gate() -> RateLimitController:
+        return RateLimitController(max_in_flight=1, requests_per_min=40, tokens_per_min=None)
+
+    @staticmethod
+    def _built(cfg: InferenceConfig) -> BuiltProviders:
+        return build_providers(cfg, ollama_client=_fake_ollama_client(), ollama_model_manager=_fake_model_manager())
+
+    def test_worker_and_same_vendor_orchestrator_share_the_gate(self) -> None:
+        cfg = InferenceConfig(orchestrator=_openai_role("gpt-4o"), worker=_openai_role())
+        built, gate = self._built(cfg), self._gate()
+        assert attach_retry_gate(built, cfg, gate) == 2
+        assert built.worker.inner.retry_gate is gate  # type: ignore[attr-defined]
+        assert built.orchestrator.inner.retry_gate is gate  # type: ignore[attr-defined]
+
+    def test_orchestrator_on_another_vendor_keeps_its_own_pacing(self) -> None:
+        cfg = InferenceConfig(orchestrator=_anthropic_role(), worker=_openai_role())
+        built = self._built(cfg)
+        assert attach_retry_gate(built, cfg, self._gate()) == 1
+        assert built.orchestrator.inner.retry_gate is None  # type: ignore[attr-defined]
+
+    def test_local_roles_are_skipped(self) -> None:
+        cfg = InferenceConfig(orchestrator=_ollama_role(), worker=_openai_role())
+        assert attach_retry_gate(self._built(cfg), cfg, self._gate()) == 1
+
+
+async def test_preflight_cloud_roles_prepares_only_cloud_providers() -> None:
+    from unittest.mock import AsyncMock
+
+    from alphaswarm.inference.budget import BudgetMeter
+    from alphaswarm.inference.types import ProviderRole
+    from tests.inference.fakes import FakeInferenceProvider
+
+    local = FakeInferenceProvider(ProviderRole.ORCHESTRATOR, "alphaswarm-orchestrator", scripted=[])
+    cloud = FakeInferenceProvider(ProviderRole.WORKER, "gpt-4o-mini", scripted=[], is_local=False)
+    local.prepare = AsyncMock()  # type: ignore[method-assign]
+    cloud.prepare = AsyncMock()  # type: ignore[method-assign]
+    await preflight_cloud_roles(BuiltProviders(orchestrator=local, worker=cloud, budget_meter=BudgetMeter(None, {})))
+    local.prepare.assert_not_awaited()
+    cloud.prepare.assert_awaited_once()

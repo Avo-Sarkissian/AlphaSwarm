@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, StrictBool, ValidationError, field_validator
+from pydantic import BaseModel, Field, StrictBool, ValidationError, field_validator
 
 from alphaswarm.errors import AuthError, InferenceError
 from alphaswarm.inference.budget import DEFAULT_PRICING, BudgetMeter, RunEstimate, estimate_run
@@ -41,11 +41,6 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-# Representative average token counts for a single agent inference call.
-# These are deliberately rough; the real distribution varies by model+prompt.
-_AVG_IN_TOKENS: int = 1500  # typical prompt (persona + rumor + context)
-_AVG_OUT_TOKENS: int = 250  # typical structured-JSON completion
 
 # Non-authoritative convenience list of well-known cloud model IDs for the
 # settings UI dropdown. Users can type any id — these are illustrative only.
@@ -236,6 +231,7 @@ class EstimateResponse(BaseModel):
     low_usd: str  # Decimal serialized as string for JSON safety
     high_usd: str
     mode: Literal["local", "cloud", "mixed"]
+    unpriced_models: list[str] = Field(default_factory=list)  # cloud ids with no price
 
 
 # ---------------------------------------------------------------------------
@@ -502,17 +498,11 @@ async def get_estimate(request: Request) -> EstimateResponse:
 
     # No narrative calls: a run makes none; an agent's narrative is generated on
     # its first interview (docs/DECISIONS.md#p11-d-11).
-    result: RunEstimate = estimate_run(
-        cfg,
-        agents=agents,
-        rounds=rounds,
-        avg_in=_AVG_IN_TOKENS,
-        avg_out=_AVG_OUT_TOKENS,
-    )
-
+    result: RunEstimate = estimate_run(cfg, agents=agents, rounds=rounds)
     return EstimateResponse(
         calls=result.calls,
         low_usd=str(result.low_usd),
         high_usd=str(result.high_usd),
         mode=inference_mode(cfg),
+        unpriced_models=list(result.unpriced_models),
     )

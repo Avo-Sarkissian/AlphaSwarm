@@ -21,7 +21,12 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from alphaswarm.errors import AuthError, BudgetExceededError, GovernorCrisisError
+from alphaswarm.errors import (
+    AuthError,
+    BudgetExceededError,
+    GovernorCrisisError,
+    ProviderConfigError,
+)
 from alphaswarm.types import AgentDecision, SignalType
 from alphaswarm.worker import agent_worker
 
@@ -38,11 +43,12 @@ if TYPE_CHECKING:
 log = structlog.get_logger(component="batch_dispatcher")
 
 # Errors that must stop a run instead of becoming PARSE_ERROR decisions
-# (docs/DECISIONS.md#adr-taskgroup-dispatch).
+# (docs/DECISIONS.md#adr-taskgroup-dispatch, #adr-cloud-retry).
 HARD_STOP_ERRORS: tuple[type[BaseException], ...] = (
     BudgetExceededError,
     AuthError,
     GovernorCrisisError,
+    ProviderConfigError,
 )
 _NEVER_CATCH: tuple[type[BaseException], ...] = (
     asyncio.CancelledError,
@@ -80,6 +86,9 @@ async def _safe_agent_inference(
     the wave immediately so all 100 agents do not silently become PARSE_ERRORs
     burning 3 waves of failed calls before the operator notices.
 
+    ProviderConfigError is NEVER caught either: a 400/404/422 about the model or
+    endpoint fails every agent the same way (docs/DECISIONS.md#adr-cloud-retry).
+
     Streams every resolved AgentDecision, PARSE_ERROR included, to
     state_store.update_agent_state the moment the agent finishes, so the WS
     broadcaster sees a progressively-filling agent_states dict and a failed
@@ -100,6 +109,7 @@ async def _safe_agent_inference(
         GovernorCrisisError: Always re-raised (crisis must propagate).
         BudgetExceededError: Always re-raised (spend cap must halt the wave).
         AuthError: Always re-raised (bad API key is a config error, not transient).
+        ProviderConfigError: Always re-raised (wrong model id or base URL).
     """
     # Each agent call runs in its own TaskGroup task, so this binding is task-local:
     # every log line of this call carries the round and the agent
