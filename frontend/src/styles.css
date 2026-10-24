@@ -1829,3 +1829,9 @@ button.bracket-row:hover { width: calc(100% + 28px); }
   .ig-node, .ig-node-fill { transition: none; }
   .ig-flip { animation: none; }
 }
+
+/* Replay scrubber */
+.replay-tick { background: none; border: 0; padding: 0 2px; font: inherit; color: var(--text-3); cursor: pointer; }
+.replay-tick.is-reached { color: var(--accent); }
+.replay-tick[aria-pressed="true"] { text-decoration: underline; text-underline-offset: 3px; }
+.replay-tick:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
