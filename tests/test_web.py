@@ -932,8 +932,11 @@ async def test_sim_manager_run_passes_consume_shock() -> None:
 
     called_kwargs: dict = {}
 
-    async def _capture_run(*args: object, **kwargs: object) -> None:
+    async def _capture_run(*args: object, **kwargs: object) -> MagicMock:
         called_kwargs.update(kwargs)
+        # A result object, so the manager's post-run bookkeeping never fails: a bare
+        # None raised AttributeError whenever the task outlived the sleep below.
+        return MagicMock()
 
     # Patch inference factory functions so the test does not need a real AppSettings object.
     mock_built = MagicMock()
