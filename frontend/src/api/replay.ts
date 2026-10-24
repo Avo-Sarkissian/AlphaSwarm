@@ -39,11 +39,6 @@ export interface ReplayStartResponse {
   round_num: number;
 }
 
-export interface ReplayAdvanceResponse {
-  status: string;
-  round_num: number;
-}
-
 export interface ReplayStopResponse {
   status: string;
 }
@@ -55,10 +50,16 @@ export async function replayStart(cycleId: string): Promise<ReplayStartResponse>
   );
 }
 
-export async function replayAdvance(): Promise<ReplayAdvanceResponse> {
-  return apiPost<ReplayAdvanceResponse>('/api/replay/advance', {});
-}
-
 export async function replayStop(): Promise<ReplayStopResponse> {
   return apiPost<ReplayStopResponse>('/api/replay/stop', {});
+}
+
+export interface ReplaySeekResponse {
+  status: string;
+  round_num: number;
+}
+
+/** Show any round of the active replay (clamped by the backend to the cycle's depth). */
+export async function replaySeek(round: number): Promise<ReplaySeekResponse> {
+  return apiPost<ReplaySeekResponse>(`/api/replay/round/${encodeURIComponent(String(round))}`, {});
 }

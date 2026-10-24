@@ -1,64 +1,99 @@
-// Replay bar: shown whenever the frame's mode is 'replay'; steps or exits the replay.
-import { useState } from 'react';
+// Replay bar: shown whenever the frame's mode is 'replay'. Round buttons,
+// rewind and forward seek the replay; Play cascade steps from Round 1 to the
+// last round (docs/DECISIONS.md#adr-replaystore-separate). Driven entirely by
+// the frame, so it survives a page reload: the backend replay is the source of
+// truth, not local UI state.
+import { useEffect, useState } from 'react';
+import { replaySeek, replayStop } from '../../api/replay';
 import { Icon } from '../../components/Icon';
 import { InlineError } from '../../components/InlineError';
-import { replayAdvance, replayStop } from '../../api/replay';
 import { useFrameMeta } from '../../context/FrameMetaContext';
+import { useCascadePlayer } from '../../hooks/useCascadePlayer';
 import { useRounds } from '../../hooks/useRounds';
 import { formatApiError } from '../../lib/apiError';
+import { takeCascadeAutoplay } from '../../lib/cascadeIntent';
 
-// ─── ReplayBar ───────────────────────────────────────────────────────────
-// Driven entirely by the frame (mode === 'replay' decides whether the app
-// mounts it), so it survives a page reload: the backend replay is the source
-// of truth, not local UI state. Forward and exit only; there is no rewind
-// endpoint (docs/DECISIONS.md#kr-41-1-06).
 export function ReplayBar() {
   const { cycleId } = useFrameMeta();
   const { rounds, numRounds, currentRound } = useRounds();
   const round = currentRound ?? 1;
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const cascade = useCascadePlayer({ roundNum: currentRound, numRounds, seek: replaySeek });
+  const { play } = cascade;
+  const [exitError, setExitError] = useState<string | null>(null);
+  const [exiting, setExiting] = useState(false);
 
-  async function run(action: () => Promise<unknown>) {
-    if (busy) return;
-    setBusy(true);
-    setErr(null);
+  useEffect(() => {
+    if (takeCascadeAutoplay(cycleId)) play();
+  }, [cycleId, play]);
+
+  async function exit() {
+    if (exiting) return;
+    cascade.stop();
+    setExiting(true);
+    setExitError(null);
     try {
-      await action();
+      await replayStop();
     } catch (e) {
-      setErr(formatApiError(e));
+      setExitError(formatApiError(e));
     } finally {
-      setBusy(false);
+      setExiting(false);
     }
   }
 
   return (
-    <div className="replay-bar">
+    <div className="replay-bar" data-cascade={cascade.playing ? 'playing' : 'idle'}>
       <div className="label u-accent">
         <Icon name="replay" size={11} /> REPLAY · {cycleId ?? ''}
       </div>
+      <button
+        type="button"
+        className="btn ghost"
+        aria-label="Previous round"
+        onClick={() => cascade.seek(round - 1)}
+        disabled={round <= 1}
+      >
+        <Icon name="rewind" />
+      </button>
       <div className="replay-track">
         <div className="replay-fill" style={{ width: `${(round / numRounds) * 100}%` }} />
         <div className="replay-ticks">
-          {['SEED', ...rounds.map((r) => `R${r}`)].map((t, i) => (
-            <span key={t} style={{ color: i <= round ? 'var(--accent)' : 'var(--text-3)' }}>
-              {t}
-            </span>
+          <span className="replay-tick is-reached">SEED</span>
+          {rounds.map((r) => (
+            <button
+              key={r}
+              type="button"
+              className={`replay-tick${r <= round ? ' is-reached' : ''}`}
+              aria-label={`Show round ${r}`}
+              aria-pressed={r === round}
+              onClick={() => cascade.seek(r)}
+            >
+              R{r}
+            </button>
           ))}
         </div>
       </div>
       <button
+        type="button"
         className="btn ghost"
         aria-label="Next round"
-        onClick={() => run(replayAdvance)}
-        disabled={busy || round >= numRounds}
+        onClick={() => cascade.seek(round + 1)}
+        disabled={round >= numRounds}
       >
         <Icon name="forward" />
       </button>
-      <button className="btn" onClick={() => run(replayStop)} disabled={busy}>
+      <button type="button" className="btn" onClick={cascade.playing ? cascade.stop : play}>
+        {cascade.playing ? 'Pause cascade' : 'Play cascade'}
+      </button>
+      <button type="button" className="btn" onClick={exit} disabled={exiting}>
         Exit replay
       </button>
-      <InlineError error={err} onDismiss={() => setErr(null)} />
+      <InlineError
+        error={exitError ?? cascade.error}
+        onDismiss={() => {
+          setExitError(null);
+          cascade.dismissError();
+        }}
+      />
     </div>
   );
 }

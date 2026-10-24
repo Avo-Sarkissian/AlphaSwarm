@@ -12,6 +12,7 @@ import { lifecycleOf } from '../../lib/lifecycle';
 import { DEFAULT_ALL_EDGES, InfluenceGraph } from '../../viz/InfluenceGraph';
 import type { GraphLayout, Reserve } from '../../viz/layout';
 import { BracketList, ConsensusRing, KpiStrip, RationaleFeed, type BracketRow } from './panels';
+import { RoundStory } from './RoundStory';
 import { IdleState, SeedingState } from './StateOverlays';
 import { useBracketRows, useFeedRows, useTopInfluencers } from './useDashboardData';
 
@@ -110,7 +111,7 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
       {/* Center */}
       <div className="col col-center">
         <div className="canvas-topstrip">
-          <span className="topstrip-meta">{agents.filter(a => a.flipped).length} flips since R1 · {hasEdges ? `${edges.length} active edges` : `${agents.length} agents`}</span>
+          <span className="topstrip-meta">{agents.filter(a => a.flipped).length} flips since the previous round · {hasEdges ? `${edges.length} active edges` : `${agents.length} agents`}</span>
           <div className="layout-tabs">
             <span className="label" style={{marginRight:6}}>LAYOUT</span>
             {([
@@ -140,6 +141,7 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
             reserve={GRAPH_RESERVE}
             onInterview={interviewFromGraph}
           />
+          <RoundStory />
           <ConsensusRing agents={agents} />
 
           {!hintsDismissed && (

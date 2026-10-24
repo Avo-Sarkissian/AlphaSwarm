@@ -92,10 +92,9 @@ needs fresh cycles, because history before June 2026 was wiped
 
 These are accepted gaps; see DECISIONS §4 for evidence. Open ones that would
 improve the product:
-- Per-agent `flipped` and `roundLastSpoke` on the wire (KR-41.1-03).
+- Per-agent `roundLastSpoke` on the wire (KR-41.1-03; flips are computed in the browser since 2026-10).
 - Rationale citations on the wire (KR-41.1-10).
 - Streaming interviews (KR-41.1-11).
-- Replay rewind (KR-41.1-06).
 - AdvisoryV2 shares, basis, last price, sentiment (KR-41.6-01; sentiment now comes from swarm evidence, Phase 7), and the Risk tab (KR-41.6-05).
 - Runtime governor and agent-count settings (KR-41.6-06).
 - Overflow-menu placeholders "Coming in v6.x": What-if Compare, Multi-seed Synthesis, Portfolio Stress Test, Customize Brackets (KR-41.6-02).
@@ -171,3 +170,4 @@ tick them off there.
   - B19: **won't fix.** On a single-threaded event loop, nothing can await between `get_nowait()` and `put_nowait()`, so `QueueFull` cannot happen (`web/connection_manager.py:80-92`).
   - B20: open, as item 2.1.
 - **STATE.md "Pending Todos: None".** The handoff "Open tasks (none)" is accurate for its date.
+- **Replay rewind (KR-41.1-06) and per-agent flips (KR-41.1-03, flips part): done (2026-10).** Replay seeks to any round (`POST /api/replay/round/{n}`, round scrubber, Play cascade); flips are computed in the browser from consecutive rounds (`frontend/src/lib/flips.ts`) and drawn as rings in the previous signal's colour.

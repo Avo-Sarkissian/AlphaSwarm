@@ -32,6 +32,7 @@ import {
 } from './layout';
 import { legendItems, type EdgeMode } from './legendItems';
 import { Legend } from './Legend';
+import { EdgePath, FlipRing, NodeGroup, edgeKey } from './story';
 
 export interface InfluenceGraphProps {
   agents: readonly AgentView[];
@@ -156,8 +157,9 @@ function InfluenceGraphImpl({
     const citer = byId.get(e.source_id);
     if (!s || !t || e.source_id === e.target_id || !citer) return null;
     return (
-      <path
-        key={`${e.source_id}->${e.target_id}`}
+      <EdgePath
+        key={edgeKey(e)}
+        edge={e}
         className={cls}
         d={curvedPath(s, t, { pullback: radiusOf(e.source_id) + 1 })}
         stroke={colour}
@@ -257,11 +259,12 @@ function InfluenceGraphImpl({
                 : undefined;
               const r = layout === 'grid' ? p.r : radiusOf(a.id);
               return (
-                <g
+                <NodeGroup
                   key={a.id}
-                  className={`ig-node${a.id === focusId ? ' focused' : ''}`}
-                  data-agent={a.id}
-                  transform={`translate(${p.x} ${p.y})`}
+                  id={a.id}
+                  x={p.x}
+                  y={p.y}
+                  className={a.id === focusId ? 'focused' : undefined}
                   opacity={dim ? DIM_OPACITY : 1}
                   onMouseEnter={() => setHoverId(a.id)}
                   onMouseLeave={() => setHoverId((h) => (h === a.id ? null : h))}
@@ -269,7 +272,7 @@ function InfluenceGraphImpl({
                 >
                   {layout === 'grid' ? (
                     <rect
-                      className={a.thinking ? 'thinking' : undefined}
+                      className={a.thinking ? 'ig-node-fill thinking' : 'ig-node-fill'}
                       x={-(r * GRID_CELL) / 2}
                       y={-(r * GRID_CELL) / 2}
                       width={r * GRID_CELL}
@@ -280,13 +283,13 @@ function InfluenceGraphImpl({
                       strokeWidth={ring ? 2 : undefined}
                     />
                   ) : (
-                    <circle className={a.thinking ? 'thinking' : undefined} r={r} fill={signalColor(a.signal)} />
+                    <circle className={a.thinking ? 'ig-node-fill thinking' : 'ig-node-fill'} r={r} fill={signalColor(a.signal)} />
                   )}
                   {a.signal === 'parse_error' && (
                     <path className="ig-fail-mark" d={`M${-r * 0.5},${-r * 0.5} L${r * 0.5},${r * 0.5} M${-r * 0.5},${r * 0.5} L${r * 0.5},${-r * 0.5}`} />
                   )}
-                  {a.flipped ? <circle className="ig-flip" r={r + 3} /> : null}
-                </g>
+                  {a.flipped && a.flippedFrom ? <FlipRing r={r} from={a.flippedFrom} /> : null}
+                </NodeGroup>
               );
             })}
           </g>

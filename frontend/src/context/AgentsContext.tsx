@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
+import { useFlipMarkedAgents } from '../hooks/useFlipMarkedAgents';
 import type { AgentView, StateFrame } from '../types';
 
 export interface AgentsCtxValue {
@@ -15,10 +16,8 @@ export function AgentsProvider({
   frame: StateFrame;
   children: ReactNode;
 }) {
-  const value = useMemo<AgentsCtxValue>(
-    () => ({ agents: frame.agents }),
-    [frame.agents],
-  );
+  const agents = useFlipMarkedAgents(frame);
+  const value = useMemo<AgentsCtxValue>(() => ({ agents }), [agents]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

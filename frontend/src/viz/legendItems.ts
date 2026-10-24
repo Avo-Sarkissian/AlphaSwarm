@@ -53,7 +53,7 @@ export function legendItems(input: LegendInput): LegendItem[] {
   if (input.signals.has('parse_error')) add('failed', 'Failed (parse error)');
   if (input.signals.has('pending')) add('pending', 'Thinking (no decision yet)');
   if (input.sized && input.layout !== 'grid') add('size', 'Size: peers citing the agent');
-  if (input.flips) add('flip', 'Flipped since R1');
+  if (input.flips) add('flip', 'Ring: flipped since the previous round (colour = previous signal)');
   if (input.edgeMode === 'ribbons') {
     add('ribbon', 'Ribbon: citations between brackets, cited → citing');
     if (input.withinCount > 0) {

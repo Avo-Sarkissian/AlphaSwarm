@@ -26,7 +26,7 @@ function Swatch({ k, layout }: { k: LegendKey; layout: GraphLayout }) {
         </svg>
       );
     case 'flip':
-      return <svg {...box}><circle cx={9} cy={5} r={4} fill="none" stroke="var(--accent)" strokeDasharray="2 2" /></svg>;
+      return <svg {...box}><circle cx={9} cy={5} r={4} fill="none" stroke="var(--text-2)" strokeWidth={2} /></svg>;
     case 'ribbon':
       return <svg {...box}><path d="M1,5 L17,5" stroke="var(--text-2)" strokeWidth={4} /></svg>;
     case 'agent-edge':
